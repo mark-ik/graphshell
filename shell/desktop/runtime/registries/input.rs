@@ -79,9 +79,7 @@ impl ModifierMask {
             value if value == (Self::CTRL.0 | Self::SHIFT.0) => "ctrl_shift",
             value if value == (Self::CTRL.0 | Self::ALT.0) => "ctrl_alt",
             value if value == (Self::SHIFT.0 | Self::ALT.0) => "shift_alt",
-            value if value == (Self::CTRL.0 | Self::SHIFT.0 | Self::ALT.0) => {
-                "ctrl_shift_alt"
-            }
+            value if value == (Self::CTRL.0 | Self::SHIFT.0 | Self::ALT.0) => "ctrl_shift_alt",
             _ => "custom",
         }
     }
@@ -994,15 +992,17 @@ impl InputRegistry {
         context: InputContext,
     ) -> Option<InputBinding> {
         let normalized = action_id.to_ascii_lowercase();
-        self.bindings.iter().find_map(|((entry_context, binding), slot)| {
-            if *entry_context != context {
-                return None;
-            }
-            match slot {
-                BindingSlot::Routed(routed) if routed == &normalized => Some(binding.clone()),
-                _ => None,
-            }
-        })
+        self.bindings
+            .iter()
+            .find_map(|((entry_context, binding), slot)| {
+                if *entry_context != context {
+                    return None;
+                }
+                match slot {
+                    BindingSlot::Routed(routed) if routed == &normalized => Some(binding.clone()),
+                    _ => None,
+                }
+            })
     }
 
     pub(crate) fn describe_bindable_actions(&self) -> Vec<InputActionBindingDescriptor> {
@@ -1289,7 +1289,10 @@ mod tests {
         let resolution = registry.resolve(&toolbar_submit_binding(), InputContext::OmnibarOpen);
 
         assert!(resolution.matched);
-        assert_eq!(resolution.action_id.as_deref(), Some(action_id::toolbar::SUBMIT));
+        assert_eq!(
+            resolution.action_id.as_deref(),
+            Some(action_id::toolbar::SUBMIT)
+        );
     }
 
     #[test]
@@ -1308,7 +1311,10 @@ mod tests {
 
         let back = registry.resolve(&toolbar_nav_back_binding(), InputContext::DetailView);
         assert!(back.matched);
-        assert_eq!(back.action_id.as_deref(), Some(action_id::toolbar::NAV_BACK));
+        assert_eq!(
+            back.action_id.as_deref(),
+            Some(action_id::toolbar::NAV_BACK)
+        );
 
         let forward = registry.resolve(&toolbar_nav_forward_binding(), InputContext::DetailView);
         assert!(forward.matched);
@@ -1319,7 +1325,10 @@ mod tests {
 
         let reload = registry.resolve(&toolbar_nav_reload_binding(), InputContext::DetailView);
         assert!(reload.matched);
-        assert_eq!(reload.action_id.as_deref(), Some(action_id::toolbar::NAV_RELOAD));
+        assert_eq!(
+            reload.action_id.as_deref(),
+            Some(action_id::toolbar::NAV_RELOAD)
+        );
     }
 
     #[test]
@@ -1327,7 +1336,10 @@ mod tests {
         let registry = InputRegistry::default();
 
         let omnibar = registry.resolve(&toolbar_submit_binding(), InputContext::OmnibarOpen);
-        assert_eq!(omnibar.action_id.as_deref(), Some(action_id::toolbar::SUBMIT));
+        assert_eq!(
+            omnibar.action_id.as_deref(),
+            Some(action_id::toolbar::SUBMIT)
+        );
 
         let graph_view = registry.resolve(&graph_view_confirm_binding(), InputContext::GraphView);
         assert_eq!(
@@ -1404,7 +1416,10 @@ mod tests {
         let registry = InputRegistry::default();
 
         let back = registry.resolve(&gamepad_nav_back_binding(), InputContext::DetailView);
-        assert_eq!(back.action_id.as_deref(), Some(action_id::toolbar::NAV_BACK));
+        assert_eq!(
+            back.action_id.as_deref(),
+            Some(action_id::toolbar::NAV_BACK)
+        );
 
         let forward = registry.resolve(&gamepad_nav_forward_binding(), InputContext::DetailView);
         assert_eq!(
@@ -1466,7 +1481,10 @@ mod tests {
             &gamepad_radial_cancel_binding(),
             InputContext::RadialMenuOpen,
         );
-        assert_eq!(cancel.action_id.as_deref(), Some(action_id::radial_menu::CANCEL));
+        assert_eq!(
+            cancel.action_id.as_deref(),
+            Some(action_id::radial_menu::CANCEL)
+        );
     }
 
     #[test]

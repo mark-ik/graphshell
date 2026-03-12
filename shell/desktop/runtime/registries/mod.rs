@@ -22,23 +22,17 @@ use crate::app::{
     GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLevel, RendererId, RuntimeEvent,
     WorkbenchIntent,
 };
-use crate::registries::domain::layout::canvas::{
-    CanvasLassoBinding, CanvasSurfaceResolution,
-};
 use crate::graph::NodeKey;
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
 use crate::registries::atomic::diagnostics;
 use crate::registries::atomic::lens::LensRegistry;
 use crate::registries::atomic::protocol::ProtocolContractRegistry;
-use crate::registries::atomic::viewer::{
-    ViewerCapability, ViewerRegistry, ViewerSelection,
-};
+use crate::registries::atomic::viewer::{ViewerCapability, ViewerRegistry, ViewerSelection};
 use crate::registries::domain::layout::ConformanceLevel;
 use crate::registries::domain::layout::LayoutDomainRegistry;
-use crate::registries::domain::layout::viewer_surface::{
-    ViewerSurfaceResolution,
-};
+use crate::registries::domain::layout::canvas::{CanvasLassoBinding, CanvasSurfaceResolution};
+use crate::registries::domain::layout::viewer_surface::ViewerSurfaceResolution;
 use crate::registries::domain::presentation::{
     PresentationDomainProfileResolution, PresentationDomainRegistry,
 };
@@ -57,8 +51,8 @@ use diagnostics::DiagnosticsRegistry;
 use identity::{IdentityRegistry, PresenceBindingAssertion};
 use index::{IndexRegistry, SearchResult};
 use input::{
-    InputActionBindingDescriptor, InputBinding,
-    InputBindingRemap, InputConflict as InputRemapConflict, InputContext, InputRegistry,
+    InputActionBindingDescriptor, InputBinding, InputBindingRemap,
+    InputConflict as InputRemapConflict, InputContext, InputRegistry,
 };
 use knowledge::{KnowledgeRegistry, SemanticReconcileReport, TagValidationResult};
 use layout::LayoutRegistry;
@@ -221,12 +215,10 @@ pub(crate) const CHANNEL_NOSTR_SIGN_REQUEST_DENIED: &str = "mod.nostrcore.sign_r
 pub(crate) const CHANNEL_NOSTR_RELAY_PUBLISH_FAILED: &str = "mod.nostrcore.relay_publish_failed";
 pub(crate) const CHANNEL_NOSTR_RELAY_SUBSCRIPTION_FAILED: &str =
     "mod.nostrcore.relay_subscription_failed";
-pub(crate) const CHANNEL_NOSTR_RELAY_CONNECT_STARTED: &str =
-    "mod.nostrcore.relay_connect_started";
+pub(crate) const CHANNEL_NOSTR_RELAY_CONNECT_STARTED: &str = "mod.nostrcore.relay_connect_started";
 pub(crate) const CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED: &str =
     "mod.nostrcore.relay_connect_succeeded";
-pub(crate) const CHANNEL_NOSTR_RELAY_CONNECT_FAILED: &str =
-    "mod.nostrcore.relay_connect_failed";
+pub(crate) const CHANNEL_NOSTR_RELAY_CONNECT_FAILED: &str = "mod.nostrcore.relay_connect_failed";
 pub(crate) const CHANNEL_NOSTR_RELAY_DISCONNECTED: &str = "mod.nostrcore.relay_disconnected";
 pub(crate) const CHANNEL_NOSTR_INTENT_REJECTED: &str = "mod.nostrcore.intent_rejected";
 pub(crate) const CHANNEL_NOSTR_SECURITY_VIOLATION: &str = "mod.nostrcore.security_violation";
@@ -302,6 +294,11 @@ pub(crate) const CHANNEL_UX_DISPATCH_CONSUMED: &str = "ux:dispatch_consumed";
 pub(crate) const CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED: &str = "ux:dispatch_default_prevented";
 pub(crate) const CHANNEL_UX_NAVIGATION_TRANSITION: &str = "ux:navigation_transition";
 pub(crate) const CHANNEL_UX_NAVIGATION_VIOLATION: &str = "ux:navigation_violation";
+pub(crate) const CHANNEL_UX_FOCUS_CAPTURE_ENTER: &str = "ux:focus_capture_enter";
+pub(crate) const CHANNEL_UX_FOCUS_CAPTURE_EXIT: &str = "ux:focus_capture_exit";
+pub(crate) const CHANNEL_UX_FOCUS_RETURN_FALLBACK: &str = "ux:focus_return_fallback";
+pub(crate) const CHANNEL_UX_FOCUS_REALIZATION_MISMATCH: &str = "ux:focus_realization_mismatch";
+pub(crate) const CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM: &str = "ux:embedded_focus_reclaim";
 pub(crate) const CHANNEL_UX_STRUCTURAL_VIOLATION: &str = "ux:structural_violation";
 pub(crate) const CHANNEL_UX_CONTRACT_WARNING: &str = "ux:contract_warning";
 pub(crate) const CHANNEL_UX_TREE_BUILD: &str = "ux:tree_build";
@@ -318,12 +315,10 @@ pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED: &str =
     "register.signal_routing.published";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED: &str =
     "register.signal_routing.unrouted";
-pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED: &str =
-    "register.signal_routing.failed";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED: &str = "register.signal_routing.failed";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH: &str =
     "register.signal_routing.queue_depth";
-pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED: &str =
-    "register.signal_routing.lagged";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED: &str = "register.signal_routing.lagged";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED: &str =
     "register.signal_routing.mod_workflow_routed";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &str =
@@ -331,8 +326,7 @@ pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &s
 pub(crate) const CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED: &str =
     "registry.workbench_surface.profile_activated";
 pub(crate) const CHANNEL_CANVAS_PROFILE_ACTIVATED: &str = "registry.canvas.profile_activated";
-pub(crate) const CHANNEL_PHYSICS_PROFILE_ACTIVATED: &str =
-    "registry.physics_profile.activated";
+pub(crate) const CHANNEL_PHYSICS_PROFILE_ACTIVATED: &str = "registry.physics_profile.activated";
 pub(crate) const CHANNEL_LAYOUT_COMPUTE_STARTED: &str = "registry.layout.compute_started";
 pub(crate) const CHANNEL_LAYOUT_COMPUTE_SUCCEEDED: &str = "registry.layout.compute_succeeded";
 pub(crate) const CHANNEL_LAYOUT_COMPUTE_FAILED: &str = "registry.layout.compute_failed";
@@ -423,8 +417,10 @@ impl DynamicRegistrySurfaces {
                 extension,
                 previous_viewer_id: _,
             } => {
-                let viewer_id = static_viewer_id_for_runtime_extension(extension)
-                    .ok_or_else(|| format!("unsupported viewer mapping for extension {extension}"))?;
+                let viewer_id =
+                    static_viewer_id_for_runtime_extension(extension).ok_or_else(|| {
+                        format!("unsupported viewer mapping for extension {extension}")
+                    })?;
                 self.viewer.register_extension(extension, viewer_id);
             }
             ModExtensionRecord::ViewerCapabilities {
@@ -482,10 +478,12 @@ impl DynamicRegistrySurfaces {
                 viewer_id,
                 previous_capabilities,
             } => {
-                let static_viewer_id = static_viewer_id(&viewer_id)
-                    .ok_or_else(|| format!("unsupported viewer capability rollback for {viewer_id}"))?;
+                let static_viewer_id = static_viewer_id(&viewer_id).ok_or_else(|| {
+                    format!("unsupported viewer capability rollback for {viewer_id}")
+                })?;
                 if let Some(previous) = previous_capabilities {
-                    self.viewer.register_capabilities(static_viewer_id, previous);
+                    self.viewer
+                        .register_capabilities(static_viewer_id, previous);
                 } else {
                     self.viewer.unregister_capabilities(static_viewer_id);
                 }
@@ -523,7 +521,10 @@ fn static_viewer_id(viewer_id: &str) -> Option<&'static str> {
 
 fn static_viewer_id_for_runtime_mime(mime: &str) -> Option<&'static str> {
     match mime {
-        "text/html" | "application/pdf" | "image/svg+xml" | "text/css"
+        "text/html"
+        | "application/pdf"
+        | "image/svg+xml"
+        | "text/css"
         | "application/javascript" => Some("viewer:webview"),
         "application/x-graphshell-wry" => Some("viewer:wry"),
         _ => None,
@@ -604,8 +605,8 @@ pub(crate) fn phase3_trusted_peers() -> Vec<crate::mods::native::verse::TrustedP
     runtime().trusted_peers()
 }
 
-pub(crate) fn phase3_trusted_peers_handle(
-) -> std::sync::Arc<std::sync::RwLock<Vec<crate::mods::native::verse::TrustedPeer>>> {
+pub(crate) fn phase3_trusted_peers_handle()
+-> std::sync::Arc<std::sync::RwLock<Vec<crate::mods::native::verse::TrustedPeer>>> {
     runtime().trusted_peers_handle()
 }
 
@@ -677,7 +678,9 @@ pub(crate) fn phase3_nostr_signer_backend_snapshot() -> NostrSignerBackendSnapsh
 pub(crate) fn phase3_nostr_apply_persisted_signer_settings(
     settings: &PersistedNostrSignerSettings,
 ) -> Result<(), NostrCoreError> {
-    runtime().nostr_core.apply_persisted_signer_settings(settings)
+    runtime()
+        .nostr_core
+        .apply_persisted_signer_settings(settings)
 }
 
 #[allow(dead_code)]
@@ -901,7 +904,8 @@ impl RegistryRuntime {
         &self,
         relay_worker_tx: tokio::sync::mpsc::UnboundedSender<nostr_core::RelayWorkerCommand>,
     ) {
-        self.nostr_core.attach_supervised_relay_worker(relay_worker_tx);
+        self.nostr_core
+            .attach_supervised_relay_worker(relay_worker_tx);
     }
 
     pub(crate) fn select_viewer_for_content(
@@ -972,7 +976,10 @@ impl RegistryRuntime {
         }
     }
 
-    fn new_with_registries(protocol_registry: ProtocolRegistry, viewer_registry: ViewerRegistry) -> Self {
+    fn new_with_registries(
+        protocol_registry: ProtocolRegistry,
+        viewer_registry: ViewerRegistry,
+    ) -> Self {
         Self {
             diagnostics: DiagnosticsRegistry::default(),
             signal_bus: Arc::new(SignalRoutingLayer::default()),
@@ -1014,7 +1021,8 @@ impl RegistryRuntime {
     /// registries returned by this constructor.
     #[allow(dead_code)]
     pub(crate) fn new_with_mods() -> Self {
-        let runtime = Self::new_with_registries(ProtocolRegistry::default(), ViewerRegistry::default());
+        let runtime =
+            Self::new_with_registries(ProtocolRegistry::default(), ViewerRegistry::default());
         {
             let mut mod_registry = runtime
                 .mod_registry
@@ -1041,9 +1049,11 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut dynamic = self.dynamic();
-        *dynamic = Self::build_dynamic_surfaces(ProtocolRegistry::default(), ViewerRegistry::default());
-        let loaded =
-            mod_registry.load_all_with_extensions(|mod_id| Self::activate_mod_into_runtime(&mut dynamic, mod_id));
+        *dynamic =
+            Self::build_dynamic_surfaces(ProtocolRegistry::default(), ViewerRegistry::default());
+        let loaded = mod_registry.load_all_with_extensions(|mod_id| {
+            Self::activate_mod_into_runtime(&mut dynamic, mod_id)
+        });
         for mod_id in loaded {
             self.route_mod_lifecycle_event(&mod_id, true);
         }
@@ -1061,7 +1071,8 @@ impl RegistryRuntime {
                 Ok(Vec::new())
             }
             _ => {
-                let activations = crate::registries::infrastructure::mod_activation::NativeModActivations::new();
+                let activations =
+                    crate::registries::infrastructure::mod_activation::NativeModActivations::new();
                 activations.activate(mod_id)?;
                 Ok(Vec::new())
             }
@@ -1074,7 +1085,8 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut dynamic = self.dynamic();
-        let result = mod_registry.unload_mod_with(mod_id, |record| dynamic.remove_extension(record));
+        let result =
+            mod_registry.unload_mod_with(mod_id, |record| dynamic.remove_extension(record));
         if result.is_ok() {
             self.route_mod_lifecycle_event(mod_id, false);
         }
@@ -1256,7 +1268,10 @@ impl RegistryRuntime {
         let active_canvas = self.resolve_active_canvas_profile();
         let active_workbench = self.resolve_active_workbench_surface_profile();
         let viewer_capability = self.describe_viewer(viewer_id);
-        let canvas_resolution = self.layout_domain.canvas().resolve(&active_canvas.resolved_id);
+        let canvas_resolution = self
+            .layout_domain
+            .canvas()
+            .resolve(&active_canvas.resolved_id);
         let workbench_resolution = self
             .layout_domain
             .workbench_surface()
@@ -1271,21 +1286,13 @@ impl RegistryRuntime {
             byte_len: viewer_surface.resolved_id.len(),
         });
         emit_surface_conformance_diagnostics(
-            canvas_resolution
-                .profile
-                .subsystems
-                .accessibility
-                .level,
+            canvas_resolution.profile.subsystems.accessibility.level,
             canvas_resolution.profile.subsystems.security.level,
             canvas_resolution.profile.subsystems.storage.level,
             canvas_resolution.profile.subsystems.history.level,
         );
         emit_surface_conformance_diagnostics(
-            workbench_resolution
-                .profile
-                .subsystems
-                .accessibility
-                .level,
+            workbench_resolution.profile.subsystems.accessibility.level,
             workbench_resolution.profile.subsystems.security.level,
             workbench_resolution.profile.subsystems.storage.level,
             workbench_resolution.profile.subsystems.history.level,
@@ -1437,7 +1444,11 @@ impl RegistryRuntime {
         knowledge::query_by_tag(app, &self.knowledge, tag)
     }
 
-    pub(crate) fn knowledge_tags_for_node(&self, app: &GraphBrowserApp, key: &NodeKey) -> Vec<String> {
+    pub(crate) fn knowledge_tags_for_node(
+        &self,
+        app: &GraphBrowserApp,
+        key: &NodeKey,
+    ) -> Vec<String> {
         knowledge::tags_for_node(app, key)
     }
 
@@ -1492,7 +1503,10 @@ impl RegistryRuntime {
         query: &str,
         limit: usize,
     ) -> Vec<SearchResult> {
-        let results = self.dynamic().index.search(app, &self.knowledge, query, limit);
+        let results = self
+            .dynamic()
+            .index
+            .search(app, &self.knowledge, query, limit);
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_INDEX_SEARCH,
             byte_len: query.len().saturating_add(results.len()),
@@ -1620,7 +1634,10 @@ impl RegistryRuntime {
             channel_id: CHANNEL_VIEWER_SELECT_STARTED,
             byte_len: effective_mime_hint.unwrap_or(uri).len(),
         });
-        let viewer = self.dynamic().viewer.select_for_uri(uri, effective_mime_hint);
+        let viewer = self
+            .dynamic()
+            .viewer
+            .select_for_uri(uri, effective_mime_hint);
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_VIEWER_SELECT_SUCCEEDED,
             latency_us: 1,
@@ -2007,12 +2024,7 @@ impl RegistryRuntime {
         }
     }
 
-    pub(crate) fn publish_navigation_node_activated(
-        &self,
-        key: NodeKey,
-        uri: &str,
-        title: &str,
-    ) {
+    pub(crate) fn publish_navigation_node_activated(&self, key: NodeKey, uri: &str, title: &str) {
         self.publish_signal(SignalEnvelope::new(
             SignalKind::Navigation(NavigationSignal::NodeActivated {
                 key,
@@ -2034,7 +2046,10 @@ pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
     phase2_resolve_input_binding(input::binding_id::toolbar::SUBMIT)
 }
 
-pub(crate) fn phase0_select_viewer_for_content(uri: &str, mime_hint: Option<&str>) -> ViewerSelection {
+pub(crate) fn phase0_select_viewer_for_content(
+    uri: &str,
+    mime_hint: Option<&str>,
+) -> ViewerSelection {
     runtime().select_viewer_for_content(uri, mime_hint)
 }
 
@@ -2142,6 +2157,7 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         lens_id: Some(resolution.resolved_id),
         physics: resolution.definition.physics,
         layout: resolution.definition.layout,
+        layout_algorithm_id: resolution.definition.layout_algorithm_id,
         theme: resolution.definition.theme,
         filters: resolution.definition.filters,
     }
@@ -2158,10 +2174,9 @@ pub(crate) fn phase2_resolve_lens_for_content(
         .dynamic()
         .lens
         .resolve_for_content(mime_hint, has_semantic_context);
-    let primary_id = lens_ids
-        .first()
-        .cloned()
-        .unwrap_or_else(|| crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string());
+    let primary_id = lens_ids.first().cloned().unwrap_or_else(|| {
+        crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string()
+    });
     let composed = runtime.dynamic().lens.compose(&lens_ids);
 
     crate::app::LensConfig {
@@ -2169,6 +2184,7 @@ pub(crate) fn phase2_resolve_lens_for_content(
         lens_id: Some(primary_id),
         physics: composed.physics,
         layout: composed.layout,
+        layout_algorithm_id: composed.layout_algorithm_id,
         theme: composed.theme,
         filters: composed.filters,
     }
@@ -2179,7 +2195,9 @@ pub(crate) fn phase2_resolve_lens_for_node(
     key: NodeKey,
 ) -> crate::app::LensConfig {
     let Some(node) = app.domain_graph().get_node(key) else {
-        return phase2_resolve_lens(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT);
+        return phase2_resolve_lens(
+            crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT,
+        );
     };
     let has_semantic_context = !runtime().knowledge_tags_for_node(app, &key).is_empty();
     phase2_resolve_lens_for_content(node.mime_hint.as_deref(), has_semantic_context)
@@ -2567,6 +2585,7 @@ pub(crate) fn phase2_resolve_lens_for_tests(
         lens_id: Some(resolution.resolved_id),
         physics: resolution.definition.physics,
         layout: resolution.definition.layout,
+        layout_algorithm_id: resolution.definition.layout_algorithm_id,
         theme: resolution.definition.theme,
         filters: resolution.definition.filters,
     }
@@ -2763,8 +2782,8 @@ pub(crate) fn phase3_set_active_canvas_keyboard_pan_step(step: f32) -> CanvasSur
     runtime().set_active_canvas_keyboard_pan_step(step)
 }
 
-pub(crate) fn phase3_resolve_active_physics_profile(
-) -> crate::registries::atomic::lens::PhysicsProfileResolution {
+pub(crate) fn phase3_resolve_active_physics_profile()
+-> crate::registries::atomic::lens::PhysicsProfileResolution {
     runtime().resolve_active_physics_profile()
 }
 
@@ -2849,7 +2868,10 @@ pub(crate) fn phase3_execute_registry_action(
     action_id: &str,
     payload: ActionPayload,
 ) -> Result<Vec<GraphIntent>, ActionFailure> {
-    let execution = runtime().dynamic().action.execute(action_id, graph_app, payload);
+    let execution = runtime()
+        .dynamic()
+        .action
+        .execute(action_id, graph_app, payload);
     let dispatch = match execution {
         ActionOutcome::Dispatch(dispatch) => dispatch,
         ActionOutcome::Failure(failure) => return Err(failure),
@@ -2880,10 +2902,7 @@ pub(crate) fn phase3_query_knowledge_by_tag(app: &GraphBrowserApp, tag: &str) ->
     runtime().query_knowledge_by_tag(app, tag)
 }
 
-pub(crate) fn phase3_knowledge_tags_for_node(
-    app: &GraphBrowserApp,
-    key: &NodeKey,
-) -> Vec<String> {
+pub(crate) fn phase3_knowledge_tags_for_node(app: &GraphBrowserApp, key: &NodeKey) -> Vec<String> {
     runtime().knowledge_tags_for_node(app, key)
 }
 
@@ -2955,7 +2974,11 @@ fn phase0_observe_navigation_url_for_tests_with_control(
     let runtime = RegistryRuntime::default();
 
     diagnostics_state.emit_message_sent_for_tests(CHANNEL_PROTOCOL_RESOLVE_STARTED, uri.len());
-    let protocol = match runtime.dynamic().protocol.resolve_with_control(uri, control) {
+    let protocol = match runtime
+        .dynamic()
+        .protocol
+        .resolve_with_control(uri, control)
+    {
         ProtocolResolveOutcome::Resolved(resolution) => resolution,
         ProtocolResolveOutcome::Cancelled => {
             diagnostics_state.emit_message_received_for_tests(CHANNEL_PROTOCOL_RESOLVE_FAILED, 1);
@@ -2978,7 +3001,10 @@ fn phase0_observe_navigation_url_for_tests_with_control(
         CHANNEL_VIEWER_SELECT_STARTED,
         effective_mime_hint.unwrap_or(uri).len(),
     );
-    let viewer = runtime.dynamic().viewer.select_for_uri(uri, effective_mime_hint);
+    let viewer = runtime
+        .dynamic()
+        .viewer
+        .select_for_uri(uri, effective_mime_hint);
     diagnostics_state.emit_message_received_for_tests(CHANNEL_VIEWER_SELECT_SUCCEEDED, 1);
     for (level, reason) in [
         (
@@ -3239,7 +3265,12 @@ mod tests {
             .expect("viewer:webview should be described");
 
         assert_eq!(capability.viewer_id, "viewer:webview");
-        assert!(capability.supported_mime_types.iter().any(|mime| mime == "text/html"));
+        assert!(
+            capability
+                .supported_mime_types
+                .iter()
+                .any(|mime| mime == "text/html")
+        );
     }
 
     #[test]
@@ -3313,7 +3344,10 @@ mod tests {
         });
 
         let resolution = runtime.set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SOLID);
-        assert_eq!(resolution.resolved_id, physics_profile::PHYSICS_PROFILE_SOLID);
+        assert_eq!(
+            resolution.resolved_id,
+            physics_profile::PHYSICS_PROFILE_SOLID
+        );
 
         let observed = observed.lock().expect("observer lock poisoned");
         assert!(observed.iter().any(|signal| matches!(
@@ -4090,6 +4124,10 @@ mod tests {
             crate::registries::atomic::lens::LayoutMode::Free
         ));
         assert_eq!(
+            lens.layout_algorithm_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED
+        );
+        assert_eq!(
             lens.theme.as_ref().map(|theme| theme.background_rgb),
             Some((20, 20, 25))
         );
@@ -4112,7 +4150,11 @@ mod tests {
             lens.lens_id.as_deref(),
             Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
         );
-        assert!(lens.filters.iter().any(|filter| filter == "semantic:overlay"));
+        assert!(
+            lens.filters
+                .iter()
+                .any(|filter| filter == "semantic:overlay")
+        );
     }
 
     #[test]
@@ -4381,10 +4423,12 @@ mod tests {
 
     #[test]
     fn phase3_layout_registry_resolves_and_falls_back() {
-        let grid = phase3_resolve_layout_algorithm(Some(
-            crate::app::graph_layout::GRAPH_LAYOUT_GRID,
-        ));
-        assert_eq!(grid.resolved_id, crate::app::graph_layout::GRAPH_LAYOUT_GRID);
+        let grid =
+            phase3_resolve_layout_algorithm(Some(crate::app::graph_layout::GRAPH_LAYOUT_GRID));
+        assert_eq!(
+            grid.resolved_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_GRID
+        );
         assert_eq!(grid.capability.display_name, "Grid");
 
         let fallback = phase3_resolve_layout_algorithm(Some("graph_layout:missing"));
@@ -4398,8 +4442,14 @@ mod tests {
     #[test]
     fn phase3_layout_registry_applies_grid_positions_to_graph() {
         let mut graph = crate::graph::Graph::new();
-        let a = graph.add_node("https://a.test".into(), euclid::default::Point2D::new(0.0, 0.0));
-        let b = graph.add_node("https://b.test".into(), euclid::default::Point2D::new(10.0, 0.0));
+        let a = graph.add_node(
+            "https://a.test".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = graph.add_node(
+            "https://b.test".into(),
+            euclid::default::Point2D::new(10.0, 0.0),
+        );
         let before_a = graph.node_projected_position(a).unwrap();
         let before_b = graph.node_projected_position(b).unwrap();
 
@@ -4443,8 +4493,7 @@ mod tests {
         let updated = phase3_set_active_canvas_keyboard_pan_step(36.0);
         assert_eq!(updated.profile.navigation.keyboard_pan_step, 36.0);
 
-        let updated =
-            phase3_set_active_canvas_lasso_binding(CanvasLassoBinding::ShiftLeftDrag);
+        let updated = phase3_set_active_canvas_lasso_binding(CanvasLassoBinding::ShiftLeftDrag);
         assert_eq!(
             updated.profile.interaction.lasso_binding,
             CanvasLassoBinding::ShiftLeftDrag
@@ -4455,10 +4504,7 @@ mod tests {
     fn phase3_physics_profile_switches_and_falls_back() {
         let gas = phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_GAS);
         assert!(gas.matched);
-        assert_eq!(
-            gas.resolved_id,
-            physics_profile::PHYSICS_PROFILE_GAS
-        );
+        assert_eq!(gas.resolved_id, physics_profile::PHYSICS_PROFILE_GAS);
 
         let fallback = phase3_set_active_physics_profile("physics:missing");
         assert!(fallback.fallback_used);
@@ -4475,7 +4521,10 @@ mod tests {
         let dark = phase3_resolve_active_presentation_profile(Some(
             crate::registries::atomic::lens::THEME_ID_DARK,
         ));
-        assert_eq!(dark.physics.resolved_id, physics_profile::PHYSICS_PROFILE_SOLID);
+        assert_eq!(
+            dark.physics.resolved_id,
+            physics_profile::PHYSICS_PROFILE_SOLID
+        );
         assert_eq!(
             dark.theme.resolved_id,
             crate::registries::atomic::lens::THEME_ID_DARK
@@ -4677,15 +4726,13 @@ mod tests {
     fn phase3_nostr_nip46_backend_reports_unavailable() {
         let _guard = nostr_backend_test_guard();
         let signer_secret = secp256k1::SecretKey::new(&mut secp256k1::rand::rng());
-        let signer_keypair = secp256k1::Keypair::from_secret_key(&secp256k1::Secp256k1::new(), &signer_secret);
+        let signer_keypair =
+            secp256k1::Keypair::from_secret_key(&secp256k1::Secp256k1::new(), &signer_secret);
         let (signer_pubkey, _) = secp256k1::XOnlyPublicKey::from_keypair(&signer_keypair);
         phase3_nostr_use_nip46_signer("wss://relay.example", &signer_pubkey.to_string())
             .expect("nip46 config should be accepted");
-        phase3_nostr_set_nip46_permission(
-            "sign_event",
-            Nip46PermissionDecision::Allow,
-        )
-        .expect("nip46 permission should be stored");
+        phase3_nostr_set_nip46_permission("sign_event", Nip46PermissionDecision::Allow)
+            .expect("nip46 permission should be stored");
 
         let result = phase3_nostr_sign_event(
             "default",
@@ -4764,8 +4811,10 @@ mod tests {
             .expect("tag suggester descriptor should exist");
 
         assert_eq!(descriptor.id, "agent:tag_suggester");
-        assert!(descriptor
-            .capabilities
-            .contains(&agent::AgentCapability::SuggestNodeTags));
+        assert!(
+            descriptor
+                .capabilities
+                .contains(&agent::AgentCapability::SuggestNodeTags)
+        );
     }
 }

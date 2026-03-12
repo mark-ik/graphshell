@@ -24,8 +24,6 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::registries;
 use crate::util::{GraphAddress, NodeAddress, NoteAddress, VersoAddress};
-#[cfg(any(test, not(feature = "diagnostics")))]
-use euclid::default::Point2D;
 
 fn reconcile_mappings_and_selection(
     app: &mut GraphBrowserApp,
@@ -56,6 +54,14 @@ fn reconcile_mappings_and_selection(
     intents
 }
 
+fn resolve_active_webview_for_sync(
+    app: &GraphBrowserApp,
+    window_active_webview: Option<WebViewId>,
+) -> Option<WebViewId> {
+    app.embedded_content_focus_webview()
+        .or(window_active_webview)
+}
+
 #[cfg(any(test, not(feature = "diagnostics")))]
 fn intents_for_graph_view_address_submit(
     app: &GraphBrowserApp,
@@ -83,7 +89,7 @@ fn intents_for_graph_view_address_submit(
             Vec::new(),
         )
     } else {
-        let position = new_node_position_for_context(app, app.focused_selection().primary());
+        let position = app.suggested_new_node_position(app.focused_selection().primary());
         (
             true,
             vec![
@@ -96,26 +102,6 @@ fn intents_for_graph_view_address_submit(
             Vec::new(),
         )
     }
-}
-
-#[cfg(any(test, not(feature = "diagnostics")))]
-fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
-    app.workspace
-        .domain
-        .graph
-        .projected_centroid()
-        .unwrap_or_else(|| Point2D::new(400.0, 300.0))
-}
-
-#[cfg(any(test, not(feature = "diagnostics")))]
-fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>) -> Point2D<f32> {
-    let base = anchor
-        .and_then(|key| app.domain_graph().node_projected_position(key))
-        .unwrap_or_else(|| graph_centroid_or_default(app));
-    let n = app.domain_graph().node_count() as f32;
-    let angle = n * std::f32::consts::FRAC_PI_4; // pi/4 steps for simple deterministic spread.
-    let radius = 90.0;
-    Point2D::new(base.x + radius * angle.cos(), base.y + radius * angle.sin())
 }
 
 #[cfg(any(test, not(feature = "diagnostics")))]
@@ -153,7 +139,7 @@ pub(crate) fn sync_to_graph_intents(
     for (wv_id, _) in window.webviews().into_iter() {
         seen_webviews.insert(wv_id);
     }
-    let active = window.explicit_input_webview_id();
+    let active = resolve_active_webview_for_sync(app, window.explicit_input_webview_id());
     reconcile_mappings_and_selection(app, &seen_webviews, active)
 }
 
@@ -163,7 +149,9 @@ fn resolve_browser_command_target(
     target: BrowserCommandTarget,
 ) -> Option<WebViewId> {
     match target {
-        BrowserCommandTarget::FocusedInput => window.explicit_input_webview_id(),
+        BrowserCommandTarget::FocusedInput => app
+            .embedded_content_focus_webview()
+            .or_else(|| window.explicit_input_webview_id()),
         BrowserCommandTarget::ChromeProjection { fallback_node } => window
             .explicit_chrome_webview_id()
             .or_else(|| fallback_node.and_then(|node_key| app.get_webview_for_node(node_key))),
@@ -248,6 +236,7 @@ fn workbench_route_intent_for_verso_url(normalized_url: &str) -> Option<Workbenc
     match parsed {
         VersoAddress::Settings(_) => Some(WorkbenchIntent::OpenSettingsUrl { url: canonical_url }),
         VersoAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl { url: canonical_url }),
+        VersoAddress::TileGroup(_) => None,
         VersoAddress::Tool { .. } => Some(WorkbenchIntent::OpenToolUrl { url: canonical_url }),
         VersoAddress::View(_) => Some(WorkbenchIntent::OpenViewUrl { url: canonical_url }),
         VersoAddress::Clip(_) => Some(WorkbenchIntent::OpenClipUrl { url: canonical_url }),
@@ -432,7 +421,9 @@ pub(crate) fn handle_address_bar_submit_intents(
             };
         }
 
-        let preferred_input_webview = window.explicit_input_webview_id();
+        let preferred_input_webview = app
+            .embedded_content_focus_webview()
+            .or_else(|| window.explicit_input_webview_id());
         let (target_node, target_webview) =
             resolve_detail_submit_target(app, focused_node, preferred_input_webview);
 
@@ -555,7 +546,7 @@ mod tests {
     #[test]
     fn test_new_node_position_for_context_defaults_to_center_when_empty() {
         let app = GraphBrowserApp::new_for_testing();
-        let p = new_node_position_for_context(&app, None);
+        let p = app.suggested_new_node_position(None);
         assert!(p.x.is_finite() && p.y.is_finite());
     }
 
@@ -567,10 +558,38 @@ mod tests {
             .domain
             .graph
             .add_node("https://anchor.com".into(), Point2D::new(100.0, 200.0));
-        let p = new_node_position_for_context(&app, Some(anchor));
+        let p = app.suggested_new_node_position(Some(anchor));
         let dx = p.x - 100.0;
         let dy = p.y - 200.0;
         assert!(dx.hypot(dy) > 20.0);
+        assert!(dx.hypot(dy) < 140.0);
+    }
+
+    #[test]
+    fn test_new_node_position_for_context_uses_semantic_anchor_from_selection() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let math = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://math.example".into(), Point2D::new(320.0, 240.0));
+        let numerical = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://numerical.example".into(), Point2D::new(40.0, 40.0));
+        app.workspace
+            .semantic_tags
+            .insert(math, ["udc:51".to_string()].into_iter().collect());
+        app.workspace
+            .semantic_tags
+            .insert(numerical, ["udc:519.6".to_string()].into_iter().collect());
+        let _ = crate::shell::desktop::runtime::registries::phase3_reconcile_semantics(&mut app);
+        app.select_node(numerical, false);
+
+        let p = app.suggested_new_node_position(None);
+        let dx = p.x - 320.0;
+        let dy = p.y - 240.0;
         assert!(dx.hypot(dy) < 140.0);
     }
 
@@ -620,6 +639,19 @@ mod tests {
         let node = app.workspace.domain.graph.get_node(key).unwrap();
         assert_eq!(node.url, "https://new.com");
         assert!(open_selected_tile);
+    }
+
+    #[test]
+    fn resolve_active_webview_for_sync_prefers_explicit_embedded_focus() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let embedded_focus = test_webview_id();
+        let stale_window_focus = test_webview_id();
+        app.set_embedded_content_focus_webview(Some(embedded_focus));
+
+        assert_eq!(
+            resolve_active_webview_for_sync(&app, Some(stale_window_focus)),
+            Some(embedded_focus)
+        );
     }
 
     #[test]

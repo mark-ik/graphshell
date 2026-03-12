@@ -128,28 +128,34 @@ impl UserIdentityKey {
         }
     }
 
-    fn load_or_generate(identity_id: &str, store_root: &Path) -> Result<(Self, bool), IdentityKeyError> {
+    fn load_or_generate(
+        identity_id: &str,
+        store_root: &Path,
+    ) -> Result<(Self, bool), IdentityKeyError> {
         let seed_path = user_seed_path_for(store_root, identity_id);
         if let Some(parent) = seed_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| IdentityKeyError::Io(format!("create user identity dir: {error}")))?;
+            fs::create_dir_all(parent).map_err(|error| {
+                IdentityKeyError::Io(format!("create user identity dir: {error}"))
+            })?;
         }
 
         let (secret_key, generated) = if seed_path.exists() {
-            let bytes = fs::read(&seed_path)
-                .map_err(|error| IdentityKeyError::Io(format!("read user identity key: {error}")))?;
+            let bytes = fs::read(&seed_path).map_err(|error| {
+                IdentityKeyError::Io(format!("read user identity key: {error}"))
+            })?;
             if bytes.len() != 32 {
                 return Err(IdentityKeyError::InvalidKeyMaterial);
             }
             let mut seed = [0u8; 32];
             seed.copy_from_slice(&bytes);
-            let secret_key =
-                SecretKey::from_byte_array(seed).map_err(|_| IdentityKeyError::InvalidKeyMaterial)?;
+            let secret_key = SecretKey::from_byte_array(seed)
+                .map_err(|_| IdentityKeyError::InvalidKeyMaterial)?;
             (secret_key, false)
         } else {
             let secret_key = SecretKey::new(&mut secp256k1::rand::rng());
-            fs::write(&seed_path, secret_key.secret_bytes())
-                .map_err(|error| IdentityKeyError::Io(format!("write user identity key: {error}")))?;
+            fs::write(&seed_path, secret_key.secret_bytes()).map_err(|error| {
+                IdentityKeyError::Io(format!("write user identity key: {error}"))
+            })?;
             (secret_key, true)
         };
 
@@ -326,7 +332,8 @@ impl IdentityRegistry {
     }
 
     fn register_locked_persona(&mut self, identity_id: &str) {
-        self.keys.insert(identity_id.to_string(), IdentityKey::locked());
+        self.keys
+            .insert(identity_id.to_string(), IdentityKey::locked());
     }
 
     fn generated_identities() -> [&'static str; 2] {
@@ -369,8 +376,10 @@ impl IdentityRegistry {
                     log::warn!(
                         "user identity key load failed for {identity_id}: {error}; falling back to ephemeral key"
                     );
-                    self.user_keys
-                        .insert(identity_id.to_string(), UserIdentityKey::generate_ephemeral());
+                    self.user_keys.insert(
+                        identity_id.to_string(),
+                        UserIdentityKey::generate_ephemeral(),
+                    );
                 }
             }
         }
@@ -477,11 +486,13 @@ impl IdentityRegistry {
 
     pub(crate) fn user_identity_claim_for(&self, identity_id: &str) -> Option<UserIdentityClaim> {
         let resolved_id = self.resolve_user_identity_id(identity_id);
-        self.user_keys.get(&resolved_id).map(|key| UserIdentityClaim {
-            identity_id: resolved_id,
-            protocol: UserIdentityProtocol::LocalNostrSecp256k1,
-            public_key: key.public_key.to_string(),
-        })
+        self.user_keys
+            .get(&resolved_id)
+            .map(|key| UserIdentityClaim {
+                identity_id: resolved_id,
+                protocol: UserIdentityProtocol::LocalNostrSecp256k1,
+                public_key: key.public_key.to_string(),
+            })
     }
 
     pub(crate) fn default_user_identity_claim(&self) -> Option<UserIdentityClaim> {
@@ -519,10 +530,7 @@ impl IdentityRegistry {
         audience: &str,
         ttl_secs: u64,
     ) -> Option<PresenceBindingAssertion> {
-        let now_secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()?
-            .as_secs();
+        let now_secs = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
         self.create_presence_binding_assertion_at(user_identity_id, audience, ttl_secs, now_secs)
     }
 
@@ -547,7 +555,8 @@ impl IdentityRegistry {
             audience,
             signature: String::new(),
         };
-        let payload_hash: [u8; 32] = Sha256::digest(canonical_presence_binding_bytes(&assertion)).into();
+        let payload_hash: [u8; 32] =
+            Sha256::digest(canonical_presence_binding_bytes(&assertion)).into();
         let signature = self.sign_user_digest(user_identity_id, &payload_hash)?;
 
         Some(PresenceBindingAssertion {
@@ -570,7 +579,8 @@ impl IdentityRegistry {
         let payload = canonical_presence_binding_bytes(assertion);
         match assertion.user_identity.protocol {
             UserIdentityProtocol::LocalNostrSecp256k1 | UserIdentityProtocol::NostrPubkey => {
-                let Ok(public_key) = assertion.user_identity.public_key.parse::<XOnlyPublicKey>() else {
+                let Ok(public_key) = assertion.user_identity.public_key.parse::<XOnlyPublicKey>()
+                else {
                     return false;
                 };
                 let Some(signature) = parse_schnorr_signature(&assertion.signature) else {
@@ -617,7 +627,9 @@ impl IdentityRegistry {
 
     pub(crate) fn protection_for(&self, identity_id: &str) -> Option<KeyProtection> {
         let resolution = self.resolve(identity_id);
-        self.keys.get(&resolution.resolved_id).map(|key| key.protection)
+        self.keys
+            .get(&resolution.resolved_id)
+            .map(|key| key.protection)
     }
 
     pub(crate) fn trusted_peers(&self) -> Vec<TrustedPeer> {
@@ -645,10 +657,7 @@ impl IdentityRegistry {
         workspace_id: &str,
         access: crate::mods::native::verse::AccessLevel,
     ) {
-        let mut peers = self
-            .trust_store
-            .write()
-            .expect("trust store lock poisoned");
+        let mut peers = self.trust_store.write().expect("trust store lock poisoned");
         if let Some(peer) = peers.iter_mut().find(|peer| peer.node_id == node_id) {
             peer.workspace_grants
                 .retain(|grant| grant.workspace_id != workspace_id);
@@ -662,15 +671,8 @@ impl IdentityRegistry {
         persist_trust_store(&self.trust_store);
     }
 
-    pub(crate) fn revoke_workspace_access(
-        &mut self,
-        node_id: iroh::NodeId,
-        workspace_id: &str,
-    ) {
-        let mut peers = self
-            .trust_store
-            .write()
-            .expect("trust store lock poisoned");
+    pub(crate) fn revoke_workspace_access(&mut self, node_id: iroh::NodeId, workspace_id: &str) {
+        let mut peers = self.trust_store.write().expect("trust store lock poisoned");
         if let Some(peer) = peers.iter_mut().find(|peer| peer.node_id == node_id) {
             peer.workspace_grants
                 .retain(|grant| grant.workspace_id != workspace_id);
@@ -694,9 +696,10 @@ impl Default for IdentityRegistry {
         {
             registry.register_generated_persona(IDENTITY_ID_DEFAULT);
             registry.register_generated_persona(IDENTITY_ID_P2P);
-            registry
-                .user_keys
-                .insert(IDENTITY_ID_DEFAULT.to_string(), UserIdentityKey::generate_ephemeral());
+            registry.user_keys.insert(
+                IDENTITY_ID_DEFAULT.to_string(),
+                UserIdentityKey::generate_ephemeral(),
+            );
         }
 
         #[cfg(not(test))]
@@ -707,9 +710,10 @@ impl Default for IdentityRegistry {
             } else {
                 registry.register_generated_persona(IDENTITY_ID_DEFAULT);
                 registry.register_generated_persona(IDENTITY_ID_P2P);
-                registry
-                    .user_keys
-                    .insert(IDENTITY_ID_DEFAULT.to_string(), UserIdentityKey::generate_ephemeral());
+                registry.user_keys.insert(
+                    IDENTITY_ID_DEFAULT.to_string(),
+                    UserIdentityKey::generate_ephemeral(),
+                );
             }
         }
 
@@ -834,7 +838,11 @@ fn load_archived_verifying_keys(path: &Path) -> Result<Vec<VerifyingKey>, Identi
     let content = fs::read_to_string(path)
         .map_err(|error| IdentityKeyError::Io(format!("read archived identity keys: {error}")))?;
     let mut keys = Vec::new();
-    for line in content.lines().map(str::trim).filter(|line| !line.is_empty()) {
+    for line in content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         let bytes = decode_hex(line).map_err(|_| IdentityKeyError::InvalidKeyMaterial)?;
         if bytes.len() != 32 {
             return Err(IdentityKeyError::InvalidKeyMaterial);
@@ -991,12 +999,14 @@ mod tests {
     #[test]
     fn identity_registry_load_or_generate_persists_seed_material() {
         let tempdir = TempDir::new().expect("temp dir should be created");
-        let (generated, created) = IdentityKey::load_or_generate(IDENTITY_ID_DEFAULT, tempdir.path())
-            .expect("identity key should be generated");
+        let (generated, created) =
+            IdentityKey::load_or_generate(IDENTITY_ID_DEFAULT, tempdir.path())
+                .expect("identity key should be generated");
         assert!(created);
 
-        let (reloaded, created_again) = IdentityKey::load_or_generate(IDENTITY_ID_DEFAULT, tempdir.path())
-            .expect("identity key should reload");
+        let (reloaded, created_again) =
+            IdentityKey::load_or_generate(IDENTITY_ID_DEFAULT, tempdir.path())
+                .expect("identity key should reload");
         assert!(!created_again);
         assert_eq!(
             generated.verifying_key.as_bytes(),

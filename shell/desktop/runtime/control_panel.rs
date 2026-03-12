@@ -29,10 +29,12 @@ use crate::app::{GraphIntent, LifecycleCause, MemoryPressureLevel};
 use crate::graph::NodeKey;
 use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
+use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
 use crate::shell::desktop::runtime::registries::agent::{Agent, AgentContext};
-use crate::shell::desktop::runtime::registries::nostr_core::{NostrRelayWorker, RelayWorkerCommand};
-use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
+use crate::shell::desktop::runtime::registries::nostr_core::{
+    NostrRelayWorker, RelayWorkerCommand,
+};
 
 /// Capacity of the intent channel — limits flooding from async producers.
 const INTENT_CHANNEL_CAPACITY: usize = 256;
@@ -315,8 +317,10 @@ impl ControlPanel {
         // Create the inbound event sink. The relay worker sends
         // (subscription_id, NostrSignedEvent) pairs; this task translates them
         // into GraphIntent::NostrEventReceived and queues them for the reducer.
-        let (event_sink_tx, mut event_sink_rx) =
-            tokio::sync::mpsc::unbounded_channel::<(String, crate::shell::desktop::runtime::registries::nostr_core::NostrSignedEvent)>();
+        let (event_sink_tx, mut event_sink_rx) = tokio::sync::mpsc::unbounded_channel::<(
+            String,
+            crate::shell::desktop::runtime::registries::nostr_core::NostrSignedEvent,
+        )>();
 
         // Register the event sink with the worker before it starts.
         let _ = command_tx.send(RelayWorkerCommand::SetEventSink {
@@ -361,11 +365,7 @@ impl ControlPanel {
         log::debug!("control_panel: nostr relay worker spawned");
     }
 
-    pub(crate) fn spawn_agent(
-        &mut self,
-        agent: Box<dyn Agent>,
-        registries: Arc<RegistryRuntime>,
-    ) {
+    pub(crate) fn spawn_agent(&mut self, agent: Box<dyn Agent>, registries: Arc<RegistryRuntime>) {
         let agent_id = agent.id().to_string();
         let agent_name = agent.display_name().to_string();
         let context = AgentContext {
@@ -426,7 +426,10 @@ impl ControlPanel {
             }
 
             let mut guard = active_probes.lock().expect("protocol probe lock poisoned");
-            if guard.get(&key).is_some_and(|(current_nonce, _)| *current_nonce == nonce) {
+            if guard
+                .get(&key)
+                .is_some_and(|(current_nonce, _)| *current_nonce == nonce)
+            {
                 guard.remove(&key);
             }
         });
@@ -655,9 +658,9 @@ fn sample_memory() -> (MemoryPressureLevel, u64, u64) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
 
     use super::*;
@@ -694,7 +697,9 @@ mod tests {
 
     fn spawn_head_server(content_type: &'static str, delay: Duration) -> String {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
-        let address = listener.local_addr().expect("listener should expose address");
+        let address = listener
+            .local_addr()
+            .expect("listener should expose address");
 
         thread::spawn(move || {
             if let Ok((mut stream, _)) = listener.accept() {

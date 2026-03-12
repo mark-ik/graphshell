@@ -26,7 +26,10 @@ use winit::window::Window;
 use super::graph_search_flow;
 use super::gui_frame;
 use super::gui_orchestration;
-use super::gui_state::{GuiRuntimeState, ToolbarDraft, ToolbarState};
+use super::gui_state::{
+    GuiRuntimeState, LocalFocusTarget, PaneRegionHint, RuntimeFocusAuthorityState,
+    RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState, ToolbarDraft, ToolbarState,
+};
 use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
@@ -52,17 +55,18 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::nip07_bridge;
-use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, phase3_shared_runtime,
-    phase3_subscribe_signal_async,
-};
 use crate::shell::desktop::runtime::registries::signal_routing::{
     LifecycleSignal, SignalKind, SignalTopic,
+};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime,
+    phase3_shared_runtime, phase3_subscribe_signal_async,
 };
 use crate::shell::desktop::ui::thumbnail_pipeline::{
     RendererFaviconTextureCache, ThumbnailCaptureResult,
 };
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
@@ -105,6 +109,17 @@ mod window_input;
 
 use update_frame_phases::ExecuteUpdateFrameArgs;
 
+#[allow(unused_imports)]
+pub(crate) use focus_state::{
+    apply_focus_command, apply_graph_search_local_focus_state,
+    capture_command_surface_return_target_in_authority,
+    capture_tool_surface_return_target_in_authority, desired_runtime_focus_state,
+    realize_embedded_content_focus_from_authority, refresh_realized_runtime_focus_state,
+    runtime_focus_inspector, seed_command_surface_return_target_from_authority,
+    seed_tool_surface_return_target_from_authority,
+    seed_transient_surface_return_target_from_authority, semantic_region_for_tool_surface_target,
+};
+pub(crate) use focus_state::{workbench_runtime_focus_state, workspace_runtime_focus_state};
 #[cfg(test)]
 use update_frame_phases::UpdateFrameStage;
 
@@ -223,6 +238,32 @@ fn apply_graph_surface_focus_state(
     focus_state::apply_graph_surface_focus_state(runtime_state, graph_app, active_graph_view)
 }
 
+fn apply_pane_activation_focus_state(runtime_state: &mut GuiRuntimeState, pane_id: Option<PaneId>) {
+    focus_state::apply_pane_activation_focus_state(runtime_state, pane_id)
+}
+
+fn clear_embedded_content_focus(
+    runtime_state: &mut GuiRuntimeState,
+    graph_app: &mut GraphBrowserApp,
+) {
+    if graph_app.embedded_content_focus_webview().is_some() {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM,
+            latency_us: 0,
+        });
+    }
+    focus_state::apply_focus_command(
+        &mut runtime_state.focus_authority,
+        crate::shell::desktop::ui::gui_state::FocusCommand::SetEmbeddedContentFocus {
+            target: None,
+        },
+    );
+    focus_state::realize_embedded_content_focus_from_authority(
+        &runtime_state.focus_authority,
+        graph_app,
+    );
+}
+
 impl Gui {
     fn toast_anchor(anchor: ToastAnchorPreference) -> egui_notify::Anchor {
         match anchor {
@@ -285,10 +326,9 @@ impl Gui {
             // Spawn sync worker if Verse mod is available.
             panel.spawn_p2p_sync_worker();
             panel.spawn_nostr_relay_worker(Arc::clone(&registry_runtime));
-            if let Err(error) = panel.spawn_registered_agent(
-                "agent:tag_suggester",
-                Arc::clone(&registry_runtime),
-            ) {
+            if let Err(error) =
+                panel.spawn_registered_agent("agent:tag_suggester", Arc::clone(&registry_runtime))
+            {
                 warn!("Failed to spawn tag suggester agent: {error}");
             }
             panel
@@ -345,13 +385,14 @@ impl Gui {
                 graph_search_filter_mode: initial_search_filter_mode,
                 graph_search_matches: Vec::new(),
                 graph_search_active_match_index: None,
+                local_widget_focus: None,
                 focused_node_hint: None,
                 graph_surface_focused: false,
                 focus_ring_node_key: None,
                 focus_ring_started_at: None,
                 focus_ring_duration: Duration::from_millis(500),
                 omnibar_search_session: None,
-                active_toolbar_pane: None,
+                focus_authority: RuntimeFocusAuthorityState::default(),
                 toolbar_drafts: HashMap::new(),
                 command_palette_toggle_requested: false,
                 deferred_open_child_webviews: Vec::new(),
@@ -491,16 +532,43 @@ impl Gui {
         apply_node_focus_state(&mut self.runtime_state, node_key);
     }
 
+    pub(crate) fn set_embedded_content_focus_webview(&mut self, webview_id: Option<WebViewId>) {
+        let target = webview_id.map(|renderer_id| {
+            crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
+                renderer_id,
+                node_key: self.graph_app.get_node_for_webview(renderer_id),
+            }
+        });
+        focus_state::apply_focus_command(
+            &mut self.runtime_state.focus_authority,
+            crate::shell::desktop::ui::gui_state::FocusCommand::SetEmbeddedContentFocus { target },
+        );
+        focus_state::realize_embedded_content_focus_from_authority(
+            &self.runtime_state.focus_authority,
+            &mut self.graph_app,
+        );
+    }
+
+    pub(crate) fn focused_embedded_content_webview_id(&self) -> Option<WebViewId> {
+        self.graph_app.embedded_content_focus_webview()
+    }
+
     pub(crate) fn node_key_for_webview_id(&self, webview_id: WebViewId) -> Option<NodeKey> {
         interaction_queries::node_key_for_webview_id(self, webview_id)
     }
 
     pub(crate) fn focus_graph_surface(&mut self) {
+        clear_embedded_content_focus(&mut self.runtime_state, &mut self.graph_app);
         apply_graph_surface_focus_state(
             &mut self.runtime_state,
             &mut self.graph_app,
             tile_view_ops::active_graph_view_id(&self.tiles_tree),
         );
+    }
+
+    pub(crate) fn reclaim_host_focus(&mut self) {
+        clear_embedded_content_focus(&mut self.runtime_state, &mut self.graph_app);
+        self.surrender_focus();
     }
 
     pub(crate) fn location_has_focus(&self) -> bool {
@@ -512,7 +580,7 @@ impl Gui {
     }
 
     fn persist_active_toolbar_draft(&mut self) {
-        let Some(active_pane) = self.runtime_state.active_toolbar_pane else {
+        let Some(active_pane) = self.runtime_state.focus_authority.pane_activation else {
             return;
         };
         self.runtime_state.toolbar_drafts.insert(
@@ -523,12 +591,12 @@ impl Gui {
 
     fn sync_active_toolbar_draft(&mut self, window: &EmbedderWindow) {
         let next_active_pane = window.focused_pane();
-        if self.runtime_state.active_toolbar_pane == next_active_pane {
+        if self.runtime_state.focus_authority.pane_activation == next_active_pane {
             return;
         }
 
         self.persist_active_toolbar_draft();
-        self.runtime_state.active_toolbar_pane = next_active_pane;
+        apply_pane_activation_focus_state(&mut self.runtime_state, next_active_pane);
 
         let Some(active_pane) = next_active_pane else {
             return;
@@ -571,6 +639,14 @@ impl Gui {
         interaction_queries::ui_overlay_active(self)
     }
 
+    pub(crate) fn runtime_focus_state(&self) -> RuntimeFocusState {
+        interaction_queries::runtime_focus_state(self)
+    }
+
+    pub(crate) fn runtime_focus_inspector(&self) -> RuntimeFocusInspector {
+        interaction_queries::runtime_focus_inspector(self)
+    }
+
     /// Update the user interface, but do not paint the updated state.
     pub(crate) fn update(
         &mut self,
@@ -605,6 +681,13 @@ impl Gui {
             .make_current()
             .expect("Could not make RenderingContext current");
         tree_bootstrap::ensure_tiles_tree_root(&mut self.tiles_tree);
+        focus_state::refresh_realized_runtime_focus_state(
+            &mut self.runtime_state.focus_authority,
+            &self.graph_app,
+            &self.tiles_tree,
+            self.runtime_state.local_widget_focus.clone(),
+            self.toolbar_state.show_clear_data_confirm,
+        );
         debug_assert!(
             self.tiles_tree.root().is_some(),
             "tile tree root must exist before rendering"
@@ -641,13 +724,14 @@ impl Gui {
             graph_search_filter_mode,
             graph_search_matches,
             graph_search_active_match_index,
+            local_widget_focus,
+            focus_authority,
             focused_node_hint,
             graph_surface_focused,
             focus_ring_node_key,
             focus_ring_started_at,
             focus_ring_duration,
             omnibar_search_session,
-            active_toolbar_pane: _,
             toolbar_drafts: _,
             command_palette_toggle_requested,
             deferred_open_child_webviews,
@@ -682,6 +766,8 @@ impl Gui {
                 graph_search_filter_mode,
                 graph_search_matches,
                 graph_search_active_match_index,
+                local_widget_focus,
+                focus_authority,
                 focused_node_hint,
                 graph_surface_focused,
                 focus_ring_node_key,

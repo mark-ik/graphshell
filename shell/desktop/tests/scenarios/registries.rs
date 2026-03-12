@@ -220,10 +220,14 @@ fn sector_a_content_pipeline_runs_end_to_end_for_tagged_markdown_node() {
         parsed,
         node.mime_hint.as_deref(),
     );
-    let viewer_surface = registries::phase3_resolve_viewer_surface_profile(decision.viewer.viewer_id);
+    let viewer_surface =
+        registries::phase3_resolve_viewer_surface_profile(decision.viewer.viewer_id);
     let lens = registries::phase2_resolve_lens_for_node(&app, key);
 
-    assert_eq!(decision.protocol.inferred_mime_hint.as_deref(), Some("text/markdown"));
+    assert_eq!(
+        decision.protocol.inferred_mime_hint.as_deref(),
+        Some("text/markdown")
+    );
     assert_eq!(decision.viewer.viewer_id, "viewer:markdown");
     assert_eq!(
         viewer_surface.resolved_id,
@@ -233,7 +237,11 @@ fn sector_a_content_pipeline_runs_end_to_end_for_tagged_markdown_node() {
         lens.lens_id.as_deref(),
         Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
     );
-    assert!(lens.filters.iter().any(|filter| filter == "semantic:overlay"));
+    assert!(
+        lens.filters
+            .iter()
+            .any(|filter| filter == "semantic:overlay")
+    );
 
     let snapshot = harness.snapshot();
     assert!(

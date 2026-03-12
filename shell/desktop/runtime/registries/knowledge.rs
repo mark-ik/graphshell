@@ -115,7 +115,10 @@ pub fn suggest_placement_anchor(
             Some((*candidate_key, distance))
         })
         .collect::<Vec<_>>();
-    ranked.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.index().cmp(&b.0.index())));
+    ranked.sort_by(|a, b| {
+        a.1.total_cmp(&b.1)
+            .then_with(|| a.0.index().cmp(&b.0.index()))
+    });
     ranked.first().map(|(key, _)| *key)
 }
 
@@ -187,9 +190,12 @@ mod tests {
             euclid::default::Point2D::new(10.0, 10.0),
         );
 
-        app.workspace
-            .semantic_tags
-            .insert(a, ["udc:51".to_string(), "udc:519.6".to_string()].into_iter().collect());
+        app.workspace.semantic_tags.insert(
+            a,
+            ["udc:51".to_string(), "udc:519.6".to_string()]
+                .into_iter()
+                .collect(),
+        );
         app.workspace
             .semantic_tags
             .insert(b, ["udc:78".to_string()].into_iter().collect());

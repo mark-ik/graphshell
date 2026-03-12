@@ -149,10 +149,9 @@ mod tests {
     #[test]
     fn parse_prompt_request_requires_reserved_prefix() {
         assert!(try_parse_prompt_request("hello").is_none());
-        let request = try_parse_prompt_request(
-            r#"graphshell:nip07:{"method":"getPublicKey","params":null}"#,
-        )
-        .expect("reserved prompt request should parse");
+        let request =
+            try_parse_prompt_request(r#"graphshell:nip07:{"method":"getPublicKey","params":null}"#)
+                .expect("reserved prompt request should parse");
         assert_eq!(request.method, "getPublicKey");
     }
 

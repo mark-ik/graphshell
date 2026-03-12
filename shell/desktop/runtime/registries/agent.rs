@@ -41,9 +41,7 @@ pub(crate) struct AgentHandle {
 }
 
 impl AgentHandle {
-    pub(crate) fn from_future(
-        task: impl Future<Output = ()> + Send + 'static,
-    ) -> Self {
+    pub(crate) fn from_future(task: impl Future<Output = ()> + Send + 'static) -> Self {
         Self {
             task: Box::pin(task),
         }
@@ -183,7 +181,15 @@ mod tests {
         let descriptors = registry.descriptors();
 
         assert_eq!(descriptors.len(), 2);
-        assert!(descriptors.iter().any(|descriptor| descriptor.id == AGENT_ID_GRAPH_SUMMARISER));
-        assert!(descriptors.iter().any(|descriptor| descriptor.id == AGENT_ID_TAG_SUGGESTER));
+        assert!(
+            descriptors
+                .iter()
+                .any(|descriptor| descriptor.id == AGENT_ID_GRAPH_SUMMARISER)
+        );
+        assert!(
+            descriptors
+                .iter()
+                .any(|descriptor| descriptor.id == AGENT_ID_TAG_SUGGESTER)
+        );
     }
 }

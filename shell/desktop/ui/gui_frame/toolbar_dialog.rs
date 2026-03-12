@@ -15,6 +15,7 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthorityState};
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
@@ -32,6 +33,8 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) active_toolbar_pane: Option<PaneId>,
     pub(crate) focused_node_hint: Option<NodeKey>,
     pub(crate) graph_surface_focused: bool,
+    pub(crate) local_widget_focus: &'a mut Option<LocalFocusTarget>,
+    pub(crate) focus_authority: &'a RuntimeFocusAuthorityState,
     pub(crate) can_go_back: bool,
     pub(crate) can_go_forward: bool,
     pub(crate) location: &'a mut String,
@@ -69,6 +72,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
         active_toolbar_pane,
         focused_node_hint: _,
         graph_surface_focused,
+        local_widget_focus,
+        focus_authority: _,
         can_go_back,
         can_go_forward,
         location,
@@ -111,6 +116,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         tiles_tree,
         focused_toolbar_node,
         active_toolbar_pane,
+        local_widget_focus,
         has_node_panes,
         can_go_back,
         can_go_forward,

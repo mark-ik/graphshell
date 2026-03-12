@@ -6,6 +6,52 @@ use super::*;
 use crate::shell::desktop::ui::gui_state::toolbar_location_input_id;
 use crate::util::CoordBridge;
 
+fn active_pane_region_hint(gui: &Gui) -> Option<PaneRegionHint> {
+    gui.tiles_tree
+        .active_tiles()
+        .into_iter()
+        .find_map(|tile_id| match gui.tiles_tree.tiles.get(tile_id) {
+            Some(Tile::Pane(TileKind::Graph(_))) => Some(PaneRegionHint::GraphSurface),
+            Some(Tile::Pane(TileKind::Node(_))) => Some(PaneRegionHint::NodePane),
+            Some(Tile::Pane(TileKind::Tool(_))) => Some(PaneRegionHint::ToolPane),
+            _ => None,
+        })
+}
+
+fn local_widget_focus(gui: &Gui) -> Option<LocalFocusTarget> {
+    if let Some(local_focus) = gui.runtime_state.local_widget_focus.clone() {
+        Some(local_focus)
+    } else if location_has_focus(gui) {
+        Some(LocalFocusTarget::ToolbarLocation {
+            pane_id: gui.runtime_state.focus_authority.pane_activation,
+        })
+    } else if gui.runtime_state.graph_search_open {
+        Some(LocalFocusTarget::GraphSearch)
+    } else {
+        None
+    }
+}
+
+pub(super) fn runtime_focus_state(gui: &Gui) -> RuntimeFocusState {
+    focus_state::desired_runtime_focus_state(
+        &gui.graph_app,
+        &gui.runtime_state.focus_authority,
+        local_widget_focus(gui),
+        gui.toolbar_state.show_clear_data_confirm,
+    )
+}
+
+pub(super) fn runtime_focus_inspector(
+    gui: &Gui,
+) -> crate::shell::desktop::ui::gui_state::RuntimeFocusInspector {
+    focus_state::runtime_focus_inspector(
+        &gui.graph_app,
+        &gui.runtime_state.focus_authority,
+        local_widget_focus(gui),
+        gui.toolbar_state.show_clear_data_confirm,
+    )
+}
+
 pub(super) fn focused_node_key(gui: &Gui) -> Option<NodeKey> {
     if gui.runtime_state.graph_surface_focused {
         return None;
@@ -36,7 +82,7 @@ pub(super) fn node_key_for_webview_id(gui: &Gui, webview_id: WebViewId) -> Optio
 }
 
 pub(super) fn location_has_focus(gui: &Gui) -> bool {
-    let location_id = toolbar_location_input_id(gui.runtime_state.active_toolbar_pane);
+    let location_id = toolbar_location_input_id(gui.runtime_state.focus_authority.pane_activation);
     gui.context
         .egui_context()
         .memory(|m| m.focused().is_some_and(|focused| focused == location_id))
@@ -66,10 +112,5 @@ pub(super) fn pointer_hover_position(gui: &Gui) -> Option<Point2D<f32, DeviceInd
 }
 
 pub(super) fn ui_overlay_active(gui: &Gui) -> bool {
-    ui_overlay_active_from_flags(
-        gui.graph_app.workspace.show_command_palette,
-        gui.graph_app.workspace.show_help_panel,
-        gui.graph_app.workspace.show_radial_menu,
-        gui.toolbar_state.show_clear_data_confirm,
-    )
+    runtime_focus_state(gui).overlay_active()
 }

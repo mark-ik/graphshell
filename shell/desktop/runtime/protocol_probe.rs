@@ -76,7 +76,9 @@ mod tests {
 
     fn spawn_head_server(content_type: &'static str) -> String {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
-        let address = listener.local_addr().expect("listener should expose address");
+        let address = listener
+            .local_addr()
+            .expect("listener should expose address");
 
         thread::spawn(move || {
             if let Ok((mut stream, _)) = listener.accept() {

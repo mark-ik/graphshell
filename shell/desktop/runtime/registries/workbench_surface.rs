@@ -5,8 +5,8 @@ use super::{
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::app::{
-    GraphBrowserApp, PendingTileOpenMode, ToolSurfaceReturnTarget, UndoBoundaryReason,
-    WorkbenchIntent,
+    GraphBrowserApp, PendingTileOpenMode, SelectionUpdateMode, ToolSurfaceReturnTarget,
+    UndoBoundaryReason, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 pub(crate) use crate::registries::domain::layout::workbench_surface::WorkbenchSurfaceResolution;
@@ -28,6 +28,14 @@ pub(crate) const WORKBENCH_PROFILE_DEFAULT: &str = WORKBENCH_SURFACE_DEFAULT;
 pub(crate) const WORKBENCH_PROFILE_FOCUS: &str = WORKBENCH_SURFACE_FOCUS;
 pub(crate) const WORKBENCH_PROFILE_COMPARE: &str = WORKBENCH_SURFACE_COMPARE;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SemanticWorkbenchRegion {
+    GraphSurface,
+    NodePane,
+    #[cfg(feature = "diagnostics")]
+    ToolPane,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorkbenchSurfaceDescription {
     pub(crate) requested_id: String,
@@ -36,6 +44,95 @@ pub(crate) struct WorkbenchSurfaceDescription {
     pub(crate) fallback_used: bool,
     pub(crate) display_name: String,
     pub(crate) lock: WorkbenchLock,
+}
+
+fn semantic_workbench_region_from_focus_state(
+    focus_state: &crate::shell::desktop::ui::gui_state::RuntimeFocusState,
+) -> Option<SemanticWorkbenchRegion> {
+    match focus_state.semantic_region {
+        crate::shell::desktop::ui::gui_state::SemanticRegionFocus::GraphSurface { .. } => {
+            Some(SemanticWorkbenchRegion::GraphSurface)
+        }
+        crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane { .. } => {
+            Some(SemanticWorkbenchRegion::NodePane)
+        }
+        crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { .. } => {
+            #[cfg(feature = "diagnostics")]
+            {
+                Some(SemanticWorkbenchRegion::ToolPane)
+            }
+            #[cfg(not(feature = "diagnostics"))]
+            {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn semantic_workbench_region_is_present(
+    tiles_tree: &Tree<TileKind>,
+    region: SemanticWorkbenchRegion,
+) -> bool {
+    tiles_tree
+        .tiles
+        .iter()
+        .any(|(_, tile)| match (region, tile) {
+            (SemanticWorkbenchRegion::GraphSurface, Tile::Pane(TileKind::Graph(_))) => true,
+            (SemanticWorkbenchRegion::NodePane, Tile::Pane(TileKind::Node(_))) => true,
+            #[cfg(feature = "diagnostics")]
+            (SemanticWorkbenchRegion::ToolPane, Tile::Pane(TileKind::Tool(_))) => true,
+            _ => false,
+        })
+}
+
+fn activate_semantic_workbench_region(
+    tiles_tree: &mut Tree<TileKind>,
+    region: SemanticWorkbenchRegion,
+) -> bool {
+    match region {
+        SemanticWorkbenchRegion::GraphSurface => {
+            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))))
+        }
+        SemanticWorkbenchRegion::NodePane => {
+            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_))))
+        }
+        #[cfg(feature = "diagnostics")]
+        SemanticWorkbenchRegion::ToolPane => {
+            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_))))
+        }
+    }
+}
+
+fn cycle_semantic_workbench_region(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) -> bool {
+    let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+        graph_app, tiles_tree, None, None, false,
+    );
+    let current = semantic_workbench_region_from_focus_state(&focus_before);
+    let order = [
+        SemanticWorkbenchRegion::GraphSurface,
+        SemanticWorkbenchRegion::NodePane,
+        #[cfg(feature = "diagnostics")]
+        SemanticWorkbenchRegion::ToolPane,
+    ];
+    let start_index = current
+        .and_then(|region| order.iter().position(|candidate| *candidate == region))
+        .unwrap_or(order.len() - 1);
+
+    for offset in 1..=order.len() {
+        let candidate = order[(start_index + offset) % order.len()];
+        if !semantic_workbench_region_is_present(tiles_tree, candidate) {
+            continue;
+        }
+        if activate_semantic_workbench_region(tiles_tree, candidate) {
+            return true;
+        }
+    }
+
+    false
 }
 
 pub(crate) struct WorkbenchSurfaceRegistry {
@@ -169,18 +266,53 @@ impl WorkbenchSurfaceRegistry {
 
         match intent {
             WorkbenchIntent::OpenCommandPalette => {
-                graph_app.open_command_palette();
+                handle_open_command_palette_intent(graph_app, tiles_tree);
                 None
             }
             WorkbenchIntent::ToggleCommandPalette => {
-                graph_app.toggle_command_palette();
+                handle_toggle_command_palette_intent(graph_app, tiles_tree, &focus_handoff_policy);
+                None
+            }
+            WorkbenchIntent::ToggleHelpPanel => {
+                graph_app.toggle_help_panel();
+                None
+            }
+            WorkbenchIntent::ToggleRadialMenu => {
+                graph_app.toggle_radial_menu();
                 None
             }
             WorkbenchIntent::CycleFocusRegion => {
                 if handle_cycle_focus_region_intent(
+                    graph_app,
                     tiles_tree,
                     interaction_policy.keyboard_focus_cycle,
                 ) {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                } else {
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+                        byte_len: 1,
+                    });
+                }
+                None
+            }
+            WorkbenchIntent::SelectTile { tile_id } => {
+                graph_app.select_workbench_tile(tile_id);
+                None
+            }
+            WorkbenchIntent::UpdateTileSelection { tile_id, mode } => {
+                handle_update_tile_selection_intent(graph_app, tiles_tree, tile_id, mode);
+                None
+            }
+            WorkbenchIntent::ClearTileSelection => {
+                graph_app.clear_workbench_tile_selection();
+                None
+            }
+            WorkbenchIntent::GroupSelectedTiles => {
+                if handle_group_selected_tiles_intent(graph_app, tiles_tree) {
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                         latency_us: 0,
@@ -283,10 +415,68 @@ impl WorkbenchSurfaceRegistry {
 }
 
 fn handle_cycle_focus_region_intent(
+    graph_app: &GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     focus_cycle: crate::registries::domain::layout::workbench_surface::FocusCycle,
 ) -> bool {
-    tile_view_ops::cycle_focus_region_with_policy(tiles_tree, focus_cycle)
+    let before =
+        crate::shell::desktop::ui::gui::workspace_runtime_focus_state(graph_app, None, None, false);
+    let cycled = match focus_cycle {
+        crate::registries::domain::layout::workbench_surface::FocusCycle::Panes => {
+            cycle_semantic_workbench_region(graph_app, tiles_tree)
+        }
+        _ => tile_view_ops::cycle_focus_region_with_policy(tiles_tree, focus_cycle),
+    };
+    let after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+        graph_app, tiles_tree, None, None, false,
+    );
+    cycled && before != after
+}
+
+fn handle_update_tile_selection_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    tile_id: egui_tiles::TileId,
+    mode: SelectionUpdateMode,
+) {
+    graph_app.prune_workbench_tile_selection(tiles_tree);
+    if !matches!(tiles_tree.tiles.get(tile_id), Some(Tile::Pane(_))) {
+        return;
+    }
+    graph_app.update_workbench_tile_selection(tile_id, mode);
+}
+
+fn handle_group_selected_tiles_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) -> bool {
+    graph_app.prune_workbench_tile_selection(tiles_tree);
+    let selection = graph_app.workbench_tile_selection().clone();
+    let Some((selected_tile_ids, primary_tile_id)) = tile_view_ops::group_selected_tiles(
+        tiles_tree,
+        &selection.selected_tile_ids,
+        selection.primary_tile_id,
+    ) else {
+        return false;
+    };
+
+    graph_app.clear_workbench_tile_selection();
+    graph_app.select_workbench_tile(primary_tile_id);
+    for tile_id in selected_tile_ids {
+        if tile_id != primary_tile_id {
+            graph_app.update_workbench_tile_selection(tile_id, SelectionUpdateMode::Add);
+        }
+    }
+    if graph_app
+        .persist_workbench_tile_group(tiles_tree, &selection.selected_tile_ids)
+        .is_none()
+    {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+            byte_len: 1,
+        });
+    }
+    true
 }
 
 fn handle_detach_node_to_split_intent(
@@ -302,7 +492,7 @@ fn handle_detach_node_to_split_intent(
     tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, key);
 }
 
-fn active_tool_surface_return_target(
+pub(crate) fn active_tool_surface_return_target(
     tiles_tree: &Tree<TileKind>,
 ) -> Option<ToolSurfaceReturnTarget> {
     for tile_id in tiles_tree.active_tiles() {
@@ -323,7 +513,7 @@ fn active_tool_surface_return_target(
     None
 }
 
-fn focus_tool_surface_return_target(
+pub(crate) fn focus_tool_surface_return_target(
     tiles_tree: &mut Tree<TileKind>,
     target: ToolSurfaceReturnTarget,
 ) -> bool {
@@ -367,6 +557,62 @@ fn maybe_capture_tool_surface_return_target(
     }
 }
 
+fn maybe_capture_command_surface_return_target(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
+    if graph_app.pending_command_surface_return_target().is_none() {
+        graph_app.set_pending_command_surface_return_target(active_tool_surface_return_target(
+            tiles_tree,
+        ));
+    }
+}
+
+fn restore_command_surface_return_target_or_ensure_active_tile(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    focus_handoff: &FocusHandoffPolicy,
+) -> bool {
+    let target = graph_app.take_pending_command_surface_return_target();
+    restore_focus_target_or_ensure_active_tile(
+        graph_app,
+        tiles_tree,
+        target,
+        !matches!(
+            focus_handoff.pane_to_canvas_trigger,
+            crate::registries::domain::layout::workbench_surface::FocusTrigger::Click
+        ),
+    )
+}
+
+fn handle_open_command_palette_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
+    if !graph_app.workspace.show_command_palette {
+        maybe_capture_command_surface_return_target(graph_app, tiles_tree);
+    }
+    graph_app.open_command_palette();
+}
+
+fn handle_toggle_command_palette_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    focus_handoff: &FocusHandoffPolicy,
+) {
+    if graph_app.workspace.show_command_palette {
+        graph_app.toggle_command_palette();
+        let _ = restore_command_surface_return_target_or_ensure_active_tile(
+            graph_app,
+            tiles_tree,
+            focus_handoff,
+        );
+    } else {
+        maybe_capture_command_surface_return_target(graph_app, tiles_tree);
+        graph_app.toggle_command_palette();
+    }
+}
+
 fn handle_open_tool_pane_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
@@ -405,14 +651,21 @@ fn handle_close_tool_pane_intent(
 ) {
     #[cfg(feature = "diagnostics")]
     {
-        let focused_before = active_tool_surface_return_target(tiles_tree);
+        let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+            graph_app, tiles_tree, None, None, false,
+        );
         let closed = tile_view_ops::close_tool_pane(tiles_tree, kind);
         if closed && restore_previous_focus {
-            if restore_tool_surface_focus_or_ensure_active_tile(
+            let restored = restore_tool_surface_focus_or_ensure_active_tile(
                 graph_app,
                 tiles_tree,
                 focus_handoff,
-            ) {
+            );
+            let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+                graph_app, tiles_tree, None, None, false,
+            );
+            let has_valid_active_target = active_tool_surface_return_target(tiles_tree).is_some();
+            if restored || (focus_before != focus_after && has_valid_active_target) {
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                     latency_us: 0,
@@ -420,8 +673,10 @@ fn handle_close_tool_pane_intent(
             }
         } else if closed {
             graph_app.set_pending_tool_surface_return_target(None);
-            let focused_after = active_tool_surface_return_target(tiles_tree);
-            if focused_after.is_some() && focused_before != focused_after {
+            let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+                graph_app, tiles_tree, None, None, false,
+            );
+            if focus_before != focus_after {
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                     latency_us: 0,
@@ -443,11 +698,19 @@ fn handle_close_pane_intent(
     restore_previous_focus: bool,
     focus_handoff: &FocusHandoffPolicy,
 ) {
-    let focused_before = active_tool_surface_return_target(tiles_tree);
+    let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+        graph_app, tiles_tree, None, None, false,
+    );
     let closed = tile_view_ops::close_pane(tiles_tree, pane);
 
     if closed && restore_previous_focus {
-        if restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree, focus_handoff) {
+        let restored =
+            restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree, focus_handoff);
+        let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+            graph_app, tiles_tree, None, None, false,
+        );
+        let has_valid_active_target = active_tool_surface_return_target(tiles_tree).is_some();
+        if restored || (focus_before != focus_after && has_valid_active_target) {
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                 latency_us: 0,
@@ -455,10 +718,11 @@ fn handle_close_pane_intent(
         }
     } else if closed {
         graph_app.set_pending_tool_surface_return_target(None);
-        let focused_after = active_tool_surface_return_target(tiles_tree);
-        if tile_view_ops::ensure_active_tile(tiles_tree)
-            || (focused_after.is_some() && focused_before != focused_after)
-        {
+        let ensured = tile_view_ops::ensure_active_tile(tiles_tree);
+        let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+            graph_app, tiles_tree, None, None, false,
+        );
+        if ensured || focus_before != focus_after {
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                 latency_us: 0,
@@ -477,22 +741,37 @@ fn restore_tool_surface_focus_or_ensure_active_tile(
     tiles_tree: &mut Tree<TileKind>,
     focus_handoff: &FocusHandoffPolicy,
 ) -> bool {
-    let resolved = if let Some(target) = graph_app.take_pending_tool_surface_return_target() {
+    let target = graph_app.take_pending_tool_surface_return_target();
+    restore_focus_target_or_ensure_active_tile(
+        graph_app,
+        tiles_tree,
+        target,
+        !matches!(
+            focus_handoff.pane_to_canvas_trigger,
+            crate::registries::domain::layout::workbench_surface::FocusTrigger::Click
+        ),
+    )
+}
+
+pub(crate) fn restore_focus_target_or_ensure_active_tile(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    target: Option<ToolSurfaceReturnTarget>,
+    allow_ensure_active_tile: bool,
+) -> bool {
+    let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+        graph_app, tiles_tree, None, None, false,
+    );
+    let resolved = if let Some(target) = target {
         let restored = focus_tool_surface_return_target(tiles_tree, target);
         if restored {
             true
-        } else if !matches!(
-            focus_handoff.pane_to_canvas_trigger,
-            crate::registries::domain::layout::workbench_surface::FocusTrigger::Click
-        ) {
+        } else if allow_ensure_active_tile {
             tile_view_ops::ensure_active_tile(tiles_tree)
         } else {
             false
         }
-    } else if !matches!(
-        focus_handoff.pane_to_canvas_trigger,
-        crate::registries::domain::layout::workbench_surface::FocusTrigger::Click
-    ) {
+    } else if allow_ensure_active_tile {
         tile_view_ops::ensure_active_tile(tiles_tree)
     } else {
         false
@@ -505,7 +784,10 @@ fn restore_tool_surface_focus_or_ensure_active_tile(
         });
     }
 
-    resolved
+    let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
+        graph_app, tiles_tree, None, None, false,
+    );
+    resolved && focus_before != focus_after
 }
 
 fn handle_open_settings_url_intent(
@@ -944,12 +1226,14 @@ fn emit_open_decision(path: UxOpenDecisionPath, reason: UxOpenDecisionReason) {
 mod tests {
     use super::*;
     use crate::app::GraphViewId;
-    use crate::graph::NodeKey;
+    use crate::graph::{EdgeType, NodeKey};
     use crate::shell::desktop::workbench::pane_model::{
         GraphPaneRef, NodePaneState, PaneId, SplitDirection,
     };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use crate::util::VersoAddress;
     use egui_tiles::{Tile, Tiles, Tree};
+    use euclid::default::Point2D;
 
     #[test]
     fn registry_defaults_to_default_profile() {
@@ -1096,5 +1380,168 @@ mod tests {
                 .into_iter()
                 .any(|tile_id| tile_id == node)
         );
+    }
+
+    #[test]
+    fn update_tile_selection_intent_tracks_selected_tiles_independent_of_active_focus() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(NodeKey::new(7))));
+        let root = tiles.insert_tab_tile(vec![graph, node]);
+        if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) = tiles.get_mut(root) {
+            tabs.set_active(graph);
+        }
+        let mut tree = Tree::new("workbench_tile_selection", root, tiles);
+
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            WorkbenchIntent::UpdateTileSelection {
+                tile_id: graph,
+                mode: SelectionUpdateMode::Replace,
+            },
+        );
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            WorkbenchIntent::UpdateTileSelection {
+                tile_id: node,
+                mode: SelectionUpdateMode::Add,
+            },
+        );
+
+        assert_eq!(
+            app.workbench_tile_selection().selected_tile_ids,
+            std::collections::HashSet::from([graph, node])
+        );
+        assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(node));
+        assert!(
+            tree.active_tiles()
+                .into_iter()
+                .any(|tile_id| tile_id == graph),
+            "selection should not replace active focus"
+        );
+    }
+
+    #[test]
+    fn group_selected_tiles_moves_original_tiles_into_new_group() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(NodeKey::new(11))));
+        let graph_leaf = tiles.insert_tab_tile(vec![graph]);
+        let node_leaf = tiles.insert_tab_tile(vec![node]);
+        let root = tiles.insert_horizontal_tile(vec![graph_leaf, node_leaf]);
+        let mut tree = Tree::new("group_selected_tiles", root, tiles);
+
+        app.select_workbench_tile(graph);
+        app.update_workbench_tile_selection(node, SelectionUpdateMode::Add);
+
+        registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::GroupSelectedTiles);
+
+        let selected = &app.workbench_tile_selection().selected_tile_ids;
+        assert_eq!(selected.len(), 2);
+        assert_eq!(*selected, std::collections::HashSet::from([graph, node]));
+        assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(graph));
+        let graph_count = tree
+            .tiles
+            .iter()
+            .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(_))))
+            .count();
+        let node_count = tree
+            .tiles
+            .iter()
+            .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(_))))
+            .count();
+        assert_eq!(graph_count, 1);
+        assert_eq!(node_count, 1);
+    }
+
+    #[test]
+    fn group_selected_tiles_persists_tile_group_node_and_member_edges() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let left = app.add_node_and_sync("https://left.example".into(), Point2D::new(0.0, 0.0));
+        let right = app.add_node_and_sync("https://right.example".into(), Point2D::new(40.0, 0.0));
+        let mut tiles = Tiles::default();
+        let left_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(left)));
+        let right_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(right)));
+        let left_leaf = tiles.insert_tab_tile(vec![left_tile]);
+        let right_leaf = tiles.insert_tab_tile(vec![right_tile]);
+        let root = tiles.insert_horizontal_tile(vec![left_leaf, right_leaf]);
+        let mut tree = Tree::new("persist_tile_group", root, tiles);
+
+        app.select_workbench_tile(left_tile);
+        app.update_workbench_tile_selection(right_tile, SelectionUpdateMode::Add);
+
+        registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::GroupSelectedTiles);
+
+        let tile_group_nodes: Vec<_> = app
+            .domain_graph()
+            .nodes()
+            .filter(|(_, node)| {
+                matches!(
+                    VersoAddress::parse(&node.url),
+                    Some(VersoAddress::TileGroup(_))
+                )
+            })
+            .collect();
+        assert_eq!(tile_group_nodes.len(), 1);
+        let group_key = tile_group_nodes[0].0;
+        let group_node = tile_group_nodes[0].1;
+        assert_eq!(group_node.title, "Tile Group");
+        assert!(app.domain_graph().edges().any(|edge| {
+            edge.edge_type == EdgeType::UserGrouped && edge.from == group_key && edge.to == left
+        }));
+        assert!(app.domain_graph().edges().any(|edge| {
+            edge.edge_type == EdgeType::UserGrouped && edge.from == group_key && edge.to == right
+        }));
+    }
+
+    #[test]
+    fn group_selected_tiles_ensures_graph_view_member_node_identity() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key =
+            app.add_node_and_sync("https://member.example".into(), Point2D::new(20.0, 0.0));
+        let view_id = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+        let graph_leaf = tiles.insert_tab_tile(vec![graph_tile]);
+        let node_leaf = tiles.insert_tab_tile(vec![node_tile]);
+        let root = tiles.insert_horizontal_tile(vec![graph_leaf, node_leaf]);
+        let mut tree = Tree::new("persist_graph_member", root, tiles);
+
+        app.select_workbench_tile(graph_tile);
+        app.update_workbench_tile_selection(node_tile, SelectionUpdateMode::Add);
+
+        registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::GroupSelectedTiles);
+
+        let view_url = VersoAddress::view(view_id.as_uuid().to_string()).to_string();
+        let (view_member_key, view_member_node) = app
+            .domain_graph()
+            .get_node_by_url(&view_url)
+            .expect("graph view member node should be created");
+        assert_eq!(view_member_node.title, "Graph View");
+
+        let (group_key, _) = app
+            .domain_graph()
+            .nodes()
+            .find(|(_, node)| {
+                matches!(
+                    VersoAddress::parse(&node.url),
+                    Some(VersoAddress::TileGroup(_))
+                )
+            })
+            .expect("tile group node should be created");
+        assert!(app.domain_graph().edges().any(|edge| {
+            edge.edge_type == EdgeType::UserGrouped
+                && edge.from == group_key
+                && edge.to == view_member_key
+        }));
     }
 }

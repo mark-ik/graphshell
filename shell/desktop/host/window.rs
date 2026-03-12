@@ -11,6 +11,8 @@ use std::time::Instant;
 
 use euclid::Scale;
 use log::debug;
+#[cfg(feature = "wry")]
+use raw_window_handle::RawWindowHandle;
 use servo::{
     AuthenticationRequest, ConsoleLogLevel, Cursor, DeviceIndependentIntRect,
     DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize, DevicePixel, EmbedderControl,
@@ -19,8 +21,6 @@ use servo::{
     WebViewBuilder, WebViewDelegate, WebViewId,
 };
 use url::Url;
-#[cfg(feature = "wry")]
-use raw_window_handle::RawWindowHandle;
 
 use crate::app::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId};
 use crate::shell::desktop::host::running_app_state::{RunningAppState, WebViewCollection};
@@ -92,6 +92,7 @@ pub(crate) enum GraphSemanticEventKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InputTarget {
+    Host,
     Pane(PaneId),
     Renderer(RendererId),
 }
@@ -321,6 +322,7 @@ impl EmbedderWindow {
 
     pub(crate) fn explicit_input_webview_id(&self) -> Option<WebViewId> {
         match self.input_target() {
+            Some(InputTarget::Host) => None,
             Some(InputTarget::Renderer(renderer_id)) => Some(renderer_id),
             Some(InputTarget::Pane(pane_id)) => {
                 registries::phase1_renderer_attachment_for_pane(pane_id)
@@ -371,6 +373,11 @@ impl EmbedderWindow {
 
     pub(crate) fn retarget_input_to_webview(&self, webview_id: WebViewId) {
         self.sync_explicit_targets_for_webview(webview_id);
+        self.set_needs_update();
+    }
+
+    pub(crate) fn retarget_input_to_host(&self) {
+        self.set_input_target(Some(InputTarget::Host));
         self.set_needs_update();
     }
 
@@ -923,7 +930,7 @@ mod tests {
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use servo::WebViewId;
 
-    use super::{EmbedderWindow, GraphSemanticEventKind};
+    use super::{EmbedderWindow, GraphSemanticEventKind, InputTarget};
     use crate::prefs::AppPreferences;
     use crate::shell::desktop::host::headless_window::HeadlessWindow;
 
@@ -934,6 +941,16 @@ mod tests {
             }
         });
         WebViewId::new(PainterId::next())
+    }
+
+    #[test]
+    fn host_input_target_blocks_explicit_webview_fallback() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+
+        window.set_input_target(Some(InputTarget::Host));
+
+        assert_eq!(window.explicit_input_webview_id(), None);
     }
 
     #[test]

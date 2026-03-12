@@ -2,8 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use crate::app::{GraphBrowserApp, SearchDisplayMode};
+use crate::app::{GraphBrowserApp, GraphSearchOrigin, SearchDisplayMode};
 use crate::graph::NodeKey;
+use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 
 pub(crate) struct GraphSearchUiArgs<'a> {
     pub ctx: &'a egui::Context,
@@ -12,6 +13,7 @@ pub(crate) struct GraphSearchUiArgs<'a> {
     pub graph_search_filter_mode: &'a mut bool,
     pub graph_search_matches: &'a mut Vec<NodeKey>,
     pub graph_search_active_match_index: &'a mut Option<usize>,
+    pub local_widget_focus: &'a mut Option<LocalFocusTarget>,
     pub focus_graph_search_field: &'a mut bool,
 }
 
@@ -28,6 +30,7 @@ pub(crate) fn render_graph_search_window<F>(
         graph_search_filter_mode,
         graph_search_matches,
         graph_search_active_match_index,
+        local_widget_focus,
         focus_graph_search_field,
     } = args;
 
@@ -43,13 +46,25 @@ pub(crate) fn render_graph_search_window<F>(
                     egui::TextEdit::singleline(graph_search_query)
                         .id(search_id)
                         .desired_width(280.0)
-                        .hint_text("Find node title or URL"),
+                        .hint_text("Find title, URL, #tag, or UDC code"),
                 );
                 if *focus_graph_search_field {
                     search_field.request_focus();
                     *focus_graph_search_field = false;
+                    *local_widget_focus = Some(LocalFocusTarget::GraphSearch);
+                }
+                if search_field.gained_focus() || search_field.has_focus() {
+                    *local_widget_focus = Some(LocalFocusTarget::GraphSearch);
+                }
+                if search_field.lost_focus()
+                    && matches!(*local_widget_focus, Some(LocalFocusTarget::GraphSearch))
+                {
+                    *local_widget_focus = None;
                 }
                 if search_field.changed() {
+                    graph_app.workspace.active_graph_search_origin = GraphSearchOrigin::Manual;
+                    graph_app.workspace.active_graph_search_neighborhood_anchor = None;
+                    graph_app.workspace.active_graph_search_neighborhood_depth = 1;
                     refresh_graph_search_matches(
                         graph_app,
                         graph_search_query,
@@ -81,6 +96,9 @@ pub(crate) fn render_graph_search_window<F>(
                     graph_app.workspace.egui_state_dirty = true;
                 }
                 if ui.button("Clear").clicked() {
+                    graph_app.workspace.active_graph_search_origin = GraphSearchOrigin::Manual;
+                    graph_app.workspace.active_graph_search_neighborhood_anchor = None;
+                    graph_app.workspace.active_graph_search_neighborhood_depth = 1;
                     graph_search_query.clear();
                     refresh_graph_search_matches(
                         graph_app,

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -84,49 +84,23 @@ pub(crate) enum SyncSignal {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RegistryEventSignal {
-    ThemeChanged {
-        new_theme_id: String,
-    },
-    LensChanged {
-        new_lens_id: String,
-    },
-    WorkflowChanged {
-        new_workflow_id: String,
-    },
-    PhysicsProfileChanged {
-        new_profile_id: String,
-    },
-    CanvasProfileChanged {
-        new_profile_id: String,
-    },
-    WorkbenchSurfaceChanged {
-        new_profile_id: String,
-    },
-    SemanticIndexUpdated {
-        indexed_nodes: usize,
-    },
-    ModLoaded {
-        mod_id: String,
-    },
-    ModUnloaded {
-        mod_id: String,
-    },
-    AgentSpawned {
-        agent_id: String,
-    },
-    IdentityRotated {
-        identity_id: String,
-    },
+    ThemeChanged { new_theme_id: String },
+    LensChanged { new_lens_id: String },
+    WorkflowChanged { new_workflow_id: String },
+    PhysicsProfileChanged { new_profile_id: String },
+    CanvasProfileChanged { new_profile_id: String },
+    WorkbenchSurfaceChanged { new_profile_id: String },
+    SemanticIndexUpdated { indexed_nodes: usize },
+    ModLoaded { mod_id: String },
+    ModUnloaded { mod_id: String },
+    AgentSpawned { agent_id: String },
+    IdentityRotated { identity_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum InputEventSignal {
-    ContextChanged {
-        new_context: String,
-    },
-    BindingRemapped {
-        action_id: String,
-    },
+    ContextChanged { new_context: String },
+    BindingRemapped { action_id: String },
     BindingsReset,
 }
 
@@ -694,7 +668,10 @@ mod tests {
         let dead_letters = layer.dead_letters_snapshot();
         assert_eq!(dead_letters.len(), 2);
         assert_eq!(dead_letters[0].reason, SignalDeadLetterReason::Unrouted);
-        assert_eq!(dead_letters[1].reason, SignalDeadLetterReason::ObserverFailed);
+        assert_eq!(
+            dead_letters[1].reason,
+            SignalDeadLetterReason::ObserverFailed
+        );
     }
 
     #[test]
@@ -736,7 +713,10 @@ mod tests {
             None,
         ));
 
-        let received = receiver.recv().await.expect("async receiver should stay open");
+        let received = receiver
+            .recv()
+            .await
+            .expect("async receiver should stay open");
         assert_eq!(report.observers_notified, 1);
         assert!(matches!(
             received.kind,
@@ -758,7 +738,10 @@ mod tests {
             None,
         ));
 
-        let received = receiver.recv().await.expect("all-topics receiver should stay open");
+        let received = receiver
+            .recv()
+            .await
+            .expect("all-topics receiver should stay open");
         assert!(matches!(
             received.kind,
             SignalKind::Lifecycle(LifecycleSignal::WorkflowActivated { ref workflow_id })

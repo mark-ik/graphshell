@@ -8,11 +8,13 @@ use crate::app::{GraphBrowserApp, GraphIntent, SearchDisplayMode};
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
+use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 
 pub(crate) struct GraphSearchFlowArgs<'a> {
     pub ctx: &'a egui::Context,
     pub graph_app: &'a mut GraphBrowserApp,
     pub graph_search_open: &'a mut bool,
+    pub local_widget_focus: &'a mut Option<LocalFocusTarget>,
     pub graph_search_query: &'a mut String,
     pub graph_search_filter_mode: &'a mut bool,
     pub graph_search_matches: &'a mut Vec<NodeKey>,
@@ -44,6 +46,7 @@ where
         ctx,
         graph_app,
         graph_search_open,
+        local_widget_focus,
         graph_search_query,
         graph_search_filter_mode,
         graph_search_matches,
@@ -55,7 +58,11 @@ where
     } = args;
 
     if !graph_search_available && *graph_search_open {
-        *graph_search_open = false;
+        crate::shell::desktop::ui::gui::apply_graph_search_local_focus_state(
+            graph_search_open,
+            local_widget_focus,
+            false,
+        );
         graph_search_query.clear();
         graph_search_matches.clear();
         *graph_search_active_match_index = None;
@@ -78,7 +85,11 @@ where
     if graph_search_available && search_shortcut_pressed {
         // Omnibox-first graph search: Ctrl+F focuses the location bar
         // with an `@` query prefix instead of opening a separate dialog.
-        *graph_search_open = false;
+        crate::shell::desktop::ui::gui::apply_graph_search_local_focus_state(
+            graph_search_open,
+            local_widget_focus,
+            false,
+        );
         if !location.starts_with('@') {
             *location = "@".to_string();
         }
@@ -123,7 +134,11 @@ where
             suppress_toggle_view = true;
             let mut closed_search_surface = false;
             if graph_search_query.trim().is_empty() {
-                *graph_search_open = false;
+                crate::shell::desktop::ui::gui::apply_graph_search_local_focus_state(
+                    graph_search_open,
+                    local_widget_focus,
+                    false,
+                );
                 *graph_search_filter_mode = false;
                 graph_app.workspace.search_display_mode = SearchDisplayMode::Highlight;
                 closed_search_surface = true;

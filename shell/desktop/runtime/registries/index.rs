@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
-use crate::services::search::fuzzy_match_node_keys;
+use crate::services::search::{fuzzy_match_items, fuzzy_match_node_keys};
 
 use super::knowledge::KnowledgeRegistry;
 
@@ -98,7 +98,8 @@ impl IndexRegistry {
 
     #[cfg(test)]
     fn clear_optional_providers(&mut self) {
-        self.providers.retain(|provider_id, _| provider_id == INDEX_PROVIDER_LOCAL);
+        self.providers
+            .retain(|provider_id, _| provider_id == INDEX_PROVIDER_LOCAL);
     }
 }
 
@@ -122,6 +123,18 @@ impl Default for IndexRegistry {
 
 struct LocalSearchProvider;
 
+#[derive(Clone)]
+struct LocalSearchCandidate {
+    key: NodeKey,
+    text: String,
+}
+
+impl AsRef<str> for LocalSearchCandidate {
+    fn as_ref(&self) -> &str {
+        &self.text
+    }
+}
+
 impl SearchProvider for LocalSearchProvider {
     fn id(&self) -> &'static str {
         INDEX_PROVIDER_LOCAL
@@ -138,7 +151,40 @@ impl SearchProvider for LocalSearchProvider {
         query: &str,
         limit: usize,
     ) -> Vec<SearchResult> {
-        let matched_keys = fuzzy_match_node_keys(app.domain_graph(), query);
+        let trimmed = query.trim();
+        let matched_keys = if trimmed.starts_with('#')
+            || trimmed.starts_with("udc:")
+            || trimmed
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '.' || c == ':' || c == '/')
+        {
+            let candidates: Vec<LocalSearchCandidate> = app
+                .domain_graph()
+                .nodes()
+                .map(|(key, node)| {
+                    let semantic_tags = app
+                        .workspace
+                        .semantic_tags
+                        .get(&key)
+                        .map(|tags| {
+                            let mut tags = tags.iter().cloned().collect::<Vec<_>>();
+                            tags.sort();
+                            tags.join(" ")
+                        })
+                        .unwrap_or_default();
+                    LocalSearchCandidate {
+                        key,
+                        text: format!("{} {} {}", node.title, node.url, semantic_tags),
+                    }
+                })
+                .collect();
+            fuzzy_match_items(candidates, trimmed)
+                .into_iter()
+                .map(|candidate| candidate.key)
+                .collect::<Vec<_>>()
+        } else {
+            fuzzy_match_node_keys(app.domain_graph(), trimmed)
+        };
         matched_keys
             .into_iter()
             .take(limit)
@@ -218,7 +264,11 @@ impl SearchProvider for HistorySearchProvider {
             }
         }
 
-        results.sort_by(|a, b| b.relevance.total_cmp(&a.relevance).then_with(|| a.title.cmp(&b.title)));
+        results.sort_by(|a, b| {
+            b.relevance
+                .total_cmp(&a.relevance)
+                .then_with(|| a.title.cmp(&b.title))
+        });
         results.truncate(limit);
         results
     }
@@ -296,11 +346,10 @@ mod tests {
         let registry = IndexRegistry::default();
         let knowledge = KnowledgeRegistry::default();
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .workspace
-            .domain
-            .graph
-            .add_node("https://history.example/math".into(), Point2D::new(0.0, 0.0));
+        let key = app.workspace.domain.graph.add_node(
+            "https://history.example/math".into(),
+            Point2D::new(0.0, 0.0),
+        );
         if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
             node.title = "Mathematics Notes".into();
             node.history_entries = vec!["https://history.example/math".to_string()];
@@ -311,7 +360,10 @@ mod tests {
             .insert(key, ["udc:51".to_string()].into_iter().collect());
 
         let results = registry.search(&app, &knowledge, "math", 10);
-        let sources = results.into_iter().map(|result| result.source).collect::<HashSet<_>>();
+        let sources = results
+            .into_iter()
+            .map(|result| result.source)
+            .collect::<HashSet<_>>();
 
         assert!(sources.contains(INDEX_PROVIDER_LOCAL));
         assert!(sources.contains(INDEX_PROVIDER_HISTORY));
@@ -335,7 +387,44 @@ mod tests {
 
         let results = registry.search(&app, &knowledge, "example handle", 10);
         assert!(!results.is_empty());
-        assert!(results.iter().all(|result| result.source == INDEX_PROVIDER_LOCAL));
-        assert!(results.iter().any(|result| matches!(result.kind, SearchResultKind::Node(found) if found == key)));
+        assert!(
+            results
+                .iter()
+                .all(|result| result.source == INDEX_PROVIDER_LOCAL)
+        );
+        assert!(
+            results
+                .iter()
+                .any(|result| matches!(result.kind, SearchResultKind::Node(found) if found == key))
+        );
+    }
+
+    #[test]
+    fn local_search_provider_matches_semantic_tags_for_knowledge_queries() {
+        let provider = LocalSearchProvider;
+        let knowledge = KnowledgeRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://example.com/math".into(), Point2D::new(0.0, 0.0));
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
+            node.title = "Numerical Methods".into();
+        }
+        app.workspace.semantic_tags.insert(
+            key,
+            ["udc:51".to_string(), "udc:519.6".to_string()]
+                .into_iter()
+                .collect(),
+        );
+
+        let results = provider.search(&app, &knowledge, "udc:519.6", 10);
+
+        assert!(
+            results
+                .iter()
+                .any(|result| matches!(result.kind, SearchResultKind::Node(found) if found == key))
+        );
     }
 }

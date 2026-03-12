@@ -1,7 +1,13 @@
-use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode, WorkbenchIntent};
+use crate::app::{
+    GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode, ToolSurfaceReturnTarget,
+    WorkbenchIntent,
+};
+use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED,
     CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED,
+    CHANNEL_UX_FOCUS_CAPTURE_ENTER, CHANNEL_UX_FOCUS_CAPTURE_EXIT,
+    CHANNEL_UX_FOCUS_REALIZATION_MISMATCH, CHANNEL_UX_FOCUS_RETURN_FALLBACK,
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
@@ -54,6 +60,10 @@ fn test_webview_id() -> WebViewId {
 
 fn graph_pane(view_id: GraphViewId) -> TileKind {
     TileKind::Graph(GraphPaneRef::new(view_id))
+}
+
+fn node_pane(node_key: crate::graph::NodeKey) -> TileKind {
+    TileKind::Node(NodePaneState::for_node(node_key))
 }
 
 fn tool_pane(kind: ToolPaneState) -> TileKind {
@@ -143,6 +153,115 @@ fn settings_history_url_intent_is_consumed_by_orchestration_authority() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert!(intents.is_empty());
+}
+
+#[test]
+fn graph_search_history_pushes_previous_search_when_request_changes() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    app.workspace.active_graph_search_query = "udc:51".to_string();
+    app.workspace.search_display_mode = crate::app::SearchDisplayMode::Filter;
+    app.workspace.active_graph_search_origin = crate::app::GraphSearchOrigin::SemanticTag;
+
+    super::maybe_push_graph_search_history(
+        &mut app,
+        &crate::app::GraphSearchRequest {
+            query: "udc:519.6".to_string(),
+            filter_mode: true,
+            origin: crate::app::GraphSearchOrigin::AnchorSlice,
+            neighborhood_anchor: None,
+            neighborhood_depth: 1,
+            record_history: true,
+            toast_message: None,
+        },
+    );
+
+    assert_eq!(app.workspace.graph_search_history.len(), 1);
+    let entry = &app.workspace.graph_search_history[0];
+    assert_eq!(entry.query, "udc:51");
+    assert!(entry.filter_mode);
+    assert_eq!(entry.origin, crate::app::GraphSearchOrigin::SemanticTag);
+    assert_eq!(entry.neighborhood_depth, 1);
+}
+
+#[test]
+fn refresh_graph_search_matches_includes_anchor_neighborhood_context() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let anchor = app.workspace.domain.graph.add_node(
+        "https://example.com/math".into(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let neighbor = app.workspace.domain.graph.add_node(
+        "https://example.com/neighbor".into(),
+        euclid::default::Point2D::new(10.0, 0.0),
+    );
+    let far = app.workspace.domain.graph.add_node(
+        "https://example.com/far".into(),
+        euclid::default::Point2D::new(20.0, 0.0),
+    );
+    app.add_edge_and_sync(anchor, neighbor, crate::graph::EdgeType::Hyperlink, None);
+    app.workspace
+        .semantic_tags
+        .insert(anchor, ["udc:51".to_string()].into_iter().collect());
+    app.workspace
+        .semantic_tags
+        .insert(far, ["udc:51".to_string()].into_iter().collect());
+    app.workspace.semantic_index_dirty = true;
+    let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
+        &mut app,
+        &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
+    );
+    app.workspace.active_graph_search_neighborhood_anchor = Some(anchor);
+    app.workspace.active_graph_search_neighborhood_depth = 1;
+
+    let mut matches = Vec::new();
+    let mut active_index = None;
+    super::refresh_graph_search_matches(&app, "udc:51", &mut matches, &mut active_index);
+
+    assert!(matches.contains(&anchor));
+    assert!(matches.contains(&far));
+    assert!(matches.contains(&neighbor));
+}
+
+#[test]
+fn refresh_graph_search_matches_supports_two_hop_anchor_neighborhood_context() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let anchor = app.workspace.domain.graph.add_node(
+        "https://example.com/math".into(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let neighbor = app.workspace.domain.graph.add_node(
+        "https://example.com/neighbor".into(),
+        euclid::default::Point2D::new(10.0, 0.0),
+    );
+    let second_hop = app.workspace.domain.graph.add_node(
+        "https://example.com/second-hop".into(),
+        euclid::default::Point2D::new(20.0, 0.0),
+    );
+    app.add_edge_and_sync(anchor, neighbor, crate::graph::EdgeType::Hyperlink, None);
+    app.add_edge_and_sync(
+        neighbor,
+        second_hop,
+        crate::graph::EdgeType::Hyperlink,
+        None,
+    );
+    app.workspace
+        .semantic_tags
+        .insert(anchor, ["udc:51".to_string()].into_iter().collect());
+    app.workspace.semantic_index_dirty = true;
+    let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
+        &mut app,
+        &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
+    );
+    app.workspace.active_graph_search_neighborhood_anchor = Some(anchor);
+    app.workspace.active_graph_search_neighborhood_depth = 2;
+
+    let mut matches = Vec::new();
+    let mut active_index = None;
+    super::refresh_graph_search_matches(&app, "udc:51", &mut matches, &mut active_index);
+
+    assert!(matches.contains(&anchor));
+    assert!(matches.contains(&neighbor));
+    assert!(matches.contains(&second_hop));
 }
 
 #[test]
@@ -1545,6 +1664,8 @@ fn frame_loop_drains_workbench_intents_before_reducer_apply() {
     let root = tiles.insert_pane(graph_pane(GraphViewId::new()));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut open_node_tile_after_intents = None;
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
     app.enqueue_workbench_intent(WorkbenchIntent::CycleFocusRegion);
 
@@ -1557,6 +1678,7 @@ fn frame_loop_drains_workbench_intents_before_reducer_apply() {
         &mut app,
         &mut tree,
         false,
+        &mut focus_authority,
         &mut open_node_tile_after_intents,
         &mut frame_intents,
     );
@@ -1586,6 +1708,8 @@ fn frame_loop_panics_when_workbench_intent_leaks_past_interception() {
     let root = tiles.insert_pane(graph_pane(GraphViewId::new()));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut open_node_tile_after_intents = None;
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
     let mut frame_intents = Vec::new();
 
     app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
@@ -1596,6 +1720,7 @@ fn frame_loop_panics_when_workbench_intent_leaks_past_interception() {
         &mut app,
         &mut tree,
         false,
+        &mut focus_authority,
         &mut open_node_tile_after_intents,
         &mut frame_intents,
     );
@@ -1647,4 +1772,766 @@ fn clipboard_missing_node_failure_message_includes_recovery_suggestion() {
     let text = super::clipboard_copy_missing_node_failure_text();
     assert!(text.contains("try again"));
     assert!(text.contains("select a node"));
+}
+
+// Regression: show_clear_data_confirm must block workbench intents under the
+// modal isolation contract (focus_and_region_navigation_spec.md §modal-capture).
+// The production path (gui_update_coordinator) computes modal_surface_active
+// including show_clear_data_confirm; this test verifies the _with_modal_state
+// entry point enforces the block correctly, and that CycleFocusRegion is not
+// routed while the confirm dialog is active.
+#[test]
+fn clear_data_confirm_blocks_cycle_focus_region() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node_key = crate::graph::NodeKey::new(42);
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("clear_data_modal_isolation", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+
+    // With modal active (simulates show_clear_data_confirm = true), CycleFocusRegion
+    // must be dropped — the active tile must not change.
+    let active_before: Vec<_> = tree.active_tiles();
+    let mut intents = vec![WorkbenchIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents_with_modal_state(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        true, // modal_surface_active: clear_data_confirm is open
+    );
+    assert!(
+        intents.is_empty(),
+        "intent must be consumed (not leaked) while modal is active"
+    );
+    assert_eq!(
+        tree.active_tiles(),
+        active_before,
+        "CycleFocusRegion must not change active tile while clear_data_confirm modal is open"
+    );
+
+    // With modal dismissed, CycleFocusRegion must route normally.
+    let mut intents = vec![WorkbenchIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents_with_modal_state(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false, // modal dismissed
+    );
+    assert!(
+        intents.is_empty(),
+        "intent must be consumed when modal is dismissed"
+    );
+    assert_ne!(
+        tree.active_tiles(),
+        active_before,
+        "CycleFocusRegion must advance active tile once modal is dismissed"
+    );
+}
+
+#[test]
+fn command_palette_close_restores_captured_focus_target() {
+    let graph_view = GraphViewId::new();
+    let node_key = crate::graph::NodeKey::new(42);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("command_palette_restore_focus", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+    let captured_target = ToolSurfaceReturnTarget::Graph(graph_view);
+
+    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert!(app.workspace.show_command_palette);
+    assert_eq!(
+        app.pending_command_surface_return_target(),
+        Some(captured_target.clone())
+    );
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    assert_eq!(active_node_key(&tree), Some(node_key));
+
+    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert!(!app.workspace.show_command_palette);
+    assert!(app.pending_command_surface_return_target().is_none());
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
+            )
+        }),
+        "closing the command palette should restore the captured graph focus target"
+    );
+}
+
+#[test]
+fn command_palette_close_uses_runtime_focus_authority_when_app_queue_is_empty() {
+    let graph_view = GraphViewId::new();
+    let node_key = crate::graph::NodeKey::new(142);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new(
+        "command_palette_restore_from_runtime_authority",
+        root,
+        tiles,
+    );
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    app.workspace.show_command_palette = true;
+    focus_authority.command_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Graph(graph_view));
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    assert_eq!(active_node_key(&tree), Some(node_key));
+    assert!(app.pending_command_surface_return_target().is_none());
+
+    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(!app.workspace.show_command_palette);
+    assert!(app.pending_command_surface_return_target().is_none());
+    assert_eq!(
+        focus_authority.command_surface_return_target,
+        Some(ToolSurfaceReturnTarget::Graph(graph_view))
+    );
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
+            )
+        }),
+        "closing the command palette should restore from runtime focus authority when no app queue target exists"
+    );
+}
+
+#[test]
+fn transient_surface_restore_returns_focus_to_captured_graph_target() {
+    let graph_view = GraphViewId::new();
+    let node_key = crate::graph::NodeKey::new(52);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("transient_surface_restore_focus", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+    app.set_pending_transient_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
+        graph_view,
+    )));
+    app.request_restore_transient_surface_focus();
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    assert_eq!(active_node_key(&tree), Some(node_key));
+
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+    super::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+
+    assert!(app.pending_transient_surface_return_target().is_none());
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
+            )
+        }),
+        "restoring a transient surface should reactivate the captured graph target"
+    );
+}
+
+#[test]
+fn transient_surface_restore_uses_runtime_focus_authority_when_app_queue_is_empty() {
+    let graph_view = GraphViewId::new();
+    let node_key = crate::graph::NodeKey::new(152);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new(
+        "transient_surface_restore_from_runtime_authority",
+        root,
+        tiles,
+    );
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    focus_authority.transient_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Graph(graph_view));
+    app.request_restore_transient_surface_focus();
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    assert_eq!(active_node_key(&tree), Some(node_key));
+    assert!(app.pending_transient_surface_return_target().is_none());
+
+    super::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+
+    assert!(app.pending_transient_surface_return_target().is_none());
+    assert!(focus_authority.transient_surface_return_target.is_none());
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
+            )
+        }),
+        "transient restore should use runtime focus authority when no app queue target exists"
+    );
+}
+
+#[test]
+fn cycle_focus_region_updates_runtime_semantic_region_in_same_pass() {
+    let graph_view = GraphViewId::new();
+    let node_key = crate::graph::NodeKey::new(162);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("cycle_focus_region_runtime_authority", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+    super::refresh_runtime_focus_authority_after_workbench_intent(
+        &mut focus_authority,
+        &app,
+        &tree,
+        false,
+    );
+    assert_eq!(
+        focus_authority
+            .realized_focus_state
+            .as_ref()
+            .map(|state| state.semantic_region.clone()),
+        Some(
+            crate::shell::desktop::ui::gui_state::SemanticRegionFocus::GraphSurface {
+                view_id: Some(graph_view),
+            }
+        )
+    );
+
+    let mut intents = vec![WorkbenchIntent::CycleFocusRegion];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(matches!(
+        focus_authority.semantic_region,
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
+            node_key: Some(key),
+            ..
+        }) if key == node_key
+    ));
+}
+
+#[test]
+fn prime_focus_authority_for_command_palette_applies_focus_command_first() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let mut tree = Tree::new("prime_command_palette_focus_authority", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+    super::prime_runtime_focus_authority_for_workbench_intent(
+        &mut focus_authority,
+        &mut app,
+        &tree,
+        &WorkbenchIntent::OpenCommandPalette,
+    );
+
+    assert_eq!(
+        focus_authority.semantic_region,
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::CommandPalette)
+    );
+    assert_eq!(
+        focus_authority.command_surface_return_target,
+        Some(ToolSurfaceReturnTarget::Graph(graph_view))
+    );
+}
+
+#[test]
+fn authority_realizer_opens_context_palette_when_semantic_region_requests_it() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let mut tree = Tree::new("authority_realizer_context_palette", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    focus_authority.semantic_region =
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ContextPalette);
+    focus_authority.command_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Graph(graph_view));
+
+    let mut intents = vec![WorkbenchIntent::OpenCommandPalette];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(app.workspace.show_command_palette);
+    assert!(app.workspace.command_palette_contextual_mode);
+}
+
+#[test]
+fn prime_focus_authority_for_help_panel_applies_focus_command_first() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let tree = Tree::new("prime_help_panel_focus_authority", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    super::prime_runtime_focus_authority_for_workbench_intent(
+        &mut focus_authority,
+        &mut app,
+        &tree,
+        &WorkbenchIntent::ToggleHelpPanel,
+    );
+
+    assert_eq!(
+        focus_authority.semantic_region,
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::HelpPanel)
+    );
+    assert_eq!(
+        focus_authority.transient_surface_return_target,
+        Some(ToolSurfaceReturnTarget::Graph(graph_view))
+    );
+}
+
+#[test]
+fn authority_realizer_opens_help_panel_from_focus_authority() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let mut tree = Tree::new("authority_realizer_help_panel_open", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    focus_authority.semantic_region =
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::HelpPanel);
+    focus_authority.transient_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Graph(graph_view));
+
+    let mut intents = vec![WorkbenchIntent::ToggleHelpPanel];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(app.workspace.show_help_panel);
+    assert!(!app.workspace.show_command_palette);
+    assert!(!app.workspace.show_radial_menu);
+}
+
+#[test]
+fn authority_realizer_closes_help_panel_and_restores_graph_focus() {
+    let graph_view = GraphViewId::new();
+    let node_key = NodeKey::new(301);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(node_pane(node_key));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("authority_realizer_help_panel_close", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    app.workspace.show_help_panel = true;
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    focus_authority.semantic_region =
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::HelpPanel);
+    focus_authority.transient_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Graph(graph_view));
+
+    let mut intents = vec![WorkbenchIntent::ToggleHelpPanel];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(!app.workspace.show_help_panel);
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
+            )
+        }),
+        "help-panel close should restore graph focus"
+    );
+}
+
+#[test]
+fn authority_realizer_opens_radial_menu_from_focus_authority() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let mut tree = Tree::new("authority_realizer_radial_open", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    focus_authority.semantic_region =
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::RadialPalette);
+    focus_authority.transient_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Graph(graph_view));
+
+    let mut intents = vec![WorkbenchIntent::ToggleRadialMenu];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(app.workspace.show_radial_menu);
+    assert!(!app.workspace.show_help_panel);
+    assert!(!app.workspace.show_command_palette);
+}
+
+#[test]
+fn authority_realizer_closes_radial_menu_and_restores_graph_focus() {
+    let graph_view = GraphViewId::new();
+    let node_key = NodeKey::new(302);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(node_pane(node_key));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("authority_realizer_radial_close", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    app.workspace.show_radial_menu = true;
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    focus_authority.semantic_region =
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::RadialPalette);
+    focus_authority.transient_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Graph(graph_view));
+
+    let mut intents = vec![WorkbenchIntent::ToggleRadialMenu];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(!app.workspace.show_radial_menu);
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
+            )
+        }),
+        "radial-menu close should restore graph focus"
+    );
+}
+
+#[test]
+fn prime_focus_authority_for_tool_pane_applies_focus_command_first() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let tree = Tree::new("prime_tool_pane_focus_authority", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    super::prime_runtime_focus_authority_for_workbench_intent(
+        &mut focus_authority,
+        &mut app,
+        &tree,
+        &WorkbenchIntent::OpenToolPane {
+            kind: ToolPaneState::Settings,
+        },
+    );
+
+    assert_eq!(
+        focus_authority.semantic_region,
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { pane_id: None })
+    );
+    assert_eq!(
+        focus_authority.tool_surface_return_target,
+        Some(ToolSurfaceReturnTarget::Graph(graph_view))
+    );
+}
+
+#[test]
+fn authority_realizer_closes_tool_pane_and_restores_graph_focus() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
+    let root = tiles.insert_tab_tile(vec![graph, settings]);
+    let mut tree = Tree::new("authority_realizer_close_tool_pane", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::Settings));
+    focus_authority.tool_surface_return_target = Some(ToolSurfaceReturnTarget::Graph(graph_view));
+    focus_authority.semantic_region = Some(
+        crate::shell::desktop::ui::gui_state::SemanticRegionFocus::GraphSurface {
+            view_id: Some(graph_view),
+        },
+    );
+
+    let mut intents = vec![WorkbenchIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: true,
+    }];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
+            )
+        }),
+        "authority realizer should restore graph focus after closing the settings tool pane"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn command_palette_restore_mismatch_emits_focus_realization_mismatch() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let missing_node = crate::graph::NodeKey::new(999_001);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let mut tree = Tree::new("command_palette_restore_mismatch", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    app.workspace.show_command_palette = true;
+    focus_authority.command_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Node(missing_node));
+    focus_authority.semantic_region =
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::CommandPalette);
+
+    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_FOCUS_REALIZATION_MISMATCH),
+        "expected focus realization mismatch when command palette restore target cannot be realized"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn tool_pane_restore_mismatch_emits_focus_realization_mismatch() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let missing_node = crate::graph::NodeKey::new(999_002);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
+    let root = tiles.insert_tab_tile(vec![graph, settings]);
+    let mut tree = Tree::new("tool_pane_restore_mismatch", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::Settings));
+    focus_authority.tool_surface_return_target = Some(ToolSurfaceReturnTarget::Node(missing_node));
+    focus_authority.semantic_region =
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { pane_id: None });
+
+    let mut intents = vec![WorkbenchIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: true,
+    }];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_FOCUS_REALIZATION_MISMATCH),
+        "expected focus realization mismatch when tool-pane restore target cannot be realized"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn transient_restore_mismatch_emits_focus_realization_mismatch() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let missing_node = crate::graph::NodeKey::new(999_003);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let mut tree = Tree::new("transient_restore_mismatch", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    focus_authority.transient_surface_return_target =
+        Some(ToolSurfaceReturnTarget::Node(missing_node));
+    app.request_restore_transient_surface_focus();
+
+    super::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_FOCUS_REALIZATION_MISMATCH),
+        "expected focus realization mismatch when transient restore target cannot be realized"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn command_palette_toggle_emits_focus_capture_enter_and_exit_channels() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let mut tree = Tree::new("command_palette_capture_diagnostics", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_FOCUS_CAPTURE_ENTER),
+        "expected focus capture enter diagnostics when opening the command palette"
+    );
+    assert!(
+        snapshot.contains(CHANNEL_UX_FOCUS_CAPTURE_EXIT),
+        "expected focus capture exit diagnostics when closing the command palette"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn transient_surface_restore_invalid_target_emits_focus_return_fallback() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let node_key = crate::graph::NodeKey::new(91);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("transient_surface_restore_fallback", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    app.set_pending_transient_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
+        GraphViewId::new(),
+    )));
+    app.request_restore_transient_surface_focus();
+
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+    super::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_FOCUS_RETURN_FALLBACK),
+        "expected focus return fallback diagnostics when the stored transient return target is stale"
+    );
+    assert_eq!(
+        active_node_key(&tree),
+        Some(node_key),
+        "fallback restore should preserve a valid active tile when the stored target is stale"
+    );
 }

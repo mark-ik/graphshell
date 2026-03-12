@@ -8,7 +8,6 @@ use crate::app::{
 use crate::graph::NodeKey;
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use crate::util::{GraphshellSettingsPath, VersoAddress};
-use euclid::default::Point2D;
 
 use super::index::SearchResultKind;
 
@@ -263,9 +262,7 @@ impl ActionDispatch {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RuntimeAction {
-    ActivateWorkflow {
-        workflow_id: String,
-    },
+    ActivateWorkflow { workflow_id: String },
 }
 
 #[derive(Debug, Clone)]
@@ -355,7 +352,9 @@ impl ActionRegistry {
     }
 
     pub(crate) fn unregister(&mut self, action_id: &str) -> bool {
-        self.handlers.remove(&action_id.to_ascii_lowercase()).is_some()
+        self.handlers
+            .remove(&action_id.to_ascii_lowercase())
+            .is_some()
     }
 
     pub(crate) fn execute(
@@ -739,14 +738,19 @@ fn execute_graph_node_close_action(
 }
 
 fn require_active_node(app: &GraphBrowserApp, action_id: &str) -> Result<NodeKey, ActionOutcome> {
-    app.get_single_selected_node()
-        .ok_or_else(|| ActionOutcome::Failure(ActionFailure {
+    app.get_single_selected_node().ok_or_else(|| {
+        ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::Rejected,
             reason: format!("action '{action_id}' requires exactly one active node"),
-        }))
+        })
+    })
 }
 
-fn require_named_payload(name: &str, value: &str, action_id: &str) -> Result<String, ActionOutcome> {
+fn require_named_payload(
+    name: &str,
+    value: &str,
+    action_id: &str,
+) -> Result<String, ActionOutcome> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(ActionOutcome::Failure(ActionFailure {
@@ -765,7 +769,9 @@ fn execute_graph_node_new_action(_app: &GraphBrowserApp, payload: &ActionPayload
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::CreateNodeNearCenter]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::CreateNodeNearCenter,
+    ]))
 }
 
 fn execute_graph_node_new_as_tab_action(
@@ -800,7 +806,9 @@ fn execute_graph_node_pin_toggle_action(
         return outcome;
     }
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::TogglePrimaryNodePin]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::TogglePrimaryNodePin,
+    ]))
 }
 
 fn execute_graph_node_pin_selected_action(
@@ -814,9 +822,11 @@ fn execute_graph_node_pin_selected_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::ExecuteEdgeCommand {
-        command: crate::app::EdgeCommand::PinSelected,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::ExecuteEdgeCommand {
+            command: crate::app::EdgeCommand::PinSelected,
+        },
+    ]))
 }
 
 fn execute_graph_node_unpin_selected_action(
@@ -826,14 +836,15 @@ fn execute_graph_node_unpin_selected_action(
     let ActionPayload::GraphNodeUnpinSelected = payload else {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::InvalidPayload,
-            reason: "graph:node_unpin_selected requires GraphNodeUnpinSelected payload"
-                .to_string(),
+            reason: "graph:node_unpin_selected requires GraphNodeUnpinSelected payload".to_string(),
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::ExecuteEdgeCommand {
-        command: crate::app::EdgeCommand::UnpinSelected,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::ExecuteEdgeCommand {
+            command: crate::app::EdgeCommand::UnpinSelected,
+        },
+    ]))
 }
 
 fn execute_graph_node_delete_action(
@@ -847,7 +858,9 @@ fn execute_graph_node_delete_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::RemoveSelectedNodes]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::RemoveSelectedNodes,
+    ]))
 }
 
 fn execute_graph_node_choose_frame_action(
@@ -865,13 +878,15 @@ fn execute_graph_node_choose_frame_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::ChooseWorkspacePicker {
-        request: crate::app::ChooseFramePickerRequest {
-            node: node_key,
-            mode: ChooseFramePickerMode::OpenNodeInFrame,
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::ChooseWorkspacePicker {
+            request: crate::app::ChooseFramePickerRequest {
+                node: node_key,
+                mode: ChooseFramePickerMode::OpenNodeInFrame,
+            },
+            exact_nodes: None,
         },
-        exact_nodes: None,
-    }]))
+    ]))
 }
 
 fn execute_graph_node_add_to_frame_action(
@@ -889,13 +904,15 @@ fn execute_graph_node_add_to_frame_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::ChooseWorkspacePicker {
-        request: crate::app::ChooseFramePickerRequest {
-            node: node_key,
-            mode: ChooseFramePickerMode::AddNodeToFrame,
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::ChooseWorkspacePicker {
+            request: crate::app::ChooseFramePickerRequest {
+                node: node_key,
+                mode: ChooseFramePickerMode::AddNodeToFrame,
+            },
+            exact_nodes: None,
         },
-        exact_nodes: None,
-    }]))
+    ]))
 }
 
 fn execute_graph_node_add_connected_to_frame_action(
@@ -905,8 +922,9 @@ fn execute_graph_node_add_connected_to_frame_action(
     let ActionPayload::GraphNodeAddConnectedToFrame = payload else {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::InvalidPayload,
-            reason: "graph:node_add_connected_to_frame requires GraphNodeAddConnectedToFrame payload"
-                .to_string(),
+            reason:
+                "graph:node_add_connected_to_frame requires GraphNodeAddConnectedToFrame payload"
+                    .to_string(),
         });
     };
     let node_key = match require_active_node(app, ACTION_GRAPH_NODE_ADD_CONNECTED_TO_FRAME) {
@@ -914,13 +932,15 @@ fn execute_graph_node_add_connected_to_frame_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::ChooseWorkspacePicker {
-        request: crate::app::ChooseFramePickerRequest {
-            node: node_key,
-            mode: ChooseFramePickerMode::AddConnectedSelectionToFrame,
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::ChooseWorkspacePicker {
+            request: crate::app::ChooseFramePickerRequest {
+                node: node_key,
+                mode: ChooseFramePickerMode::AddConnectedSelectionToFrame,
+            },
+            exact_nodes: None,
         },
-        exact_nodes: None,
-    }]))
+    ]))
 }
 
 fn execute_graph_node_open_frame_action(
@@ -938,10 +958,12 @@ fn execute_graph_node_open_frame_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::OpenNodeFrameRouted {
-        key: node_key,
-        prefer_frame: None,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::OpenNodeFrameRouted {
+            key: node_key,
+            prefer_frame: None,
+        },
+    ]))
 }
 
 fn execute_graph_node_open_neighbors_action(
@@ -959,11 +981,13 @@ fn execute_graph_node_open_neighbors_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::OpenConnected {
-        source: node_key,
-        mode: PendingTileOpenMode::Tab,
-        scope: PendingConnectedOpenScope::Neighbors,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::OpenConnected {
+            source: node_key,
+            mode: PendingTileOpenMode::Tab,
+            scope: PendingConnectedOpenScope::Neighbors,
+        },
+    ]))
 }
 
 fn execute_graph_node_open_connected_action(
@@ -981,11 +1005,13 @@ fn execute_graph_node_open_connected_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::OpenConnected {
-        source: node_key,
-        mode: PendingTileOpenMode::Tab,
-        scope: PendingConnectedOpenScope::Connected,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::OpenConnected {
+            source: node_key,
+            mode: PendingTileOpenMode::Tab,
+            scope: PendingConnectedOpenScope::Connected,
+        },
+    ]))
 }
 
 fn execute_graph_node_open_split_action(
@@ -1026,12 +1052,14 @@ fn execute_graph_node_copy_url_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::ClipboardCopy {
-        request: ClipboardCopyRequest {
-            key: node_key,
-            kind: ClipboardCopyKind::Url,
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::ClipboardCopy {
+            request: ClipboardCopyRequest {
+                key: node_key,
+                kind: ClipboardCopyKind::Url,
+            },
         },
-    }]))
+    ]))
 }
 
 fn execute_graph_node_copy_title_action(
@@ -1049,12 +1077,14 @@ fn execute_graph_node_copy_title_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::ClipboardCopy {
-        request: ClipboardCopyRequest {
-            key: node_key,
-            kind: ClipboardCopyKind::Title,
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::ClipboardCopy {
+            request: ClipboardCopyRequest {
+                key: node_key,
+                kind: ClipboardCopyKind::Title,
+            },
         },
-    }]))
+    ]))
 }
 
 fn execute_graph_edge_create_action(
@@ -1089,9 +1119,11 @@ fn execute_graph_edge_connect_pair_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::ExecuteEdgeCommand {
-        command: crate::app::EdgeCommand::ConnectSelectedPair,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::ExecuteEdgeCommand {
+            command: crate::app::EdgeCommand::ConnectSelectedPair,
+        },
+    ]))
 }
 
 fn execute_graph_edge_connect_both_action(
@@ -1105,9 +1137,11 @@ fn execute_graph_edge_connect_both_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::ExecuteEdgeCommand {
-        command: crate::app::EdgeCommand::ConnectBothDirections,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::ExecuteEdgeCommand {
+            command: crate::app::EdgeCommand::ConnectBothDirections,
+        },
+    ]))
 }
 
 fn execute_graph_edge_remove_user_action(
@@ -1121,9 +1155,11 @@ fn execute_graph_edge_remove_user_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::ExecuteEdgeCommand {
-        command: crate::app::EdgeCommand::RemoveUserEdge,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::ExecuteEdgeCommand {
+            command: crate::app::EdgeCommand::RemoveUserEdge,
+        },
+    ]))
 }
 
 fn execute_graph_set_physics_profile_action(
@@ -1133,14 +1169,15 @@ fn execute_graph_set_physics_profile_action(
     let ActionPayload::GraphSetPhysicsProfile { profile_id } = payload else {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::InvalidPayload,
-            reason: "graph:set_physics_profile requires GraphSetPhysicsProfile payload"
-                .to_string(),
+            reason: "graph:set_physics_profile requires GraphSetPhysicsProfile payload".to_string(),
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::SetPhysicsProfile {
-        profile_id: profile_id.clone(),
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::SetPhysicsProfile {
+            profile_id: profile_id.clone(),
+        },
+    ]))
 }
 
 fn execute_graph_fit_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
@@ -1151,7 +1188,9 @@ fn execute_graph_fit_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> 
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::RequestFitToScreen]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::RequestFitToScreen,
+    ]))
 }
 
 fn execute_graph_toggle_physics_action(
@@ -1224,10 +1263,12 @@ fn execute_graph_deselect_all_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::UpdateSelection {
-        keys: Vec::new(),
-        mode: SelectionUpdateMode::Replace,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+        GraphIntent::UpdateSelection {
+            keys: Vec::new(),
+            mode: SelectionUpdateMode::Replace,
+        },
+    ]))
 }
 
 fn execute_workbench_detach_to_split_action(
@@ -1266,10 +1307,12 @@ fn execute_workbench_move_node_to_pane_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(WorkbenchIntent::OpenNodeInPane {
-        node: node_key,
-        pane: *pane_id,
-    }))
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::OpenNodeInPane {
+            node: node_key,
+            pane: *pane_id,
+        },
+    ))
 }
 
 fn execute_workbench_split_horizontal_action(
@@ -1284,10 +1327,12 @@ fn execute_workbench_split_horizontal_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(WorkbenchIntent::SplitPane {
-        source_pane: *pane_id,
-        direction: SplitDirection::Horizontal,
-    }))
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::SplitPane {
+            source_pane: *pane_id,
+            direction: SplitDirection::Horizontal,
+        },
+    ))
 }
 
 fn execute_workbench_split_vertical_action(
@@ -1301,10 +1346,12 @@ fn execute_workbench_split_vertical_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(WorkbenchIntent::SplitPane {
-        source_pane: *pane_id,
-        direction: SplitDirection::Vertical,
-    }))
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::SplitPane {
+            source_pane: *pane_id,
+            direction: SplitDirection::Vertical,
+        },
+    ))
 }
 
 fn execute_workbench_close_pane_action(
@@ -1318,10 +1365,12 @@ fn execute_workbench_close_pane_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(WorkbenchIntent::ClosePane {
-        pane: *pane_id,
-        restore_previous_focus: true,
-    }))
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::ClosePane {
+            pane: *pane_id,
+            restore_previous_focus: true,
+        },
+    ))
 }
 
 fn execute_workbench_command_palette_open_action(
@@ -1366,9 +1415,11 @@ fn execute_workbench_settings_open_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(WorkbenchIntent::OpenToolPane {
-        kind: ToolPaneState::Settings,
-    }))
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::OpenToolPane {
+            kind: ToolPaneState::Settings,
+        },
+    ))
 }
 
 fn execute_workbench_undo_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
@@ -1404,7 +1455,9 @@ fn execute_workbench_save_snapshot_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::SaveWorkspaceSnapshot]))
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::SaveWorkspaceSnapshot,
+    ]))
 }
 
 fn execute_workbench_restore_session_action(
@@ -1443,9 +1496,9 @@ fn execute_workbench_save_graph_action(
         Err(outcome) => return outcome,
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![AppCommand::SaveGraphSnapshotNamed {
-        name,
-    }]))
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::SaveGraphSnapshotNamed { name },
+    ]))
 }
 
 fn execute_workbench_restore_graph_action(
@@ -1461,10 +1514,11 @@ fn execute_workbench_restore_graph_action(
 
     let command = match name {
         Some(name) => {
-            let name = match require_named_payload("graph name", name, ACTION_WORKBENCH_RESTORE_GRAPH) {
-                Ok(name) => name,
-                Err(outcome) => return outcome,
-            };
+            let name =
+                match require_named_payload("graph name", name, ACTION_WORKBENCH_RESTORE_GRAPH) {
+                    Ok(name) => name,
+                    Err(outcome) => return outcome,
+                };
             AppCommand::RestoreGraphSnapshotNamed { name }
         }
         None => AppCommand::RestoreGraphSnapshotLatest,
@@ -1504,9 +1558,11 @@ fn execute_workbench_open_history_manager_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(WorkbenchIntent::OpenToolPane {
-        kind: ToolPaneState::HistoryManager,
-    }))
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::OpenToolPane {
+            kind: ToolPaneState::HistoryManager,
+        },
+    ))
 }
 
 fn execute_workbench_activate_workflow_action(
@@ -1520,16 +1576,18 @@ fn execute_workbench_activate_workflow_action(
                 .to_string(),
         });
     };
-    let workflow_id =
-        match require_named_payload("workflow id", workflow_id, ACTION_WORKBENCH_ACTIVATE_WORKFLOW)
-        {
-            Ok(workflow_id) => workflow_id,
-            Err(outcome) => return outcome,
-        };
-
-    ActionOutcome::Dispatch(ActionDispatch::runtime_action(RuntimeAction::ActivateWorkflow {
+    let workflow_id = match require_named_payload(
+        "workflow id",
         workflow_id,
-    }))
+        ACTION_WORKBENCH_ACTIVATE_WORKFLOW,
+    ) {
+        Ok(workflow_id) => workflow_id,
+        Err(outcome) => return outcome,
+    };
+
+    ActionOutcome::Dispatch(ActionDispatch::runtime_action(
+        RuntimeAction::ActivateWorkflow { workflow_id },
+    ))
 }
 
 fn execute_graph_view_submit_action(
@@ -1560,7 +1618,7 @@ fn execute_graph_view_submit_action(
             .into(),
         ]))
     } else {
-        let position = new_node_position_for_context(app, app.focused_selection().primary());
+        let position = app.suggested_new_node_position(app.focused_selection().primary());
         ActionOutcome::Dispatch(ActionDispatch::intents(vec![
             GraphMutation::CreateNodeAtUrl {
                 url: input.to_string(),
@@ -1611,28 +1669,10 @@ fn execute_detail_view_submit_action(
     ActionOutcome::Dispatch(ActionDispatch::intents(vec![
         GraphMutation::CreateNodeAtUrl {
             url: normalized_url.clone(),
-            position: new_node_position_for_context(app, app.focused_selection().primary()),
+            position: app.suggested_new_node_position(app.focused_selection().primary()),
         }
         .into(),
     ]))
-}
-
-fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
-    app.workspace
-        .domain
-        .graph
-        .projected_centroid()
-        .unwrap_or_else(|| Point2D::new(400.0, 300.0))
-}
-
-fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>) -> Point2D<f32> {
-    let base = anchor
-        .and_then(|key| app.domain_graph().node_projected_position(key))
-        .unwrap_or_else(|| graph_centroid_or_default(app));
-    let n = app.domain_graph().node_count() as f32;
-    let angle = n * std::f32::consts::FRAC_PI_4;
-    let radius = 90.0;
-    Point2D::new(base.x + radius * angle.cos(), base.y + radius * angle.sin())
 }
 
 fn execute_omnibox_node_search_action(
@@ -1649,22 +1689,22 @@ fn execute_omnibox_node_search_action(
     let results = super::phase3_index_search(app, query, 10);
     if let Some(result) = results.first() {
         return match &result.kind {
-            SearchResultKind::Node(key) => ActionOutcome::Dispatch(ActionDispatch::intents(vec![
-                GraphIntent::SelectNode {
+            SearchResultKind::Node(key) => {
+                ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::SelectNode {
                     key: *key,
                     multi_select: false,
-                },
-            ])),
-            SearchResultKind::HistoryUrl(url) => ActionOutcome::Dispatch(ActionDispatch::intents(vec![
-                GraphMutation::CreateNodeAtUrl {
-                    url: url.clone(),
-                    position: new_node_position_for_context(
-                        app,
-                        app.focused_selection().primary(),
-                    ),
-                }
-                .into(),
-            ])),
+                }]))
+            }
+            SearchResultKind::HistoryUrl(url) => {
+                ActionOutcome::Dispatch(ActionDispatch::intents(vec![
+                    GraphMutation::CreateNodeAtUrl {
+                        url: url.clone(),
+                        position: app
+                            .suggested_new_node_position(app.focused_selection().primary()),
+                    }
+                    .into(),
+                ]))
+            }
             SearchResultKind::KnowledgeTag { code } => ActionOutcome::Failure(ActionFailure {
                 kind: ActionFailureKind::Rejected,
                 reason: format!(
@@ -1699,12 +1739,12 @@ fn execute_verse_pair_device_action(
         }),
         PairingMode::EnterCode { code } => {
             match crate::mods::native::verse::decode_pairing_code(code) {
-                Ok(node_id) => ActionOutcome::Dispatch(ActionDispatch::intents(vec![
-                    GraphIntent::TrustPeer {
+                Ok(node_id) => {
+                    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::TrustPeer {
                         peer_id: node_id.to_string(),
                         display_name: format!("Paired {}", &node_id.to_string()[..8]),
-                    },
-                ])),
+                    }]))
+                }
                 Err(error) => ActionOutcome::Failure(ActionFailure {
                     kind: ActionFailureKind::Rejected,
                     reason: format!("pairing code decode failed: {error}"),
@@ -1712,12 +1752,12 @@ fn execute_verse_pair_device_action(
             }
         }
         PairingMode::LocalPeer { node_id } => match node_id.parse::<iroh::NodeId>() {
-            Ok(parsed_node_id) => ActionOutcome::Dispatch(ActionDispatch::intents(vec![
-                GraphIntent::TrustPeer {
+            Ok(parsed_node_id) => {
+                ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::TrustPeer {
                     peer_id: parsed_node_id.to_string(),
                     display_name: format!("Local {}", &parsed_node_id.to_string()[..8]),
-                },
-            ])),
+                }]))
+            }
             Err(error) => ActionOutcome::Failure(ActionFailure {
                 kind: ActionFailureKind::Rejected,
                 reason: format!("invalid local peer id '{node_id}': {error}"),
@@ -2496,9 +2536,7 @@ mod tests {
         assert!(is_namespaced_action_id(
             ACTION_WORKBENCH_OPEN_HISTORY_MANAGER
         ));
-        assert!(is_namespaced_action_id(
-            ACTION_WORKBENCH_ACTIVATE_WORKFLOW
-        ));
+        assert!(is_namespaced_action_id(ACTION_WORKBENCH_ACTIVATE_WORKFLOW));
         assert!(is_namespaced_action_id(ACTION_VERSE_PAIR_DEVICE));
         assert!(!is_namespaced_action_id("action.invalid.dot"));
         assert!(!is_namespaced_action_id("missing_colon"));

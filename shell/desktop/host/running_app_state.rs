@@ -186,6 +186,14 @@ pub(crate) struct RunningAppState {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
+
+    use super::*;
+    use crate::prefs::AppPreferences;
+    use crate::shell::desktop::host::headless_window::HeadlessWindow;
+    use crate::shell::desktop::host::window::InputTarget;
+
     #[test]
     fn servo_callbacks_only_enqueue_events() {
         let running_state_source = include_str!("running_app_state.rs");
@@ -224,6 +232,19 @@ mod tests {
                 concat!("Servo callbacks must not call the reducer ", "directly")
             );
         }
+    }
+
+    #[cfg(all(
+        feature = "gamepad",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
+    #[test]
+    fn gamepad_content_target_is_none_when_host_has_reclaimed_input() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+        window.set_input_target(Some(InputTarget::Host));
+
+        assert_eq!(resolve_gamepad_content_webview_id(&window), None);
     }
 }
 
@@ -700,7 +721,7 @@ impl RunningAppState {
             return;
         };
         let focused_webview = self.focused_window().and_then(|window| {
-            let webview_id = window.explicit_input_webview_id()?;
+            let webview_id = resolve_gamepad_content_webview_id(&window)?;
             window.webview_by_id(webview_id)
         });
         for dispatch in gamepad_provider.handle_gamepad_events() {
@@ -751,6 +772,14 @@ impl RunningAppState {
             });
         }
     }
+}
+
+#[cfg(all(
+    feature = "gamepad",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
+fn resolve_gamepad_content_webview_id(window: &EmbedderWindow) -> Option<WebViewId> {
+    window.explicit_input_webview_id()
 }
 
 impl WebViewCreationContext for RunningAppState {

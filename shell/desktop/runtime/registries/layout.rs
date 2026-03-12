@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use crate::app::graph_layout::{
-    ForceDirectedLayout, GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_GRID, GRAPH_LAYOUT_TREE,
-    GridLayout, LayoutAlgorithm, LayoutCapability, LayoutExecution, LayoutResolution, TreeLayout,
+    ForceDirectedBarnesHutLayout, ForceDirectedLayout, GRAPH_LAYOUT_FORCE_DIRECTED,
+    GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT, GRAPH_LAYOUT_GRID, GRAPH_LAYOUT_TREE, GridLayout,
+    LayoutAlgorithm, LayoutCapability, LayoutExecution, LayoutResolution, TreeLayout,
     capability_for_algorithm_id, resolve_layout_algorithm,
 };
 use crate::graph::Graph;
@@ -18,6 +19,10 @@ impl Default for LayoutRegistry {
         algorithms.insert(
             GRAPH_LAYOUT_FORCE_DIRECTED.to_string(),
             Box::new(ForceDirectedLayout),
+        );
+        algorithms.insert(
+            GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT.to_string(),
+            Box::new(ForceDirectedBarnesHutLayout),
         );
         algorithms.insert(GRAPH_LAYOUT_GRID.to_string(), Box::new(GridLayout));
         algorithms.insert(GRAPH_LAYOUT_TREE.to_string(), Box::new(TreeLayout));
@@ -67,7 +72,12 @@ impl LayoutRegistry {
         let algorithm = self
             .algorithms
             .get(&resolution.resolved_id)
-            .ok_or_else(|| format!("layout algorithm '{}' is not registered", resolution.resolved_id))?;
+            .ok_or_else(|| {
+                format!(
+                    "layout algorithm '{}' is not registered",
+                    resolution.resolved_id
+                )
+            })?;
         let mut execution = algorithm.execute(graph, &resolution.layout_mode)?;
         execution.resolution = resolution;
         Ok(execution)
@@ -115,5 +125,21 @@ mod tests {
 
         assert_eq!(execution.resolution.resolved_id, GRAPH_LAYOUT_GRID);
         assert!(execution.changed_positions > 0);
+    }
+
+    #[test]
+    fn layout_registry_accepts_barnes_hut_force_directed() {
+        let mut registry = LayoutRegistry::default();
+        let resolution =
+            registry.set_active_algorithm(Some(GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT));
+
+        assert_eq!(
+            resolution.resolved_id,
+            GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+        );
+        assert_eq!(
+            registry.active_algorithm_id(),
+            GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+        );
     }
 }

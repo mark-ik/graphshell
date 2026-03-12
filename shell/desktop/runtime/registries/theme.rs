@@ -82,7 +82,8 @@ impl Default for ThemeRegistry {
 impl ThemeRegistry {
     pub(crate) fn register_theme(&mut self, tokens: ThemeTokenSet) -> Result<(), String> {
         validate_theme_tokens(&tokens)?;
-        self.themes.insert(tokens.theme_id.to_ascii_lowercase(), tokens);
+        self.themes
+            .insert(tokens.theme_id.to_ascii_lowercase(), tokens);
         Ok(())
     }
 
@@ -169,9 +170,21 @@ fn validate_theme_tokens(tokens: &ThemeTokenSet) -> Result<(), String> {
             tokens.radial_disabled_text,
             tokens.radial_command_disabled_fill,
         ),
-        ("radial hub text", tokens.radial_hub_text, tokens.radial_hub_fill),
-        ("hover label text", tokens.hover_label_text, tokens.hover_label_background),
-        ("command notice", tokens.command_notice, tokens.hover_label_background),
+        (
+            "radial hub text",
+            tokens.radial_hub_text,
+            tokens.radial_hub_fill,
+        ),
+        (
+            "hover label text",
+            tokens.hover_label_text,
+            tokens.hover_label_background,
+        ),
+        (
+            "command notice",
+            tokens.command_notice,
+            tokens.hover_label_background,
+        ),
     ] {
         let ratio = contrast_ratio(foreground, background);
         if ratio < minimum_ratio {

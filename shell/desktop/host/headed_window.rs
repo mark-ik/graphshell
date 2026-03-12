@@ -236,9 +236,22 @@ impl HeadedWindow {
     }
 
     fn explicit_input_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
-        window
-            .explicit_input_webview_id()
+        self.resolved_input_webview_id(window)
             .and_then(|id| window.webview_by_id(id))
+    }
+
+    fn resolve_embedded_input_webview_id(
+        embedded_focus: Option<WebViewId>,
+        explicit_input: Option<WebViewId>,
+    ) -> Option<WebViewId> {
+        embedded_focus.or(explicit_input)
+    }
+
+    fn resolved_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
+        Self::resolve_embedded_input_webview_id(
+            self.gui.borrow().focused_embedded_content_webview_id(),
+            window.explicit_input_webview_id(),
+        )
     }
 
     fn explicit_chrome_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
@@ -737,9 +750,12 @@ impl HeadedWindow {
                 button: MouseButton::Forward,
                 ..
             } => {
-                if let Some(webview_id) = window.explicit_input_webview_id()
+                if let Some(webview_id) = self.resolved_input_webview_id(&window)
                     && let Some(webview) = window.webview_by_id(webview_id)
                 {
+                    self.gui
+                        .borrow_mut()
+                        .set_embedded_content_focus_webview(Some(webview_id));
                     window.retarget_input_to_webview(webview_id);
                     webview.go_forward(1);
                     window.set_needs_update();
@@ -751,9 +767,12 @@ impl HeadedWindow {
                 button: MouseButton::Back,
                 ..
             } => {
-                if let Some(webview_id) = window.explicit_input_webview_id()
+                if let Some(webview_id) = self.resolved_input_webview_id(&window)
                     && let Some(webview) = window.webview_by_id(webview_id)
                 {
+                    self.gui
+                        .borrow_mut()
+                        .set_embedded_content_focus_webview(Some(webview_id));
                     window.retarget_input_to_webview(webview_id);
                     webview.go_back(1);
                     window.set_needs_update();
@@ -763,7 +782,8 @@ impl HeadedWindow {
             WindowEvent::MouseWheel { .. } | WindowEvent::MouseInput { .. }
                 if !forward_mouse_event_to_egui(None) =>
             {
-                self.gui.borrow().surrender_focus();
+                window.retarget_input_to_host();
+                self.gui.borrow_mut().reclaim_host_focus();
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -837,6 +857,7 @@ impl HeadedWindow {
                             let mut gui = self.gui.borrow_mut();
                             let focused_node_key = gui.node_key_for_webview_id(webview_id);
                             gui.set_focused_node_key(focused_node_key);
+                            gui.set_embedded_content_focus_webview(Some(webview_id));
                             window.retarget_input_to_webview(webview_id);
                         } else if self.gui.borrow().graph_at_point(point) {
                             self.gui.borrow_mut().focus_graph_surface();
@@ -890,7 +911,10 @@ impl HeadedWindow {
             match event {
                 WindowEvent::KeyboardInput { event, .. } => {
                     if !self.ui_or_dialog_capture_active() {
-                        if let Some(webview_id) = window.explicit_input_webview_id() {
+                        if let Some(webview_id) = self.resolved_input_webview_id(&window) {
+                            self.gui
+                                .borrow_mut()
+                                .set_embedded_content_focus_webview(Some(webview_id));
                             window.retarget_input_to_webview(webview_id);
                         }
                         self.handle_keyboard_input(state.clone(), &window, event)
@@ -914,6 +938,7 @@ impl HeadedWindow {
                                 let mut gui = self.gui.borrow_mut();
                                 let focused_node_key = gui.node_key_for_webview_id(webview_id);
                                 gui.set_focused_node_key(focused_node_key);
+                                gui.set_embedded_content_focus_webview(Some(webview_id));
                                 window.retarget_input_to_webview(webview_id);
                             } else if let Some(point) = pointer_position
                                 && self.gui.borrow().graph_at_point(point)
@@ -1007,9 +1032,12 @@ impl HeadedWindow {
                 }
                 WindowEvent::Touch(touch) => {
                     if !self.ui_or_dialog_capture_active() {
-                        if let Some(webview_id) = window.explicit_input_webview_id()
+                        if let Some(webview_id) = self.resolved_input_webview_id(&window)
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
+                            self.gui
+                                .borrow_mut()
+                                .set_embedded_content_focus_webview(Some(webview_id));
                             window.retarget_input_to_webview(webview_id);
                             webview.notify_input_event(InputEvent::Touch(TouchEvent::new(
                                 winit_phase_to_touch_event_type(touch.phase),
@@ -1119,10 +1147,7 @@ impl PlatformWindow for HeadedWindow {
 
     #[cfg(feature = "wry")]
     fn raw_window_handle_for_child(&self) -> Option<RawWindowHandle> {
-        self.winit_window
-            .window_handle()
-            .ok()
-            .map(|h| h.as_raw())
+        self.winit_window.window_handle().ok().map(|h| h.as_raw())
     }
 
     fn screen_geometry(&self) -> ScreenGeometry {
@@ -1369,28 +1394,24 @@ impl PlatformWindow for HeadedWindow {
             EmbedderControl::FilePicker(file_picker) => {
                 self.add_dialog(webview_id, Dialog::new_file_dialog(file_picker));
             }
-            EmbedderControl::SimpleDialog(simple_dialog) => {
-                match simple_dialog {
-                    servo::SimpleDialog::Prompt(mut prompt_dialog) => {
-                        let bridge_response = {
-                            let mut gui = self.gui.borrow_mut();
-                            gui.try_handle_nip07_prompt(webview_id, prompt_dialog.message())
-                        };
-                        if let Some(response_json) = bridge_response {
-                            prompt_dialog.set_current_value(&response_json);
-                            prompt_dialog.confirm();
-                        } else {
-                            self.add_dialog(
-                                webview_id,
-                                Dialog::new_simple_dialog(servo::SimpleDialog::Prompt(
-                                    prompt_dialog,
-                                )),
-                            );
-                        }
+            EmbedderControl::SimpleDialog(simple_dialog) => match simple_dialog {
+                servo::SimpleDialog::Prompt(mut prompt_dialog) => {
+                    let bridge_response = {
+                        let mut gui = self.gui.borrow_mut();
+                        gui.try_handle_nip07_prompt(webview_id, prompt_dialog.message())
+                    };
+                    if let Some(response_json) = bridge_response {
+                        prompt_dialog.set_current_value(&response_json);
+                        prompt_dialog.confirm();
+                    } else {
+                        self.add_dialog(
+                            webview_id,
+                            Dialog::new_simple_dialog(servo::SimpleDialog::Prompt(prompt_dialog)),
+                        );
                     }
-                    other => self.add_dialog(webview_id, Dialog::new_simple_dialog(other)),
                 }
-            }
+                other => self.add_dialog(webview_id, Dialog::new_simple_dialog(other)),
+            },
             EmbedderControl::ContextMenu(prompt) => {
                 let offset = self.gui.borrow().toolbar_height();
                 self.add_dialog(webview_id, Dialog::new_context_menu(prompt, offset));
@@ -1658,6 +1679,19 @@ impl TouchEventSimulator {
 mod tests {
     use super::*;
 
+    fn test_webview_id() -> WebViewId {
+        thread_local! {
+            static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        }
+        NS_INSTALLED.with(|cell| {
+            if !cell.get() {
+                base::id::PipelineNamespace::install(base::id::PipelineNamespaceId(47));
+                cell.set(true);
+            }
+        });
+        WebViewId::new(base::id::PainterId::next())
+    }
+
     #[test]
     fn test_should_retarget_webview_focus_only_on_press() {
         assert!(HeadedWindow::should_retarget_webview_focus(
@@ -1678,5 +1712,16 @@ mod tests {
     fn test_graph_control_shortcut_excludes_regular_text_entry_keys() {
         assert!(!HeadedWindow::is_graph_control_shortcut(KeyCode::Enter));
         assert!(!HeadedWindow::is_graph_control_shortcut(KeyCode::KeyQ));
+    }
+
+    #[test]
+    fn test_resolve_embedded_input_webview_id_prefers_explicit_embedded_focus() {
+        let embedded_focus = test_webview_id();
+        let fallback = test_webview_id();
+
+        assert_eq!(
+            HeadedWindow::resolve_embedded_input_webview_id(Some(embedded_focus), Some(fallback)),
+            Some(embedded_focus)
+        );
     }
 }
