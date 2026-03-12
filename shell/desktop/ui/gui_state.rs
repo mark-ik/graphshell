@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
 use crate::graph::NodeKey;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::pane_model::PaneId;
@@ -51,20 +52,175 @@ pub(super) fn toolbar_location_input_id(active_toolbar_pane: Option<PaneId>) -> 
     ))
 }
 
+#[derive(Clone, Default)]
+pub(crate) struct RuntimeFocusAuthorityState {
+    pub(super) pane_activation: Option<PaneId>,
+    pub(super) semantic_region: Option<SemanticRegionFocus>,
+    pub(super) embedded_content_focus: Option<EmbeddedContentTarget>,
+    pub(super) tool_surface_return_target: Option<ToolSurfaceReturnTarget>,
+    pub(super) command_surface_return_target: Option<ToolSurfaceReturnTarget>,
+    pub(super) transient_surface_return_target: Option<ToolSurfaceReturnTarget>,
+    pub(crate) capture_stack: Vec<FocusCaptureEntry>,
+    pub(crate) realized_focus_state: Option<RuntimeFocusState>,
+}
+
 pub(super) struct GuiRuntimeState {
     pub(super) graph_search_open: bool,
     pub(super) graph_search_query: String,
     pub(super) graph_search_filter_mode: bool,
     pub(super) graph_search_matches: Vec<NodeKey>,
     pub(super) graph_search_active_match_index: Option<usize>,
+    pub(super) local_widget_focus: Option<LocalFocusTarget>,
     pub(super) focused_node_hint: Option<NodeKey>,
     pub(super) graph_surface_focused: bool,
     pub(super) focus_ring_node_key: Option<NodeKey>,
     pub(super) focus_ring_started_at: Option<Instant>,
     pub(super) focus_ring_duration: Duration,
     pub(super) omnibar_search_session: Option<OmnibarSearchSession>,
-    pub(super) active_toolbar_pane: Option<PaneId>,
+    pub(super) focus_authority: RuntimeFocusAuthorityState,
     pub(super) toolbar_drafts: HashMap<PaneId, ToolbarDraft>,
     pub(super) command_palette_toggle_requested: bool,
     pub(super) deferred_open_child_webviews: Vec<WebViewId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PaneRegionHint {
+    GraphSurface,
+    NodePane,
+    ToolPane,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SemanticRegionFocus {
+    ModalDialog,
+    CommandPalette,
+    ContextPalette,
+    RadialPalette,
+    HelpPanel,
+    Toolbar,
+    GraphSurface {
+        view_id: Option<GraphViewId>,
+    },
+    NodePane {
+        pane_id: Option<PaneId>,
+        node_key: Option<NodeKey>,
+    },
+    ToolPane {
+        pane_id: Option<PaneId>,
+    },
+    Unspecified,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LocalFocusTarget {
+    ToolbarLocation { pane_id: Option<PaneId> },
+    GraphSearch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum EmbeddedContentTarget {
+    WebView {
+        renderer_id: WebViewId,
+        node_key: Option<NodeKey>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusCaptureSurface {
+    ModalDialog,
+    CommandPalette,
+    ContextPalette,
+    RadialPalette,
+    HelpPanel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ReturnAnchor {
+    ToolSurface(ToolSurfaceReturnTarget),
+    GraphView(GraphViewId),
+    Pane(PaneId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FocusCaptureEntry {
+    pub(crate) surface: FocusCaptureSurface,
+    pub(crate) return_anchor: Option<ReturnAnchor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FocusCommand {
+    EnterCommandPalette {
+        contextual_mode: bool,
+        return_target: Option<ToolSurfaceReturnTarget>,
+    },
+    ExitCommandPalette,
+    EnterTransientSurface {
+        surface: FocusCaptureSurface,
+        return_target: Option<ToolSurfaceReturnTarget>,
+    },
+    ExitTransientSurface {
+        surface: FocusCaptureSurface,
+        restore_target: Option<ToolSurfaceReturnTarget>,
+    },
+    SetEmbeddedContentFocus {
+        target: Option<EmbeddedContentTarget>,
+    },
+    EnterToolPane {
+        return_target: Option<ToolSurfaceReturnTarget>,
+    },
+    ExitToolPane {
+        restore_target: Option<ToolSurfaceReturnTarget>,
+    },
+    SetSemanticRegion {
+        region: SemanticRegionFocus,
+    },
+    Capture {
+        surface: FocusCaptureSurface,
+        return_anchor: Option<ReturnAnchor>,
+    },
+    RestoreCapturedFocus {
+        surface: FocusCaptureSurface,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeFocusState {
+    pub(crate) semantic_region: SemanticRegionFocus,
+    pub(crate) pane_activation: Option<PaneId>,
+    pub(crate) graph_view_focus: Option<GraphViewId>,
+    pub(crate) local_widget_focus: Option<LocalFocusTarget>,
+    pub(crate) embedded_content_focus: Option<EmbeddedContentTarget>,
+    pub(crate) capture_stack: Vec<FocusCaptureEntry>,
+}
+
+impl RuntimeFocusState {
+    pub(crate) fn overlay_active(&self) -> bool {
+        !self.capture_stack.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeFocusInspector {
+    pub(crate) desired: RuntimeFocusState,
+    pub(crate) realized: RuntimeFocusState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeFocusInputs {
+    pub(crate) semantic_region_override: Option<SemanticRegionFocus>,
+    pub(crate) pane_activation: Option<PaneId>,
+    pub(crate) pane_region_hint: Option<PaneRegionHint>,
+    pub(crate) focused_view: Option<GraphViewId>,
+    pub(crate) focused_node_hint: Option<NodeKey>,
+    pub(crate) graph_surface_focused: bool,
+    pub(crate) local_widget_focus: Option<LocalFocusTarget>,
+    pub(crate) embedded_content_focus_webview: Option<WebViewId>,
+    pub(crate) embedded_content_focus_node: Option<NodeKey>,
+    pub(crate) show_command_palette: bool,
+    pub(crate) command_palette_contextual_mode: bool,
+    pub(crate) show_help_panel: bool,
+    pub(crate) show_radial_menu: bool,
+    pub(crate) show_clear_data_confirm: bool,
+    pub(crate) command_surface_return_target: Option<ToolSurfaceReturnTarget>,
+    pub(crate) transient_surface_return_target: Option<ToolSurfaceReturnTarget>,
 }

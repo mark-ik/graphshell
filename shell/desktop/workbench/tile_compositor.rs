@@ -513,13 +513,14 @@ fn frame_activation_targets(
 pub(crate) fn activate_focused_node_for_frame(
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     focused_node_hint: &mut Option<NodeKey>,
 ) {
     let (primary, fallback) = frame_activation_targets(tiles_tree, graph_app, *focused_node_hint);
     if let Some(node_key) = primary {
         *focused_node_hint = Some(node_key);
         if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
+            graph_app.set_embedded_content_focus_webview(Some(wv_id));
             window.retarget_input_to_webview(wv_id);
         } else if let Some(fallback_node) = fallback
             && let Some(fallback_wv_id) = graph_app.get_webview_for_node(fallback_node)
@@ -533,6 +534,7 @@ pub(crate) fn activate_focused_node_for_frame(
                 channel_id: CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
                 byte_len: 1,
             });
+            graph_app.set_embedded_content_focus_webview(Some(fallback_wv_id));
             window.retarget_input_to_webview(fallback_wv_id);
         }
     }
@@ -988,7 +990,7 @@ mod tests {
 
         let mut focused_hint = Some(primary);
         let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            activate_focused_node_for_frame(&window, &tree, &app, &mut focused_hint)
+            activate_focused_node_for_frame(&window, &tree, &mut app, &mut focused_hint)
         }));
 
         diagnostics.force_drain_for_tests();
@@ -1005,6 +1007,28 @@ mod tests {
             "expected deferred focus activation channel to be emitted"
         );
         assert_eq!(focused_hint, Some(primary));
+    }
+
+    #[test]
+    fn activate_focused_node_for_frame_updates_embedded_focus_authority() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = NodeKey::new(12);
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, node);
+
+        let prefs = crate::prefs::AppPreferences::default();
+        let window = crate::shell::desktop::host::window::EmbedderWindow::new(
+            crate::shell::desktop::host::headless_window::HeadlessWindow::new(&prefs),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let tree = tree_with_two_active_nodes(node, NodeKey::new(13));
+        let mut focused_hint = Some(node);
+
+        let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            activate_focused_node_for_frame(&window, &tree, &mut app, &mut focused_hint)
+        }));
+
+        assert_eq!(app.embedded_content_focus_webview(), Some(webview_id));
     }
 
     #[cfg(feature = "wry")]

@@ -21,6 +21,10 @@ pub(crate) fn chrome_projection_node(
     graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
 ) -> Option<NodeKey> {
+    if let Some(node_key) = focused_embedded_content_node(graph_app) {
+        return Some(node_key);
+    }
+
     match window.chrome_projection_source() {
         Some(ChromeProjectionSource::Renderer(renderer_id)) => {
             graph_app.get_node_for_webview(renderer_id)
@@ -31,6 +35,12 @@ pub(crate) fn chrome_projection_node(
         }
         None => None,
     }
+}
+
+fn focused_embedded_content_node(graph_app: &GraphBrowserApp) -> Option<NodeKey> {
+    graph_app
+        .embedded_content_focus_webview()
+        .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
 }
 
 /// Resolve which node the toolbar/omnibar should target.
@@ -143,5 +153,16 @@ mod tests {
         );
 
         assert_eq!(active_node_pane_node(&tree), Some(b));
+    }
+
+    #[test]
+    fn test_focused_embedded_content_node_uses_explicit_app_focus() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync("https://focus.example".into(), Point2D::new(0.0, 0.0));
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, node);
+        app.set_embedded_content_focus_webview(Some(webview_id));
+
+        assert_eq!(focused_embedded_content_node(&app), Some(node));
     }
 }
