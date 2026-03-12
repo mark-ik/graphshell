@@ -33,6 +33,8 @@ pub(crate) struct WryManager {
     platform: WryPlatform,
     default_mode: WryRenderMode,
     webviews: HashMap<u64, WebviewSlot>,
+    #[cfg(test)]
+    test_sync_states: HashMap<u64, OverlaySyncState>,
 }
 
 impl WryManager {
@@ -42,6 +44,8 @@ impl WryManager {
             default_mode: WryRenderMode::for_platform(platform),
             platform,
             webviews: HashMap::new(),
+            #[cfg(test)]
+            test_sync_states: HashMap::new(),
         }
     }
 
@@ -105,6 +109,11 @@ impl WryManager {
 
     pub(crate) fn sync_overlay(&mut self, node_id: u64, rect: OverlayRect, visible: bool) {
         let Some(slot) = self.webviews.get_mut(&node_id) else {
+            #[cfg(test)]
+            {
+                self.test_sync_states
+                    .insert(node_id, OverlaySyncState { rect, visible });
+            }
             return;
         };
         slot.last_sync = Some(OverlaySyncState { rect, visible });
@@ -122,7 +131,17 @@ impl WryManager {
     }
 
     pub(crate) fn last_sync_state(&self, node_id: u64) -> Option<OverlaySyncState> {
-        self.webviews.get(&node_id).and_then(|slot| slot.last_sync)
+        self.webviews
+            .get(&node_id)
+            .and_then(|slot| slot.last_sync)
+            .or_else(|| {
+                #[cfg(test)]
+                {
+                    return self.test_sync_states.get(&node_id).copied();
+                }
+                #[allow(unreachable_code)]
+                None
+            })
     }
 }
 

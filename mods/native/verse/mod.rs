@@ -11,9 +11,9 @@ use crate::registries::infrastructure::mod_loader::{
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    identity::{PresenceBindingAssertion, UserIdentityClaim, UserIdentityProtocol},
     CHANNEL_VERSE_PREINIT_CALL, CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
     CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
+    identity::{PresenceBindingAssertion, UserIdentityClaim, UserIdentityProtocol},
 };
 use keyring::Entry;
 use std::sync::OnceLock;
@@ -1323,7 +1323,10 @@ fn insert_presence_binding_properties(
     properties: &mut std::collections::HashMap<String, String>,
     assertion: &PresenceBindingAssertion,
 ) {
-    properties.insert("user_identity_id".to_string(), assertion.user_identity.identity_id.clone());
+    properties.insert(
+        "user_identity_id".to_string(),
+        assertion.user_identity.identity_id.clone(),
+    );
     properties.insert(
         "user_identity_protocol".to_string(),
         presence_protocol_label(assertion.user_identity.protocol).to_string(),
@@ -1344,7 +1347,9 @@ fn insert_presence_binding_properties(
     properties.insert("binding_sig".to_string(), assertion.signature.clone());
 }
 
-fn parse_presence_binding_properties(info: &mdns_sd::ServiceInfo) -> Option<PresenceBindingAssertion> {
+fn parse_presence_binding_properties(
+    info: &mdns_sd::ServiceInfo,
+) -> Option<PresenceBindingAssertion> {
     let identity_id = info.get_property_val_str("user_identity_id")?.to_string();
     let protocol = parse_presence_protocol(info.get_property_val_str("user_identity_protocol")?)?;
     let public_key = info

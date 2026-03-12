@@ -26,6 +26,7 @@ use raw_window_handle::RawWindowHandle;
 #[cfg(feature = "wry")]
 use std::cell::RefCell;
 
+pub(crate) mod client_storage;
 #[cfg(feature = "wry")]
 pub(crate) mod wry_manager;
 #[cfg(feature = "wry")]

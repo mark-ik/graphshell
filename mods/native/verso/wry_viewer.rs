@@ -47,7 +47,6 @@ mod tests {
     #[test]
     fn viewer_sync_updates_manager_state() {
         let mut manager = WryManager::new();
-        manager.create_webview(42);
 
         let viewer = WryViewer::new(42, WryRenderMode::NativeOverlay);
         viewer.sync_overlay(
