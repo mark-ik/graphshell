@@ -182,7 +182,9 @@ impl KnowledgeRegistry {
     pub fn canonicalize_tag(&self, tag: &str) -> Option<String> {
         let trimmed = tag.trim();
         match self.validate_tag(trimmed) {
-            TagValidationResult::Valid { canonical_code, .. } => Some(format!("udc:{canonical_code}")),
+            TagValidationResult::Valid { canonical_code, .. } => {
+                Some(format!("udc:{canonical_code}"))
+            }
             TagValidationResult::Unknown { .. } | TagValidationResult::Malformed { .. } => None,
         }
     }
@@ -243,8 +245,8 @@ impl KnowledgeRegistry {
             return suggestions;
         }
 
-        if let Some(target) = Self::normalize_udc_code(query)
-            .and_then(|code| Self::parse_udc_code(&code))
+        if let Some(target) =
+            Self::normalize_udc_code(query).and_then(|code| Self::parse_udc_code(&code))
         {
             let mut distance_ranked = self
                 .definitions

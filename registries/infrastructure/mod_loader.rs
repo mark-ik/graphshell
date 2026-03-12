@@ -80,7 +80,8 @@ pub(crate) enum ModExtensionRecord {
     },
     ViewerCapabilities {
         viewer_id: String,
-        previous_capabilities: Option<crate::registries::atomic::viewer::ViewerSubsystemCapabilities>,
+        previous_capabilities:
+            Option<crate::registries::atomic::viewer::ViewerSubsystemCapabilities>,
     },
     Action {
         action_id: String,
@@ -100,8 +101,14 @@ pub(crate) enum ModExtensionRecord {
 pub(crate) enum ModUnloadError {
     UnknownMod(String),
     NotActive(String),
-    DependencyActive { mod_id: String, dependent_id: String },
-    ExtensionRemovalFailed { mod_id: String, reason: String },
+    DependencyActive {
+        mod_id: String,
+        dependent_id: String,
+    },
+    ExtensionRemovalFailed {
+        mod_id: String,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -442,7 +449,8 @@ impl ModRegistry {
             .rev()
         {
             if let Err(reason) = remove_extension(record) {
-                self.status.insert(manifest.mod_id.clone(), ModStatus::Failed);
+                self.status
+                    .insert(manifest.mod_id.clone(), ModStatus::Failed);
                 return Err(ModUnloadError::ExtensionRemovalFailed {
                     mod_id: manifest.mod_id,
                     reason,
@@ -475,10 +483,12 @@ impl ModRegistry {
                     .is_some_and(|status| status == ModStatus::Active)
             })
             .filter(|candidate| {
-                candidate
-                    .requires
-                    .iter()
-                    .any(|requirement| manifest.provides.iter().any(|provided| provided == requirement))
+                candidate.requires.iter().any(|requirement| {
+                    manifest
+                        .provides
+                        .iter()
+                        .any(|provided| provided == requirement)
+                })
             })
             .map(|candidate| candidate.mod_id.clone())
             .collect()

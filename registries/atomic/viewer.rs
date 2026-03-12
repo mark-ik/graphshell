@@ -102,7 +102,10 @@ impl ViewerRegistry {
         }
 
         let known = self.capabilities.contains_key(normalized)
-            || self.mime_handlers.values().any(|registered| *registered == normalized)
+            || self
+                .mime_handlers
+                .values()
+                .any(|registered| *registered == normalized)
             || self
                 .extension_handlers
                 .values()
@@ -157,7 +160,11 @@ impl ViewerRegistry {
         }
     }
 
-    pub(crate) fn register_mime(&mut self, mime: &str, viewer_id: &'static str) -> Option<&'static str> {
+    pub(crate) fn register_mime(
+        &mut self,
+        mime: &str,
+        viewer_id: &'static str,
+    ) -> Option<&'static str> {
         self.mime_handlers
             .insert(mime.to_ascii_lowercase(), viewer_id)
     }
@@ -321,7 +328,10 @@ fn render_mode_for_viewer_id(viewer_id: &str) -> ViewerRenderMode {
 }
 
 fn overlay_affordance_for_viewer_id(viewer_id: &str) -> bool {
-    !matches!(render_mode_for_viewer_id(viewer_id), ViewerRenderMode::Placeholder)
+    !matches!(
+        render_mode_for_viewer_id(viewer_id),
+        ViewerRenderMode::Placeholder
+    )
 }
 
 /// Baseline plaintext viewer handler.
@@ -564,7 +574,12 @@ mod tests {
         assert_eq!(capability.viewer_id, "viewer:webview");
         assert_eq!(capability.render_mode, ViewerRenderMode::CompositedTexture);
         assert!(capability.overlay_affordance);
-        assert!(capability.supported_mime_types.iter().any(|mime| mime == "text/html"));
+        assert!(
+            capability
+                .supported_mime_types
+                .iter()
+                .any(|mime| mime == "text/html")
+        );
     }
 
     #[test]

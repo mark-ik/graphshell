@@ -1,4 +1,6 @@
-use egui_graphs::FruchtermanReingoldWithCenterGravityState;
+use crate::graph::physics::{
+    GraphPhysicsExtensionConfig, GraphPhysicsState, GraphPhysicsTuning, apply_graph_physics_tuning,
+};
 
 pub(crate) const PHYSICS_ID_DEFAULT: &str = "physics:liquid";
 pub(crate) const PHYSICS_ID_GAS: &str = "physics:gas";
@@ -26,6 +28,24 @@ impl Default for PhysicsProfile {
 }
 
 impl PhysicsProfile {
+    pub(crate) fn graph_physics_tuning(&self) -> GraphPhysicsTuning {
+        GraphPhysicsTuning {
+            repulsion_strength: self.repulsion_strength,
+            attraction_strength: self.attraction_strength,
+            gravity_strength: self.gravity_strength,
+            damping: self.damping,
+        }
+    }
+
+    pub(crate) fn graph_physics_extensions(&self) -> GraphPhysicsExtensionConfig {
+        GraphPhysicsExtensionConfig {
+            degree_repulsion: self.degree_repulsion,
+            domain_clustering: self.domain_clustering,
+            semantic_clustering: self.semantic_clustering,
+            semantic_strength: self.semantic_strength,
+        }
+    }
+
     pub fn liquid() -> Self {
         Self {
             name: "Liquid".to_string(),
@@ -71,11 +91,8 @@ impl PhysicsProfile {
         }
     }
 
-    pub fn apply_to_state(&self, state: &mut FruchtermanReingoldWithCenterGravityState) {
-        state.base.c_repulse = self.repulsion_strength;
-        state.base.c_attract = self.attraction_strength;
-        state.base.damping = self.damping;
-        state.extras.0.params.c = self.gravity_strength;
+    pub fn apply_to_state(&self, state: &mut GraphPhysicsState) {
+        apply_graph_physics_tuning(state, self.graph_physics_tuning());
     }
 }
 
@@ -155,5 +172,52 @@ mod tests {
         assert_eq!(resolution.requested_id, PHYSICS_ID_LEGACY_DEFAULT);
         assert_eq!(resolution.resolved_id, PHYSICS_ID_DEFAULT);
         assert_eq!(resolution.profile.name, "Liquid");
+    }
+
+    #[test]
+    fn physics_profile_applies_tuning_via_graph_physics_adapter() {
+        let mut state = GraphPhysicsState::default();
+        let profile = PhysicsProfile {
+            name: "Custom".to_string(),
+            repulsion_strength: 0.61,
+            attraction_strength: 0.19,
+            gravity_strength: 0.27,
+            damping: 0.48,
+            degree_repulsion: true,
+            domain_clustering: false,
+            semantic_clustering: false,
+            semantic_strength: 0.05,
+            auto_pause: true,
+        };
+
+        profile.apply_to_state(&mut state);
+
+        assert_eq!(state.base.c_repulse, 0.61);
+        assert_eq!(state.base.c_attract, 0.19);
+        assert_eq!(state.base.damping, 0.48);
+        assert_eq!(state.extras.0.params.c, 0.27);
+    }
+
+    #[test]
+    fn physics_profile_exposes_graph_physics_extensions() {
+        let profile = PhysicsProfile {
+            name: "Custom".to_string(),
+            repulsion_strength: 0.61,
+            attraction_strength: 0.19,
+            gravity_strength: 0.27,
+            damping: 0.48,
+            degree_repulsion: false,
+            domain_clustering: true,
+            semantic_clustering: true,
+            semantic_strength: 0.23,
+            auto_pause: true,
+        };
+
+        let extensions = profile.graph_physics_extensions();
+
+        assert!(!extensions.degree_repulsion);
+        assert!(extensions.domain_clustering);
+        assert!(extensions.semantic_clustering);
+        assert_eq!(extensions.semantic_strength, 0.23);
     }
 }

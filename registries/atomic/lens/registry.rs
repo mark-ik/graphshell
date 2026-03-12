@@ -10,6 +10,7 @@ pub(crate) struct LensDefinition {
     pub(crate) display_name: String,
     pub(crate) physics: PhysicsProfile,
     pub(crate) layout: LayoutMode,
+    pub(crate) layout_algorithm_id: String,
     pub(crate) theme: Option<ThemeData>,
     pub(crate) filters: Vec<String>,
 }
@@ -197,6 +198,7 @@ impl Default for LensRegistry {
                 display_name: "Semantic Overlay".to_string(),
                 physics: PhysicsProfile::default(),
                 layout: LayoutMode::Free,
+                layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
                 theme: Some(resolve_theme_data(THEME_ID_DEFAULT).theme),
                 filters: vec!["semantic:overlay".to_string()],
             },
@@ -221,6 +223,7 @@ fn default_lens_definition() -> LensDefinition {
         display_name: "Default".to_string(),
         physics: PhysicsProfile::default(),
         layout: LayoutMode::Free,
+        layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
         theme: Some(resolve_theme_data(THEME_ID_DEFAULT).theme),
         filters: Vec::new(),
     }
@@ -257,9 +260,17 @@ mod tests {
         let registry = LensRegistry::default();
         let resolved = registry.resolve_for_content(Some("text/markdown"), true);
 
-        assert_eq!(resolved.first().map(String::as_str), Some(LENS_ID_SEMANTIC_OVERLAY));
+        assert_eq!(
+            resolved.first().map(String::as_str),
+            Some(LENS_ID_SEMANTIC_OVERLAY)
+        );
         let composed = registry.compose(&resolved);
-        assert!(composed.filters.iter().any(|filter| filter == "semantic:overlay"));
+        assert!(
+            composed
+                .filters
+                .iter()
+                .any(|filter| filter == "semantic:overlay")
+        );
     }
 
     #[test]
