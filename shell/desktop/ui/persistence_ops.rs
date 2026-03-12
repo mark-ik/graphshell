@@ -282,6 +282,7 @@ pub(crate) fn save_named_frame_bundle(
 ) -> Result<(), String> {
     let bundle_json = serialize_named_frame_bundle(graph_app, name, tree)?;
     graph_app.save_workspace_layout_json(name, &bundle_json);
+    graph_app.sync_named_workbench_frame_graph_representation(name, tree);
     Ok(())
 }
 
@@ -719,7 +720,9 @@ pub(crate) fn parse_data_dir_input(raw: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::EdgeType;
     use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneState};
+    use crate::util::VersoAddress;
     use egui_tiles::{Tiles, Tree};
     use euclid::default::Point2D;
     use tempfile::TempDir;
@@ -914,6 +917,67 @@ mod tests {
         assert!(!root.contains_key("diagnostic_graph"));
         assert!(!root.contains_key("channels"));
         assert!(!root.contains_key("spans"));
+    }
+
+    #[test]
+    fn save_named_frame_bundle_persists_graph_frame_node_and_member_edges() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let node = app.add_node_and_sync(
+            "https://frame-member.example".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let view_id = GraphViewId::default();
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
+        let node_pane = tiles.insert_pane(TileKind::Node(node.into()));
+        let root = tiles.insert_tab_tile(vec![graph, node_pane]);
+        let tree = Tree::new("workspace-frame-graph-sync", root, tiles);
+
+        save_named_frame_bundle(&mut app, "workspace-frame-graph-sync", &tree)
+            .expect("save frame bundle");
+
+        let frame_url = VersoAddress::frame("workspace-frame-graph-sync").to_string();
+        let (frame_key, frame_node) = app
+            .domain_graph()
+            .get_node_by_url(&frame_url)
+            .expect("frame node should be created");
+        assert_eq!(frame_node.title, "workspace-frame-graph-sync");
+        let view_url = VersoAddress::view(view_id.as_uuid().to_string()).to_string();
+        let (view_key, _) = app
+            .domain_graph()
+            .get_node_by_url(&view_url)
+            .expect("graph view member node should be created");
+        assert!(app.domain_graph().edges().any(|edge| {
+            edge.edge_type == EdgeType::UserGrouped && edge.from == frame_key && edge.to == view_key
+        }));
+        assert!(app.domain_graph().edges().any(|edge| {
+            edge.edge_type == EdgeType::UserGrouped && edge.from == frame_key && edge.to == node
+        }));
+    }
+
+    #[test]
+    fn delete_workspace_layout_removes_graph_frame_node() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let node = app.add_node_and_sync(
+            "https://frame-delete.example".into(),
+            Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let node_pane = tiles.insert_pane(TileKind::Node(node.into()));
+        let root = tiles.insert_tab_tile(vec![graph, node_pane]);
+        let tree = Tree::new("workspace-frame-delete", root, tiles);
+
+        save_named_frame_bundle(&mut app, "workspace-frame-delete", &tree).expect("save frame");
+        app.delete_workspace_layout("workspace-frame-delete")
+            .expect("delete frame snapshot");
+
+        let frame_url = VersoAddress::frame("workspace-frame-delete").to_string();
+        assert!(app.domain_graph().get_node_by_url(&frame_url).is_none());
     }
 
     #[test]

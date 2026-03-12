@@ -42,6 +42,7 @@ impl CoordBridge for Pos2 {
 pub(crate) enum VersoAddress {
     Settings(GraphshellSettingsPath),
     Frame(String),
+    TileGroup(String),
     View(VersoViewTarget),
     Tool {
         name: String,
@@ -95,6 +96,7 @@ impl VersoAddress {
                 Some(Self::Settings(settings_path))
             }
             "frame" => Some(Self::Frame(segments.next()?)),
+            "tile-group" => Some(Self::TileGroup(segments.next()?)),
             "view" => {
                 let first = segments.next()?;
                 match segments.next() {
@@ -144,6 +146,10 @@ impl VersoAddress {
         Self::Frame(frame_id.into())
     }
 
+    pub(crate) fn tile_group(group_id: impl Into<String>) -> Self {
+        Self::TileGroup(group_id.into())
+    }
+
     pub(crate) fn view(view_id: impl Into<String>) -> Self {
         Self::View(VersoViewTarget::Legacy(view_id.into()))
     }
@@ -175,6 +181,7 @@ impl VersoAddress {
         match self {
             Self::Settings(_) => "application/x-graphshell-settings",
             Self::Frame(_)
+            | Self::TileGroup(_)
             | Self::View(_)
             | Self::Tool { .. }
             | Self::Clip(_)
@@ -219,6 +226,9 @@ impl fmt::Display for VersoAddress {
                 None => write!(f, "{VERSO_SCHEME_PREFIX}settings"),
             },
             Self::Frame(frame_id) => write!(f, "{VERSO_SCHEME_PREFIX}frame/{frame_id}"),
+            Self::TileGroup(group_id) => {
+                write!(f, "{VERSO_SCHEME_PREFIX}tile-group/{group_id}")
+            }
             Self::View(VersoViewTarget::Legacy(view_id)) => {
                 write!(f, "{VERSO_SCHEME_PREFIX}view/{view_id}")
             }
@@ -390,6 +400,12 @@ mod tests {
     }
 
     #[test]
+    fn parse_graphshell_tile_group_route() {
+        let parsed = VersoAddress::parse("graphshell://tile-group/group-123");
+        assert_eq!(parsed, Some(VersoAddress::tile_group("group-123")));
+    }
+
+    #[test]
     fn parse_verso_view_note_route() {
         let parsed = VersoAddress::parse("verso://view/note/550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(
@@ -419,6 +435,12 @@ mod tests {
     fn graphshell_address_display_roundtrips_other_route() {
         let address = VersoAddress::frame("abc123");
         assert_eq!(address.to_string(), "verso://frame/abc123");
+    }
+
+    #[test]
+    fn graphshell_address_display_roundtrips_tile_group_route() {
+        let address = VersoAddress::tile_group("group-123");
+        assert_eq!(address.to_string(), "verso://tile-group/group-123");
     }
 
     #[test]

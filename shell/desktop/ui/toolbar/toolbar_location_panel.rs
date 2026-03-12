@@ -1,5 +1,6 @@
 use super::toolbar_location_dropdown;
 use super::*;
+use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 use crate::shell::desktop::ui::gui_state::toolbar_location_input_id;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
@@ -58,6 +59,7 @@ pub(super) fn render_location_search_panel(
     tiles_tree: &Tree<TileKind>,
     focused_toolbar_node: Option<NodeKey>,
     active_toolbar_pane: Option<PaneId>,
+    local_widget_focus: &mut Option<LocalFocusTarget>,
     has_node_panes: bool,
     is_graph_view: bool,
     location: &mut String,
@@ -90,6 +92,9 @@ pub(super) fn render_location_search_panel(
         })
     {
         location_field.request_focus();
+        *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
+            pane_id: active_toolbar_pane,
+        });
     }
     if location_field.gained_focus()
         && let Some(mut state) = TextEditState::load(ui.ctx(), location_id)
@@ -100,8 +105,16 @@ pub(super) fn render_location_search_panel(
         )));
         state.store(ui.ctx(), location_id);
     }
+    if location_field.gained_focus() {
+        *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
+            pane_id: active_toolbar_pane,
+        });
+    }
 
     if location_field.has_focus() {
+        *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
+            pane_id: active_toolbar_pane,
+        });
         let trimmed_location = location.trim();
         if let Some(query_raw) = trimmed_location.strip_prefix('@') {
             if let Some((provider, provider_query)) = parse_provider_search_query(query_raw) {
@@ -229,6 +242,14 @@ pub(super) fn render_location_search_panel(
         } else {
             *omnibar_search_session = None;
         }
+    }
+    if location_field.lost_focus()
+        && matches!(
+            *local_widget_focus,
+            Some(LocalFocusTarget::ToolbarLocation { .. })
+        )
+    {
+        *local_widget_focus = None;
     }
 
     if let Some(session) = omnibar_search_session.as_mut()

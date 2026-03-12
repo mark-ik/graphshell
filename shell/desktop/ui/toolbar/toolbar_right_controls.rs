@@ -2,6 +2,7 @@ use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -19,6 +20,7 @@ pub(super) fn render_toolbar_right_controls(
     tiles_tree: &Tree<TileKind>,
     focused_toolbar_node: Option<NodeKey>,
     active_toolbar_pane: Option<PaneId>,
+    local_widget_focus: &mut Option<LocalFocusTarget>,
     has_node_panes: bool,
     is_graph_view: bool,
     location: &mut String,
@@ -104,6 +106,7 @@ pub(super) fn render_toolbar_right_controls(
         tiles_tree,
         focused_toolbar_node,
         active_toolbar_pane,
+        local_widget_focus,
         has_node_panes,
         is_graph_view,
         location,

@@ -1,6 +1,6 @@
 use crate::app::{
-    GraphBrowserApp, GraphIntent, OmnibarNonAtOrderPreset, OmnibarPreferredScope,
-    ToastAnchorPreference, WorkbenchIntent,
+    ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent, OmnibarNonAtOrderPreset,
+    OmnibarPreferredScope, ToastAnchorPreference, WorkbenchIntent,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
@@ -108,6 +108,31 @@ pub(super) fn render_settings_menu(
                     graph_app.set_lasso_binding_preference(binding);
                 }
             }
+            ui.label(format!(
+                "Right-Click Surface: {}",
+                match graph_app.context_command_surface_preference() {
+                    ContextCommandSurfacePreference::RadialPalette => "Radial Palette",
+                    ContextCommandSurfacePreference::ContextPalette => "Context Palette",
+                }
+            ));
+            for preference in [
+                ContextCommandSurfacePreference::RadialPalette,
+                ContextCommandSurfacePreference::ContextPalette,
+            ] {
+                let label = match preference {
+                    ContextCommandSurfacePreference::RadialPalette => "Radial Palette",
+                    ContextCommandSurfacePreference::ContextPalette => "Context Palette",
+                };
+                if ui
+                    .selectable_label(
+                        graph_app.context_command_surface_preference() == preference,
+                        label,
+                    )
+                    .clicked()
+                {
+                    graph_app.set_context_command_surface_preference(preference);
+                }
+            }
             let radial_open_east_preset = InputBindingRemap {
                 old: InputBinding::Gamepad {
                     button: GamepadButton::South,
@@ -127,7 +152,9 @@ pub(super) fn render_settings_menu(
             } else {
                 "Custom"
             };
-            ui.label(format!("Gamepad Radial Open: {radial_profile_label}"));
+            ui.label(format!(
+                "Gamepad Radial Palette Open: {radial_profile_label}"
+            ));
             if ui
                 .selectable_label(active_remaps.is_empty(), "South / A (Default)")
                 .clicked()

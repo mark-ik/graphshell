@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use winit::window::Window;
 
 use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
+use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_grouping;
@@ -154,6 +155,7 @@ pub(crate) struct Input<'a> {
     pub tiles_tree: &'a Tree<TileKind>,
     pub focused_toolbar_node: Option<NodeKey>,
     pub active_toolbar_pane: Option<PaneId>,
+    pub local_widget_focus: &'a mut Option<LocalFocusTarget>,
     pub has_node_panes: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
@@ -317,6 +319,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         tiles_tree,
         focused_toolbar_node,
         active_toolbar_pane,
+        local_widget_focus,
         has_node_panes,
         can_go_back,
         can_go_forward,
@@ -382,6 +385,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                             tiles_tree,
                             focused_toolbar_node,
                             active_toolbar_pane,
+                            local_widget_focus,
                             has_node_panes,
                             is_graph_view,
                             location,
