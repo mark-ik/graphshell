@@ -385,6 +385,11 @@ fn resolve_tile_semantic_input(
     let render_mode = render_mode_for_pane(tiles_tree, pane_id);
     let lifecycle = node_lifecycle_for_tile(graph_app, node_key);
     let runtime_blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
+    let has_unread_traversal_activity = graph_app
+        .workspace
+        .semantic_tags
+        .get(&node_key)
+        .is_some_and(|tags| tags.contains(GraphBrowserApp::TAG_UNREAD));
     let selection_state =
         tile_selection_state_for_tile(graph_app, tile_id_for_pane(tiles_tree, pane_id));
     let lens_config = resolved_lens_config_for_tile(tiles_tree, graph_app, node_key);
@@ -397,7 +402,7 @@ fn resolve_tile_semantic_input(
         active_lens_overlay: lens_config.overlay_descriptor,
         focus_delta: focus_delta.touches(node_key).then_some(focus_delta),
         selection_state,
-        has_unread_traversal_activity: false,
+        has_unread_traversal_activity,
     };
     semantic.semantic_generation =
         semantic_generation_for_tile(semantic.clone(), lens_config.lens_id.as_deref());
@@ -1513,6 +1518,7 @@ fn semantic_overlay_for_mode(
 mod tests {
     use super::*;
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
+    use euclid::default::Point2D;
     use egui_tiles::Tiles;
     use std::panic::AssertUnwindSafe;
     use std::sync::Arc;
@@ -2199,6 +2205,47 @@ mod tests {
         let changed = content_signature_for_tile(webview, rect, 1.0, 2);
 
         assert_ne!(original, changed);
+    }
+
+    #[test]
+    fn resolve_tile_semantic_input_marks_unread_traversal_activity_from_semantic_tags() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let unread = app.add_node_and_sync("https://example.com/unread".to_string(), Point2D::new(0.0, 0.0));
+        let other = app.add_node_and_sync("https://example.com/other".to_string(), Point2D::new(40.0, 0.0));
+        let tree = tree_with_two_active_nodes(unread, other);
+        let pane_id = pane_id_for_node(&tree, unread);
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0));
+
+        let baseline = resolve_tile_semantic_input(
+            &tree,
+            &app,
+            pane_id,
+            unread,
+            tile_rect,
+            FocusDelta::new(None, None),
+        );
+
+        app.workspace
+            .semantic_tags
+            .entry(unread)
+            .or_default()
+            .insert(GraphBrowserApp::TAG_UNREAD.to_string());
+
+        let flagged = resolve_tile_semantic_input(
+            &tree,
+            &app,
+            pane_id,
+            unread,
+            tile_rect,
+            FocusDelta::new(None, None),
+        );
+
+        assert!(!baseline.semantic.has_unread_traversal_activity);
+        assert!(flagged.semantic.has_unread_traversal_activity);
+        assert_ne!(
+            baseline.semantic.semantic_generation,
+            flagged.semantic.semantic_generation
+        );
     }
 
     #[test]

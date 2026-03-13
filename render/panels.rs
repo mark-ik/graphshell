@@ -18,6 +18,7 @@ use crate::shell::desktop::runtime::registries::input::{
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, phase2_describe_input_bindings,
 };
+use crate::shell::desktop::workbench::tile_compositor::CompositorFrameActivitySummary;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
 use super::reducer_bridge::apply_reducer_graph_intents_hardened;
@@ -425,6 +426,7 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
     let (timeline_total, dissolved_total) = app.history_manager_archive_counts();
     let health = app.history_health_summary();
     let auto_curate_keep = history_manager_auto_curate_keep_latest();
+    let compositor_activity = history_manager_compositor_activity_snapshot();
 
     ui.horizontal(|ui| {
         if ui.button("Settings").clicked() {
@@ -523,6 +525,9 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
         ))
         .small(),
     );
+    if let Some(activity_label) = history_manager_activity_summary_label(&compositor_activity) {
+        ui.label(egui::RichText::new(activity_label).small().weak());
+    }
     ui.add_space(6.0);
 
     match app.workspace.history_manager_tab {
@@ -579,7 +584,7 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 });
             }
             let entries = app.history_manager_timeline_entries(history_manager_entry_limit());
-            render_history_manager_rows(ui, app, &entries, &mut intents);
+            render_history_manager_rows(ui, app, &entries, &compositor_activity, &mut intents);
         }
         HistoryManagerTab::Dissolved => {
             ui.horizontal(|ui| {
@@ -603,7 +608,7 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 auto_curate_keep
             ));
             let entries = app.history_manager_dissolved_entries(history_manager_entry_limit());
-            render_history_manager_rows(ui, app, &entries, &mut intents);
+            render_history_manager_rows(ui, app, &entries, &compositor_activity, &mut intents);
         }
     }
 
@@ -655,6 +660,7 @@ fn render_history_manager_rows(
     ui: &mut Ui,
     app: &GraphBrowserApp,
     entries: &[crate::services::persistence::types::LogEntry],
+    compositor_activity: &HistoryManagerCompositorActivity,
     intents: &mut Vec<GraphIntent>,
 ) {
     if entries.is_empty() {
@@ -723,6 +729,13 @@ fn render_history_manager_rows(
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(time_label).weak().small());
                 ui.label(trigger_label);
+                if let Some(activity_chip) = history_manager_activity_chip(
+                    compositor_activity,
+                    from_key,
+                    to_key,
+                ) {
+                    ui.label(egui::RichText::new(activity_chip).small().color(egui::Color32::from_rgb(90, 200, 120)));
+                }
                 let response = ui.selectable_label(false, format!("{} → {}", from_label, to_label));
                 if response.clicked() && let Some(key) = from_key {
                     intents.push(GraphIntent::SelectNode {
@@ -735,6 +748,140 @@ fn render_history_manager_rows(
             ui.add_space(2.0);
         }
     });
+}
+
+const HISTORY_MANAGER_ACTIVITY_FRAME_WINDOW: usize = 8;
+
+#[derive(Default, Clone)]
+struct HistoryManagerCompositorActivity {
+    active_tile_keys: std::collections::HashSet<crate::graph::NodeKey>,
+    latest_frame_index: Option<u64>,
+    frame_sample_count: usize,
+}
+
+fn history_manager_compositor_activity_snapshot() -> HistoryManagerCompositorActivity {
+    let summaries = crate::shell::desktop::workbench::tile_compositor::compositor_activity_summaries_snapshot();
+    compositor_activity_for_history_manager(&summaries)
+}
+
+fn compositor_activity_for_history_manager(
+    summaries: &[CompositorFrameActivitySummary],
+) -> HistoryManagerCompositorActivity {
+    let mut activity = HistoryManagerCompositorActivity::default();
+
+    for summary in summaries.iter().rev().take(HISTORY_MANAGER_ACTIVITY_FRAME_WINDOW) {
+        activity.latest_frame_index = activity.latest_frame_index.max(Some(summary.frame_index));
+        activity.frame_sample_count += 1;
+        activity
+            .active_tile_keys
+            .extend(summary.active_tile_keys.iter().copied());
+    }
+
+    activity
+}
+
+fn history_manager_activity_summary_label(
+    activity: &HistoryManagerCompositorActivity,
+) -> Option<String> {
+    if activity.frame_sample_count == 0 {
+        return None;
+    }
+
+    Some(format!(
+        "Recent compositor activity: {} active tiles across {} sampled frames{}.",
+        activity.active_tile_keys.len(),
+        activity.frame_sample_count,
+        activity
+            .latest_frame_index
+            .map(|frame| format!(" (latest frame #{frame})"))
+            .unwrap_or_default()
+    ))
+}
+
+fn history_manager_activity_chip(
+    activity: &HistoryManagerCompositorActivity,
+    from_key: Option<crate::graph::NodeKey>,
+    to_key: Option<crate::graph::NodeKey>,
+) -> Option<&'static str> {
+    let from_active = from_key.is_some_and(|key| activity.active_tile_keys.contains(&key));
+    let to_active = to_key.is_some_and(|key| activity.active_tile_keys.contains(&key));
+
+    match (from_active, to_active) {
+        (true, true) => Some("live path"),
+        (true, false) => Some("from live"),
+        (false, true) => Some("to live"),
+        (false, false) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compositor_activity_for_history_manager_limits_recent_frames() {
+        let summaries = vec![
+            CompositorFrameActivitySummary {
+                active_tile_keys: vec![crate::graph::NodeKey::new(1)],
+                idle_tile_keys: Vec::new(),
+                frame_index: 1,
+            },
+            CompositorFrameActivitySummary {
+                active_tile_keys: vec![crate::graph::NodeKey::new(2)],
+                idle_tile_keys: Vec::new(),
+                frame_index: 2,
+            },
+        ];
+
+        let activity = compositor_activity_for_history_manager(&summaries);
+
+        assert_eq!(activity.frame_sample_count, 2);
+        assert_eq!(activity.latest_frame_index, Some(2));
+        assert!(activity.active_tile_keys.contains(&crate::graph::NodeKey::new(1)));
+        assert!(activity.active_tile_keys.contains(&crate::graph::NodeKey::new(2)));
+    }
+
+    #[test]
+    fn history_manager_activity_chip_marks_live_endpoints() {
+        let activity = HistoryManagerCompositorActivity {
+            active_tile_keys: [crate::graph::NodeKey::new(5)].into_iter().collect(),
+            latest_frame_index: Some(7),
+            frame_sample_count: 1,
+        };
+
+        assert_eq!(
+            history_manager_activity_chip(
+                &activity,
+                Some(crate::graph::NodeKey::new(5)),
+                Some(crate::graph::NodeKey::new(9)),
+            ),
+            Some("from live")
+        );
+        assert_eq!(
+            history_manager_activity_chip(
+                &activity,
+                Some(crate::graph::NodeKey::new(9)),
+                Some(crate::graph::NodeKey::new(5)),
+            ),
+            Some("to live")
+        );
+        assert_eq!(
+            history_manager_activity_chip(
+                &activity,
+                Some(crate::graph::NodeKey::new(5)),
+                Some(crate::graph::NodeKey::new(5)),
+            ),
+            Some("live path")
+        );
+        assert_eq!(
+            history_manager_activity_chip(
+                &activity,
+                Some(crate::graph::NodeKey::new(1)),
+                Some(crate::graph::NodeKey::new(2)),
+            ),
+            None
+        );
+    }
 }
 
 pub fn render_file_tree_tool_pane_in_ui(

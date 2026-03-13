@@ -55,6 +55,12 @@ History also now sits next to two adjacent append-only traversal-capable systems
 The subsystem must make that family resemblance clear without collapsing the
 three systems into one storage authority.
 
+The subsystem also consumes the compositor's `compositor:tile_activity` signal
+as a read-only runtime hint. That signal is not traversal truth and does not
+write archive state on its own; it is used to annotate History Manager rows
+with recent "node is currently alive/being-interacted-with" evidence without
+introducing a second polling path into the viewer runtime.
+
 ---
 
 ## 2. Subsystem Model (Four Layers)
@@ -125,6 +131,21 @@ artifacts, the operation should produce linked records across systems:
 History owns only the history-side audit/provenance event, not the downstream
 agent or lineage truth.
 
+### 3.7 Compositor Activity Signal Contract
+
+History may consume `compositor:tile_activity` as a supplemental runtime signal.
+
+Rules:
+
+1. The compositor remains the authority for tile-activity emission.
+2. History remains the authority for traversal/archive truth.
+3. History reads frame-level aggregated summaries, not per-tile per-frame
+   streams, from the bounded ring buffer.
+4. Activity signals may annotate History Manager rows and future temporal UI,
+   but they must not silently create, delete, or reorder traversal records.
+5. The ring buffer for this signal is bounded (256 frames) and treated as a
+   best-effort recent-activity hint, not durable history.
+
 ---
 
 ## 4. Surface Capability Declarations (Folded Approach)
@@ -146,7 +167,8 @@ notes: String
 Examples:
 - Graph canvas: `timeline_navigation` + future `preview_mode`
 - Web viewers: `traversal_capture`
-- History Manager tool pane: `timeline_navigation`, `archive_export`
+- History Manager tool pane: `timeline_navigation`, `archive_export`, recent
+   compositor activity annotation
 
 ---
 
@@ -168,6 +190,7 @@ Examples:
 | `history.timeline.replay_succeeded` | Info | Replay operation succeeded |
 | `history.timeline.replay_failed` | Error | Replay operation failed |
 | `history.timeline.return_to_present_failed` | Error | Failed to restore live state after preview |
+| `compositor:tile_activity` | Info | Recent active/idle tile summaries consumed by History Manager as a supplemental runtime hint |
 
 ### 5.2 History Health Summary (Subsystem/Diagnostics Pane)
 

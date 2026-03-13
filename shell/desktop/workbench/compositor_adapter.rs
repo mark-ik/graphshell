@@ -7,7 +7,7 @@
 //! stable before/after content-pass rendering: viewport, scissor enable,
 //! blend enable, active texture unit, and framebuffer binding.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -54,8 +54,21 @@ const COMPOSITOR_REPLAY_RING_CAPACITY: usize = 64;
 static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static COMPOSITOR_REPLAY_RING: OnceLock<Mutex<std::collections::VecDeque<CompositorReplaySample>>> =
     OnceLock::new();
+static COMPOSITOR_CONTENT_CALLBACKS: OnceLock<Mutex<HashMap<NodeKey, RegisteredContentCallback>>> =
+    OnceLock::new();
 #[cfg(feature = "diagnostics")]
 static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
+
+type CompositorContentCallback = std::sync::Arc<
+    dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync,
+>;
+
+#[derive(Clone)]
+struct RegisteredContentCallback {
+    bridge_path: &'static str,
+    bridge_mode: &'static str,
+    callback: CompositorContentCallback,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CompositorReplaySample {
@@ -96,6 +109,10 @@ fn replay_ring() -> &'static Mutex<std::collections::VecDeque<CompositorReplaySa
     })
 }
 
+fn content_callback_registry() -> &'static Mutex<HashMap<NodeKey, RegisteredContentCallback>> {
+    COMPOSITOR_CONTENT_CALLBACKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn push_replay_sample(sample: CompositorReplaySample) {
     let mut ring = replay_ring()
         .lock()
@@ -122,6 +139,14 @@ fn clear_replay_samples_for_tests() {
         .expect("compositor replay ring mutex poisoned")
         .clear();
     COMPOSITOR_REPLAY_SEQUENCE.store(1, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+fn clear_content_callbacks_for_tests() {
+    content_callback_registry()
+        .lock()
+        .expect("compositor content callback registry mutex poisoned")
+        .clear();
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -479,12 +504,11 @@ impl CompositorAdapter {
             return CompositedContentPassOutcome::PaintFailed;
         }
 
-        if Self::register_content_pass_from_render_context(ctx, node_key, tile_rect, render_context)
-        {
-            CompositedContentPassOutcome::Registered
-        } else {
-            CompositedContentPassOutcome::MissingContentCallback
+        if !Self::register_content_callback_from_render_context(node_key, render_context) {
+            return CompositedContentPassOutcome::MissingContentCallback;
         }
+
+        Self::compose_registered_content_pass(ctx, node_key, tile_rect)
     }
 
     pub(crate) fn content_layer(node_key: NodeKey) -> LayerId {
@@ -509,6 +533,45 @@ impl CompositorAdapter {
     ) {
         let layer = Self::content_layer(node_key);
         register_custom_paint_callback(ctx, layer, tile_rect, callback);
+    }
+
+    pub(crate) fn register_content_callback(
+        node_key: NodeKey,
+        bridge_path: &'static str,
+        bridge_mode: &'static str,
+        callback: CompositorContentCallback,
+    ) {
+        content_callback_registry()
+            .lock()
+            .expect("compositor content callback registry mutex poisoned")
+            .insert(
+                node_key,
+                RegisteredContentCallback {
+                    bridge_path,
+                    bridge_mode,
+                    callback,
+                },
+            );
+    }
+
+    pub(crate) fn unregister_content_callback(node_key: NodeKey) -> bool {
+        content_callback_registry()
+            .lock()
+            .expect("compositor content callback registry mutex poisoned")
+            .remove(&node_key)
+            .is_some()
+    }
+
+    pub(crate) fn compose_registered_content_pass(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+    ) -> CompositedContentPassOutcome {
+        let Some(callback) = Self::registered_content_pass_callback(node_key) else {
+            return CompositedContentPassOutcome::MissingContentCallback;
+        };
+        Self::register_content_pass(ctx, node_key, tile_rect, callback);
+        CompositedContentPassOutcome::Registered
     }
 
     pub(crate) fn prepare_composited_target(
@@ -608,58 +671,26 @@ impl CompositorAdapter {
         }
     }
 
-    fn register_render_to_parent_content_pass(
-        ctx: &Context,
+    fn content_callback_from_parent_render(
         node_key: NodeKey,
-        tile_rect: EguiRect,
         bridge_path: &'static str,
         bridge_mode: &'static str,
         render_to_parent: BackendParentRenderCallback,
-    ) {
-        let callback =
-            custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
-                #[cfg(feature = "diagnostics")]
-                let started = std::time::Instant::now();
-
-                let rect_in_parent = BackendParentRenderRegionInPixels {
-                    left_px: clip.left_px,
-                    from_bottom_px: clip.from_bottom_px,
-                    width_px: clip.width_px,
-                    height_px: clip.height_px,
-                };
-                let probe_context = BridgeProbeContext {
-                    bridge_path,
-                    bridge_mode,
-                    tile_rect_px: [
-                        rect_in_parent.left_px,
-                        rect_in_parent.from_bottom_px,
-                        rect_in_parent.width_px,
-                        rect_in_parent.height_px,
-                    ],
-                    render_size_px: [clip.width_px as u32, clip.height_px as u32],
-                };
-
-                CompositorAdapter::run_content_callback_with_guardrails(
-                    node_key,
-                    gl,
-                    probe_context,
-                    || render_to_parent(gl, rect_in_parent),
-                );
-
-                #[cfg(feature = "diagnostics")]
-                crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-                    "tile_compositor::content_pass_callback",
-                    started.elapsed().as_micros() as u64,
-                );
-            });
-
-        Self::register_content_pass(ctx, node_key, tile_rect, callback);
+    ) -> CompositorContentCallback {
+        let _ = (node_key, bridge_path, bridge_mode);
+        std::sync::Arc::new(move |gl, clip: BackendViewportInPixels| {
+            let rect_in_parent = BackendParentRenderRegionInPixels {
+                left_px: clip.left_px,
+                from_bottom_px: clip.from_bottom_px,
+                width_px: clip.width_px,
+                height_px: clip.height_px,
+            };
+            render_to_parent(gl, rect_in_parent);
+        })
     }
 
-    fn register_content_pass_from_render_context(
-        ctx: &Context,
+    fn register_content_callback_from_render_context(
         node_key: NodeKey,
-        tile_rect: EguiRect,
         render_context: &OffscreenRenderingContext,
     ) -> bool {
         let Some(bridge) = select_content_bridge_from_render_context(render_context) else {
@@ -671,15 +702,43 @@ impl CompositorAdapter {
 
         let BackendContentBridge::ParentRenderCallback(callback) = bridge.bridge;
 
-        Self::register_render_to_parent_content_pass(
-            ctx,
+        Self::register_content_callback(
             node_key,
-            tile_rect,
             bridge_path,
             bridge_mode,
-            callback,
+            Self::content_callback_from_parent_render(node_key, bridge_path, bridge_mode, callback),
         );
         true
+    }
+
+    fn registered_content_pass_callback(node_key: NodeKey) -> Option<BackendCustomPass> {
+        let registered = content_callback_registry()
+            .lock()
+            .expect("compositor content callback registry mutex poisoned")
+            .get(&node_key)
+            .cloned()?;
+
+        Some(custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
+            #[cfg(feature = "diagnostics")]
+            let started = std::time::Instant::now();
+
+            let probe_context = BridgeProbeContext {
+                bridge_path: registered.bridge_path,
+                bridge_mode: registered.bridge_mode,
+                tile_rect_px: [clip.left_px, clip.from_bottom_px, clip.width_px, clip.height_px],
+                render_size_px: [clip.width_px as u32, clip.height_px as u32],
+            };
+
+            CompositorAdapter::run_content_callback_with_guardrails(node_key, gl, probe_context, || {
+                (registered.callback)(gl, clip)
+            });
+
+            #[cfg(feature = "diagnostics")]
+            crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+                "tile_compositor::content_pass_callback",
+                started.elapsed().as_micros() as u64,
+            );
+        }))
     }
 
     pub(crate) fn run_content_callback_with_guardrails<F>(
@@ -1108,8 +1167,9 @@ mod tests {
 
     use super::{
         CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION,
-        COMPOSITOR_REPLAY_RING_CAPACITY, CompositorAdapter, CompositorPassTracker, GlStateSnapshot,
-        OverlayAffordanceStyle, OverlayStrokePass, chaos_mode_enabled_from_raw, chaos_probe_passed,
+        COMPOSITOR_REPLAY_RING_CAPACITY, CompositedContentPassOutcome, CompositorAdapter,
+        CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
+        chaos_mode_enabled_from_raw, chaos_probe_passed, clear_content_callbacks_for_tests,
         clear_replay_samples_for_tests, emit_chaos_probe_outcome, framebuffer_binding_target,
         gl_state_violated, push_replay_sample, replay_samples_snapshot, run_guarded_callback,
         run_guarded_callback_with_snapshots, run_guarded_callback_with_snapshots_and_perturbation,
@@ -1328,6 +1388,44 @@ mod tests {
             "expected overlay style diagnostics emission"
         );
         assert!(mode_count > 0, "expected overlay mode diagnostics emission");
+    }
+
+    #[test]
+    fn compose_registered_content_pass_requires_registered_callback() {
+        clear_content_callbacks_for_tests();
+
+        let ctx = egui::Context::default();
+        let outcome = CompositorAdapter::compose_registered_content_pass(
+            &ctx,
+            NodeKey::new(901),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(80.0, 40.0)),
+        );
+
+        assert_eq!(outcome, CompositedContentPassOutcome::MissingContentCallback);
+    }
+
+    #[test]
+    fn synthetic_viewer_can_register_generic_content_callback() {
+        clear_content_callbacks_for_tests();
+
+        let ctx = egui::Context::default();
+        let node_key = NodeKey::new(902);
+        CompositorAdapter::register_content_callback(
+            node_key,
+            "test.synthetic_viewer",
+            "test.synthetic_mode",
+            std::sync::Arc::new(|_, _| {}),
+        );
+
+        let outcome = CompositorAdapter::compose_registered_content_pass(
+            &ctx,
+            node_key,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(80.0, 40.0)),
+        );
+
+        assert_eq!(outcome, CompositedContentPassOutcome::Registered);
+        assert!(CompositorAdapter::unregister_content_callback(node_key));
+        assert!(!CompositorAdapter::unregister_content_callback(node_key));
     }
 
     #[test]

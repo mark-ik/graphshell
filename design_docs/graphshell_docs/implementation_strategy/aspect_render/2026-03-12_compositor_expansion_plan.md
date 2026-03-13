@@ -343,9 +343,11 @@ But no viewer other than Servo can currently register a content callback. Any fu
 
 Expose a `CompositorAdapter::register_content_callback(node_key, callback)` API that any viewer can use to register a `CompositedTexture`-mode content callback. This replaces the current Servo-specific path with a general dispatch table.
 
+Status update (2026-03-13): the adapter-level seam is implemented and Servo now routes through the generic registration path. The remaining deferred work is the `ViewerRegistry` contract extension so non-Servo `CompositedTexture` viewers can declare and attach their callback factories through normal viewer selection/runtime wiring.
+
 The `ViewerRegistry` registration contract is extended: viewers declaring `TileRenderMode::CompositedTexture` capability must provide a `ContentCallbackFactory` that `ViewerRegistry` hands to `CompositorAdapter` at viewer attachment time.
 
-**This is the lowest-urgency item** — it is correctly deferred until a second `CompositedTexture` viewer exists. It is listed here to mark it as the known extension seam, not as near-term work.
+**This remains the lowest-urgency item** — the adapter seam can exist ahead of demand, but the `ViewerRegistry` rollout is still correctly deferred until a second `CompositedTexture` viewer exists. It is listed here to mark the remaining extension seam, not as near-term work.
 
 ### Acceptance criteria
 
@@ -489,7 +491,7 @@ These opportunities are independent and can be worked in any order, but the foll
 | **Phase 1** | O1 (content signature), O2 (lifecycle → overlay) | Correctness improvements; low risk; directly visible to users |
 | **Phase 2** | O3 (lens overlay descriptor), O4 (tile activity channel) | Connects compositor to registry/subsystem layer; enables semantic visualization |
 | **Phase 3** | O5 (focus delta), O6 (EmbeddedEgui z-order), O8 (a11y annotation) | Polish/reliability; low user-visible impact now but prevents future debt |
-| **Deferred** | O7 (generic callback path) | No second CompositedTexture viewer exists; defer until one is being built |
+| **Phase 4 / Deferred rollout** | O7 (viewer-registry callback rollout) | Adapter seam is landed; defer registry/factory rollout until a second CompositedTexture viewer is being built |
 
 Phase 0 is deliberately architectural: it prevents O1–O6 from growing a patchwork of one-off compositor inputs. Phase 1 has low coupling once that contract exists. Phase 2 introduces the lens → compositor connection which is a new cross-system contract and should be designed carefully. Phase 3 is internal cleanup/polish. O8 is placed in Phase 3 because it depends on Pass 3 dispatch being stable (O1–O6 landed) before the output annotation path is worth formalizing.
 
