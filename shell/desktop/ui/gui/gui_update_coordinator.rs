@@ -8,8 +8,11 @@ use super::update_frame_phases::{
     ToolbarAndGraphSearchWindowPhaseArgs, UPDATE_FRAME_STAGE_SEQUENCE, UpdateFrameStage,
 };
 use super::*;
-use crate::app::MemoryPressureLevel;
-use crate::shell::desktop::runtime::control_panel::LifecyclePolicy;
+
+#[path = "gui_update_coordinator/frame_prelude.rs"]
+mod frame_prelude;
+#[path = "gui_update_coordinator/semantic_post_render.rs"]
+mod semantic_post_render;
 
 impl Gui {
     pub(super) fn execute_update_frame(args: ExecuteUpdateFrameArgs<'_>) {
@@ -42,7 +45,6 @@ impl Gui {
             graph_search_filter_mode,
             graph_search_matches,
             graph_search_active_match_index,
-            local_widget_focus,
             focus_authority,
             focused_node_hint,
             graph_surface_focused,
@@ -89,7 +91,7 @@ impl Gui {
                 graph_search_filter_mode,
                 graph_search_matches,
                 graph_search_active_match_index,
-                local_widget_focus,
+                focus_authority,
                 toolbar_state,
                 tile_rendering_contexts,
                 tile_favicon_textures,
@@ -113,7 +115,6 @@ impl Gui {
             tiles_tree,
             focused_node_hint: *focused_node_hint,
             graph_surface_focused: *graph_surface_focused,
-            local_widget_focus,
             focus_authority,
             toolbar_state,
             omnibar_search_session,
@@ -139,7 +140,7 @@ impl Gui {
         let modal_surface_active = super::focus_state::workspace_runtime_focus_state(
             graph_app,
             Some(focus_authority),
-            local_widget_focus.clone(),
+            focus_authority.local_widget_focus.clone(),
             toolbar_state.show_clear_data_confirm,
         )
         .overlay_active();
@@ -196,20 +197,19 @@ impl Gui {
         pending_webview_a11y_updates: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
         tiles_tree: &mut Tree<TileKind>,
     ) {
-        graph_app.tick_frame();
-        pane_queries::reconcile_workspace_graph_views_from_tiles(graph_app, tiles_tree);
-
-        accessibility::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
-        Self::maybe_toggle_diagnostics_tool_pane(ctx, tiles_tree);
+        frame_prelude::run_update_frame_prelude(
+            ctx,
+            graph_app,
+            pending_webview_a11y_updates,
+            tiles_tree,
+        );
     }
 
     pub(super) fn configure_frame_toasts(
         toasts: &mut egui_notify::Toasts,
         preference: ToastAnchorPreference,
     ) {
-        *toasts = std::mem::take(toasts)
-            .with_anchor(Self::toast_anchor(preference))
-            .with_margin(egui::vec2(12.0, 12.0));
+        frame_prelude::configure_frame_toasts(toasts, preference, Self::toast_anchor);
     }
 
     fn initialize_frame_intents(
@@ -217,64 +217,17 @@ impl Gui {
         pre_frame_intents: Vec<GraphIntent>,
         control_panel: &mut ControlPanel,
     ) -> Vec<GraphIntent> {
-        Self::update_prefetch_lifecycle_policy(graph_app, control_panel);
-        let mut frame_intents = pre_frame_intents;
-        frame_intents.extend(control_panel.drain_pending());
-        frame_intents
+        frame_prelude::initialize_frame_intents(graph_app, pre_frame_intents, control_panel)
     }
 
     fn update_prefetch_lifecycle_policy(graph_app: &GraphBrowserApp, control_panel: &ControlPanel) {
-        let memory_pressure_level = graph_app.memory_pressure_level();
-        let prefetch_target = graph_app.get_single_selected_node();
-        let (prefetch_enabled, prefetch_interval) = match memory_pressure_level {
-            MemoryPressureLevel::Critical => (false, Duration::from_secs(30)),
-            MemoryPressureLevel::Warning => (prefetch_target.is_some(), Duration::from_secs(20)),
-            MemoryPressureLevel::Normal => (prefetch_target.is_some(), Duration::from_secs(8)),
-            MemoryPressureLevel::Unknown => (prefetch_target.is_some(), Duration::from_secs(12)),
-        };
-
-        control_panel.update_lifecycle_policy(LifecyclePolicy {
-            prefetch_enabled,
-            prefetch_interval,
-            prefetch_target,
-            memory_pressure_level,
-        });
+        frame_prelude::update_prefetch_lifecycle_policy(graph_app, control_panel);
     }
 
     fn run_pre_frame_and_initialize_intents(
         args: PreFrameAndIntentInitArgs<'_>,
     ) -> (gui_orchestration::PreFramePhaseOutput, Vec<GraphIntent>) {
-        let PreFrameAndIntentInitArgs {
-            ctx,
-            graph_app,
-            state,
-            window,
-            favicon_textures,
-            thumbnail_capture_tx,
-            thumbnail_capture_rx,
-            thumbnail_capture_in_flight,
-            command_palette_toggle_requested,
-            control_panel,
-        } = args;
-
-        let pre_frame = gui_orchestration::run_pre_frame_phase(
-            ctx,
-            graph_app,
-            state,
-            window,
-            favicon_textures,
-            thumbnail_capture_tx,
-            thumbnail_capture_rx,
-            thumbnail_capture_in_flight,
-            command_palette_toggle_requested,
-        );
-        let frame_intents = Self::initialize_frame_intents(
-            graph_app,
-            pre_frame.frame_intents.clone(),
-            control_panel,
-        );
-
-        (pre_frame, frame_intents)
+        frame_prelude::run_pre_frame_and_initialize_intents(args)
     }
 
     fn run_graph_search_and_keyboard_phases(
@@ -291,7 +244,7 @@ impl Gui {
             graph_search_filter_mode,
             graph_search_matches,
             graph_search_active_match_index,
-            local_widget_focus,
+            focus_authority,
             toolbar_state,
             tile_rendering_contexts,
             tile_favicon_textures,
@@ -309,7 +262,7 @@ impl Gui {
             graph_app,
             toasts,
             graph_search_open,
-            local_widget_focus,
+            &mut focus_authority.local_widget_focus,
             graph_search_query,
             graph_search_filter_mode,
             graph_search_matches,
@@ -351,7 +304,6 @@ impl Gui {
             tiles_tree,
             focused_node_hint,
             graph_surface_focused,
-            local_widget_focus,
             focus_authority,
             toolbar_state,
             omnibar_search_session,
@@ -374,6 +326,8 @@ impl Gui {
             open_node_tile_after_intents,
         } = args;
 
+        let mut local_widget_focus = focus_authority.local_widget_focus.clone();
+
         let (toolbar_visible, is_graph_view) = gui_orchestration::run_toolbar_phase(
             ctx,
             winit_window,
@@ -385,7 +339,7 @@ impl Gui {
             tiles_tree,
             focused_node_hint,
             graph_surface_focused,
-            local_widget_focus,
+            &mut local_widget_focus,
             focus_authority,
             toolbar_state,
             graph_search_output.focus_location_field_for_search,
@@ -409,13 +363,15 @@ impl Gui {
             toolbar_visible,
             *graph_search_open,
             is_graph_view,
-            local_widget_focus,
+            &mut local_widget_focus,
             graph_search_query,
             graph_search_filter_mode,
             graph_search_matches,
             graph_search_active_match_index,
             graph_search_output,
         );
+
+        focus_authority.local_widget_focus = local_widget_focus;
     }
 
     fn finalize_update_frame(
@@ -424,159 +380,26 @@ impl Gui {
         clipboard: &mut Option<Clipboard>,
         toasts: &mut egui_notify::Toasts,
     ) {
-        gui_orchestration::handle_pending_clipboard_copy_requests(graph_app, clipboard, toasts);
-        toasts.show(ctx);
+        semantic_post_render::finalize_update_frame(ctx, graph_app, clipboard, toasts);
     }
 
     #[cfg(feature = "diagnostics")]
     fn maybe_toggle_diagnostics_tool_pane(ctx: &egui::Context, tiles_tree: &mut Tree<TileKind>) {
-        let toggle_diagnostics = ctx.input(|i| {
-            i.key_pressed(egui::Key::F12)
-                || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::D))
-        });
-        if toggle_diagnostics {
-            tile_view_ops::open_or_focus_tool_pane(
-                tiles_tree,
-                crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
-            );
-        }
+        frame_prelude::maybe_toggle_diagnostics_tool_pane(ctx, tiles_tree);
     }
 
     #[cfg(not(feature = "diagnostics"))]
     fn maybe_toggle_diagnostics_tool_pane(_ctx: &egui::Context, _tiles_tree: &mut Tree<TileKind>) {}
 
     fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPhaseArgs<'_>) {
-        let SemanticAndPostRenderPhaseArgs {
-            ctx,
-            graph_app,
-            window,
-            headed_window,
-            tiles_tree,
-            modal_surface_active,
-            toolbar_height,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            favicon_textures,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            webview_creation_backpressure,
-            focus_authority,
-            focused_node_hint,
-            graph_surface_focused,
-            focus_ring_node_key,
-            focus_ring_started_at,
-            focus_ring_duration,
-            graph_search_query,
-            graph_search_matches,
-            graph_search_active_match_index,
-            graph_search_filter_mode,
-            toasts,
-            registry_runtime: _,
-            control_panel,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
-            responsive_webviews,
-            open_node_tile_after_intents,
-            frame_intents,
-        } = args;
-
-        Self::run_semantic_lifecycle_phase(SemanticLifecyclePhaseArgs {
-            graph_app,
-            tiles_tree,
-            modal_surface_active,
-            focus_authority,
-            window,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            favicon_textures,
-            responsive_webviews,
-            webview_creation_backpressure,
-            open_node_tile_after_intents,
-            frame_intents,
-        });
-
-        crate::shell::desktop::runtime::registries::phase3_reconcile_semantics(graph_app);
-        let search_query_active = Self::is_graph_search_query_active(graph_search_query);
-
-        gui_frame::run_post_render_phase(
-            gui_frame::PostRenderPhaseArgs {
-                ctx,
-                graph_app,
-                window,
-                headed_window,
-                tiles_tree,
-                tile_rendering_contexts,
-                tile_favicon_textures,
-                favicon_textures,
-                toolbar_height,
-                graph_search_matches,
-                graph_search_active_match_index: *graph_search_active_match_index,
-                graph_search_filter_mode: *graph_search_filter_mode,
-                search_query_active,
-                app_state,
-                rendering_context,
-                window_rendering_context,
-                responsive_webviews,
-                webview_creation_backpressure,
-                focused_node_hint,
-                graph_surface_focused: *graph_surface_focused,
-                focus_ring_node_key,
-                focus_ring_started_at,
-                focus_ring_duration: *focus_ring_duration,
-                toasts,
-                control_panel,
-                #[cfg(feature = "diagnostics")]
-                diagnostics_state,
-            },
-            |matches, active_index| {
-                gui_orchestration::active_graph_search_match(matches, active_index)
-            },
-        );
+        semantic_post_render::run_semantic_and_post_render_phases(args);
     }
 
     fn is_graph_search_query_active(query: &str) -> bool {
-        !query.trim().is_empty()
+        semantic_post_render::is_graph_search_query_active(query)
     }
 
     fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>) {
-        let SemanticLifecyclePhaseArgs {
-            graph_app,
-            tiles_tree,
-            modal_surface_active,
-            focus_authority,
-            window,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            favicon_textures,
-            responsive_webviews,
-            webview_creation_backpressure,
-            open_node_tile_after_intents,
-            frame_intents,
-        } = args;
-
-        gui_orchestration::run_semantic_lifecycle_phase(
-            graph_app,
-            tiles_tree,
-            modal_surface_active,
-            focus_authority,
-            window,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            favicon_textures,
-            responsive_webviews,
-            webview_creation_backpressure,
-            open_node_tile_after_intents,
-            frame_intents,
-        );
+        semantic_post_render::run_semantic_lifecycle_phase(args);
     }
 }

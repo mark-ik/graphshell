@@ -40,6 +40,7 @@ use crate::services::persistence::types::{
 };
 
 pub mod apply;
+pub mod badge;
 pub mod egui_adapter;
 
 /// Stable node handle (petgraph NodeIndex — survives other deletions)

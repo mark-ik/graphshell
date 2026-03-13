@@ -424,10 +424,11 @@ pub(super) fn apply_pane_activation_focus_state(
         _ => {}
     }
     if matches!(
-        runtime_state.local_widget_focus,
+        runtime_state.focus_authority.local_widget_focus,
         Some(LocalFocusTarget::ToolbarLocation { .. })
     ) {
-        runtime_state.local_widget_focus = Some(LocalFocusTarget::ToolbarLocation { pane_id });
+        runtime_state.focus_authority.local_widget_focus =
+            Some(LocalFocusTarget::ToolbarLocation { pane_id });
         runtime_state.focus_authority.semantic_region = Some(SemanticRegionFocus::Toolbar);
     }
 }
@@ -673,7 +674,7 @@ pub(super) fn sync_runtime_focus_authority_state(
     runtime_state.focus_authority.realized_focus_state = Some(workspace_runtime_focus_state(
         graph_app,
         None,
-        runtime_state.local_widget_focus.clone(),
+        runtime_state.focus_authority.local_widget_focus.clone(),
         false,
     ));
 }
@@ -723,15 +724,16 @@ pub(crate) fn apply_toolbar_location_local_focus_state(
     focused: bool,
 ) {
     if focused {
-        runtime_state.local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
-            pane_id: runtime_state.focus_authority.pane_activation,
-        });
+        runtime_state.focus_authority.local_widget_focus =
+            Some(LocalFocusTarget::ToolbarLocation {
+                pane_id: runtime_state.focus_authority.pane_activation,
+            });
         runtime_state.focus_authority.semantic_region = Some(SemanticRegionFocus::Toolbar);
     } else if matches!(
-        runtime_state.local_widget_focus,
+        runtime_state.focus_authority.local_widget_focus,
         Some(LocalFocusTarget::ToolbarLocation { .. })
     ) {
-        runtime_state.local_widget_focus = None;
+        runtime_state.focus_authority.local_widget_focus = None;
         if matches!(
             &runtime_state.focus_authority.semantic_region,
             Some(SemanticRegionFocus::Toolbar)
@@ -994,7 +996,6 @@ mod tests {
             graph_search_filter_mode: false,
             graph_search_matches: Vec::new(),
             graph_search_active_match_index: None,
-            local_widget_focus: None,
             focused_node_hint: None,
             graph_surface_focused: false,
             focus_ring_node_key: None,
@@ -1023,7 +1024,6 @@ mod tests {
             graph_search_filter_mode: false,
             graph_search_matches: Vec::new(),
             graph_search_active_match_index: None,
-            local_widget_focus: None,
             focused_node_hint: None,
             graph_surface_focused: false,
             focus_ring_node_key: None,
@@ -1041,14 +1041,14 @@ mod tests {
 
         apply_toolbar_location_local_focus_state(&mut runtime_state, true);
         assert_eq!(
-            runtime_state.local_widget_focus,
+            runtime_state.focus_authority.local_widget_focus,
             Some(LocalFocusTarget::ToolbarLocation {
                 pane_id: Some(pane_id),
             })
         );
 
         apply_toolbar_location_local_focus_state(&mut runtime_state, false);
-        assert_eq!(runtime_state.local_widget_focus, None);
+        assert_eq!(runtime_state.focus_authority.local_widget_focus, None);
     }
 
     #[test]
@@ -1059,7 +1059,6 @@ mod tests {
             graph_search_filter_mode: false,
             graph_search_matches: Vec::new(),
             graph_search_active_match_index: None,
-            local_widget_focus: None,
             focused_node_hint: None,
             graph_surface_focused: false,
             focus_ring_node_key: None,

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use egui::Color32;
+
 use super::{LayoutMode, PhysicsProfile, THEME_ID_DEFAULT, ThemeData, resolve_theme_data};
 
 pub(crate) const LENS_ID_DEFAULT: &str = "lens:default";
@@ -13,6 +15,30 @@ pub(crate) struct LensDefinition {
     pub(crate) layout_algorithm_id: String,
     pub(crate) theme: Option<ThemeData>,
     pub(crate) filters: Vec<String>,
+    pub(crate) overlay_descriptor: Option<LensOverlayDescriptor>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GlyphAnchor {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    Center,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GlyphOverlay {
+    pub(crate) glyph_id: String,
+    pub(crate) anchor: GlyphAnchor,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LensOverlayDescriptor {
+    pub(crate) border_tint: Option<Color32>,
+    pub(crate) glyph_overlays: Vec<GlyphOverlay>,
+    pub(crate) opacity_scale: f32,
+    pub(crate) suppress_default_affordances: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -168,6 +194,9 @@ impl LensRegistry {
             if composed.theme.is_none() {
                 composed.theme = resolution.definition.theme;
             }
+            if composed.overlay_descriptor.is_none() {
+                composed.overlay_descriptor = resolution.definition.overlay_descriptor;
+            }
         }
 
         composed
@@ -201,6 +230,15 @@ impl Default for LensRegistry {
                 layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
                 theme: Some(resolve_theme_data(THEME_ID_DEFAULT).theme),
                 filters: vec!["semantic:overlay".to_string()],
+                overlay_descriptor: Some(LensOverlayDescriptor {
+                    border_tint: Some(Color32::from_rgb(120, 210, 255)),
+                    glyph_overlays: vec![GlyphOverlay {
+                        glyph_id: "semantic".to_string(),
+                        anchor: GlyphAnchor::TopRight,
+                    }],
+                    opacity_scale: 1.1,
+                    suppress_default_affordances: false,
+                }),
             },
         );
         registry
@@ -226,6 +264,7 @@ fn default_lens_definition() -> LensDefinition {
         layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
         theme: Some(resolve_theme_data(THEME_ID_DEFAULT).theme),
         filters: Vec::new(),
+        overlay_descriptor: None,
     }
 }
 
@@ -271,6 +310,7 @@ mod tests {
                 .iter()
                 .any(|filter| filter == "semantic:overlay")
         );
+        assert!(composed.overlay_descriptor.is_some());
     }
 
     #[test]

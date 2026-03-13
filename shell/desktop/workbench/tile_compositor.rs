@@ -2,18 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 #[cfg(feature = "diagnostics")]
 use std::time::Instant;
 
-use egui::Stroke;
-use egui_tiles::{Tile, Tree};
+use egui::{Color32, Stroke, TextureHandle, TextureId};
+use egui_tiles::{Tile, TileId, Tree};
+use image::load_from_memory;
 use servo::OffscreenRenderingContext;
 
 use crate::app::GraphBrowserApp;
-use crate::graph::NodeKey;
+use crate::graph::{NodeKey, NodeLifecycle};
+use crate::registries::atomic::lens::{GlyphOverlay, LensOverlayDescriptor};
 use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -24,11 +29,14 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
+    CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED,
     CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
+    CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+    CHANNEL_COMPOSITOR_TILE_ACTIVITY,
     phase3_resolve_active_presentation_profile,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
@@ -39,23 +47,76 @@ use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode};
 use crate::shell::desktop::workbench::{
     interaction_policy::{InteractionUiState, OverlaySuppressionReason},
     tile_kind::TileKind,
+    tile_view_ops,
 };
 #[cfg(feature = "wry")]
 use crate::{mods::native::verso, mods::native::verso::wry_manager::OverlayRect as WryOverlayRect};
 
-#[derive(Clone, Copy)]
-enum ScheduledOverlay {
-    Focus,
-    Hover,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TileSelectionState {
+    NotSelected,
+    Selected,
+    SelectionPrimary,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FocusDelta {
+    pub(crate) changed_this_frame: bool,
+    pub(crate) new_focused_node: Option<NodeKey>,
+    pub(crate) previous_focused_node: Option<NodeKey>,
+}
+
+impl FocusDelta {
+    pub(crate) fn new(
+        previous_focused_node: Option<NodeKey>,
+        new_focused_node: Option<NodeKey>,
+    ) -> Self {
+        Self {
+            changed_this_frame: previous_focused_node != new_focused_node,
+            new_focused_node,
+            previous_focused_node,
+        }
+    }
+
+    fn touches(self, node_key: NodeKey) -> bool {
+        self.new_focused_node == Some(node_key) || self.previous_focused_node == Some(node_key)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TileSemanticOverlayInput {
+    node_key: NodeKey,
+    render_mode: TileRenderMode,
+    lifecycle: NodeLifecycle,
+    runtime_blocked: bool,
+    semantic_generation: u64,
+    active_lens_overlay: Option<LensOverlayDescriptor>,
+    focus_delta: Option<FocusDelta>,
+    selection_state: TileSelectionState,
+    has_unread_traversal_activity: bool,
+}
+
+#[derive(Clone)]
+enum ScheduledOverlay {
+    Focus(TileSemanticOverlayInput),
+    Selection(TileSemanticOverlayInput),
+    Hover(TileSemanticOverlayInput),
+    Semantic(TileSemanticOverlayInput),
+}
+
+#[derive(Clone)]
+struct ScheduledTileSemanticInput {
+    pane_id: PaneId,
+    tile_rect: egui::Rect,
+    semantic: TileSemanticOverlayInput,
+}
+
+#[derive(Clone)]
 struct ScheduledPanePass {
     pane_id: PaneId,
-    node_key: NodeKey,
     tile_rect: egui::Rect,
-    render_mode: TileRenderMode,
-    overlay: Option<ScheduledOverlay>,
+    semantic: TileSemanticOverlayInput,
+    overlays: Vec<ScheduledOverlay>,
 }
 
 #[derive(Clone)]
@@ -92,6 +153,7 @@ fn active_presentation_profile(app: &GraphBrowserApp) -> PresentationProfile {
 struct CompositedContentSignature {
     webview_id: servo::WebViewId,
     rect_px: [i32; 4],
+    semantic_generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,18 +168,91 @@ enum DifferentialContentDecision {
     SkipUnchanged,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DifferentialDecisionKind {
+    Recompose,
+    Skip,
+    GpuPressureDegraded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DifferentialObservation {
+    decision: DifferentialContentDecision,
+    semantic_generation_changed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CompositorFrameActivitySummary {
+    pub(crate) active_tile_keys: Vec<NodeKey>,
+    pub(crate) idle_tile_keys: Vec<NodeKey>,
+    pub(crate) frame_index: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LifecycleTreatment {
+    Active,
+    Warm,
+    Cold,
+    Tombstone,
+    RuntimeBlocked,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TileAffordanceAnnotation {
+    pub(crate) node_key: NodeKey,
+    pub(crate) focus_ring_rendered: bool,
+    pub(crate) selection_ring_rendered: bool,
+    pub(crate) lifecycle_treatment: LifecycleTreatment,
+    pub(crate) lens_glyphs_rendered: Vec<String>,
+}
+
 static COMPOSITED_CONTENT_SIGNATURES: OnceLock<
     Mutex<HashMap<NodeKey, CompositedContentSignature>>,
 > = OnceLock::new();
+static COMPOSITOR_ACTIVITY_FRAME_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static COMPOSITOR_ACTIVITY_SUMMARIES: OnceLock<Mutex<VecDeque<CompositorFrameActivitySummary>>> =
+    OnceLock::new();
+static LATEST_AFFORDANCE_ANNOTATIONS: OnceLock<Mutex<Vec<TileAffordanceAnnotation>>> =
+    OnceLock::new();
+
+thread_local! {
+    static THUMBNAIL_GHOST_TEXTURES: RefCell<HashMap<NodeKey, (u64, TextureHandle)>> =
+        RefCell::new(HashMap::new());
+}
 
 fn composited_content_signatures() -> &'static Mutex<HashMap<NodeKey, CompositedContentSignature>> {
     COMPOSITED_CONTENT_SIGNATURES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn compositor_activity_summaries() -> &'static Mutex<VecDeque<CompositorFrameActivitySummary>> {
+    COMPOSITOR_ACTIVITY_SUMMARIES.get_or_init(|| Mutex::new(VecDeque::with_capacity(256)))
+}
+
+fn latest_affordance_annotations() -> &'static Mutex<Vec<TileAffordanceAnnotation>> {
+    LATEST_AFFORDANCE_ANNOTATIONS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+pub(crate) fn latest_tile_affordance_annotations() -> Vec<TileAffordanceAnnotation> {
+    latest_affordance_annotations()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+pub(crate) fn compositor_activity_summaries_snapshot() -> Vec<CompositorFrameActivitySummary> {
+    compositor_activity_summaries()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+        .cloned()
+        .collect()
 }
 
 fn content_signature_for_tile(
     webview_id: servo::WebViewId,
     tile_rect: egui::Rect,
     pixels_per_point: f32,
+    semantic_generation: u64,
 ) -> CompositedContentSignature {
     let min_x = (tile_rect.min.x * pixels_per_point).round() as i32;
     let min_y = (tile_rect.min.y * pixels_per_point).round() as i32;
@@ -126,23 +261,178 @@ fn content_signature_for_tile(
     CompositedContentSignature {
         webview_id,
         rect_px: [min_x, min_y, max_x, max_y],
+        semantic_generation,
+    }
+}
+
+fn node_lifecycle_for_tile(graph_app: &GraphBrowserApp, node_key: NodeKey) -> NodeLifecycle {
+    graph_app
+        .domain_graph()
+        .get_node(node_key)
+        .map(|node| node.lifecycle)
+        .unwrap_or(NodeLifecycle::Cold)
+}
+
+fn tile_selection_state_for_tile(
+    graph_app: &GraphBrowserApp,
+    tile_id: Option<TileId>,
+) -> TileSelectionState {
+    let Some(tile_id) = tile_id else {
+        return TileSelectionState::NotSelected;
+    };
+
+    if graph_app.workbench_tile_selection().primary_tile_id == Some(tile_id) {
+        TileSelectionState::SelectionPrimary
+    } else if graph_app
+        .workbench_tile_selection()
+        .selected_tile_ids
+        .contains(&tile_id)
+    {
+        TileSelectionState::Selected
+    } else {
+        TileSelectionState::NotSelected
+    }
+}
+
+fn tile_id_for_pane(tiles_tree: &Tree<TileKind>, pane_id: PaneId) -> Option<TileId> {
+    tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(tile_id, tile)| match tile {
+            Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(tile_id),
+            _ => None,
+        })
+        .copied()
+}
+
+fn hash_render_mode(render_mode: TileRenderMode) -> u8 {
+    match render_mode {
+        TileRenderMode::CompositedTexture => 0,
+        TileRenderMode::NativeOverlay => 1,
+        TileRenderMode::EmbeddedEgui => 2,
+        TileRenderMode::Placeholder => 3,
+    }
+}
+
+fn hash_lifecycle(lifecycle: NodeLifecycle) -> u8 {
+    match lifecycle {
+        NodeLifecycle::Active => 0,
+        NodeLifecycle::Warm => 1,
+        NodeLifecycle::Cold => 2,
+        NodeLifecycle::Tombstone => 3,
+    }
+}
+
+fn hash_selection_state(selection_state: TileSelectionState) -> u8 {
+    match selection_state {
+        TileSelectionState::NotSelected => 0,
+        TileSelectionState::Selected => 1,
+        TileSelectionState::SelectionPrimary => 2,
+    }
+}
+
+fn semantic_generation_for_tile(
+    semantic: TileSemanticOverlayInput,
+    active_lens_id: Option<&str>,
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (semantic.node_key.index() as u64).hash(&mut hasher);
+    hash_render_mode(semantic.render_mode).hash(&mut hasher);
+    hash_lifecycle(semantic.lifecycle).hash(&mut hasher);
+    semantic.runtime_blocked.hash(&mut hasher);
+    hash_selection_state(semantic.selection_state).hash(&mut hasher);
+    semantic.has_unread_traversal_activity.hash(&mut hasher);
+    active_lens_id.unwrap_or_default().hash(&mut hasher);
+    if let Some(descriptor) = semantic.active_lens_overlay.as_ref() {
+        descriptor.suppress_default_affordances.hash(&mut hasher);
+        descriptor.opacity_scale.to_bits().hash(&mut hasher);
+        descriptor.border_tint.hash(&mut hasher);
+        for glyph in &descriptor.glyph_overlays {
+            glyph.glyph_id.hash(&mut hasher);
+            std::mem::discriminant(&glyph.anchor).hash(&mut hasher);
+        }
+    }
+    if let Some(focus_delta) = semantic.focus_delta {
+        focus_delta.changed_this_frame.hash(&mut hasher);
+        focus_delta.new_focused_node.hash(&mut hasher);
+        focus_delta.previous_focused_node.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn resolved_lens_config_for_tile(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+) -> crate::app::LensConfig {
+    if let Some(view_id) = tile_view_ops::active_graph_view_id(tiles_tree)
+        && let Some(view) = graph_app.workspace.views.get(&view_id)
+        && let Some(lens_id) = view.lens.lens_id.as_deref()
+    {
+        return crate::shell::desktop::runtime::registries::phase2_resolve_lens(lens_id);
+    }
+    crate::shell::desktop::runtime::registries::phase2_resolve_lens_for_node(graph_app, node_key)
+}
+
+fn resolve_tile_semantic_input(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    pane_id: PaneId,
+    node_key: NodeKey,
+    tile_rect: egui::Rect,
+    focus_delta: FocusDelta,
+) -> ScheduledTileSemanticInput {
+    let render_mode = render_mode_for_pane(tiles_tree, pane_id);
+    let lifecycle = node_lifecycle_for_tile(graph_app, node_key);
+    let runtime_blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
+    let selection_state =
+        tile_selection_state_for_tile(graph_app, tile_id_for_pane(tiles_tree, pane_id));
+    let lens_config = resolved_lens_config_for_tile(tiles_tree, graph_app, node_key);
+    let mut semantic = TileSemanticOverlayInput {
+        node_key,
+        render_mode,
+        lifecycle,
+        runtime_blocked,
+        semantic_generation: 0,
+        active_lens_overlay: lens_config.overlay_descriptor,
+        focus_delta: focus_delta.touches(node_key).then_some(focus_delta),
+        selection_state,
+        has_unread_traversal_activity: false,
+    };
+    semantic.semantic_generation =
+        semantic_generation_for_tile(semantic.clone(), lens_config.lens_id.as_deref());
+    ScheduledTileSemanticInput {
+        pane_id,
+        tile_rect,
+        semantic,
     }
 }
 
 fn differential_content_decision(
     node_key: NodeKey,
     signature: CompositedContentSignature,
-) -> DifferentialContentDecision {
+) -> DifferentialObservation {
     let mut cache = composited_content_signatures()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     match cache.insert(node_key, signature) {
-        None => DifferentialContentDecision::Compose(DifferentialComposeReason::NoPriorSignature),
-        Some(previous) if previous != signature => {
-            DifferentialContentDecision::Compose(DifferentialComposeReason::SignatureChanged)
-        }
-        Some(_) => DifferentialContentDecision::SkipUnchanged,
+        None => DifferentialObservation {
+            decision: DifferentialContentDecision::Compose(
+                DifferentialComposeReason::NoPriorSignature,
+            ),
+            semantic_generation_changed: false,
+        },
+        Some(previous) if previous != signature => DifferentialObservation {
+            decision: DifferentialContentDecision::Compose(
+                DifferentialComposeReason::SignatureChanged,
+            ),
+            semantic_generation_changed: previous.semantic_generation != signature.semantic_generation,
+        },
+        Some(_) => DifferentialObservation {
+            decision: DifferentialContentDecision::SkipUnchanged,
+            semantic_generation_changed: false,
+        },
     }
 }
 
@@ -247,11 +537,13 @@ fn run_composited_texture_content_pass(
     degraded_receipts: &mut Vec<DegradedReceipt>,
     active_composited_nodes: &mut HashSet<NodeKey>,
     counters: &mut CompositedPassCounters,
-    node_key: NodeKey,
+    semantic: TileSemanticOverlayInput,
     tile_rect: egui::Rect,
     focus_ring_alpha: f32,
-    overlay: Option<ScheduledOverlay>,
+    overlays: &[ScheduledOverlay],
+    frame_activity: &mut CompositorFrameActivitySummary,
 ) -> bool {
+    let node_key = semantic.node_key;
     let Some(webview_id) = graph_app.get_webview_for_node(node_key) else {
         log::debug!(
             "composite: no runtime viewer mapped for node {:?}",
@@ -261,7 +553,12 @@ fn run_composited_texture_content_pass(
     };
     active_composited_nodes.insert(node_key);
 
-    let signature = content_signature_for_tile(webview_id, tile_rect, ctx.pixels_per_point());
+    let signature = content_signature_for_tile(
+        webview_id,
+        tile_rect,
+        ctx.pixels_per_point(),
+        semantic.semantic_generation,
+    );
     let estimated_tile_bytes = estimated_tile_content_bytes(tile_rect, ctx.pixels_per_point());
     counters.evaluated += 1;
     let differential_decision = differential_content_decision(node_key, signature);
@@ -272,6 +569,11 @@ fn run_composited_texture_content_pass(
         DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME,
     ) {
         counters.skipped += 1;
+        frame_activity.active_tile_keys.push(node_key);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_TILE_ACTIVITY,
+            byte_len: std::mem::size_of::<DifferentialDecisionKind>(),
+        });
         pass_tracker.record_content_pass(node_key);
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
@@ -288,21 +590,14 @@ fn run_composited_texture_content_pass(
                 DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME,
             ),
         });
-        match overlay {
-            Some(ScheduledOverlay::Focus) => pending_overlay_passes.push(focus_overlay_for_mode(
-                TileRenderMode::Placeholder,
-                node_key,
+        for overlay in overlays.iter().cloned() {
+            pending_overlay_passes.push(overlay_pass_for_schedule(
+                overlay,
                 tile_rect,
                 focus_ring_alpha,
                 presentation,
-            )),
-            Some(ScheduledOverlay::Hover) => pending_overlay_passes.push(hover_overlay_for_mode(
-                TileRenderMode::Placeholder,
-                node_key,
-                tile_rect,
-                presentation,
-            )),
-            None => {}
+                Some(TileRenderMode::Placeholder),
+            ));
         }
         return false;
     }
@@ -311,7 +606,15 @@ fn run_composited_texture_content_pass(
         channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
         byte_len: 1,
     });
-    if let DifferentialContentDecision::Compose(reason) = differential_decision {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_COMPOSITOR_TILE_ACTIVITY,
+        byte_len: std::mem::size_of::<DifferentialDecisionKind>(),
+    });
+    match differential_decision.decision {
+        DifferentialContentDecision::Compose(_) => frame_activity.active_tile_keys.push(node_key),
+        DifferentialContentDecision::SkipUnchanged => frame_activity.idle_tile_keys.push(node_key),
+    }
+    if let DifferentialContentDecision::Compose(reason) = differential_decision.decision {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: differential_fallback_channel(reason),
             byte_len: 1,
@@ -386,28 +689,34 @@ fn clear_composited_signature_cache_for_tests() {
 }
 
 fn schedule_active_node_pane_passes(
-    tiles_tree: &Tree<TileKind>,
-    active_tile_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
+    active_tile_inputs: Vec<ScheduledTileSemanticInput>,
     focused_node_key: Option<NodeKey>,
     focus_ring_alpha: f32,
     hovered_node_key: Option<NodeKey>,
 ) -> Vec<ScheduledPanePass> {
-    let mut out = Vec::with_capacity(active_tile_rects.len());
-    for (pane_id, node_key, tile_rect) in active_tile_rects {
-        let render_mode = render_mode_for_pane(tiles_tree, pane_id);
-        let overlay = if focused_node_key == Some(node_key) && focus_ring_alpha > 0.0 {
-            Some(ScheduledOverlay::Focus)
-        } else if hovered_node_key == Some(node_key) {
-            Some(ScheduledOverlay::Hover)
-        } else {
-            None
-        };
+    let mut out = Vec::with_capacity(active_tile_inputs.len());
+    for input in active_tile_inputs {
+        let semantic = input.semantic;
+        let mut overlays = Vec::new();
+        if semantic.runtime_blocked
+            || semantic.lifecycle != NodeLifecycle::Active
+            || semantic.active_lens_overlay.is_some()
+        {
+            overlays.push(ScheduledOverlay::Semantic(semantic.clone()));
+        }
+        if semantic.selection_state != TileSelectionState::NotSelected {
+            overlays.push(ScheduledOverlay::Selection(semantic.clone()));
+        }
+        if focused_node_key == Some(semantic.node_key) && focus_ring_alpha > 0.0 {
+            overlays.push(ScheduledOverlay::Focus(semantic.clone()));
+        } else if overlays.is_empty() && hovered_node_key == Some(semantic.node_key) {
+            overlays.push(ScheduledOverlay::Hover(semantic.clone()));
+        }
         out.push(ScheduledPanePass {
-            pane_id,
-            node_key,
-            tile_rect,
-            render_mode,
-            overlay,
+            pane_id: input.pane_id,
+            tile_rect: input.tile_rect,
+            semantic,
+            overlays,
         });
     }
     out
@@ -548,6 +857,7 @@ pub(crate) fn composite_active_node_pane_webviews(
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     active_tile_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
     focused_node_key: Option<NodeKey>,
+    focus_delta: FocusDelta,
     focus_ring_alpha: f32,
 ) {
     #[cfg(feature = "diagnostics")]
@@ -571,9 +881,21 @@ pub(crate) fn composite_active_node_pane_webviews(
             break;
         }
     }
+    let semantic_inputs: Vec<_> = active_tile_rects
+        .into_iter()
+        .map(|(pane_id, node_key, tile_rect)| {
+            resolve_tile_semantic_input(
+                tiles_tree,
+                graph_app,
+                pane_id,
+                node_key,
+                tile_rect,
+                focus_delta,
+            )
+        })
+        .collect();
     let scheduled_passes = schedule_active_node_pane_passes(
-        tiles_tree,
-        active_tile_rects,
+        semantic_inputs,
         focused_node_key,
         focus_ring_alpha,
         hovered_node_key,
@@ -586,10 +908,18 @@ pub(crate) fn composite_active_node_pane_webviews(
     let mut active_composited_nodes = HashSet::new();
     let mut composited_counters = CompositedPassCounters::default();
     let viewport_rect = ctx.viewport_rect();
+    let frame_index = COMPOSITOR_ACTIVITY_FRAME_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let mut frame_activity = CompositorFrameActivitySummary {
+        active_tile_keys: Vec::new(),
+        idle_tile_keys: Vec::new(),
+        frame_index,
+    };
+    let mut affordance_annotations = Vec::with_capacity(scheduled_passes.len());
     for pass in scheduled_passes {
-        let node_key = pass.node_key;
+        let semantic = pass.semantic;
+        let node_key = semantic.node_key;
         let tile_rect = pass.tile_rect;
-        let render_mode = pass.render_mode;
+        let render_mode = semantic.render_mode;
         let interaction_render_mode = interaction_ui.effective_interaction_render_mode(render_mode);
 
         if should_cull_tile_content(tile_rect, viewport_rect) {
@@ -618,7 +948,14 @@ pub(crate) fn composite_active_node_pane_webviews(
             }
         }
 
+        let ghost_rendered = render_thumbnail_ghost_if_needed(ctx, graph_app, &semantic, tile_rect);
+        if ghost_rendered {
+            frame_activity.active_tile_keys.push(node_key);
+        }
+
         if render_mode == TileRenderMode::CompositedTexture
+            && semantic.lifecycle != NodeLifecycle::Cold
+            && semantic.lifecycle != NodeLifecycle::Tombstone
             && !run_composited_texture_content_pass(
                 ctx,
                 window,
@@ -630,30 +967,26 @@ pub(crate) fn composite_active_node_pane_webviews(
                 &mut degraded_receipts,
                 &mut active_composited_nodes,
                 &mut composited_counters,
-                node_key,
+                semantic.clone(),
                 tile_rect,
                 focus_ring_alpha,
-                pass.overlay,
+                &pass.overlays,
+                &mut frame_activity,
             )
         {
             continue;
         }
 
-        match pass.overlay {
-            Some(ScheduledOverlay::Focus) => pending_overlay_passes.push(focus_overlay_for_mode(
-                interaction_render_mode,
-                node_key,
+        affordance_annotations.push(tile_affordance_annotation(&semantic, &pass.overlays));
+
+        for overlay in pass.overlays {
+            pending_overlay_passes.push(overlay_pass_for_schedule(
+                overlay,
                 tile_rect,
                 focus_ring_alpha,
                 &presentation,
-            )),
-            Some(ScheduledOverlay::Hover) => pending_overlay_passes.push(hover_overlay_for_mode(
-                interaction_render_mode,
-                node_key,
-                tile_rect,
-                &presentation,
-            )),
-            None => {}
+                Some(interaction_render_mode),
+            ));
         }
     }
     if composited_counters.evaluated > 0 {
@@ -669,6 +1002,18 @@ pub(crate) fn composite_active_node_pane_webviews(
         byte_len: pending_overlay_passes.len(),
     });
     retain_composited_signature_cache(&active_composited_nodes);
+    if !frame_activity.active_tile_keys.is_empty() || !frame_activity.idle_tile_keys.is_empty() {
+        let mut summaries = compositor_activity_summaries()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        summaries.push_back(frame_activity);
+        while summaries.len() > 256 {
+            summaries.pop_front();
+        }
+    }
+    *latest_affordance_annotations()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = affordance_annotations;
     CompositorAdapter::execute_overlay_affordance_pass(ctx, &pass_tracker, pending_overlay_passes);
     render_degraded_receipts(ctx, &degraded_receipts, &presentation);
 
@@ -750,50 +1095,417 @@ fn overlay_affordance_policy_for_render_mode(
             style: OverlayAffordanceStyle::ChromeOnly,
             rounding: 0.0,
         },
-        TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => OverlayAffordancePolicy {
+        TileRenderMode::EmbeddedEgui => OverlayAffordancePolicy {
+            style: OverlayAffordanceStyle::EguiAreaStroke,
+            rounding: 4.0,
+        },
+        TileRenderMode::Placeholder => OverlayAffordancePolicy {
             style: OverlayAffordanceStyle::RectStroke,
             rounding: 4.0,
         },
     }
 }
 
-fn focus_overlay_for_mode(
-    render_mode: TileRenderMode,
+fn lifecycle_stroke_alpha(lifecycle: NodeLifecycle) -> f32 {
+    match lifecycle {
+        NodeLifecycle::Active => 1.0,
+        NodeLifecycle::Warm => 0.7,
+        NodeLifecycle::Cold => 0.4,
+        NodeLifecycle::Tombstone => 0.25,
+    }
+}
+
+fn lifecycle_base_color(
+    presentation: &PresentationProfile,
+    lifecycle: NodeLifecycle,
+) -> egui::Color32 {
+    match lifecycle {
+        NodeLifecycle::Active => presentation.lifecycle_active.to_color32(),
+        NodeLifecycle::Warm => presentation.lifecycle_warm.to_color32(),
+        NodeLifecycle::Cold => presentation.lifecycle_cold.to_color32(),
+        NodeLifecycle::Tombstone => presentation.lifecycle_tombstone.to_color32(),
+    }
+}
+
+fn overlay_color_for_input(
+    semantic: &TileSemanticOverlayInput,
+    presentation: &PresentationProfile,
+    fallback_color: egui::Color32,
+) -> egui::Color32 {
+    if semantic.runtime_blocked {
+        presentation.crash_blocked.to_color32()
+    } else if semantic.selection_state == TileSelectionState::SelectionPrimary {
+        presentation.selection_primary.to_color32()
+    } else if semantic.selection_state == TileSelectionState::Selected {
+        presentation.selection_primary.to_color32()
+    } else if semantic.lifecycle == NodeLifecycle::Active {
+        fallback_color
+    } else {
+        lifecycle_base_color(presentation, semantic.lifecycle)
+    }
+}
+
+fn overlay_stroke_width(kind: &ScheduledOverlay, semantic: &TileSemanticOverlayInput) -> f32 {
+    match kind {
+        ScheduledOverlay::Focus(_) => 2.0,
+        ScheduledOverlay::Selection(_) => match semantic.selection_state {
+            TileSelectionState::SelectionPrimary => 2.5,
+            TileSelectionState::Selected => 1.75,
+            TileSelectionState::NotSelected => 1.5,
+        },
+        ScheduledOverlay::Hover(_) => 1.5,
+        ScheduledOverlay::Semantic(_) if semantic.runtime_blocked => 2.0,
+        ScheduledOverlay::Semantic(_) => match semantic.lifecycle {
+            NodeLifecycle::Active => 1.5,
+            NodeLifecycle::Warm => 1.5,
+            NodeLifecycle::Cold => 1.25,
+            NodeLifecycle::Tombstone => 1.0,
+        },
+    }
+}
+
+fn apply_lens_overlay_tint(
+    base_color: Color32,
+    lens_overlay: Option<&LensOverlayDescriptor>,
+    semantic: &TileSemanticOverlayInput,
+) -> Color32 {
+    if semantic.runtime_blocked {
+        return base_color;
+    }
+    lens_overlay
+        .and_then(|descriptor| descriptor.border_tint)
+        .map(|tint| {
+            Color32::from_rgba_unmultiplied(
+                (((base_color.r() as u16) + (tint.r() as u16)) / 2) as u8,
+                (((base_color.g() as u16) + (tint.g() as u16)) / 2) as u8,
+                (((base_color.b() as u16) + (tint.b() as u16)) / 2) as u8,
+                base_color.a(),
+            )
+        })
+        .unwrap_or(base_color)
+}
+
+fn overlay_glyphs_for_input(semantic: &TileSemanticOverlayInput) -> Vec<GlyphOverlay> {
+    semantic
+        .active_lens_overlay
+        .as_ref()
+        .map(|descriptor| descriptor.glyph_overlays.clone())
+        .unwrap_or_default()
+}
+
+fn lifecycle_treatment_for_input(semantic: &TileSemanticOverlayInput) -> LifecycleTreatment {
+    if semantic.runtime_blocked {
+        LifecycleTreatment::RuntimeBlocked
+    } else {
+        match semantic.lifecycle {
+            NodeLifecycle::Active => LifecycleTreatment::Active,
+            NodeLifecycle::Warm => LifecycleTreatment::Warm,
+            NodeLifecycle::Cold => LifecycleTreatment::Cold,
+            NodeLifecycle::Tombstone => LifecycleTreatment::Tombstone,
+        }
+    }
+}
+
+fn tile_affordance_annotation(
+    semantic: &TileSemanticOverlayInput,
+    overlays: &[ScheduledOverlay],
+) -> TileAffordanceAnnotation {
+    TileAffordanceAnnotation {
+        node_key: semantic.node_key,
+        focus_ring_rendered: overlays
+            .iter()
+            .any(|overlay| matches!(overlay, ScheduledOverlay::Focus(_))),
+        selection_ring_rendered: overlays
+            .iter()
+            .any(|overlay| matches!(overlay, ScheduledOverlay::Selection(_))),
+        lifecycle_treatment: lifecycle_treatment_for_input(semantic),
+        lens_glyphs_rendered: overlay_glyphs_for_input(semantic)
+            .into_iter()
+            .map(|glyph| glyph.glyph_id)
+            .collect(),
+    }
+}
+
+fn thumbnail_ghost_hash(width: u32, height: u32, bytes: &[u8]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    width.hash(&mut hasher);
+    height.hash(&mut hasher);
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn thumbnail_ghost_texture_id(
+    ctx: &egui::Context,
+    graph_app: &GraphBrowserApp,
     node_key: NodeKey,
+) -> Option<TextureId> {
+    let node = graph_app.domain_graph().get_node(node_key)?;
+    let thumbnail_png = node.thumbnail_png.as_ref()?;
+    if node.thumbnail_width == 0 || node.thumbnail_height == 0 {
+        return None;
+    }
+
+    let image = load_from_memory(thumbnail_png).ok()?.to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let rgba = image.into_raw();
+    let hash = thumbnail_ghost_hash(node.thumbnail_width, node.thumbnail_height, thumbnail_png);
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
+
+    THUMBNAIL_GHOST_TEXTURES.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let handle = if let Some((cached_hash, handle)) = cache.get(&node_key) {
+            if *cached_hash == hash {
+                handle.clone()
+            } else {
+                let handle = ctx.load_texture(
+                    format!("tile-thumbnail-ghost-{node_key:?}-{hash}"),
+                    color_image,
+                    Default::default(),
+                );
+                cache.insert(node_key, (hash, handle.clone()));
+                handle
+            }
+        } else {
+            let handle = ctx.load_texture(
+                format!("tile-thumbnail-ghost-{node_key:?}-{hash}"),
+                color_image,
+                Default::default(),
+            );
+            cache.insert(node_key, (hash, handle.clone()));
+            handle
+        };
+        Some(handle.id())
+    })
+}
+
+fn render_thumbnail_ghost_if_needed(
+    ctx: &egui::Context,
+    graph_app: &GraphBrowserApp,
+    semantic: &TileSemanticOverlayInput,
+    tile_rect: egui::Rect,
+) -> bool {
+    if !matches!(semantic.lifecycle, NodeLifecycle::Cold | NodeLifecycle::Tombstone) {
+        return false;
+    }
+    if !matches!(
+        semantic.render_mode,
+        TileRenderMode::CompositedTexture | TileRenderMode::Placeholder
+    ) {
+        return false;
+    }
+    let Some(texture_id) = thumbnail_ghost_texture_id(ctx, graph_app, semantic.node_key) else {
+        return false;
+    };
+
+    let tint = match semantic.lifecycle {
+        NodeLifecycle::Cold => Color32::from_white_alpha(64),
+        NodeLifecycle::Tombstone => Color32::from_white_alpha(40),
+        _ => Color32::WHITE,
+    };
+    ctx.layer_painter(CompositorAdapter::content_layer(semantic.node_key))
+        .image(
+            texture_id,
+            tile_rect.shrink2(egui::vec2(3.0, 3.0)),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            tint,
+        );
+    true
+}
+
+fn overlay_pass_for_schedule(
+    overlay: ScheduledOverlay,
+    tile_rect: egui::Rect,
+    focus_ring_alpha: f32,
+    presentation: &PresentationProfile,
+    render_mode_override: Option<TileRenderMode>,
+) -> OverlayStrokePass {
+    match overlay {
+        ScheduledOverlay::Focus(mut semantic) => {
+            if let Some(render_mode) = render_mode_override {
+                semantic.render_mode = render_mode;
+            }
+            focus_overlay_for_mode(semantic, tile_rect, focus_ring_alpha, presentation)
+        }
+        ScheduledOverlay::Selection(mut semantic) => {
+            if let Some(render_mode) = render_mode_override {
+                semantic.render_mode = render_mode;
+            }
+            selection_overlay_for_mode(semantic, tile_rect, presentation)
+        }
+        ScheduledOverlay::Hover(mut semantic) => {
+            if let Some(render_mode) = render_mode_override {
+                semantic.render_mode = render_mode;
+            }
+            hover_overlay_for_mode(semantic, tile_rect, presentation)
+        }
+        ScheduledOverlay::Semantic(mut semantic) => {
+            if let Some(render_mode) = render_mode_override {
+                semantic.render_mode = render_mode;
+            }
+            semantic_overlay_for_mode(semantic, tile_rect, presentation)
+        }
+    }
+}
+
+fn focus_overlay_for_mode(
+    semantic: TileSemanticOverlayInput,
     tile_rect: egui::Rect,
     focus_ring_alpha: f32,
     presentation: &PresentationProfile,
 ) -> OverlayStrokePass {
+    let render_mode = semantic.render_mode;
     let alpha = (focus_ring_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
     let policy = overlay_affordance_policy_for_render_mode(render_mode);
-    let stroke = Stroke::new(2.0, presentation.focus_ring.with_alpha(alpha));
+    let base_color = presentation.focus_ring.with_alpha(alpha);
+    let overlay_color = apply_lens_overlay_tint(
+        overlay_color_for_input(&semantic, presentation, base_color),
+        semantic.active_lens_overlay.as_ref(),
+        &semantic,
+    );
+    let overlay_alpha = ((alpha as f32) * lifecycle_stroke_alpha(semantic.lifecycle))
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let stroke = Stroke::new(
+        overlay_stroke_width(&ScheduledOverlay::Focus(semantic.clone()), &semantic),
+        overlay_color.gamma_multiply((overlay_alpha as f32 / 255.0).clamp(0.0, 1.0)),
+    );
 
     OverlayStrokePass {
-        node_key,
+        node_key: semantic.node_key,
         tile_rect,
         rounding: policy.rounding,
         stroke,
+        glyph_overlays: Vec::new(),
         style: policy.style,
         render_mode,
     }
 }
 
-fn hover_overlay_for_mode(
-    render_mode: TileRenderMode,
-    node_key: NodeKey,
+fn selection_overlay_for_mode(
+    semantic: TileSemanticOverlayInput,
     tile_rect: egui::Rect,
     presentation: &PresentationProfile,
 ) -> OverlayStrokePass {
-    let policy = overlay_affordance_policy_for_render_mode(render_mode);
-    let stroke = Stroke::new(1.5, presentation.hover_ring.to_color32());
+    let policy = overlay_affordance_policy_for_render_mode(semantic.render_mode);
+    let opacity = match semantic.selection_state {
+        TileSelectionState::SelectionPrimary => 1.0,
+        TileSelectionState::Selected => 0.72,
+        TileSelectionState::NotSelected => 0.0,
+    };
+    let stroke = Stroke::new(
+        overlay_stroke_width(&ScheduledOverlay::Selection(semantic.clone()), &semantic),
+        presentation.selection_primary.to_color32().gamma_multiply(opacity),
+    );
 
     OverlayStrokePass {
-        node_key,
+        node_key: semantic.node_key,
+        tile_rect: tile_rect.shrink(3.0),
+        rounding: policy.rounding,
+        stroke,
+        glyph_overlays: Vec::new(),
+        style: policy.style,
+        render_mode: semantic.render_mode,
+    }
+}
+
+fn hover_overlay_for_mode(
+    semantic: TileSemanticOverlayInput,
+    tile_rect: egui::Rect,
+    presentation: &PresentationProfile,
+) -> OverlayStrokePass {
+    let render_mode = semantic.render_mode;
+    let policy = overlay_affordance_policy_for_render_mode(render_mode);
+    let base_color = presentation.hover_ring.to_color32();
+    let overlay_color = apply_lens_overlay_tint(
+        overlay_color_for_input(&semantic, presentation, base_color),
+        semantic.active_lens_overlay.as_ref(),
+        &semantic,
+    );
+    let stroke = Stroke::new(
+        overlay_stroke_width(&ScheduledOverlay::Hover(semantic.clone()), &semantic),
+        overlay_color.gamma_multiply(lifecycle_stroke_alpha(semantic.lifecycle)),
+    );
+
+    OverlayStrokePass {
+        node_key: semantic.node_key,
         tile_rect,
         rounding: policy.rounding,
         stroke,
+        glyph_overlays: Vec::new(),
         style: policy.style,
         render_mode,
+    }
+}
+
+fn semantic_overlay_for_mode(
+    semantic: TileSemanticOverlayInput,
+    tile_rect: egui::Rect,
+    presentation: &PresentationProfile,
+) -> OverlayStrokePass {
+    let policy = overlay_affordance_policy_for_render_mode(semantic.render_mode);
+    let default_base_color = lifecycle_base_color(presentation, semantic.lifecycle);
+    let suppress_default = semantic
+        .active_lens_overlay
+        .as_ref()
+        .map(|descriptor| descriptor.suppress_default_affordances)
+        .unwrap_or(false)
+        && !semantic.runtime_blocked;
+    let base_color = if suppress_default {
+        Color32::TRANSPARENT
+    } else {
+        default_base_color
+    };
+    let overlay_color = apply_lens_overlay_tint(
+        overlay_color_for_input(&semantic, presentation, base_color),
+        semantic.active_lens_overlay.as_ref(),
+        &semantic,
+    );
+    let lens_opacity_scale = semantic
+        .active_lens_overlay
+        .as_ref()
+        .map(|descriptor| descriptor.opacity_scale)
+        .unwrap_or(1.0)
+        .clamp(0.0, 2.0);
+    let opacity = if semantic.selection_state == TileSelectionState::SelectionPrimary {
+        lifecycle_stroke_alpha(semantic.lifecycle).max(0.85)
+    } else if semantic.selection_state == TileSelectionState::Selected {
+        lifecycle_stroke_alpha(semantic.lifecycle).max(0.6)
+    } else {
+        lifecycle_stroke_alpha(semantic.lifecycle)
+    } * lens_opacity_scale;
+    let stroke = Stroke::new(
+        overlay_stroke_width(&ScheduledOverlay::Semantic(semantic.clone()), &semantic),
+        overlay_color.gamma_multiply(opacity),
+    );
+    let glyph_overlays = overlay_glyphs_for_input(&semantic);
+    if semantic.lifecycle != NodeLifecycle::Active || semantic.runtime_blocked {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR,
+            byte_len: 1,
+        });
+    }
+    if !glyph_overlays.is_empty() || semantic.active_lens_overlay.is_some() {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED,
+            byte_len: glyph_overlays.len().max(1),
+        });
+    }
+    let style = if semantic.lifecycle == NodeLifecycle::Tombstone
+        && semantic.render_mode != TileRenderMode::NativeOverlay
+    {
+        OverlayAffordanceStyle::DashedRectStroke
+    } else {
+        policy.style
+    };
+
+    OverlayStrokePass {
+        node_key: semantic.node_key,
+        tile_rect,
+        rounding: policy.rounding,
+        stroke,
+        glyph_overlays,
+        style,
+        render_mode: semantic.render_mode,
     }
 }
 
@@ -884,6 +1596,36 @@ mod tests {
                 _ => None,
             })
             .expect("expected pane id for node")
+    }
+
+    fn test_semantic_input(
+        node_key: NodeKey,
+        render_mode: TileRenderMode,
+    ) -> TileSemanticOverlayInput {
+        TileSemanticOverlayInput {
+            node_key,
+            render_mode,
+            lifecycle: NodeLifecycle::Active,
+            runtime_blocked: false,
+            semantic_generation: 0,
+            active_lens_overlay: None,
+            focus_delta: None,
+            selection_state: TileSelectionState::NotSelected,
+            has_unread_traversal_activity: false,
+        }
+    }
+
+    fn scheduled_tile_input(
+        pane_id: PaneId,
+        node_key: NodeKey,
+        tile_rect: egui::Rect,
+        render_mode: TileRenderMode,
+    ) -> ScheduledTileSemanticInput {
+        ScheduledTileSemanticInput {
+            pane_id,
+            tile_rect,
+            semantic: test_semantic_input(node_key, render_mode),
+        }
     }
 
     #[test]
@@ -1083,8 +1825,7 @@ mod tests {
         let effective_mode =
             ui_state.effective_interaction_render_mode(TileRenderMode::NativeOverlay);
         let overlay = focus_overlay_for_mode(
-            effective_mode,
-            NodeKey::new(702),
+            test_semantic_input(NodeKey::new(702), effective_mode),
             egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 100.0)),
             1.0,
             &test_presentation_profile(),
@@ -1107,17 +1848,18 @@ mod tests {
         let focused_pane = pane_id_for_node(&tree, focused);
         let other_pane = pane_id_for_node(&tree, other);
         let passes = schedule_active_node_pane_passes(
-            &tree,
             vec![
-                (
+                scheduled_tile_input(
                     focused_pane,
                     focused,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                    TileRenderMode::CompositedTexture,
                 ),
-                (
+                scheduled_tile_input(
                     other_pane,
                     other,
                     egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+                    TileRenderMode::NativeOverlay,
                 ),
             ],
             Some(focused),
@@ -1127,12 +1869,15 @@ mod tests {
 
         let focused_pass = passes
             .iter()
-            .find(|pass| pass.node_key == focused)
+            .find(|pass| pass.semantic.node_key == focused)
             .expect("focused node pass should be scheduled");
-        assert_eq!(focused_pass.render_mode, TileRenderMode::CompositedTexture);
+        assert_eq!(
+            focused_pass.semantic.render_mode,
+            TileRenderMode::CompositedTexture
+        );
         assert!(matches!(
-            focused_pass.overlay,
-            Some(ScheduledOverlay::Focus)
+            focused_pass.overlays.last(),
+            Some(ScheduledOverlay::Focus(_))
         ));
     }
 
@@ -1149,17 +1894,18 @@ mod tests {
         let focused_pane = pane_id_for_node(&tree, focused);
         let hovered_pane = pane_id_for_node(&tree, hovered);
         let passes = schedule_active_node_pane_passes(
-            &tree,
             vec![
-                (
+                scheduled_tile_input(
                     focused_pane,
                     focused,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                    TileRenderMode::CompositedTexture,
                 ),
-                (
+                scheduled_tile_input(
                     hovered_pane,
                     hovered,
                     egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+                    TileRenderMode::NativeOverlay,
                 ),
             ],
             Some(focused),
@@ -1169,12 +1915,15 @@ mod tests {
 
         let hovered_pass = passes
             .iter()
-            .find(|pass| pass.node_key == hovered)
+            .find(|pass| pass.semantic.node_key == hovered)
             .expect("hovered node pass should be scheduled");
-        assert_eq!(hovered_pass.render_mode, TileRenderMode::NativeOverlay);
+        assert_eq!(
+            hovered_pass.semantic.render_mode,
+            TileRenderMode::NativeOverlay
+        );
         assert!(matches!(
-            hovered_pass.overlay,
-            Some(ScheduledOverlay::Hover)
+            hovered_pass.overlays.last(),
+            Some(ScheduledOverlay::Hover(_))
         ));
     }
 
@@ -1183,8 +1932,7 @@ mod tests {
         let node = NodeKey::new(40);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(110.0, 70.0));
         let overlay = focus_overlay_for_mode(
-            TileRenderMode::NativeOverlay,
-            node,
+            test_semantic_input(node, TileRenderMode::NativeOverlay),
             tile_rect,
             1.0,
             &test_presentation_profile(),
@@ -1199,8 +1947,7 @@ mod tests {
         let node = NodeKey::new(41);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(20.0, 20.0), egui::pos2(120.0, 80.0));
         let overlay = focus_overlay_for_mode(
-            TileRenderMode::CompositedTexture,
-            node,
+            test_semantic_input(node, TileRenderMode::CompositedTexture),
             tile_rect,
             1.0,
             &test_presentation_profile(),
@@ -1215,8 +1962,7 @@ mod tests {
         let node = NodeKey::new(42);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(30.0, 30.0), egui::pos2(130.0, 90.0));
         let overlay = hover_overlay_for_mode(
-            TileRenderMode::NativeOverlay,
-            node,
+            test_semantic_input(node, TileRenderMode::NativeOverlay),
             tile_rect,
             &test_presentation_profile(),
         );
@@ -1230,8 +1976,7 @@ mod tests {
         let node = NodeKey::new(43);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(140.0, 100.0));
         let overlay = hover_overlay_for_mode(
-            TileRenderMode::CompositedTexture,
-            node,
+            test_semantic_input(node, TileRenderMode::CompositedTexture),
             tile_rect,
             &test_presentation_profile(),
         );
@@ -1245,8 +1990,7 @@ mod tests {
         let node = NodeKey::new(44);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(50.0, 50.0), egui::pos2(150.0, 110.0));
         let overlay = focus_overlay_for_mode(
-            TileRenderMode::Placeholder,
-            node,
+            test_semantic_input(node, TileRenderMode::Placeholder),
             tile_rect,
             1.0,
             &test_presentation_profile(),
@@ -1257,17 +2001,16 @@ mod tests {
     }
 
     #[test]
-    fn hover_overlay_for_embedded_egui_uses_rect_stroke_style() {
+    fn hover_overlay_for_embedded_egui_uses_area_style() {
         let node = NodeKey::new(45);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(60.0, 60.0), egui::pos2(160.0, 120.0));
         let overlay = hover_overlay_for_mode(
-            TileRenderMode::EmbeddedEgui,
-            node,
+            test_semantic_input(node, TileRenderMode::EmbeddedEgui),
             tile_rect,
             &test_presentation_profile(),
         );
 
-        assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::EguiAreaStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedEgui);
     }
 
@@ -1279,15 +2022,24 @@ mod tests {
             test_webview_id(),
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
             1.0,
+            1,
         );
 
         assert!(matches!(
             differential_content_decision(node, signature),
-            DifferentialContentDecision::Compose(DifferentialComposeReason::NoPriorSignature)
+            DifferentialObservation {
+                decision: DifferentialContentDecision::Compose(
+                    DifferentialComposeReason::NoPriorSignature
+                ),
+                ..
+            }
         ));
         assert!(matches!(
             differential_content_decision(node, signature),
-            DifferentialContentDecision::SkipUnchanged
+            DifferentialObservation {
+                decision: DifferentialContentDecision::SkipUnchanged,
+                ..
+            }
         ));
     }
 
@@ -1300,17 +2052,24 @@ mod tests {
             webview,
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
             1.0,
+            1,
         );
         let changed = content_signature_for_tile(
             webview,
             egui::Rect::from_min_max(egui::pos2(10.0, 0.0), egui::pos2(110.0, 60.0)),
             1.0,
+            1,
         );
 
         let _ = differential_content_decision(node, original);
         assert!(matches!(
             differential_content_decision(node, changed),
-            DifferentialContentDecision::Compose(DifferentialComposeReason::SignatureChanged)
+            DifferentialObservation {
+                decision: DifferentialContentDecision::Compose(
+                    DifferentialComposeReason::SignatureChanged
+                ),
+                ..
+            }
         ));
     }
 
@@ -1329,28 +2088,33 @@ mod tests {
             test_webview_id(),
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
             1.0,
+            1,
         );
 
         let _ = differential_content_decision(focused, signature);
         assert!(matches!(
             differential_content_decision(focused, signature),
-            DifferentialContentDecision::SkipUnchanged
+            DifferentialObservation {
+                decision: DifferentialContentDecision::SkipUnchanged,
+                ..
+            }
         ));
         let focused_pane = pane_id_for_node(&tree, focused);
         let other_pane = pane_id_for_node(&tree, other);
 
         let passes = schedule_active_node_pane_passes(
-            &tree,
             vec![
-                (
+                scheduled_tile_input(
                     focused_pane,
                     focused,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                    TileRenderMode::CompositedTexture,
                 ),
-                (
+                scheduled_tile_input(
                     other_pane,
                     other,
                     egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+                    TileRenderMode::CompositedTexture,
                 ),
             ],
             Some(focused),
@@ -1360,11 +2124,11 @@ mod tests {
 
         let focused_pass = passes
             .iter()
-            .find(|pass| pass.node_key == focused)
+            .find(|pass| pass.semantic.node_key == focused)
             .expect("focused node pass should be scheduled");
         assert!(matches!(
-            focused_pass.overlay,
-            Some(ScheduledOverlay::Focus)
+            focused_pass.overlays.last(),
+            Some(ScheduledOverlay::Focus(_))
         ));
     }
 
@@ -1383,28 +2147,33 @@ mod tests {
             test_webview_id(),
             egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
             1.0,
+            1,
         );
 
         let _ = differential_content_decision(hovered, signature);
         assert!(matches!(
             differential_content_decision(hovered, signature),
-            DifferentialContentDecision::SkipUnchanged
+            DifferentialObservation {
+                decision: DifferentialContentDecision::SkipUnchanged,
+                ..
+            }
         ));
         let hovered_pane = pane_id_for_node(&tree, hovered);
         let other_pane = pane_id_for_node(&tree, other);
 
         let passes = schedule_active_node_pane_passes(
-            &tree,
             vec![
-                (
+                scheduled_tile_input(
                     hovered_pane,
                     hovered,
                     egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+                    TileRenderMode::CompositedTexture,
                 ),
-                (
+                scheduled_tile_input(
                     other_pane,
                     other,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                    TileRenderMode::CompositedTexture,
                 ),
             ],
             Some(other),
@@ -1414,12 +2183,164 @@ mod tests {
 
         let hovered_pass = passes
             .iter()
-            .find(|pass| pass.node_key == hovered)
+            .find(|pass| pass.semantic.node_key == hovered)
             .expect("hovered node pass should be scheduled");
         assert!(matches!(
-            hovered_pass.overlay,
-            Some(ScheduledOverlay::Hover)
+            hovered_pass.overlays.last(),
+            Some(ScheduledOverlay::Hover(_))
         ));
+    }
+
+    #[test]
+    fn content_signature_changes_when_semantic_generation_changes() {
+        let webview = test_webview_id();
+        let rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0));
+        let original = content_signature_for_tile(webview, rect, 1.0, 1);
+        let changed = content_signature_for_tile(webview, rect, 1.0, 2);
+
+        assert_ne!(original, changed);
+    }
+
+    #[test]
+    fn schedule_passes_add_semantic_overlay_for_cold_tiles() {
+        let node = NodeKey::new(56);
+        let pane_id = PaneId::new();
+        let mut semantic = test_semantic_input(node, TileRenderMode::CompositedTexture);
+        semantic.lifecycle = NodeLifecycle::Cold;
+        semantic.semantic_generation = 7;
+
+        let passes = schedule_active_node_pane_passes(
+            vec![ScheduledTileSemanticInput {
+                pane_id,
+                tile_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                semantic,
+            }],
+            None,
+            1.0,
+            None,
+        );
+
+        assert!(matches!(
+            passes[0].overlays.first(),
+            Some(ScheduledOverlay::Semantic(_))
+        ));
+    }
+
+    #[test]
+    fn semantic_overlay_for_runtime_blocked_uses_warning_color() {
+        let node = NodeKey::new(57);
+        let mut semantic = test_semantic_input(node, TileRenderMode::CompositedTexture);
+        semantic.runtime_blocked = true;
+        let presentation = test_presentation_profile();
+
+        let overlay = semantic_overlay_for_mode(
+            semantic,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(120.0, 80.0)),
+            &presentation,
+        );
+
+        assert_eq!(
+            overlay.stroke.color,
+            presentation.crash_blocked.to_color32()
+        );
+    }
+
+    #[test]
+    fn schedule_passes_include_selection_and_focus_for_primary_selection() {
+        let node = NodeKey::new(58);
+        let pane_id = PaneId::new();
+        let mut semantic = test_semantic_input(node, TileRenderMode::CompositedTexture);
+        semantic.selection_state = TileSelectionState::SelectionPrimary;
+
+        let passes = schedule_active_node_pane_passes(
+            vec![ScheduledTileSemanticInput {
+                pane_id,
+                tile_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                semantic,
+            }],
+            Some(node),
+            1.0,
+            None,
+        );
+
+        assert_eq!(passes[0].overlays.len(), 2);
+        assert!(matches!(passes[0].overlays[0], ScheduledOverlay::Selection(_)));
+        assert!(matches!(passes[0].overlays[1], ScheduledOverlay::Focus(_)));
+    }
+
+    #[test]
+    fn semantic_overlay_applies_lens_glyphs_and_tint() {
+        let mut semantic = test_semantic_input(NodeKey::new(59), TileRenderMode::CompositedTexture);
+        semantic.active_lens_overlay = Some(LensOverlayDescriptor {
+            border_tint: Some(Color32::from_rgb(20, 220, 180)),
+            glyph_overlays: vec![GlyphOverlay {
+                glyph_id: "semantic".to_string(),
+                anchor: crate::registries::atomic::lens::GlyphAnchor::TopRight,
+            }],
+            opacity_scale: 1.0,
+            suppress_default_affordances: false,
+        });
+
+        let overlay = semantic_overlay_for_mode(
+            semantic,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(120.0, 80.0)),
+            &test_presentation_profile(),
+        );
+
+        assert_eq!(overlay.glyph_overlays.len(), 1);
+    }
+
+    #[test]
+    fn semantic_overlay_uses_dashed_style_for_tombstone_tiles() {
+        let mut semantic = test_semantic_input(NodeKey::new(60), TileRenderMode::CompositedTexture);
+        semantic.lifecycle = NodeLifecycle::Tombstone;
+
+        let overlay = semantic_overlay_for_mode(
+            semantic,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(120.0, 80.0)),
+            &test_presentation_profile(),
+        );
+
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::DashedRectStroke));
+    }
+
+    #[test]
+    fn focus_delta_marks_changed_nodes_only() {
+        let delta = FocusDelta::new(Some(NodeKey::new(70)), Some(NodeKey::new(71)));
+
+        assert!(delta.changed_this_frame);
+        assert!(delta.touches(NodeKey::new(70)));
+        assert!(delta.touches(NodeKey::new(71)));
+        assert!(!delta.touches(NodeKey::new(72)));
+    }
+
+    #[test]
+    fn affordance_annotation_reports_focus_selection_and_lens_glyphs() {
+        let mut semantic = test_semantic_input(NodeKey::new(61), TileRenderMode::CompositedTexture);
+        semantic.selection_state = TileSelectionState::SelectionPrimary;
+        semantic.runtime_blocked = true;
+        semantic.active_lens_overlay = Some(LensOverlayDescriptor {
+            border_tint: None,
+            glyph_overlays: vec![GlyphOverlay {
+                glyph_id: "semantic".to_string(),
+                anchor: crate::registries::atomic::lens::GlyphAnchor::TopRight,
+            }],
+            opacity_scale: 1.0,
+            suppress_default_affordances: false,
+        });
+
+        let annotation = tile_affordance_annotation(
+            &semantic,
+            &[
+                ScheduledOverlay::Selection(semantic.clone()),
+                ScheduledOverlay::Focus(semantic.clone()),
+            ],
+        );
+
+        assert!(annotation.focus_ring_rendered);
+        assert!(annotation.selection_ring_rendered);
+        assert_eq!(annotation.lifecycle_treatment, LifecycleTreatment::RuntimeBlocked);
+        assert_eq!(annotation.lens_glyphs_rendered, vec!["semantic".to_string()]);
     }
 
     #[test]

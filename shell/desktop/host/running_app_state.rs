@@ -779,7 +779,7 @@ impl RunningAppState {
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 fn resolve_gamepad_content_webview_id(window: &EmbedderWindow) -> Option<WebViewId> {
-    window.explicit_input_webview_id()
+    window.targeted_input_webview_id()
 }
 
 impl WebViewCreationContext for RunningAppState {

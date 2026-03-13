@@ -17,6 +17,7 @@ use super::tile_kind::TileKind;
 pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 2;
 pub(crate) const UX_TREE_PRESENTATION_SCHEMA_VERSION: u32 = 1;
 pub(crate) const UX_TREE_TRACE_SCHEMA_VERSION: u32 = 1;
+pub(crate) const UX_TREE_WORKBENCH_ROOT_ID: &str = "uxnode://workbench/root";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UxNodeRole {
@@ -129,6 +130,7 @@ pub(crate) struct UxNodeState {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct UxSemanticNode {
     pub(crate) ux_node_id: String,
+    pub(crate) parent_ux_node_id: Option<String>,
     pub(crate) role: UxNodeRole,
     pub(crate) label: String,
     pub(crate) state: UxNodeState,
@@ -248,7 +250,8 @@ pub(crate) fn build_snapshot(
     let active: HashSet<TileId> = tiles_tree.active_tiles().into_iter().collect();
 
     let mut semantic_nodes = vec![UxSemanticNode {
-        ux_node_id: "uxnode://workbench/root".to_string(),
+        ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
+        parent_ux_node_id: None,
         role: UxNodeRole::Workbench,
         label: "Workbench".to_string(),
         state: UxNodeState {
@@ -262,7 +265,7 @@ pub(crate) fn build_snapshot(
     }];
 
     let mut presentation_nodes = vec![UxPresentationNode {
-        ux_node_id: "uxnode://workbench/root".to_string(),
+        ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
         bounds: None,
         render_mode: None,
         z_pass: "workbench:root",
@@ -271,7 +274,7 @@ pub(crate) fn build_snapshot(
     }];
 
     let mut trace_nodes = vec![UxTraceNode {
-        ux_node_id: "uxnode://workbench/root".to_string(),
+        ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
         event_route: "workbench.frame_loop",
         backend_path: "egui_tiles",
         diagnostics_counter: 0,
@@ -283,6 +286,7 @@ pub(crate) fn build_snapshot(
             graph_app,
             root,
             &active,
+            Some(UX_TREE_WORKBENCH_ROOT_ID),
             &mut semantic_nodes,
             &mut presentation_nodes,
             &mut trace_nodes,
@@ -328,6 +332,7 @@ fn append_workbench_semantics_nodes(
         let lens_scope_id = format!("uxnode://workbench/graph/{view_id:?}/lens-scope");
         semantic_nodes.push(UxSemanticNode {
             ux_node_id: lens_scope_id.clone(),
+            parent_ux_node_id: Some(UX_TREE_WORKBENCH_ROOT_ID.to_string()),
             role: UxNodeRole::GraphViewLensScope,
             label: format!("Graph View Lens/Scope {:?}", view_id),
             state: UxNodeState {
@@ -376,6 +381,7 @@ fn append_workbench_semantics_nodes(
     let file_tree_node_id = "uxnode://workbench/file-tree/projection".to_string();
     semantic_nodes.push(UxSemanticNode {
         ux_node_id: file_tree_node_id.clone(),
+        parent_ux_node_id: Some(UX_TREE_WORKBENCH_ROOT_ID.to_string()),
         role: UxNodeRole::FileTreeProjection,
         label: "File-Tree Projection".to_string(),
         state: UxNodeState {
@@ -432,6 +438,7 @@ fn append_workbench_semantics_nodes(
         + usize::from(pending_open_connected.is_some());
     semantic_nodes.push(UxSemanticNode {
         ux_node_id: route_node_id.clone(),
+        parent_ux_node_id: Some(UX_TREE_WORKBENCH_ROOT_ID.to_string()),
         role: UxNodeRole::RouteOpenBoundary,
         label: "Route/Open Boundary".to_string(),
         state: UxNodeState {
@@ -489,6 +496,7 @@ fn append_radial_palette_nodes(
     let radial_root_id = "uxnode://command/radial/root".to_string();
     semantic_nodes.push(UxSemanticNode {
         ux_node_id: radial_root_id.clone(),
+        parent_ux_node_id: Some(UX_TREE_WORKBENCH_ROOT_ID.to_string()),
         role: UxNodeRole::RadialPalette,
         label: "Radial Palette".to_string(),
         state: UxNodeState {
@@ -509,7 +517,7 @@ fn append_radial_palette_nodes(
         transient_flags: vec!["mode:radial"],
     });
     trace_nodes.push(UxTraceNode {
-        ux_node_id: radial_root_id,
+        ux_node_id: radial_root_id.clone(),
         event_route: "command.radial_route",
         backend_path: "egui",
         diagnostics_counter: snapshot.sectors.len() as u64,
@@ -518,6 +526,7 @@ fn append_radial_palette_nodes(
     let tier1_ring_id = "uxnode://command/radial/tier-1-ring".to_string();
     semantic_nodes.push(UxSemanticNode {
         ux_node_id: tier1_ring_id.clone(),
+        parent_ux_node_id: Some(radial_root_id.clone()),
         role: UxNodeRole::RadialTierRing,
         label: "Tier-1 Ring".to_string(),
         state: UxNodeState {
@@ -546,7 +555,7 @@ fn append_radial_palette_nodes(
         transient_flags: Vec::new(),
     });
     trace_nodes.push(UxTraceNode {
-        ux_node_id: tier1_ring_id,
+        ux_node_id: tier1_ring_id.clone(),
         event_route: "command.radial_tier1_route",
         backend_path: "egui",
         diagnostics_counter: snapshot.summary.tier1_visible_count as u64,
@@ -555,6 +564,7 @@ fn append_radial_palette_nodes(
     let tier2_ring_id = "uxnode://command/radial/tier-2-ring".to_string();
     semantic_nodes.push(UxSemanticNode {
         ux_node_id: tier2_ring_id.clone(),
+        parent_ux_node_id: Some(radial_root_id.clone()),
         role: UxNodeRole::RadialTierRing,
         label: "Tier-2 Ring".to_string(),
         state: UxNodeState {
@@ -583,7 +593,7 @@ fn append_radial_palette_nodes(
         transient_flags: Vec::new(),
     });
     trace_nodes.push(UxTraceNode {
-        ux_node_id: tier2_ring_id,
+        ux_node_id: tier2_ring_id.clone(),
         event_route: "command.radial_tier2_route",
         backend_path: "egui",
         diagnostics_counter: snapshot.summary.tier2_visible_count as u64,
@@ -592,6 +602,7 @@ fn append_radial_palette_nodes(
     let radial_summary_id = "uxnode://command/radial/summary".to_string();
     semantic_nodes.push(UxSemanticNode {
         ux_node_id: radial_summary_id.clone(),
+        parent_ux_node_id: Some(radial_root_id.clone()),
         role: UxNodeRole::RadialSummary,
         label: "Radial Layout Summary".to_string(),
         state: UxNodeState {
@@ -637,6 +648,10 @@ fn append_radial_palette_nodes(
         );
         semantic_nodes.push(UxSemanticNode {
             ux_node_id: sector_id.clone(),
+            parent_ux_node_id: Some(match sector.tier {
+                1 => tier1_ring_id.clone(),
+                _ => tier2_ring_id.clone(),
+            }),
             role: UxNodeRole::RadialSector,
             label: format!("{} [{}]", sector.action_id, sector.domain_label),
             state: UxNodeState {
@@ -682,6 +697,7 @@ fn push_nodes(
     graph_app: &GraphBrowserApp,
     tile_id: TileId,
     active: &HashSet<TileId>,
+    parent_ux_node_id: Option<&str>,
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
@@ -702,6 +718,7 @@ fn push_nodes(
             let focused_selection = graph_app.focused_selection();
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::GraphSurface,
                 label: format!("Graph View {:?}", view_ref.graph_view_id),
                 state: UxNodeState {
@@ -724,7 +741,7 @@ fn push_nodes(
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
-                ux_node_id,
+                ux_node_id: ux_node_id.clone(),
                 event_route: "graph.input_route",
                 backend_path: "egui_graphs",
                 diagnostics_counter: graph_app.domain_graph().node_count() as u64,
@@ -742,6 +759,7 @@ fn push_nodes(
 
                 semantic_nodes.push(UxSemanticNode {
                     ux_node_id: graph_node_ux_id.clone(),
+                    parent_ux_node_id: Some(ux_node_id.clone()),
                     role: UxNodeRole::GraphNode,
                     label: if node.title.is_empty() {
                         node.url.clone()
@@ -781,6 +799,7 @@ fn push_nodes(
 
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::NodePane,
                 label: format!("Node Pane {:?}", state.node),
                 state: UxNodeState {
@@ -808,7 +827,7 @@ fn push_nodes(
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
-                ux_node_id,
+                ux_node_id: ux_node_id.clone(),
                 event_route: "workbench.node_route",
                 backend_path: match state.render_mode {
                     TileRenderMode::CompositedTexture => "viewer.composited",
@@ -824,6 +843,7 @@ fn push_nodes(
             let tool_kind = tool.title();
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::ToolPane,
                 label: format!("Tool Pane {tool_kind}"),
                 state: UxNodeState {
@@ -844,7 +864,7 @@ fn push_nodes(
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
-                ux_node_id,
+                ux_node_id: ux_node_id.clone(),
                 event_route: "workbench.tool_route",
                 backend_path: "egui",
                 diagnostics_counter: 0,
@@ -853,6 +873,7 @@ fn push_nodes(
         Tile::Container(Container::Tabs(tabs)) => {
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::TabContainer,
                 label: format!("Tabs ({})", tabs.children.len()),
                 state: UxNodeState {
@@ -873,7 +894,7 @@ fn push_nodes(
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
-                ux_node_id,
+                ux_node_id: ux_node_id.clone(),
                 event_route: "workbench.tabs_route",
                 backend_path: "egui_tiles",
                 diagnostics_counter: tabs.children.len() as u64,
@@ -885,6 +906,7 @@ fn push_nodes(
                     graph_app,
                     *child,
                     active,
+                    Some(ux_node_id.as_str()),
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -894,6 +916,7 @@ fn push_nodes(
         Tile::Container(Container::Linear(linear)) => {
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::SplitContainer,
                 label: format!("Split ({})", linear.children.len()),
                 state: UxNodeState {
@@ -914,7 +937,7 @@ fn push_nodes(
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
-                ux_node_id,
+                ux_node_id: ux_node_id.clone(),
                 event_route: "workbench.split_route",
                 backend_path: "egui_tiles",
                 diagnostics_counter: linear.children.len() as u64,
@@ -926,6 +949,7 @@ fn push_nodes(
                     graph_app,
                     *child,
                     active,
+                    Some(ux_node_id.as_str()),
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -936,6 +960,7 @@ fn push_nodes(
             let grid_children_count = grid.children().count();
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::SplitContainer,
                 label: format!("Grid ({})", grid_children_count),
                 state: UxNodeState {
@@ -956,7 +981,7 @@ fn push_nodes(
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
-                ux_node_id,
+                ux_node_id: ux_node_id.clone(),
                 event_route: "workbench.grid_route",
                 backend_path: "egui_tiles",
                 diagnostics_counter: grid_children_count as u64,
@@ -968,6 +993,7 @@ fn push_nodes(
                     graph_app,
                     *child,
                     active,
+                    Some(ux_node_id.as_str()),
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -1041,6 +1067,7 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
         "trace_version": snapshot.trace_version,
         "semantic_nodes": snapshot.semantic_nodes.iter().map(|node| serde_json::json!({
             "ux_node_id": node.ux_node_id,
+            "parent_ux_node_id": node.parent_ux_node_id,
             "role": format!("{:?}", node.role),
             "label": node.label,
             "focused": node.state.focused,
@@ -1118,6 +1145,40 @@ mod tests {
         let violation = presentation_id_consistency_violation(&snapshot)
             .expect("probe should detect orphan presentation node");
         assert!(violation.contains("orphan/presentation"));
+    }
+
+    #[test]
+    fn snapshot_projects_stable_parent_links_for_graph_surface_hierarchy() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-parent-links.example");
+        harness.open_node_tab(node);
+        harness.app.select_node(node, false);
+
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let graph_surface = snapshot
+            .semantic_nodes
+            .iter()
+            .find(|entry| entry.role == UxNodeRole::GraphSurface)
+            .expect("graph surface should be present");
+        let graph_surface_parent = snapshot
+            .semantic_nodes
+            .iter()
+            .find(|entry| Some(entry.ux_node_id.as_str()) == graph_surface.parent_ux_node_id.as_deref())
+            .expect("graph surface parent should be projected");
+        assert_eq!(
+            graph_surface_parent.role,
+            UxNodeRole::TabContainer
+        );
+
+        let graph_node = snapshot
+            .semantic_nodes
+            .iter()
+            .find(|entry| entry.role == UxNodeRole::GraphNode && matches!(entry.domain, UxDomainIdentity::Node { node_key } if node_key == node))
+            .expect("selected graph node should be projected");
+        assert_eq!(
+            graph_node.parent_ux_node_id.as_deref(),
+            Some(graph_surface.ux_node_id.as_str())
+        );
     }
 
     #[test]

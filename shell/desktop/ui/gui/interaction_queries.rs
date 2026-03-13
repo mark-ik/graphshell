@@ -19,7 +19,7 @@ fn active_pane_region_hint(gui: &Gui) -> Option<PaneRegionHint> {
 }
 
 fn local_widget_focus(gui: &Gui) -> Option<LocalFocusTarget> {
-    if let Some(local_focus) = gui.runtime_state.local_widget_focus.clone() {
+    if let Some(local_focus) = gui.runtime_state.focus_authority.local_widget_focus.clone() {
         Some(local_focus)
     } else if location_has_focus(gui) {
         Some(LocalFocusTarget::ToolbarLocation {

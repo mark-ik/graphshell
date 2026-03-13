@@ -250,7 +250,7 @@ impl HeadedWindow {
     fn resolved_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
         Self::resolve_embedded_input_webview_id(
             self.gui.borrow().focused_embedded_content_webview_id(),
-            window.explicit_input_webview_id(),
+            window.targeted_input_webview_id(),
         )
     }
 

@@ -69,6 +69,9 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     search_query_active: bool,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+    #[cfg(feature = "diagnostics")] runtime_focus_inspector: Option<
+        crate::shell::desktop::ui::gui_state::RuntimeFocusInspector,
+    >,
 ) -> TileRenderOutputs {
     let uxtree_build_started = Instant::now();
     let tab_groups_before = tile_grouping::node_pane_tab_group_memberships(tiles_tree);
@@ -82,6 +85,8 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         search_query_active,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
+        #[cfg(feature = "diagnostics")]
+        runtime_focus_inspector,
     );
     tiles_tree.ui(&mut behavior, ui);
 

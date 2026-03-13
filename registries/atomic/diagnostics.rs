@@ -14,7 +14,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
     CHANNEL_COMPOSITOR_GL_STATE_VIOLATION, CHANNEL_COMPOSITOR_INVALID_TILE_RECT,
+    CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED,
     CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
+    CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
@@ -25,6 +27,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
     CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+    CHANNEL_COMPOSITOR_TILE_ACTIVITY,
     CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
@@ -545,7 +548,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 124] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 127] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -1128,6 +1131,21 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 124] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_TILE_ACTIVITY,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED,
         schema_version: 1,
         severity: ChannelSeverity::Info,
     },
@@ -1743,6 +1761,7 @@ fn channel_retention_policy(channel_id: &str) -> RetentionPolicy {
         | CHANNEL_PROTOCOL_RESOLVE_FAILED
         | CHANNEL_VIEWER_CAPABILITY_NONE
         | CHANNEL_NOSTR_RELAY_CONNECT_FAILED => RetentionPolicy::KeepRecent(500),
+        CHANNEL_COMPOSITOR_TILE_ACTIVITY => RetentionPolicy::KeepRecent(256),
         _ => RetentionPolicy::Session,
     }
 }
@@ -1752,7 +1771,8 @@ fn channel_sampling_policy(channel_id: &str) -> SamplingPolicy {
         CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE
         | CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE
         | CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE
-        | CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE => SamplingPolicy::SampleRate(0.25),
+        | CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE
+        | CHANNEL_COMPOSITOR_TILE_ACTIVITY => SamplingPolicy::SampleRate(0.25),
         _ => SamplingPolicy::All,
     }
 }

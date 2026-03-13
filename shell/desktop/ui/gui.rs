@@ -75,6 +75,9 @@ use crate::util::CoordBridge;
 
 #[path = "gui/accessibility.rs"]
 mod accessibility;
+#[cfg(test)]
+pub(crate) use accessibility::selected_node_affordance_projection_from_annotations;
+pub(crate) use accessibility::TileAffordanceAccessibilityProjection;
 #[path = "gui/accesskit_events.rs"]
 mod accesskit_events;
 #[path = "gui/accesskit_input.rs"]
@@ -385,7 +388,6 @@ impl Gui {
                 graph_search_filter_mode: initial_search_filter_mode,
                 graph_search_matches: Vec::new(),
                 graph_search_active_match_index: None,
-                local_widget_focus: None,
                 focused_node_hint: None,
                 graph_surface_focused: false,
                 focus_ring_node_key: None,
@@ -550,7 +552,33 @@ impl Gui {
     }
 
     pub(crate) fn focused_embedded_content_webview_id(&self) -> Option<WebViewId> {
-        self.graph_app.embedded_content_focus_webview()
+        self.runtime_state
+            .focus_authority
+            .embedded_content_focus
+            .as_ref()
+            .map(|target| match target {
+                crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
+                    renderer_id,
+                    ..
+                } => *renderer_id,
+            })
+            .or_else(|| {
+                self.runtime_state
+                    .focus_authority
+                    .realized_focus_state
+                    .as_ref()
+                    .and_then(|state| {
+                        state.embedded_content_focus.as_ref().map(|target| {
+                            match target {
+                            crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
+                                renderer_id,
+                                ..
+                            } => *renderer_id,
+                        }
+                        })
+                    })
+            })
+            .or_else(|| self.graph_app.embedded_content_focus_webview())
     }
 
     pub(crate) fn node_key_for_webview_id(&self, webview_id: WebViewId) -> Option<NodeKey> {
@@ -681,11 +709,16 @@ impl Gui {
             .make_current()
             .expect("Could not make RenderingContext current");
         tree_bootstrap::ensure_tiles_tree_root(&mut self.tiles_tree);
+        let local_widget_focus = self
+            .runtime_state
+            .focus_authority
+            .local_widget_focus
+            .clone();
         focus_state::refresh_realized_runtime_focus_state(
             &mut self.runtime_state.focus_authority,
             &self.graph_app,
             &self.tiles_tree,
-            self.runtime_state.local_widget_focus.clone(),
+            local_widget_focus,
             self.toolbar_state.show_clear_data_confirm,
         );
         debug_assert!(
@@ -724,7 +757,6 @@ impl Gui {
             graph_search_filter_mode,
             graph_search_matches,
             graph_search_active_match_index,
-            local_widget_focus,
             focus_authority,
             focused_node_hint,
             graph_surface_focused,
@@ -766,7 +798,6 @@ impl Gui {
                 graph_search_filter_mode,
                 graph_search_matches,
                 graph_search_active_match_index,
-                local_widget_focus,
                 focus_authority,
                 focused_node_hint,
                 graph_surface_focused,
@@ -858,6 +889,12 @@ impl Gui {
         // the context.run() callback.
         self.pending_webview_a11y_updates
             .insert(webview_id, tree_update);
+    }
+
+    pub(crate) fn selected_node_affordance_projection(
+        node_key: NodeKey,
+    ) -> Option<TileAffordanceAccessibilityProjection> {
+        accessibility::selected_node_affordance_projection(node_key)
     }
 }
 fn ui_overlay_active_from_flags(

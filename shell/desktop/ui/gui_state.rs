@@ -56,6 +56,7 @@ pub(super) fn toolbar_location_input_id(active_toolbar_pane: Option<PaneId>) -> 
 pub(crate) struct RuntimeFocusAuthorityState {
     pub(super) pane_activation: Option<PaneId>,
     pub(super) semantic_region: Option<SemanticRegionFocus>,
+    pub(super) local_widget_focus: Option<LocalFocusTarget>,
     pub(super) embedded_content_focus: Option<EmbeddedContentTarget>,
     pub(super) tool_surface_return_target: Option<ToolSurfaceReturnTarget>,
     pub(super) command_surface_return_target: Option<ToolSurfaceReturnTarget>,
@@ -70,7 +71,6 @@ pub(super) struct GuiRuntimeState {
     pub(super) graph_search_filter_mode: bool,
     pub(super) graph_search_matches: Vec<NodeKey>,
     pub(super) graph_search_active_match_index: Option<usize>,
-    pub(super) local_widget_focus: Option<LocalFocusTarget>,
     pub(super) focused_node_hint: Option<NodeKey>,
     pub(super) graph_surface_focused: bool,
     pub(super) focus_ring_node_key: Option<NodeKey>,

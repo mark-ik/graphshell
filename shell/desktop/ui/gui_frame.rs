@@ -124,7 +124,6 @@ pub(crate) fn ingest_pre_frame(
     {
         let focused_node = graph_app
             .embedded_content_focus_webview()
-            .or_else(|| window.explicit_input_webview_id())
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id));
         let radial_menu_open = graph_app.workspace.show_radial_menu;
         for command in app_state.take_pending_gamepad_ui_commands() {

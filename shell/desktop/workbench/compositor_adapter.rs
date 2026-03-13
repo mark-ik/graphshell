@@ -40,7 +40,7 @@ use crate::shell::desktop::runtime::registries::{
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use dpi::PhysicalSize;
-use egui::{Context, Id, LayerId, Rect as EguiRect, Stroke, StrokeKind};
+use egui::{Area, Context, Id, LayerId, Order, Rect as EguiRect, Stroke, StrokeKind};
 use euclid::{Scale, Size2D, UnknownUnit};
 use log::warn;
 use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, WebView};
@@ -363,12 +363,13 @@ pub(crate) struct CompositorPassTracker {
     content_pass_nodes: HashSet<NodeKey>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct OverlayStrokePass {
     pub(crate) node_key: NodeKey,
     pub(crate) tile_rect: EguiRect,
     pub(crate) rounding: f32,
     pub(crate) stroke: Stroke,
+    pub(crate) glyph_overlays: Vec<crate::registries::atomic::lens::GlyphOverlay>,
     pub(crate) style: OverlayAffordanceStyle,
     pub(crate) render_mode: TileRenderMode,
 }
@@ -376,12 +377,16 @@ pub(crate) struct OverlayStrokePass {
 #[derive(Clone, Copy)]
 pub(crate) enum OverlayAffordanceStyle {
     RectStroke,
+    DashedRectStroke,
+    EguiAreaStroke,
     ChromeOnly,
 }
 
 fn overlay_style_channel(style: OverlayAffordanceStyle) -> &'static str {
     match style {
-        OverlayAffordanceStyle::RectStroke => CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+        OverlayAffordanceStyle::RectStroke
+        | OverlayAffordanceStyle::DashedRectStroke
+        | OverlayAffordanceStyle::EguiAreaStroke => CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
         OverlayAffordanceStyle::ChromeOnly => CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
     }
 }
@@ -830,6 +835,142 @@ impl CompositorAdapter {
         );
     }
 
+    pub(crate) fn draw_dashed_overlay_stroke(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        stroke: Stroke,
+    ) {
+        #[cfg(feature = "diagnostics")]
+        let started = std::time::Instant::now();
+
+        fn draw_dashed_segment(
+            painter: &egui::Painter,
+            start: egui::Pos2,
+            end: egui::Pos2,
+            stroke: Stroke,
+        ) {
+            let dash = 10.0;
+            let gap = 6.0;
+            let horizontal = (start.y - end.y).abs() < f32::EPSILON;
+            let total = if horizontal {
+                (end.x - start.x).abs()
+            } else {
+                (end.y - start.y).abs()
+            };
+            let direction = if horizontal {
+                egui::vec2((end.x - start.x).signum(), 0.0)
+            } else {
+                egui::vec2(0.0, (end.y - start.y).signum())
+            };
+            let mut offset = 0.0;
+            while offset < total {
+                let from = start + direction * offset;
+                let to = start + direction * (offset + dash).min(total);
+                painter.line_segment([from, to], stroke);
+                offset += dash + gap;
+            }
+        }
+
+        let rect = tile_rect.shrink(1.0);
+        let painter = ctx.layer_painter(Self::overlay_layer(node_key));
+        draw_dashed_segment(&painter, rect.left_top(), rect.right_top(), stroke);
+        draw_dashed_segment(&painter, rect.right_top(), rect.right_bottom(), stroke);
+        draw_dashed_segment(&painter, rect.right_bottom(), rect.left_bottom(), stroke);
+        draw_dashed_segment(&painter, rect.left_bottom(), rect.left_top(), stroke);
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+            "tile_compositor::overlay_pass_draw",
+            started.elapsed().as_micros() as u64,
+        );
+    }
+
+    pub(crate) fn draw_overlay_stroke_in_area(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        rounding: f32,
+        stroke: Stroke,
+    ) {
+        #[cfg(feature = "diagnostics")]
+        let started = std::time::Instant::now();
+
+        Area::new(Id::new(("graphshell_overlay_area", node_key)))
+            .order(Order::Tooltip)
+            .fixed_pos(tile_rect.min)
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.set_min_size(tile_rect.size());
+                ui.painter().rect_stroke(
+                    EguiRect::from_min_size(egui::Pos2::ZERO, tile_rect.size()).shrink(1.0),
+                    rounding,
+                    stroke,
+                    StrokeKind::Inside,
+                );
+            });
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+            "tile_compositor::overlay_pass_draw",
+            started.elapsed().as_micros() as u64,
+        );
+    }
+
+    fn glyph_anchor_position(
+        tile_rect: EguiRect,
+        anchor: crate::registries::atomic::lens::GlyphAnchor,
+    ) -> (egui::Pos2, egui::Align2) {
+        match anchor {
+            crate::registries::atomic::lens::GlyphAnchor::TopLeft => (
+                tile_rect.left_top() + egui::vec2(6.0, 6.0),
+                egui::Align2::LEFT_TOP,
+            ),
+            crate::registries::atomic::lens::GlyphAnchor::TopRight => (
+                tile_rect.right_top() + egui::vec2(-6.0, 6.0),
+                egui::Align2::RIGHT_TOP,
+            ),
+            crate::registries::atomic::lens::GlyphAnchor::BottomLeft => (
+                tile_rect.left_bottom() + egui::vec2(6.0, -6.0),
+                egui::Align2::LEFT_BOTTOM,
+            ),
+            crate::registries::atomic::lens::GlyphAnchor::BottomRight => (
+                tile_rect.right_bottom() + egui::vec2(-6.0, -6.0),
+                egui::Align2::RIGHT_BOTTOM,
+            ),
+            crate::registries::atomic::lens::GlyphAnchor::Center => {
+                (tile_rect.center(), egui::Align2::CENTER_CENTER)
+            }
+        }
+    }
+
+    pub(crate) fn draw_overlay_glyphs(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        glyphs: &[crate::registries::atomic::lens::GlyphOverlay],
+        color: egui::Color32,
+        style: OverlayAffordanceStyle,
+    ) {
+        if glyphs.is_empty() {
+            return;
+        }
+
+        let layer = match style {
+            OverlayAffordanceStyle::EguiAreaStroke => LayerId::new(
+                Order::Tooltip,
+                Id::new(("graphshell_overlay_glyphs", node_key)),
+            ),
+            _ => Self::overlay_layer(node_key),
+        };
+        let painter = ctx.layer_painter(layer);
+        let font = egui::FontId::proportional(11.0);
+        for glyph in glyphs {
+            let (pos, align) = Self::glyph_anchor_position(tile_rect, glyph.anchor);
+            painter.text(pos, align, &glyph.glyph_id, font.clone(), color);
+        }
+    }
+
     pub(crate) fn draw_overlay_chrome_markers(
         ctx: &Context,
         node_key: NodeKey,
@@ -896,6 +1037,19 @@ impl CompositorAdapter {
                     overlay.rounding,
                     overlay.stroke,
                 ),
+                OverlayAffordanceStyle::DashedRectStroke => Self::draw_dashed_overlay_stroke(
+                    ctx,
+                    overlay.node_key,
+                    overlay.tile_rect,
+                    overlay.stroke,
+                ),
+                OverlayAffordanceStyle::EguiAreaStroke => Self::draw_overlay_stroke_in_area(
+                    ctx,
+                    overlay.node_key,
+                    overlay.tile_rect,
+                    overlay.rounding,
+                    overlay.stroke,
+                ),
                 OverlayAffordanceStyle::ChromeOnly => Self::draw_overlay_chrome_markers(
                     ctx,
                     overlay.node_key,
@@ -903,6 +1057,14 @@ impl CompositorAdapter {
                     overlay.stroke,
                 ),
             }
+            Self::draw_overlay_glyphs(
+                ctx,
+                overlay.node_key,
+                overlay.tile_rect,
+                &overlay.glyph_overlays,
+                overlay.stroke.color,
+                overlay.style,
+            );
         }
 
         #[cfg(feature = "diagnostics")]
@@ -1139,6 +1301,7 @@ mod tests {
                 tile_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
                 rounding: 4.0,
                 stroke: Stroke::new(2.0, egui::Color32::WHITE),
+                glyph_overlays: Vec::new(),
                 style: OverlayAffordanceStyle::RectStroke,
                 render_mode: TileRenderMode::CompositedTexture,
             }],
@@ -1182,6 +1345,7 @@ mod tests {
                 tile_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
                 rounding: 0.0,
                 stroke: Stroke::new(2.0, egui::Color32::WHITE),
+                glyph_overlays: Vec::new(),
                 style: OverlayAffordanceStyle::ChromeOnly,
                 render_mode: TileRenderMode::NativeOverlay,
             }],

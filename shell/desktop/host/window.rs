@@ -335,6 +335,18 @@ impl EmbedderWindow {
         }
     }
 
+    pub(crate) fn targeted_input_webview_id(&self) -> Option<WebViewId> {
+        match self.input_target() {
+            Some(InputTarget::Host) => None,
+            Some(InputTarget::Renderer(renderer_id)) => Some(renderer_id),
+            Some(InputTarget::Pane(pane_id)) => {
+                registries::phase1_renderer_attachment_for_pane(pane_id)
+                    .map(|attachment| attachment.renderer_id)
+            }
+            None => None,
+        }
+    }
+
     pub(crate) fn explicit_dialog_webview_id(&self) -> Option<WebViewId> {
         match self.dialog_owner() {
             Some(DialogOwner::Renderer(renderer_id)) => Some(renderer_id),

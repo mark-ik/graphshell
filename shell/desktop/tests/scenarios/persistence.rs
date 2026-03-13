@@ -11,20 +11,20 @@ use crate::app::WorkbenchIntent;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::LogEntry;
+use crate::shell::desktop::runtime::registries::input::{
+    GamepadButton, InputBinding, InputBindingRemap, InputContext, action_id,
+};
 use crate::shell::desktop::runtime::registries::workbench_surface::WorkbenchSurfaceRegistry;
+use crate::shell::desktop::runtime::registries::{
+    phase2_reset_input_binding_remaps, phase2_resolve_typed_input_action_id,
+};
 use crate::shell::desktop::ui::persistence_ops::{
     load_named_workspace_bundle, restore_runtime_tree_from_workspace_bundle,
     save_named_workspace_bundle,
 };
 use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::shell::desktop::runtime::registries::input::{
-    GamepadButton, InputBinding, InputBindingRemap, InputContext, action_id,
-};
 use egui_tiles::{Container, Tile, Tiles, Tree};
-use crate::shell::desktop::runtime::registries::{
-    phase2_reset_input_binding_remaps, phase2_resolve_typed_input_action_id,
-};
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -469,7 +469,10 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
     let (restored, restored_nodes) = restore_runtime_tree_from_workspace_bundle(&app, &bundle)
         .expect("grouped frame bundle should restore runtime tree");
 
-    assert!(restored.root().is_some(), "restored tree should have a root");
+    assert!(
+        restored.root().is_some(),
+        "restored tree should have a root"
+    );
     assert!(restored_nodes.contains(&left_node));
     assert!(restored_nodes.contains(&right_node));
 
@@ -488,7 +491,10 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
     });
 
     assert_eq!(graph_panes, 1, "restored tree should retain one graph pane");
-    assert_eq!(node_panes, 2, "restored tree should retain grouped node panes");
+    assert_eq!(
+        node_panes, 2,
+        "restored tree should retain grouped node panes"
+    );
     assert!(
         grouped_tabs,
         "restored tree should include a grouped tabs container with selected members"

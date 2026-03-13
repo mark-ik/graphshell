@@ -30,6 +30,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE,
     CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED,
 };
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, ViewerId};
 use crate::util::truncate_with_ellipsis;
 
@@ -37,6 +39,15 @@ use super::selection_range::inclusive_index_range;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
 use super::ux_tree;
+
+#[path = "tile_behavior/node_pane_ui.rs"]
+mod node_pane_ui;
+#[path = "tile_behavior/pending_intents.rs"]
+mod pending_intents;
+#[path = "tile_behavior/tab_chrome.rs"]
+mod tab_chrome;
+#[path = "tile_behavior/tool_pane_ui.rs"]
+mod tool_pane_ui;
 
 const PLAINTEXT_HEX_PREVIEW_BYTES: usize = 4096;
 
@@ -278,6 +289,8 @@ pub(crate) struct GraphshellTileBehavior<'a> {
     pending_tab_drag_stopped_nodes: HashSet<NodeKey>,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+    #[cfg(feature = "diagnostics")]
+    runtime_focus_inspector: Option<RuntimeFocusInspector>,
 }
 
 impl<'a> GraphshellTileBehavior<'a> {
@@ -291,6 +304,7 @@ impl<'a> GraphshellTileBehavior<'a> {
         search_query_active: bool,
         #[cfg(feature = "diagnostics")]
         diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+        #[cfg(feature = "diagnostics")] runtime_focus_inspector: Option<RuntimeFocusInspector>,
     ) -> Self {
         Self {
             graph_app,
@@ -306,6 +320,8 @@ impl<'a> GraphshellTileBehavior<'a> {
             pending_tab_drag_stopped_nodes: HashSet::new(),
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
+            #[cfg(feature = "diagnostics")]
+            runtime_focus_inspector,
         }
     }
 
@@ -329,7 +345,7 @@ impl<'a> GraphshellTileBehavior<'a> {
     where
         T: Into<TilePendingIntent>,
     {
-        self.pending_post_render_intents.push(intent.into());
+        pending_intents::queue_post_render_intent(self, intent);
     }
 
     fn extend_post_render_intents<I, T>(&mut self, intents: I)
@@ -337,8 +353,7 @@ impl<'a> GraphshellTileBehavior<'a> {
         I: IntoIterator<Item = T>,
         T: Into<TilePendingIntent>,
     {
-        self.pending_post_render_intents
-            .extend(intents.into_iter().map(Into::into));
+        pending_intents::extend_post_render_intents(self, intents);
     }
 
     fn hash_favicon(width: u32, height: u32, rgba: &[u8]) -> u64 {
@@ -387,6 +402,10 @@ impl<'a> GraphshellTileBehavior<'a> {
                 runtime_webview_mapped: graph_app.get_webview_for_node(node_key).is_some(),
                 runtime_blocked: graph_app.runtime_block_state_for_node(node_key).is_some(),
                 runtime_crashed: graph_app.runtime_crash_state_for_node(node_key).is_some(),
+                affordance_projection:
+                    crate::shell::desktop::ui::gui::Gui::selected_node_affordance_projection(
+                        node_key,
+                    ),
             })
         });
 
@@ -422,13 +441,27 @@ impl<'a> GraphshellTileBehavior<'a> {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn graph_reader_snapshot(_graph_app: &GraphBrowserApp) -> GraphReaderSnapshot {
+    fn graph_reader_snapshot(graph_app: &GraphBrowserApp) -> GraphReaderSnapshot {
+        let node_count = graph_app.domain_graph().node_count();
+        let mode = match graph_app.graph_reader_mode() {
+            Some(crate::app::GraphReaderModeState::Room { .. }) => GraphReaderMode::Room,
+            Some(crate::app::GraphReaderModeState::Map { .. }) if node_count > 0 => {
+                GraphReaderMode::Map
+            }
+            _ => GraphReaderMode::Off,
+        };
+
         GraphReaderSnapshot {
-            mode: GraphReaderMode::Off,
+            mode,
             entry_point_reachable: true,
             degraded_reason: Some(
-                "Phase-1 scaffold only: Room/Map linearization and action routing are not yet implemented."
-                    .to_string(),
+                if node_count == 0 {
+                    "Starter canonical projection path is active, but no graph content is available yet for Map/Room output."
+                        .to_string()
+                } else {
+                    "Starter canonical projection is active: deterministic Map output, focused Room grouping, and starter Graph Reader Room/Map action routing are exposed through the UxTree -> AccessKit path; broader navigation/action coverage is still incomplete."
+                        .to_string()
+                },
             ),
         }
     }
@@ -528,6 +561,53 @@ impl<'a> GraphshellTileBehavior<'a> {
                         ui.label("Runtime crashed");
                         ui.monospace(selected.runtime_crashed.to_string());
                         ui.end_row();
+
+                        let affordance_status = selected
+                            .affordance_projection
+                            .as_ref()
+                            .map(|projection| {
+                                if projection.status_tokens.is_empty() {
+                                    "none".to_string()
+                                } else {
+                                    projection.status_tokens.join(", ")
+                                }
+                            })
+                            .unwrap_or_else(|| "none".to_string());
+                        ui.label("Compositor affordance status");
+                        ui.label(affordance_status);
+                        ui.end_row();
+
+                        let lifecycle_status = selected
+                            .affordance_projection
+                            .as_ref()
+                            .map(|projection| projection.lifecycle_label)
+                            .unwrap_or("none");
+                        ui.label("Lifecycle treatment");
+                        ui.monospace(lifecycle_status);
+                        ui.end_row();
+
+                        let aria_busy = selected
+                            .affordance_projection
+                            .as_ref()
+                            .is_some_and(|projection| projection.aria_busy);
+                        ui.label("Projected aria-busy");
+                        ui.monospace(aria_busy.to_string());
+                        ui.end_row();
+
+                        let glyphs = selected
+                            .affordance_projection
+                            .as_ref()
+                            .map(|projection| {
+                                if projection.glyph_descriptions.is_empty() {
+                                    "none".to_string()
+                                } else {
+                                    projection.glyph_descriptions.join(", ")
+                                }
+                            })
+                            .unwrap_or_else(|| "none".to_string());
+                        ui.label("Rendered lens glyphs");
+                        ui.label(glyphs);
+                        ui.end_row();
                     });
             }
             None => {
@@ -574,9 +654,9 @@ impl<'a> GraphshellTileBehavior<'a> {
 
         ui.add_space(8.0);
         ui.separator();
-        ui.strong("Graph Reader (phase-1 scaffold)");
+        ui.strong("Graph Reader (starter canonical projection)");
         ui.small(
-            "Entry point is reachable with explicit degraded status while Room/Map semantics land.",
+            "Entry point is reachable and now reports starter Map/Room projection status while full focus and action routing land.",
         );
 
         egui::Grid::new("accessibility_graph_reader_scaffold")
@@ -737,408 +817,21 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: TileId, pane: &mut TileKind) -> UiResponse {
         match pane {
             TileKind::Graph(view_ref) => {
-                let view_id = view_ref.graph_view_id;
-                // Snapshot the pane rect now (before the graph fills the space).
-                let pane_rect = ui.max_rect();
-
-                let actions = render::render_graph_in_ui_collect_actions(
-                    ui,
-                    self.graph_app,
-                    view_id,
-                    self.search_matches,
-                    self.active_search_match,
-                    if self.search_filter_mode {
-                        SearchDisplayMode::Filter
-                    } else {
-                        SearchDisplayMode::Highlight
-                    },
-                    self.search_query_active,
-                );
-                let multi_select_modifier = ui.input(|i| i.modifiers.ctrl);
-                let mut passthrough_actions = Vec::new();
-
-                for action in actions {
-                    match action {
-                        GraphAction::FocusNode(key) => {
-                            log::debug!("tile_behavior: FocusNode action for {:?}", key);
-                            self.queue_post_render_intent(GraphIntent::OpenNodeFrameRouted {
-                                key,
-                                prefer_frame: None,
-                            });
-                        }
-                        GraphAction::FocusNodeSplit(key) => {
-                            if let Some(primary) = self.graph_app.focused_selection().primary()
-                                && primary != key
-                            {
-                                self.queue_post_render_intent(GraphIntent::CreateUserGroupedEdge {
-                                    from: primary,
-                                    to: key,
-                                    label: None,
-                                });
-                            }
-                            self.queue_post_render_intent(GraphIntent::SelectNode {
-                                key,
-                                multi_select: multi_select_modifier,
-                            });
-                            log::debug!("tile_behavior: enqueue pending open node {:?} split", key);
-                            self.pending_open_nodes.push(PendingOpenNode {
-                                key,
-                                mode: PendingOpenMode::SplitHorizontal,
-                            });
-                        }
-                        other => passthrough_actions.push(other),
-                    }
-                }
-
-                self.extend_post_render_intents(render::intents_from_graph_actions(
-                    passthrough_actions,
-                ));
-                render::sync_graph_positions_from_layout(self.graph_app);
-                render::render_graph_info_in_ui(ui, self.graph_app);
-
-                // Per-pane overlay: lens selector + graph-pane actions.
-                render_graph_pane_overlay(
-                    ui.ctx(),
-                    self.graph_app,
-                    view_id,
-                    pane_rect,
-                    &mut self.pending_post_render_intents,
-                );
+                self.render_graph_pane(ui, view_ref.graph_view_id);
             }
             TileKind::Node(state) => {
-                let node_key = state.node;
-                let Some((node_url, node_mime_hint, node_lifecycle)) = self
-                    .graph_app
-                    .domain_graph()
-                    .get_node(node_key)
-                    .map(|node| (node.url.clone(), node.mime_hint.clone(), node.lifecycle))
-                else {
-                    ui.label("Missing node for this tile.");
-                    return UiResponse::None;
-                };
-                render_node_viewer_backend_selector(ui, self.graph_app, state);
-                ui.add_space(4.0);
-
-                let effective_viewer_id = state
-                    .viewer_id_override
-                    .as_ref()
-                    .map(|viewer_id| viewer_id.as_str().to_string())
-                    .unwrap_or_else(|| {
-                        crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
-                            &node_url,
-                            node_mime_hint.as_deref(),
-                        )
-                            .viewer_id
-                            .to_string()
-                    });
-
-                if matches!(
-                    effective_viewer_id.as_str(),
-                    "viewer:plaintext" | "viewer:markdown"
-                ) {
-                    ui.label(format!("{}", node_url));
-                    ui.separator();
-                    match load_plaintext_content_for_node(&node_url) {
-                        Ok(PlaintextContent::Text(content)) => {
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                if effective_viewer_id.as_str() == "viewer:markdown" {
-                                    render_markdown_embedded(ui, &content);
-                                } else {
-                                    let mut read_only = content;
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut read_only)
-                                            .font(egui::TextStyle::Monospace)
-                                            .desired_width(f32::INFINITY)
-                                            .interactive(false),
-                                    );
-                                }
-                            });
-                        }
-                        Ok(PlaintextContent::HexPreview(hex)) => {
-                            ui.small("Binary content detected; showing hex preview.");
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                let mut read_only = hex;
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut read_only)
-                                        .font(egui::TextStyle::Monospace)
-                                        .desired_width(f32::INFINITY)
-                                        .interactive(false),
-                                );
-                            });
-                        }
-                        Err(error) => {
-                            ui.small(error);
-                        }
-                    }
-                    return UiResponse::None;
-                }
-
-                if !tile_runtime::viewer_id_uses_composited_runtime(effective_viewer_id.as_str()) {
-                    if effective_viewer_id.as_str() == "viewer:wry"
-                        && state.render_mode
-                            == crate::shell::desktop::workbench::pane_model::TileRenderMode::NativeOverlay
-                    {
-                        if let Some(reason) = wry_unavailable_reason(self.graph_app) {
-                            emit_event(DiagnosticEvent::MessageSent {
-                                channel_id: reason.diagnostics_channel(),
-                                byte_len: 1,
-                            });
-                            ui.colored_label(
-                                egui::Color32::from_rgb(220, 180, 60),
-                                "Wry backend currently unavailable",
-                            );
-                            ui.label(reason.message());
-                            ui.horizontal(|ui| {
-                                if ui.button("Use WebView").clicked() {
-                                    request_viewer_backend_swap(
-                                        self.graph_app,
-                                        state,
-                                        Some(ViewerId::new("viewer:webview")),
-                                    );
-                                }
-                                if ui.button("Clear Viewer Override").clicked() {
-                                    request_viewer_backend_swap(self.graph_app, state, None);
-                                }
-                            });
-                        } else {
-                            ui.colored_label(
-                                egui::Color32::from_rgb(130, 185, 130),
-                                "Wry native overlay active",
-                            );
-                            ui.small(
-                                "This pane is rendered through native overlay sync (not composited texture).",
-                            );
-                        }
-                        ui.small(format!("URL: {}", node_url));
-                        return UiResponse::None;
-                    }
-
-                    let is_placeholder_mode = matches!(
-                        state.render_mode,
-                        crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder
-                    );
-                    if is_placeholder_mode {
-                        emit_event(DiagnosticEvent::MessageSent {
-                            channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
-                            byte_len: effective_viewer_id.len(),
-                        });
-                        emit_event(DiagnosticEvent::MessageSent {
-                            channel_id: CHANNEL_VIEWER_FALLBACK_USED,
-                            byte_len: effective_viewer_id.len(),
-                        });
-                        ui.colored_label(
-                            egui::Color32::from_rgb(220, 180, 60),
-                            "Viewer fallback active (placeholder mode)",
-                        );
-                        ui.label(format!(
-                            "Reason: '{}' is unresolved for this build path and falls back to placeholder rendering.",
-                            effective_viewer_id
-                        ));
-                        ui.small(
-                            "Recovery: switch this pane to WebView fallback or clear the override.",
-                        );
-                        ui.horizontal(|ui| {
-                            if ui.button("Use WebView Fallback").clicked() {
-                                request_viewer_backend_swap(
-                                    self.graph_app,
-                                    state,
-                                    Some(ViewerId::new("viewer:webview")),
-                                );
-                            }
-                            if ui.button("Clear Viewer Override").clicked() {
-                                request_viewer_backend_swap(self.graph_app, state, None);
-                            }
-                        });
-                    } else {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(220, 180, 60),
-                            "Viewer path is currently degraded",
-                        );
-                        ui.label(format!(
-                            "Reason: '{}' is not rendered through this pane path yet.",
-                            effective_viewer_id
-                        ));
-                        ui.small("Recovery: use a supported embedded viewer or switch to WebView.");
-                        ui.horizontal(|ui| {
-                            if ui.button("Use WebView").clicked() {
-                                request_viewer_backend_swap(
-                                    self.graph_app,
-                                    state,
-                                    Some(ViewerId::new("viewer:webview")),
-                                );
-                            }
-                            if ui.button("Clear Viewer Override").clicked() {
-                                request_viewer_backend_swap(self.graph_app, state, None);
-                            }
-                        });
-                    }
-                    ui.small(format!("URL: {}", node_url));
-                    return UiResponse::None;
-                }
-
-                if let Some(crash) = self
-                    .graph_app
-                    .runtime_crash_state_for_node(node_key)
-                    .cloned()
-                {
-                    let crash_reason = crash.message.as_deref().unwrap_or("unknown");
-                    ui.colored_label(
-                        egui::Color32::from_rgb(220, 120, 120),
-                        format!("Tab crashed: {}", crash_reason),
-                    );
-                    ui.horizontal(|ui| {
-                        if ui.button("Reload").clicked() {
-                            self.queue_post_render_intent(
-                                lifecycle_intents::promote_node_to_active(
-                                    node_key,
-                                    LifecycleCause::UserSelect,
-                                ),
-                            );
-                        }
-                        if ui.button("Close Tile").clicked() {
-                            self.pending_closed_nodes.push(node_key);
-                        }
-                    });
-                    if crash.has_backtrace {
-                        ui.small("Crash reported a backtrace.");
-                    }
-                    if let Ok(elapsed) =
-                        std::time::SystemTime::now().duration_since(crash.blocked_at)
-                    {
-                        ui.small(format!("Crashed {}s ago", elapsed.as_secs()));
-                    }
-                    return UiResponse::None;
-                }
-                if self.graph_app.get_webview_for_node(node_key).is_none() {
-                    log::debug!(
-                        "tile_behavior: node {:?} has no active node viewer runtime",
-                        node_key
-                    );
-                    let block_state = self
-                        .graph_app
-                        .runtime_block_state_for_node(node_key)
-                        .cloned();
-                    let lifecycle_hint = match node_lifecycle {
-                        NodeLifecycle::Cold => {
-                            "Node is cold. Reactivate to resume browsing in this pane."
-                        }
-                        NodeLifecycle::Warm => {
-                            "Node is warm-cached. Reactivate to attach its cached runtime viewer."
-                        }
-                        NodeLifecycle::Active => {
-                            "Node is active but no runtime viewer is mapped yet."
-                        }
-                        NodeLifecycle::Tombstone => {
-                            "Node is tombstoned and is retained for history continuity."
-                        }
-                    };
-                    if let Some(block_state) = block_state {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(220, 180, 60),
-                            "Degraded: runtime viewer currently blocked",
-                        );
-                        let reason = match block_state.reason {
-                            crate::app::RuntimeBlockReason::CreateRetryExhausted => {
-                                "WebView creation retries were exhausted and a cooldown is active."
-                            }
-                            crate::app::RuntimeBlockReason::Crash => {
-                                "Viewer crashed and runtime is temporarily blocked."
-                            }
-                        };
-                        ui.label(format!("Reason: {reason}"));
-                        if let Some(retry_at) = block_state.retry_at {
-                            let now = std::time::Instant::now();
-                            if retry_at > now {
-                                ui.small(format!(
-                                    "Recovery: retry available in ~{}s.",
-                                    retry_at.duration_since(now).as_secs()
-                                ));
-                            }
-                        }
-                    }
-
-                    ui.label(format!("No active runtime viewer for {}", node_url));
-                    ui.small(lifecycle_hint);
-                    ui.horizontal(|ui| {
-                        if ui.button("Reactivate").clicked() {
-                            self.queue_post_render_intent(GraphIntent::SelectNode {
-                                key: node_key,
-                                multi_select: false,
-                            });
-                            self.queue_post_render_intent(GraphIntent::SelectNode {
-                                key: node_key,
-                                multi_select: false,
-                            });
-                            self.queue_post_render_intent(
-                                lifecycle_intents::promote_node_to_active(
-                                    node_key,
-                                    LifecycleCause::UserSelect,
-                                ),
-                            );
-                        }
-                    });
-                } else {
-                    // Runtime viewer is active - allocate full space for compositor to render into.
-                    let (rect, _response) =
-                        ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
-                    // Node viewer content is painted by tile_compositor on the background layer.
-                    log::debug!(
-                        "tile_behavior: allocated compositor space for node viewer {:?} at {:?}",
-                        node_key,
-                        rect
-                    );
-                }
+                self.render_node_pane(ui, state);
             }
             #[cfg(feature = "diagnostics")]
             TileKind::Tool(tool) => {
-                use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-                match &tool.kind {
-                    ToolPaneState::Diagnostics => {
-                        self.diagnostics_state.render_in_pane(ui, self.graph_app);
-                    }
-                    ToolPaneState::HistoryManager => {
-                        let intents = render::render_history_manager_in_ui(ui, self.graph_app);
-                        self.extend_post_render_intents(intents);
-                    }
-                    ToolPaneState::AccessibilityInspector => {
-                        Self::render_accessibility_inspector_scaffold(ui, self.graph_app);
-                    }
-                    ToolPaneState::FileTree => {
-                        let intents = render::render_file_tree_tool_pane_in_ui(ui, self.graph_app);
-                        self.extend_post_render_intents(intents);
-                    }
-                    ToolPaneState::Settings => {
-                        let intents = render::render_settings_tool_pane_in_ui_with_control_panel(
-                            ui,
-                            self.graph_app,
-                            Some(self.control_panel),
-                        );
-                        self.extend_post_render_intents(intents);
-                    }
-                }
+                self.render_tool_pane(ui, tool);
             }
         }
         UiResponse::None
     }
 
     fn tab_title_for_pane(&mut self, pane: &TileKind) -> WidgetText {
-        match pane {
-            TileKind::Graph(view_ref) => self
-                .graph_app
-                .workspace
-                .views
-                .get(&view_ref.graph_view_id)
-                .map(|v| v.name.clone().into())
-                .unwrap_or_else(|| "Graph".into()),
-            TileKind::Node(state) => self
-                .graph_app
-                .domain_graph()
-                .get_node(state.node)
-                .map(|n| n.title.clone().into())
-                .unwrap_or_else(|| format!("Node {:?}", state.node).into()),
-            #[cfg(feature = "diagnostics")]
-            TileKind::Tool(tool) => tool.title().into(),
-        }
+        self.tab_title_for_tile(pane)
     }
 
     fn tab_ui(
@@ -1149,240 +842,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         tile_id: TileId,
         state: &TabState,
     ) -> Response {
-        let close_btn_size = Vec2::splat(self.close_button_outer_size());
-        let close_btn_left_padding = 4.0;
-        let icon_size = 16.0;
-        let icon_spacing = 6.0;
-        let x_margin = self.tab_title_spacing(ui.visuals());
-        let workbench_surface = registries::phase3_resolve_active_workbench_surface_profile();
-
-        let (title_text, favicon_texture) = match tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Graph(view_ref))) => {
-                let name = self
-                    .graph_app
-                    .workspace
-                    .views
-                    .get(&view_ref.graph_view_id)
-                    .map(|v| v.name.clone())
-                    .unwrap_or_else(|| "Graph".to_string());
-                (name, None)
-            }
-            Some(Tile::Pane(TileKind::Node(state))) => {
-                let title = self
-                    .graph_app
-                    .domain_graph()
-                    .get_node(state.node)
-                    .map(|n| n.title.clone())
-                    .unwrap_or_else(|| format!("Node {:?}", state.node));
-                let title = truncate_with_ellipsis(
-                    &title,
-                    workbench_surface.profile.interaction.title_truncation_chars,
-                );
-                let favicon = self.favicon_texture_id(ui, state.node);
-                (title, favicon)
-            }
-            #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Tool(tool))) => (tool.title().to_string(), None),
-            Some(Tile::Container(Container::Linear(linear))) => {
-                let label = match linear.dir {
-                    egui_tiles::LinearDir::Horizontal => {
-                        workbench_surface.profile.split_horizontal_label.clone()
-                    }
-                    egui_tiles::LinearDir::Vertical => {
-                        workbench_surface.profile.split_vertical_label.clone()
-                    }
-                };
-                (label, None)
-            }
-            Some(Tile::Container(Container::Tabs(_))) => {
-                (workbench_surface.profile.tab_group_label.clone(), None)
-            }
-            Some(Tile::Container(Container::Grid(_))) => {
-                (workbench_surface.profile.grid_label.clone(), None)
-            }
-            None => ("MISSING TILE".to_string(), None),
-        };
-
-        let font_id = TextStyle::Button.resolve(ui.style());
-        let galley = WidgetText::from(title_text).into_galley(
-            ui,
-            Some(egui::TextWrapMode::Extend),
-            f32::INFINITY,
-            font_id,
-        );
-
-        let icon_width = if favicon_texture.is_some() {
-            icon_size + icon_spacing
-        } else {
-            0.0
-        };
-        let button_width = galley.size().x
-            + 2.0 * x_margin
-            + icon_width
-            + f32::from(state.closable) * (close_btn_left_padding + close_btn_size.x);
-        let (_, tab_rect) = ui.allocate_space(vec2(button_width, ui.available_height()));
-
-        let tab_response = ui
-            .interact(tab_rect, id, Sense::click_and_drag())
-            .on_hover_cursor(self.tab_hover_cursor_icon());
-
-        if tab_response.clicked() {
-            let modifiers = ui.input(|i| i.modifiers);
-            let tile_selection_mode = if modifiers.ctrl {
-                SelectionUpdateMode::Toggle
-            } else {
-                SelectionUpdateMode::Replace
-            };
-            self.graph_app
-                .enqueue_workbench_intent(WorkbenchIntent::UpdateTileSelection {
-                    tile_id,
-                    mode: tile_selection_mode,
-                });
-
-            if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id) {
-                let node_key = state.node;
-                if modifiers.shift {
-                    let ordered_nodes = Self::tab_group_node_order_for_tile(tiles, tile_id)
-                        .unwrap_or_else(|| vec![node_key]);
-                    let target_index = ordered_nodes
-                        .iter()
-                        .position(|key| *key == node_key)
-                        .unwrap_or(0);
-                    let anchor_key = self
-                        .graph_app
-                        .workspace
-                        .tab_selection_anchor
-                        .unwrap_or(node_key);
-                    let anchor_index = ordered_nodes
-                        .iter()
-                        .position(|key| *key == anchor_key)
-                        .unwrap_or(target_index);
-                    if !modifiers.ctrl {
-                        self.graph_app.workspace.selected_tab_nodes.clear();
-                    }
-                    if let Some(range) =
-                        inclusive_index_range(anchor_index, target_index, ordered_nodes.len())
-                    {
-                        self.graph_app
-                            .add_tab_selection_keys(range.map(|idx| ordered_nodes[idx]));
-                    }
-                } else if modifiers.ctrl {
-                    self.graph_app.toggle_tab_selection(node_key);
-                } else {
-                    self.graph_app.set_tab_selection_single(node_key);
-                    self.queue_post_render_intent(GraphIntent::SelectNode {
-                        key: node_key,
-                        multi_select: false,
-                    });
-                }
-            }
-        }
-
-        if tab_response.drag_stopped()
-            && let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id)
-        {
-            let node_key = state.node;
-            self.pending_tab_drag_stopped_nodes.insert(node_key);
-            if workbench_surface.profile.interaction.tab_detach_enabled
-                && Self::should_detach_tab_on_drag_stop(
-                    ui,
-                    tab_rect,
-                    workbench_surface.profile.interaction.tab_detach_band_margin,
-                )
-            {
-                self.graph_app.request_detach_node_to_split(node_key);
-            }
-        }
-
-        if ui.is_rect_visible(tab_rect) && !state.is_being_dragged {
-            let mut bg_color = self.tab_bg_color(ui.visuals(), tiles, tile_id, state);
-            let mut stroke = self.tab_outline_stroke(ui.visuals(), tiles, tile_id, state);
-            let tab_multi_selected = matches!(
-                tiles.get(tile_id),
-                Some(Tile::Pane(TileKind::Node(state)))
-                    if self.graph_app.workspace.selected_tab_nodes.contains(&state.node)
-            );
-            if tab_multi_selected && !state.active {
-                bg_color = bg_color.linear_multiply(1.08);
-                stroke = Stroke::new(stroke.width.max(1.5), Color32::from_rgb(95, 170, 255));
-            }
-            let tile_selected = self
-                .graph_app
-                .workbench_tile_selection()
-                .selected_tile_ids
-                .contains(&tile_id);
-            if tile_selected {
-                bg_color = bg_color.linear_multiply(if state.active { 1.12 } else { 1.06 });
-                stroke = Stroke::new(
-                    stroke.width.max(if state.active { 2.0 } else { 1.75 }),
-                    if state.active {
-                        Color32::from_rgb(255, 210, 90)
-                    } else {
-                        Color32::from_rgb(120, 200, 255)
-                    },
-                );
-            }
-            ui.painter().rect(
-                tab_rect.shrink(0.5),
-                0.0,
-                bg_color,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-
-            if state.active {
-                ui.painter().hline(
-                    tab_rect.x_range(),
-                    tab_rect.bottom(),
-                    Stroke::new(stroke.width + 1.0, bg_color),
-                );
-            }
-
-            let mut text_rect = tab_rect.shrink(x_margin);
-            if let Some(texture_id) = favicon_texture {
-                let icon_rect = egui::Align2::LEFT_CENTER
-                    .align_size_within_rect(vec2(icon_size, icon_size), text_rect);
-                ui.painter().image(
-                    texture_id,
-                    icon_rect,
-                    egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
-                    egui::Color32::WHITE,
-                );
-                text_rect.min.x += icon_size + icon_spacing;
-            }
-
-            let text_color = self.tab_text_color(ui.visuals(), tiles, tile_id, state);
-            let text_position = egui::Align2::LEFT_CENTER
-                .align_size_within_rect(galley.size(), text_rect)
-                .min;
-            ui.painter().galley(text_position, galley, text_color);
-
-            if state.closable {
-                let close_btn_rect = egui::Align2::RIGHT_CENTER
-                    .align_size_within_rect(close_btn_size, tab_rect.shrink(x_margin));
-
-                let close_btn_id = ui.auto_id_with("tab_close_btn");
-                let close_btn_response = ui
-                    .interact(close_btn_rect, close_btn_id, Sense::click_and_drag())
-                    .on_hover_cursor(egui::CursorIcon::Default);
-
-                let visuals = ui.style().interact(&close_btn_response);
-                let rect = close_btn_rect
-                    .shrink(self.close_button_inner_margin())
-                    .expand(visuals.expansion);
-                let stroke = visuals.fg_stroke;
-                ui.painter()
-                    .line_segment([rect.left_top(), rect.right_bottom()], stroke);
-                ui.painter()
-                    .line_segment([rect.right_top(), rect.left_bottom()], stroke);
-
-                if close_btn_response.clicked() && self.on_tab_close(tiles, tile_id) {
-                    tiles.remove(tile_id);
-                }
-            }
-        }
-
-        self.on_tab_button(tiles, tile_id, tab_response)
+        self.render_tab_ui(tiles, ui, id, tile_id, state)
     }
 
     fn is_tab_closable(&self, tiles: &Tiles<TileKind>, tile_id: TileId) -> bool {
@@ -1555,6 +1015,8 @@ struct AccessibilityInspectorSelectedNodeSnapshot {
     runtime_webview_mapped: bool,
     runtime_blocked: bool,
     runtime_crashed: bool,
+    affordance_projection:
+        Option<crate::shell::desktop::ui::gui::TileAffordanceAccessibilityProjection>,
 }
 
 #[cfg(feature = "diagnostics")]
@@ -1750,6 +1212,42 @@ mod tests {
         assert_eq!(selected.node_key, key);
         assert_eq!(selected.node_url, "https://example.com");
         assert!(!selected.viewer_id.is_empty());
+        assert!(selected.affordance_projection.is_none());
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn accessibility_affordance_projection_maps_focus_selection_and_runtime_blocked() {
+        let node_key = NodeKey::new(42);
+        let annotations = vec![crate::shell::desktop::workbench::tile_compositor::TileAffordanceAnnotation {
+            node_key,
+            focus_ring_rendered: true,
+            selection_ring_rendered: true,
+            lifecycle_treatment:
+                crate::shell::desktop::workbench::tile_compositor::LifecycleTreatment::RuntimeBlocked,
+            lens_glyphs_rendered: vec!["semantic".to_string()],
+        }];
+
+        let projection = crate::shell::desktop::ui::gui::selected_node_affordance_projection_from_annotations(
+            node_key,
+            &annotations,
+        )
+        .expect("projection expected");
+
+        assert!(projection.focus_annotation);
+        assert!(projection.selection_annotation);
+        assert!(projection.aria_busy);
+        assert_eq!(projection.lifecycle_label, "runtime-blocked");
+        assert_eq!(
+            projection.status_tokens,
+            vec![
+                "focused".to_string(),
+                "selected".to_string(),
+                "runtime-blocked".to_string(),
+                "aria-busy".to_string(),
+            ]
+        );
+        assert_eq!(projection.glyph_descriptions, vec!["semantic".to_string()]);
     }
 
     #[cfg(feature = "diagnostics")]
@@ -1777,6 +1275,72 @@ mod tests {
         assert_eq!(snapshot.mode, GraphReaderMode::Off);
         assert!(snapshot.entry_point_reachable);
         assert!(snapshot.degraded_reason.is_some());
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn graph_reader_snapshot_reports_map_mode_when_graph_has_nodes() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let _node = app.add_node_and_sync(
+            "https://graph-reader-map.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let snapshot = GraphshellTileBehavior::graph_reader_snapshot(&app);
+
+        assert_eq!(snapshot.mode, GraphReaderMode::Map);
+        assert!(snapshot.entry_point_reachable);
+        assert!(snapshot
+            .degraded_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("deterministic Map output")));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn graph_reader_snapshot_reports_room_mode_when_selected_node_exists() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://graph-reader-room.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new_with_id(view_id, "Focused"));
+        app.set_workspace_focused_view_with_transition(Some(view_id));
+        app.select_node(node, false);
+
+        let snapshot = GraphshellTileBehavior::graph_reader_snapshot(&app);
+
+        assert_eq!(snapshot.mode, GraphReaderMode::Room);
+        assert!(snapshot.entry_point_reachable);
+        assert!(snapshot
+            .degraded_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("focused Room grouping")));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn graph_reader_snapshot_reports_map_mode_when_override_returns_to_map() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://graph-reader-map-return.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new_with_id(view_id, "Focused"));
+        app.set_workspace_focused_view_with_transition(Some(view_id));
+        app.graph_reader_enter_room(node);
+        app.graph_reader_return_to_map();
+
+        let snapshot = GraphshellTileBehavior::graph_reader_snapshot(&app);
+
+        assert_eq!(snapshot.mode, GraphReaderMode::Map);
+        assert!(snapshot.entry_point_reachable);
     }
 
     #[test]

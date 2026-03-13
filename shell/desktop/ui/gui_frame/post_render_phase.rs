@@ -3,6 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 
 pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
@@ -34,6 +36,8 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     #[cfg(feature = "diagnostics")]
     pub(crate) diagnostics_state: &'a mut diagnostics::DiagnosticsState,
+    #[cfg(feature = "diagnostics")]
+    pub(crate) runtime_focus_inspector: Option<RuntimeFocusInspector>,
 }
 
 pub(crate) fn run_post_render_phase<FActive>(
@@ -70,6 +74,8 @@ pub(crate) fn run_post_render_phase<FActive>(
         control_panel,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
+        #[cfg(feature = "diagnostics")]
+        runtime_focus_inspector,
     } = args;
 
     #[cfg(debug_assertions)]
@@ -134,6 +140,8 @@ pub(crate) fn run_post_render_phase<FActive>(
             control_panel,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
+            #[cfg(feature = "diagnostics")]
+            runtime_focus_inspector,
         }));
     }
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);

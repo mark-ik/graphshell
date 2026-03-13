@@ -298,6 +298,8 @@ pub struct LensConfig {
     #[serde(default, deserialize_with = "deserialize_optional_theme_data")]
     pub theme: Option<ThemeData>,
     pub filters: Vec<String>,
+    #[serde(skip, default)]
+    pub overlay_descriptor: Option<crate::registries::atomic::lens::LensOverlayDescriptor>,
 }
 
 impl Default for LensConfig {
@@ -310,6 +312,7 @@ impl Default for LensConfig {
             layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
             theme: None,
             filters: Vec::new(),
+            overlay_descriptor: None,
         }
     }
 }
@@ -554,6 +557,22 @@ pub struct RuntimeBlockState {
 pub enum SearchDisplayMode {
     Highlight,
     Filter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphReaderModeState {
+    Map {
+        focused_node: Option<NodeKey>,
+    },
+    Room {
+        node_key: NodeKey,
+        return_map_node: Option<NodeKey>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GraphReaderState {
+    mode_override: Option<GraphReaderModeState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1031,6 +1050,8 @@ pub struct GraphWorkspace {
     pub graph_search_history: Vec<GraphSearchHistoryEntry>,
     /// Optional pinned graph search slice for quick restore.
     pub pinned_graph_search: Option<GraphSearchHistoryEntry>,
+    /// Non-modal tag editor state for the currently targeted node.
+    pub tag_panel_state: Option<TagPanelState>,
     /// Graph-owned hierarchical projection runtime state for file-tree navigation.
     ///
     /// This is semantic view-projection state and must not be owned by workbench
@@ -1057,6 +1078,9 @@ pub struct GraphWorkspace {
 
     /// The currently focused graph view (target for keyboard zoom/pan).
     pub focused_view: Option<GraphViewId>,
+
+    /// Accessibility Graph Reader mode override and return-path state.
+    pub graph_reader_state: GraphReaderState,
 
     /// Camera state (zoom bounds)
     pub camera: Camera,
@@ -1165,6 +1189,12 @@ pub struct GraphWorkspace {
     pub suggested_semantic_tags: HashMap<NodeKey, Vec<String>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct TagPanelState {
+    pub node_key: NodeKey,
+    pub text_input: String,
+}
+
 /// Main application state (workspace + runtime services).
 pub struct GraphBrowserApp {
     pub workspace: GraphWorkspace,
@@ -1258,8 +1288,16 @@ impl GraphBrowserApp {
     pub const DEFAULT_KEYBOARD_PAN_STEP: f32 = 12.0;
     pub const DEFAULT_CAMERA_PAN_INERTIA_ENABLED: bool = true;
     pub const DEFAULT_CAMERA_PAN_INERTIA_DAMPING: f32 = 0.84;
-    pub const TAG_PIN: &'static str = "#pin";
-    pub const TAG_STARRED: &'static str = "#starred";
+    pub const TAG_PIN: &'static str = crate::graph::badge::TAG_PIN;
+    pub const TAG_STARRED: &'static str = crate::graph::badge::TAG_STARRED;
+    pub const TAG_ARCHIVE: &'static str = crate::graph::badge::TAG_ARCHIVE;
+    pub const TAG_RESIDENT: &'static str = crate::graph::badge::TAG_RESIDENT;
+    pub const TAG_PRIVATE: &'static str = crate::graph::badge::TAG_PRIVATE;
+    pub const TAG_NOHISTORY: &'static str = crate::graph::badge::TAG_NOHISTORY;
+    pub const TAG_MONITOR: &'static str = crate::graph::badge::TAG_MONITOR;
+    pub const TAG_UNREAD: &'static str = crate::graph::badge::TAG_UNREAD;
+    pub const TAG_FOCUS: &'static str = crate::graph::badge::TAG_FOCUS;
+    pub const TAG_CLIP: &'static str = crate::graph::badge::TAG_CLIP;
 
     pub fn default_physics_state() -> GraphPhysicsState {
         default_graph_physics_state()
@@ -1329,6 +1367,7 @@ impl GraphBrowserApp {
                 active_graph_search_neighborhood_depth: 1,
                 graph_search_history: Vec::new(),
                 pinned_graph_search: None,
+                tag_panel_state: None,
                 file_tree_projection_state: FileTreeProjectionState::default(),
                 highlighted_graph_edge: None,
                 pending_workbench_intents: Vec::new(),
@@ -1339,6 +1378,7 @@ impl GraphBrowserApp {
                 graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                 graph_view_frames: HashMap::new(),
                 focused_view: None,
+                graph_reader_state: GraphReaderState::default(),
                 undo_stack: Vec::new(),
                 redo_stack: Vec::new(),
                 hop_distance_cache: None,
@@ -1445,6 +1485,7 @@ impl GraphBrowserApp {
                 active_graph_search_neighborhood_depth: 1,
                 graph_search_history: Vec::new(),
                 pinned_graph_search: None,
+                tag_panel_state: None,
                 file_tree_projection_state: FileTreeProjectionState::default(),
                 highlighted_graph_edge: None,
                 pending_workbench_intents: Vec::new(),
@@ -1455,6 +1496,7 @@ impl GraphBrowserApp {
                 graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                 graph_view_frames: HashMap::new(),
                 focused_view: None,
+                graph_reader_state: GraphReaderState::default(),
                 undo_stack: Vec::new(),
                 redo_stack: Vec::new(),
                 hop_distance_cache: None,
@@ -1514,6 +1556,76 @@ impl GraphBrowserApp {
 
     pub fn domain_graph_mut(&mut self) -> &mut Graph {
         &mut self.workspace.domain.graph
+    }
+
+    pub fn graph_reader_mode(&self) -> Option<GraphReaderModeState> {
+        match self.workspace.graph_reader_state.mode_override {
+            Some(GraphReaderModeState::Map { focused_node }) => Some(GraphReaderModeState::Map {
+                focused_node: focused_node
+                    .filter(|node_key| self.workspace.domain.graph.get_node(*node_key).is_some()),
+            }),
+            Some(GraphReaderModeState::Room {
+                node_key,
+                return_map_node,
+            }) if self.workspace.domain.graph.get_node(node_key).is_some() => {
+                Some(GraphReaderModeState::Room {
+                    node_key,
+                    return_map_node: return_map_node.filter(|node_key| {
+                        self.workspace.domain.graph.get_node(*node_key).is_some()
+                    }),
+                })
+            }
+            _ => self.get_single_selected_node().map(|node_key| GraphReaderModeState::Room {
+                node_key,
+                return_map_node: Some(node_key),
+            }).or_else(|| {
+                (self.workspace.domain.graph.node_count() > 0).then_some(GraphReaderModeState::Map {
+                    focused_node: None,
+                })
+            }),
+        }
+    }
+
+    pub fn graph_reader_focus_map_node(&mut self, node_key: NodeKey) {
+        if self.workspace.domain.graph.get_node(node_key).is_none() {
+            return;
+        }
+        self.workspace.graph_reader_state.mode_override = Some(GraphReaderModeState::Map {
+            focused_node: Some(node_key),
+        });
+    }
+
+    pub fn graph_reader_enter_room(&mut self, node_key: NodeKey) {
+        if self.workspace.domain.graph.get_node(node_key).is_none() {
+            return;
+        }
+        let return_map_node = match self.graph_reader_mode() {
+            Some(GraphReaderModeState::Map { focused_node }) => focused_node.or(Some(node_key)),
+            Some(GraphReaderModeState::Room {
+                node_key: current_room,
+                return_map_node,
+            }) => return_map_node.or(Some(current_room)),
+            None => Some(node_key),
+        };
+        self.select_node(node_key, false);
+        self.workspace.graph_reader_state.mode_override = Some(GraphReaderModeState::Room {
+            node_key,
+            return_map_node,
+        });
+    }
+
+    pub fn graph_reader_return_to_map(&mut self) {
+        let focused_node = match self.graph_reader_mode() {
+            Some(GraphReaderModeState::Room {
+                node_key,
+                return_map_node,
+            }) => return_map_node.or(Some(node_key)),
+            Some(GraphReaderModeState::Map { focused_node }) => focused_node,
+            None => None,
+        };
+        self.workspace.graph_reader_state.mode_override = Some(GraphReaderModeState::Map {
+            focused_node,
+        });
     }
 
     pub fn set_tab_selection_single(&mut self, key: NodeKey) {
@@ -2499,11 +2611,16 @@ impl GraphBrowserApp {
             }
             GraphIntent::TagNode { key, tag } => {
                 if self.workspace.domain.graph.get_node(key).is_some() {
-                    let normalized_tag = if tag == Self::TAG_PIN || tag.starts_with('#') {
-                        tag
+                    let trimmed = tag.trim();
+                    if trimmed.is_empty() {
+                        return;
+                    }
+
+                    let normalized_tag = if trimmed.starts_with('#') {
+                        trimmed.to_ascii_lowercase()
                     } else {
                         match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(
-                            &tag,
+                            trimmed,
                         ) {
                             crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
                                 canonical_code,
@@ -2511,8 +2628,7 @@ impl GraphBrowserApp {
                             } => format!("udc:{canonical_code}"),
                             crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
                             | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {
-                                log::warn!("Rejected unknown knowledge tag '{tag}'");
-                                return;
+                                trimmed.to_string()
                             }
                         }
                     };
@@ -9578,6 +9694,7 @@ mod tests {
                 stroke_width: 2.0,
             }),
             filters: Vec::new(),
+            overlay_descriptor: None,
         };
 
         app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
@@ -9610,6 +9727,7 @@ mod tests {
                 .to_string(),
             theme: None,
             filters: Vec::new(),
+            overlay_descriptor: None,
         };
 
         app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
@@ -9644,6 +9762,7 @@ mod tests {
                 .to_string(),
             theme: None,
             filters: vec!["stale".to_string()],
+            overlay_descriptor: None,
         };
         app.workspace
             .views
@@ -9664,6 +9783,7 @@ mod tests {
                 stroke_width: 3.0,
             }),
             filters: vec!["custom".to_string()],
+            overlay_descriptor: None,
         };
         app.workspace
             .views

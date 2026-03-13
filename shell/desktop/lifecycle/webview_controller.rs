@@ -25,41 +25,26 @@ use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::registries;
 use crate::util::{GraphAddress, NodeAddress, NoteAddress, VersoAddress};
 
+#[path = "webview_controller/address_bar_routing.rs"]
+mod address_bar_routing;
+#[path = "webview_controller/browser_command_routing.rs"]
+mod browser_command_routing;
+#[path = "webview_controller/webview_mapping_reconcile.rs"]
+mod webview_mapping_reconcile;
+
 fn reconcile_mappings_and_selection(
     app: &mut GraphBrowserApp,
     seen_webviews: &HashSet<WebViewId>,
     active_webview: Option<WebViewId>,
 ) -> Vec<GraphIntent> {
-    let mut intents = Vec::new();
-    // Highlight the active tab's node (reuse reducer intent for consistency).
-    if let Some(active_wv_id) = active_webview
-        && let Some(active_node_key) = app.get_node_for_webview(active_wv_id)
-    {
-        intents.push(GraphIntent::SelectNode {
-            key: active_node_key,
-            multi_select: false,
-        });
-    }
-
-    // Clean up mappings for webviews that no longer exist.
-    let old_webviews: Vec<WebViewId> = app
-        .webview_node_mappings()
-        .filter(|(wv_id, _)| !seen_webviews.contains(wv_id))
-        .map(|(wv_id, _)| wv_id)
-        .collect();
-
-    for wv_id in old_webviews {
-        intents.push(RuntimeEvent::UnmapWebview { webview_id: wv_id }.into());
-    }
-    intents
+    webview_mapping_reconcile::reconcile_mappings_and_selection(app, seen_webviews, active_webview)
 }
 
 fn resolve_active_webview_for_sync(
     app: &GraphBrowserApp,
     window_active_webview: Option<WebViewId>,
 ) -> Option<WebViewId> {
-    app.embedded_content_focus_webview()
-        .or(window_active_webview)
+    webview_mapping_reconcile::resolve_active_webview_for_sync(app, window_active_webview)
 }
 
 #[cfg(any(test, not(feature = "diagnostics")))]
@@ -139,7 +124,7 @@ pub(crate) fn sync_to_graph_intents(
     for (wv_id, _) in window.webviews().into_iter() {
         seen_webviews.insert(wv_id);
     }
-    let active = resolve_active_webview_for_sync(app, window.explicit_input_webview_id());
+    let active = resolve_active_webview_for_sync(app, app.embedded_content_focus_webview());
     reconcile_mappings_and_selection(app, &seen_webviews, active)
 }
 
@@ -148,42 +133,11 @@ fn resolve_browser_command_target(
     window: &EmbedderWindow,
     target: BrowserCommandTarget,
 ) -> Option<WebViewId> {
-    match target {
-        BrowserCommandTarget::FocusedInput => app
-            .embedded_content_focus_webview()
-            .or_else(|| window.explicit_input_webview_id()),
-        BrowserCommandTarget::ChromeProjection { fallback_node } => window
-            .explicit_chrome_webview_id()
-            .or_else(|| fallback_node.and_then(|node_key| app.get_webview_for_node(node_key))),
-    }
+    browser_command_routing::resolve_browser_command_target(app, window, target)
 }
 
 pub(crate) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: &EmbedderWindow) {
-    while let Some((target, command)) = app.take_pending_browser_command() {
-        let Some(webview_id) = resolve_browser_command_target(app, window, target) else {
-            continue;
-        };
-        let Some(webview) = window.webview_by_id(webview_id) else {
-            continue;
-        };
-        match command {
-            BrowserCommand::Back => {
-                let _ = webview.go_back(1);
-                window.set_needs_update();
-            }
-            BrowserCommand::Forward => {
-                let _ = webview.go_forward(1);
-                window.set_needs_update();
-            }
-            BrowserCommand::Reload => {
-                webview.reload();
-                window.set_needs_update();
-            }
-            BrowserCommand::Close => {
-                window.close_webview(webview_id);
-            }
-        }
-    }
+    browser_command_routing::apply_pending_browser_commands(app, window)
 }
 
 pub(crate) struct AddressBarSubmitOutcome {
@@ -219,55 +173,15 @@ fn resolve_detail_submit_target(
     focused_node: Option<NodeKey>,
     preferred_webview: Option<WebViewId>,
 ) -> (Option<NodeKey>, Option<WebViewId>) {
-    if let Some(node_key) = focused_node {
-        return (Some(node_key), app.get_webview_for_node(node_key));
-    }
-
-    if let Some(webview_id) = preferred_webview {
-        return (app.get_node_for_webview(webview_id), Some(webview_id));
-    }
-
-    (None, None)
+    address_bar_routing::resolve_detail_submit_target(app, focused_node, preferred_webview)
 }
 
 fn workbench_route_intent_for_verso_url(normalized_url: &str) -> Option<WorkbenchIntent> {
-    let parsed = VersoAddress::parse(normalized_url)?;
-    let canonical_url = parsed.to_string();
-    match parsed {
-        VersoAddress::Settings(_) => Some(WorkbenchIntent::OpenSettingsUrl { url: canonical_url }),
-        VersoAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl { url: canonical_url }),
-        VersoAddress::TileGroup(_) => None,
-        VersoAddress::Tool { .. } => Some(WorkbenchIntent::OpenToolUrl { url: canonical_url }),
-        VersoAddress::View(_) => Some(WorkbenchIntent::OpenViewUrl { url: canonical_url }),
-        VersoAddress::Clip(_) => Some(WorkbenchIntent::OpenClipUrl { url: canonical_url }),
-        VersoAddress::Other { .. } => None,
-    }
+    address_bar_routing::workbench_route_intent_for_verso_url(normalized_url)
 }
 
 fn route_intent_for_internal_or_domain_url(normalized_url: &str) -> Option<WorkbenchIntent> {
-    if let Some(intent) = workbench_route_intent_for_verso_url(normalized_url) {
-        return Some(intent);
-    }
-
-    if let Some(address) = NoteAddress::parse(normalized_url) {
-        return Some(WorkbenchIntent::OpenNoteUrl {
-            url: address.to_string(),
-        });
-    }
-
-    if let Some(address) = NodeAddress::parse(normalized_url) {
-        return Some(WorkbenchIntent::OpenNodeUrl {
-            url: address.to_string(),
-        });
-    }
-
-    if let Some(address) = GraphAddress::parse(normalized_url) {
-        return Some(WorkbenchIntent::OpenGraphUrl {
-            url: address.to_string(),
-        });
-    }
-
-    None
+    address_bar_routing::route_intent_for_internal_or_domain_url(normalized_url)
 }
 
 pub(crate) fn handle_address_bar_submit_intents(
@@ -278,190 +192,14 @@ pub(crate) fn handle_address_bar_submit_intents(
     window: &EmbedderWindow,
     searchpage: &str,
 ) -> AddressBarIntentOutcome {
-    let input = url.trim();
-    if let Some(query) = input.strip_prefix('@') {
-        let intents = registries::phase2_execute_omnibox_node_search_action(app, query);
-
-        return AddressBarIntentOutcome {
-            outcome: AddressBarSubmitOutcome {
-                mark_clean: true,
-                open_selected_tile: false,
-            },
-            intents,
-            workbench_intents: Vec::new(),
-        };
-    }
-
-    if is_graph_view {
-        let (normalized_input, workbench_intent) =
-            match location_bar_input_to_url(input, searchpage) {
-                Some(parsed_url) => {
-                    let decision = registries::phase0_decide_navigation_with_control(
-                        parsed_url,
-                        None,
-                        registries::protocol::ProtocolResolveControl::default(),
-                    );
-                    let Some(decision) = decision else {
-                        return AddressBarIntentOutcome {
-                            outcome: AddressBarSubmitOutcome {
-                                mark_clean: false,
-                                open_selected_tile: false,
-                            },
-                            intents: Vec::new(),
-                            workbench_intents: Vec::new(),
-                        };
-                    };
-                    (
-                        decision.normalized_url.as_str().to_string(),
-                        route_intent_for_internal_or_domain_url(decision.normalized_url.as_str()),
-                    )
-                }
-                None => (input.to_string(), None),
-            };
-        if let Some(workbench_intent) = workbench_intent {
-            return AddressBarIntentOutcome {
-                outcome: AddressBarSubmitOutcome {
-                    mark_clean: true,
-                    open_selected_tile: false,
-                },
-                intents: Vec::new(),
-                workbench_intents: vec![workbench_intent],
-            };
-        }
-        let (open_selected_tile, intents) = graph_intents_from_graph_view_submit_result(
-            registries::phase2_execute_graph_view_submit_action(app, &normalized_input),
-        );
-
-        AddressBarIntentOutcome {
-            outcome: AddressBarSubmitOutcome {
-                mark_clean: true,
-                open_selected_tile,
-            },
-            intents,
-            workbench_intents: Vec::new(),
-        }
-    } else {
-        // Parse URL first before attempting to navigate.
-        let Some(parsed_url) = location_bar_input_to_url(input, searchpage) else {
-            log::warn!("Failed to parse location: {}", input);
-            return AddressBarIntentOutcome {
-                outcome: AddressBarSubmitOutcome {
-                    mark_clean: false,
-                    open_selected_tile: false,
-                },
-                intents: Vec::new(),
-                workbench_intents: Vec::new(),
-            };
-        };
-
-        let (parsed_url, selected_viewer_id, viewer_surface, workbench_intent) = {
-            let decision = registries::phase0_decide_navigation_with_control(
-                parsed_url,
-                None,
-                registries::protocol::ProtocolResolveControl::default(),
-            );
-            let Some(decision) = decision else {
-                return AddressBarIntentOutcome {
-                    outcome: AddressBarSubmitOutcome {
-                        mark_clean: false,
-                        open_selected_tile: false,
-                    },
-                    intents: Vec::new(),
-                    workbench_intents: Vec::new(),
-                };
-            };
-            let normalized_url_string = decision.normalized_url.as_str().to_string();
-            let selected_viewer_id = decision.viewer.viewer_id.to_string();
-            let viewer_surface =
-                registries::phase3_resolve_viewer_surface_profile(decision.viewer.viewer_id);
-            (
-                decision.normalized_url,
-                selected_viewer_id,
-                viewer_surface,
-                route_intent_for_internal_or_domain_url(normalized_url_string.as_str()),
-            )
-        };
-
-        if let Some(workbench_intent) = workbench_intent {
-            return AddressBarIntentOutcome {
-                outcome: AddressBarSubmitOutcome {
-                    mark_clean: true,
-                    open_selected_tile: false,
-                },
-                intents: Vec::new(),
-                workbench_intents: vec![workbench_intent],
-            };
-        }
-
-        if selected_viewer_id != "viewer:webview" {
-            log::debug!(
-                "viewer '{}' selected for '{}'; applying viewer surface '{}' (reader_mode_default={}, smooth_scroll_enabled={}, zoom_step={})",
-                selected_viewer_id,
-                parsed_url,
-                viewer_surface.resolved_id,
-                viewer_surface.profile.reader_mode_default,
-                viewer_surface.profile.smooth_scroll_enabled,
-                viewer_surface.profile.zoom_step
-            );
-
-            let (open_selected_tile, intents) = graph_intents_from_detail_submit_result(
-                registries::phase2_execute_detail_view_submit_action(
-                    app,
-                    parsed_url.as_str(),
-                    focused_node,
-                ),
-            );
-            return AddressBarIntentOutcome {
-                outcome: AddressBarSubmitOutcome {
-                    mark_clean: true,
-                    open_selected_tile,
-                },
-                intents,
-                workbench_intents: Vec::new(),
-            };
-        }
-
-        let preferred_input_webview = app
-            .embedded_content_focus_webview()
-            .or_else(|| window.explicit_input_webview_id());
-        let (target_node, target_webview) =
-            resolve_detail_submit_target(app, focused_node, preferred_input_webview);
-
-        if let Some(webview_id) = target_webview
-            && let Some(webview) = window.webview_by_id(webview_id)
-        {
-            window.retarget_input_to_webview(webview_id);
-            webview.load(parsed_url.into_url());
-            window.set_needs_update();
-            return AddressBarIntentOutcome {
-                outcome: AddressBarSubmitOutcome {
-                    mark_clean: false,
-                    open_selected_tile: false,
-                },
-                intents: Vec::new(),
-                workbench_intents: Vec::new(),
-            };
-        }
-
-        // No focused live webview in detail mode:
-        // if we still have a focused node/pane target, update/reactivate it;
-        // otherwise create a new node as a fallback.
-        let (open_selected_tile, intents) = graph_intents_from_detail_submit_result(
-            registries::phase2_execute_detail_view_submit_action(
-                app,
-                parsed_url.as_str(),
-                target_node,
-            ),
-        );
-        AddressBarIntentOutcome {
-            outcome: AddressBarSubmitOutcome {
-                mark_clean: true,
-                open_selected_tile,
-            },
-            intents,
-            workbench_intents: Vec::new(),
-        }
-    }
+    address_bar_routing::handle_address_bar_submit_intents(
+        app,
+        url,
+        is_graph_view,
+        focused_node,
+        window,
+        searchpage,
+    )
 }
 
 /// Close webviews associated with the given nodes.

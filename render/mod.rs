@@ -10,13 +10,14 @@
 use crate::app::{
     CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry,
     GraphSearchOrigin, KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode,
-    SelectionUpdateMode, UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewAction,
-    WorkbenchIntent,
+    SelectionUpdateMode, TagPanelState, UnsavedFramePromptAction, UnsavedFramePromptRequest,
+    ViewAction, WorkbenchIntent,
     graph_layout::{
         GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT,
         layout_algorithm_id_for_mode,
     },
 };
+use crate::graph::badge::{Badge, badges_for_tags, compact_badge_token, is_archived_tag};
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
 use crate::graph::physics::apply_graph_physics_extensions;
@@ -380,6 +381,15 @@ pub fn render_graph_in_ui_collect_actions(
                 )
             })
             .collect();
+        let archived_nodes: HashSet<NodeKey> = graph_for_render
+            .nodes()
+            .filter_map(|(key, _)| {
+                crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &key)
+                    .iter()
+                    .any(|tag| is_archived_tag(tag))
+                    .then_some(key)
+            })
+            .collect();
         app.workspace.egui_state = Some(EguiGraphState::from_graph_with_memberships_projection(
             graph_for_render,
             &view_selection,
@@ -387,6 +397,7 @@ pub fn render_graph_in_ui_collect_actions(
             &crashed_nodes,
             &memberships_by_uuid,
             &semantic_badges_by_key(app, graph_for_render),
+            &archived_nodes,
             filtered_graph.is_none() && culled_graph.is_none(),
         ));
         app.workspace.egui_state_dirty = false;
@@ -2715,7 +2726,15 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
                         .inner_margin(egui::Margin::same(10))
                         .show(ui, |ui| {
                             ui.set_width(276.0);
-                            ui.heading("Selected Node");
+                            ui.horizontal(|ui| {
+                                ui.heading("Selected Node");
+                                if ui.small_button("Edit Tags").clicked() {
+                                    app.workspace.tag_panel_state = Some(TagPanelState {
+                                        node_key: selected_key,
+                                        text_input: String::new(),
+                                    });
+                                }
+                            });
                             ui.small(&summary.title);
                             if summary.show_url {
                                 ui.small(&summary.url);
@@ -2803,6 +2822,10 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
                         });
                 });
         }
+
+        render_selected_node_tag_panel(ui.ctx(), app, selected_key);
+    } else if app.workspace.tag_panel_state.is_some() {
+        app.workspace.tag_panel_state = None;
     }
 
     // Draw controls hint
@@ -2840,19 +2863,23 @@ fn semantic_badges_by_key(
 ) -> HashMap<NodeKey, Vec<String>> {
     graph
         .nodes()
-        .filter_map(|(key, _)| {
-            let badges =
+        .filter_map(|(key, node)| {
+            let tags =
                 crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &key)
                     .into_iter()
-                    .map(|tag| compact_semantic_badge_label(&tag))
-                    .collect::<Vec<_>>();
+                    .collect::<HashSet<_>>();
+            let badges = badges_for_tags(
+                &tags,
+                app.membership_for_node(node.id).len(),
+                app.crash_blocked_node_keys().any(|crashed| crashed == key),
+            )
+            .into_iter()
+            .filter(|badge| !matches!(badge, Badge::WorkspaceCount(_)))
+            .map(|badge| compact_badge_token(&badge))
+            .collect::<Vec<_>>();
             (!badges.is_empty()).then_some((key, badges))
         })
         .collect()
-}
-
-fn compact_semantic_badge_label(tag: &str) -> String {
-    tag.strip_prefix("udc:").unwrap_or(tag).to_string()
 }
 
 fn semantic_tag_display_label(tag: &str) -> String {
@@ -2894,6 +2921,236 @@ struct PlacementAnchorSummary {
 struct SemanticTagChip {
     query: String,
     label: String,
+}
+
+fn normalize_tag_entry_input(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(if trimmed.starts_with('#') {
+        trimmed.to_ascii_lowercase()
+    } else {
+        trimmed.to_string()
+    })
+}
+
+fn is_reserved_system_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        GraphBrowserApp::TAG_PIN
+            | GraphBrowserApp::TAG_STARRED
+            | GraphBrowserApp::TAG_ARCHIVE
+            | GraphBrowserApp::TAG_RESIDENT
+            | GraphBrowserApp::TAG_PRIVATE
+            | GraphBrowserApp::TAG_NOHISTORY
+            | GraphBrowserApp::TAG_MONITOR
+            | GraphBrowserApp::TAG_UNREAD
+            | GraphBrowserApp::TAG_FOCUS
+            | GraphBrowserApp::TAG_CLIP
+    )
+}
+
+fn reserved_tag_warning(query: &str) -> Option<String> {
+    let normalized = normalize_tag_entry_input(query)?;
+    if normalized.starts_with('#') && !is_reserved_system_tag(&normalized) {
+        return Some("Unknown #tag will be accepted as user-defined.".to_string());
+    }
+    None
+}
+
+fn default_tag_suggestion_candidates() -> Vec<String> {
+    [
+        GraphBrowserApp::TAG_PIN,
+        GraphBrowserApp::TAG_STARRED,
+        GraphBrowserApp::TAG_UNREAD,
+        GraphBrowserApp::TAG_FOCUS,
+        GraphBrowserApp::TAG_MONITOR,
+        GraphBrowserApp::TAG_PRIVATE,
+        GraphBrowserApp::TAG_ARCHIVE,
+        GraphBrowserApp::TAG_RESIDENT,
+        GraphBrowserApp::TAG_NOHISTORY,
+        GraphBrowserApp::TAG_CLIP,
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+fn ranked_tag_suggestions(
+    app: &GraphBrowserApp,
+    selected_key: NodeKey,
+    query: &str,
+) -> Vec<SemanticTagChip> {
+    let current_tags =
+        crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &selected_key)
+            .into_iter()
+            .collect::<HashSet<_>>();
+    let mut candidates = default_tag_suggestion_candidates();
+    candidates.extend(
+        app.workspace
+            .semantic_tags
+            .values()
+            .flat_map(|tags| tags.iter().cloned()),
+    );
+    candidates.extend(app.suggested_semantic_tags_for_node(selected_key));
+    candidates.sort();
+    candidates.dedup();
+
+    let mut ranked = Vec::new();
+    let mut seen = HashSet::new();
+    let mut push_candidate = |tag: String, ranked: &mut Vec<SemanticTagChip>| {
+        if current_tags.contains(&tag) || !seen.insert(tag.clone()) {
+            return;
+        }
+        ranked.push(semantic_tag_chip(tag));
+    };
+
+    if let Some(normalized_query) = normalize_tag_entry_input(query) {
+        push_candidate(normalized_query.clone(), &mut ranked);
+
+        for matched in crate::services::search::fuzzy_match_items(candidates, &normalized_query) {
+            push_candidate(matched, &mut ranked);
+            if ranked.len() >= 5 {
+                return ranked;
+            }
+        }
+
+        let knowledge_registry =
+            crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default();
+        for entry in knowledge_registry.search(&normalized_query) {
+            push_candidate(format!("udc:{}", entry.code), &mut ranked);
+            if ranked.len() >= 5 {
+                return ranked;
+            }
+        }
+    } else {
+        for candidate in candidates {
+            push_candidate(candidate, &mut ranked);
+            if ranked.len() >= 5 {
+                break;
+            }
+        }
+    }
+
+    ranked
+}
+
+fn render_selected_node_tag_panel(
+    ctx: &egui::Context,
+    app: &mut GraphBrowserApp,
+    selected_key: NodeKey,
+) {
+    let Some((panel_node_key, panel_text_input)) = app
+        .workspace
+        .tag_panel_state
+        .as_ref()
+        .map(|state| (state.node_key, state.text_input.clone()))
+    else {
+        return;
+    };
+    if panel_node_key != selected_key {
+        app.workspace.tag_panel_state = None;
+        return;
+    }
+    let Some(node) = app.domain_graph().get_node(selected_key) else {
+        app.workspace.tag_panel_state = None;
+        return;
+    };
+
+    let title = if node.title.is_empty() {
+        node.url.clone()
+    } else {
+        node.title.clone()
+    };
+    let current_tags =
+        crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &selected_key);
+    let mut text_input = panel_text_input;
+    let mut open = true;
+    let mut close_requested = false;
+    let mut pending_intents = Vec::new();
+    let warning = reserved_tag_warning(&text_input);
+    let suggestions = ranked_tag_suggestions(app, selected_key, &text_input);
+
+    Window::new(format!("Tags for {}", title))
+        .id(egui::Id::new((
+            "graph_node_tag_panel",
+            selected_key.index(),
+        )))
+        .open(&mut open)
+        .default_width(360.0)
+        .show(ctx, |ui| {
+            ui.small("Current tags");
+            if current_tags.is_empty() {
+                ui.small("No tags yet.");
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    for tag in &current_tags {
+                        let label = semantic_tag_display_label(tag);
+                        if ui.small_button(format!("{label} ×")).clicked() {
+                            pending_intents.push(GraphIntent::UntagNode {
+                                key: selected_key,
+                                tag: tag.clone(),
+                            });
+                        }
+                    }
+                });
+            }
+
+            ui.separator();
+            ui.small("Add tag");
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut text_input).hint_text("Add tag or semantic code…"),
+            );
+            let submit =
+                response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+            ui.horizontal(|ui| {
+                if ui.small_button("Add").clicked() || submit {
+                    if let Some(tag) = normalize_tag_entry_input(&text_input) {
+                        pending_intents.push(GraphIntent::TagNode {
+                            key: selected_key,
+                            tag,
+                        });
+                        text_input.clear();
+                    }
+                }
+                if ui.small_button("Close").clicked() {
+                    close_requested = true;
+                }
+            });
+            if let Some(warning) = warning.as_ref() {
+                ui.small(warning);
+            }
+
+            ui.separator();
+            ui.small("Suggestions");
+            if suggestions.is_empty() {
+                ui.small("No suggestions yet.");
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    for chip in &suggestions {
+                        let button = egui::Button::new(egui::RichText::new(&chip.label).small());
+                        if ui.add(button).clicked() {
+                            pending_intents.push(GraphIntent::TagNode {
+                                key: selected_key,
+                                tag: chip.query.clone(),
+                            });
+                            text_input.clear();
+                        }
+                    }
+                });
+            }
+        });
+
+    if close_requested || !open {
+        app.workspace.tag_panel_state = None;
+    } else if let Some(panel_state) = app.workspace.tag_panel_state.as_mut() {
+        panel_state.text_input = text_input;
+    }
+
+    if !pending_intents.is_empty() {
+        apply_reducer_graph_intents_hardened(app, pending_intents);
+    }
 }
 
 fn semantic_tag_chip(tag: String) -> SemanticTagChip {
@@ -4416,6 +4673,48 @@ mod tests {
         assert_eq!(anchor.key, math);
         assert_eq!(anchor.label, "Mathematics");
         assert_eq!(anchor.slice_tag.as_deref(), Some("udc:51"));
+    }
+
+    #[test]
+    fn ranked_tag_suggestions_include_existing_and_knowledge_matches() {
+        let mut app = test_app();
+        let node = app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
+        app.workspace
+            .semantic_tags
+            .insert(node, ["#starred".to_string()].into_iter().collect());
+        let other =
+            app.add_node_and_sync("https://example.com/math".into(), Point2D::new(10.0, 0.0));
+        app.workspace
+            .semantic_tags
+            .insert(other, ["research".to_string()].into_iter().collect());
+
+        let existing_tag_suggestions = ranked_tag_suggestions(&app, node, "rese");
+        let existing_queries = existing_tag_suggestions
+            .iter()
+            .map(|chip| chip.query.clone())
+            .collect::<Vec<_>>();
+        assert!(existing_queries.contains(&"research".to_string()));
+
+        let knowledge_suggestions = ranked_tag_suggestions(&app, node, "math");
+        let knowledge_queries = knowledge_suggestions
+            .iter()
+            .map(|chip| chip.query.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            knowledge_queries
+                .iter()
+                .any(|query| query.starts_with("udc:"))
+        );
+    }
+
+    #[test]
+    fn reserved_tag_warning_flags_unknown_hash_tag() {
+        assert_eq!(
+            reserved_tag_warning("#custom"),
+            Some("Unknown #tag will be accepted as user-defined.".to_string())
+        );
+        assert_eq!(reserved_tag_warning(GraphBrowserApp::TAG_PIN), None);
+        assert_eq!(reserved_tag_warning("research"), None);
     }
 
     /// Simulate the sync conditions for group drag:

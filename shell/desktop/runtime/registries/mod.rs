@@ -276,6 +276,11 @@ pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED: &st
     "compositor.differential.fallback_signature_changed";
 pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE: &str =
     "compositor.differential.skip_rate_basis_points";
+pub(crate) const CHANNEL_COMPOSITOR_TILE_ACTIVITY: &str = "compositor:tile_activity";
+pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR: &str =
+    "compositor:overlay_lifecycle_indicator";
+pub(crate) const CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED: &str =
+    "compositor:lens_overlay_applied";
 pub(crate) const CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT: &str =
     "compositor.content.culled_offviewport";
 pub(crate) const CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE: &str =
@@ -2160,6 +2165,7 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         layout_algorithm_id: resolution.definition.layout_algorithm_id,
         theme: resolution.definition.theme,
         filters: resolution.definition.filters,
+        overlay_descriptor: resolution.definition.overlay_descriptor,
     }
 }
 
@@ -2187,6 +2193,7 @@ pub(crate) fn phase2_resolve_lens_for_content(
         layout_algorithm_id: composed.layout_algorithm_id,
         theme: composed.theme,
         filters: composed.filters,
+        overlay_descriptor: composed.overlay_descriptor,
     }
 }
 
@@ -2588,6 +2595,7 @@ pub(crate) fn phase2_resolve_lens_for_tests(
         layout_algorithm_id: resolution.definition.layout_algorithm_id,
         theme: resolution.definition.theme,
         filters: resolution.definition.filters,
+        overlay_descriptor: resolution.definition.overlay_descriptor,
     }
 }
 

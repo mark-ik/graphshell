@@ -24,6 +24,15 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 
+#[path = "workbench_surface/focus_routing.rs"]
+mod focus_routing;
+#[path = "workbench_surface/pane_ops.rs"]
+mod pane_ops;
+#[path = "workbench_surface/route_ops.rs"]
+mod route_ops;
+#[path = "workbench_surface/selection_ops.rs"]
+mod selection_ops;
+
 pub(crate) const WORKBENCH_PROFILE_DEFAULT: &str = WORKBENCH_SURFACE_DEFAULT;
 pub(crate) const WORKBENCH_PROFILE_FOCUS: &str = WORKBENCH_SURFACE_FOCUS;
 pub(crate) const WORKBENCH_PROFILE_COMPARE: &str = WORKBENCH_SURFACE_COMPARE;
@@ -419,18 +428,7 @@ fn handle_cycle_focus_region_intent(
     tiles_tree: &mut Tree<TileKind>,
     focus_cycle: crate::registries::domain::layout::workbench_surface::FocusCycle,
 ) -> bool {
-    let before =
-        crate::shell::desktop::ui::gui::workspace_runtime_focus_state(graph_app, None, None, false);
-    let cycled = match focus_cycle {
-        crate::registries::domain::layout::workbench_surface::FocusCycle::Panes => {
-            cycle_semantic_workbench_region(graph_app, tiles_tree)
-        }
-        _ => tile_view_ops::cycle_focus_region_with_policy(tiles_tree, focus_cycle),
-    };
-    let after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-        graph_app, tiles_tree, None, None, false,
-    );
-    cycled && before != after
+    focus_routing::handle_cycle_focus_region_intent(graph_app, tiles_tree, focus_cycle)
 }
 
 fn handle_update_tile_selection_intent(
@@ -439,44 +437,14 @@ fn handle_update_tile_selection_intent(
     tile_id: egui_tiles::TileId,
     mode: SelectionUpdateMode,
 ) {
-    graph_app.prune_workbench_tile_selection(tiles_tree);
-    if !matches!(tiles_tree.tiles.get(tile_id), Some(Tile::Pane(_))) {
-        return;
-    }
-    graph_app.update_workbench_tile_selection(tile_id, mode);
+    selection_ops::handle_update_tile_selection_intent(graph_app, tiles_tree, tile_id, mode);
 }
 
 fn handle_group_selected_tiles_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) -> bool {
-    graph_app.prune_workbench_tile_selection(tiles_tree);
-    let selection = graph_app.workbench_tile_selection().clone();
-    let Some((selected_tile_ids, primary_tile_id)) = tile_view_ops::group_selected_tiles(
-        tiles_tree,
-        &selection.selected_tile_ids,
-        selection.primary_tile_id,
-    ) else {
-        return false;
-    };
-
-    graph_app.clear_workbench_tile_selection();
-    graph_app.select_workbench_tile(primary_tile_id);
-    for tile_id in selected_tile_ids {
-        if tile_id != primary_tile_id {
-            graph_app.update_workbench_tile_selection(tile_id, SelectionUpdateMode::Add);
-        }
-    }
-    if graph_app
-        .persist_workbench_tile_group(tiles_tree, &selection.selected_tile_ids)
-        .is_none()
-    {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
-            byte_len: 1,
-        });
-    }
-    true
+    selection_ops::handle_group_selected_tiles_intent(graph_app, tiles_tree)
 }
 
 fn handle_detach_node_to_split_intent(
@@ -484,62 +452,20 @@ fn handle_detach_node_to_split_intent(
     tiles_tree: &mut Tree<TileKind>,
     key: NodeKey,
 ) {
-    record_workspace_undo_boundary_from_tiles_tree(
-        graph_app,
-        tiles_tree,
-        UndoBoundaryReason::DetachNodeToSplit,
-    );
-    tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, key);
+    selection_ops::handle_detach_node_to_split_intent(graph_app, tiles_tree, key);
 }
 
 pub(crate) fn active_tool_surface_return_target(
     tiles_tree: &Tree<TileKind>,
 ) -> Option<ToolSurfaceReturnTarget> {
-    for tile_id in tiles_tree.active_tiles() {
-        match tiles_tree.tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Graph(view_ref))) => {
-                return Some(ToolSurfaceReturnTarget::Graph(view_ref.graph_view_id));
-            }
-            Some(Tile::Pane(TileKind::Node(state))) => {
-                return Some(ToolSurfaceReturnTarget::Node(state.node));
-            }
-            #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Tool(tool_ref))) => {
-                return Some(ToolSurfaceReturnTarget::Tool(tool_ref.kind.clone()));
-            }
-            _ => {}
-        }
-    }
-    None
+    focus_routing::active_tool_surface_return_target(tiles_tree)
 }
 
 pub(crate) fn focus_tool_surface_return_target(
     tiles_tree: &mut Tree<TileKind>,
     target: ToolSurfaceReturnTarget,
 ) -> bool {
-    match target {
-        ToolSurfaceReturnTarget::Graph(view_id) => tiles_tree.make_active(
-            |_, tile| {
-                matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == view_id)
-            },
-        ),
-        ToolSurfaceReturnTarget::Node(node_key) => tiles_tree.make_active(
-            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
-        ),
-        ToolSurfaceReturnTarget::Tool(kind) => {
-            #[cfg(feature = "diagnostics")]
-            {
-                tiles_tree.make_active(|_, tile| {
-                    matches!(tile, Tile::Pane(TileKind::Tool(existing)) if existing.kind == kind)
-                })
-            }
-            #[cfg(not(feature = "diagnostics"))]
-            {
-                let _ = kind;
-                false
-            }
-        }
-    }
+    focus_routing::focus_tool_surface_return_target(tiles_tree, target)
 }
 
 fn maybe_capture_tool_surface_return_target(
@@ -618,28 +544,7 @@ fn handle_open_tool_pane_intent(
     tiles_tree: &mut Tree<TileKind>,
     kind: ToolPaneState,
 ) {
-    let focused_before = active_tool_surface_return_target(tiles_tree);
-    if matches!(
-        kind,
-        ToolPaneState::Settings | ToolPaneState::HistoryManager
-    ) {
-        maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
-    }
-    let kind_after = kind.clone();
-    open_or_focus_tool_pane_if_available(tiles_tree, kind);
-
-    let focused_after = active_tool_surface_return_target(tiles_tree);
-    let transitioned_to_target_tool = matches!(
-        focused_after,
-        Some(ToolSurfaceReturnTarget::Tool(ref active_kind)) if *active_kind == kind_after
-    );
-
-    if transitioned_to_target_tool && focused_before != focused_after {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
-    }
+    pane_ops::handle_open_tool_pane_intent(graph_app, tiles_tree, kind);
 }
 
 fn handle_close_tool_pane_intent(
@@ -649,46 +554,13 @@ fn handle_close_tool_pane_intent(
     restore_previous_focus: bool,
     focus_handoff: &FocusHandoffPolicy,
 ) {
-    #[cfg(feature = "diagnostics")]
-    {
-        let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-            graph_app, tiles_tree, None, None, false,
-        );
-        let closed = tile_view_ops::close_tool_pane(tiles_tree, kind);
-        if closed && restore_previous_focus {
-            let restored = restore_tool_surface_focus_or_ensure_active_tile(
-                graph_app,
-                tiles_tree,
-                focus_handoff,
-            );
-            let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-                graph_app, tiles_tree, None, None, false,
-            );
-            let has_valid_active_target = active_tool_surface_return_target(tiles_tree).is_some();
-            if restored || (focus_before != focus_after && has_valid_active_target) {
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-                    latency_us: 0,
-                });
-            }
-        } else if closed {
-            graph_app.set_pending_tool_surface_return_target(None);
-            let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-                graph_app, tiles_tree, None, None, false,
-            );
-            if focus_before != focus_after {
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-                    latency_us: 0,
-                });
-            }
-        } else if restore_previous_focus {
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
-                byte_len: 1,
-            });
-        }
-    }
+    pane_ops::handle_close_tool_pane_intent(
+        graph_app,
+        tiles_tree,
+        kind,
+        restore_previous_focus,
+        focus_handoff,
+    );
 }
 
 fn handle_close_pane_intent(
@@ -698,42 +570,13 @@ fn handle_close_pane_intent(
     restore_previous_focus: bool,
     focus_handoff: &FocusHandoffPolicy,
 ) {
-    let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-        graph_app, tiles_tree, None, None, false,
+    pane_ops::handle_close_pane_intent(
+        graph_app,
+        tiles_tree,
+        pane,
+        restore_previous_focus,
+        focus_handoff,
     );
-    let closed = tile_view_ops::close_pane(tiles_tree, pane);
-
-    if closed && restore_previous_focus {
-        let restored =
-            restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree, focus_handoff);
-        let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-            graph_app, tiles_tree, None, None, false,
-        );
-        let has_valid_active_target = active_tool_surface_return_target(tiles_tree).is_some();
-        if restored || (focus_before != focus_after && has_valid_active_target) {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-                latency_us: 0,
-            });
-        }
-    } else if closed {
-        graph_app.set_pending_tool_surface_return_target(None);
-        let ensured = tile_view_ops::ensure_active_tile(tiles_tree);
-        let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-            graph_app, tiles_tree, None, None, false,
-        );
-        if ensured || focus_before != focus_after {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-                latency_us: 0,
-            });
-        }
-    } else if restore_previous_focus {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
-            byte_len: 1,
-        });
-    }
 }
 
 fn restore_tool_surface_focus_or_ensure_active_tile(
@@ -759,35 +602,12 @@ pub(crate) fn restore_focus_target_or_ensure_active_tile(
     target: Option<ToolSurfaceReturnTarget>,
     allow_ensure_active_tile: bool,
 ) -> bool {
-    let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-        graph_app, tiles_tree, None, None, false,
-    );
-    let resolved = if let Some(target) = target {
-        let restored = focus_tool_surface_return_target(tiles_tree, target);
-        if restored {
-            true
-        } else if allow_ensure_active_tile {
-            tile_view_ops::ensure_active_tile(tiles_tree)
-        } else {
-            false
-        }
-    } else if allow_ensure_active_tile {
-        tile_view_ops::ensure_active_tile(tiles_tree)
-    } else {
-        false
-    };
-
-    if !resolved && active_tool_surface_return_target(tiles_tree).is_none() {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
-            byte_len: 1,
-        });
-    }
-
-    let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-        graph_app, tiles_tree, None, None, false,
-    );
-    resolved && focus_before != focus_after
+    focus_routing::restore_focus_target_or_ensure_active_tile(
+        graph_app,
+        tiles_tree,
+        target,
+        allow_ensure_active_tile,
+    )
 }
 
 fn handle_open_settings_url_intent(
@@ -795,59 +615,14 @@ fn handle_open_settings_url_intent(
     tiles_tree: &mut Tree<TileKind>,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    let Some(route) = GraphBrowserApp::resolve_settings_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::SettingsUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenSettingsUrl { url });
-    };
-
-    let focused_before = active_tool_surface_return_target(tiles_tree);
-    maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
-    open_settings_route_target(graph_app, tiles_tree, route);
-
-    let focused_after = active_tool_surface_return_target(tiles_tree);
-    let transitioned_to_settings_surface = matches!(
-        focused_after,
-        Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Settings))
-            | Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::HistoryManager))
-    );
-    if transitioned_to_settings_surface && focused_before != focused_after {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
-    }
-
-    emit_open_decision(
-        UxOpenDecisionPath::SettingsUrl,
-        UxOpenDecisionReason::Routed,
-    );
-
-    None
+    route_ops::handle_open_settings_url_intent(graph_app, tiles_tree, url)
 }
 
 fn handle_open_frame_url_intent(
     graph_app: &mut GraphBrowserApp,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    let Some(frame_name) = GraphBrowserApp::resolve_frame_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::FrameUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenFrameUrl { url });
-    };
-
-    graph_app.request_restore_frame_snapshot_named(frame_name);
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-        latency_us: 0,
-    });
-    emit_open_decision(UxOpenDecisionPath::FrameUrl, UxOpenDecisionReason::Routed);
-
-    None
+    route_ops::handle_open_frame_url_intent(graph_app, url)
 }
 
 fn handle_open_tool_url_intent(
@@ -855,28 +630,7 @@ fn handle_open_tool_url_intent(
     tiles_tree: &mut Tree<TileKind>,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    let Some(tool_kind) = GraphBrowserApp::resolve_tool_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::ToolUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenToolUrl { url });
-    };
-
-    if matches!(
-        tool_kind,
-        ToolPaneState::Settings | ToolPaneState::HistoryManager
-    ) {
-        maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
-    }
-    open_or_focus_tool_pane_if_available(tiles_tree, tool_kind);
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-        latency_us: 0,
-    });
-    emit_open_decision(UxOpenDecisionPath::ToolUrl, UxOpenDecisionReason::Routed);
-
-    None
+    route_ops::handle_open_tool_url_intent(graph_app, tiles_tree, url)
 }
 
 fn handle_open_view_url_intent(
@@ -884,124 +638,21 @@ fn handle_open_view_url_intent(
     tiles_tree: &mut Tree<TileKind>,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    let Some(route) = GraphBrowserApp::resolve_view_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::ViewUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenViewUrl { url });
-    };
-
-    match route {
-        crate::app::ViewRouteTarget::GraphPane(view_id) => {
-            tile_view_ops::open_or_focus_graph_pane(tiles_tree, view_id);
-        }
-        crate::app::ViewRouteTarget::Graph(graph_id) => {
-            let has_snapshot = graph_app
-                .list_named_graph_snapshot_names()
-                .into_iter()
-                .any(|name| name == graph_id);
-            if !has_snapshot {
-                emit_open_decision(
-                    UxOpenDecisionPath::ViewUrl,
-                    UxOpenDecisionReason::TargetMissing,
-                );
-                return Some(WorkbenchIntent::OpenViewUrl { url });
-            }
-            graph_app.request_restore_graph_snapshot_named(graph_id);
-        }
-        crate::app::ViewRouteTarget::Note(note_id) => {
-            if graph_app.note_record(note_id).is_none() {
-                emit_open_decision(
-                    UxOpenDecisionPath::ViewUrl,
-                    UxOpenDecisionReason::TargetMissing,
-                );
-                return Some(WorkbenchIntent::OpenViewUrl { url });
-            }
-            graph_app.request_open_note_by_id(note_id);
-        }
-        crate::app::ViewRouteTarget::Node(node_id) => {
-            let Some(node_key) = graph_app.domain_graph().get_node_key_by_id(node_id) else {
-                emit_open_decision(
-                    UxOpenDecisionPath::ViewUrl,
-                    UxOpenDecisionReason::TargetMissing,
-                );
-                return Some(WorkbenchIntent::OpenViewUrl { url });
-            };
-            tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node_key);
-        }
-    }
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-        latency_us: 0,
-    });
-    emit_open_decision(UxOpenDecisionPath::ViewUrl, UxOpenDecisionReason::Routed);
-
-    None
+    route_ops::handle_open_view_url_intent(graph_app, tiles_tree, url)
 }
 
 fn handle_open_graph_url_intent(
     graph_app: &mut GraphBrowserApp,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    let Some(graph_id) = GraphBrowserApp::resolve_graph_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::GraphUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenGraphUrl { url });
-    };
-
-    let has_snapshot = graph_app
-        .list_named_graph_snapshot_names()
-        .into_iter()
-        .any(|name| name == graph_id);
-    if !has_snapshot {
-        emit_open_decision(
-            UxOpenDecisionPath::GraphUrl,
-            UxOpenDecisionReason::TargetMissing,
-        );
-        return Some(WorkbenchIntent::OpenGraphUrl { url });
-    }
-
-    graph_app.request_restore_graph_snapshot_named(graph_id);
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-        latency_us: 0,
-    });
-    emit_open_decision(UxOpenDecisionPath::GraphUrl, UxOpenDecisionReason::Routed);
-
-    None
+    route_ops::handle_open_graph_url_intent(graph_app, url)
 }
 
 fn handle_open_note_url_intent(
     graph_app: &mut GraphBrowserApp,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    let Some(note_id) = GraphBrowserApp::resolve_note_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::NoteUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenNoteUrl { url });
-    };
-
-    if graph_app.note_record(note_id).is_none() {
-        emit_open_decision(
-            UxOpenDecisionPath::NoteUrl,
-            UxOpenDecisionReason::TargetMissing,
-        );
-        return Some(WorkbenchIntent::OpenNoteUrl { url });
-    }
-
-    graph_app.request_open_note_by_id(note_id);
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-        latency_us: 0,
-    });
-    emit_open_decision(UxOpenDecisionPath::NoteUrl, UxOpenDecisionReason::Routed);
-
-    None
+    route_ops::handle_open_note_url_intent(graph_app, url)
 }
 
 fn handle_open_node_url_intent(
@@ -1009,30 +660,7 @@ fn handle_open_node_url_intent(
     tiles_tree: &mut Tree<TileKind>,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    let Some(node_id) = GraphBrowserApp::resolve_node_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::NodeUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenNodeUrl { url });
-    };
-
-    let Some(node_key) = graph_app.domain_graph().get_node_key_by_id(node_id) else {
-        emit_open_decision(
-            UxOpenDecisionPath::NodeUrl,
-            UxOpenDecisionReason::TargetMissing,
-        );
-        return Some(WorkbenchIntent::OpenNodeUrl { url });
-    };
-
-    tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node_key);
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-        latency_us: 0,
-    });
-    emit_open_decision(UxOpenDecisionPath::NodeUrl, UxOpenDecisionReason::Routed);
-
-    None
+    route_ops::handle_open_node_url_intent(graph_app, tiles_tree, url)
 }
 
 fn handle_open_clip_url_intent(
@@ -1040,24 +668,7 @@ fn handle_open_clip_url_intent(
     tiles_tree: &mut Tree<TileKind>,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    let Some(clip_id) = GraphBrowserApp::resolve_clip_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::ClipUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenClipUrl { url });
-    };
-
-    maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
-    graph_app.request_open_clip_by_id(clip_id);
-    open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::HistoryManager);
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-        latency_us: 0,
-    });
-    emit_open_decision(UxOpenDecisionPath::ClipUrl, UxOpenDecisionReason::Routed);
-
-    None
+    route_ops::handle_open_clip_url_intent(graph_app, tiles_tree, url)
 }
 
 fn handle_open_graph_view_pane_intent(
@@ -1106,7 +717,7 @@ fn handle_open_node_in_pane_intent(
         "workbench intent OpenNodeInPane ignored pane target {}; opening node pane directly",
         pane
     );
-    tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node);
+    pane_ops::handle_open_node_in_pane_intent(graph_app, tiles_tree, node, pane);
 }
 
 fn handle_set_pane_view_intent(
@@ -1115,44 +726,7 @@ fn handle_set_pane_view_intent(
     pane: PaneId,
     view: PaneViewState,
 ) {
-    match view {
-        PaneViewState::Tool(tool_ref) => {
-            open_or_focus_tool_pane_if_available(tiles_tree, tool_ref.kind);
-        }
-        PaneViewState::Node(state) => {
-            let exact_pane_updated = if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
-                tiles_tree.tiles.iter_mut().find(|(_, tile)| {
-                    matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.pane_id == pane)
-                })
-            {
-                node_state.node = state.node;
-                node_state.viewer_id_override = state.viewer_id_override.clone();
-                true
-            } else {
-                false
-            };
-
-            if exact_pane_updated {
-                let _ = tiles_tree.make_active(
-                    |_, tile| matches!(tile, Tile::Pane(TileKind::Node(candidate)) if candidate.pane_id == pane),
-                );
-            } else {
-                tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, state.node);
-
-                if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
-                    tiles_tree.tiles.iter_mut().find(|(_, tile)| {
-                        matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.node == state.node)
-                    })
-                {
-                    node_state.viewer_id_override = state.viewer_id_override.clone();
-                }
-            }
-            tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
-        }
-        PaneViewState::Graph(graph_ref) => {
-            tile_view_ops::open_or_focus_graph_pane(tiles_tree, graph_ref.graph_view_id);
-        }
-    }
+    pane_ops::handle_set_pane_view_intent(graph_app, tiles_tree, pane, view);
 }
 
 fn handle_swap_viewer_backend_intent(
@@ -1162,34 +736,13 @@ fn handle_swap_viewer_backend_intent(
     node: NodeKey,
     viewer_id_override: Option<ViewerId>,
 ) {
-    let exact_pane_updated = if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
-        tiles_tree.tiles.iter_mut().find(|(_, tile)| {
-            matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.pane_id == pane && node_state.node == node)
-        })
-    {
-        node_state.viewer_id_override = viewer_id_override.clone();
-        true
-    } else {
-        false
-    };
-
-    if exact_pane_updated {
-        let _ = tiles_tree.make_active(
-            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(candidate)) if candidate.pane_id == pane),
-        );
-    } else {
-        tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node);
-
-        if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
-            tiles_tree.tiles.iter_mut().find(|(_, tile)| {
-                matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.node == node)
-            })
-        {
-            node_state.viewer_id_override = viewer_id_override;
-        }
-    }
-
-    tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+    pane_ops::handle_swap_viewer_backend_intent(
+        graph_app,
+        tiles_tree,
+        pane,
+        node,
+        viewer_id_override,
+    );
 }
 
 fn handle_split_pane_intent(
@@ -1197,18 +750,7 @@ fn handle_split_pane_intent(
     source_pane: PaneId,
     direction: SplitDirection,
 ) {
-    let new_view_id = crate::app::GraphViewId::new();
-    if !tile_view_ops::split_pane_with_new_graph_view(
-        tiles_tree,
-        source_pane,
-        direction,
-        new_view_id,
-    ) {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
-            byte_len: 1,
-        });
-    }
+    pane_ops::handle_split_pane_intent(tiles_tree, source_pane, direction);
 }
 
 fn emit_open_decision(path: UxOpenDecisionPath, reason: UxOpenDecisionReason) {

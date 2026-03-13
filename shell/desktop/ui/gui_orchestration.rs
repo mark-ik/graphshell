@@ -46,6 +46,15 @@ use servo::{OffscreenRenderingContext, WindowRenderingContext};
 use std::rc::Rc;
 use winit::window::Window;
 
+#[path = "gui/focus_realizer.rs"]
+mod focus_realizer;
+#[path = "gui/graph_search_orchestration.rs"]
+mod graph_search_orchestration;
+#[path = "gui/workbench_intent_interceptor.rs"]
+mod workbench_intent_interceptor;
+
+use focus_realizer::FocusRealizer;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UxEventKind {
     PointerDown,
@@ -161,63 +170,20 @@ pub(super) fn run_graph_search_phase(
     frame_intents: &mut Vec<GraphIntent>,
     has_active_node_pane: bool,
 ) -> graph_search_flow::GraphSearchFlowOutput {
-    let graph_search_available = !has_active_node_pane;
-
-    if let Some(request) = graph_app.take_pending_graph_search_request() {
-        if request.record_history {
-            maybe_push_graph_search_history(graph_app, &request);
-        }
-        *graph_search_query = request.query;
-        *graph_search_filter_mode = request.filter_mode;
-        crate::shell::desktop::ui::gui::apply_graph_search_local_focus_state(
-            graph_search_open,
-            local_widget_focus,
-            !graph_search_query.trim().is_empty(),
-        );
-        graph_app.workspace.active_graph_search_origin = request.origin;
-        graph_app.workspace.active_graph_search_neighborhood_anchor = request.neighborhood_anchor;
-        graph_app.workspace.active_graph_search_neighborhood_depth = request.neighborhood_depth;
-        if let Some(message) = request.toast_message {
-            toasts.success(message);
-        }
-        graph_app.workspace.egui_state_dirty = true;
-    }
-
-    graph_app.workspace.active_graph_search_query = graph_search_query.trim().to_string();
-
-    graph_app.workspace.search_display_mode = if *graph_search_filter_mode {
-        SearchDisplayMode::Filter
-    } else {
-        SearchDisplayMode::Highlight
-    };
-    let output = graph_search_flow::handle_graph_search_flow(
-        GraphSearchFlowArgs {
-            ctx,
-            graph_app,
-            graph_search_open,
-            local_widget_focus,
-            graph_search_query,
-            graph_search_filter_mode,
-            graph_search_matches,
-            graph_search_active_match_index,
-            location: &mut toolbar_state.location,
-            location_dirty: &mut toolbar_state.location_dirty,
-            frame_intents,
-            graph_search_available,
-        },
-        |graph_app, query, matches, active_index| {
-            refresh_graph_search_matches(graph_app, query, matches, active_index);
-        },
-        |matches, active_index, delta| {
-            step_graph_search_active_match(matches, active_index, delta);
-        },
-        |matches, active_index| active_graph_search_match(matches, active_index),
-    );
-    if !*graph_search_open && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        graph_app.enqueue_workbench_intent(WorkbenchIntent::ClearTileSelection);
-    }
-    graph_app.workspace.active_graph_search_match_count = graph_search_matches.len();
-    output
+    graph_search_orchestration::run_graph_search_phase(
+        ctx,
+        graph_app,
+        toasts,
+        graph_search_open,
+        local_widget_focus,
+        graph_search_query,
+        graph_search_filter_mode,
+        graph_search_matches,
+        graph_search_active_match_index,
+        toolbar_state,
+        frame_intents,
+        has_active_node_pane,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -234,31 +200,19 @@ pub(crate) fn run_graph_search_window_phase(
     graph_search_active_match_index: &mut Option<usize>,
     graph_search_output: &mut graph_search_flow::GraphSearchFlowOutput,
 ) {
-    if should_render_graph_search_window(toolbar_visible, graph_search_open, is_graph_view) {
-        graph_search_ui::render_graph_search_window(
-            GraphSearchUiArgs {
-                ctx,
-                graph_app,
-                graph_search_query,
-                graph_search_filter_mode,
-                graph_search_matches,
-                graph_search_active_match_index,
-                local_widget_focus,
-                focus_graph_search_field: &mut graph_search_output.focus_graph_search_field,
-            },
-            |graph_app, query, matches, active_index| {
-                refresh_graph_search_matches(graph_app, query, matches, active_index);
-            },
-        );
-    }
-}
-
-fn should_render_graph_search_window(
-    toolbar_visible: bool,
-    graph_search_open: bool,
-    is_graph_view: bool,
-) -> bool {
-    toolbar_visible && graph_search_open && is_graph_view
+    graph_search_orchestration::run_graph_search_window_phase(
+        ctx,
+        graph_app,
+        toolbar_visible,
+        graph_search_open,
+        is_graph_view,
+        local_widget_focus,
+        graph_search_query,
+        graph_search_filter_mode,
+        graph_search_matches,
+        graph_search_active_match_index,
+        graph_search_output,
+    );
 }
 
 pub(crate) fn active_graph_search_match(
@@ -954,12 +908,10 @@ pub(crate) fn handle_tool_pane_intents(
     tiles_tree: &mut Tree<TileKind>,
     workbench_intents: &mut Vec<WorkbenchIntent>,
 ) {
-    handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    workbench_intent_interceptor::handle_tool_pane_intents(
         graph_app,
         tiles_tree,
         workbench_intents,
-        modal_surface_active(graph_app),
-        None,
     );
 }
 
@@ -969,12 +921,11 @@ pub(crate) fn handle_tool_pane_intents_with_modal_state(
     workbench_intents: &mut Vec<WorkbenchIntent>,
     modal_surface_active: bool,
 ) {
-    handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state(
         graph_app,
         tiles_tree,
         workbench_intents,
         modal_surface_active,
-        None,
     );
 }
 
@@ -983,496 +934,15 @@ fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
     tiles_tree: &mut Tree<TileKind>,
     workbench_intents: &mut Vec<WorkbenchIntent>,
     modal_surface_active: bool,
-    mut focus_authority: Option<&mut RuntimeFocusAuthorityState>,
+    focus_authority: Option<&mut RuntimeFocusAuthorityState>,
 ) {
-    let mut remaining = Vec::with_capacity(workbench_intents.len());
-    for intent in workbench_intents.drain(..) {
-        if let Some(authority) = focus_authority.as_deref_mut() {
-            prime_runtime_focus_authority_for_workbench_intent(
-                authority, graph_app, tiles_tree, &intent,
-            );
-        }
-        let event_kind = ux_event_kind_for_workbench_intent(&intent);
-        let path = ux_dispatch_path_for_workbench_intent(&intent);
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_DISPATCH_STARTED,
-            byte_len: event_kind as usize,
-        });
-
-        if !path.is_valid() {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
-                latency_us: 0,
-            });
-            remaining.push(intent);
-            continue;
-        }
-
-        emit_dispatch_phase(UxDispatchPhase::Capture);
-        let modal_focus_authority = focus_authority.as_deref();
-        if modal_surface_active
-            && !modal_allows_workbench_intent_with_focus_authority(
-                graph_app,
-                &intent,
-                modal_focus_authority,
-            )
-        {
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
-                byte_len: path.nodes.len(),
-            });
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
-                byte_len: 1,
-            });
-            if let Some(authority) = focus_authority.as_deref_mut() {
-                refresh_runtime_focus_authority_after_workbench_intent(
-                    authority,
-                    graph_app,
-                    tiles_tree,
-                    modal_surface_active,
-                );
-            }
-            continue;
-        }
-
-        emit_dispatch_phase(UxDispatchPhase::Target);
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_DISPATCH_PHASE,
-            byte_len: UxDispatchPhase::Target as usize,
-        });
-
-        let authority_handled = if let Some(authority) = focus_authority.as_deref_mut() {
-            let mut realizer = FocusRealizer::new(graph_app, tiles_tree);
-            realizer.realize_workbench_intent(authority, &intent)
-        } else {
-            false
-        };
-
-        if authority_handled {
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
-                byte_len: 1,
-            });
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
-                byte_len: 1,
-            });
-        } else if let Some(unhandled) =
-            dispatch_workbench_authority_intent(graph_app, tiles_tree, intent)
-        {
-            emit_dispatch_phase(UxDispatchPhase::Bubble);
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_CONTRACT_WARNING,
-                byte_len: 1,
-            });
-            emit_dispatch_phase(UxDispatchPhase::Default);
-            remaining.push(unhandled);
-        } else {
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
-                byte_len: 1,
-            });
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
-                byte_len: 1,
-            });
-        }
-        if let Some(authority) = focus_authority.as_deref_mut() {
-            if authority_handled {
-                reconcile_focus_authority_after_realization(
-                    authority,
-                    graph_app,
-                    tiles_tree,
-                    modal_surface_active,
-                );
-            } else {
-                refresh_runtime_focus_authority_after_workbench_intent(
-                    authority,
-                    graph_app,
-                    tiles_tree,
-                    modal_surface_active,
-                );
-            }
-        }
-    }
-    *workbench_intents = remaining;
-}
-
-struct FocusRealizer<'a> {
-    graph_app: &'a mut GraphBrowserApp,
-    tiles_tree: &'a mut Tree<TileKind>,
-}
-
-impl<'a> FocusRealizer<'a> {
-    fn new(graph_app: &'a mut GraphBrowserApp, tiles_tree: &'a mut Tree<TileKind>) -> Self {
-        Self {
-            graph_app,
-            tiles_tree,
-        }
-    }
-
-    fn realize_workbench_intent(
-        &mut self,
-        focus_authority: &mut RuntimeFocusAuthorityState,
-        intent: &WorkbenchIntent,
-    ) -> bool {
-        match intent {
-            WorkbenchIntent::OpenCommandPalette => {
-                self.open_command_palette_from_authority(focus_authority)
-            }
-            WorkbenchIntent::ToggleCommandPalette
-                if self.graph_app.workspace.show_command_palette =>
-            {
-                self.close_command_palette_from_authority(focus_authority)
-            }
-            WorkbenchIntent::ToggleCommandPalette => {
-                self.open_command_palette_from_authority(focus_authority)
-            }
-            WorkbenchIntent::ToggleHelpPanel if self.graph_app.workspace.show_help_panel => self
-                .close_transient_surface_from_authority(
-                    focus_authority,
-                    crate::shell::desktop::ui::gui_state::FocusCaptureSurface::HelpPanel,
-                ),
-            WorkbenchIntent::ToggleHelpPanel => {
-                self.open_help_panel_from_authority(focus_authority)
-            }
-            WorkbenchIntent::ToggleRadialMenu if self.graph_app.workspace.show_radial_menu => self
-                .close_transient_surface_from_authority(
-                    focus_authority,
-                    crate::shell::desktop::ui::gui_state::FocusCaptureSurface::RadialPalette,
-                ),
-            WorkbenchIntent::ToggleRadialMenu => {
-                self.open_radial_menu_from_authority(focus_authority)
-            }
-            WorkbenchIntent::CycleFocusRegion => {
-                self.realize_semantic_region_from_focus_authority(focus_authority)
-            }
-            WorkbenchIntent::OpenToolPane { kind } => {
-                self.open_tool_pane_from_authority(focus_authority, kind)
-            }
-            WorkbenchIntent::CloseToolPane {
-                kind,
-                restore_previous_focus,
-            } => {
-                self.close_tool_pane_from_authority(focus_authority, kind, *restore_previous_focus)
-            }
-            _ => false,
-        }
-    }
-
-    fn open_command_palette_from_authority(
-        &mut self,
-        focus_authority: &RuntimeFocusAuthorityState,
-    ) -> bool {
-        crate::shell::desktop::ui::gui::seed_command_surface_return_target_from_authority(
-            focus_authority,
-            self.graph_app,
-        );
-        if matches!(
-            focus_authority.semantic_region,
-            Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ContextPalette)
-        ) {
-            self.graph_app.open_context_palette();
-        } else {
-            self.graph_app.open_command_palette();
-        }
-        true
-    }
-
-    fn close_command_palette_from_authority(
-        &mut self,
-        focus_authority: &RuntimeFocusAuthorityState,
-    ) -> bool {
-        crate::shell::desktop::ui::gui::seed_command_surface_return_target_from_authority(
-            focus_authority,
-            self.graph_app,
-        );
-        self.graph_app.close_command_palette();
-        let target = self.graph_app.take_pending_command_surface_return_target();
-        let _ = self.restore_focus_target_or_ensure_active_tile(target, true);
-        true
-    }
-
-    fn open_help_panel_from_authority(
-        &mut self,
-        focus_authority: &RuntimeFocusAuthorityState,
-    ) -> bool {
-        crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
-            focus_authority,
-            self.graph_app,
-        );
-        self.graph_app.open_help_panel();
-        true
-    }
-
-    fn open_radial_menu_from_authority(
-        &mut self,
-        focus_authority: &RuntimeFocusAuthorityState,
-    ) -> bool {
-        crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
-            focus_authority,
-            self.graph_app,
-        );
-        self.graph_app.open_radial_menu();
-        true
-    }
-
-    fn close_transient_surface_from_authority(
-        &mut self,
-        focus_authority: &mut RuntimeFocusAuthorityState,
-        surface: crate::shell::desktop::ui::gui_state::FocusCaptureSurface,
-    ) -> bool {
-        crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
-            focus_authority,
-            self.graph_app,
-        );
-        match surface {
-            crate::shell::desktop::ui::gui_state::FocusCaptureSurface::HelpPanel => {
-                self.graph_app.close_help_panel();
-            }
-            crate::shell::desktop::ui::gui_state::FocusCaptureSurface::RadialPalette => {
-                self.graph_app.close_radial_menu();
-            }
-            _ => return false,
-        }
-        self.restore_pending_transient_surface_focus(focus_authority);
-        true
-    }
-
-    fn open_tool_pane_from_authority(
-        &mut self,
-        focus_authority: &RuntimeFocusAuthorityState,
-        kind: &ToolPaneState,
-    ) -> bool {
-        if matches!(
-            kind,
-            ToolPaneState::Settings | ToolPaneState::HistoryManager
-        ) {
-            crate::shell::desktop::ui::gui::seed_tool_surface_return_target_from_authority(
-                focus_authority,
-                self.graph_app,
-            );
-        }
-        dispatch_workbench_authority_intent(
-            self.graph_app,
-            self.tiles_tree,
-            WorkbenchIntent::OpenToolPane { kind: kind.clone() },
-        )
-        .is_none()
-    }
-
-    fn close_tool_pane_from_authority(
-        &mut self,
-        focus_authority: &RuntimeFocusAuthorityState,
-        kind: &ToolPaneState,
-        restore_previous_focus: bool,
-    ) -> bool {
-        if restore_previous_focus {
-            crate::shell::desktop::ui::gui::seed_tool_surface_return_target_from_authority(
-                focus_authority,
-                self.graph_app,
-            );
-        }
-        dispatch_workbench_authority_intent(
-            self.graph_app,
-            self.tiles_tree,
-            WorkbenchIntent::CloseToolPane {
-                kind: kind.clone(),
-                restore_previous_focus,
-            },
-        )
-        .is_none()
-    }
-
-    fn realize_semantic_region_from_focus_authority(
-        &mut self,
-        focus_authority: &RuntimeFocusAuthorityState,
-    ) -> bool {
-        match focus_authority.semantic_region.as_ref() {
-            Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::GraphSurface {
-                view_id,
-            }) => {
-                if let Some(view_id) = view_id {
-                    self.tiles_tree.make_active(|_, tile| {
-                        matches!(
-                            tile,
-                            egui_tiles::Tile::Pane(TileKind::Graph(existing))
-                                if existing.graph_view_id == *view_id
-                        )
-                    })
-                } else {
-                    self.tiles_tree.make_active(|_, tile| {
-                        matches!(tile, egui_tiles::Tile::Pane(TileKind::Graph(_)))
-                    })
-                }
-            }
-            Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
-                pane_id,
-                node_key,
-            }) => {
-                if let Some(pane_id) = pane_id {
-                    self.tiles_tree.make_active(|_, tile| {
-                        matches!(
-                            tile,
-                            egui_tiles::Tile::Pane(TileKind::Node(existing))
-                                if existing.pane_id == *pane_id
-                        )
-                    })
-                } else if let Some(node_key) = node_key {
-                    self.tiles_tree.make_active(|_, tile| {
-                        matches!(
-                            tile,
-                            egui_tiles::Tile::Pane(TileKind::Node(existing))
-                                if existing.node == *node_key
-                        )
-                    })
-                } else {
-                    self.tiles_tree.make_active(|_, tile| {
-                        matches!(tile, egui_tiles::Tile::Pane(TileKind::Node(_)))
-                    })
-                }
-            }
-            Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane {
-                pane_id,
-            }) => {
-                if let Some(pane_id) = pane_id {
-                    self.tiles_tree.make_active(|_, tile| {
-                        matches!(
-                            tile,
-                            egui_tiles::Tile::Pane(TileKind::Tool(existing))
-                                if existing.pane_id == *pane_id
-                        )
-                    })
-                } else {
-                    self.tiles_tree.make_active(|_, tile| {
-                        matches!(tile, egui_tiles::Tile::Pane(TileKind::Tool(_)))
-                    })
-                }
-            }
-            _ => false,
-        }
-    }
-
-    fn restore_focus_target_or_ensure_active_tile(
-        &mut self,
-        target: Option<crate::app::ToolSurfaceReturnTarget>,
-        preserve_active_fallback: bool,
-    ) -> bool {
-        crate::shell::desktop::runtime::registries::workbench_surface::restore_focus_target_or_ensure_active_tile(
-            self.graph_app,
-            self.tiles_tree,
-            target,
-            preserve_active_fallback,
-        )
-    }
-
-    fn restore_pending_transient_surface_focus(
-        &mut self,
-        focus_authority: &mut RuntimeFocusAuthorityState,
-    ) {
-        if self.graph_app.workspace.show_command_palette
-            || self.graph_app.workspace.show_help_panel
-            || self.graph_app.workspace.show_radial_menu
-        {
-            return;
-        }
-
-        if !self
-            .graph_app
-            .take_pending_restore_transient_surface_focus()
-        {
-            return;
-        }
-
-        crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
-            focus_authority,
-            self.graph_app,
-        );
-
-        let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-            self.graph_app,
-            self.tiles_tree,
-            Some(focus_authority),
-            None,
-            false,
-        );
-        let target = self
-            .graph_app
-            .take_pending_transient_surface_return_target();
-        let desired_semantic_region = target
-            .as_ref()
-            .map(crate::shell::desktop::ui::gui::semantic_region_for_tool_surface_target);
-        let restored = self.restore_focus_target_or_ensure_active_tile(target.clone(), true);
-        if target.is_some() && restored {
-            let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-                self.graph_app,
-                self.tiles_tree,
-                Some(focus_authority),
-                None,
-                false,
-            );
-            let restored_target = crate::shell::desktop::runtime::registries::workbench_surface::active_tool_surface_return_target(
-                self.tiles_tree,
-            );
-            if focus_before == focus_after || restored_target != target {
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_UX_FOCUS_RETURN_FALLBACK,
-                    latency_us: 0,
-                });
-            }
-        } else if target.is_some()
-            && crate::shell::desktop::runtime::registries::workbench_surface::active_tool_surface_return_target(
-                self.tiles_tree,
-            )
-            .is_some()
-        {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UX_FOCUS_RETURN_FALLBACK,
-                latency_us: 0,
-            });
-        } else if target.is_none() && restored {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UX_FOCUS_RETURN_FALLBACK,
-                latency_us: 0,
-            });
-        }
-        let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
-            self.graph_app,
-            self.tiles_tree,
-            Some(focus_authority),
-            None,
-            false,
-        );
-        refresh_runtime_focus_authority_after_workbench_intent(
-            focus_authority,
-            self.graph_app,
-            self.tiles_tree,
-            false,
-        );
-        if desired_semantic_region
-            .as_ref()
-            .is_some_and(|desired| *desired != focus_after.semantic_region)
-        {
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_FOCUS_REALIZATION_MISMATCH,
-                byte_len: 1,
-            });
-        }
-        let focus_transitioned = restored && focus_before != focus_after;
-
-        if !focus_transitioned
-            && crate::shell::desktop::runtime::registries::workbench_surface::active_tool_surface_return_target(
-                self.tiles_tree,
-            )
-            .is_none()
-        {
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
-                byte_len: 1,
-            });
-        }
-    }
+    workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        graph_app,
+        tiles_tree,
+        workbench_intents,
+        modal_surface_active,
+        focus_authority,
+    );
 }
 
 fn refresh_runtime_focus_authority_after_workbench_intent(
@@ -1971,25 +1441,14 @@ fn apply_semantic_intents_and_pending_open(
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
-    let mut workbench_intents = graph_app.take_pending_workbench_intents();
-    handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    workbench_intent_interceptor::apply_semantic_intents_and_pending_open(
         graph_app,
         tiles_tree,
-        &mut workbench_intents,
         modal_surface_active,
-        Some(focus_authority),
-    );
-    assert_workbench_intents_drained_before_reducer_apply(&workbench_intents);
-    gui_frame::apply_intents_if_any(graph_app, tiles_tree, frame_intents);
-    handle_pending_open_node_after_intents(
-        graph_app,
-        tiles_tree,
+        focus_authority,
         open_node_tile_after_intents,
         frame_intents,
     );
-    restore_pending_transient_surface_focus(graph_app, tiles_tree, focus_authority);
-    handle_pending_open_note_after_intents(graph_app, tiles_tree);
-    handle_pending_open_clip_after_intents(graph_app, tiles_tree);
 }
 
 fn restore_pending_transient_surface_focus(
@@ -1997,8 +1456,11 @@ fn restore_pending_transient_surface_focus(
     tiles_tree: &mut Tree<TileKind>,
     focus_authority: &mut RuntimeFocusAuthorityState,
 ) {
-    let mut realizer = FocusRealizer::new(graph_app, tiles_tree);
-    realizer.restore_pending_transient_surface_focus(focus_authority);
+    workbench_intent_interceptor::restore_pending_transient_surface_focus(
+        graph_app,
+        tiles_tree,
+        focus_authority,
+    );
 }
 
 fn assert_workbench_intents_drained_before_reducer_apply(intents: &[WorkbenchIntent]) {

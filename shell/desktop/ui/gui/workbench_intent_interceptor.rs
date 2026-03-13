@@ -1,0 +1,188 @@
+use super::*;
+
+pub(super) fn handle_tool_pane_intents(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    workbench_intents: &mut Vec<WorkbenchIntent>,
+) {
+    handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        graph_app,
+        tiles_tree,
+        workbench_intents,
+        modal_surface_active(graph_app),
+        None,
+    );
+}
+
+pub(super) fn handle_tool_pane_intents_with_modal_state(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    workbench_intents: &mut Vec<WorkbenchIntent>,
+    modal_surface_active: bool,
+) {
+    handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        graph_app,
+        tiles_tree,
+        workbench_intents,
+        modal_surface_active,
+        None,
+    );
+}
+
+pub(super) fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    workbench_intents: &mut Vec<WorkbenchIntent>,
+    modal_surface_active: bool,
+    mut focus_authority: Option<&mut RuntimeFocusAuthorityState>,
+) {
+    let mut remaining = Vec::with_capacity(workbench_intents.len());
+    for intent in workbench_intents.drain(..) {
+        if let Some(authority) = focus_authority.as_deref_mut() {
+            prime_runtime_focus_authority_for_workbench_intent(
+                authority, graph_app, tiles_tree, &intent,
+            );
+        }
+        let event_kind = ux_event_kind_for_workbench_intent(&intent);
+        let path = ux_dispatch_path_for_workbench_intent(&intent);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_DISPATCH_STARTED,
+            byte_len: event_kind as usize,
+        });
+
+        if !path.is_valid() {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+                latency_us: 0,
+            });
+            remaining.push(intent);
+            continue;
+        }
+
+        emit_dispatch_phase(UxDispatchPhase::Capture);
+        let modal_focus_authority = focus_authority.as_deref();
+        if modal_surface_active
+            && !modal_allows_workbench_intent_with_focus_authority(
+                graph_app,
+                &intent,
+                modal_focus_authority,
+            )
+        {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
+                byte_len: path.nodes.len(),
+            });
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
+                byte_len: 1,
+            });
+            if let Some(authority) = focus_authority.as_deref_mut() {
+                refresh_runtime_focus_authority_after_workbench_intent(
+                    authority,
+                    graph_app,
+                    tiles_tree,
+                    modal_surface_active,
+                );
+            }
+            continue;
+        }
+
+        emit_dispatch_phase(UxDispatchPhase::Target);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_DISPATCH_PHASE,
+            byte_len: UxDispatchPhase::Target as usize,
+        });
+
+        let authority_result = if let Some(authority) = focus_authority.as_deref_mut() {
+            let mut realizer = FocusRealizer::new(graph_app, tiles_tree);
+            realizer.realize_workbench_intent(authority, &intent)
+        } else {
+            dispatch_workbench_authority_intent(graph_app, tiles_tree, intent.clone())
+        };
+        let authority_handled = authority_result.is_none();
+
+        if authority_handled {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
+                byte_len: 1,
+            });
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
+                byte_len: 1,
+            });
+        } else if let Some(unhandled) = authority_result {
+            emit_dispatch_phase(UxDispatchPhase::Bubble);
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_CONTRACT_WARNING,
+                byte_len: 1,
+            });
+            emit_dispatch_phase(UxDispatchPhase::Default);
+            remaining.push(unhandled);
+        } else {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
+                byte_len: 1,
+            });
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
+                byte_len: 1,
+            });
+        }
+        if let Some(authority) = focus_authority.as_deref_mut() {
+            if authority_handled {
+                reconcile_focus_authority_after_realization(
+                    authority,
+                    graph_app,
+                    tiles_tree,
+                    modal_surface_active,
+                );
+            } else {
+                refresh_runtime_focus_authority_after_workbench_intent(
+                    authority,
+                    graph_app,
+                    tiles_tree,
+                    modal_surface_active,
+                );
+            }
+        }
+    }
+    *workbench_intents = remaining;
+}
+
+pub(super) fn apply_semantic_intents_and_pending_open(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    modal_surface_active: bool,
+    focus_authority: &mut RuntimeFocusAuthorityState,
+    open_node_tile_after_intents: &mut Option<TileOpenMode>,
+    frame_intents: &mut Vec<GraphIntent>,
+) {
+    let mut workbench_intents = graph_app.take_pending_workbench_intents();
+    handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        graph_app,
+        tiles_tree,
+        &mut workbench_intents,
+        modal_surface_active,
+        Some(focus_authority),
+    );
+    assert_workbench_intents_drained_before_reducer_apply(&workbench_intents);
+    gui_frame::apply_intents_if_any(graph_app, tiles_tree, frame_intents);
+    handle_pending_open_node_after_intents(
+        graph_app,
+        tiles_tree,
+        open_node_tile_after_intents,
+        frame_intents,
+    );
+    restore_pending_transient_surface_focus(graph_app, tiles_tree, focus_authority);
+    handle_pending_open_note_after_intents(graph_app, tiles_tree);
+    handle_pending_open_clip_after_intents(graph_app, tiles_tree);
+}
+
+pub(super) fn restore_pending_transient_surface_focus(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    focus_authority: &mut RuntimeFocusAuthorityState,
+) {
+    let mut realizer = FocusRealizer::new(graph_app, tiles_tree);
+    realizer.restore_pending_transient_surface_focus(focus_authority);
+}

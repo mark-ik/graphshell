@@ -32,6 +32,8 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,
@@ -58,6 +60,21 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     #[cfg(feature = "diagnostics")]
     pub diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+    #[cfg(feature = "diagnostics")]
+    pub runtime_focus_inspector: Option<RuntimeFocusInspector>,
+}
+
+fn latch_focus_ring_transition(
+    focus_delta: tile_compositor::FocusDelta,
+    focus_ring_node_key: &mut Option<NodeKey>,
+    focus_ring_started_at: &mut Option<Instant>,
+) {
+    if !focus_delta.changed_this_frame {
+        return;
+    }
+
+    *focus_ring_node_key = focus_delta.new_focused_node;
+    *focus_ring_started_at = focus_delta.new_focused_node.map(|_| Instant::now());
 }
 
 fn open_mode_from_pending(mode: PendingOpenMode) -> TileOpenMode {
@@ -182,6 +199,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         control_panel,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
+        #[cfg(feature = "diagnostics")]
+        runtime_focus_inspector,
     } = args;
     #[cfg(feature = "diagnostics")]
     let focused_node_hint_before = *focused_node_hint;
@@ -206,6 +225,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 search_query_active,
                 #[cfg(feature = "diagnostics")]
                 diagnostics_state,
+                #[cfg(feature = "diagnostics")]
+                runtime_focus_inspector,
             );
             pending_open_nodes.extend(outputs.pending_open_nodes);
             pending_closed_nodes.extend(outputs.pending_closed_nodes);
@@ -556,10 +577,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         focused_node_hint_before,
         *focused_node_hint,
     );
-    if *focus_ring_node_key != focused_node_key {
-        *focus_ring_node_key = focused_node_key;
-        *focus_ring_started_at = focused_node_key.map(|_| Instant::now());
-    }
+    let focus_delta = tile_compositor::FocusDelta::new(focused_node_hint_before, focused_node_key);
+    latch_focus_ring_transition(focus_delta, focus_ring_node_key, focus_ring_started_at);
 
     let focus_ring_alpha = if *focus_ring_node_key == focused_node_key {
         focus_ring_started_at
@@ -587,6 +606,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         tile_rendering_contexts,
         active_tile_rects,
         focused_node_key,
+        focus_delta,
         focus_ring_alpha,
     );
     #[cfg(feature = "diagnostics")]

@@ -72,7 +72,7 @@ fn tag_node_pin_updates_pinned_state() {
 }
 
 #[test]
-fn tag_node_canonicalizes_valid_knowledge_tags_and_rejects_unknown_ones() {
+fn tag_node_canonicalizes_valid_knowledge_tags_and_accepts_user_defined_tags() {
     let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
 
@@ -101,6 +101,26 @@ fn tag_node_canonicalizes_valid_knowledge_tags_and_rejects_unknown_ones() {
             .workspace
             .semantic_tags
             .get(&node)
-            .is_some_and(|tags| !tags.contains("unknown-subject"))
+            .is_some_and(|tags| tags.contains("unknown-subject"))
+    );
+}
+
+#[test]
+fn tag_node_lowercases_reserved_hash_tags() {
+    let mut harness = TestRegistry::new();
+    let node = harness.add_node("https://example.com");
+
+    harness.app.apply_reducer_intents([GraphIntent::TagNode {
+        key: node,
+        tag: "#PIN".to_string(),
+    }]);
+
+    assert!(
+        harness
+            .app
+            .workspace
+            .semantic_tags
+            .get(&node)
+            .is_some_and(|tags| tags.contains(GraphBrowserApp::TAG_PIN))
     );
 }
