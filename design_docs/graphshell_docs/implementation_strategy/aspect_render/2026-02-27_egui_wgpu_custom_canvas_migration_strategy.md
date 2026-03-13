@@ -1,7 +1,7 @@
 # Egui WGPU and Custom Canvas Migration Strategy
 
-**Date**: 2026-02-27  
-**Status**: Implementation strategy  
+**Date**: 2026-02-27
+**Status**: ⚠️ Deferred indefinitely (2026-03-12) — wgpu renderer migration suspended; Graphshell ships on egui_glow. See `PLANNING_REGISTER.md` §0.12.
 **Relates to**:
 
 - `../research/2026-02-27_egui_wgpu_custom_canvas_migration_requirements.md`

@@ -1,5 +1,7 @@
 # 2026-03-01 WebRender Readiness Gate + Feature Guardrails
 
+> **⚠️ Deferred indefinitely (2026-03-12)** — wgpu renderer migration suspended. Graphshell ships on egui_glow. See `PLANNING_REGISTER.md` §0.12.
+
 ## Purpose
 
 Define a high-confidence gate for any future Glow → wgpu switch work rooted in WebRender evolution, while preserving current milestone velocity (UI/UX + workflow proof) on Glow.

@@ -294,13 +294,21 @@ The graph canvas becomes a navigable structure for screen readers and keyboard-o
 - WebView bridge event forwarding and GUI queueing path landed, but the injection step is currently a compile-safe fallback (updates drained with diagnostics) due to `accesskit` version mismatch.
 - Phase roadmap for WebView bridge, Graph Reader, and focus/navigation is defined and sequenced.
 - UxTree and accessibility docs align on ownership intent: UxTree is the semantic authority and AccessKit is the projection consumer.
+- The first canonical host-side AccessKit consumer now projects published UxTree semantic nodes into the egui bridge and uses `TileAffordanceAnnotation` only as supplemental rendered-state evidence inside that projection path.
+- The canonical host-side projection now preserves parent-linked UxTree hierarchy in emitted AccessKit nodes instead of flattening host semantics under a single anchor.
+- WebView accessibility anchors are now attached under the owning host UxTree node using the runtime `WebViewId <-> NodeKey` ownership mapping.
+- A first Graph Reader slice now projects a deterministic Map root plus focused-room starter groups under the focused graph surface inside the same canonical host projection path.
+- Starter Graph Reader AccessKit action routing now resolves focused/clicked virtual node items through the same canonical UxTree-owned path, including Map -> Room entry, Room -> Map return, and room-to-room drill transitions without introducing a parallel authority path.
+- `TileAffordanceAnnotation` still has a staged selected-node Accessibility Inspector projection for diagnostics-facing inspection of compositor output.
+
+**Authority guardrail**: `TileAffordanceAnnotation` must remain a read-only enrichment input. It must not become a second semantic tree or a parallel accessibility authority. Any elevation from inspector-only use into user-facing AccessKit output must occur inside the canonical host-side UX/accessibility projection path, with UxTree remaining the semantic authority for native UI and `TileAffordanceAnnotation` contributing only "what Pass 3 actually rendered" as supplemental evidence.
 
 **What's missing / open**:
 - Full closure of the UxTree -> AccessKit path as the single source-of-truth path across native UI + WebView + graph-reader surfaces.
 - Functional WebView tree injection into egui via an `accesskit` compatibility layer or dependency alignment.
-- Stable `WebViewId -> egui::Id` anchor registration path wired from pane/tile render lifecycle.
 - Bridge invariants and CI checks for happy-path injection vs degraded fallback.
-- Graph Reader (`GraphAccessKitAdapter`) implementation and focus/action routing coverage.
+- Graph Reader (`GraphAccessKitAdapter`) implementation and broader non-visual navigation/action coverage.
+- The canonical UxTree -> AccessKit path is still partial: host-side hierarchy, host-owned WebView anchoring, a starter Graph Reader projection, and starter Graph Reader Room/Map action routing are active, but full WebView subtree fidelity and broader Graph Reader navigation/action coverage are still missing.
 
 ## 11. Dependencies / Blockers
 

@@ -251,13 +251,21 @@ Preference chain at threshold crossing:
 
 `LayoutRegistry` is an atomic algorithm store: maps `LayoutId → Algorithm`. `CanvasRegistry` uses this to resolve the active layout algorithm. Custom layout algorithms are registered as entries in `LayoutRegistry`; they do not modify the core physics loop.
 
-**Contract**: Registered algorithms must implement a stable interface callable from `CanvasRegistry`'s execution path. Algorithm registration is a mod concern; `CanvasRegistry` is the execution authority.
+**Contract**: Registered algorithms must implement the Graphshell-owned `Layout<S>` trait
+(defined in `graph/physics.rs`). Algorithm registration is a mod concern; `CanvasRegistry` is
+the execution authority. The `ActiveLayout` enum dispatcher in `graph/layouts/active.rs` is the
+production seam — new built-in algorithms add a variant there.
 
-### 7.2 ExtraForce Hook
+### 7.2 Post-Physics Force Injection Hook
 
-Physics profiles may include `ExtraForce` entries. An `ExtraForce` is a named, parameterized force function appended to the physics step. ExtraForce entries are registered through the engine extension interface; they are not hardcoded in the core FR loop.
+Physics profiles may include named post-physics force entries. A post-physics force is a named,
+parameterized function appended to the physics step via the injection hook in the active layout
+implementation (`graph/layouts/`). Force implementations live in `graph/forces/`. They are not
+hardcoded in the core FR loop and are not delegated to egui_graphs internals.
 
-**Contract**: ExtraForce invocations must not assume a specific execution order relative to each other unless declared as dependent. Force ordering within the post-physics injection hook is deterministic by registration order.
+**Contract**: Force invocations must not assume a specific execution order relative to each other
+unless declared as dependent. Force ordering within the post-physics injection hook is
+deterministic by registration order.
 
 ---
 

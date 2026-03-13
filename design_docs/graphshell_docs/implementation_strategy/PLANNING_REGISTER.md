@@ -455,46 +455,21 @@ Issue linkage:
 
 ### 0.12 WebRender Readiness Gate + Feature Guardrails
 
-Decision (2026-03-01): keep Glow active for current milestone delivery, but start WebRender/wgpu switch-readiness work now under explicit guardrails.
+**Status: Deferred indefinitely (2026-03-12)**. The wgpu renderer migration is not viable at current scale — maintaining a Servo fork is too costly and upstream acceptance is unlikely. Graphshell remains on egui_glow / Servo GL compositor.
 
-Policy:
+Original decision (2026-03-01): keep Glow active for current milestone delivery, but start WebRender/wgpu switch-readiness work under explicit guardrails. That readiness work is now suspended.
 
-- Runtime switch remains blocked until readiness gates are closed with evidence.
-- Feature work continues only if it avoids new renderer-specific coupling and preserves backend bridge observability.
-- Readiness work runs in parallel through bounded spikes and dependency-control validation.
+Canonical reference (archived):
 
-Canonical reference:
-
-- `2026-03-01_webrender_readiness_gate_feature_guardrails.md`.
-
-Tracker linkage:
-
-- Primary tracker: `#183`.
-- Related lanes: `#88`, `#99`, `#92`, `#90`.
+- `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md` — Deferred indefinitely.
 
 ### 0.13 WebRender wgpu Renderer Implementation Plan
 
-Decision (2026-03-01): convert WebRender wgpu renderer research into a phased, technically validatable implementation plan.
+**Status: Deferred indefinitely (2026-03-12)**. See §0.12. The P0–P12 phased implementation, Servo fork work, and G1–G5 readiness gates are all suspended. Trackers `#180`, `#183`, `#245` are no longer active blockers.
 
-Phases P0–P12 cover dependency audit, upstream reconnaissance, fork/patch scaffold, trait extraction, shader translation, wgpu Device/Renderer implementation, compositor output contract, Graphshell integration spike, pixel parity validation, performance validation, platform matrix validation, and production cutover preparation.
+Canonical reference (archived):
 
-Key properties:
-
-- Every phase has explicit entry conditions, exit criteria, and rollback posture.
-- GL path preserved throughout via C+F fallback-safe policy.
-- `active_backend_content_bridge_policy()` remains `GlowBaseline` until P12 switch authorization.
-- Readiness gates G1–G5 mapped to specific closing phases.
-
-Canonical reference:
-
-- `aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md`.
-
-Tracker linkage:
-
-- Primary tracker: `#183`.
-- Lane hub: `#245`.
-- Spike evidence target: `#180`.
-- Related lanes: `#88`, `#90`, `#92`, `#99`.
+- `aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md` — Deferred indefinitely.
 
 ---
 

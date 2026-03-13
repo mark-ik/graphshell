@@ -1,7 +1,7 @@
 # Servo wgpu Upgrade Audit Report
 
 **Date**: 2026-03-03
-**Status**: Living audit report
+**Status**: ⚠️ Deferred indefinitely (2026-03-12) — wgpu renderer migration suspended. Graphshell ships on egui_glow. See `PLANNING_REGISTER.md` §0.12/0.13.
 **Scope**: Servo-side `wgpu 26 -> 27` compatibility audit for the WebRender wgpu migration lane
 **Primary workspace**: `../servo-graphshell` (sibling repo fork used for renderer migration work)
 **Related plans**:

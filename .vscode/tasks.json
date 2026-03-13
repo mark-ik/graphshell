@@ -191,6 +191,65 @@
 			],
 			"isBackground": false,
 			"group": "test"
+		},
+		{
+			"label": "Focused UxTree accessibility tests",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q uxtree_a11y_graft_plan_projects_canonical_node_state_and_rendered_affordance -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q accessibility_inspector_snapshot_reports_selected_node_profile -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Focused UxTree accessibility tests v2",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q uxtree_a11y_graft_plan_projects_canonical_node_state_and_rendered_affordance -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q accessibility_inspector_snapshot_reports_selected_node_profile -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Focused canonical a11y cargo check",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"-q"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Graph Reader A11y Focused",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q graph_reader_map_click_action_resolves_to_enter_room_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_map_focus_action_resolves_to_map_focus_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_room_root_click_action_resolves_to_return_to_map_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_room_item_click_action_resolves_to_enter_room_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_return_to_map_suppresses_room_projection_and_preserves_map_focus -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_snapshot_reports_map_mode_when_override_returns_to_map -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Graph Reader A11y Focused 2",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q graph_reader_map_click_action_resolves_to_enter_room_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_map_focus_action_resolves_to_map_focus_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_room_root_click_action_resolves_to_return_to_map_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_room_item_click_action_resolves_to_enter_room_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_return_to_map_suppresses_room_projection_and_preserves_map_focus -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_snapshot_reports_map_mode_when_override_returns_to_map -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
 		}
 	]
 }

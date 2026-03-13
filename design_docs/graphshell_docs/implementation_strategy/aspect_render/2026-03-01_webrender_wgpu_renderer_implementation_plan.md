@@ -1,7 +1,7 @@
 # WebRender wgpu Renderer — Implementation Plan
 
 **Date**: 2026-03-01
-**Status**: Implementation strategy
+**Status**: ⚠️ Deferred indefinitely (2026-03-12) — wgpu renderer migration suspended. Graphshell ships on egui_glow. See `PLANNING_REGISTER.md` §0.13.
 **Author**: Arc
 **Source research**: `research/2026-03-01_webrender_wgpu_renderer_research.md`
 **Active audit log**: `2026-03-03_servo_wgpu_upgrade_audit_report.md`

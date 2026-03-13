@@ -4,11 +4,14 @@
 
 # Node Badge and Tagging Plan (2026-02-20)
 
-**Status**: Draft (Not Started)
+**Status**: In Progress (Partially Implemented) — updated 2026-03-12 for compositor integration, GUI decomposition, `#focus` disambiguation, and current runtime state
 
-**Prerequisites**: Persistence hub Phase 1 (tags data model: `tags: HashSet<String>` on `Node`,
-`TagNode`/`UntagNode` log entries, `tag_index`). This plan covers the visual and interactive
-layers on top of that data model.
+**Prerequisites**:
+- Persistence hub Phase 1 tag actions and runtime tag storage.
+- Current runtime reality: tags are stored in `workspace.semantic_tags`, not directly on `Node`.
+- A follow-up presentation metadata layer is required for durable per-tag icon choice and user-visible ordering.
+
+This plan covers the visual and interactive layers on top of that data model, plus the missing presentation metadata needed to make icon assignment and ordering durable.
 
 ---
 
@@ -21,6 +24,7 @@ Tags are user-applied node attributes (persistence hub plan Phase 1). This plan 
 1. **Badge visual system** — how tags are rendered on graph nodes and tab headers.
 2. **Tag assignment UI** — the `T`-key floating panel for adding and removing tags.
 3. **Icon system** — emoji (primary) and Lucide SVG (extended) icon sources.
+4. **Tag presentation metadata** — durable icon choice and ordering semantics for user tags.
 
 #### Tag Namespace Convention
 
@@ -93,9 +97,9 @@ badges are hidden first:
 4. `Starred` — `#starred` tag present.
 5. `Unread` — `#unread` tag present; rendered as a colored dot (distinct from icon chips).
 6. Other system tags (`#focus`, `#monitor`, `#private`, `#archive`, `#resident`, `#nohistory`) —
-   rendered as `Tag` chips using their default emoji; ordered by tag insertion order.
+   rendered as `Tag` chips using their default emoji; ordered by canonical system-tag priority unless a later presentation-metadata phase introduces explicit user-facing ordering.
 7. UDC Semantic tags (`udc:51`) — rendered as label chips (e.g. "51 Mathematics") or codes.
-8. User-defined tags — ordered by insertion order.
+8. User-defined tags — ordered deterministically. Current runtime storage uses `HashSet<String>`, so insertion order is not available without additional presentation metadata.
 
 `#archive` is a special case: the badge renders but the node itself is visually dimmed (reduced
 opacity in graph view). `#unread` is auto-managed by the system and is the only badge the user
@@ -127,6 +131,20 @@ When the cursor enters a node, or when the node is keyboard-focused:
 Implementation: store `badge_expand_t: f32` (0.0 → 1.0) per node in `GraphNodeShape` or a
 parallel `HashMap<NodeKey, f32>`. Animate via `ctx.request_repaint()` each frame until 1.0.
 
+#### 1.4.1 `#clip` Node Visual Treatment
+
+`#clip` nodes are clipped DOM elements — a distinct node type, not just a tag with a badge. Their canvas rendering must communicate this type distinction beyond the badge orbit:
+
+| Property | Treatment |
+| --- | --- |
+| Node border | Dashed stroke (distinguishes from solid-border page nodes) |
+| Node shape | Same geometry as a page node (rectangle with rounded corners); no shape change |
+| Badge | ✂️ emoji badge in the at-rest corner; shown in orbit with "Clip" label |
+| Opacity | Full opacity (not dimmed — `#clip` is not an archived state) |
+| `#archive` + `#clip` | Dimmed as normal archive treatment; clip border style preserved |
+
+**Invariant**: `#clip` border treatment is a canvas-node-level concern (`GraphNodeShape`), not a tile-level Pass 3 concern. Clip nodes open in a viewer pane like any other node; their tile does not receive special compositor treatment.
+
 #### 1.5 Tab Header Badges
 
 In the detail-view tab bar, each tab header shows a compact badge row to the right of the title:
@@ -144,10 +162,10 @@ In the detail-view tab bar, each tab header shows a compact badge row to the rig
 - [ ] Add `badge_expand_t: HashMap<NodeKey, f32>` state to `GraphNodeShape` or the egui_adapter.
 - [ ] Animate badge expansion on hover: increment `badge_expand_t` each frame, request repaint.
 - [ ] Render expanded orbit layout when `badge_expand_t > 0`.
-- [ ] Tab bar: render compact badge suffix per tab (existing tab rendering in `gui.rs` or
-  `desktop/tab_bar_ui.rs`).
+- [ ] Tab bar: render compact badge suffix per tab. Post-GUI decomposition, tab bar rendering lives in `shell/desktop/ui/workbench/` (not `gui.rs` — that file is now lifecycle/entrypoints only; frame orchestration is in `gui/gui_update_coordinator.rs`; workbench layout driving is in `gui_orchestration.rs`).
 - [ ] In `GraphNodeShape::ui()`: nodes with `TAG_ARCHIVE` render at reduced opacity (0.35–0.45)
   when the "Show archived" graph view toggle is on. Excluded entirely when toggle is off.
+- [ ] In `GraphNodeShape::ui()`: nodes with `TAG_CLIP` render a dashed border stroke instead of the default solid border. All other geometry is unchanged.
 
 #### Validation Tests
 
@@ -157,6 +175,154 @@ In the detail-view tab bar, each tab header shows a compact badge row to the rig
   Starred, Tag.
 - `test_crashed_badge_first` — Crashed + Pinned → Crashed is first.
 - `test_at_rest_capped_at_three` — 5 badges → 3 rendered + `+2` overflow chip.
+
+---
+
+### Phase 1.5: Tag Presentation Metadata
+
+The original version of this plan assumed that tag order and icon choice could be layered directly on top of a plain set of tag strings. That is no longer sufficient.
+
+Current runtime storage (`workspace.semantic_tags`) can answer "does this node have tag X?" but it cannot durably answer:
+
+- which user tag should render first,
+- which icon the user assigned to a user-defined tag,
+- whether a user tag should have a custom presentation color or source marker later.
+
+Before the full icon picker and user-controlled ordering ship, Graphshell needs a small presentation metadata carrier separate from the canonical tag-membership set.
+
+#### 1.5.1 Proposed Presentation Metadata Shape
+
+```rust
+pub struct NodeTagPresentationState {
+    pub ordered_tags: Vec<String>,
+    pub icon_overrides: HashMap<String, BadgeIcon>,
+}
+```
+
+This is intentionally presentation-only:
+
+- canonical membership remains the canonical tag set during the transition; today that is `workspace.semantic_tags`, but Phase 1.6 migrates ownership onto `Node.tags`
+- system tags keep fixed icons and do not use overrides
+- user-defined tags may use `icon_overrides`
+- `ordered_tags` provides stable user-visible ordering when present
+
+If no presentation metadata exists for a node, rendering falls back to deterministic sorted order.
+
+#### 1.5.2 Invariants
+
+- Membership truth comes from the canonical tag set, not from presentation metadata.
+- Presentation metadata may reorder or decorate tags but may not fabricate membership.
+- System tags (`#pin`, `#starred`, etc.) keep their canonical icons regardless of overrides.
+- Removing a tag must also prune any stale presentation metadata for that tag.
+
+#### Tasks
+
+- [ ] Define a presentation metadata carrier for per-node tag order and icon overrides.
+- [ ] Sync `TagNode` / `UntagNode` flows so metadata is initialized and pruned consistently.
+- [ ] Make badge resolution consume presentation metadata when available and deterministic fallback ordering otherwise.
+- [ ] Make icon picker selection write presentation metadata instead of trying to encode icon choice into the raw tag string.
+
+#### Validation Tests
+
+- `test_user_tag_presentation_order_is_stable_when_metadata_present`
+- `test_untag_prunes_stale_icon_override`
+- `test_system_tag_icon_cannot_be_overridden`
+
+---
+
+### Phase 1.6: Canonical Tag Ownership Migration
+
+The current runtime stores canonical tag membership in `workspace.semantic_tags`. That carrier is now considered a temporary bridge, not the correct long-term owner.
+
+Canonical tag truth should live on the node itself.
+
+#### 1.6.1 Target Ownership
+
+- `Node.tags` becomes the canonical durable tag set.
+- `workspace.semantic_index` remains a derived cache.
+- `workspace.suggested_semantic_tags` remains a non-canonical suggestion surface.
+- `workspace.tag_panel_state` remains transient UI state.
+
+This aligns tags with their actual meaning: tags are node-associated metadata, not workspace/session-scoped truth.
+
+#### 1.6.2 Migration Strategy
+
+The migration should be staged so read paths can move before the old mirror is deleted.
+
+**Step 1 — Add tags to `Node`**
+
+- Add `tags` to `Node`.
+- Initialize it in node constructors and snapshot/replay paths.
+- Treat it as durable semantic truth.
+
+**Step 2 — Add helper read APIs that prefer node-owned tags**
+
+- Add graph/model helper APIs for reading tags from nodes.
+- Route badge/render/search/registry consumers through those helpers first.
+- During the bridge phase, the helper may still fall back to the workspace mirror if needed.
+
+**Step 3 — Temporary dual-write reducer bridge**
+
+- Change `TagNode` / `UntagNode` reducers to write:
+  - `node.tags`
+  - `workspace.semantic_tags`
+- Keep `semantic_index_dirty = true`.
+- Keep existing `#pin` synchronization behavior intact.
+
+**Step 4 — Move all readers to node-owned tags**
+
+Update these families to read node-owned tags (preferably through helper APIs):
+
+- badge resolution
+- graph render
+- tab-header badge suffixes
+- search/index provider
+- knowledge registry runtime adapter
+- selected-node enrichment UI
+- tag panel UI
+
+**Step 5 — Rebuild semantic index from nodes**
+
+- Change `reconcile_semantics()` to iterate graph nodes and read `node.tags`.
+- Stop iterating `workspace.semantic_tags`.
+- Remove stale-tag pruning logic that only exists because tag storage is separate from node lifetime.
+
+**Step 6 — Remove the temporary mirror**
+
+- Delete `workspace.semantic_tags`.
+- Remove any bridge code still writing or clearing it.
+- Keep `semantic_index` and `semantic_index_dirty` as derived/runtime cache state.
+
+**Step 7 — Compatibility and tests**
+
+- Update reducer tests.
+- Update knowledge/index tests.
+- Update render/badge tests.
+- Review snapshot/archive compatibility because adding `tags` to `Node` is a persisted schema change.
+
+#### 1.6.3 Invariants
+
+- Canonical membership truth lives on nodes, not on workspace/session state.
+- `semantic_index` remains derivable from node tags + `KnowledgeRegistry`.
+- No read path should depend on `workspace.semantic_tags` after the migration reaches Step 4.
+- The dual-write phase is temporary and must have an explicit deletion step.
+
+#### Tasks
+
+- [ ] Add tags to `Node`.
+- [ ] Add helper read APIs that prefer node-owned tags.
+- [ ] Change `TagNode` / `UntagNode` reducers to write both node tags and `workspace.semantic_tags` temporarily.
+- [ ] Change all readers to use node tags.
+- [ ] Change `reconcile_semantics()` to iterate nodes, not `workspace.semantic_tags`.
+- [ ] Remove the temporary mirror field `workspace.semantic_tags`.
+- [ ] Update tests and snapshot compatibility as needed.
+
+#### Validation Tests
+
+- `test_tag_node_dual_write_bridge_updates_node_tags_and_workspace_mirror`
+- `test_badge_and_registry_reads_prefer_node_owned_tags`
+- `test_reconcile_semantics_rebuilds_from_node_tags`
+- `test_workspace_semantic_tags_removed_without_behavior_regression`
 
 ---
 
@@ -252,9 +418,9 @@ re-ranked on every keystroke.
 
 #### Tasks
 
-- [ ] Add `TagPanelState { node_key, text_input, suggestions, icon_picker_open }` to desktop
-  state (in `gui.rs` or a new `desktop/tag_panel.rs`).
-- [ ] `T` key in `KeyboardActions`: set `tag_panel_open = Some(selected_node_key)`.
+- [ ] Expand the existing `TagPanelState` to cover suggestion cache and icon-picker state. Current runtime already has `TagPanelState { node_key, text_input }`.
+- [ ] Move panel rendering out of the temporary graph-render placement into a dedicated UI module when the broader GUI extraction settles (`shell/desktop/ui/tag_panel.rs` remains a good target).
+- [ ] `T` key routing: set `tag_panel_open = Some(selected_node_key)` via the input context stack. This is a deliberate keybinding change because `T` is currently bound to physics; do not silently steal the existing shortcut.
 - [ ] `render_tag_panel()`: egui `Window` anchored near node rect; chip row, text field,
   suggestions.
 - [ ] On text field change: run nucleo against `tag_index` keys + static emoji name list.
@@ -262,7 +428,7 @@ re-ranked on every keystroke.
 - [ ] On chip ✕ click: emit `GraphIntent::UntagNode { key, tag }`.
 - [ ] `render_icon_picker()`: scrollable emoji grid + Lucide tab; search via nucleo.
 - [ ] On icon selection: associate icon with the pending tag (stored in `TagPanelState`).
-- [ ] Add `nucleo` to `Cargo.toml` dependencies.
+- [ ] Persist icon choice through tag presentation metadata rather than a transient UI-only field.
 
 #### Validation Tests
 
@@ -339,12 +505,67 @@ assignment chip, and the icon picker's "system" section. Users cannot reassign s
 - [ ] Implement emoji search in icon picker: nucleo over `EMOJI_NAMES`.
 - [ ] Implement Lucide search in icon picker: nucleo over icon slug list.
 
+**Implementation caveat**: this phase depends on Phase 1.5. Without tag presentation metadata, user-selected icons have no durable home.
+
 #### Validation Tests
 
 - `test_emoji_icon_renders_without_panic` — `render_badge_icon` with `BadgeIcon::Emoji("⭐")` →
   no panic (headed test or mock `Ui`).
 - `test_emoji_search_finds_star` — nucleo query "star" against emoji names → "⭐" in results.
 - `test_lucide_slug_recognized` — `BadgeIcon::Lucide("bookmark")` → bytes available (non-empty).
+
+---
+
+## Phase 4: Rendering Context Integration (Added 2026-03-12)
+
+Since this plan was written, the compositor architecture has advanced substantially. This section connects badge semantics to the two distinct rendering contexts where node visual state is expressed.
+
+### 4.1 Two Rendering Contexts
+
+Badge state (tags, lifecycle, Crashed, `#unread`) is rendered in two separate contexts that share the same semantic inputs but use different pipelines:
+
+| Context | Where | Renderer | What it draws |
+| --- | --- | --- | --- |
+| **Canvas node overlay** | Graph canvas view | `GraphNodeShape::ui()` via egui | Badge orbit, at-rest badge circles, `#archive` opacity |
+| **Tile-level overlay** | Workbench pane tile (Pass 3) | Compositor / `CompositorAdapter` | Lifecycle border treatment, focus/selection rings, recovery affordance badge |
+
+These are not the same thing. A node's graph-canvas badge orbit shows user-applied tags at the canvas level. A tile's Pass 3 border shows lifecycle state at the workbench level. Both can be visible simultaneously for the same node (if the canvas and a node-pane tile are visible at once).
+
+### 4.2 `badges_for_node()` as Shared Semantic Resolver
+
+`badges_for_node(node, workspace_count) -> Vec<Badge>` is the canonical semantic resolver for both contexts. The compositor's `TileSemanticOverlayInput` (see `../aspect_render/2026-03-12_compositor_expansion_plan.md` §2) draws from the same node state:
+
+- `TileSemanticOverlayInput.lifecycle` ← same `NodeLifecycle` that drives `Badge::Crashed` / lifecycle border treatment
+- `TileSemanticOverlayInput.runtime_blocked` ← same `RuntimeBlocked` condition that drives `Badge::Crashed` in slot 1
+- `TileSemanticOverlayInput.has_unread_traversal_activity` ← relates to `Badge::Unread` (`#unread` tag)
+
+**Invariant**: Semantic truth flows in one direction — graph/runtime state → both rendering contexts. Neither rendering context is authoritative over the other. A `Crashed` badge in the canvas view and a `RuntimeBlocked` recovery affordance in the tile are different visual expressions of the same underlying state, not redundant.
+
+**Implementation note**: `badges_for_node()` should be callable from both `GraphNodeShape::ui()` and the compositor's Pass 3 setup path without duplicating the resolution logic. It belongs in a location accessible to both (e.g., `graph/badge.rs`) rather than buried inside a canvas-specific module.
+
+**Current-state note**: the runtime currently has `badges_for_tags(...)` in `graph/badge.rs`, and both graph-canvas and tab-header code already consume it. The remaining gap is enriching that shared resolver with presentation metadata and any future tile-level semantic consumer.
+
+### 4.3 `#focus` Tag vs. Navigation Focus
+
+The `#focus` system tag (DOI boost, floats node toward canvas center) and the Focus subsystem's "navigation focus" (pane focus ring, `FocusDelta`, F6 region cycle) share the word "focus" but are distinct concepts:
+
+| Concept | Tag/mechanism | Visual expression | Owner |
+| --- | --- | --- | --- |
+| **Semantic focus** | `#focus` tag (user-applied) | Soft highlight ring on canvas node; 🎯 badge in orbit | Graph/tag system |
+| **Navigation focus** | Pane activation / keyboard focus | Focus ring on tile border (Pass 3, `FocusDelta`) | Focus subsystem / Render aspect |
+
+These must not be conflated in implementation. A node can have the `#focus` tag (persistent user annotation) and separately receive navigation focus (transient input-routing state). Both may render simultaneously — the `#focus` canvas highlight ring and the tile border focus ring are orthogonal.
+
+`TileSemanticOverlayInput.focus_delta` carries navigation focus transitions. The `#focus` tag is part of the node's tag set and would appear as a `Tag { icon: Emoji("🎯") }` badge in the canvas overlay — it does not feed into `FocusDelta`.
+
+### 4.4 Compositor Cross-Reference
+
+See `../aspect_render/2026-03-12_compositor_expansion_plan.md` for:
+
+- O2 (lifecycle → tile border treatment) — tile-level expression of `NodeLifecycle`
+- O5 (`FocusDelta`) — navigation focus ring contract
+- §2 (`TileSemanticOverlayInput`) — shared semantic snapshot consumed by Pass 3
+- O8 (`TileAffordanceAnnotation`) — what Pass 3 emits back to the accessibility layer
 
 ---
 
@@ -372,6 +593,20 @@ represented as a badge. It is a lifecycle management setting, not a semantic ann
 no meaning in the graph view, only in the tab bar. Users do not need to see "this tab is resident"
 as a node property; they interact with it via the tab right-click menu.
 
+### Badge State → AccessKit Mapping (O8)
+
+The compositor expansion plan (O8, `TileAffordanceAnnotation`) establishes a path from Pass 3 draw output to the AccessKit bridge. Several badge states have direct AccessKit semantic equivalents that the bridge should map when `TileAffordanceAnnotation` is consumed:
+
+| Badge / condition | AccessKit mapping | Notes |
+| --- | --- | --- |
+| `Crashed` / `RuntimeBlocked` | `aria-busy` or error state role | Recovery affordance badge → accessible status announcement |
+| `Unread` (`#unread`) | `aria-live` region update hint | Badge clearing on activation should trigger a live region announcement |
+| `#private` | Redacted label / `aria-hidden` on URL/title elements | When sharing mode is active; applies to accessible name computation |
+| `Starred` (`#starred`) | `aria-label` suffix or `aria-describedby` hint | "Bookmarked" status annotation |
+| `#archive` | `aria-hidden` when excluded from default view | Node effectively absent from default traversal |
+
+This mapping is the responsibility of the canonical UX/accessibility projection layer consuming `TileAffordanceAnnotation`, not of the badge system itself and not of a direct compositor → AccessKit shortcut. The badge system's job is to resolve badge state correctly; the accessibility projection layer's job is to translate it.
+
 ### `#monitor` Requires a Dedicated Plan
 
 `#monitor` is listed as a reserved tag but its implementation is substantially more complex than
@@ -390,7 +625,26 @@ reserved now so data written before the plan exists is upgrade-compatible. Do no
 
 Nucleo is the fuzzy matcher used by the Helix editor. It is MIT-licensed, has no unsafe outside of
 its SIMD hot path, and is a single-crate dependency. It is already considered for the omnibar
-(UX polish plan §5.3). Adding it here to `Cargo.toml` is consistent with that future use.
+(UX polish plan §5.3). It is already present in the repository, so this plan does not need to add it as a new dependency.
+
+### Current Implementation Snapshot
+
+As of 2026-03-12, the following parts of this plan already exist in code:
+
+- shared badge model and reserved tag constants in `graph/badge.rs`
+- graph-node badge rendering and archive dimming in `model/graph/egui_adapter.rs`
+- tab-header badge suffixes in `shell/desktop/workbench/tile_behavior/tab_chrome.rs`
+- reducer-side reserved-tag normalization and acceptance of ordinary user tags
+- a non-modal selected-node tag editor in `render/mod.rs`
+
+Still missing:
+
+- badge orbit / hover expansion
+- dedicated `T`-key and context-menu trigger routing
+- icon picker and durable user-tag icon storage
+- `#clip` dashed-border treatment
+- canonical tag ownership migration from `workspace.semantic_tags` to `Node.tags`
+- full presentation metadata layer for user-controlled order and icon choice
 
 ---
 
@@ -403,3 +657,16 @@ its SIMD hot path, and is a single-crate dependency. It is already considered fo
 - Tag assignment UI (floating panel, nucleo autocomplete, icon picker) designed.
 - Icon system: emoji (primary, zero cost) + Lucide (extended, SVG, MIT) decided.
 - Implementation not started.
+
+### 2026-03-12 — Architecture update
+
+- Added §4 "Rendering Context Integration": two-context model (canvas node overlay vs. tile-level Pass 3), `badges_for_node()` as shared resolver invariant, cross-reference to compositor expansion plan.
+- Added §4.3 semantic focus (`#focus` tag) vs. navigation focus (Focus subsystem / `FocusDelta`) naming disambiguation.
+- Updated Phase 1 and Phase 2 task file references to reflect post-GUI-decomposition module paths (`gui_update_coordinator.rs`, `gui_orchestration.rs`); tag panel moves to `shell/desktop/ui/tag_panel.rs`.
+- Updated `T` key task to route through `InputRegistry`/`ActionRegistry` (not hardcoded `KeyboardActions`).
+- Added §1.4.1 `#clip` node visual treatment table (dashed border, no shape change, full opacity).
+- Added "Badge State → AccessKit Mapping (O8)" finding with `Crashed`/`Unread`/`#private`/`#starred`/`#archive` AccessKit semantic equivalents.
+- Corrected plan status and prerequisite language to match current runtime storage (`workspace.semantic_tags`, not tags embedded directly on `Node`).
+- Added Phase 1.5 tag presentation metadata so durable user-tag icon choice and ordering have an explicit architectural home.
+- Added Phase 1.6 canonical tag ownership migration, including the temporary dual-write reducer bridge, read-path migration, semantic-index rebuild changes, and explicit removal of `workspace.semantic_tags`.
+- Added a current implementation snapshot to distinguish landed work from remaining slices.

@@ -231,19 +231,18 @@ Validation gate:
 - Core-UX-impacting scaffolds: closure criteria met and marker removed.
 - Non-core scaffolds: explicitly de-scoped from v0.0.2 with rationale documented.
 
-### AG9 — WGPU Start Authorization Gate
+### AG9 — v0.0.2 Release Authorization Gate
 
-**Status**: `blocked` (by AG0–AG8 + `#180`)
+**Status**: `blocked` (by AG0–AG8)
 
-Feature objective: Begin renderer migration only when application readiness is true.
+Feature objective: Ship v0.0.2 on the current egui_glow / Servo GL compositor stack when application readiness is true.
 
-This gate closes v0.0.2 and opens the post-v0.0.2 renderer migration track.
+**Note (2026-03-12)**: The post-v0.0.2 wgpu renderer migration (egui_glow → egui_wgpu, WebRender wgpu backend, G1–G5 readiness gates, P0–P12 phases) is **deferred indefinitely**. Maintaining a Servo fork to drive the wgpu backend forward is not viable at current scale, and upstream acceptance is unlikely. The GL compositor stack (egui_glow) remains the production renderer. The `#180` GL bridge precondition is therefore no longer a release blocker for v0.0.2.
 
 Validation gate:
 
 - All AG0–AG8 closed with evidence.
-- Runtime viewer bridge precondition (`#180`) evidenced as solved.
-- Application readiness conditions from `egui_wgpu_custom_canvas_migration_strategy.md` §Application Readiness Gate all true.
+- Test guide §4 minimum acceptance checks are green on the egui_glow stack.
 
 ### AG1/AG2 Stabilization Notes (2026-03-03)
 
@@ -515,9 +514,8 @@ Execution note (2026-03-09):
 
 1. Verify all AG0–AG8 are closed with linked evidence.
 2. Run test guide §4 minimum acceptance checks.
-3. Verify runtime viewer bridge precondition (`#180`) is evidenced.
-4. Bump `Cargo.toml` version to `0.0.2`.
-5. Tag `v0.0.2`, build release artifacts, publish release notes.
+3. Bump `Cargo.toml` version to `0.0.2`.
+4. Tag `v0.0.2`, build release artifacts, publish release notes.
 
 **Exit criteria**: v0.0.2 tagged and released.
 
@@ -539,27 +537,24 @@ Phases are not strictly sequential. The following can run in parallel:
 
 ---
 
-## 11) Post-v0.0.2: Renderer Migration (Not In Scope)
+## 11) Post-v0.0.2: Renderer Migration — Deferred Indefinitely (2026-03-12)
 
-After v0.0.2 ships, the following sequence begins:
+**Decision**: The wgpu renderer migration is deferred indefinitely. Maintaining a Servo fork to drive the WebRender wgpu backend forward is not viable at current scale, and upstream is unlikely to accept the work. Graphshell ships on `egui_glow` / Servo GL compositor.
 
-1. **Renderer switch readiness (G1–G5)** from `webrender_readiness_gate_feature_guardrails.md`:
-   - G1: Dependency control and reproducibility
-   - G2: Backend contract parity
-   - G3: Pass-contract safety
-   - G4: Platform confidence
-   - G5: Regression envelope
+The following tracks are **suspended** until conditions change:
 
-2. **WebRender wgpu implementation (P0–P12)** from `webrender_wgpu_renderer_implementation_plan.md`.
+- Track B: egui_glow → egui_wgpu renderer switch (G1–G5 readiness gates)
+- WebRender wgpu implementation (P0–P12 phases)
+- Servo wgpu upgrade work (`#180`, `#183`, `#245`)
 
-3. **Five unanswered gating questions** from `egui_wgpu_custom_canvas_migration_requirements.md`:
-   - §3.1: Runtime viewer surface interop (the #1 blocker)
-   - §3.2: GPU ownership model
-   - §3.3: Canvas presentation strategy
-   - §3.4: Measurable success criteria (frame budget, node counts, latency targets)
-   - §3.5: Rollback/fallback plan
+The related planning documents are archived/deferred:
 
-These are explicitly out of v0.0.2 scope. Track A (v0.0.2) ships on Glow. Track B (renderer migration) is post-v0.0.2.
+- `aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md` — Deferred indefinitely
+- `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md` — Deferred indefinitely
+- `aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md` — Deferred indefinitely
+- `aspect_render/2026-03-03_servo_wgpu_upgrade_audit_report.md` — Deferred indefinitely
+
+**What this means for AG9**: The release gate is now simply all AG0–AG8 closed with evidence on the Glow stack. The `#180` GL bridge is no longer a v0.0.2 blocker.
 
 ---
 
@@ -577,9 +572,9 @@ This plan subsumes, references, and deduplicates the following planning artifact
 | `2026-03-01_ux_migration_feature_spec_coverage_matrix.md` | Spec coverage status informs AG0 and spec conflict resolution |
 | `2026-03-01_ux_migration_design_spec.md` | Authoritative UX design target; v0.0.2 implements its Phase 1–3 |
 | `subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md` | Baseline done-gate and milestone checklist inform AG0 and Phase 5 |
-| `aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md` | Deferral doctrine + application readiness gate define AG9 |
-| `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md` | G1–G5 renderer-switch gates are post-v0.0.2 (§11) |
-| `aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md` | P0–P12 phases are post-v0.0.2 (§11) |
+| `aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md` | **Deferred indefinitely** (2026-03-12); was deferral doctrine + application readiness gate |
+| `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md` | **Deferred indefinitely** (2026-03-12); was G1–G5 renderer-switch gates |
+| `aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md` | **Deferred indefinitely** (2026-03-12); was P0–P12 wgpu implementation phases |
 | `PLANNING_REGISTER.md` §1C | Top 10 lanes mapped to AG gates in §6 |
 | `system/VERSIONING_POLICY.md` | v0.0.2 bump semantics |
 | `2026-02-28_stabilization_progress_receipt.md` | Evidence for AG1/AG2 partial closure |
@@ -614,7 +609,7 @@ From the pre-wgpu gate checklist, unchanged:
 | AG6 | `partial` | viewer-platform, embedder-debt | `TileRenderMode`, compositor pass contract |
 | AG7 | `open` | diagnostics, test-infra | UxHarness scenarios, UxTree/Probe invariants |
 | AG8 | `open` | viewer-platform, knowledge-capture | 5 active scaffolds |
-| AG9 | `blocked` | All | Blocked by AG0–AG8 + `#180` |
+| AG9 | `blocked` | All | Blocked by AG0–AG8 (wgpu migration deferred; `#180` no longer a blocker) |
 
 **Gates closed: 0/10**  
 **Gates partial: 4/10** (AG1, AG2, AG5, AG6)  
