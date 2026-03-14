@@ -43,6 +43,8 @@ pub mod apply;
 pub mod badge;
 pub mod egui_adapter;
 
+use self::badge::NodeTagPresentationState;
+
 /// Stable node handle (petgraph NodeIndex — survives other deletions)
 pub type NodeKey = NodeIndex;
 
@@ -288,6 +290,12 @@ pub struct Node {
     #[rkyv(with = Vector2DAsTuple)]
     pub velocity: Vector2D<f32>,
 
+    /// Canonical durable semantic tags for this node.
+    pub tags: HashSet<String>,
+
+    /// Presentation-only metadata for ordering and icon overrides.
+    pub tag_presentation: NodeTagPresentationState,
+
     /// Whether this node's position is pinned (doesn't move with physics)
     pub is_pinned: bool,
 
@@ -377,6 +385,8 @@ impl Node {
             position: Point2D::new(0.0, 0.0),
             committed_position: Point2D::new(0.0, 0.0),
             velocity: Vector2D::new(0.0, 0.0),
+            tags: HashSet::new(),
+            tag_presentation: NodeTagPresentationState::default(),
             is_pinned: false,
             last_visited: std::time::SystemTime::now(),
             history_entries: Vec::new(),
@@ -701,6 +711,8 @@ impl Graph {
             position,
             committed_position: position,
             velocity: Vector2D::zero(),
+            tags: HashSet::new(),
+            tag_presentation: NodeTagPresentationState::default(),
             is_pinned: false,
             last_visited: now,
             history_entries: Vec::new(),
@@ -837,6 +849,65 @@ impl Graph {
         }
         node.is_pinned = is_pinned;
         true
+    }
+
+    pub(crate) fn insert_node_tag(&mut self, key: NodeKey, tag: String) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        let inserted = node.tags.insert(tag.clone());
+        if inserted && !node.tag_presentation.ordered_tags.contains(&tag) {
+            node.tag_presentation.ordered_tags.push(tag);
+        }
+        inserted
+    }
+
+    pub(crate) fn remove_node_tag(&mut self, key: NodeKey, tag: &str) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        let removed = node.tags.remove(tag);
+        if removed {
+            node.tag_presentation
+                .ordered_tags
+                .retain(|entry| entry != tag);
+            node.tag_presentation.icon_overrides.remove(tag);
+        }
+        removed
+    }
+
+    pub(crate) fn node_tags(&self, key: NodeKey) -> Option<&HashSet<String>> {
+        self.get_node(key).map(|node| &node.tags)
+    }
+
+    pub(crate) fn node_tag_presentation(&self, key: NodeKey) -> Option<&NodeTagPresentationState> {
+        self.get_node(key).map(|node| &node.tag_presentation)
+    }
+
+    pub(crate) fn set_node_tag_icon_override(
+        &mut self,
+        key: NodeKey,
+        tag: &str,
+        icon: Option<crate::graph::badge::BadgeIcon>,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if !node.tags.contains(tag) || tag.starts_with('#') || tag.starts_with("udc:") {
+            return false;
+        }
+        match icon {
+            Some(icon) => {
+                if node.tag_presentation.icon_overrides.get(tag) == Some(&icon) {
+                    return false;
+                }
+                node.tag_presentation
+                    .icon_overrides
+                    .insert(tag.to_string(), icon);
+                true
+            }
+            None => node.tag_presentation.icon_overrides.remove(tag).is_some(),
+        }
     }
 
     pub(crate) fn set_node_position(&mut self, key: NodeKey, position: Point2D<f32>) -> bool {
@@ -1500,6 +1571,12 @@ impl Graph {
                 title: node.title.clone(),
                 position_x: node.committed_position.x,
                 position_y: node.committed_position.y,
+                tags: {
+                    let mut tags = node.tags.iter().cloned().collect::<Vec<_>>();
+                    tags.sort();
+                    tags
+                },
+                tag_presentation: node.tag_presentation.clone(),
                 is_pinned: node.is_pinned,
                 history_entries: node.history_entries.clone(),
                 history_index: node.history_index,
@@ -1599,6 +1676,8 @@ impl Graph {
                     .cached_host
                     .clone()
                     .or_else(|| cached_host_from_url(&node.url));
+                node.tags = pnode.tags.iter().cloned().collect();
+                node.tag_presentation = pnode.tag_presentation.clone();
                 node.is_pinned = pnode.is_pinned;
                 node.history_entries = pnode.history_entries.clone();
                 node.history_index = pnode
@@ -2182,6 +2261,8 @@ mod tests {
                 title: String::new(),
                 position_x: 0.0,
                 position_y: 0.0,
+                tags: vec![],
+                tag_presentation: NodeTagPresentationState::default(),
                 is_pinned: false,
                 history_entries: vec![],
                 history_index: 0,
@@ -2226,6 +2307,8 @@ mod tests {
                     title: "First".to_string(),
                     position_x: 0.0,
                     position_y: 0.0,
+                    tags: vec![],
+                    tag_presentation: NodeTagPresentationState::default(),
                     is_pinned: false,
                     history_entries: vec![],
                     history_index: 0,
@@ -2246,6 +2329,8 @@ mod tests {
                     title: "Second".to_string(),
                     position_x: 100.0,
                     position_y: 100.0,
+                    tags: vec![],
+                    tag_presentation: NodeTagPresentationState::default(),
                     is_pinned: false,
                     history_entries: vec![],
                     history_index: 0,
@@ -2308,6 +2393,8 @@ mod tests {
                 title: "Node".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                tags: vec![],
+                tag_presentation: NodeTagPresentationState::default(),
                 is_pinned: false,
                 history_entries: vec!["https://legacy.example".to_string()],
                 history_index: 0,
@@ -2355,6 +2442,8 @@ mod tests {
                 title: "Node".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                tags: vec![],
+                tag_presentation: NodeTagPresentationState::default(),
                 is_pinned: false,
                 history_entries: vec![],
                 history_index: 0,
@@ -2397,6 +2486,8 @@ mod tests {
                 title: "Node".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                tags: vec![],
+                tag_presentation: NodeTagPresentationState::default(),
                 is_pinned: false,
                 history_entries: vec!["https://legacy-one.example".to_string()],
                 history_index: 0,
@@ -2684,5 +2775,36 @@ mod tests {
             .collect();
         sizes.sort_unstable();
         assert_eq!(sizes, vec![1, 3]);
+    }
+
+    #[test]
+    fn removing_tag_prunes_stale_icon_override() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        assert!(graph.insert_node_tag(key, "research".to_string()));
+        assert!(graph.set_node_tag_icon_override(
+            key,
+            "research",
+            Some(crate::graph::badge::BadgeIcon::Emoji("🔬".to_string()))
+        ));
+
+        assert!(graph.remove_node_tag(key, "research"));
+        assert!(
+            graph
+                .node_tag_presentation(key)
+                .is_some_and(|presentation| presentation.icon_overrides.is_empty())
+        );
+    }
+
+    #[test]
+    fn system_tag_icon_cannot_be_overridden() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        assert!(graph.insert_node_tag(key, "#pin".to_string()));
+        assert!(!graph.set_node_tag_icon_override(
+            key,
+            "#pin",
+            Some(crate::graph::badge::BadgeIcon::Emoji("🔬".to_string()))
+        ));
     }
 }

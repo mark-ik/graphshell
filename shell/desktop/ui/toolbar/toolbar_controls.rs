@@ -6,14 +6,39 @@ use std::collections::HashSet;
 
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 
+pub(crate) fn render_graph_history_buttons(
+    ui: &mut egui::Ui,
+    frame_intents: &mut Vec<crate::app::GraphIntent>,
+) {
+    let undo_button = ui.add(super::toolbar_button("Undo"));
+    undo_button.widget_info(|| {
+        let mut info = WidgetInfo::new(WidgetType::Button);
+        info.label = Some("Undo".into());
+        info
+    });
+    if undo_button.clicked() {
+        frame_intents.push(crate::app::GraphIntent::Undo);
+    }
+
+    let redo_button = ui.add(super::toolbar_button("Redo"));
+    redo_button.widget_info(|| {
+        let mut info = WidgetInfo::new(WidgetType::Button);
+        info.label = Some("Redo".into());
+        info
+    });
+    if redo_button.clicked() {
+        frame_intents.push(crate::app::GraphIntent::Redo);
+    }
+}
+
 pub(super) fn render_frame_pin_controls(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
-    has_node_panes: bool,
+    has_hosted_panes: bool,
     focused_pane_pin_name: Option<&str>,
     persisted_frame_names: &HashSet<String>,
 ) {
-    if !has_node_panes {
+    if !has_hosted_panes {
         return;
     }
 
@@ -75,7 +100,7 @@ pub(super) fn render_frame_pin_controls(
     }
 }
 
-pub(super) fn render_navigation_buttons(
+pub(crate) fn render_navigation_buttons(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,

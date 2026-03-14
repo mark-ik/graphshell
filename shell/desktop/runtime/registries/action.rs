@@ -51,6 +51,9 @@ pub(crate) const ACTION_WORKBENCH_SPLIT_VERTICAL: &str = "workbench:split_vertic
 pub(crate) const ACTION_WORKBENCH_CLOSE_PANE: &str = "workbench:close_pane";
 pub(crate) const ACTION_WORKBENCH_COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
 pub(crate) const ACTION_WORKBENCH_HELP_OPEN: &str = "workbench:help_open";
+pub(crate) const ACTION_WORKBENCH_SETTINGS_PANE_OPEN: &str = "workbench:settings_pane_open";
+pub(crate) const ACTION_WORKBENCH_SETTINGS_OVERLAY_OPEN: &str = "workbench:settings_overlay_open";
+/// Legacy alias retained while higher-level bundles migrate to the explicit pane action.
 pub(crate) const ACTION_WORKBENCH_SETTINGS_OPEN: &str = "workbench:settings_open";
 pub(crate) const ACTION_WORKBENCH_UNDO: &str = "workbench:undo";
 pub(crate) const ACTION_WORKBENCH_REDO: &str = "workbench:redo";
@@ -126,6 +129,8 @@ pub(crate) enum ActionPayload {
     },
     WorkbenchCommandPaletteOpen,
     WorkbenchHelpOpen,
+    WorkbenchSettingsPaneOpen,
+    WorkbenchSettingsOverlayOpen,
     WorkbenchSettingsOpen,
     WorkbenchUndo,
     WorkbenchRedo,
@@ -576,6 +581,16 @@ impl Default for ActionRegistry {
             ACTION_WORKBENCH_HELP_OPEN,
             ActionCapability::AlwaysAvailable,
             execute_workbench_help_open_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_SETTINGS_PANE_OPEN,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_settings_pane_open_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_SETTINGS_OVERLAY_OPEN,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_settings_overlay_open_action,
         );
         registry.register(
             ACTION_WORKBENCH_SETTINGS_OPEN,
@@ -1404,8 +1419,46 @@ fn execute_workbench_help_open_action(
     ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::ToggleHelpPanel]))
 }
 
-fn execute_workbench_settings_open_action(
+fn execute_workbench_settings_pane_open_action(
     _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchSettingsPaneOpen = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:settings_pane_open requires WorkbenchSettingsPaneOpen payload"
+                .to_string(),
+        });
+    };
+
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::OpenToolPane {
+            kind: ToolPaneState::Settings,
+        },
+    ))
+}
+
+fn execute_workbench_settings_overlay_open_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchSettingsOverlayOpen = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:settings_overlay_open requires WorkbenchSettingsOverlayOpen payload"
+                .to_string(),
+        });
+    };
+
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::OpenSettingsUrl {
+            url: VersoAddress::settings(GraphshellSettingsPath::General).to_string(),
+        },
+    ))
+}
+
+fn execute_workbench_settings_open_action(
+    app: &GraphBrowserApp,
     payload: &ActionPayload,
 ) -> ActionOutcome {
     let ActionPayload::WorkbenchSettingsOpen = payload else {
@@ -1415,11 +1468,9 @@ fn execute_workbench_settings_open_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
-        WorkbenchIntent::OpenToolPane {
-            kind: ToolPaneState::Settings,
-        },
-    ))
+    // Keep the legacy action id mapped to the hosted-pane behavior until all
+    // external bundles and docs are updated to the explicit pane/overlay split.
+    execute_workbench_settings_pane_open_action(app, &ActionPayload::WorkbenchSettingsPaneOpen)
 }
 
 fn execute_workbench_undo_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
@@ -2355,12 +2406,35 @@ mod tests {
         ));
 
         let settings = registry.execute(
+            ACTION_WORKBENCH_SETTINGS_PANE_OPEN,
+            &app,
+            ActionPayload::WorkbenchSettingsPaneOpen,
+        );
+        assert!(matches!(
+            settings.into_workbench_intent(),
+            Some(WorkbenchIntent::OpenToolPane {
+                kind: ToolPaneState::Settings
+            })
+        ));
+
+        let settings_overlay = registry.execute(
+            ACTION_WORKBENCH_SETTINGS_OVERLAY_OPEN,
+            &app,
+            ActionPayload::WorkbenchSettingsOverlayOpen,
+        );
+        assert!(matches!(
+            settings_overlay.into_workbench_intent(),
+            Some(WorkbenchIntent::OpenSettingsUrl { url })
+                if url == VersoAddress::settings(GraphshellSettingsPath::General).to_string()
+        ));
+
+        let settings_legacy = registry.execute(
             ACTION_WORKBENCH_SETTINGS_OPEN,
             &app,
             ActionPayload::WorkbenchSettingsOpen,
         );
         assert!(matches!(
-            settings.into_workbench_intent(),
+            settings_legacy.into_workbench_intent(),
             Some(WorkbenchIntent::OpenToolPane {
                 kind: ToolPaneState::Settings
             })
@@ -2490,6 +2564,14 @@ mod tests {
             registry.describe_action(ACTION_WORKBENCH_SETTINGS_OPEN),
             Some(ActionCapability::AlwaysAvailable)
         );
+        assert_eq!(
+            registry.describe_action(ACTION_WORKBENCH_SETTINGS_PANE_OPEN),
+            Some(ActionCapability::AlwaysAvailable)
+        );
+        assert_eq!(
+            registry.describe_action(ACTION_WORKBENCH_SETTINGS_OVERLAY_OPEN),
+            Some(ActionCapability::AlwaysAvailable)
+        );
     }
 
     #[test]
@@ -2530,6 +2612,10 @@ mod tests {
             ACTION_WORKBENCH_COMMAND_PALETTE_OPEN
         ));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_SETTINGS_OPEN));
+        assert!(is_namespaced_action_id(ACTION_WORKBENCH_SETTINGS_PANE_OPEN));
+        assert!(is_namespaced_action_id(
+            ACTION_WORKBENCH_SETTINGS_OVERLAY_OPEN
+        ));
         assert!(is_namespaced_action_id(
             ACTION_WORKBENCH_OPEN_PERSISTENCE_HUB
         ));

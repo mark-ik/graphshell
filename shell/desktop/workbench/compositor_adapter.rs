@@ -59,9 +59,8 @@ static COMPOSITOR_CONTENT_CALLBACKS: OnceLock<Mutex<HashMap<NodeKey, RegisteredC
 #[cfg(feature = "diagnostics")]
 static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
 
-type CompositorContentCallback = std::sync::Arc<
-    dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync,
->;
+type CompositorContentCallback =
+    std::sync::Arc<dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync>;
 
 #[derive(Clone)]
 struct RegisteredContentCallback {
@@ -718,27 +717,37 @@ impl CompositorAdapter {
             .get(&node_key)
             .cloned()?;
 
-        Some(custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
-            #[cfg(feature = "diagnostics")]
-            let started = std::time::Instant::now();
+        Some(custom_pass_from_backend_viewport(
+            move |gl, clip: BackendViewportInPixels| {
+                #[cfg(feature = "diagnostics")]
+                let started = std::time::Instant::now();
 
-            let probe_context = BridgeProbeContext {
-                bridge_path: registered.bridge_path,
-                bridge_mode: registered.bridge_mode,
-                tile_rect_px: [clip.left_px, clip.from_bottom_px, clip.width_px, clip.height_px],
-                render_size_px: [clip.width_px as u32, clip.height_px as u32],
-            };
+                let probe_context = BridgeProbeContext {
+                    bridge_path: registered.bridge_path,
+                    bridge_mode: registered.bridge_mode,
+                    tile_rect_px: [
+                        clip.left_px,
+                        clip.from_bottom_px,
+                        clip.width_px,
+                        clip.height_px,
+                    ],
+                    render_size_px: [clip.width_px as u32, clip.height_px as u32],
+                };
 
-            CompositorAdapter::run_content_callback_with_guardrails(node_key, gl, probe_context, || {
-                (registered.callback)(gl, clip)
-            });
+                CompositorAdapter::run_content_callback_with_guardrails(
+                    node_key,
+                    gl,
+                    probe_context,
+                    || (registered.callback)(gl, clip),
+                );
 
-            #[cfg(feature = "diagnostics")]
-            crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-                "tile_compositor::content_pass_callback",
-                started.elapsed().as_micros() as u64,
-            );
-        }))
+                #[cfg(feature = "diagnostics")]
+                crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+                    "tile_compositor::content_pass_callback",
+                    started.elapsed().as_micros() as u64,
+                );
+            },
+        ))
     }
 
     pub(crate) fn run_content_callback_with_guardrails<F>(
@@ -1401,7 +1410,10 @@ mod tests {
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(80.0, 40.0)),
         );
 
-        assert_eq!(outcome, CompositedContentPassOutcome::MissingContentCallback);
+        assert_eq!(
+            outcome,
+            CompositedContentPassOutcome::MissingContentCallback
+        );
     }
 
     #[test]

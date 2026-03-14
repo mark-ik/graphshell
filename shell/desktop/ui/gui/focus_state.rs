@@ -52,7 +52,9 @@ pub(crate) fn workspace_runtime_focus_state(
         show_command_palette: graph_app.workspace.show_command_palette,
         command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.show_help_panel,
+        show_settings_overlay: graph_app.workspace.show_settings_overlay,
         show_radial_menu: graph_app.workspace.show_radial_menu,
+        show_clip_inspector: graph_app.workspace.show_clip_inspector,
         show_clear_data_confirm,
         command_surface_return_target: focus_authority
             .and_then(|authority| authority.command_surface_return_target.clone())
@@ -113,7 +115,9 @@ pub(crate) fn workbench_runtime_focus_state(
         show_command_palette: graph_app.workspace.show_command_palette,
         command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.show_help_panel,
+        show_settings_overlay: graph_app.workspace.show_settings_overlay,
         show_radial_menu: graph_app.workspace.show_radial_menu,
+        show_clip_inspector: graph_app.workspace.show_clip_inspector,
         show_clear_data_confirm,
         command_surface_return_target: focus_authority
             .and_then(|authority| authority.command_surface_return_target.clone())
@@ -209,7 +213,9 @@ pub(crate) fn refresh_realized_runtime_focus_state(
         show_command_palette: graph_app.workspace.show_command_palette,
         command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.show_help_panel,
+        show_settings_overlay: graph_app.workspace.show_settings_overlay,
         show_radial_menu: graph_app.workspace.show_radial_menu,
+        show_clip_inspector: graph_app.workspace.show_clip_inspector,
         show_clear_data_confirm,
         command_surface_return_target: focus_authority.command_surface_return_target.clone(),
         transient_surface_return_target: focus_authority.transient_surface_return_target.clone(),
@@ -257,7 +263,9 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
         show_command_palette,
         command_palette_contextual_mode,
         show_help_panel,
+        show_settings_overlay,
         show_radial_menu,
+        show_clip_inspector,
         show_clear_data_confirm,
         command_surface_return_target,
         transient_surface_return_target,
@@ -288,6 +296,22 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
                 .map(ReturnAnchor::ToolSurface),
         });
     }
+    if show_settings_overlay {
+        capture_stack.push(FocusCaptureEntry {
+            surface: FocusCaptureSurface::SettingsOverlay,
+            return_anchor: transient_surface_return_target
+                .clone()
+                .map(ReturnAnchor::ToolSurface),
+        });
+    }
+    if show_clip_inspector {
+        capture_stack.push(FocusCaptureEntry {
+            surface: FocusCaptureSurface::ClipInspector,
+            return_anchor: transient_surface_return_target
+                .clone()
+                .map(ReturnAnchor::ToolSurface),
+        });
+    }
     if show_help_panel {
         capture_stack.push(FocusCaptureEntry {
             surface: FocusCaptureSurface::HelpPanel,
@@ -305,6 +329,10 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
         }
     } else if show_radial_menu {
         SemanticRegionFocus::RadialPalette
+    } else if show_settings_overlay {
+        SemanticRegionFocus::SettingsOverlay
+    } else if show_clip_inspector {
+        SemanticRegionFocus::ClipInspector
     } else if show_help_panel {
         SemanticRegionFocus::HelpPanel
     } else if let Some(semantic_region) = semantic_region_override {
@@ -476,6 +504,8 @@ fn semantic_region_for_capture_surface(surface: FocusCaptureSurface) -> Semantic
         FocusCaptureSurface::CommandPalette => SemanticRegionFocus::CommandPalette,
         FocusCaptureSurface::ContextPalette => SemanticRegionFocus::ContextPalette,
         FocusCaptureSurface::RadialPalette => SemanticRegionFocus::RadialPalette,
+        FocusCaptureSurface::SettingsOverlay => SemanticRegionFocus::SettingsOverlay,
+        FocusCaptureSurface::ClipInspector => SemanticRegionFocus::ClipInspector,
         FocusCaptureSurface::HelpPanel => SemanticRegionFocus::HelpPanel,
     }
 }
@@ -566,7 +596,11 @@ pub(crate) fn apply_focus_command(
                 .retain(|entry| entry.surface != surface);
             if matches!(
                 &focus_authority.semantic_region,
-                Some(SemanticRegionFocus::RadialPalette | SemanticRegionFocus::HelpPanel)
+                Some(
+                    SemanticRegionFocus::RadialPalette
+                        | SemanticRegionFocus::SettingsOverlay
+                        | SemanticRegionFocus::HelpPanel
+                )
             ) {
                 if let Some(top) = focus_authority.capture_stack.last() {
                     focus_authority.semantic_region =
@@ -758,7 +792,9 @@ pub(super) fn apply_graph_surface_focus_state(
 pub(super) fn ui_overlay_active_from_flags(
     show_command_palette: bool,
     show_help_panel: bool,
+    show_settings_overlay: bool,
     show_radial_menu: bool,
+    show_clip_inspector: bool,
     show_clear_data_confirm: bool,
 ) -> bool {
     build_runtime_focus_state(RuntimeFocusInputs {
@@ -774,7 +810,9 @@ pub(super) fn ui_overlay_active_from_flags(
         show_command_palette,
         command_palette_contextual_mode: false,
         show_help_panel,
+        show_settings_overlay,
         show_radial_menu,
+        show_clip_inspector,
         show_clear_data_confirm,
         command_surface_return_target: None,
         transient_surface_return_target: None,
@@ -829,7 +867,9 @@ mod tests {
             show_command_palette: true,
             command_palette_contextual_mode: true,
             show_help_panel: false,
+            show_settings_overlay: false,
             show_radial_menu: false,
+            show_clip_inspector: false,
             show_clear_data_confirm: false,
             command_surface_return_target: Some(return_target.clone()),
             transient_surface_return_target: None,
@@ -876,7 +916,9 @@ mod tests {
             show_command_palette: false,
             command_palette_contextual_mode: false,
             show_help_panel: false,
+            show_settings_overlay: false,
             show_radial_menu: false,
+            show_clip_inspector: false,
             show_clear_data_confirm: true,
             command_surface_return_target: None,
             transient_surface_return_target: None,

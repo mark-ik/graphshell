@@ -10,14 +10,14 @@
 use crate::app::{
     CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry,
     GraphSearchOrigin, KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode,
-    SelectionUpdateMode, TagPanelState, UnsavedFramePromptAction, UnsavedFramePromptRequest,
-    ViewAction, WorkbenchIntent,
+    SelectionUpdateMode, TagPanelState, ThreeDMode, UnsavedFramePromptAction,
+    UnsavedFramePromptRequest, ViewAction, ViewDimension, WorkbenchIntent, ZSource,
     graph_layout::{
         GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT,
         layout_algorithm_id_for_mode,
     },
 };
-use crate::graph::badge::{Badge, badges_for_tags, compact_badge_token, is_archived_tag};
+use crate::graph::badge::{Badge, BadgeVisual, badge_visuals, badges_for_node, is_archived_tag};
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
 use crate::graph::physics::apply_graph_physics_extensions;
@@ -42,6 +42,7 @@ use crate::shell::desktop::runtime::registries::{
     phase3_resolve_layout_algorithm,
 };
 use crate::util::CoordBridge;
+use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::{Color32, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
@@ -62,7 +63,8 @@ mod spatial_index;
 #[cfg(test)]
 pub(crate) use panels::history_manager_entry_limit_for_tests;
 pub use panels::{
-    render_file_tree_tool_pane_in_ui, render_help_panel, render_history_manager_in_ui,
+    render_clip_inspector_panel, render_file_tree_tool_pane_in_ui, render_help_panel,
+    render_history_manager_in_ui, render_settings_overlay_panel,
     render_settings_tool_pane_in_ui_with_control_panel,
 };
 use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
@@ -216,8 +218,12 @@ fn handle_hovered_node_secondary_click(
 }
 
 /// Render graph info and controls hint overlay text into the current UI.
-pub fn render_graph_info_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
-    draw_graph_info(ui, app);
+pub fn render_graph_info_in_ui(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+) {
+    draw_graph_info(ui, app, view_id);
 }
 
 /// Navigation contract for graph rendering.
@@ -2514,7 +2520,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
 }
 
 /// Draw graph information overlay
-fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
+fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp, view_id: crate::app::GraphViewId) {
     let presentation = active_presentation_profile(app);
     let info_text = format!(
         "Nodes: {} | Edges: {} | Physics: {} | Zoom: {:.1}x",
@@ -2704,6 +2710,22 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
         top_left_overlay_y = 54.0;
     }
 
+    if let Some((label, tooltip)) = graph_view_semantic_depth_status_badge(app, view_id) {
+        let area_rect = ui.available_rect_before_wrap();
+        egui::Area::new(egui::Id::new(("graph_semantic_depth_status", view_id)))
+            .order(egui::Order::Foreground)
+            .fixed_pos(area_rect.left_top() + Vec2::new(10.0, top_left_overlay_y))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::window(ui.style())
+                    .inner_margin(egui::Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(label).small().strong())
+                            .on_hover_text(tooltip);
+                    });
+            });
+        top_left_overlay_y += 28.0;
+    }
+
     if let Some(selected_key) = app.get_single_selected_node() {
         let suggestions = app.suggested_semantic_tags_for_node(selected_key);
         if !suggestions.is_empty() {
@@ -2732,6 +2754,8 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
                                     app.workspace.tag_panel_state = Some(TagPanelState {
                                         node_key: selected_key,
                                         text_input: String::new(),
+                                        icon_picker_open: false,
+                                        pending_icon_override: None,
                                     });
                                 }
                             });
@@ -2796,6 +2820,32 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
                                     }
                                 });
                             }
+                            if summary.semantic_lens_available {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.small("Semantic view");
+                                    if ui
+                                        .small_button(if summary.semantic_lens_active {
+                                            "Restore View"
+                                        } else {
+                                            "UDC Depth View"
+                                        })
+                                        .clicked()
+                                        && let Some(target_view_id) = app.workspace.focused_view
+                                    {
+                                        apply_ui_intents_with_checkpoint(
+                                            app,
+                                            vec![GraphIntent::ToggleSemanticDepthView {
+                                                view_id: target_view_id,
+                                            }],
+                                        );
+                                    }
+                                });
+                                ui.small(if summary.semantic_lens_active {
+                                    "Restore the previous Graph View dimension and leave semantic depth mode."
+                                } else {
+                                    "Visible payoff: the current Graph View lifts nodes into UDC depth layers using semantic class ancestry."
+                                });
+                            }
                             if !summary.workspace_memberships.is_empty() {
                                 ui.small(format!(
                                     "Frames: {}",
@@ -2807,7 +2857,7 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
                             if summary.display_tags.is_empty() {
                                 ui.small("No semantic tags on this node yet.");
                             } else {
-                                render_semantic_tag_buttons(ui, app, &summary.display_tags);
+                                render_semantic_tag_status_buttons(ui, app, &summary.display_tags);
                                 if summary.hidden_tag_count > 0 {
                                     ui.small(format!("+{} more", summary.hidden_tag_count));
                                 }
@@ -2815,10 +2865,10 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
                             if !summary.suggested_tags.is_empty() {
                                 ui.separator();
                                 ui.small("Suggestions");
-                                render_semantic_tag_buttons(ui, app, &summary.suggested_tags);
+                                render_semantic_suggestion_buttons(ui, app, &summary.suggested_tags);
                             }
                             ui.separator();
-                            ui.small("Click a tag to filter the graph by that semantic slice.");
+                            ui.small("Click a tag to filter the graph by that semantic slice. Status shows whether the tag is canonical knowledge state or a looser node-local tag; suggestion text explains why the tag suggester surfaced it.");
                         });
                 });
         }
@@ -2860,24 +2910,20 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
 fn semantic_badges_by_key(
     app: &GraphBrowserApp,
     graph: &crate::graph::Graph,
-) -> HashMap<NodeKey, Vec<String>> {
+) -> HashMap<NodeKey, Vec<BadgeVisual>> {
     graph
         .nodes()
         .filter_map(|(key, node)| {
-            let tags =
-                crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &key)
-                    .into_iter()
-                    .collect::<HashSet<_>>();
-            let badges = badges_for_tags(
-                &tags,
+            let badges = badges_for_node(
+                node,
                 app.membership_for_node(node.id).len(),
                 app.crash_blocked_node_keys().any(|crashed| crashed == key),
             )
             .into_iter()
             .filter(|badge| !matches!(badge, Badge::WorkspaceCount(_)))
-            .map(|badge| compact_badge_token(&badge))
             .collect::<Vec<_>>();
-            (!badges.is_empty()).then_some((key, badges))
+            let badge_visuals = badge_visuals(&badges);
+            (!badge_visuals.is_empty()).then_some((key, badge_visuals))
         })
         .collect()
 }
@@ -2906,10 +2952,12 @@ struct SelectedNodeEnrichmentSummary {
     show_url: bool,
     lifecycle: &'static str,
     workspace_memberships: Vec<String>,
-    display_tags: Vec<SemanticTagChip>,
+    display_tags: Vec<SemanticTagStatusChip>,
     hidden_tag_count: usize,
-    suggested_tags: Vec<SemanticTagChip>,
+    suggested_tags: Vec<SemanticSuggestionChip>,
     placement_anchor: Option<PlacementAnchorSummary>,
+    semantic_lens_available: bool,
+    semantic_lens_active: bool,
 }
 
 struct PlacementAnchorSummary {
@@ -2921,6 +2969,38 @@ struct PlacementAnchorSummary {
 struct SemanticTagChip {
     query: String,
     label: String,
+}
+
+struct SemanticTagStatusChip {
+    chip: SemanticTagChip,
+    status: String,
+}
+
+struct SemanticSuggestionChip {
+    chip: SemanticTagChip,
+    reason: String,
+}
+
+fn icon_picker_presets() -> Vec<crate::graph::badge::BadgeIcon> {
+    use crate::graph::badge::BadgeIcon;
+    vec![
+        BadgeIcon::None,
+        BadgeIcon::Emoji("🔖".to_string()),
+        BadgeIcon::Emoji("📚".to_string()),
+        BadgeIcon::Emoji("🔬".to_string()),
+        BadgeIcon::Emoji("🧠".to_string()),
+        BadgeIcon::Emoji("📝".to_string()),
+        BadgeIcon::Emoji("🌟".to_string()),
+        BadgeIcon::Emoji("📎".to_string()),
+    ]
+}
+
+fn badge_icon_label(icon: &crate::graph::badge::BadgeIcon) -> String {
+    match icon {
+        crate::graph::badge::BadgeIcon::Emoji(value) => value.clone(),
+        crate::graph::badge::BadgeIcon::Lucide(value) => value.clone(),
+        crate::graph::badge::BadgeIcon::None => "None".to_string(),
+    }
 }
 
 fn normalize_tag_entry_input(input: &str) -> Option<String> {
@@ -2988,10 +3068,9 @@ fn ranked_tag_suggestions(
             .collect::<HashSet<_>>();
     let mut candidates = default_tag_suggestion_candidates();
     candidates.extend(
-        app.workspace
-            .semantic_tags
-            .values()
-            .flat_map(|tags| tags.iter().cloned()),
+        app.domain_graph()
+            .nodes()
+            .flat_map(|(_, node)| node.tags.iter().cloned()),
     );
     candidates.extend(app.suggested_semantic_tags_for_node(selected_key));
     candidates.sort();
@@ -3069,6 +3148,7 @@ fn render_selected_node_tag_panel(
     let mut open = true;
     let mut close_requested = false;
     let mut pending_intents = Vec::new();
+    let mut pending_icon_write: Option<(String, Option<crate::graph::badge::BadgeIcon>)> = None;
     let warning = reserved_tag_warning(&text_input);
     let suggestions = ranked_tag_suggestions(app, selected_key, &text_input);
 
@@ -3105,6 +3185,18 @@ fn render_selected_node_tag_panel(
             let submit =
                 response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
             ui.horizontal(|ui| {
+                let picker_label = app
+                    .workspace
+                    .tag_panel_state
+                    .as_ref()
+                    .and_then(|state| state.pending_icon_override.as_ref())
+                    .map(badge_icon_label)
+                    .unwrap_or_else(|| "⊞".to_string());
+                if ui.small_button(picker_label).clicked()
+                    && let Some(panel_state) = app.workspace.tag_panel_state.as_mut()
+                {
+                    panel_state.icon_picker_open = !panel_state.icon_picker_open;
+                }
                 if ui.small_button("Add").clicked() || submit {
                     if let Some(tag) = normalize_tag_entry_input(&text_input) {
                         pending_intents.push(GraphIntent::TagNode {
@@ -3118,6 +3210,27 @@ fn render_selected_node_tag_panel(
                     close_requested = true;
                 }
             });
+            if app
+                .workspace
+                .tag_panel_state
+                .as_ref()
+                .is_some_and(|state| state.icon_picker_open)
+            {
+                ui.small("Icon picker");
+                ui.horizontal_wrapped(|ui| {
+                    for icon in icon_picker_presets() {
+                        let label = badge_icon_label(&icon);
+                        if ui.small_button(label).clicked()
+                            && let Some(panel_state) = app.workspace.tag_panel_state.as_mut()
+                        {
+                            panel_state.pending_icon_override =
+                                (!matches!(icon, crate::graph::badge::BadgeIcon::None))
+                                    .then_some(icon.clone());
+                            panel_state.icon_picker_open = false;
+                        }
+                    }
+                });
+            }
             if let Some(warning) = warning.as_ref() {
                 ui.small(warning);
             }
@@ -3149,7 +3262,29 @@ fn render_selected_node_tag_panel(
     }
 
     if !pending_intents.is_empty() {
+        let tag_for_icon_write = pending_intents.iter().find_map(|intent| match intent {
+            GraphIntent::TagNode { tag, .. } => Some(tag.clone()),
+            _ => None,
+        });
         apply_reducer_graph_intents_hardened(app, pending_intents);
+        if let Some(tag) = tag_for_icon_write
+            && !is_reserved_system_tag(&tag)
+            && !tag.starts_with("udc:")
+        {
+            let icon = app
+                .workspace
+                .tag_panel_state
+                .as_ref()
+                .and_then(|state| state.pending_icon_override.clone());
+            let _ = app.set_node_tag_icon_override(selected_key, &tag, icon.clone());
+            pending_icon_write = Some((tag, icon));
+        }
+    }
+
+    if let Some((_tag, _icon)) = pending_icon_write
+        && let Some(panel_state) = app.workspace.tag_panel_state.as_mut()
+    {
+        panel_state.pending_icon_override = None;
     }
 }
 
@@ -3158,6 +3293,101 @@ fn semantic_tag_chip(tag: String) -> SemanticTagChip {
         label: semantic_tag_display_label(&tag),
         query: tag,
     }
+}
+
+fn semantic_tag_status_chip(tag: String) -> SemanticTagStatusChip {
+    let status = semantic_tag_status_label(&tag);
+    SemanticTagStatusChip {
+        chip: semantic_tag_chip(tag),
+        status,
+    }
+}
+
+fn semantic_tag_status_label(tag: &str) -> String {
+    if let Some(code) = tag.strip_prefix("udc:") {
+        return match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(code)
+        {
+            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                canonical_code,
+                ..
+            } => format!("KnowledgeRegistry canonical: udc:{canonical_code}"),
+            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. } => {
+                "KnowledgeRegistry descendant/unknown code".to_string()
+            }
+            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {
+                "Unrecognized semantic code".to_string()
+            }
+        };
+    }
+
+    if tag.starts_with('#') {
+        "User tag".to_string()
+    } else {
+        "Node tag".to_string()
+    }
+}
+
+fn semantic_suggestion_chip(
+    app: &GraphBrowserApp,
+    selected_key: NodeKey,
+    tag: String,
+) -> SemanticSuggestionChip {
+    let reason = explain_semantic_suggestion(app, selected_key, &tag);
+    SemanticSuggestionChip {
+        chip: semantic_tag_chip(tag),
+        reason,
+    }
+}
+
+fn explain_semantic_suggestion(app: &GraphBrowserApp, selected_key: NodeKey, tag: &str) -> String {
+    let Some(node) = app.domain_graph().get_node(selected_key) else {
+        return "Suggested by the tag suggester agent.".to_string();
+    };
+
+    let code = tag.strip_prefix("udc:").unwrap_or(tag);
+    let registry =
+        crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default();
+    let title = node.title.trim();
+    if !title.is_empty()
+        && registry
+            .search(title)
+            .into_iter()
+            .take(3)
+            .any(|entry| entry.code == code)
+    {
+        return format!("Suggested by the tag suggester agent from the node title '{title}'.");
+    }
+
+    let url_text = node.url.replace([':', '/', '.', '-', '_'], " ");
+    if registry
+        .search(&url_text)
+        .into_iter()
+        .take(3)
+        .any(|entry| entry.code == code)
+    {
+        return "Suggested by the tag suggester agent from URL/domain tokens.".to_string();
+    }
+
+    if let Some(anchor_key) =
+        crate::shell::desktop::runtime::registries::phase3_suggest_semantic_placement_anchor(
+            app,
+            selected_key,
+        )
+    {
+        let anchor_tags =
+            crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &anchor_key);
+        if anchor_tags.iter().any(|anchor_tag| {
+            anchor_tag == tag
+                || (anchor_tag.starts_with("udc:")
+                    && tag.starts_with(anchor_tag)
+                    && tag.len() > anchor_tag.len())
+        }) {
+            return "Suggested because the node sits near a matching semantic anchor slice."
+                .to_string();
+        }
+    }
+
+    "Suggested by the tag suggester agent from title/URL semantic matches.".to_string()
 }
 
 fn render_semantic_tag_buttons(
@@ -3185,6 +3415,70 @@ fn render_semantic_tag_buttons(
                     ),
                 );
             }
+        }
+    });
+}
+
+fn render_semantic_tag_status_buttons(
+    ui: &mut egui::Ui,
+    app: &mut GraphBrowserApp,
+    chips: &[SemanticTagStatusChip],
+) {
+    ui.horizontal_wrapped(|ui| {
+        for entry in chips {
+            ui.vertical(|ui| {
+                let button = egui::Button::new(egui::RichText::new(&entry.chip.label).small());
+                if ui.add(button).clicked() {
+                    app.request_graph_search_with_options(
+                        entry.chip.query.clone(),
+                        true,
+                        GraphSearchOrigin::SemanticTag,
+                        None,
+                        1,
+                        true,
+                        Some(
+                            crate::shell::desktop::ui::gui_orchestration::graph_search_toast_message(
+                                GraphSearchOrigin::SemanticTag,
+                                &entry.chip.query,
+                                0,
+                            ),
+                        ),
+                    );
+                }
+                ui.small(&entry.status);
+            });
+        }
+    });
+}
+
+fn render_semantic_suggestion_buttons(
+    ui: &mut egui::Ui,
+    app: &mut GraphBrowserApp,
+    chips: &[SemanticSuggestionChip],
+) {
+    ui.horizontal_wrapped(|ui| {
+        for entry in chips {
+            ui.vertical(|ui| {
+                let button = egui::Button::new(egui::RichText::new(&entry.chip.label).small());
+                if ui.add(button).clicked() {
+                    app.request_graph_search_with_options(
+                        entry.chip.query.clone(),
+                        true,
+                        GraphSearchOrigin::SemanticTag,
+                        None,
+                        1,
+                        true,
+                        Some(
+                            crate::shell::desktop::ui::gui_orchestration::graph_search_toast_message(
+                                GraphSearchOrigin::SemanticTag,
+                                &entry.chip.query,
+                                0,
+                            ),
+                        ),
+                    );
+                }
+                ui.small(&entry.reason);
+            });
         }
     });
 }
@@ -3245,6 +3539,25 @@ fn render_graph_search_origin_badge(ui: &mut egui::Ui, origin: &GraphSearchOrigi
     ui.small(label);
 }
 
+fn graph_view_semantic_depth_status_badge(
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+) -> Option<(&'static str, &'static str)> {
+    app.workspace.views.get(&view_id).and_then(|view| {
+        matches!(
+            view.dimension,
+            ViewDimension::ThreeD {
+                mode: ThreeDMode::TwoPointFive,
+                z_source: ZSource::UdcLevel { .. }
+            }
+        )
+        .then_some((
+            "UDC Depth",
+            "Semantic depth view is active for this Graph View. Nodes are lifted into UDC depth layers until you restore the previous view.",
+        ))
+    })
+}
+
 fn selected_node_enrichment_summary(
     app: &GraphBrowserApp,
     selected_key: NodeKey,
@@ -3253,7 +3566,7 @@ fn selected_node_enrichment_summary(
     let mut display_tags =
         crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &selected_key)
             .into_iter()
-            .map(semantic_tag_chip)
+            .map(semantic_tag_status_chip)
             .collect::<Vec<_>>();
     let hidden_tag_count = display_tags.len().saturating_sub(4);
     display_tags.truncate(4);
@@ -3261,7 +3574,7 @@ fn selected_node_enrichment_summary(
     let suggested_tags = app
         .suggested_semantic_tags_for_node(selected_key)
         .into_iter()
-        .map(semantic_tag_chip)
+        .map(|tag| semantic_suggestion_chip(app, selected_key, tag))
         .collect::<Vec<_>>();
 
     let placement_anchor =
@@ -3310,6 +3623,20 @@ fn selected_node_enrichment_summary(
         hidden_tag_count,
         suggested_tags,
         placement_anchor,
+        semantic_lens_available: app.workspace.semantic_index.contains_key(&selected_key),
+        semantic_lens_active: app
+            .workspace
+            .focused_view
+            .and_then(|view_id| app.workspace.views.get(&view_id))
+            .is_some_and(|view| {
+                matches!(
+                    view.dimension,
+                    ViewDimension::ThreeD {
+                        mode: ThreeDMode::TwoPointFive,
+                        z_source: ZSource::UdcLevel { .. }
+                    }
+                )
+            }),
     })
 }
 
@@ -3346,7 +3673,7 @@ fn should_apply_layout_algorithm(
 }
 
 pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) -> bool {
-    let mut open_settings_tool_pane = false;
+    let open_settings_tool_pane = false;
     let Some(request) = app.choose_frame_picker_request() else {
         return false;
     };
@@ -3442,8 +3769,11 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
                     }
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if ui.button("Open Persistence Hub").clicked() {
-                            open_settings_tool_pane = true;
+                        if ui.button("Open Persistence Overlay").clicked() {
+                            app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+                                url: VersoAddress::settings(GraphshellSettingsPath::Persistence)
+                                    .to_string(),
+                            });
                         }
                         if ui.button("Close").clicked() {
                             close = true;
@@ -3498,7 +3828,7 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
 }
 
 pub fn render_unsaved_frame_prompt(ctx: &egui::Context, app: &mut GraphBrowserApp) -> bool {
-    let mut open_settings_tool_pane = false;
+    let open_settings_tool_pane = false;
     let Some(request) = app.unsaved_frame_prompt_request().cloned() else {
         return false;
     };
@@ -3517,8 +3847,10 @@ pub fn render_unsaved_frame_prompt(ctx: &egui::Context, app: &mut GraphBrowserAp
                 }
             }
             ui.separator();
-            if ui.button("Open Persistence Hub").clicked() {
-                open_settings_tool_pane = true;
+            if ui.button("Open Persistence Overlay").clicked() {
+                app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+                    url: VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+                });
             }
             ui.horizontal(|ui| {
                 if ui.button("Proceed Without Saving").clicked() {
@@ -4639,12 +4971,16 @@ mod tests {
             node.title = "Numerical Methods".into();
         }
 
-        app.workspace
-            .semantic_tags
-            .insert(math, ["udc:51".to_string()].into_iter().collect());
-        app.workspace
-            .semantic_tags
-            .insert(numerical, ["udc:519.6".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(math, "udc:51".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(numerical, "udc:519.6".to_string());
         app.workspace
             .suggested_semantic_tags
             .insert(numerical, vec!["udc:519.8".to_string()]);
@@ -4660,33 +4996,81 @@ mod tests {
             summary
                 .display_tags
                 .iter()
-                .any(|tag| tag.label.contains("Computational mathematics"))
+                .any(|tag| tag.chip.label.contains("Computational mathematics"))
+        );
+        assert!(
+            summary
+                .display_tags
+                .iter()
+                .any(|tag| tag.status.contains("KnowledgeRegistry canonical"))
         );
         assert!(
             summary
                 .suggested_tags
                 .iter()
-                .any(|tag| tag.label.contains("Control"))
+                .any(|tag| tag.chip.label.contains("Control"))
                 || !summary.suggested_tags.is_empty()
+        );
+        assert!(
+            summary
+                .suggested_tags
+                .iter()
+                .all(|tag| !tag.reason.is_empty())
         );
         let anchor = summary.placement_anchor.expect("placement anchor");
         assert_eq!(anchor.key, math);
         assert_eq!(anchor.label, "Mathematics");
         assert_eq!(anchor.slice_tag.as_deref(), Some("udc:51"));
+        assert!(summary.semantic_lens_available);
+        assert!(!summary.semantic_lens_active);
+    }
+
+    #[test]
+    fn graph_view_semantic_depth_status_badge_only_reports_udc_depth_mode() {
+        let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Semantic");
+        view.dimension = ViewDimension::ThreeD {
+            mode: ThreeDMode::TwoPointFive,
+            z_source: ZSource::UdcLevel { scale: 48.0 },
+        };
+        app.workspace.views.insert(view_id, view);
+
+        let badge = graph_view_semantic_depth_status_badge(&app, view_id);
+
+        assert_eq!(badge.map(|(label, _)| label), Some("UDC Depth"));
+    }
+
+    #[test]
+    fn graph_view_semantic_depth_status_badge_ignores_other_view_dimensions() {
+        let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Standard");
+        view.dimension = ViewDimension::ThreeD {
+            mode: ThreeDMode::Isometric,
+            z_source: ZSource::BfsDepth { scale: 12.0 },
+        };
+        app.workspace.views.insert(view_id, view);
+
+        assert_eq!(graph_view_semantic_depth_status_badge(&app, view_id), None);
     }
 
     #[test]
     fn ranked_tag_suggestions_include_existing_and_knowledge_matches() {
         let mut app = test_app();
         let node = app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
-        app.workspace
-            .semantic_tags
-            .insert(node, ["#starred".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(node, "#starred".to_string());
         let other =
             app.add_node_and_sync("https://example.com/math".into(), Point2D::new(10.0, 0.0));
-        app.workspace
-            .semantic_tags
-            .insert(other, ["research".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(other, "research".to_string());
 
         let existing_tag_suggestions = ranked_tag_suggestions(&app, node, "rese");
         let existing_queries = existing_tag_suggestions

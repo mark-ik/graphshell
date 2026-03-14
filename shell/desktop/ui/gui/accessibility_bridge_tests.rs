@@ -11,9 +11,9 @@ use crate::shell::desktop::workbench::tile_compositor::{
     LifecycleTreatment, TileAffordanceAnnotation,
 };
 use crate::shell::desktop::workbench::ux_tree::{
-    UxAction, UxDomainIdentity, UxNodeRole, UxNodeState, UxSemanticNode, UxTraceSummary,
-    UxTreeSnapshot, UX_TREE_PRESENTATION_SCHEMA_VERSION, UX_TREE_SEMANTIC_SCHEMA_VERSION,
-    UX_TREE_TRACE_SCHEMA_VERSION,
+    UX_TREE_PRESENTATION_SCHEMA_VERSION, UX_TREE_SEMANTIC_SCHEMA_VERSION,
+    UX_TREE_TRACE_SCHEMA_VERSION, UxAction, UxDomainIdentity, UxNodeRole, UxNodeState,
+    UxSemanticNode, UxTraceSummary, UxTreeSnapshot,
 };
 
 fn test_webview_id() -> WebViewId {
@@ -212,7 +212,8 @@ fn uxtree_a11y_graft_plan_projects_canonical_node_state_and_rendered_affordance(
 #[test]
 fn uxtree_a11y_graft_plan_attaches_webview_anchor_and_graph_reader_under_host_hierarchy() {
     let mut graph_app = GraphBrowserApp::new_for_testing();
-    let node_key = graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+    let node_key =
+        graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
     let webview_id = test_webview_id();
     graph_app.map_webview_to_node(webview_id, node_key);
 
@@ -271,7 +272,9 @@ fn uxtree_a11y_graft_plan_attaches_webview_anchor_and_graph_reader_under_host_hi
         .expect("node pane should be projected");
     assert_eq!(
         node_pane.attached_child_ids,
-        vec![super::accessibility::webview_accessibility_anchor_id(webview_id)]
+        vec![super::accessibility::webview_accessibility_anchor_id(
+            webview_id
+        )]
     );
 
     let map_root = plan
@@ -279,7 +282,10 @@ fn uxtree_a11y_graft_plan_attaches_webview_anchor_and_graph_reader_under_host_hi
         .iter()
         .find(|node| node.label.starts_with("Graph Reader Map"))
         .expect("graph reader map root should be projected");
-    assert_eq!(map_root.parent_ux_node_id.as_deref(), Some(graph_surface_id.as_str()));
+    assert_eq!(
+        map_root.parent_ux_node_id.as_deref(),
+        Some(graph_surface_id.as_str())
+    );
 
     let map_item = plan
         .nodes
@@ -292,7 +298,8 @@ fn uxtree_a11y_graft_plan_attaches_webview_anchor_and_graph_reader_under_host_hi
 #[test]
 fn graph_reader_map_click_action_resolves_to_enter_room_dispatch() {
     let mut graph_app = GraphBrowserApp::new_for_testing();
-    let node_key = graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+    let node_key =
+        graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
     let graph_view_id = GraphViewId::new();
     graph_app.workspace.focused_view = Some(graph_view_id);
 
@@ -330,7 +337,9 @@ fn graph_reader_map_click_action_resolves_to_enter_room_dispatch() {
         .iter()
         .find(|node| {
             node.action_route
-                == Some(super::accessibility::UxTreeA11yActionRoute::GraphReaderMapItem { node_key })
+                == Some(
+                    super::accessibility::UxTreeA11yActionRoute::GraphReaderMapItem { node_key },
+                )
         })
         .expect("graph reader map item should be actionable");
     let req = ActionRequest {
@@ -351,7 +360,8 @@ fn graph_reader_map_click_action_resolves_to_enter_room_dispatch() {
 #[test]
 fn graph_reader_map_focus_action_resolves_to_map_focus_dispatch() {
     let mut graph_app = GraphBrowserApp::new_for_testing();
-    let node_key = graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+    let node_key =
+        graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
     let graph_view_id = GraphViewId::new();
     graph_app.workspace.focused_view = Some(graph_view_id);
 
@@ -389,7 +399,9 @@ fn graph_reader_map_focus_action_resolves_to_map_focus_dispatch() {
         .iter()
         .find(|node| {
             node.action_route
-                == Some(super::accessibility::UxTreeA11yActionRoute::GraphReaderMapItem { node_key })
+                == Some(
+                    super::accessibility::UxTreeA11yActionRoute::GraphReaderMapItem { node_key },
+                )
         })
         .expect("graph reader map item should be actionable");
     let req = ActionRequest {
@@ -410,7 +422,10 @@ fn graph_reader_map_focus_action_resolves_to_map_focus_dispatch() {
 #[test]
 fn graph_reader_room_root_click_action_resolves_to_return_to_map_dispatch() {
     let mut graph_app = GraphBrowserApp::new_for_testing();
-    let node_key = graph_app.add_node_and_sync("https://room-root.example".to_string(), Point2D::new(0.0, 0.0));
+    let node_key = graph_app.add_node_and_sync(
+        "https://room-root.example".to_string(),
+        Point2D::new(0.0, 0.0),
+    );
     let graph_view_id = GraphViewId::new();
     graph_app.workspace.focused_view = Some(graph_view_id);
     graph_app.graph_reader_enter_room(node_key);
@@ -447,7 +462,10 @@ fn graph_reader_room_root_click_action_resolves_to_return_to_map_dispatch() {
     let room_root = plan
         .nodes
         .iter()
-        .find(|node| node.action_route == Some(super::accessibility::UxTreeA11yActionRoute::GraphReaderRoomRoot))
+        .find(|node| {
+            node.action_route
+                == Some(super::accessibility::UxTreeA11yActionRoute::GraphReaderRoomRoot)
+        })
         .expect("graph reader room root should be actionable");
     let req = ActionRequest {
         action: Action::Click,
@@ -467,8 +485,14 @@ fn graph_reader_room_root_click_action_resolves_to_return_to_map_dispatch() {
 #[test]
 fn graph_reader_room_item_click_action_resolves_to_enter_room_dispatch() {
     let mut graph_app = GraphBrowserApp::new_for_testing();
-    let room_node = graph_app.add_node_and_sync("https://room-source.example".to_string(), Point2D::new(0.0, 0.0));
-    let neighbor = graph_app.add_node_and_sync("https://room-neighbor.example".to_string(), Point2D::new(10.0, 0.0));
+    let room_node = graph_app.add_node_and_sync(
+        "https://room-source.example".to_string(),
+        Point2D::new(0.0, 0.0),
+    );
+    let neighbor = graph_app.add_node_and_sync(
+        "https://room-neighbor.example".to_string(),
+        Point2D::new(10.0, 0.0),
+    );
     graph_app.apply_reducer_intents([crate::app::GraphIntent::CreateUserGroupedEdge {
         from: room_node,
         to: neighbor,
@@ -512,7 +536,11 @@ fn graph_reader_room_item_click_action_resolves_to_enter_room_dispatch() {
         .iter()
         .find(|node| {
             node.action_route
-                == Some(super::accessibility::UxTreeA11yActionRoute::GraphReaderRoomItem { node_key: neighbor })
+                == Some(
+                    super::accessibility::UxTreeA11yActionRoute::GraphReaderRoomItem {
+                        node_key: neighbor,
+                    },
+                )
         })
         .expect("graph reader room item should be actionable");
     let req = ActionRequest {
@@ -526,14 +554,21 @@ fn graph_reader_room_item_click_action_resolves_to_enter_room_dispatch() {
     let dispatch = super::accessibility::resolve_uxtree_accesskit_action_for_plan(&plan, &req);
     assert_eq!(
         dispatch,
-        Some(super::accessibility::UxTreeAccesskitDispatch::EnterGraphReaderRoom { node_key: neighbor })
+        Some(
+            super::accessibility::UxTreeAccesskitDispatch::EnterGraphReaderRoom {
+                node_key: neighbor
+            }
+        )
     );
 }
 
 #[test]
 fn graph_reader_return_to_map_suppresses_room_projection_and_preserves_map_focus() {
     let mut graph_app = GraphBrowserApp::new_for_testing();
-    let node_key = graph_app.add_node_and_sync("https://return-map.example".to_string(), Point2D::new(0.0, 0.0));
+    let node_key = graph_app.add_node_and_sync(
+        "https://return-map.example".to_string(),
+        Point2D::new(0.0, 0.0),
+    );
     let graph_view_id = GraphViewId::new();
     graph_app.workspace.focused_view = Some(graph_view_id);
     graph_app.graph_reader_enter_room(node_key);
@@ -575,9 +610,15 @@ fn graph_reader_return_to_map_suppresses_room_projection_and_preserves_map_focus
     };
 
     let plan = super::accessibility::build_uxtree_a11y_graft_plan(&snapshot, &[], &graph_app);
-    assert!(plan.nodes.iter().any(|node| node.label.starts_with("Graph Reader Map")));
-    assert!(!plan
-        .nodes
-        .iter()
-        .any(|node| node.label.starts_with("Graph Reader Room:")));
+    assert!(
+        plan.nodes
+            .iter()
+            .any(|node| node.label.starts_with("Graph Reader Map"))
+    );
+    assert!(
+        !plan
+            .nodes
+            .iter()
+            .any(|node| node.label.starts_with("Graph Reader Room:"))
+    );
 }

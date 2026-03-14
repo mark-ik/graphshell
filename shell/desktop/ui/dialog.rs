@@ -15,14 +15,29 @@ use euclid::Length;
 use log::warn;
 use servo::{
     AlertDialog, AuthenticationRequest, ColorPicker, ConfirmDialog, ContextMenu, ContextMenuItem,
-    DeviceIndependentPixel, EmbedderControlId, FilePicker, GenericSender, PermissionRequest,
-    PromptDialog, RgbColor, SelectElement, SelectElementOption, SelectElementOptionOrOptgroup,
-    SimpleDialog,
+    DeviceIndependentPixel, DeviceIntRect, EmbedderControlId, FilePicker, GenericSender,
+    PermissionRequest, PromptDialog, RgbColor, SelectElement, SelectElementOption,
+    SelectElementOptionOrOptgroup, SimpleDialog, WebViewId,
 };
 
 /// The minimum width of many UI elements including dialog boxes and menus,
 /// for the sake of consistency.
 const MINIMUM_UI_ELEMENT_WIDTH: f32 = 150.0;
+
+pub(crate) enum DialogCommand {
+    ClipElement {
+        webview_id: WebViewId,
+        element_rect: DeviceIntRect,
+    },
+    InspectPageElements {
+        webview_id: WebViewId,
+    },
+}
+
+pub(crate) struct DialogUpdateResult {
+    pub(crate) keep_open: bool,
+    pub(crate) command: Option<DialogCommand>,
+}
 
 #[expect(clippy::large_enum_variant)]
 pub enum Dialog {
@@ -57,6 +72,7 @@ pub enum Dialog {
         toolbar_offset: Length<f32, DeviceIndependentPixel>,
     },
     ContextMenu {
+        webview_id: WebViewId,
         menu: Option<ContextMenu>,
         toolbar_offset: Length<f32, DeviceIndependentPixel>,
     },
@@ -170,7 +186,7 @@ impl Dialog {
     }
 
     /// Returns false if the dialog has been closed, or true otherwise.
-    pub fn update(&mut self, ctx: &egui::Context) -> bool {
+    pub fn update(&mut self, ctx: &egui::Context) -> DialogUpdateResult {
         enum DialogAction {
             Dismiss,
             Submit,
@@ -225,11 +241,17 @@ impl Dialog {
                     }
                     DialogAction::Continue => {}
                 }
-                matches!(action, DialogAction::Continue)
+                DialogUpdateResult {
+                    keep_open: matches!(action, DialogAction::Continue),
+                    command: None,
+                }
             }
             Dialog::Alert(maybe_alert_dialog) => {
                 let Some(alert_dialog) = maybe_alert_dialog else {
-                    return false;
+                    return DialogUpdateResult {
+                        keep_open: false,
+                        command: None,
+                    };
                 };
 
                 let mut is_open = true;
@@ -254,11 +276,17 @@ impl Dialog {
                     }
                     emit_navigation_transition_dialog_close();
                 }
-                is_open
+                DialogUpdateResult {
+                    keep_open: is_open,
+                    command: None,
+                }
             }
             Dialog::Confirm(maybe_confirm_dialog) => {
                 let Some(confirm_dialog) = maybe_confirm_dialog else {
-                    return false;
+                    return DialogUpdateResult {
+                        keep_open: false,
+                        command: None,
+                    };
                 };
 
                 let mut dialog_action = DialogAction::Continue;
@@ -288,21 +316,33 @@ impl Dialog {
                             confirm_dialog.dismiss();
                         }
                         emit_navigation_transition_dialog_close();
-                        false
+                        DialogUpdateResult {
+                            keep_open: false,
+                            command: None,
+                        }
                     }
                     DialogAction::Submit => {
                         if let Some(confirm_dialog) = maybe_confirm_dialog.take() {
                             confirm_dialog.confirm();
                         }
                         emit_navigation_transition_dialog_close();
-                        false
+                        DialogUpdateResult {
+                            keep_open: false,
+                            command: None,
+                        }
                     }
-                    DialogAction::Continue => true,
+                    DialogAction::Continue => DialogUpdateResult {
+                        keep_open: true,
+                        command: None,
+                    },
                 }
             }
             Dialog::Prompt(maybe_prompt_dialog) => {
                 let Some(prompt_dialog) = maybe_prompt_dialog else {
-                    return false;
+                    return DialogUpdateResult {
+                        keep_open: false,
+                        command: None,
+                    };
                 };
 
                 let mut dialog_action = DialogAction::Continue;
@@ -334,16 +374,25 @@ impl Dialog {
                             prompt_dialog.dismiss();
                         }
                         emit_navigation_transition_dialog_close();
-                        false
+                        DialogUpdateResult {
+                            keep_open: false,
+                            command: None,
+                        }
                     }
                     DialogAction::Submit => {
                         if let Some(prompt_dialog) = maybe_prompt_dialog.take() {
                             prompt_dialog.confirm();
                         }
                         emit_navigation_transition_dialog_close();
-                        false
+                        DialogUpdateResult {
+                            keep_open: false,
+                            command: None,
+                        }
                     }
-                    DialogAction::Continue => true,
+                    DialogAction::Continue => DialogUpdateResult {
+                        keep_open: true,
+                        command: None,
+                    },
                 }
             }
             Dialog::Authentication {
@@ -403,7 +452,10 @@ impl Dialog {
                 if !is_open {
                     emit_navigation_transition_dialog_close();
                 }
-                is_open
+                DialogUpdateResult {
+                    keep_open: is_open,
+                    command: None,
+                }
             }
             Dialog::Permission { message, request } => {
                 let mut is_open = true;
@@ -436,7 +488,10 @@ impl Dialog {
                 if !is_open {
                     emit_navigation_transition_dialog_close();
                 }
-                is_open
+                DialogUpdateResult {
+                    keep_open: is_open,
+                    command: None,
+                }
             }
             Dialog::SelectDevice {
                 devices,
@@ -491,7 +546,10 @@ impl Dialog {
                 if !is_open {
                     emit_navigation_transition_dialog_close();
                 }
-                is_open
+                DialogUpdateResult {
+                    keep_open: is_open,
+                    command: None,
+                }
             }
             Dialog::SelectElement {
                 maybe_prompt,
@@ -499,7 +557,10 @@ impl Dialog {
             } => {
                 let Some(prompt) = maybe_prompt else {
                     // Prompt was dismissed, so the dialog should be closed too.
-                    return false;
+                    return DialogUpdateResult {
+                        keep_open: false,
+                        command: None,
+                    };
                 };
                 let mut is_open = true;
 
@@ -602,7 +663,10 @@ impl Dialog {
                     emit_navigation_transition_dialog_close();
                 }
 
-                is_open
+                DialogUpdateResult {
+                    keep_open: is_open,
+                    command: None,
+                }
             }
             Dialog::ColorPicker {
                 current_color,
@@ -611,7 +675,10 @@ impl Dialog {
             } => {
                 let Some(prompt) = maybe_prompt else {
                     // Prompt was dismissed, so the dialog should be closed too.
-                    return false;
+                    return DialogUpdateResult {
+                        keep_open: false,
+                        command: None,
+                    };
                 };
                 let mut is_open = true;
 
@@ -661,13 +728,18 @@ impl Dialog {
                     emit_navigation_transition_dialog_close();
                 }
 
-                is_open
+                DialogUpdateResult {
+                    keep_open: is_open,
+                    command: None,
+                }
             }
             Dialog::ContextMenu {
+                webview_id,
                 menu,
                 toolbar_offset,
             } => {
                 let mut is_open = true;
+                let mut command = None;
                 if let Some(context_menu) = menu {
                     let mut selected_action = None;
                     let mut position = context_menu.position();
@@ -737,6 +809,20 @@ impl Dialog {
                                                 }
                                             }
                                         }
+                                        ui.separator();
+                                        if ui.button("Clip Element").clicked() {
+                                            command = Some(DialogCommand::ClipElement {
+                                                webview_id: *webview_id,
+                                                element_rect: context_menu.position(),
+                                            });
+                                            ui.close();
+                                        }
+                                        if ui.button("Inspect Page Elements").clicked() {
+                                            command = Some(DialogCommand::InspectPageElements {
+                                                webview_id: *webview_id,
+                                            });
+                                            ui.close();
+                                        }
                                     });
                             })
                         });
@@ -749,7 +835,10 @@ impl Dialog {
                         if let Some(context_menu) = menu.take() {
                             context_menu.select(action);
                             emit_navigation_transition_dialog_close();
-                            return false;
+                            return DialogUpdateResult {
+                                keep_open: false,
+                                command: None,
+                            };
                         }
                     }
                 }
@@ -759,7 +848,10 @@ impl Dialog {
                 if !is_open {
                     emit_navigation_transition_dialog_close();
                 }
-                is_open
+                DialogUpdateResult {
+                    keep_open: is_open && command.is_none(),
+                    command,
+                }
             }
         }
     }
@@ -777,10 +869,12 @@ impl Dialog {
     }
 
     pub(crate) fn new_context_menu(
+        webview_id: WebViewId,
         menu: ContextMenu,
         toolbar_offset: Length<f32, DeviceIndependentPixel>,
     ) -> Dialog {
         Dialog::ContextMenu {
+            webview_id,
             menu: Some(menu),
             toolbar_offset,
         }

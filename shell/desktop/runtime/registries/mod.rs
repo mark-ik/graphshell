@@ -279,8 +279,7 @@ pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE: &str =
 pub(crate) const CHANNEL_COMPOSITOR_TILE_ACTIVITY: &str = "compositor:tile_activity";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR: &str =
     "compositor:overlay_lifecycle_indicator";
-pub(crate) const CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED: &str =
-    "compositor:lens_overlay_applied";
+pub(crate) const CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED: &str = "compositor:lens_overlay_applied";
 pub(crate) const CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT: &str =
     "compositor.content.culled_offviewport";
 pub(crate) const CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE: &str =
@@ -3263,6 +3262,14 @@ mod tests {
             describe_action_capability(action::ACTION_WORKBENCH_SETTINGS_OPEN),
             Some(ActionCapability::AlwaysAvailable)
         );
+        assert_eq!(
+            describe_action_capability(action::ACTION_WORKBENCH_SETTINGS_PANE_OPEN),
+            Some(ActionCapability::AlwaysAvailable)
+        );
+        assert_eq!(
+            describe_action_capability(action::ACTION_WORKBENCH_SETTINGS_OVERLAY_OPEN),
+            Some(ActionCapability::AlwaysAvailable)
+        );
     }
 
     #[test]
@@ -3728,9 +3735,11 @@ mod tests {
             "https://example.com/math".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
-        app.workspace
-            .semantic_tags
-            .insert(node, ["udc:51".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(node, "udc:51".to_string());
         app.workspace.semantic_index_dirty = true;
 
         let observer_count = Arc::new(AtomicUsize::new(0));
@@ -3767,12 +3776,16 @@ mod tests {
             euclid::default::Point2D::new(20.0, 0.0),
         );
 
-        app.workspace
-            .semantic_tags
-            .insert(math, ["udc:51".to_string()].into_iter().collect());
-        app.workspace
-            .semantic_tags
-            .insert(numerical, ["udc:519.6".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(math, "udc:51".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(numerical, "udc:519.6".to_string());
         app.workspace.semantic_index_dirty = true;
         let _ = runtime.reconcile_semantics(&mut app);
 

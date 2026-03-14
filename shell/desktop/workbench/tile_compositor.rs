@@ -29,15 +29,13 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
-    CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED,
-    CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
+    CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED, CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
     CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
-    CHANNEL_COMPOSITOR_TILE_ACTIVITY,
-    phase3_resolve_active_presentation_profile,
+    CHANNEL_COMPOSITOR_TILE_ACTIVITY, phase3_resolve_active_presentation_profile,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
@@ -385,11 +383,8 @@ fn resolve_tile_semantic_input(
     let render_mode = render_mode_for_pane(tiles_tree, pane_id);
     let lifecycle = node_lifecycle_for_tile(graph_app, node_key);
     let runtime_blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
-    let has_unread_traversal_activity = graph_app
-        .workspace
-        .semantic_tags
-        .get(&node_key)
-        .is_some_and(|tags| tags.contains(GraphBrowserApp::TAG_UNREAD));
+    let has_unread_traversal_activity =
+        graph_app.node_has_canonical_tag(node_key, GraphBrowserApp::TAG_UNREAD);
     let selection_state =
         tile_selection_state_for_tile(graph_app, tile_id_for_pane(tiles_tree, pane_id));
     let lens_config = resolved_lens_config_for_tile(tiles_tree, graph_app, node_key);
@@ -432,7 +427,8 @@ fn differential_content_decision(
             decision: DifferentialContentDecision::Compose(
                 DifferentialComposeReason::SignatureChanged,
             ),
-            semantic_generation_changed: previous.semantic_generation != signature.semantic_generation,
+            semantic_generation_changed: previous.semantic_generation
+                != signature.semantic_generation,
         },
         Some(_) => DifferentialObservation {
             decision: DifferentialContentDecision::SkipUnchanged,
@@ -1289,7 +1285,10 @@ fn render_thumbnail_ghost_if_needed(
     semantic: &TileSemanticOverlayInput,
     tile_rect: egui::Rect,
 ) -> bool {
-    if !matches!(semantic.lifecycle, NodeLifecycle::Cold | NodeLifecycle::Tombstone) {
+    if !matches!(
+        semantic.lifecycle,
+        NodeLifecycle::Cold | NodeLifecycle::Tombstone
+    ) {
         return false;
     }
     if !matches!(
@@ -1399,7 +1398,10 @@ fn selection_overlay_for_mode(
     };
     let stroke = Stroke::new(
         overlay_stroke_width(&ScheduledOverlay::Selection(semantic.clone()), &semantic),
-        presentation.selection_primary.to_color32().gamma_multiply(opacity),
+        presentation
+            .selection_primary
+            .to_color32()
+            .gamma_multiply(opacity),
     );
 
     OverlayStrokePass {
@@ -1518,8 +1520,8 @@ fn semantic_overlay_for_mode(
 mod tests {
     use super::*;
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
-    use euclid::default::Point2D;
     use egui_tiles::Tiles;
+    use euclid::default::Point2D;
     use std::panic::AssertUnwindSafe;
     use std::sync::Arc;
     use std::sync::atomic::AtomicU64;
@@ -2016,7 +2018,10 @@ mod tests {
             &test_presentation_profile(),
         );
 
-        assert!(matches!(overlay.style, OverlayAffordanceStyle::EguiAreaStroke));
+        assert!(matches!(
+            overlay.style,
+            OverlayAffordanceStyle::EguiAreaStroke
+        ));
         assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedEgui);
     }
 
@@ -2210,8 +2215,14 @@ mod tests {
     #[test]
     fn resolve_tile_semantic_input_marks_unread_traversal_activity_from_semantic_tags() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let unread = app.add_node_and_sync("https://example.com/unread".to_string(), Point2D::new(0.0, 0.0));
-        let other = app.add_node_and_sync("https://example.com/other".to_string(), Point2D::new(40.0, 0.0));
+        let unread = app.add_node_and_sync(
+            "https://example.com/unread".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let other = app.add_node_and_sync(
+            "https://example.com/other".to_string(),
+            Point2D::new(40.0, 0.0),
+        );
         let tree = tree_with_two_active_nodes(unread, other);
         let pane_id = pane_id_for_node(&tree, unread);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0));
@@ -2225,11 +2236,11 @@ mod tests {
             FocusDelta::new(None, None),
         );
 
-        app.workspace
-            .semantic_tags
-            .entry(unread)
-            .or_default()
-            .insert(GraphBrowserApp::TAG_UNREAD.to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(unread, GraphBrowserApp::TAG_UNREAD.to_string());
 
         let flagged = resolve_tile_semantic_input(
             &tree,
@@ -2311,7 +2322,10 @@ mod tests {
         );
 
         assert_eq!(passes[0].overlays.len(), 2);
-        assert!(matches!(passes[0].overlays[0], ScheduledOverlay::Selection(_)));
+        assert!(matches!(
+            passes[0].overlays[0],
+            ScheduledOverlay::Selection(_)
+        ));
         assert!(matches!(passes[0].overlays[1], ScheduledOverlay::Focus(_)));
     }
 
@@ -2348,7 +2362,10 @@ mod tests {
             &test_presentation_profile(),
         );
 
-        assert!(matches!(overlay.style, OverlayAffordanceStyle::DashedRectStroke));
+        assert!(matches!(
+            overlay.style,
+            OverlayAffordanceStyle::DashedRectStroke
+        ));
     }
 
     #[test]
@@ -2386,8 +2403,14 @@ mod tests {
 
         assert!(annotation.focus_ring_rendered);
         assert!(annotation.selection_ring_rendered);
-        assert_eq!(annotation.lifecycle_treatment, LifecycleTreatment::RuntimeBlocked);
-        assert_eq!(annotation.lens_glyphs_rendered, vec!["semantic".to_string()]);
+        assert_eq!(
+            annotation.lifecycle_treatment,
+            LifecycleTreatment::RuntimeBlocked
+        );
+        assert_eq!(
+            annotation.lens_glyphs_rendered,
+            vec!["semantic".to_string()]
+        );
     }
 
     #[test]

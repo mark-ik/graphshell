@@ -75,9 +75,9 @@ use crate::util::CoordBridge;
 
 #[path = "gui/accessibility.rs"]
 mod accessibility;
+pub(crate) use accessibility::TileAffordanceAccessibilityProjection;
 #[cfg(test)]
 pub(crate) use accessibility::selected_node_affordance_projection_from_annotations;
-pub(crate) use accessibility::TileAffordanceAccessibilityProjection;
 #[path = "gui/accesskit_events.rs"]
 mod accesskit_events;
 #[path = "gui/accesskit_input.rs"]
@@ -869,6 +869,77 @@ impl Gui {
         accesskit_events::handle_accesskit_event(self, event)
     }
 
+    pub(crate) fn handle_clip_extraction_result(
+        &mut self,
+        result: Result<crate::app::ClipCaptureData, String>,
+    ) {
+        let capture = match result {
+            Ok(capture) => capture,
+            Err(error) => {
+                self.toasts.error(format!("Clip failed: {error}"));
+                return;
+            }
+        };
+
+        match self.graph_app.create_clip_node_from_capture(&capture) {
+            Ok(node_key) => {
+                tile_view_ops::open_or_focus_node_pane_with_mode(
+                    &mut self.tiles_tree,
+                    &self.graph_app,
+                    node_key,
+                    TileOpenMode::SplitHorizontal,
+                );
+                self.toasts.success("Created clip node");
+            }
+            Err(error) => {
+                self.toasts.error(format!("Clip failed: {error}"));
+            }
+        }
+    }
+
+    pub(crate) fn handle_clip_batch_extraction_result(
+        &mut self,
+        result: Result<Vec<crate::app::ClipCaptureData>, String>,
+    ) {
+        let captures = match result {
+            Ok(captures) => captures,
+            Err(error) => {
+                self.toasts
+                    .error(format!("Inspector extraction failed: {error}"));
+                return;
+            }
+        };
+
+        match self.graph_app.open_clip_inspector(captures) {
+            Ok(()) => {
+                self.toasts.success("Opened page inspector");
+            }
+            Err(error) => {
+                self.toasts
+                    .error(format!("Inspector extraction failed: {error}"));
+            }
+        }
+    }
+
+    pub(crate) fn handle_clip_inspector_pointer_result(
+        &mut self,
+        webview_id: WebViewId,
+        result: Result<Vec<crate::app::ClipCaptureData>, String>,
+    ) {
+        if let Ok(stack) = result {
+            self.graph_app
+                .update_clip_inspector_pointer_stack(webview_id, stack);
+        }
+    }
+
+    pub(crate) fn clip_inspector_target_webview_id(&self) -> Option<WebViewId> {
+        self.graph_app
+            .workspace
+            .clip_inspector_state
+            .as_ref()
+            .map(|state| state.webview_id)
+    }
+
     pub(crate) fn set_zoom_factor(&self, factor: f32) {
         let clamped = accesskit_input::clamp_zoom_factor(factor);
         self.context.egui_context().set_zoom_factor(clamped);
@@ -900,13 +971,17 @@ impl Gui {
 fn ui_overlay_active_from_flags(
     show_command_palette: bool,
     show_help_panel: bool,
+    show_settings_overlay: bool,
     show_radial_menu: bool,
+    show_clip_inspector: bool,
     show_clear_data_confirm: bool,
 ) -> bool {
     focus_state::ui_overlay_active_from_flags(
         show_command_palette,
         show_help_panel,
+        show_settings_overlay,
         show_radial_menu,
+        show_clip_inspector,
         show_clear_data_confirm,
     )
 }

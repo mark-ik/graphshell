@@ -8,6 +8,7 @@
 //! and reads back user interactions (drag, selection, double-click).
 
 use super::apply::{GraphDelta, GraphDeltaResult};
+use super::badge::BadgeVisual;
 use super::{
     EdgeKey, EdgeKind, EdgePayload, Graph, GraphDirection, GraphIndex, Node, NodeKey, NodeLifecycle,
 };
@@ -75,11 +76,15 @@ pub struct GraphNodeShape {
     #[serde(default)]
     workspace_membership_names: Vec<String>,
     #[serde(default)]
-    semantic_badges: Vec<String>,
+    semantic_badges: Vec<BadgeVisual>,
     #[serde(default)]
     semantic_badge_overflow: usize,
     #[serde(default)]
+    badge_expand_t: f32,
+    #[serde(default)]
     is_archived: bool,
+    #[serde(default)]
+    is_clip: bool,
     #[serde(default)]
     is_pinned: bool,
     #[serde(default)]
@@ -115,7 +120,9 @@ impl From<NodeProps<Node>> for GraphNodeShape {
             workspace_membership_names: Vec::new(),
             semantic_badges: Vec::new(),
             semantic_badge_overflow: 0,
+            badge_expand_t: 0.0,
             is_archived: false,
+            is_clip: false,
             is_pinned: node_props.payload.is_pinned,
             is_crashed: false,
             selection_role: if node_props.selected {
@@ -140,7 +147,9 @@ impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeSha
     }
 
     fn shapes(&mut self, ctx: &DrawContext) -> Vec<Shape> {
-        let mut res = Vec::with_capacity(4);
+        self.advance_badge_expand_t(ctx);
+
+        let mut res = Vec::with_capacity(8);
         let circle_center = ctx.meta.canvas_to_screen_pos(self.pos);
         let circle_radius = ctx.meta.canvas_to_screen_size(self.radius);
         let color = self.effective_color(ctx);
@@ -155,6 +164,7 @@ impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeSha
             }
             .into(),
         );
+        self.push_clip_ring(circle_center, circle_radius, &mut res);
 
         if let Some(texture_id) = self.ensure_favicon_texture(ctx) {
             let size = Vec2::splat(circle_radius * 1.5);
@@ -173,6 +183,7 @@ impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeSha
         self.push_workspace_membership_badge(ctx, circle_center, circle_radius, &mut res);
         self.push_pinned_indicator(circle_center, circle_radius, &mut res);
         self.push_semantic_badges(ctx, circle_center, circle_radius, &mut res);
+        self.push_badge_orbit(ctx, circle_center, circle_radius, &mut res);
         self.push_secondary_selection_halo(circle_center, circle_radius, &mut res);
 
         let Some(label_text) = self.label_text_for_zoom(ctx.meta.zoom) else {
@@ -264,7 +275,7 @@ impl GraphNodeShape {
         self.workspace_membership_names = names;
     }
 
-    fn set_semantic_badges(&mut self, badges: Vec<String>) {
+    fn set_semantic_badges(&mut self, badges: Vec<BadgeVisual>) {
         const BADGE_SLOTS: usize = 3;
 
         if badges.len() > BADGE_SLOTS {
@@ -278,6 +289,10 @@ impl GraphNodeShape {
 
     fn set_archived(&mut self, archived: bool) {
         self.is_archived = archived;
+    }
+
+    fn set_clip(&mut self, clip: bool) {
+        self.is_clip = clip;
     }
 
     fn set_selection_role(&mut self, role: SelectionVisualRole) {
@@ -366,7 +381,7 @@ impl GraphNodeShape {
 
         for badge in &self.semantic_badges {
             let galley = ctx.ctx.fonts_mut(|f| {
-                f.layout_no_wrap(badge.clone(), font.clone(), Color32::from_gray(245))
+                f.layout_no_wrap(badge.token.clone(), font.clone(), Color32::from_gray(245))
             });
             let padding = Vec2::new(4.0 * scale, 2.0 * scale);
             let badge_size = galley.size() + padding * 2.0;
@@ -408,6 +423,73 @@ impl GraphNodeShape {
             ));
             let badge_pos = Pos2::new(badge_rect.min.x + padding.x, badge_rect.min.y + padding.y);
             shapes.push(TextShape::new(badge_pos, galley, Color32::from_gray(245)).into());
+        }
+    }
+
+    fn push_badge_orbit(
+        &self,
+        ctx: &DrawContext,
+        circle_center: Pos2,
+        circle_radius: f32,
+        shapes: &mut Vec<Shape>,
+    ) {
+        if self.badge_expand_t <= 0.01 || self.semantic_badges.is_empty() {
+            return;
+        }
+
+        let orbit_radius = (circle_radius + 24.0).max(32.0) * self.badge_expand_t;
+        let font = FontId::new(10.0, FontFamily::Monospace);
+        let start_angle = -std::f32::consts::FRAC_PI_2;
+        let step = std::f32::consts::TAU / self.semantic_badges.len().max(1) as f32;
+
+        for (index, badge) in self.semantic_badges.iter().enumerate() {
+            let angle = start_angle + step * index as f32;
+            let center = Pos2::new(
+                circle_center.x + orbit_radius * angle.cos(),
+                circle_center.y + orbit_radius * angle.sin(),
+            );
+            let label = crate::util::truncate_with_ellipsis(&badge.label, 12);
+            let text = format!("{} {}", badge.token, label);
+            let galley = ctx
+                .ctx
+                .fonts_mut(|f| f.layout_no_wrap(text, font.clone(), Color32::from_gray(245)));
+            let padding = Vec2::new(6.0, 3.0);
+            let rect = Rect::from_center_size(center, galley.size() + padding * 2.0);
+            shapes.push(Shape::rect_filled(
+                rect,
+                6.0,
+                Color32::from_rgba_unmultiplied(20, 28, 42, 230),
+            ));
+            let text_pos = Pos2::new(rect.min.x + padding.x, rect.min.y + padding.y);
+            shapes.push(TextShape::new(text_pos, galley, Color32::from_gray(245)).into());
+        }
+    }
+
+    fn push_clip_ring(&self, circle_center: Pos2, circle_radius: f32, shapes: &mut Vec<Shape>) {
+        if !self.is_clip {
+            return;
+        }
+
+        let dash_count = 12;
+        let dash_span = std::f32::consts::TAU / dash_count as f32 * 0.55;
+        for dash in 0..dash_count {
+            let base = dash as f32 * std::f32::consts::TAU / dash_count as f32;
+            let start = base;
+            let end = base + dash_span;
+            let points = (0..=6)
+                .map(|idx| {
+                    let t = idx as f32 / 6.0;
+                    let angle = start + (end - start) * t;
+                    Pos2::new(
+                        circle_center.x + (circle_radius + 3.0) * angle.cos(),
+                        circle_center.y + (circle_radius + 3.0) * angle.sin(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            shapes.push(Shape::line(
+                points,
+                Stroke::new(1.5, Color32::from_rgb(170, 210, 255)),
+            ));
         }
     }
 
@@ -490,7 +572,28 @@ impl GraphNodeShape {
         if self.selection_role == SelectionVisualRole::Primary {
             return Stroke::new(1.8, Color32::from_rgb(255, 200, 120));
         }
+        if self.is_clip {
+            return Stroke::new(1.4, Color32::from_rgb(140, 190, 255));
+        }
         Stroke::new(1.0, Color32::from_gray(90))
+    }
+
+    fn advance_badge_expand_t(&mut self, ctx: &DrawContext) {
+        let target = if self.hovered || self.selected {
+            1.0
+        } else {
+            0.0
+        };
+        let delta = if target > self.badge_expand_t {
+            0.14
+        } else {
+            -0.14
+        };
+        let next = (self.badge_expand_t + delta).clamp(0.0, 1.0);
+        if (next - self.badge_expand_t).abs() > f32::EPSILON {
+            self.badge_expand_t = next;
+            ctx.ctx.request_repaint();
+        }
     }
 
     fn apply_archive_tint(&self, color: Color32) -> Color32 {
@@ -1077,7 +1180,7 @@ impl EguiGraphState {
         primary_selected: Option<NodeKey>,
         crashed_nodes: &HashSet<NodeKey>,
         memberships_by_uuid: &HashMap<Uuid, Vec<String>>,
-        semantic_badges_by_key: &HashMap<NodeKey, Vec<String>>,
+        semantic_badges_by_key: &HashMap<NodeKey, Vec<BadgeVisual>>,
         archived_nodes: &HashSet<NodeKey>,
     ) -> Self {
         Self::from_graph_with_memberships_projection(
@@ -1098,7 +1201,7 @@ impl EguiGraphState {
         primary_selected: Option<NodeKey>,
         crashed_nodes: &HashSet<NodeKey>,
         memberships_by_uuid: &HashMap<Uuid, Vec<String>>,
-        semantic_badges_by_key: &HashMap<NodeKey, Vec<String>>,
+        semantic_badges_by_key: &HashMap<NodeKey, Vec<BadgeVisual>>,
         archived_nodes: &HashSet<NodeKey>,
         represents_full_graph: bool,
     ) -> Self {
@@ -1126,6 +1229,11 @@ impl EguiGraphState {
                 egui_node
                     .display_mut()
                     .set_archived(archived_nodes.contains(&key));
+                egui_node.display_mut().set_clip(
+                    node.tags
+                        .iter()
+                        .any(|tag| crate::graph::badge::is_clip_tag(tag)),
+                );
             }
         }
         state
@@ -1521,7 +1629,20 @@ mod tests {
             &HashMap::new(),
             &HashMap::from([(
                 key,
-                vec!["51".to_string(), "#pin".to_string(), "#focus".to_string()],
+                vec![
+                    BadgeVisual {
+                        token: "51".to_string(),
+                        label: "51".to_string(),
+                    },
+                    BadgeVisual {
+                        token: "#pin".to_string(),
+                        label: "#pin".to_string(),
+                    },
+                    BadgeVisual {
+                        token: "#focus".to_string(),
+                        label: "#focus".to_string(),
+                    },
+                ],
             )]),
             &HashSet::new(),
         );
@@ -1529,7 +1650,20 @@ mod tests {
         let shape = state.graph.node(key).unwrap().display();
         assert_eq!(
             shape.semantic_badges,
-            vec!["51".to_string(), "#pin".to_string(), "#focus".to_string()]
+            vec![
+                BadgeVisual {
+                    token: "51".to_string(),
+                    label: "51".to_string(),
+                },
+                BadgeVisual {
+                    token: "#pin".to_string(),
+                    label: "#pin".to_string(),
+                },
+                BadgeVisual {
+                    token: "#focus".to_string(),
+                    label: "#focus".to_string(),
+                },
+            ]
         );
         assert_eq!(shape.semantic_badge_overflow, 0);
     }

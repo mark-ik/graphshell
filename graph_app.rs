@@ -222,6 +222,14 @@ pub use intents::{
     ViewAction,
 };
 
+#[path = "app/clip_capture.rs"]
+mod clip_capture;
+pub use clip_capture::ClipCaptureData;
+pub use clip_capture::{
+    ClipInspectorFilter, ClipInspectorState, clip_capture_matches_filter,
+    clip_capture_matches_query,
+};
+
 #[path = "app/agents/mod.rs"]
 pub(crate) mod agents;
 
@@ -267,6 +275,7 @@ pub enum SettingsToolPage {
     Sync,
     Appearance,
     Keybindings,
+    Advanced,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -447,6 +456,23 @@ impl GraphViewState {
     pub fn new(name: impl Into<String>) -> Self {
         Self::new_with_id(GraphViewId::new(), name)
     }
+}
+
+fn default_semantic_depth_dimension() -> ViewDimension {
+    ViewDimension::ThreeD {
+        mode: ThreeDMode::TwoPointFive,
+        z_source: ZSource::UdcLevel { scale: 48.0 },
+    }
+}
+
+fn is_semantic_depth_dimension(dimension: &ViewDimension) -> bool {
+    matches!(
+        dimension,
+        ViewDimension::ThreeD {
+            mode: ThreeDMode::TwoPointFive,
+            z_source: ZSource::UdcLevel { .. },
+        }
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -991,6 +1017,8 @@ pub struct GraphWorkspace {
     pub history_manager_tab: HistoryManagerTab,
     /// Active page in the Settings tool pane.
     pub settings_tool_page: SettingsToolPage,
+    /// Whether the graph-scoped settings overlay is open.
+    pub show_settings_overlay: bool,
 
     /// Whether the keyboard shortcut help panel is open
     pub show_help_panel: bool,
@@ -1001,6 +1029,8 @@ pub struct GraphWorkspace {
     pub command_palette_contextual_mode: bool,
     /// Whether the radial command UI is open.
     pub show_radial_menu: bool,
+    /// Whether the web clip inspector surface is open.
+    pub show_clip_inspector: bool,
 
     /// Preferred toast anchor location.
     pub toast_anchor_preference: ToastAnchorPreference,
@@ -1052,6 +1082,10 @@ pub struct GraphWorkspace {
     pub pinned_graph_search: Option<GraphSearchHistoryEntry>,
     /// Non-modal tag editor state for the currently targeted node.
     pub tag_panel_state: Option<TagPanelState>,
+    /// Non-modal web clip inspector state for the current extracted page surface.
+    pub clip_inspector_state: Option<ClipInspectorState>,
+    /// Pending webview highlight-clear request for inspector teardown.
+    pub pending_clip_inspector_highlight_clear: Option<RendererId>,
     /// Graph-owned hierarchical projection runtime state for file-tree navigation.
     ///
     /// This is semantic view-projection state and must not be owned by workbench
@@ -1183,8 +1217,9 @@ pub struct GraphWorkspace {
     pub semantic_index: HashMap<NodeKey, SemanticClassVector>,
     pub semantic_index_dirty: bool,
 
-    /// Runtime semantic tags by node key (e.g. "udc:51").
-    pub semantic_tags: HashMap<NodeKey, HashSet<String>>,
+    /// Per-view restore target used by reversible semantic depth toggles.
+    semantic_depth_restore_dimensions: HashMap<GraphViewId, ViewDimension>,
+
     /// Display-only semantic tag suggestions surfaced by background agents.
     pub suggested_semantic_tags: HashMap<NodeKey, Vec<String>>,
 }
@@ -1193,6 +1228,8 @@ pub struct GraphWorkspace {
 pub struct TagPanelState {
     pub node_key: NodeKey,
     pub text_input: String,
+    pub icon_picker_open: bool,
+    pub pending_icon_override: Option<crate::graph::badge::BadgeIcon>,
 }
 
 /// Main application state (workspace + runtime services).
@@ -1339,10 +1376,12 @@ impl GraphBrowserApp {
                 drag_release_frames_remaining: 0,
                 history_manager_tab: HistoryManagerTab::Timeline,
                 settings_tool_page: SettingsToolPage::General,
+                show_settings_overlay: false,
                 show_help_panel: false,
                 show_command_palette: false,
                 command_palette_contextual_mode: false,
                 show_radial_menu: false,
+                show_clip_inspector: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
@@ -1368,6 +1407,8 @@ impl GraphBrowserApp {
                 graph_search_history: Vec::new(),
                 pinned_graph_search: None,
                 tag_panel_state: None,
+                clip_inspector_state: None,
+                pending_clip_inspector_highlight_clear: None,
                 file_tree_projection_state: FileTreeProjectionState::default(),
                 highlighted_graph_edge: None,
                 pending_workbench_intents: Vec::new(),
@@ -1420,7 +1461,7 @@ impl GraphBrowserApp {
                 default_registry_theme_id: None,
                 semantic_index: HashMap::new(),
                 semantic_index_dirty: true,
-                semantic_tags: HashMap::new(),
+                semantic_depth_restore_dimensions: HashMap::new(),
                 suggested_semantic_tags: HashMap::new(),
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
@@ -1457,10 +1498,12 @@ impl GraphBrowserApp {
                 drag_release_frames_remaining: 0,
                 history_manager_tab: HistoryManagerTab::Timeline,
                 settings_tool_page: SettingsToolPage::General,
+                show_settings_overlay: false,
                 show_help_panel: false,
                 show_command_palette: false,
                 command_palette_contextual_mode: false,
                 show_radial_menu: false,
+                show_clip_inspector: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
@@ -1486,6 +1529,8 @@ impl GraphBrowserApp {
                 graph_search_history: Vec::new(),
                 pinned_graph_search: None,
                 tag_panel_state: None,
+                clip_inspector_state: None,
+                pending_clip_inspector_highlight_clear: None,
                 file_tree_projection_state: FileTreeProjectionState::default(),
                 highlighted_graph_edge: None,
                 pending_workbench_intents: Vec::new(),
@@ -1537,7 +1582,7 @@ impl GraphBrowserApp {
                 default_registry_theme_id: None,
                 semantic_index: HashMap::new(),
                 semantic_index_dirty: true,
-                semantic_tags: HashMap::new(),
+                semantic_depth_restore_dimensions: HashMap::new(),
                 suggested_semantic_tags: HashMap::new(),
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
@@ -1558,6 +1603,56 @@ impl GraphBrowserApp {
         &mut self.workspace.domain.graph
     }
 
+    pub fn canonical_tags_for_node(&self, key: NodeKey) -> HashSet<String> {
+        self.workspace
+            .domain
+            .graph
+            .node_tags(key)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn canonical_tags_for_node_sorted(&self, key: NodeKey) -> Vec<String> {
+        let mut tags = self
+            .workspace
+            .domain
+            .graph
+            .node_tags(key)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<Vec<_>>();
+        tags.sort();
+        tags
+    }
+
+    pub fn node_has_canonical_tag(&self, key: NodeKey, tag: &str) -> bool {
+        self.workspace
+            .domain
+            .graph
+            .node_tags(key)
+            .is_some_and(|tags| tags.contains(tag))
+    }
+
+    pub fn node_tag_presentation(
+        &self,
+        key: NodeKey,
+    ) -> Option<&crate::graph::badge::NodeTagPresentationState> {
+        self.workspace.domain.graph.node_tag_presentation(key)
+    }
+
+    pub fn set_node_tag_icon_override(
+        &mut self,
+        key: NodeKey,
+        tag: &str,
+        icon: Option<crate::graph::badge::BadgeIcon>,
+    ) -> bool {
+        self.workspace
+            .domain
+            .graph
+            .set_node_tag_icon_override(key, tag, icon)
+    }
+
     pub fn graph_reader_mode(&self) -> Option<GraphReaderModeState> {
         match self.workspace.graph_reader_state.mode_override {
             Some(GraphReaderModeState::Map { focused_node }) => Some(GraphReaderModeState::Map {
@@ -1575,14 +1670,16 @@ impl GraphBrowserApp {
                     }),
                 })
             }
-            _ => self.get_single_selected_node().map(|node_key| GraphReaderModeState::Room {
-                node_key,
-                return_map_node: Some(node_key),
-            }).or_else(|| {
-                (self.workspace.domain.graph.node_count() > 0).then_some(GraphReaderModeState::Map {
-                    focused_node: None,
+            _ => self
+                .get_single_selected_node()
+                .map(|node_key| GraphReaderModeState::Room {
+                    node_key,
+                    return_map_node: Some(node_key),
                 })
-            }),
+                .or_else(|| {
+                    (self.workspace.domain.graph.node_count() > 0)
+                        .then_some(GraphReaderModeState::Map { focused_node: None })
+                }),
         }
     }
 
@@ -1623,9 +1720,8 @@ impl GraphBrowserApp {
             Some(GraphReaderModeState::Map { focused_node }) => focused_node,
             None => None,
         };
-        self.workspace.graph_reader_state.mode_override = Some(GraphReaderModeState::Map {
-            focused_node,
-        });
+        self.workspace.graph_reader_state.mode_override =
+            Some(GraphReaderModeState::Map { focused_node });
     }
 
     pub fn set_tab_selection_single(&mut self, key: NodeKey) {
@@ -2201,11 +2297,7 @@ impl GraphBrowserApp {
                 let Some(node) = self.workspace.domain.graph.get_node(key) else {
                     return false;
                 };
-                let has_pin_tag = self
-                    .workspace
-                    .semantic_tags
-                    .get(&key)
-                    .is_some_and(|tags| tags.contains(Self::TAG_PIN));
+                let has_pin_tag = node.tags.contains(Self::TAG_PIN);
                 node.is_pinned != is_pinned || has_pin_tag != is_pinned
             }
             GraphMutation::SetNodeUrl { key, new_url } => self
@@ -2222,11 +2314,7 @@ impl GraphBrowserApp {
                 if tag == Self::TAG_PIN && !node.is_pinned {
                     return true;
                 }
-                !self
-                    .workspace
-                    .semantic_tags
-                    .get(&key)
-                    .is_some_and(|tags| tags.contains(&tag))
+                !node.tags.contains(&tag)
             }
             GraphMutation::UntagNode { key, tag } => {
                 if tag == Self::TAG_PIN
@@ -2241,9 +2329,10 @@ impl GraphBrowserApp {
                     return true;
                 }
                 self.workspace
-                    .semantic_tags
-                    .get(&key)
-                    .is_some_and(|tags| tags.contains(&tag))
+                    .domain
+                    .graph
+                    .get_node(key)
+                    .is_some_and(|node| node.tags.contains(&tag))
             }
             GraphMutation::UpdateNodeMimeHint { key, mime_hint } => self
                 .workspace
@@ -2489,10 +2578,41 @@ impl GraphBrowserApp {
                 }
             }
             GraphIntent::SetViewDimension { view_id, dimension } => {
+                if !is_semantic_depth_dimension(&dimension) {
+                    self.workspace
+                        .semantic_depth_restore_dimensions
+                        .remove(&view_id);
+                }
                 if let Some(view) = self.workspace.views.get_mut(&view_id) {
                     // F9 tracked capability: persist view preference now; renderer/runtime
                     // behavior for 3D modes lands in follow-up implementation slices.
                     view.dimension = dimension;
+                }
+            }
+            GraphIntent::ToggleSemanticDepthView { view_id } => {
+                let Some(current_dimension) = self
+                    .workspace
+                    .views
+                    .get(&view_id)
+                    .map(|view| view.dimension.clone())
+                else {
+                    return;
+                };
+
+                let next_dimension = if is_semantic_depth_dimension(&current_dimension) {
+                    self.workspace
+                        .semantic_depth_restore_dimensions
+                        .remove(&view_id)
+                        .unwrap_or_default()
+                } else {
+                    self.workspace
+                        .semantic_depth_restore_dimensions
+                        .insert(view_id, current_dimension);
+                    default_semantic_depth_dimension()
+                };
+
+                if let Some(view) = self.workspace.views.get_mut(&view_id) {
+                    view.dimension = next_dimension;
                 }
             }
             GraphIntent::SetPhysicsProfile { profile_id } => {
@@ -2637,8 +2757,12 @@ impl GraphBrowserApp {
                         self.set_node_pinned_and_log(key, true);
                     }
 
-                    let tags = self.workspace.semantic_tags.entry(key).or_default();
-                    if tags.insert(normalized_tag.clone()) {
+                    if self
+                        .workspace
+                        .domain
+                        .graph
+                        .insert_node_tag(key, normalized_tag.clone())
+                    {
                         self.workspace.semantic_index_dirty = true;
                     }
                     if let Some(suggestions) = self.workspace.suggested_semantic_tags.get_mut(&key)
@@ -2655,12 +2779,7 @@ impl GraphBrowserApp {
                     self.set_node_pinned_and_log(key, false);
                 }
 
-                if let Some(tags) = self.workspace.semantic_tags.get_mut(&key)
-                    && tags.remove(&tag)
-                {
-                    if tags.is_empty() {
-                        self.workspace.semantic_tags.remove(&key);
-                    }
+                if self.workspace.domain.graph.remove_node_tag(key, &tag) {
                     self.workspace.semantic_index_dirty = true;
                 }
             }
@@ -2671,8 +2790,9 @@ impl GraphBrowserApp {
 
                 let existing_tags = self
                     .workspace
-                    .semantic_tags
-                    .get(&key)
+                    .domain
+                    .graph
+                    .node_tags(key)
                     .cloned()
                     .unwrap_or_default();
                 let mut normalized = BTreeSet::new();
@@ -4042,7 +4162,6 @@ impl GraphBrowserApp {
             Self::scan_max_placeholder_id(&self.workspace.domain.graph);
         self.workspace.egui_state = None;
         self.workspace.egui_state_dirty = true;
-        self.workspace.semantic_tags.clear();
         self.workspace.semantic_index.clear();
         self.workspace.semantic_index_dirty = true;
         self.workspace.active_graph_search_query.clear();
@@ -4099,7 +4218,6 @@ impl GraphBrowserApp {
         self.workspace.domain.next_placeholder_id = next_placeholder_id;
         self.workspace.egui_state = None;
         self.workspace.egui_state_dirty = true;
-        self.workspace.semantic_tags.clear();
         self.workspace.semantic_index.clear();
         self.workspace.semantic_index_dirty = true;
         self.workspace.active_graph_search_query.clear();
@@ -4223,6 +4341,9 @@ impl GraphBrowserApp {
             }
             VersoAddress::Settings(GraphshellSettingsPath::Keybindings) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Keybindings))
+            }
+            VersoAddress::Settings(GraphshellSettingsPath::Advanced) => {
+                Some(SettingsRouteTarget::Settings(SettingsToolPage::Advanced))
             }
             VersoAddress::Frame(_)
             | VersoAddress::TileGroup(_)
@@ -9653,7 +9774,7 @@ mod tests {
             app.workspace.suggested_semantic_tags.get(&key),
             Some(&vec!["udc:51".to_string(), "udc:519.6".to_string()])
         );
-        assert!(!app.workspace.semantic_tags.contains_key(&key));
+        assert!(app.canonical_tags_for_node(key).is_empty());
 
         app.apply_reducer_intents([GraphIntent::TagNode {
             key,
@@ -9664,12 +9785,7 @@ mod tests {
             app.workspace.suggested_semantic_tags.get(&key),
             Some(&vec!["udc:51".to_string()])
         );
-        assert!(
-            app.workspace
-                .semantic_tags
-                .get(&key)
-                .is_some_and(|tags| tags.contains("udc:519.6"))
-        );
+        assert!(app.node_has_canonical_tag(key, "udc:519.6"));
     }
 
     #[test]
@@ -9745,6 +9861,67 @@ mod tests {
             resolved.theme.as_ref().map(|theme| theme.background_rgb),
             Some((20, 20, 25))
         );
+    }
+
+    #[test]
+    fn toggle_semantic_depth_view_restores_previous_dimension() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let view_id = GraphViewId::new();
+        let mut view = GraphViewState::new_with_id(view_id, "Semantic");
+        view.dimension = ViewDimension::ThreeD {
+            mode: ThreeDMode::Isometric,
+            z_source: ZSource::BfsDepth { scale: 12.0 },
+        };
+        app.workspace.views.insert(view_id, view);
+
+        app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
+
+        assert!(matches!(
+            app.workspace.views.get(&view_id).unwrap().dimension,
+            ViewDimension::ThreeD {
+                mode: ThreeDMode::TwoPointFive,
+                z_source: ZSource::UdcLevel { scale: 48.0 }
+            }
+        ));
+
+        app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
+
+        assert!(matches!(
+            app.workspace.views.get(&view_id).unwrap().dimension,
+            ViewDimension::ThreeD {
+                mode: ThreeDMode::Isometric,
+                z_source: ZSource::BfsDepth { scale: 12.0 }
+            }
+        ));
+    }
+
+    #[test]
+    fn set_view_dimension_clears_semantic_depth_restore_target() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Semantic"));
+
+        app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
+        app.apply_reducer_intents([GraphIntent::SetViewDimension {
+            view_id,
+            dimension: ViewDimension::ThreeD {
+                mode: ThreeDMode::Isometric,
+                z_source: ZSource::BfsDepth { scale: 9.0 },
+            },
+        }]);
+        app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
+
+        assert!(matches!(
+            app.workspace.views.get(&view_id).unwrap().dimension,
+            ViewDimension::ThreeD {
+                mode: ThreeDMode::TwoPointFive,
+                z_source: ZSource::UdcLevel { scale: 48.0 }
+            }
+        ));
     }
 
     #[test]

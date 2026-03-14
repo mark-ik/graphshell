@@ -316,12 +316,16 @@ mod tests {
             .domain
             .graph
             .add_node("https://numerical.example".into(), Point2D::new(40.0, 40.0));
-        app.workspace
-            .semantic_tags
-            .insert(math, ["udc:51".to_string()].into_iter().collect());
-        app.workspace
-            .semantic_tags
-            .insert(numerical, ["udc:519.6".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(math, "udc:51".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(numerical, "udc:519.6".to_string());
         let _ = crate::shell::desktop::runtime::registries::phase3_reconcile_semantics(&mut app);
         app.select_node(numerical, false);
 

@@ -152,8 +152,11 @@ impl SearchProvider for LocalSearchProvider {
         limit: usize,
     ) -> Vec<SearchResult> {
         let trimmed = query.trim();
+        if let Some(udc_query) = parse_udc_class_query(trimmed) {
+            return local_udc_class_matches(app, &udc_query, limit);
+        }
+
         let matched_keys = if trimmed.starts_with('#')
-            || trimmed.starts_with("udc:")
             || trimmed
                 .chars()
                 .all(|c| c.is_ascii_digit() || c == '.' || c == ':' || c == '/')
@@ -162,16 +165,7 @@ impl SearchProvider for LocalSearchProvider {
                 .domain_graph()
                 .nodes()
                 .map(|(key, node)| {
-                    let semantic_tags = app
-                        .workspace
-                        .semantic_tags
-                        .get(&key)
-                        .map(|tags| {
-                            let mut tags = tags.iter().cloned().collect::<Vec<_>>();
-                            tags.sort();
-                            tags.join(" ")
-                        })
-                        .unwrap_or_default();
+                    let semantic_tags = app.canonical_tags_for_node_sorted(key).join(" ");
                     LocalSearchCandidate {
                         key,
                         text: format!("{} {} {}", node.title, node.url, semantic_tags),
@@ -192,11 +186,7 @@ impl SearchProvider for LocalSearchProvider {
             .filter_map(|(idx, key)| {
                 let node = app.domain_graph().get_node(key)?;
                 let semantic_tags = app
-                    .workspace
-                    .semantic_tags
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or_default()
+                    .canonical_tags_for_node_sorted(key)
                     .into_iter()
                     .collect();
                 Some(SearchResult {
@@ -215,6 +205,83 @@ impl SearchProvider for LocalSearchProvider {
             })
             .collect()
     }
+}
+
+fn parse_udc_class_query(query: &str) -> Option<String> {
+    let trimmed = query.trim();
+    let udc_query = trimmed
+        .strip_prefix("facet:udc_classes=")
+        .unwrap_or(trimmed)
+        .trim()
+        .to_ascii_lowercase();
+
+    if udc_query.starts_with("udc:") && udc_query.len() > "udc:".len() {
+        Some(udc_query)
+    } else {
+        None
+    }
+}
+
+fn local_udc_class_matches(
+    app: &GraphBrowserApp,
+    udc_query: &str,
+    limit: usize,
+) -> Vec<SearchResult> {
+    let mut matches = app
+        .domain_graph()
+        .nodes()
+        .filter_map(|(key, node)| {
+            let semantic_tags = app.canonical_tags_for_node_sorted(key);
+            let match_rank = semantic_tags
+                .iter()
+                .filter_map(|tag| hierarchical_udc_match_rank(tag, udc_query))
+                .min()?;
+            Some((
+                key,
+                node.title.clone(),
+                node.url.clone(),
+                semantic_tags,
+                match_rank,
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    matches.sort_by(|a, b| {
+        a.4.cmp(&b.4)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+
+    matches
+        .into_iter()
+        .take(limit)
+        .map(
+            |(key, title, url, semantic_tags, match_rank)| SearchResult {
+                title: if title.trim().is_empty() {
+                    url.clone()
+                } else {
+                    title
+                },
+                url: Some(url.clone()),
+                snippet: Some(url),
+                source: INDEX_PROVIDER_LOCAL.to_string(),
+                relevance: 1.0 - ((match_rank.min(50) as f32) * 0.01),
+                semantic_tags,
+                kind: SearchResultKind::Node(key),
+            },
+        )
+        .collect()
+}
+
+fn hierarchical_udc_match_rank(tag: &str, udc_query: &str) -> Option<usize> {
+    let normalized_tag = tag.trim().to_ascii_lowercase();
+    if normalized_tag == udc_query {
+        return Some(0);
+    }
+    if normalized_tag.starts_with(udc_query) {
+        return Some(normalized_tag.len().saturating_sub(udc_query.len()) + 1);
+    }
+    None
 }
 
 struct HistorySearchProvider;
@@ -355,9 +422,11 @@ mod tests {
             node.history_entries = vec!["https://history.example/math".to_string()];
             node.history_index = 0;
         }
-        app.workspace
-            .semantic_tags
-            .insert(key, ["udc:51".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(key, "udc:51".to_string());
 
         let results = registry.search(&app, &knowledge, "math", 10);
         let sources = results
@@ -412,14 +481,89 @@ mod tests {
         if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
             node.title = "Numerical Methods".into();
         }
-        app.workspace.semantic_tags.insert(
-            key,
-            ["udc:51".to_string(), "udc:519.6".to_string()]
-                .into_iter()
-                .collect(),
-        );
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(key, "udc:51".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(key, "udc:519.6".to_string());
 
         let results = provider.search(&app, &knowledge, "udc:519.6", 10);
+
+        assert!(
+            results
+                .iter()
+                .any(|result| matches!(result.kind, SearchResultKind::Node(found) if found == key))
+        );
+    }
+
+    #[test]
+    fn local_search_provider_matches_udc_descendants_for_parent_class_queries() {
+        let provider = LocalSearchProvider;
+        let knowledge = KnowledgeRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let descendant = app.workspace.domain.graph.add_node(
+            "https://example.com/descendant".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let ancestor_only = app.workspace.domain.graph.add_node(
+            "https://example.com/ancestor".into(),
+            Point2D::new(10.0, 0.0),
+        );
+        let unrelated = app.workspace.domain.graph.add_node(
+            "https://example.com/unrelated".into(),
+            Point2D::new(20.0, 0.0),
+        );
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(descendant, "udc:519.6".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(ancestor_only, "udc:5".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(unrelated, "udc:62".to_string());
+
+        let results = provider.search(&app, &knowledge, "udc:51", 10);
+
+        assert!(results.iter().any(
+            |result| matches!(result.kind, SearchResultKind::Node(found) if found == descendant)
+        ));
+        assert!(!results.iter().any(
+            |result| matches!(result.kind, SearchResultKind::Node(found) if found == ancestor_only)
+        ));
+        assert!(!results.iter().any(
+            |result| matches!(result.kind, SearchResultKind::Node(found) if found == unrelated)
+        ));
+    }
+
+    #[test]
+    fn local_search_provider_matches_explicit_udc_class_facet_queries() {
+        let provider = LocalSearchProvider;
+        let knowledge = KnowledgeRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://example.com/facet".into(), Point2D::new(0.0, 0.0));
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(key, "udc:519.6".to_string());
+
+        let results = provider.search(&app, &knowledge, "facet:udc_classes=udc:51", 10);
 
         assert!(
             results

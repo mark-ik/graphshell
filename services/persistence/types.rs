@@ -6,6 +6,8 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::graph::badge::NodeTagPresentationState;
+
 /// Address type hint for persistence (mirrors `AddressKind` in the graph model).
 #[derive(
     Archive,
@@ -48,6 +50,10 @@ pub struct PersistedNode {
     pub title: String,
     pub position_x: f32,
     pub position_y: f32,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub tag_presentation: NodeTagPresentationState,
     pub is_pinned: bool,
     pub history_entries: Vec<String>,
     pub history_index: usize,
@@ -200,6 +206,8 @@ mod tests {
             title: "Example".to_string(),
             position_x: 100.0,
             position_y: 200.0,
+            tags: vec!["udc:51".to_string(), "#pin".to_string()],
+            tag_presentation: NodeTagPresentationState::default(),
             is_pinned: true,
             history_entries: vec!["https://example.com".to_string()],
             history_index: 0,
@@ -230,6 +238,7 @@ mod tests {
         assert_eq!(archived.title.as_str(), "Example");
         assert_eq!(archived.position_x, 100.0);
         assert_eq!(archived.position_y, 200.0);
+        assert_eq!(archived.tags.len(), 2);
         assert!(archived.is_pinned);
         assert_eq!(archived.history_entries.len(), 1);
         assert_eq!(archived.history_index, 0);
@@ -289,6 +298,8 @@ mod tests {
                 title: "A".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                tags: vec![],
+                tag_presentation: NodeTagPresentationState::default(),
                 is_pinned: false,
                 history_entries: vec![],
                 history_index: 0,

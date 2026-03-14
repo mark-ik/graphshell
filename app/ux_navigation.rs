@@ -43,9 +43,11 @@ impl GraphBrowserApp {
             );
         }
         self.workspace.show_help_panel = true;
+        self.workspace.show_settings_overlay = false;
         self.workspace.show_command_palette = false;
         self.workspace.command_palette_contextual_mode = false;
         self.workspace.show_radial_menu = false;
+        self.close_clip_inspector();
         self.set_pending_node_context_target(None);
         if !was_open {
             self.emit_focus_capture_enter();
@@ -58,7 +60,48 @@ impl GraphBrowserApp {
             return;
         }
         self.workspace.show_help_panel = false;
-        if !self.workspace.show_command_palette && !self.workspace.show_radial_menu {
+        if !self.workspace.show_command_palette
+            && !self.workspace.show_radial_menu
+            && !self.workspace.show_settings_overlay
+        {
+            self.request_restore_transient_surface_focus();
+        }
+        self.emit_focus_capture_exit();
+        self.emit_ux_navigation_transition();
+    }
+
+    pub fn open_settings_overlay(&mut self, page: SettingsToolPage) {
+        let was_open = self.workspace.show_settings_overlay;
+        self.workspace.settings_tool_page = page;
+        if self.pending_transient_surface_return_target().is_none() {
+            self.set_pending_transient_surface_return_target(
+                self.workspace
+                    .focused_view
+                    .map(ToolSurfaceReturnTarget::Graph),
+            );
+        }
+        self.workspace.show_settings_overlay = true;
+        self.workspace.show_help_panel = false;
+        self.workspace.show_command_palette = false;
+        self.workspace.command_palette_contextual_mode = false;
+        self.workspace.show_radial_menu = false;
+        self.close_clip_inspector();
+        self.set_pending_node_context_target(None);
+        if !was_open {
+            self.emit_focus_capture_enter();
+            self.emit_ux_navigation_transition();
+        }
+    }
+
+    pub fn close_settings_overlay(&mut self) {
+        if !self.workspace.show_settings_overlay {
+            return;
+        }
+        self.workspace.show_settings_overlay = false;
+        if !self.workspace.show_command_palette
+            && !self.workspace.show_help_panel
+            && !self.workspace.show_radial_menu
+        {
             self.request_restore_transient_surface_focus();
         }
         self.emit_focus_capture_exit();
@@ -101,9 +144,11 @@ impl GraphBrowserApp {
     pub fn open_radial_menu(&mut self) {
         let was_open = self.workspace.show_radial_menu;
         self.workspace.show_help_panel = false;
+        self.workspace.show_settings_overlay = false;
         self.workspace.show_command_palette = false;
         self.workspace.command_palette_contextual_mode = false;
         self.workspace.show_radial_menu = true;
+        self.close_clip_inspector();
         if !was_open {
             self.emit_focus_capture_enter();
             self.emit_ux_navigation_transition();
@@ -116,7 +161,10 @@ impl GraphBrowserApp {
         }
         self.workspace.show_radial_menu = false;
         self.set_pending_node_context_target(None);
-        if !self.workspace.show_command_palette && !self.workspace.show_help_panel {
+        if !self.workspace.show_command_palette
+            && !self.workspace.show_help_panel
+            && !self.workspace.show_settings_overlay
+        {
             self.request_restore_transient_surface_focus();
         }
         self.emit_focus_capture_exit();
@@ -131,7 +179,9 @@ impl GraphBrowserApp {
         self.workspace.show_command_palette = open;
         if open {
             self.workspace.show_help_panel = false;
+            self.workspace.show_settings_overlay = false;
             self.workspace.show_radial_menu = false;
+            self.close_clip_inspector();
             self.emit_focus_capture_enter();
         } else {
             self.set_pending_node_context_target(None);

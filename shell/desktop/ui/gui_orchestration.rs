@@ -1243,7 +1243,29 @@ fn prime_runtime_focus_authority_for_workbench_intent(
                 tiles_tree,
             );
         }
-        WorkbenchIntent::OpenSettingsUrl { .. } | WorkbenchIntent::OpenClipUrl { .. } => {
+        WorkbenchIntent::OpenSettingsUrl { url } => {
+            if settings_url_targets_overlay(tiles_tree, url) {
+                let return_target = if focus_authority.transient_surface_return_target.is_none() {
+                    crate::shell::desktop::runtime::registries::workbench_surface::active_tool_surface_return_target(tiles_tree)
+                } else {
+                    focus_authority.transient_surface_return_target.clone()
+                };
+                crate::shell::desktop::ui::gui::apply_focus_command(
+                    focus_authority,
+                    crate::shell::desktop::ui::gui_state::FocusCommand::EnterTransientSurface {
+                        surface:
+                            crate::shell::desktop::ui::gui_state::FocusCaptureSurface::SettingsOverlay,
+                        return_target,
+                    },
+                );
+            } else {
+                crate::shell::desktop::ui::gui::capture_tool_surface_return_target_in_authority(
+                    focus_authority,
+                    tiles_tree,
+                );
+            }
+        }
+        WorkbenchIntent::OpenClipUrl { .. } => {
             crate::shell::desktop::ui::gui::capture_tool_surface_return_target_in_authority(
                 focus_authority,
                 tiles_tree,
@@ -1288,6 +1310,18 @@ fn emit_dispatch_phase(phase: UxDispatchPhase) {
         channel_id: CHANNEL_UX_DISPATCH_PHASE,
         byte_len: phase as usize,
     });
+}
+
+fn settings_url_targets_overlay(tiles_tree: &Tree<TileKind>, url: &str) -> bool {
+    matches!(
+        GraphBrowserApp::resolve_settings_route(url),
+        Some(crate::app::SettingsRouteTarget::Settings(_))
+    ) && !tiles_tree.tiles.iter().any(|(_, tile)| {
+        matches!(
+            tile,
+            egui_tiles::Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Settings
+        )
+    })
 }
 
 fn modal_surface_active(graph_app: &GraphBrowserApp) -> bool {

@@ -62,6 +62,25 @@ impl<'a> FocusRealizer<'a> {
                 self.realize_semantic_region_from_focus_authority(focus_authority);
                 None
             }
+            WorkbenchIntent::OpenSettingsUrl { url } => {
+                if let Some(crate::app::SettingsRouteTarget::Settings(page)) =
+                    GraphBrowserApp::resolve_settings_route(url)
+                    && !settings_tool_pane_exists(self.tiles_tree)
+                {
+                    crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
+                        focus_authority,
+                        self.graph_app,
+                    );
+                    self.graph_app.open_settings_overlay(page);
+                    None
+                } else {
+                    dispatch_workbench_authority_intent(
+                        self.graph_app,
+                        self.tiles_tree,
+                        intent.clone(),
+                    )
+                }
+            }
             WorkbenchIntent::OpenToolPane { kind } => {
                 self.open_tool_pane_from_authority(focus_authority, kind);
                 None
@@ -291,6 +310,7 @@ impl<'a> FocusRealizer<'a> {
     ) {
         if self.graph_app.workspace.show_command_palette
             || self.graph_app.workspace.show_help_panel
+            || self.graph_app.workspace.show_settings_overlay
             || self.graph_app.workspace.show_radial_menu
         {
             return;
@@ -391,4 +411,13 @@ impl<'a> FocusRealizer<'a> {
             });
         }
     }
+}
+
+fn settings_tool_pane_exists(tiles_tree: &Tree<TileKind>) -> bool {
+    tiles_tree.tiles.iter().any(|(_, tile)| {
+        matches!(
+            tile,
+            egui_tiles::Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Settings
+        )
+    })
 }

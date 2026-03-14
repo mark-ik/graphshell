@@ -204,6 +204,8 @@ pub enum ActionId {
     PersistSaveGraph,
     PersistRestoreLatestGraph,
     PersistOpenHub,
+    WorkbenchOpenSettingsPane,
+    WorkbenchOpenSettingsOverlay,
     PersistOpenHistoryManager,
     WorkbenchActivateWorkflowDefault,
     WorkbenchActivateWorkflowResearch,
@@ -281,6 +283,8 @@ impl ActionId {
             Self::PersistSaveGraph => "persistence:save_graph",
             Self::PersistRestoreLatestGraph => "persistence:restore_latest_graph",
             Self::PersistOpenHub => "persistence:open_hub",
+            Self::WorkbenchOpenSettingsPane => "workbench:settings_pane",
+            Self::WorkbenchOpenSettingsOverlay => "workbench:settings_overlay",
             Self::PersistOpenHistoryManager => "workbench:open_history_manager",
             Self::WorkbenchActivateWorkflowDefault => "workbench:activate_workflow_default",
             Self::WorkbenchActivateWorkflowResearch => "workbench:activate_workflow_research",
@@ -327,7 +331,9 @@ impl ActionId {
             Self::PersistRestoreSession => "Restore W",
             Self::PersistSaveGraph => "Save G",
             Self::PersistRestoreLatestGraph => "Latest G",
-            Self::PersistOpenHub => "Hub",
+            Self::PersistOpenHub => "Persist Ovl",
+            Self::WorkbenchOpenSettingsPane => "Set Pane",
+            Self::WorkbenchOpenSettingsOverlay => "Set Ovl",
             Self::PersistOpenHistoryManager => "History",
             Self::WorkbenchActivateWorkflowDefault => "Workflow D",
             Self::WorkbenchActivateWorkflowResearch => "Workflow R",
@@ -374,7 +380,9 @@ impl ActionId {
             Self::PersistRestoreSession => "Restore Session Frame",
             Self::PersistSaveGraph => "Save Graph Snapshot",
             Self::PersistRestoreLatestGraph => "Restore Latest Graph",
-            Self::PersistOpenHub => "Open Persistence Hub",
+            Self::PersistOpenHub => "Open Persistence Overlay",
+            Self::WorkbenchOpenSettingsPane => "Open Settings Pane",
+            Self::WorkbenchOpenSettingsOverlay => "Open Settings Overlay",
             Self::PersistOpenHistoryManager => "Open History Manager",
             Self::WorkbenchActivateWorkflowDefault => "Activate Default Workflow",
             Self::WorkbenchActivateWorkflowResearch => "Activate Research Workflow",
@@ -422,6 +430,8 @@ impl ActionId {
             | Self::PersistSaveGraph
             | Self::PersistRestoreLatestGraph
             | Self::PersistOpenHub
+            | Self::WorkbenchOpenSettingsPane
+            | Self::WorkbenchOpenSettingsOverlay
             | Self::PersistOpenHistoryManager
             | Self::WorkbenchActivateWorkflowDefault
             | Self::WorkbenchActivateWorkflowResearch
@@ -488,6 +498,8 @@ fn all_action_ids() -> &'static [ActionId] {
         PersistSaveGraph,
         PersistRestoreLatestGraph,
         PersistOpenHub,
+        WorkbenchOpenSettingsPane,
+        WorkbenchOpenSettingsOverlay,
         PersistOpenHistoryManager,
         WorkbenchActivateWorkflowDefault,
         WorkbenchActivateWorkflowResearch,
@@ -598,6 +610,8 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (PersistSaveGraph, true),
         (PersistRestoreLatestGraph, true),
         (PersistOpenHub, true),
+        (WorkbenchOpenSettingsPane, true),
+        (WorkbenchOpenSettingsOverlay, true),
         (PersistOpenHistoryManager, true),
         (WorkbenchActivateWorkflowDefault, true),
         (WorkbenchActivateWorkflowResearch, true),
@@ -895,6 +909,8 @@ mod tests {
         let entries = list_actions_for_context(&ctx);
 
         for action_id in [
+            ActionId::WorkbenchOpenSettingsPane,
+            ActionId::WorkbenchOpenSettingsOverlay,
             ActionId::PersistOpenHistoryManager,
             ActionId::WorkbenchActivateWorkflowDefault,
             ActionId::WorkbenchActivateWorkflowResearch,
@@ -924,6 +940,14 @@ mod tests {
             (
                 ActionId::PersistOpenHistoryManager,
                 ["Open", "History"].as_slice(),
+            ),
+            (
+                ActionId::WorkbenchOpenSettingsPane,
+                ["Open", "Settings", "Pane"].as_slice(),
+            ),
+            (
+                ActionId::WorkbenchOpenSettingsOverlay,
+                ["Open", "Settings", "Overlay"].as_slice(),
             ),
             (
                 ActionId::WorkbenchActivateWorkflowResearch,

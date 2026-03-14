@@ -9,8 +9,8 @@ pub(crate) use physics::{
     resolve_physics_profile,
 };
 pub(crate) use registry::{
-    GlyphAnchor, GlyphOverlay, LENS_ID_DEFAULT, LENS_ID_SEMANTIC_OVERLAY,
-    LensOverlayDescriptor, LensRegistry,
+    GlyphAnchor, GlyphOverlay, LENS_ID_DEFAULT, LENS_ID_SEMANTIC_OVERLAY, LensOverlayDescriptor,
+    LensRegistry,
 };
 pub(crate) use theme::{
     THEME_ID_DARK, THEME_ID_DEFAULT, ThemeData, ThemeResolution, deserialize_optional_theme_data,

@@ -58,7 +58,7 @@ impl<'a> GraphshellTileBehavior<'a> {
 
         self.extend_post_render_intents(render::intents_from_graph_actions(passthrough_actions));
         render::sync_graph_positions_from_layout(self.graph_app);
-        render::render_graph_info_in_ui(ui, self.graph_app);
+        render::render_graph_info_in_ui(ui, self.graph_app, view_id);
         render_graph_pane_overlay(
             ui.ctx(),
             self.graph_app,

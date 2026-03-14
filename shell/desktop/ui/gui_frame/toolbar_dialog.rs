@@ -19,6 +19,7 @@ use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthori
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
+use crate::shell::desktop::ui::workbench_sidebar;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
@@ -106,6 +107,18 @@ pub(crate) fn handle_toolbar_dialog_phase(
     if !is_graph_view {
         graph_app.workspace.hovered_graph_node = None;
     }
+
+    let _workbench_projection = workbench_sidebar::render_workbench_sidebar(
+        ctx,
+        graph_app,
+        window,
+        tiles_tree,
+        focused_toolbar_node,
+        active_toolbar_pane,
+        can_go_back,
+        can_go_forward,
+        location_dirty,
+    );
 
     let toolbar_output = toolbar_ui::render_toolbar_ui(ToolbarUiInput {
         ctx,

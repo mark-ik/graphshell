@@ -13,12 +13,26 @@ use winit::event_loop::{EventLoop, EventLoop as WinitEventLoop, EventLoopProxy};
 use winit::window::WindowId;
 
 use super::app::App;
+use crate::app::ClipCaptureData;
 
 #[derive(Debug)]
 pub enum AppEvent {
     /// Another process or thread has kicked the OS event loop with EventLoopWaker.
     Waker,
     Accessibility(egui_winit::accesskit_winit::Event),
+    ClipExtractionCompleted {
+        window_id: WindowId,
+        result: Result<ClipCaptureData, String>,
+    },
+    ClipBatchExtractionCompleted {
+        window_id: WindowId,
+        result: Result<Vec<ClipCaptureData>, String>,
+    },
+    ClipInspectorPointerUpdated {
+        window_id: WindowId,
+        webview_id: servo::WebViewId,
+        result: Result<Vec<ClipCaptureData>, String>,
+    },
 }
 
 impl From<egui_winit::accesskit_winit::Event> for AppEvent {
@@ -32,6 +46,9 @@ impl AppEvent {
         match self {
             AppEvent::Waker => None,
             AppEvent::Accessibility(event) => Some(event.window_id),
+            AppEvent::ClipExtractionCompleted { window_id, .. } => Some(*window_id),
+            AppEvent::ClipBatchExtractionCompleted { window_id, .. } => Some(*window_id),
+            AppEvent::ClipInspectorPointerUpdated { window_id, .. } => Some(*window_id),
         }
     }
 }

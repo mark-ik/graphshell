@@ -71,6 +71,7 @@ pub(crate) enum GraphshellSettingsPath {
     Sync,
     Appearance,
     Keybindings,
+    Advanced,
     History,
     Other(String),
 }
@@ -199,6 +200,7 @@ impl GraphshellSettingsPath {
             "sync" => Self::Sync,
             "appearance" => Self::Appearance,
             "keybindings" => Self::Keybindings,
+            "advanced" => Self::Advanced,
             "history" => Self::History,
             other => Self::Other(other.to_string()),
         }
@@ -212,6 +214,7 @@ impl GraphshellSettingsPath {
             Self::Sync => Some("sync"),
             Self::Appearance => Some("appearance"),
             Self::Keybindings => Some("keybindings"),
+            Self::Advanced => Some("advanced"),
             Self::History => Some("history"),
             Self::Other(other) => Some(other.as_str()),
         }
@@ -429,6 +432,15 @@ mod tests {
     fn graphshell_address_display_roundtrips_settings_route() {
         let address = VersoAddress::settings(GraphshellSettingsPath::Appearance);
         assert_eq!(address.to_string(), "verso://settings/appearance");
+    }
+
+    #[test]
+    fn parse_graphshell_settings_advanced_route() {
+        let parsed = VersoAddress::parse("graphshell://settings/advanced");
+        assert_eq!(
+            parsed,
+            Some(VersoAddress::settings(GraphshellSettingsPath::Advanced))
+        );
     }
 
     #[test]

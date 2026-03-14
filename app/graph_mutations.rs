@@ -593,8 +593,9 @@ impl GraphBrowserApp {
         };
         let had_pin_tag = self
             .workspace
-            .semantic_tags
-            .get(&key)
+            .domain
+            .graph
+            .node_tags(key)
             .is_some_and(|tags| tags.contains(Self::TAG_PIN));
         if current_state == is_pinned && had_pin_tag == is_pinned {
             return;
@@ -602,16 +603,17 @@ impl GraphBrowserApp {
 
         let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodePinned { key, is_pinned });
 
-        let mut tags_changed = false;
-        if is_pinned {
-            let tags = self.workspace.semantic_tags.entry(key).or_default();
-            tags_changed = tags.insert(Self::TAG_PIN.to_string());
-        } else if let Some(tags) = self.workspace.semantic_tags.get_mut(&key) {
-            tags_changed = tags.remove(Self::TAG_PIN);
-            if tags.is_empty() {
-                self.workspace.semantic_tags.remove(&key);
-            }
-        }
+        let tags_changed = if is_pinned {
+            self.workspace
+                .domain
+                .graph
+                .insert_node_tag(key, Self::TAG_PIN.to_string())
+        } else {
+            self.workspace
+                .domain
+                .graph
+                .remove_node_tag(key, Self::TAG_PIN)
+        };
 
         if tags_changed {
             self.workspace.semantic_index_dirty = true;
@@ -666,7 +668,6 @@ impl GraphBrowserApp {
             self.remove_warm_cache_node(node_key);
             self.workspace.runtime_block_state.remove(&node_key);
             self.workspace.runtime_block_state.remove(&node_key);
-            self.workspace.semantic_tags.remove(&node_key);
             self.workspace.suggested_semantic_tags.remove(&node_key);
             if let Some(node_id) = node_id {
                 self.workspace.node_last_active_workspace.remove(&node_id);
@@ -738,7 +739,6 @@ impl GraphBrowserApp {
         self.workspace.warm_cache_lru.clear();
         self.workspace.runtime_block_state.clear();
         self.workspace.runtime_block_state.clear();
-        self.workspace.semantic_tags.clear();
         self.workspace.suggested_semantic_tags.clear();
         self.workspace.semantic_index.clear();
         self.workspace.semantic_index_dirty = true;
@@ -776,7 +776,6 @@ impl GraphBrowserApp {
         self.workspace.warm_cache_lru.clear();
         self.workspace.runtime_block_state.clear();
         self.workspace.runtime_block_state.clear();
-        self.workspace.semantic_tags.clear();
         self.workspace.suggested_semantic_tags.clear();
         self.workspace.node_last_active_workspace.clear();
         self.workspace.node_workspace_membership.clear();

@@ -33,7 +33,7 @@ mod toolbar_omnibar;
 mod toolbar_right_controls;
 #[path = "toolbar_settings_menu.rs"]
 mod toolbar_settings_menu;
-use self::toolbar_controls::{render_frame_pin_controls, render_navigation_buttons};
+use self::toolbar_controls::render_graph_history_buttons;
 use self::toolbar_location_panel::render_location_search_panel;
 use self::toolbar_omnibar::{
     apply_omnibar_match, dedupe_matches_in_order, default_search_provider_from_searchpage,
@@ -321,8 +321,8 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         active_toolbar_pane,
         local_widget_focus,
         has_node_panes,
-        can_go_back,
-        can_go_forward,
+        can_go_back: _,
+        can_go_forward: _,
         location,
         location_dirty,
         location_submitted,
@@ -346,13 +346,6 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let mut toggle_tile_view_requested = false;
     let mut open_selected_mode_after_submit = None;
     let is_graph_view = !has_node_panes;
-    let persisted_frame_names: HashSet<String> = graph_app
-        .list_workspace_layout_names()
-        .into_iter()
-        .collect();
-    let focused_pane_pin_name =
-        focused_toolbar_node.and_then(|node| frame_pin_name_for_node(node, graph_app));
-
     let frame = egui::Frame::default()
         .fill(ctx.style().visuals.window_fill)
         .inner_margin(4.0);
@@ -361,15 +354,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
             ui.available_size(),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
-                render_navigation_buttons(
-                    ui,
-                    graph_app,
-                    window,
-                    focused_toolbar_node,
-                    can_go_back,
-                    can_go_forward,
-                    location_dirty,
-                );
+                render_graph_history_buttons(ui, frame_intents);
                 ui.add_space(2.0);
 
                 ui.allocate_ui_with_layout(
@@ -395,8 +380,6 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                             show_clear_data_confirm,
                             omnibar_search_session,
                             frame_intents,
-                            focused_pane_pin_name.as_deref(),
-                            &persisted_frame_names,
                             &mut toggle_tile_view_requested,
                             &mut open_selected_mode_after_submit,
                             #[cfg(feature = "diagnostics")]

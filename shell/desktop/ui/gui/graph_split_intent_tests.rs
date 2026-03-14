@@ -227,7 +227,27 @@ fn settings_sync_url_intent_is_consumed_by_workbench_authority() {
 }
 
 #[test]
-fn settings_root_url_opens_settings_tool_pane() {
+fn settings_advanced_url_intent_is_consumed_by_workbench_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(graph_pane(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
+        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Advanced)
+            .to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(
+        intents.is_empty(),
+        "settings/advanced should be consumed by workbench authority"
+    );
+}
+
+#[test]
+fn settings_root_url_opens_transient_settings_overlay_by_default() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
@@ -241,8 +261,8 @@ fn settings_root_url_opens_settings_tool_pane() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert!(intents.is_empty());
-    assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 1);
-    assert!(active_tool_pane(&tree, ToolPaneState::Settings));
+    assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 0);
+    assert!(app.workspace.show_settings_overlay);
     assert_eq!(app.workspace.settings_tool_page, SettingsToolPage::General);
 }
 
@@ -323,19 +343,19 @@ fn close_settings_tool_pane_restores_previous_graph_focus() {
 #[test]
 fn ui_overlay_active_flags_include_radial_menu_capture() {
     assert!(!super::ui_overlay_active_from_flags(
-        false, false, false, false
+        false, false, false, false, false, false
     ));
     assert!(super::ui_overlay_active_from_flags(
-        true, false, false, false
+        true, false, false, false, false, false
     ));
     assert!(super::ui_overlay_active_from_flags(
-        false, true, false, false
+        false, true, false, false, false, false
     ));
     assert!(super::ui_overlay_active_from_flags(
-        false, false, true, false
+        false, false, true, false, false, false
     ));
     assert!(super::ui_overlay_active_from_flags(
-        false, false, false, true
+        false, false, false, false, false, true
     ));
 }
 

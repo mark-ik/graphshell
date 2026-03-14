@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use super::Node;
+
 pub(crate) const TAG_PIN: &str = "#pin";
 pub(crate) const TAG_STARRED: &str = "#starred";
 pub(crate) const TAG_ARCHIVE: &str = "#archive";
@@ -11,7 +13,18 @@ pub(crate) const TAG_UNREAD: &str = "#unread";
 pub(crate) const TAG_FOCUS: &str = "#focus";
 pub(crate) const TAG_CLIP: &str = "#clip";
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq, Eq))]
 pub(crate) enum Badge {
     Crashed,
     WorkspaceCount(usize),
@@ -21,15 +34,68 @@ pub(crate) enum Badge {
     Tag { label: String, icon: BadgeIcon },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum BadgeIcon {
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq, Eq))]
+pub enum BadgeIcon {
     Emoji(String),
     Lucide(String),
     None,
 }
 
+#[derive(
+    Debug,
+    Clone,
+    Default,
+    PartialEq,
+    Eq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq, Eq))]
+pub struct NodeTagPresentationState {
+    pub ordered_tags: Vec<String>,
+    pub icon_overrides: std::collections::HashMap<String, BadgeIcon>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct BadgeVisual {
+    pub(crate) token: String,
+    pub(crate) label: String,
+}
+
+pub(crate) fn badges_for_node(node: &Node, workspace_count: usize, is_crashed: bool) -> Vec<Badge> {
+    badges_for_tags_with_presentation(
+        &node.tags,
+        Some(&node.tag_presentation),
+        workspace_count,
+        is_crashed,
+    )
+}
+
 pub(crate) fn badges_for_tags(
     tags: &HashSet<String>,
+    workspace_count: usize,
+    is_crashed: bool,
+) -> Vec<Badge> {
+    badges_for_tags_with_presentation(tags, None, workspace_count, is_crashed)
+}
+
+pub(crate) fn badges_for_tags_with_presentation(
+    tags: &HashSet<String>,
+    presentation: Option<&NodeTagPresentationState>,
     workspace_count: usize,
     is_crashed: bool,
 ) -> Vec<Badge> {
@@ -51,9 +117,7 @@ pub(crate) fn badges_for_tags(
         badges.push(Badge::Unread);
     }
 
-    let mut remaining = tags.iter().cloned().collect::<Vec<_>>();
-    remaining.sort();
-    for tag in remaining {
+    for tag in ordered_tags(tags, presentation) {
         if matches!(tag.as_str(), TAG_PIN | TAG_STARRED | TAG_UNREAD) {
             continue;
         }
@@ -68,11 +132,21 @@ pub(crate) fn badges_for_tags(
 
         badges.push(Badge::Tag {
             label: tag.clone(),
-            icon: default_icon_for_tag(&tag),
+            icon: icon_for_tag(&tag, presentation),
         });
     }
 
     badges
+}
+
+pub(crate) fn badge_visuals(badges: &[Badge]) -> Vec<BadgeVisual> {
+    badges
+        .iter()
+        .map(|badge| BadgeVisual {
+            token: compact_badge_token(badge),
+            label: badge_label(badge),
+        })
+        .collect()
 }
 
 pub(crate) fn compact_badge_token(badge: &Badge) -> String {
@@ -108,6 +182,20 @@ pub(crate) fn is_archived_tag(tag: &str) -> bool {
     tag == TAG_ARCHIVE
 }
 
+pub(crate) fn is_clip_tag(tag: &str) -> bool {
+    tag == TAG_CLIP
+}
+
+fn icon_for_tag(tag: &str, presentation: Option<&NodeTagPresentationState>) -> BadgeIcon {
+    if !tag.starts_with('#')
+        && !tag.starts_with("udc:")
+        && let Some(icon) = presentation.and_then(|state| state.icon_overrides.get(tag))
+    {
+        return icon.clone();
+    }
+    default_icon_for_tag(tag)
+}
+
 fn default_icon_for_tag(tag: &str) -> BadgeIcon {
     match tag {
         TAG_ARCHIVE => BadgeIcon::Emoji("🗄".to_string()),
@@ -119,6 +207,40 @@ fn default_icon_for_tag(tag: &str) -> BadgeIcon {
         TAG_CLIP => BadgeIcon::Emoji("✂".to_string()),
         _ => BadgeIcon::None,
     }
+}
+
+fn badge_label(badge: &Badge) -> String {
+    match badge {
+        Badge::Crashed => "Crashed".to_string(),
+        Badge::WorkspaceCount(count) => format!("{count} workspaces"),
+        Badge::Pinned => TAG_PIN.to_string(),
+        Badge::Starred => TAG_STARRED.to_string(),
+        Badge::Unread => TAG_UNREAD.to_string(),
+        Badge::Tag { label, .. } => label.clone(),
+    }
+}
+
+fn ordered_tags(
+    tags: &HashSet<String>,
+    presentation: Option<&NodeTagPresentationState>,
+) -> Vec<String> {
+    let mut ordered = Vec::new();
+    if let Some(presentation) = presentation {
+        for tag in &presentation.ordered_tags {
+            if tags.contains(tag) {
+                ordered.push(tag.clone());
+            }
+        }
+    }
+
+    let mut remaining = tags
+        .iter()
+        .filter(|tag| !ordered.contains(tag))
+        .cloned()
+        .collect::<Vec<_>>();
+    remaining.sort();
+    ordered.extend(remaining);
+    ordered
 }
 
 fn first_grapheme_fallback(label: &str) -> String {
@@ -178,6 +300,55 @@ mod tests {
                 icon: BadgeIcon::None,
             }),
             "R"
+        );
+    }
+
+    #[test]
+    fn badges_for_node_prefers_presentation_order_and_icon_override() {
+        let mut node = Node::test_stub("https://example.com");
+        node.tags.insert("research".to_string());
+        node.tags.insert("work".to_string());
+        node.tag_presentation.ordered_tags = vec!["work".to_string(), "research".to_string()];
+        node.tag_presentation
+            .icon_overrides
+            .insert("work".to_string(), BadgeIcon::Emoji("🔬".to_string()));
+
+        let badges = badges_for_node(&node, 1, false);
+        assert_eq!(
+            badges,
+            vec![
+                Badge::Tag {
+                    label: "work".to_string(),
+                    icon: BadgeIcon::Emoji("🔬".to_string()),
+                },
+                Badge::Tag {
+                    label: "research".to_string(),
+                    icon: BadgeIcon::None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn ordered_tags_fall_back_to_sorted_membership_for_missing_entries() {
+        let mut node = Node::test_stub("https://example.com");
+        node.tags.insert("research".to_string());
+        node.tags.insert("alpha".to_string());
+        node.tag_presentation.ordered_tags = vec!["missing".to_string(), "research".to_string()];
+
+        let badges = badges_for_node(&node, 1, false);
+        assert_eq!(
+            badges,
+            vec![
+                Badge::Tag {
+                    label: "research".to_string(),
+                    icon: BadgeIcon::None,
+                },
+                Badge::Tag {
+                    label: "alpha".to_string(),
+                    icon: BadgeIcon::None,
+                },
+            ]
         );
     }
 }

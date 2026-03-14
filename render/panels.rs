@@ -7,13 +7,15 @@ use egui::{Ui, Window};
 use uuid::Uuid;
 
 use crate::app::{
-    GraphBrowserApp, GraphIntent, HistoryCaptureStatus, HistoryManagerTab, KeyboardPanInputMode,
-    ViewAction, WorkbenchIntent,
+    ClipInspectorFilter, ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent,
+    HistoryCaptureStatus, HistoryManagerTab, KeyboardPanInputMode, OmnibarNonAtOrderPreset,
+    OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference, ViewAction, WorkbenchIntent,
+    clip_capture_matches_filter, clip_capture_matches_query,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{
-    InputBinding, InputBindingSection, InputContext, action_id,
+    GamepadButton, InputBinding, InputBindingRemap, InputBindingSection, InputContext, action_id,
 };
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, phase2_describe_input_bindings,
@@ -72,6 +74,35 @@ fn apply_dynamic_layout_algorithm_selection(app: &mut GraphBrowserApp, algorithm
     lens.layout_algorithm_id = algorithm_id.to_string();
     lens.layout = crate::registries::atomic::lens::LayoutMode::Free;
     apply_reducer_graph_intents_hardened(app, vec![GraphIntent::SetViewLens { view_id, lens }]);
+}
+
+fn semantic_depth_view_toggle_label(app: &GraphBrowserApp) -> Option<&'static str> {
+    let view_id = camera_settings_target_view_id(app)?;
+    let view = app.workspace.views.get(&view_id)?;
+    Some(
+        if matches!(
+            view.dimension,
+            crate::app::ViewDimension::ThreeD {
+                mode: crate::app::ThreeDMode::TwoPointFive,
+                z_source: crate::app::ZSource::UdcLevel { .. }
+            }
+        ) {
+            "Restore View"
+        } else {
+            "UDC Depth View"
+        },
+    )
+}
+
+fn apply_semantic_depth_view_toggle(app: &mut GraphBrowserApp) {
+    let Some(view_id) = camera_settings_target_view_id(app) else {
+        return;
+    };
+
+    apply_reducer_graph_intents_hardened(
+        app,
+        vec![GraphIntent::ToggleSemanticDepthView { view_id }],
+    );
 }
 
 pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
@@ -139,6 +170,22 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
     }
     if layout_algorithm_id != previous_layout_algorithm_id {
         apply_dynamic_layout_algorithm_selection(app, &layout_algorithm_id);
+    }
+
+    ui.separator();
+    ui.label("Semantic View");
+    ui.small("Apply or restore the focused Graph View's reversible UDC depth layering.");
+    if let Some(button_label) = semantic_depth_view_toggle_label(app) {
+        if ui.button(button_label).clicked() {
+            apply_semantic_depth_view_toggle(app);
+        }
+        ui.small(if button_label == "Restore View" {
+            "The focused Graph View is currently using semantic depth layers; restore the prior dimension when finished."
+        } else {
+            "Lift nodes into UDC depth layers without changing layout or lens settings."
+        });
+    } else {
+        ui.small("Select or focus a graph view to toggle the semantic depth view.");
     }
 
     let mut config = app.workspace.physics.clone();
@@ -419,6 +466,233 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
     } else {
         app.workspace.show_help_panel = open;
     }
+}
+
+pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+    if !app.workspace.show_clip_inspector {
+        return;
+    }
+
+    enum InspectorAction {
+        ClipSelected(crate::app::ClipCaptureData),
+        ClipFiltered(Vec<crate::app::ClipCaptureData>),
+        StepStack(isize),
+    }
+
+    let mut open = app.workspace.show_clip_inspector;
+    let mut close_requested = false;
+    let mut action = None;
+    if let Some(state) = app.workspace.clip_inspector_state.as_ref()
+        && !state.pointer_stack.is_empty()
+    {
+        egui::Area::new(egui::Id::new("clip_inspector_overlay"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(18.0, 72.0))
+            .show(ctx, |ui| {
+                egui::Frame::window(ui.style())
+                    .inner_margin(egui::Margin::same(8))
+                    .show(ui, |ui| {
+                        let selected = &state.pointer_stack[state.pointer_stack_index];
+                        ui.horizontal(|ui| {
+                            ui.strong("Inspector");
+                            ui.small(format!(
+                                "{} / {}",
+                                state.pointer_stack_index + 1,
+                                state.pointer_stack.len()
+                            ));
+                        });
+                        ui.small(format!("{} [{}]", selected.clip_title, selected.tag_name));
+                        ui.horizontal(|ui| {
+                            if ui.button("Up Stack").clicked() {
+                                action = Some(InspectorAction::StepStack(1));
+                            }
+                            if ui.button("Down Stack").clicked() {
+                                action = Some(InspectorAction::StepStack(-1));
+                            }
+                            if ui.button("Clip Hovered").clicked() {
+                                action = Some(InspectorAction::ClipSelected(selected.clone()));
+                            }
+                        });
+                    });
+            });
+    }
+    Window::new("Web Inspector")
+        .open(&mut open)
+        .default_width(640.0)
+        .default_height(520.0)
+        .resizable(true)
+        .show(ctx, |ui| {
+            let Some(state) = app.workspace.clip_inspector_state.as_mut() else {
+                close_requested = true;
+                return;
+            };
+
+            ui.horizontal(|ui| {
+                ui.heading(state.page_title.as_deref().unwrap_or("Page Inspector"));
+                ui.separator();
+                ui.small(&state.source_url);
+            });
+            ui.add_space(6.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Search");
+                ui.text_edit_singleline(&mut state.search_query);
+            });
+            ui.add_space(4.0);
+
+            ui.horizontal_wrapped(|ui| {
+                for (label, filter) in [
+                    ("All", ClipInspectorFilter::All),
+                    ("Text", ClipInspectorFilter::Text),
+                    ("Link", ClipInspectorFilter::Link),
+                    ("Image", ClipInspectorFilter::Image),
+                    ("Structure", ClipInspectorFilter::Structure),
+                    ("Media", ClipInspectorFilter::Media),
+                ] {
+                    ui.selectable_value(&mut state.filter, filter, label);
+                }
+            });
+            ui.separator();
+
+            let filtered_indices = state
+                .captures
+                .iter()
+                .enumerate()
+                .filter_map(|(index, capture)| {
+                    (clip_capture_matches_filter(capture, state.filter)
+                        && clip_capture_matches_query(capture, &state.search_query))
+                    .then_some(index)
+                })
+                .collect::<Vec<_>>();
+
+            if filtered_indices.is_empty() {
+                ui.label("No page elements match the current filter.");
+            } else {
+                if state.selected_index >= filtered_indices.len() {
+                    state.selected_index = 0;
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Prev").clicked() && state.selected_index > 0 {
+                        state.selected_index -= 1;
+                    }
+                    ui.label(format!(
+                        "{} of {}",
+                        state.selected_index + 1,
+                        filtered_indices.len()
+                    ));
+                    if ui.button("Next").clicked()
+                        && state.selected_index + 1 < filtered_indices.len()
+                    {
+                        state.selected_index += 1;
+                    }
+                    if ui.button("Clip Selected").clicked() {
+                        action = Some(InspectorAction::ClipSelected(
+                            state.captures[filtered_indices[state.selected_index]].clone(),
+                        ));
+                    }
+                    if ui
+                        .button(format!("Clip Filtered ({})", filtered_indices.len()))
+                        .clicked()
+                    {
+                        action = Some(InspectorAction::ClipFiltered(
+                            filtered_indices
+                                .iter()
+                                .map(|index| state.captures[*index].clone())
+                                .collect::<Vec<_>>(),
+                        ));
+                    }
+                    if ui.button("Close").clicked() {
+                        close_requested = true;
+                    }
+                });
+                ui.add_space(8.0);
+
+                ui.columns(2, |columns| {
+                    columns[0].vertical(|ui| {
+                        ui.label("Candidates");
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                for (visible_index, capture_index) in filtered_indices.iter().enumerate()
+                                {
+                                    let capture = &state.captures[*capture_index];
+                                    let selected = visible_index == state.selected_index;
+                                    let label = format!(
+                                        "{} [{}]",
+                                        capture.clip_title,
+                                        capture.tag_name
+                                    );
+                                    if ui.selectable_label(selected, label).clicked() {
+                                        state.selected_index = visible_index;
+                                    }
+                                    if !capture.text_excerpt.is_empty() {
+                                        ui.small(ellipsis(&capture.text_excerpt, 88));
+                                    }
+                                    ui.add_space(4.0);
+                                }
+                            });
+                    });
+
+                    columns[1].vertical(|ui| {
+                        let selected = &state.captures[filtered_indices[state.selected_index]];
+                        ui.label("Selected Element");
+                        ui.separator();
+                        ui.strong(&selected.clip_title);
+                        ui.small(format!("Tag: <{}>", selected.tag_name));
+                        if let Some(href) = selected.href.as_ref() {
+                            ui.small(format!("Link: {href}"));
+                        }
+                        if let Some(image_url) = selected.image_url.as_ref() {
+                            ui.small(format!("Media: {image_url}"));
+                        }
+                        ui.add_space(6.0);
+                        ui.label(ellipsis(
+                            if selected.text_excerpt.is_empty() {
+                                &selected.outer_html
+                            } else {
+                                &selected.text_excerpt
+                            },
+                            420,
+                        ));
+                        ui.add_space(8.0);
+                        ui.small(
+                            "Inspector mode is selection-first: inspect the page's temporary element graph here, then choose what to materialize into durable nodes.",
+                        );
+                    });
+                });
+            }
+        });
+
+    if !open || close_requested {
+        app.close_clip_inspector();
+    } else {
+        app.workspace.show_clip_inspector = open;
+    }
+
+    match action {
+        Some(InspectorAction::ClipSelected(capture)) => {
+            let _ = app.create_clip_node_from_capture(&capture);
+        }
+        Some(InspectorAction::ClipFiltered(captures)) => {
+            let _ = app.create_clip_nodes_from_captures(&captures);
+        }
+        Some(InspectorAction::StepStack(delta)) => {
+            app.clip_inspector_step_stack(delta);
+        }
+        None => {}
+    }
+}
+
+fn ellipsis(value: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for (index, ch) in value.chars().enumerate() {
+        if index >= max_chars {
+            out.push_str("...");
+            break;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> Vec<GraphIntent> {
@@ -760,7 +1034,8 @@ struct HistoryManagerCompositorActivity {
 }
 
 fn history_manager_compositor_activity_snapshot() -> HistoryManagerCompositorActivity {
-    let summaries = crate::shell::desktop::workbench::tile_compositor::compositor_activity_summaries_snapshot();
+    let summaries =
+        crate::shell::desktop::workbench::tile_compositor::compositor_activity_summaries_snapshot();
     compositor_activity_for_history_manager(&summaries)
 }
 
@@ -769,7 +1044,11 @@ fn compositor_activity_for_history_manager(
 ) -> HistoryManagerCompositorActivity {
     let mut activity = HistoryManagerCompositorActivity::default();
 
-    for summary in summaries.iter().rev().take(HISTORY_MANAGER_ACTIVITY_FRAME_WINDOW) {
+    for summary in summaries
+        .iter()
+        .rev()
+        .take(HISTORY_MANAGER_ACTIVITY_FRAME_WINDOW)
+    {
         activity.latest_frame_index = activity.latest_frame_index.max(Some(summary.frame_index));
         activity.frame_sample_count += 1;
         activity
@@ -837,8 +1116,16 @@ mod tests {
 
         assert_eq!(activity.frame_sample_count, 2);
         assert_eq!(activity.latest_frame_index, Some(2));
-        assert!(activity.active_tile_keys.contains(&crate::graph::NodeKey::new(1)));
-        assert!(activity.active_tile_keys.contains(&crate::graph::NodeKey::new(2)));
+        assert!(
+            activity
+                .active_tile_keys
+                .contains(&crate::graph::NodeKey::new(1))
+        );
+        assert!(
+            activity
+                .active_tile_keys
+                .contains(&crate::graph::NodeKey::new(2))
+        );
     }
 
     #[test]
@@ -881,6 +1168,55 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn semantic_depth_view_toggle_label_reflects_focused_view_state() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = crate::app::GraphViewId::new();
+        app.workspace.views.insert(
+            view_id,
+            crate::app::GraphViewState::new_with_id(view_id, "Focused"),
+        );
+        app.workspace.focused_view = Some(view_id);
+
+        assert_eq!(
+            semantic_depth_view_toggle_label(&app),
+            Some("UDC Depth View")
+        );
+
+        app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
+
+        assert_eq!(semantic_depth_view_toggle_label(&app), Some("Restore View"));
+    }
+
+    #[test]
+    fn apply_semantic_depth_view_toggle_targets_focused_graph_view() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = crate::app::GraphViewId::new();
+        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Focused");
+        view.dimension = crate::app::ViewDimension::ThreeD {
+            mode: crate::app::ThreeDMode::Isometric,
+            z_source: crate::app::ZSource::BfsDepth { scale: 7.0 },
+        };
+        app.workspace.views.insert(view_id, view);
+        app.workspace.focused_view = Some(view_id);
+
+        apply_semantic_depth_view_toggle(&mut app);
+        assert_eq!(semantic_depth_view_toggle_label(&app), Some("Restore View"));
+
+        apply_semantic_depth_view_toggle(&mut app);
+        assert_eq!(
+            semantic_depth_view_toggle_label(&app),
+            Some("UDC Depth View")
+        );
+        assert!(matches!(
+            app.workspace.views.get(&view_id).unwrap().dimension,
+            crate::app::ViewDimension::ThreeD {
+                mode: crate::app::ThreeDMode::Isometric,
+                z_source: crate::app::ZSource::BfsDepth { scale: 7.0 }
+            }
+        ));
     }
 }
 
@@ -1115,82 +1451,207 @@ pub fn render_file_tree_tool_pane_in_ui(
     intents
 }
 
-pub fn render_settings_tool_pane_in_ui_with_control_panel(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsSurfaceMode {
+    ToolPane,
+    Overlay,
+}
+
+fn settings_page_label(page: SettingsToolPage) -> &'static str {
+    match page {
+        SettingsToolPage::General => "Overview",
+        SettingsToolPage::Persistence => "Persistence",
+        SettingsToolPage::Physics => "Physics",
+        SettingsToolPage::Sync => "Sync",
+        SettingsToolPage::Appearance => "Appearance & Viewer",
+        SettingsToolPage::Keybindings => "Input & Commands",
+        SettingsToolPage::Advanced => "Advanced",
+    }
+}
+
+fn settings_page_summary(page: SettingsToolPage) -> &'static str {
+    match page {
+        SettingsToolPage::General => "How settings surfaces and related tools are organized.",
+        SettingsToolPage::Persistence => "Storage paths, snapshots, and graph persistence.",
+        SettingsToolPage::Physics => "Simulation, camera, and layout behavior.",
+        SettingsToolPage::Sync => "Verse and peer-facing sync controls.",
+        SettingsToolPage::Appearance => "Theme, toasts, and viewer/backend preferences.",
+        SettingsToolPage::Keybindings => "Input behavior, omnibar defaults, and keybindings.",
+        SettingsToolPage::Advanced => "Registry-level defaults and diagnostic launchers.",
+    }
+}
+
+fn toast_anchor_label(anchor: ToastAnchorPreference) -> &'static str {
+    match anchor {
+        ToastAnchorPreference::TopRight => "Top Right",
+        ToastAnchorPreference::TopLeft => "Top Left",
+        ToastAnchorPreference::BottomRight => "Bottom Right (Default)",
+        ToastAnchorPreference::BottomLeft => "Bottom Left",
+    }
+}
+
+fn lasso_binding_label(binding: CanvasLassoBinding) -> &'static str {
+    match binding {
+        CanvasLassoBinding::RightDrag => "Right Drag (Default)",
+        CanvasLassoBinding::ShiftLeftDrag => "Shift + Left Drag",
+    }
+}
+
+fn omnibar_preferred_scope_label(scope: OmnibarPreferredScope) -> &'static str {
+    match scope {
+        OmnibarPreferredScope::Auto => "Auto (Contextual)",
+        OmnibarPreferredScope::LocalTabs => "Local Tabs First",
+        OmnibarPreferredScope::ConnectedNodes => "Connected Nodes First",
+        OmnibarPreferredScope::ProviderDefault => "Provider First",
+        OmnibarPreferredScope::GlobalNodes => "Global Nodes First",
+        OmnibarPreferredScope::GlobalTabs => "Global Tabs First",
+    }
+}
+
+fn omnibar_non_at_order_label(order: OmnibarNonAtOrderPreset) -> &'static str {
+    match order {
+        OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal => {
+            "Contextual -> Provider -> Global (Default)"
+        }
+        OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal => {
+            "Provider -> Contextual -> Global"
+        }
+    }
+}
+
+fn render_settings_nav(ui: &mut Ui, current_page: &mut SettingsToolPage) {
+    ui.set_min_width(172.0);
+    ui.label(egui::RichText::new("Pages").small().strong());
+    ui.add_space(4.0);
+
+    for page in [
+        SettingsToolPage::General,
+        SettingsToolPage::Persistence,
+        SettingsToolPage::Appearance,
+        SettingsToolPage::Keybindings,
+        SettingsToolPage::Physics,
+        SettingsToolPage::Sync,
+        SettingsToolPage::Advanced,
+    ] {
+        let selected = *current_page == page;
+        let response = ui.selectable_label(selected, settings_page_label(page));
+        if response.clicked() {
+            *current_page = page;
+        }
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(settings_page_summary(page))
+                    .small()
+                    .weak(),
+            )
+            .wrap(),
+        );
+        ui.add_space(6.0);
+    }
+}
+
+fn render_settings_surface_in_ui_with_control_panel(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
     mut control_panel: Option<&mut crate::shell::desktop::runtime::control_panel::ControlPanel>,
+    surface_mode: SettingsSurfaceMode,
 ) -> Vec<GraphIntent> {
-    let intents: Vec<GraphIntent> = Vec::new();
-    ui.heading("Settings");
+    let mut intents: Vec<GraphIntent> = Vec::new();
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.heading("Settings");
+            ui.label(
+                egui::RichText::new(match surface_mode {
+                    SettingsSurfaceMode::ToolPane => "Workbench-hosted pane",
+                    SettingsSurfaceMode::Overlay => "Transient graph overlay",
+                })
+                .small()
+                .weak(),
+            );
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("Done").clicked() {
+                match surface_mode {
+                    SettingsSurfaceMode::ToolPane => {
+                        app.enqueue_workbench_intent(WorkbenchIntent::CloseToolPane {
+                            kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
+                            restore_previous_focus: true,
+                        });
+                    }
+                    SettingsSurfaceMode::Overlay => app.close_settings_overlay(),
+                }
+            }
+            if matches!(surface_mode, SettingsSurfaceMode::Overlay)
+                && ui.button("Tile This Page").clicked()
+            {
+                app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                    kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
+                });
+                app.close_settings_overlay();
+            }
+        });
+    });
     ui.separator();
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("History").clicked() {
-                    app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                        url: VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
-                    });
-                }
-                if ui.button("Done").clicked() {
-                    app.enqueue_workbench_intent(WorkbenchIntent::CloseToolPane {
-                        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
-                        restore_previous_focus: true,
-                    });
-                }
-            });
-            ui.add_space(4.0);
-
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Category:");
-                ui.selectable_value(
-                    &mut app.workspace.settings_tool_page,
-                    crate::app::SettingsToolPage::General,
-                    "General",
-                );
-                ui.selectable_value(
-                    &mut app.workspace.settings_tool_page,
-                    crate::app::SettingsToolPage::Persistence,
-                    "Persistence",
-                );
-                ui.selectable_value(
-                    &mut app.workspace.settings_tool_page,
-                    crate::app::SettingsToolPage::Physics,
-                    "Physics",
-                );
-                ui.selectable_value(
-                    &mut app.workspace.settings_tool_page,
-                    crate::app::SettingsToolPage::Sync,
-                    "Sync",
-                );
-                ui.selectable_value(
-                    &mut app.workspace.settings_tool_page,
-                    crate::app::SettingsToolPage::Appearance,
-                    "Appearance",
-                );
-                ui.selectable_value(
-                    &mut app.workspace.settings_tool_page,
-                    crate::app::SettingsToolPage::Keybindings,
-                    "Keybindings",
-                );
-            });
-            ui.separator();
-
-            match app.workspace.settings_tool_page {
-                crate::app::SettingsToolPage::General => {
-                    ui.label("Settings are page-backed app surfaces in this pane.");
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| render_settings_nav(ui, &mut app.workspace.settings_tool_page));
+        ui.separator();
+        ui.vertical(|ui| {
+            ui.heading(settings_page_label(app.workspace.settings_tool_page));
+            ui.label(
+                egui::RichText::new(settings_page_summary(app.workspace.settings_tool_page))
+                    .small()
+                    .weak(),
+            );
+            ui.add_space(8.0);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    match app.workspace.settings_tool_page {
+                SettingsToolPage::General => {
                     ui.label(
-                        "Use categories to edit persistence, physics, sync, and appearance.",
+                        "Settings surfaces configure graph, view, and workbench behavior without becoming the semantic owner of those domains.",
                     );
-                    ui.add_space(8.0);
-                    if ui.button("Open History Surface").clicked() {
-                        app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                            url: VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
+                    ui.small(
+                        "Use the page list on the left for editable categories. Related tool surfaces stay separate so settings does not turn into a generic utilities drawer.",
+                    );
+
+                    ui.separator();
+                    ui.label("Current Surface");
+                    ui.small(match surface_mode {
+                        SettingsSurfaceMode::ToolPane => {
+                            "This page is hosted in the workbench and participates in normal pane focus, split, and restore behavior."
+                        }
+                        SettingsSurfaceMode::Overlay => {
+                            "This page is currently a graph overlay. Use 'Tile This Page' to promote it into the workbench without changing the route."
+                        }
+                    });
+
+                    ui.separator();
+                    ui.label("Related Surfaces");
+                    if ui.button("Open History Manager").clicked() {
+                        app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                            kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager,
+                        });
+                    }
+                    if ui
+                        .button(if app.workspace.show_help_panel {
+                            "Hide Help Panel"
+                        } else {
+                            "Show Help Panel"
+                        })
+                        .clicked()
+                    {
+                        intents.push(GraphIntent::ToggleHelpPanel);
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    if ui.button("Open Diagnostics Pane").clicked() {
+                        app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                            kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
                         });
                     }
                 }
-                crate::app::SettingsToolPage::Persistence => {
+                SettingsToolPage::Persistence => {
                     ui.label("Storage");
                     ui.horizontal(|ui| {
                         ui.label("Data directory:");
@@ -1247,20 +1708,7 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     });
 
                     ui.separator();
-                    ui.label("Frames");
-                    if ui.button("Save Current Frame").clicked() {
-                        let now = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
-                        app.request_save_frame_snapshot_named(format!("workspace:toolpane-{now}"));
-                    }
-                    if ui.button("Prune Empty Named Frames").clicked() {
-                        app.request_prune_empty_frames();
-                    }
-
-                    ui.separator();
-                    ui.label("Graphs");
+                    ui.label("Graph Snapshots");
                     if ui.button("Save Graph Snapshot").clicked() {
                         let now = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
@@ -1271,21 +1719,22 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     if ui.button("Restore Latest Graph").clicked() {
                         app.request_restore_graph_snapshot_latest();
                     }
+                    ui.small(
+                        "Frame save, restore, and pruning now live with the active frame in workbench chrome rather than inside persistence settings.",
+                    );
                 }
-                crate::app::SettingsToolPage::Physics => {
-                    ui.label("Physics");
+                SettingsToolPage::Physics => {
                     render_physics_settings_in_ui(ui, app);
                 }
-                crate::app::SettingsToolPage::Sync => {
-                    ui.label("Sync");
+                SettingsToolPage::Sync => {
                     if let Some(control_panel) = control_panel.as_mut() {
                         render_sync_settings_in_ui(ui, app, control_panel);
                     } else {
                         ui.small("Sync controls unavailable in this surface.");
                     }
                 }
-                crate::app::SettingsToolPage::Appearance => {
-                    ui.label("Theme Mode");
+                SettingsToolPage::Appearance => {
+                    ui.label("Theme");
                     let current_dark = matches!(
                         app.default_registry_theme_id(),
                         Some(crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK)
@@ -1309,29 +1758,311 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     ui.small("Theme mode is persisted through the workspace settings model.");
 
                     ui.separator();
-                    ui.label("Graph Input");
-                    ui.horizontal(|ui| {
-                        ui.label("Lasso binding");
-                        let mut binding = app.lasso_binding_preference();
-                        ui.radio_value(&mut binding, CanvasLassoBinding::RightDrag, "Right Drag");
-                        ui.radio_value(
-                            &mut binding,
-                            CanvasLassoBinding::ShiftLeftDrag,
-                            "Shift + Left Drag",
+                    ui.label("Notifications");
+                    ui.label(format!(
+                        "Toast anchor: {}",
+                        toast_anchor_label(app.workspace.toast_anchor_preference)
+                    ));
+                    for anchor in [
+                        ToastAnchorPreference::BottomRight,
+                        ToastAnchorPreference::BottomLeft,
+                        ToastAnchorPreference::TopRight,
+                        ToastAnchorPreference::TopLeft,
+                    ] {
+                        if ui
+                            .selectable_label(
+                                app.workspace.toast_anchor_preference == anchor,
+                                toast_anchor_label(anchor),
+                            )
+                            .clicked()
+                        {
+                            app.set_toast_anchor_preference(anchor);
+                        }
+                    }
+
+                    ui.separator();
+                    ui.label("Viewer Backends");
+                    let wry_compiled = cfg!(feature = "wry");
+                    let wry_capability_available = wry_compiled
+                        && crate::registries::infrastructure::mod_loader::runtime_has_capability(
+                            "viewer:wry",
                         );
-                        if binding != app.lasso_binding_preference() {
+                    let wry_disabled_reason = if !wry_compiled {
+                        Some("Wry backend is not compiled in this build.")
+                    } else if !wry_capability_available {
+                        Some("Runtime capability 'viewer:wry' is unavailable.")
+                    } else {
+                        None
+                    };
+                    let mut wry_enabled = app.wry_enabled();
+                    let wry_toggle_response = ui.add_enabled(
+                        wry_disabled_reason.is_none(),
+                        egui::Checkbox::new(&mut wry_enabled, "Enable Wry backend"),
+                    );
+                    if wry_toggle_response.changed() {
+                        app.set_wry_enabled(wry_enabled);
+                    }
+                    if let Some(reason) = wry_disabled_reason {
+                        wry_toggle_response.on_hover_text(reason);
+                        ui.small(reason);
+                    }
+                }
+                SettingsToolPage::Keybindings => {
+                    ui.label("Graph Input");
+                    ui.label(format!(
+                        "Lasso: {}",
+                        lasso_binding_label(app.lasso_binding_preference())
+                    ));
+                    for binding in [
+                        CanvasLassoBinding::RightDrag,
+                        CanvasLassoBinding::ShiftLeftDrag,
+                    ] {
+                        if ui
+                            .selectable_label(
+                                app.lasso_binding_preference() == binding,
+                                lasso_binding_label(binding),
+                            )
+                            .clicked()
+                        {
                             app.set_lasso_binding_preference(binding);
                         }
-                    });
-                    ui.small("Press F9 to jump directly to Camera Controls in Physics settings.");
-                }
-                crate::app::SettingsToolPage::Keybindings => {
+                    }
+
+                    ui.separator();
+                    ui.label("Command Surfaces");
+                    ui.label(format!(
+                        "Right-click surface: {}",
+                        match app.context_command_surface_preference() {
+                            ContextCommandSurfacePreference::RadialPalette => "Radial Palette",
+                            ContextCommandSurfacePreference::ContextPalette => "Context Palette",
+                        }
+                    ));
+                    for preference in [
+                        ContextCommandSurfacePreference::RadialPalette,
+                        ContextCommandSurfacePreference::ContextPalette,
+                    ] {
+                        let label = match preference {
+                            ContextCommandSurfacePreference::RadialPalette => "Radial Palette",
+                            ContextCommandSurfacePreference::ContextPalette => "Context Palette",
+                        };
+                        if ui
+                            .selectable_label(
+                                app.context_command_surface_preference() == preference,
+                                label,
+                            )
+                            .clicked()
+                        {
+                            app.set_context_command_surface_preference(preference);
+                        }
+                    }
+
+                    let radial_open_east_preset = InputBindingRemap {
+                        old: InputBinding::Gamepad {
+                            button: GamepadButton::South,
+                            modifier: None,
+                        },
+                        new: InputBinding::Gamepad {
+                            button: GamepadButton::East,
+                            modifier: None,
+                        },
+                        context: InputContext::GraphView,
+                    };
+                    let active_remaps = app.input_binding_remaps();
+                    let radial_profile_label = if active_remaps.is_empty() {
+                        "South / A (Default)"
+                    } else if active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset
+                    {
+                        "East / B"
+                    } else {
+                        "Custom"
+                    };
+                    ui.label(format!("Gamepad radial palette open: {radial_profile_label}"));
+                    if ui
+                        .selectable_label(active_remaps.is_empty(), "South / A (Default)")
+                        .clicked()
+                        && let Err(error) = app.set_input_binding_remaps(&[])
+                    {
+                        log::warn!("failed to restore default input remaps: {error:?}");
+                    }
+                    if ui
+                        .selectable_label(
+                            active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset,
+                            "East / B",
+                        )
+                        .clicked()
+                        && let Err(error) =
+                            app.set_input_binding_remaps(&[radial_open_east_preset.clone()])
+                    {
+                        log::warn!("failed to apply radial-open remap preset: {error:?}");
+                    }
+                    if !active_remaps.is_empty()
+                        && !(active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset)
+                    {
+                        ui.small("Stored remaps include custom bindings outside these presets.");
+                    }
+
+                    ui.separator();
+                    ui.label("Omnibar");
+                    ui.label(format!(
+                        "Preferred scope: {}",
+                        omnibar_preferred_scope_label(app.workspace.omnibar_preferred_scope)
+                    ));
+                    for scope in [
+                        OmnibarPreferredScope::Auto,
+                        OmnibarPreferredScope::LocalTabs,
+                        OmnibarPreferredScope::ConnectedNodes,
+                        OmnibarPreferredScope::ProviderDefault,
+                        OmnibarPreferredScope::GlobalNodes,
+                        OmnibarPreferredScope::GlobalTabs,
+                    ] {
+                        if ui
+                            .selectable_label(
+                                app.workspace.omnibar_preferred_scope == scope,
+                                omnibar_preferred_scope_label(scope),
+                            )
+                            .clicked()
+                        {
+                            app.set_omnibar_preferred_scope(scope);
+                        }
+                    }
+                    ui.label(format!(
+                        "Non-@ order: {}",
+                        omnibar_non_at_order_label(app.workspace.omnibar_non_at_order)
+                    ));
+                    for order in [
+                        OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
+                        OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal,
+                    ] {
+                        if ui
+                            .selectable_label(
+                                app.workspace.omnibar_non_at_order == order,
+                                omnibar_non_at_order_label(order),
+                            )
+                            .clicked()
+                        {
+                            app.set_omnibar_non_at_order(order);
+                        }
+                    }
+
+                    ui.separator();
+                    ui.label("Keybindings");
                     render_keybindings_settings_in_ui(ui, app);
                 }
-            }
+                SettingsToolPage::Advanced => {
+                    ui.label("Registry Defaults");
+
+                    let mut lens_id = app
+                        .default_registry_lens_id()
+                        .unwrap_or_default()
+                        .to_string();
+                    if ui
+                        .horizontal(|ui| {
+                            ui.label("Lens ID");
+                            ui.text_edit_singleline(&mut lens_id)
+                        })
+                        .inner
+                        .changed()
+                    {
+                        let value = lens_id.trim();
+                        app.set_default_registry_lens_id((!value.is_empty()).then_some(value));
+                    }
+
+                    let mut physics_id = app
+                        .default_registry_physics_id()
+                        .unwrap_or_default()
+                        .to_string();
+                    if ui
+                        .horizontal(|ui| {
+                            ui.label("Physics ID");
+                            ui.text_edit_singleline(&mut physics_id)
+                        })
+                        .inner
+                        .changed()
+                    {
+                        let value = physics_id.trim();
+                        app.set_default_registry_physics_id((!value.is_empty()).then_some(value));
+                    }
+
+                    let mut theme_id = app
+                        .default_registry_theme_id()
+                        .unwrap_or_default()
+                        .to_string();
+                    if ui
+                        .horizontal(|ui| {
+                            ui.label("Theme ID");
+                            ui.text_edit_singleline(&mut theme_id)
+                        })
+                        .inner
+                        .changed()
+                    {
+                        let value = theme_id.trim();
+                        app.set_default_registry_theme_id((!value.is_empty()).then_some(value));
+                    }
+
+                    ui.separator();
+                    ui.label("Related Control Surfaces");
+                    if ui.button("Open History Manager").clicked() {
+                        app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                            kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager,
+                        });
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    if ui.button("Open Diagnostics Pane").clicked() {
+                        app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                            kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
+                        });
+                    }
+                }
+                    }
+                });
         });
+    });
 
     intents
+}
+
+pub fn render_settings_tool_pane_in_ui_with_control_panel(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    control_panel: Option<&mut crate::shell::desktop::runtime::control_panel::ControlPanel>,
+) -> Vec<GraphIntent> {
+    render_settings_surface_in_ui_with_control_panel(
+        ui,
+        app,
+        control_panel,
+        SettingsSurfaceMode::ToolPane,
+    )
+}
+
+pub fn render_settings_overlay_panel(
+    ctx: &egui::Context,
+    app: &mut GraphBrowserApp,
+    control_panel: Option<&mut crate::shell::desktop::runtime::control_panel::ControlPanel>,
+) {
+    if !app.workspace.show_settings_overlay {
+        return;
+    }
+
+    let mut open = app.workspace.show_settings_overlay;
+    Window::new("Settings")
+        .open(&mut open)
+        .default_width(520.0)
+        .default_height(560.0)
+        .resizable(true)
+        .show(ctx, |ui| {
+            let _ = render_settings_surface_in_ui_with_control_panel(
+                ui,
+                app,
+                control_panel,
+                SettingsSurfaceMode::Overlay,
+            );
+        });
+
+    if app.workspace.show_settings_overlay && !open {
+        app.close_settings_overlay();
+    } else {
+        app.workspace.show_settings_overlay = open;
+    }
 }
 
 fn render_keybindings_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {

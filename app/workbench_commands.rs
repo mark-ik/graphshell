@@ -285,7 +285,6 @@ impl GraphBrowserApp {
             });
         }
         self.workspace.runtime_block_state.remove(&key);
-        self.workspace.semantic_tags.remove(&key);
         self.workspace.suggested_semantic_tags.remove(&key);
         if let Some(node_id) = node_id {
             self.workspace.node_last_active_workspace.remove(&node_id);

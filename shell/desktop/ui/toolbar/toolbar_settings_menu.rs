@@ -1,20 +1,41 @@
-use crate::app::{
-    ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent, OmnibarNonAtOrderPreset,
-    OmnibarPreferredScope, ToastAnchorPreference, WorkbenchIntent,
-};
-use crate::registries::domain::layout::canvas::CanvasLassoBinding;
+use crate::app::{GraphBrowserApp, GraphIntent, SettingsToolPage, WorkbenchIntent};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::runtime::registries::input::{
-    GamepadButton, InputBinding, InputBindingRemap, InputContext,
-};
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
+
+fn open_settings_page(
+    graph_app: &mut GraphBrowserApp,
+    page: SettingsToolPage,
+    prefer_overlay: bool,
+) {
+    let path = match page {
+        SettingsToolPage::General => GraphshellSettingsPath::General,
+        SettingsToolPage::Persistence => GraphshellSettingsPath::Persistence,
+        SettingsToolPage::Physics => GraphshellSettingsPath::Physics,
+        SettingsToolPage::Sync => GraphshellSettingsPath::Sync,
+        SettingsToolPage::Appearance => GraphshellSettingsPath::Appearance,
+        SettingsToolPage::Keybindings => GraphshellSettingsPath::Keybindings,
+        SettingsToolPage::Advanced => GraphshellSettingsPath::Advanced,
+    };
+
+    if prefer_overlay {
+        graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+            url: VersoAddress::settings(path).to_string(),
+        });
+    } else {
+        graph_app.workspace.settings_tool_page = page;
+        graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+            kind: ToolPaneState::Settings,
+        });
+    }
+}
 
 pub(super) fn render_settings_menu(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     state: &RunningAppState,
+    prefer_overlay: bool,
     frame_intents: &mut Vec<GraphIntent>,
     location_dirty: &mut bool,
     _window: &EmbedderWindow,
@@ -26,15 +47,52 @@ pub(super) fn render_settings_menu(
         .auto_shrink([false, false])
         .max_height(max_menu_height)
         .show(ui, |ui| {
-            if ui.button("Open Persistence Hub").clicked() {
-                graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
-                    kind: ToolPaneState::Settings,
-                });
+            ui.label(
+                egui::RichText::new(if prefer_overlay {
+                    "Graph scope: settings pages open as overlays."
+                } else {
+                    "Workbench scope: settings pages open in the hosted settings pane."
+                })
+                .small()
+                .weak(),
+            );
+
+            ui.separator();
+            ui.label("Settings Pages");
+            if ui.button("Open Settings").clicked() {
+                open_settings_page(graph_app, SettingsToolPage::General, prefer_overlay);
                 ui.close();
             }
-            if ui.button("Open Physics Settings").clicked() {
-                graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                    url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+            if ui.button("Open Persistence").clicked() {
+                open_settings_page(graph_app, SettingsToolPage::Persistence, prefer_overlay);
+                ui.close();
+            }
+            if ui.button("Open Appearance & Viewer").clicked() {
+                open_settings_page(graph_app, SettingsToolPage::Appearance, prefer_overlay);
+                ui.close();
+            }
+            if ui.button("Open Input & Commands").clicked() {
+                open_settings_page(graph_app, SettingsToolPage::Keybindings, prefer_overlay);
+                ui.close();
+            }
+            if ui.button("Open Physics").clicked() {
+                open_settings_page(graph_app, SettingsToolPage::Physics, prefer_overlay);
+                ui.close();
+            }
+            if ui.button("Open Sync").clicked() {
+                open_settings_page(graph_app, SettingsToolPage::Sync, prefer_overlay);
+                ui.close();
+            }
+            if ui.button("Open Advanced").clicked() {
+                open_settings_page(graph_app, SettingsToolPage::Advanced, prefer_overlay);
+                ui.close();
+            }
+
+            ui.separator();
+            ui.label("Related Surfaces");
+            if ui.button("Open History Manager").clicked() {
+                graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                    kind: ToolPaneState::HistoryManager,
                 });
                 ui.close();
             }
@@ -49,179 +107,16 @@ pub(super) fn render_settings_menu(
                 frame_intents.push(GraphIntent::ToggleHelpPanel);
                 ui.close();
             }
-            if ui.button("Open History Manager").clicked() {
+            #[cfg(feature = "diagnostics")]
+            if ui.button("Open Diagnostics Pane").clicked() {
                 graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
-                    kind: ToolPaneState::HistoryManager,
+                    kind: ToolPaneState::Diagnostics,
                 });
                 ui.close();
             }
-            if ui.button("Open File Tree").clicked() {
-                graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
-                    kind: ToolPaneState::FileTree,
-                });
-                ui.close();
-            }
+
             ui.separator();
-            ui.label(format!(
-                "Toasts: {}",
-                super::toast_anchor_label(graph_app.workspace.toast_anchor_preference)
-            ));
-            for anchor in [
-                ToastAnchorPreference::BottomRight,
-                ToastAnchorPreference::BottomLeft,
-                ToastAnchorPreference::TopRight,
-                ToastAnchorPreference::TopLeft,
-            ] {
-                if ui
-                    .selectable_label(
-                        graph_app.workspace.toast_anchor_preference == anchor,
-                        super::toast_anchor_label(anchor),
-                    )
-                    .clicked()
-                {
-                    graph_app.set_toast_anchor_preference(anchor);
-                }
-            }
-            ui.separator();
-            ui.label("Input");
-            if ui.button("Open Keybindings Settings").clicked() {
-                graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                    url: VersoAddress::settings(GraphshellSettingsPath::Keybindings).to_string(),
-                });
-                ui.close();
-            }
-            ui.label(format!(
-                "Lasso: {}",
-                super::lasso_binding_label(graph_app.lasso_binding_preference())
-            ));
-            for binding in [
-                CanvasLassoBinding::RightDrag,
-                CanvasLassoBinding::ShiftLeftDrag,
-            ] {
-                if ui
-                    .selectable_label(
-                        graph_app.lasso_binding_preference() == binding,
-                        super::lasso_binding_label(binding),
-                    )
-                    .clicked()
-                {
-                    graph_app.set_lasso_binding_preference(binding);
-                }
-            }
-            ui.label(format!(
-                "Right-Click Surface: {}",
-                match graph_app.context_command_surface_preference() {
-                    ContextCommandSurfacePreference::RadialPalette => "Radial Palette",
-                    ContextCommandSurfacePreference::ContextPalette => "Context Palette",
-                }
-            ));
-            for preference in [
-                ContextCommandSurfacePreference::RadialPalette,
-                ContextCommandSurfacePreference::ContextPalette,
-            ] {
-                let label = match preference {
-                    ContextCommandSurfacePreference::RadialPalette => "Radial Palette",
-                    ContextCommandSurfacePreference::ContextPalette => "Context Palette",
-                };
-                if ui
-                    .selectable_label(
-                        graph_app.context_command_surface_preference() == preference,
-                        label,
-                    )
-                    .clicked()
-                {
-                    graph_app.set_context_command_surface_preference(preference);
-                }
-            }
-            let radial_open_east_preset = InputBindingRemap {
-                old: InputBinding::Gamepad {
-                    button: GamepadButton::South,
-                    modifier: None,
-                },
-                new: InputBinding::Gamepad {
-                    button: GamepadButton::East,
-                    modifier: None,
-                },
-                context: InputContext::GraphView,
-            };
-            let active_remaps = graph_app.input_binding_remaps();
-            let radial_profile_label = if active_remaps.is_empty() {
-                "South / A (Default)"
-            } else if active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset {
-                "East / B"
-            } else {
-                "Custom"
-            };
-            ui.label(format!(
-                "Gamepad Radial Palette Open: {radial_profile_label}"
-            ));
-            if ui
-                .selectable_label(active_remaps.is_empty(), "South / A (Default)")
-                .clicked()
-                && let Err(error) = graph_app.set_input_binding_remaps(&[])
-            {
-                log::warn!("failed to restore default input remaps: {error:?}");
-            }
-            if ui
-                .selectable_label(
-                    active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset,
-                    "East / B",
-                )
-                .clicked()
-                && let Err(error) =
-                    graph_app.set_input_binding_remaps(&[radial_open_east_preset.clone()])
-            {
-                log::warn!("failed to apply radial-open remap preset: {error:?}");
-            }
-            if !active_remaps.is_empty()
-                && !(active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset)
-            {
-                ui.small("Stored remaps include custom bindings outside these presets.");
-            }
-            ui.separator();
-            ui.label("Omnibar");
-            ui.label(format!(
-                "Preferred Scope: {}",
-                super::omnibar_preferred_scope_label(graph_app.workspace.omnibar_preferred_scope)
-            ));
-            for scope in [
-                OmnibarPreferredScope::Auto,
-                OmnibarPreferredScope::LocalTabs,
-                OmnibarPreferredScope::ConnectedNodes,
-                OmnibarPreferredScope::ProviderDefault,
-                OmnibarPreferredScope::GlobalNodes,
-                OmnibarPreferredScope::GlobalTabs,
-            ] {
-                if ui
-                    .selectable_label(
-                        graph_app.workspace.omnibar_preferred_scope == scope,
-                        super::omnibar_preferred_scope_label(scope),
-                    )
-                    .clicked()
-                {
-                    graph_app.set_omnibar_preferred_scope(scope);
-                }
-            }
-            ui.label(format!(
-                "Non-@ Order: {}",
-                super::omnibar_non_at_order_label(graph_app.workspace.omnibar_non_at_order)
-            ));
-            for order in [
-                OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
-                OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal,
-            ] {
-                if ui
-                    .selectable_label(
-                        graph_app.workspace.omnibar_non_at_order == order,
-                        super::omnibar_non_at_order_label(order),
-                    )
-                    .clicked()
-                {
-                    graph_app.set_omnibar_non_at_order(order);
-                }
-            }
-            ui.separator();
-            ui.label("Preferences");
+            ui.label("Browser");
             if ui.button("Open Preferences Page").clicked() {
                 super::request_open_settings_page(graph_app, frame_intents, "servo:preferences");
                 ui.close();
@@ -247,88 +142,10 @@ pub(super) fn render_settings_menu(
                 graph_app.request_reload_all();
             }
 
-            ui.separator();
-            ui.label("Viewer Backends");
-            let wry_compiled = cfg!(feature = "wry");
-            let wry_capability_available = wry_compiled
-                && crate::registries::infrastructure::mod_loader::runtime_has_capability(
-                    "viewer:wry",
-                );
-            let wry_disabled_reason = if !wry_compiled {
-                Some("Wry backend is not compiled in this build.")
-            } else if !wry_capability_available {
-                Some("Runtime capability 'viewer:wry' is unavailable.")
-            } else {
-                None
-            };
-            let mut wry_enabled = graph_app.wry_enabled();
-            let wry_toggle_response = ui.add_enabled(
-                wry_disabled_reason.is_none(),
-                egui::Checkbox::new(&mut wry_enabled, "Enable Wry backend"),
-            );
-            if wry_toggle_response.changed() {
-                graph_app.set_wry_enabled(wry_enabled);
-            }
-            if let Some(reason) = wry_disabled_reason {
-                wry_toggle_response.on_hover_text(reason);
-                ui.small(reason);
-            }
-
-            ui.separator();
-            ui.label("Registry Defaults");
-
-            let mut lens_id = graph_app
-                .default_registry_lens_id()
-                .unwrap_or_default()
-                .to_string();
-            if ui
-                .horizontal(|ui| {
-                    ui.label("Lens ID");
-                    ui.text_edit_singleline(&mut lens_id)
-                })
-                .inner
-                .changed()
-            {
-                let value = lens_id.trim();
-                graph_app.set_default_registry_lens_id((!value.is_empty()).then_some(value));
-            }
-
-            let mut physics_id = graph_app
-                .default_registry_physics_id()
-                .unwrap_or_default()
-                .to_string();
-            if ui
-                .horizontal(|ui| {
-                    ui.label("Physics ID");
-                    ui.text_edit_singleline(&mut physics_id)
-                })
-                .inner
-                .changed()
-            {
-                let value = physics_id.trim();
-                graph_app.set_default_registry_physics_id((!value.is_empty()).then_some(value));
-            }
-
-            let mut theme_id = graph_app
-                .default_registry_theme_id()
-                .unwrap_or_default()
-                .to_string();
-            if ui
-                .horizontal(|ui| {
-                    ui.label("Theme ID");
-                    ui.text_edit_singleline(&mut theme_id)
-                })
-                .inner
-                .changed()
-            {
-                let value = theme_id.trim();
-                graph_app.set_default_registry_theme_id((!value.is_empty()).then_some(value));
-            }
-
             #[cfg(feature = "diagnostics")]
             {
                 ui.separator();
-                ui.label("Diagnostics");
+                ui.label("Diagnostics Export");
                 if ui.button("Export Diagnostic Snapshot (JSON)").clicked() {
                     diagnostics_state.sync_history_health_snapshot_from_app(graph_app);
                     match diagnostics_state.export_snapshot_json() {
@@ -342,12 +159,6 @@ pub(super) fn render_settings_menu(
                         Ok(path) => log::info!("Diagnostics SVG exported: {}", path.display()),
                         Err(err) => log::warn!("Diagnostics SVG export failed: {err}"),
                     }
-                }
-                if ui.button("Open Diagnostics Pane").clicked() {
-                    graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
-                        kind: ToolPaneState::Diagnostics,
-                    });
-                    ui.close();
                 }
             }
         });

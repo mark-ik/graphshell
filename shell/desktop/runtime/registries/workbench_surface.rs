@@ -483,6 +483,20 @@ fn maybe_capture_tool_surface_return_target(
     }
 }
 
+fn maybe_capture_transient_surface_return_target(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
+    if graph_app
+        .pending_transient_surface_return_target()
+        .is_none()
+    {
+        graph_app.set_pending_transient_surface_return_target(active_tool_surface_return_target(
+            tiles_tree,
+        ));
+    }
+}
+
 fn maybe_capture_command_surface_return_target(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,

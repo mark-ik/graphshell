@@ -27,24 +27,12 @@ pub fn reconcile_semantics(
     }
 
     let previous_index = app.workspace.semantic_index.clone();
-    let previous_tag_len = app.workspace.semantic_tags.len();
-    let valid_keys: std::collections::HashSet<_> = app
-        .workspace
-        .domain
-        .graph
-        .nodes()
-        .map(|(key, _)| key)
-        .collect();
-
-    app.workspace
-        .semantic_tags
-        .retain(|key, _| valid_keys.contains(key));
-    let removed_stale_tags = previous_tag_len.saturating_sub(app.workspace.semantic_tags.len());
+    let removed_stale_tags = 0;
 
     let mut rebuilt_index = std::collections::HashMap::new();
-    for (&key, tags) in &app.workspace.semantic_tags {
+    for (key, node) in app.workspace.domain.graph.nodes() {
         let mut codes = Vec::new();
-        for tag in tags {
+        for tag in &node.tags {
             if let Some(code) = registry.parse(tag) {
                 codes.push(code);
             }
@@ -76,24 +64,33 @@ pub fn query_by_tag(
 
     let mut matches = app
         .workspace
-        .semantic_tags
-        .iter()
-        .filter_map(|(key, tags)| tags.contains(&canonical_tag).then_some(*key))
+        .domain
+        .graph
+        .nodes()
+        .filter_map(|(key, node)| node.tags.contains(&canonical_tag).then_some(key))
         .collect::<Vec<_>>();
     matches.sort_by_key(|key| key.index());
     matches
 }
 
 pub fn tags_for_node(app: &GraphBrowserApp, key: &NodeKey) -> Vec<String> {
-    let mut tags = app
-        .workspace
-        .semantic_tags
-        .get(key)
+    let Some(node) = app.workspace.domain.graph.get_node(*key) else {
+        return Vec::new();
+    };
+    let mut tags = Vec::new();
+    for tag in &node.tag_presentation.ordered_tags {
+        if node.tags.contains(tag) {
+            tags.push(tag.clone());
+        }
+    }
+    let mut remaining = node
+        .tags
+        .iter()
+        .filter(|tag| !tags.contains(tag))
         .cloned()
-        .unwrap_or_default()
-        .into_iter()
         .collect::<Vec<_>>();
-    tags.sort();
+    remaining.sort();
+    tags.extend(remaining);
     tags
 }
 
@@ -153,9 +150,11 @@ mod tests {
             "https://example.com".to_string(),
             euclid::default::Point2D::new(10.0, 10.0),
         );
-        app.workspace
-            .semantic_tags
-            .insert(key, ["udc:51".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(key, "udc:51".to_string());
         app.workspace.semantic_index_dirty = true;
 
         let report = reconcile_semantics(&mut app, &registry);
@@ -168,13 +167,10 @@ mod tests {
         assert_eq!(index.classes, vec![CompactCode(vec![5, 1])]);
 
         let stale = NodeKey::new(999_999);
-        app.workspace
-            .semantic_tags
-            .insert(stale, ["udc:7".to_string()].into_iter().collect());
         app.workspace.semantic_index_dirty = true;
         let report = reconcile_semantics(&mut app, &registry);
-        assert_eq!(report.removed_stale_tags, 1);
-        assert!(!app.workspace.semantic_tags.contains_key(&stale));
+        assert_eq!(report.removed_stale_tags, 0);
+        assert!(app.workspace.domain.graph.get_node(stale).is_none());
     }
 
     #[test]
@@ -190,15 +186,21 @@ mod tests {
             euclid::default::Point2D::new(10.0, 10.0),
         );
 
-        app.workspace.semantic_tags.insert(
-            a,
-            ["udc:51".to_string(), "udc:519.6".to_string()]
-                .into_iter()
-                .collect(),
-        );
-        app.workspace
-            .semantic_tags
-            .insert(b, ["udc:78".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(a, "udc:51".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(a, "udc:519.6".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(b, "udc:78".to_string());
 
         let matches = query_by_tag(&app, &registry, "51");
         assert_eq!(matches, vec![a]);
@@ -224,15 +226,21 @@ mod tests {
             euclid::default::Point2D::new(40.0, 0.0),
         );
 
-        app.workspace
-            .semantic_tags
-            .insert(math, ["udc:51".to_string()].into_iter().collect());
-        app.workspace
-            .semantic_tags
-            .insert(numerical, ["udc:519.6".to_string()].into_iter().collect());
-        app.workspace
-            .semantic_tags
-            .insert(music, ["udc:78".to_string()].into_iter().collect());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(math, "udc:51".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(numerical, "udc:519.6".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(music, "udc:78".to_string());
         app.workspace.semantic_index_dirty = true;
         let _ = reconcile_semantics(&mut app, &registry);
 

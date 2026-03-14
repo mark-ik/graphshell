@@ -96,7 +96,9 @@ pub(crate) enum SemanticRegionFocus {
     CommandPalette,
     ContextPalette,
     RadialPalette,
+    ClipInspector,
     HelpPanel,
+    SettingsOverlay,
     Toolbar,
     GraphSurface {
         view_id: Option<GraphViewId>,
@@ -131,7 +133,9 @@ pub(crate) enum FocusCaptureSurface {
     CommandPalette,
     ContextPalette,
     RadialPalette,
+    ClipInspector,
     HelpPanel,
+    SettingsOverlay,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,7 +223,9 @@ pub(crate) struct RuntimeFocusInputs {
     pub(crate) show_command_palette: bool,
     pub(crate) command_palette_contextual_mode: bool,
     pub(crate) show_help_panel: bool,
+    pub(crate) show_settings_overlay: bool,
     pub(crate) show_radial_menu: bool,
+    pub(crate) show_clip_inspector: bool,
     pub(crate) show_clear_data_confirm: bool,
     pub(crate) command_surface_return_target: Option<ToolSurfaceReturnTarget>,
     pub(crate) transient_surface_return_target: Option<ToolSurfaceReturnTarget>,

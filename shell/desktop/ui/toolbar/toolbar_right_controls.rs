@@ -8,7 +8,6 @@ use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use egui::{WidgetInfo, WidgetType};
 use egui_tiles::Tree;
-use std::collections::HashSet;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_toolbar_right_controls(
@@ -30,8 +29,6 @@ pub(super) fn render_toolbar_right_controls(
     show_clear_data_confirm: &mut bool,
     omnibar_search_session: &mut Option<super::OmnibarSearchSession>,
     frame_intents: &mut Vec<GraphIntent>,
-    focused_pane_pin_name: Option<&str>,
-    persisted_frame_names: &HashSet<String>,
     toggle_tile_view_requested: &mut bool,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
     #[cfg(feature = "diagnostics")]
@@ -45,6 +42,7 @@ pub(super) fn render_toolbar_right_controls(
             ui,
             graph_app,
             state,
+            is_graph_view,
             frame_intents,
             location_dirty,
             window,
@@ -88,14 +86,6 @@ pub(super) fn render_toolbar_right_controls(
     if command_button.clicked() {
         graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
     }
-
-    super::render_frame_pin_controls(
-        ui,
-        graph_app,
-        has_node_panes,
-        focused_pane_pin_name,
-        persisted_frame_names,
-    );
 
     super::render_location_search_panel(
         ui,

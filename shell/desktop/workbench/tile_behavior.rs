@@ -454,15 +454,13 @@ impl<'a> GraphshellTileBehavior<'a> {
         GraphReaderSnapshot {
             mode,
             entry_point_reachable: true,
-            degraded_reason: Some(
-                if node_count == 0 {
-                    "Starter canonical projection path is active, but no graph content is available yet for Map/Room output."
+            degraded_reason: Some(if node_count == 0 {
+                "Starter canonical projection path is active, but no graph content is available yet for Map/Room output."
                         .to_string()
-                } else {
-                    "Starter canonical projection is active: deterministic Map output, focused Room grouping, and starter Graph Reader Room/Map action routing are exposed through the UxTree -> AccessKit path; broader navigation/action coverage is still incomplete."
+            } else {
+                "Starter canonical projection is active: deterministic Map output, focused Room grouping, and starter Graph Reader Room/Map action routing are exposed through the UxTree -> AccessKit path; broader navigation/action coverage is still incomplete."
                         .to_string()
-                },
-            ),
+            }),
         }
     }
 
@@ -1228,11 +1226,12 @@ mod tests {
             lens_glyphs_rendered: vec!["semantic".to_string()],
         }];
 
-        let projection = crate::shell::desktop::ui::gui::selected_node_affordance_projection_from_annotations(
-            node_key,
-            &annotations,
-        )
-        .expect("projection expected");
+        let projection =
+            crate::shell::desktop::ui::gui::selected_node_affordance_projection_from_annotations(
+                node_key,
+                &annotations,
+            )
+            .expect("projection expected");
 
         assert!(projection.focus_annotation);
         assert!(projection.selection_annotation);
@@ -1290,10 +1289,12 @@ mod tests {
 
         assert_eq!(snapshot.mode, GraphReaderMode::Map);
         assert!(snapshot.entry_point_reachable);
-        assert!(snapshot
-            .degraded_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("deterministic Map output")));
+        assert!(
+            snapshot
+                .degraded_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("deterministic Map output"))
+        );
     }
 
     #[cfg(feature = "diagnostics")]
@@ -1305,9 +1306,10 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let view_id = GraphViewId::new();
-        app.workspace
-            .views
-            .insert(view_id, crate::app::GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.views.insert(
+            view_id,
+            crate::app::GraphViewState::new_with_id(view_id, "Focused"),
+        );
         app.set_workspace_focused_view_with_transition(Some(view_id));
         app.select_node(node, false);
 
@@ -1315,10 +1317,12 @@ mod tests {
 
         assert_eq!(snapshot.mode, GraphReaderMode::Room);
         assert!(snapshot.entry_point_reachable);
-        assert!(snapshot
-            .degraded_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("focused Room grouping")));
+        assert!(
+            snapshot
+                .degraded_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("focused Room grouping"))
+        );
     }
 
     #[cfg(feature = "diagnostics")]
@@ -1330,9 +1334,10 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let view_id = GraphViewId::new();
-        app.workspace
-            .views
-            .insert(view_id, crate::app::GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.views.insert(
+            view_id,
+            crate::app::GraphViewState::new_with_id(view_id, "Focused"),
+        );
         app.set_workspace_focused_view_with_transition(Some(view_id));
         app.graph_reader_enter_room(node);
         app.graph_reader_return_to_map();

@@ -31,7 +31,9 @@ use crate::render::command_profile::{
 use crate::shell::desktop::runtime::registries::{
     self, action as runtime_action, workflow as runtime_workflow,
 };
-use crate::shell::desktop::workbench::pane_model::{PaneId, ToolPaneState, ViewerId};
+#[cfg(test)]
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+use crate::shell::desktop::workbench::pane_model::{PaneId, ViewerId};
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -726,9 +728,43 @@ pub(crate) fn execute_action(
             app.request_save_graph_snapshot_named(format!("radial-graph-{now}"));
         }
         ActionId::PersistRestoreLatestGraph => app.request_restore_graph_snapshot_latest(),
-        ActionId::PersistOpenHub => app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
-            kind: ToolPaneState::Settings,
-        }),
+        ActionId::PersistOpenHub => {
+            app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+                url: VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+            })
+        }
+        ActionId::WorkbenchOpenSettingsPane => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_WORKBENCH_SETTINGS_PANE_OPEN,
+                runtime_action::ActionPayload::WorkbenchSettingsPaneOpen,
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute '{}': {}",
+                    runtime_action::ACTION_WORKBENCH_SETTINGS_PANE_OPEN,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
+        ActionId::WorkbenchOpenSettingsOverlay => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_WORKBENCH_SETTINGS_OVERLAY_OPEN,
+                runtime_action::ActionPayload::WorkbenchSettingsOverlayOpen,
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute '{}': {}",
+                    runtime_action::ACTION_WORKBENCH_SETTINGS_OVERLAY_OPEN,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
         ActionId::PersistOpenHistoryManager => {
             let runtime_intents = registries::phase3_execute_registry_action(
                 app,
@@ -905,6 +941,78 @@ mod tests {
             [WorkbenchIntent::OpenToolPane {
                 kind: ToolPaneState::HistoryManager
             }]
+        ));
+    }
+
+    #[test]
+    fn execute_action_persistence_hub_routes_to_settings_overlay_url() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::PersistOpenHub,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::OpenSettingsUrl { url }]
+                if url
+                    == &VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string()
+        ));
+    }
+
+    #[test]
+    fn execute_action_settings_pane_routes_through_runtime_dispatch() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::WorkbenchOpenSettingsPane,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::OpenToolPane {
+                kind: ToolPaneState::Settings
+            }]
+        ));
+    }
+
+    #[test]
+    fn execute_action_settings_overlay_routes_through_runtime_dispatch() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::WorkbenchOpenSettingsOverlay,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::OpenSettingsUrl { url }]
+                if url
+                    == &VersoAddress::settings(GraphshellSettingsPath::General).to_string()
         ));
     }
 

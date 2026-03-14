@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
+use crate::shell::desktop::ui::dialog::DialogCommand;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 
@@ -107,7 +108,21 @@ pub(crate) fn run_post_render_phase<FActive>(
         window,
         focused_dialog_webview,
         *toolbar_height,
-        |dialog| dialog.update(ctx),
+        |dialog| {
+            let result = dialog.update(ctx);
+            if let Some(command) = result.command {
+                match command {
+                    DialogCommand::ClipElement {
+                        webview_id,
+                        element_rect,
+                    } => headed_window.request_clip_element(window, webview_id, element_rect),
+                    DialogCommand::InspectPageElements { webview_id } => {
+                        headed_window.request_page_inspector_candidates(window, webview_id)
+                    }
+                }
+            }
+            result.keep_open
+        },
     );
 
     let mut post_render_intents = Vec::new();
@@ -147,6 +162,28 @@ pub(crate) fn run_post_render_phase<FActive>(
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
     render::render_help_panel(ctx, graph_app);
+    render::render_settings_overlay_panel(ctx, graph_app, Some(control_panel));
+    render::render_clip_inspector_panel(ctx, graph_app);
+    if let Some(webview_id) = graph_app
+        .workspace
+        .pending_clip_inspector_highlight_clear
+        .take()
+    {
+        headed_window.sync_clip_inspector_highlight(window, webview_id, None);
+    }
+    if let Some(state) = graph_app.workspace.clip_inspector_state.as_ref()
+        && state.highlight_dirty
+    {
+        headed_window.sync_clip_inspector_highlight(
+            window,
+            state.webview_id,
+            state
+                .pointer_stack
+                .get(state.pointer_stack_index)
+                .and_then(|capture| capture.dom_path.as_deref()),
+        );
+        graph_app.clear_clip_inspector_highlight_dirty();
+    }
     let active_node_pane =
         crate::shell::desktop::workbench::tile_compositor::active_node_pane(tiles_tree);
     let focused_pane_node = nav_targeting::chrome_projection_node(graph_app, window)

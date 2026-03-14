@@ -1163,12 +1163,11 @@ mod tests {
         let graph_surface_parent = snapshot
             .semantic_nodes
             .iter()
-            .find(|entry| Some(entry.ux_node_id.as_str()) == graph_surface.parent_ux_node_id.as_deref())
+            .find(|entry| {
+                Some(entry.ux_node_id.as_str()) == graph_surface.parent_ux_node_id.as_deref()
+            })
             .expect("graph surface parent should be projected");
-        assert_eq!(
-            graph_surface_parent.role,
-            UxNodeRole::TabContainer
-        );
+        assert_eq!(graph_surface_parent.role, UxNodeRole::TabContainer);
 
         let graph_node = snapshot
             .semantic_nodes

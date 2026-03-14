@@ -454,6 +454,9 @@ pub enum GraphIntent {
         view_id: GraphViewId,
         dimension: ViewDimension,
     },
+    ToggleSemanticDepthView {
+        view_id: GraphViewId,
+    },
     SetPhysicsProfile {
         profile_id: String,
     },

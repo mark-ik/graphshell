@@ -1,6 +1,6 @@
 use crate::app::{
-    GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode, ToolSurfaceReturnTarget,
-    WorkbenchIntent,
+    GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode, SearchDisplayMode,
+    ToolSurfaceReturnTarget, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::{
@@ -12,12 +12,14 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::shell::desktop::ui::gui_orchestration;
+use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, ToolbarState};
 use crate::shell::desktop::workbench::pane_model::{
     GraphPaneRef, NodePaneState, PaneId, ToolPaneRef, ToolPaneState, ViewerId,
 };
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use egui_tiles::{Tile, Tiles, Tree};
+use servo::LoadStatus;
 use servo::WebViewId;
 use tempfile::TempDir;
 
@@ -199,12 +201,16 @@ fn refresh_graph_search_matches_includes_anchor_neighborhood_context() {
         euclid::default::Point2D::new(20.0, 0.0),
     );
     app.add_edge_and_sync(anchor, neighbor, crate::graph::EdgeType::Hyperlink, None);
-    app.workspace
-        .semantic_tags
-        .insert(anchor, ["udc:51".to_string()].into_iter().collect());
-    app.workspace
-        .semantic_tags
-        .insert(far, ["udc:51".to_string()].into_iter().collect());
+    let _ = app
+        .workspace
+        .domain
+        .graph
+        .insert_node_tag(anchor, "udc:51".to_string());
+    let _ = app
+        .workspace
+        .domain
+        .graph
+        .insert_node_tag(far, "udc:51".to_string());
     app.workspace.semantic_index_dirty = true;
     let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
         &mut app,
@@ -244,9 +250,11 @@ fn refresh_graph_search_matches_supports_two_hop_anchor_neighborhood_context() {
         crate::graph::EdgeType::Hyperlink,
         None,
     );
-    app.workspace
-        .semantic_tags
-        .insert(anchor, ["udc:51".to_string()].into_iter().collect());
+    let _ = app
+        .workspace
+        .domain
+        .graph
+        .insert_node_tag(anchor, "udc:51".to_string());
     app.workspace.semantic_index_dirty = true;
     let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
         &mut app,
@@ -262,6 +270,85 @@ fn refresh_graph_search_matches_supports_two_hop_anchor_neighborhood_context() {
     assert!(matches.contains(&anchor));
     assert!(matches.contains(&neighbor));
     assert!(matches.contains(&second_hop));
+}
+
+#[test]
+fn run_graph_search_phase_applies_filter_mode_for_udc_descendant_query_end_to_end() {
+    let ctx = egui::Context::default();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let descendant = app.workspace.domain.graph.add_node(
+        "https://example.com/numerical".into(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let ancestor_only = app.workspace.domain.graph.add_node(
+        "https://example.com/general".into(),
+        euclid::default::Point2D::new(10.0, 0.0),
+    );
+    let _ = app
+        .workspace
+        .domain
+        .graph
+        .insert_node_tag(descendant, "udc:519.6".to_string());
+    let _ = app
+        .workspace
+        .domain
+        .graph
+        .insert_node_tag(ancestor_only, "udc:5".to_string());
+    app.workspace.semantic_index_dirty = true;
+    let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
+        &mut app,
+        &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
+    );
+
+    app.request_graph_search_with_options(
+        "facet:udc_classes=udc:51".to_string(),
+        true,
+        crate::app::GraphSearchOrigin::SemanticTag,
+        None,
+        1,
+        true,
+        None,
+    );
+
+    let mut toasts = egui_notify::Toasts::default();
+    let mut graph_search_open = false;
+    let mut local_widget_focus: Option<LocalFocusTarget> = None;
+    let mut graph_search_query = String::new();
+    let mut graph_search_filter_mode = false;
+    let mut graph_search_matches = Vec::new();
+    let mut graph_search_active_match_index = None;
+    let mut toolbar_state = ToolbarState {
+        location: String::new(),
+        location_dirty: false,
+        location_submitted: false,
+        show_clear_data_confirm: false,
+        load_status: LoadStatus::Complete,
+        status_text: None,
+        can_go_back: false,
+        can_go_forward: false,
+    };
+    let mut frame_intents = Vec::<GraphIntent>::new();
+
+    super::run_graph_search_phase(
+        &ctx,
+        &mut app,
+        &mut toasts,
+        &mut graph_search_open,
+        &mut local_widget_focus,
+        &mut graph_search_query,
+        &mut graph_search_filter_mode,
+        &mut graph_search_matches,
+        &mut graph_search_active_match_index,
+        &mut toolbar_state,
+        &mut frame_intents,
+        false,
+    );
+
+    assert_eq!(graph_search_query, "facet:udc_classes=udc:51");
+    assert!(graph_search_filter_mode);
+    assert_eq!(app.workspace.search_display_mode, SearchDisplayMode::Filter);
+    assert!(graph_search_matches.contains(&descendant));
+    assert!(!graph_search_matches.contains(&ancestor_only));
 }
 
 #[test]
@@ -919,9 +1006,8 @@ fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
-    let mut open_intents = vec![WorkbenchIntent::OpenSettingsUrl {
-        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
-            .to_string(),
+    let mut open_intents = vec![WorkbenchIntent::OpenToolPane {
+        kind: ToolPaneState::Settings,
     }];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
     assert!(open_intents.is_empty());

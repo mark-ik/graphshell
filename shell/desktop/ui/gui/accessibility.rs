@@ -156,7 +156,11 @@ pub(super) fn build_uxtree_a11y_graft_plan(
         .map(|node| build_uxtree_a11y_node_plan(node, annotations))
         .collect();
     attach_webview_anchors_to_uxtree_nodes(&mut nodes, snapshot, graph_app);
-    nodes.extend(build_graph_reader_a11y_nodes(snapshot, annotations, graph_app));
+    nodes.extend(build_graph_reader_a11y_nodes(
+        snapshot,
+        annotations,
+        graph_app,
+    ));
 
     UxTreeA11yGraftPlan {
         anchor_label: uxtree_accessibility_anchor_label(snapshot),
@@ -277,12 +281,9 @@ fn build_graph_reader_a11y_nodes(
         attached_child_ids: Vec::new(),
     });
     for node_key in map_node_keys {
-        if let Some(item_plan) = build_graph_reader_map_item_plan(
-            &map_root_id,
-            node_key,
-            graph_app,
-            annotations,
-        ) {
+        if let Some(item_plan) =
+            build_graph_reader_map_item_plan(&map_root_id, node_key, graph_app, annotations)
+        {
             nodes.push(item_plan);
         }
     }
@@ -317,19 +318,26 @@ fn focused_graph_surface(
             _ => None,
         })
         .or_else(|| {
-            snapshot.semantic_nodes.iter().find_map(|node| match node.domain {
-                UxDomainIdentity::GraphView { graph_view_id }
-                    if node.role == UxNodeRole::GraphSurface =>
-                {
-                    Some((node.ux_node_id.clone(), graph_view_id))
-                }
-                _ => None,
-            })
+            snapshot
+                .semantic_nodes
+                .iter()
+                .find_map(|node| match node.domain {
+                    UxDomainIdentity::GraphView { graph_view_id }
+                        if node.role == UxNodeRole::GraphSurface =>
+                    {
+                        Some((node.ux_node_id.clone(), graph_view_id))
+                    }
+                    _ => None,
+                })
         })
 }
 
 fn sorted_graph_reader_node_keys(graph_app: &GraphBrowserApp) -> Vec<NodeKey> {
-    let mut keys: Vec<NodeKey> = graph_app.domain_graph().nodes().map(|(key, _)| key).collect();
+    let mut keys: Vec<NodeKey> = graph_app
+        .domain_graph()
+        .nodes()
+        .map(|(key, _)| key)
+        .collect();
     keys.sort_by_key(|key| key.index());
     keys
 }
@@ -353,7 +361,11 @@ fn build_graph_reader_map_item_plan(
         role: egui::accesskit::Role::TreeItem,
         label,
         description: uxtree_affordance_description(affordance.as_ref()),
-        state_description: graph_reader_node_state_description(node_key, graph_app, affordance.as_ref()),
+        state_description: graph_reader_node_state_description(
+            node_key,
+            graph_app,
+            affordance.as_ref(),
+        ),
         selected: graph_app.focused_selection().contains(&node_key),
         busy: graph_app.runtime_block_state_for_node(node_key).is_some(),
         disabled: false,
@@ -394,7 +406,8 @@ fn build_graph_reader_room_nodes(
         attached_child_ids: Vec::new(),
     });
 
-    for (group_label, suffix, group_nodes) in graph_reader_directed_groups(graph_app, selected_key) {
+    for (group_label, suffix, group_nodes) in graph_reader_directed_groups(graph_app, selected_key)
+    {
         if group_nodes.is_empty() {
             continue;
         }
@@ -413,12 +426,9 @@ fn build_graph_reader_room_nodes(
             attached_child_ids: Vec::new(),
         });
         for neighbor in group_nodes {
-            if let Some(item_plan) = build_graph_reader_room_item_plan(
-                &group_id,
-                neighbor,
-                graph_app,
-                annotations,
-            ) {
+            if let Some(item_plan) =
+                build_graph_reader_room_item_plan(&group_id, neighbor, graph_app, annotations)
+            {
                 nodes.push(item_plan);
             }
         }
@@ -431,15 +441,22 @@ fn graph_reader_directed_groups(
     graph_app: &GraphBrowserApp,
     selected_key: NodeKey,
 ) -> Vec<(&'static str, &'static str, Vec<NodeKey>)> {
-    let mut outgoing: Vec<NodeKey> = graph_app.domain_graph().out_neighbors(selected_key).collect();
-    let mut incoming: Vec<NodeKey> = graph_app.domain_graph().in_neighbors(selected_key).collect();
+    let mut outgoing: Vec<NodeKey> = graph_app
+        .domain_graph()
+        .out_neighbors(selected_key)
+        .collect();
+    let mut incoming: Vec<NodeKey> = graph_app
+        .domain_graph()
+        .in_neighbors(selected_key)
+        .collect();
     outgoing.sort_by_key(|key| key.index());
     incoming.sort_by_key(|key| key.index());
 
     let outgoing_set: HashSet<NodeKey> = outgoing.iter().copied().collect();
     let incoming_set: HashSet<NodeKey> = incoming.iter().copied().collect();
 
-    let mut bidirectional: Vec<NodeKey> = outgoing_set.intersection(&incoming_set).copied().collect();
+    let mut bidirectional: Vec<NodeKey> =
+        outgoing_set.intersection(&incoming_set).copied().collect();
     bidirectional.sort_by_key(|key| key.index());
 
     let outgoing_only: Vec<NodeKey> = outgoing
@@ -477,7 +494,11 @@ fn build_graph_reader_room_item_plan(
         role: egui::accesskit::Role::TreeItem,
         label,
         description: uxtree_affordance_description(affordance.as_ref()),
-        state_description: graph_reader_node_state_description(node_key, graph_app, affordance.as_ref()),
+        state_description: graph_reader_node_state_description(
+            node_key,
+            graph_app,
+            affordance.as_ref(),
+        ),
         selected: false,
         busy: graph_app.runtime_block_state_for_node(node_key).is_some(),
         disabled: false,
@@ -628,7 +649,10 @@ fn uxtree_affordance_description(
     let affordance = affordance?;
     let mut details = Vec::new();
     if affordance.lifecycle_label != "active" {
-        details.push(format!("rendered lifecycle: {}", affordance.lifecycle_label));
+        details.push(format!(
+            "rendered lifecycle: {}",
+            affordance.lifecycle_label
+        ));
     }
     if !affordance.glyph_descriptions.is_empty() {
         details.push(format!(
@@ -894,7 +918,11 @@ fn inject_single_webview_a11y_update(
         anchor_id,
         &plan.anchor_label,
         plan.root_node_id
-            .map(|node_id| vec![accesskit_node_id_from_egui_id(webview_accessibility_node_id(webview_id, node_id))])
+            .map(|node_id| {
+                vec![accesskit_node_id_from_egui_id(
+                    webview_accessibility_node_id(webview_id, node_id),
+                )]
+            })
             .unwrap_or_default(),
     );
     warn_webview_a11y_plan_degradation(webview_id, &plan);
@@ -990,7 +1018,8 @@ fn inject_uxtree_a11y_plan_node(
     let selected = node.selected;
     let busy = node.busy;
     let disabled = node.disabled;
-    let child_node_ids = collect_child_accesskit_node_ids(nodes, &node.ux_node_id, &node.attached_child_ids);
+    let child_node_ids =
+        collect_child_accesskit_node_ids(nodes, &node.ux_node_id, &node.attached_child_ids);
 
     ctx.accesskit_node_builder(node_id, |builder| {
         builder.set_role(role);
@@ -1021,7 +1050,8 @@ fn inject_uxtree_a11y_plan_node(
 }
 
 fn collect_root_child_accesskit_node_ids(nodes: &[UxTreeA11yNodePlan]) -> Vec<NodeId> {
-    nodes.iter()
+    nodes
+        .iter()
         .filter(|node| node.parent_ux_node_id.is_none())
         .map(|node| accesskit_node_id_from_egui_id(uxtree_accessibility_node_id(&node.ux_node_id)))
         .collect()

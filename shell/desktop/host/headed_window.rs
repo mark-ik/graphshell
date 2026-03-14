@@ -15,17 +15,19 @@ use std::time::Duration;
 
 use euclid::{Angle, Length, Point2D, Rect, Rotation3D, Scale, Size2D, UnknownUnit, Vector3D};
 use keyboard_types::ShortcutMatcher;
-use log::{debug, info};
+use log::{debug, info, warn};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
+use serde_json::Value as JsonValue;
 use servo::{
     AuthenticationRequest, Cursor, DeviceIndependentIntRect, DeviceIndependentPixel,
     DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint, EmbedderControl,
     EmbedderControlId, GenericSender, ImeEvent, InputEvent, InputEventId, InputEventResult,
-    InputMethodControl, Key, KeyState, KeyboardEvent, Modifiers, MouseButton as ServoMouseButton,
-    MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent, MouseMoveEvent, NamedKey,
-    OffscreenRenderingContext, PermissionRequest, RenderingContext, ScreenGeometry, Theme,
-    TouchEvent, TouchEventType, TouchId, WebRenderDebugOption, WebView, WebViewId, WheelDelta,
-    WheelEvent, WheelMode, WindowRenderingContext, convert_rect_to_css_pixel,
+    InputMethodControl, JSValue, JavaScriptEvaluationError, Key, KeyState, KeyboardEvent,
+    Modifiers, MouseButton as ServoMouseButton, MouseButtonAction, MouseButtonEvent,
+    MouseLeftViewportEvent, MouseMoveEvent, NamedKey, OffscreenRenderingContext, PermissionRequest,
+    RenderingContext, ScreenGeometry, Theme, TouchEvent, TouchEventType, TouchId,
+    WebRenderDebugOption, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode,
+    WindowRenderingContext, convert_rect_to_css_pixel,
 };
 use url::Url;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
@@ -47,7 +49,7 @@ use {
 };
 
 use crate::app::OpenSurfaceSource;
-use crate::app::{BrowserCommand, BrowserCommandTarget};
+use crate::app::{BrowserCommand, BrowserCommandTarget, ClipCaptureData};
 use crate::prefs::AppPreferences;
 use crate::shell::desktop::host::accelerated_gl_media::setup_gl_accelerated_media;
 use crate::shell::desktop::host::event_loop::AppEvent;
@@ -105,6 +107,7 @@ pub struct HeadedWindow {
     last_title: RefCell<String>,
     /// The current set of open dialogs.
     dialogs: RefCell<HashMap<WebViewId, Vec<Dialog>>>,
+    event_loop_proxy: EventLoopProxy<AppEvent>,
     /// A list of showing [`InputMethod`] interfaces.
     visible_input_methods: RefCell<Vec<EmbedderControlId>>,
     /// The position of the mouse cursor after the most recent `MouseMove` event.
@@ -113,6 +116,8 @@ pub struct HeadedWindow {
     last_servo_cursor: Cell<Cursor>,
     /// True while dialogs force the cursor to default.
     dialog_cursor_override_active: Cell<bool>,
+    /// Prevent overlapping pointer-stack JS requests while inspector mode is active.
+    clip_inspector_pointer_request_in_flight: Cell<bool>,
 }
 
 impl HeadedWindow {
@@ -198,7 +203,7 @@ impl HeadedWindow {
         let gui = RefCell::new(Gui::new(
             &winit_window,
             event_loop,
-            event_loop_proxy,
+            event_loop_proxy.clone(),
             rendering_context.clone(),
             window_rendering_context.clone(),
             initial_url,
@@ -224,10 +229,12 @@ impl HeadedWindow {
             rendering_context,
             last_title: RefCell::new(String::from(INITIAL_WINDOW_TITLE)),
             dialogs: Default::default(),
+            event_loop_proxy,
             visible_input_methods: Default::default(),
             last_mouse_position: Default::default(),
             last_servo_cursor: Cell::new(Cursor::Default),
             dialog_cursor_override_active: Cell::new(false),
+            clip_inspector_pointer_request_in_flight: Cell::new(false),
         })
     }
 
@@ -966,6 +973,15 @@ impl HeadedWindow {
                         if let Some((webview_id, local_point)) = pointer_target
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
+                            if self.gui.borrow().clip_inspector_target_webview_id()
+                                == Some(webview_id)
+                            {
+                                self.request_clip_inspector_stack_at_pointer(
+                                    &window,
+                                    webview_id,
+                                    local_point,
+                                );
+                            }
                             self.set_webview_relative_mouse_point(local_point);
                             self.handle_mouse_move_event_with_webview_relative_point(
                                 &webview,
@@ -1116,21 +1132,529 @@ impl HeadedWindow {
         }
     }
 
-    pub(crate) fn handle_winit_app_event(&self, _window: &EmbedderWindow, app_event: AppEvent) {
-        if let AppEvent::Accessibility(ref event) = app_event {
-            // Deferred (Stage 4f audit, 2026-03-07): accesskit_winit::WindowEvent forwarding
-            // into Servo remains gated on upstream integration shape; keep handled at GUI layer
-            // until Servo-side routing contract is finalized (tracking: #41930).
+    pub(crate) fn handle_winit_app_event(&self, window: &EmbedderWindow, app_event: AppEvent) {
+        match app_event {
+            AppEvent::Accessibility(ref event) => {
+                // Deferred (Stage 4f audit, 2026-03-07): accesskit_winit::WindowEvent forwarding
+                // into Servo remains gated on upstream integration shape; keep handled at GUI layer
+                // until Servo-side routing contract is finalized (tracking: #41930).
 
-            if self
-                .gui
-                .borrow_mut()
-                .handle_accesskit_event(&event.window_event)
-            {
+                if self
+                    .gui
+                    .borrow_mut()
+                    .handle_accesskit_event(&event.window_event)
+                {
+                    self.winit_window.request_redraw();
+                }
+            }
+            AppEvent::ClipExtractionCompleted { result, .. } => {
+                self.gui.borrow_mut().handle_clip_extraction_result(result);
+                window.set_needs_update();
                 self.winit_window.request_redraw();
             }
+            AppEvent::ClipBatchExtractionCompleted { result, .. } => {
+                self.gui
+                    .borrow_mut()
+                    .handle_clip_batch_extraction_result(result);
+                window.set_needs_update();
+                self.winit_window.request_redraw();
+            }
+            AppEvent::ClipInspectorPointerUpdated {
+                webview_id, result, ..
+            } => {
+                self.clip_inspector_pointer_request_in_flight.set(false);
+                self.gui
+                    .borrow_mut()
+                    .handle_clip_inspector_pointer_result(webview_id, result);
+                window.set_needs_update();
+                self.winit_window.request_redraw();
+            }
+            AppEvent::Waker => {}
         }
     }
+
+    pub(crate) fn request_clip_element(
+        &self,
+        window: &EmbedderWindow,
+        webview_id: WebViewId,
+        element_rect: DeviceIntRect,
+    ) {
+        let Some(webview) = window.webview_by_id(webview_id) else {
+            warn!(
+                "Clip request ignored because webview {:?} no longer exists",
+                webview_id
+            );
+            return;
+        };
+
+        let proxy = self.event_loop_proxy.clone();
+        let window_id = self.winit_window.id();
+        webview.evaluate_javascript(build_clip_extraction_script(element_rect), move |result| {
+            let result = parse_clip_capture_result(webview_id, result);
+            if let Err(error) =
+                proxy.send_event(AppEvent::ClipExtractionCompleted { window_id, result })
+            {
+                warn!("Failed to deliver clip extraction result to event loop: {error}");
+            }
+        });
+    }
+
+    pub(crate) fn request_page_inspector_candidates(
+        &self,
+        window: &EmbedderWindow,
+        webview_id: WebViewId,
+    ) {
+        let Some(webview) = window.webview_by_id(webview_id) else {
+            warn!(
+                "Page inspector request ignored because webview {:?} no longer exists",
+                webview_id
+            );
+            return;
+        };
+
+        let proxy = self.event_loop_proxy.clone();
+        let window_id = self.winit_window.id();
+        webview.evaluate_javascript(build_page_inspector_extraction_script(), move |result| {
+            let result = parse_clip_capture_batch_result(webview_id, result);
+            if let Err(error) =
+                proxy.send_event(AppEvent::ClipBatchExtractionCompleted { window_id, result })
+            {
+                warn!("Failed to deliver page inspector extraction result to event loop: {error}");
+            }
+        });
+    }
+
+    pub(crate) fn request_clip_inspector_stack_at_pointer(
+        &self,
+        window: &EmbedderWindow,
+        webview_id: WebViewId,
+        local_point: Point2D<f32, DeviceIndependentPixel>,
+    ) {
+        if self.clip_inspector_pointer_request_in_flight.get() {
+            return;
+        }
+        let Some(webview) = window.webview_by_id(webview_id) else {
+            return;
+        };
+        self.clip_inspector_pointer_request_in_flight.set(true);
+        let proxy = self.event_loop_proxy.clone();
+        let window_id = self.winit_window.id();
+        webview.evaluate_javascript(
+            build_clip_inspector_stack_script(local_point),
+            move |result| {
+                let result = parse_clip_capture_batch_result(webview_id, result);
+                let send_result = proxy.send_event(AppEvent::ClipInspectorPointerUpdated {
+                    window_id,
+                    webview_id,
+                    result,
+                });
+                if let Err(error) = send_result {
+                    warn!("Failed to deliver clip inspector pointer result to event loop: {error}");
+                }
+            },
+        );
+    }
+
+    pub(crate) fn sync_clip_inspector_highlight(
+        &self,
+        window: &EmbedderWindow,
+        webview_id: WebViewId,
+        dom_path: Option<&str>,
+    ) {
+        let Some(webview) = window.webview_by_id(webview_id) else {
+            return;
+        };
+        webview.evaluate_javascript(build_clip_inspector_highlight_script(dom_path), |_| {});
+    }
+}
+
+fn build_clip_extraction_script(element_rect: DeviceIntRect) -> String {
+    let center_x = (element_rect.min.x + element_rect.max.x) as f32 / 2.0;
+    let center_y = (element_rect.min.y + element_rect.max.y) as f32 / 2.0;
+    format!(
+        r#"(function() {{
+            const dpr = window.devicePixelRatio || 1;
+            const x = {center_x} / dpr;
+            const y = {center_y} / dpr;
+            const element = document.elementFromPoint(x, y) || document.activeElement || document.body;
+            if (!element) {{
+                return JSON.stringify({{ ok: false, error: "No element found under context menu target." }});
+            }}
+
+            const textValue = (element.innerText || element.textContent || "")
+                .replace(/\s+/g, " ")
+                .trim();
+            const tagName = (element.tagName || "").toLowerCase();
+            const titleValue =
+                textValue ||
+                element.getAttribute("aria-label") ||
+                element.getAttribute("title") ||
+                element.getAttribute("alt") ||
+                (tagName ? `Clip: <${{tagName}}>` : "Clipped element");
+            const link = element.closest ? element.closest("a") : null;
+            const image =
+                tagName === "img"
+                    ? element
+                    : (element.querySelector ? element.querySelector("img") : null);
+            const domPathFor = (target) => {{
+                if (!(target instanceof Element)) return null;
+                const segments = [];
+                let current = target;
+                while (current && current.nodeType === 1 && current !== document.body) {{
+                    const tag = (current.tagName || "div").toLowerCase();
+                    let index = 1;
+                    let sibling = current;
+                    while ((sibling = sibling.previousElementSibling)) {{
+                        if ((sibling.tagName || "").toLowerCase() === tag) {{
+                            index += 1;
+                        }}
+                    }}
+                    segments.unshift(`${{tag}}:nth-of-type(${{index}})`);
+                    current = current.parentElement;
+                }}
+                segments.unshift("body");
+                return segments.join(" > ");
+            }};
+
+            return JSON.stringify({{
+                ok: true,
+                source_url: window.location.href,
+                page_title: document.title || null,
+                clip_title: titleValue,
+                outer_html: element.outerHTML || "",
+                text_excerpt: textValue,
+                tag_name: tagName,
+                href: (link && link.href) || element.getAttribute("href") || null,
+                image_url: (image && image.src) || null,
+                dom_path: domPathFor(element)
+            }});
+        }})()"#
+    )
+}
+
+fn build_page_inspector_extraction_script() -> String {
+    r#"(function() {
+        const normalizeWhitespace = (value) =>
+            (value || "").replace(/\s+/g, " ").trim();
+        const titleFor = (element, tagName, textValue) =>
+            normalizeWhitespace(
+                textValue ||
+                element.getAttribute("aria-label") ||
+                element.getAttribute("title") ||
+                element.getAttribute("alt") ||
+                element.querySelector?.("h1,h2,h3,h4,strong,b")?.textContent ||
+                (tagName ? `Clip: <${tagName}>` : "Clipped element")
+            );
+        const domPathFor = (element) => {
+            if (!(element instanceof Element)) return null;
+            const segments = [];
+            let current = element;
+            while (current && current.nodeType === 1 && current !== document.body) {
+                const tag = (current.tagName || "div").toLowerCase();
+                let index = 1;
+                let sibling = current;
+                while ((sibling = sibling.previousElementSibling)) {
+                    if ((sibling.tagName || "").toLowerCase() === tag) {
+                        index += 1;
+                    }
+                }
+                segments.unshift(`${tag}:nth-of-type(${index})`);
+                current = current.parentElement;
+            }
+            segments.unshift("body");
+            return segments.join(" > ");
+        };
+        const toPayload = (element) => {
+            const tagName = (element.tagName || "").toLowerCase();
+            const textValue = normalizeWhitespace(element.innerText || element.textContent || "");
+            const link = element.closest ? element.closest("a") : null;
+            const image =
+                tagName === "img"
+                    ? element
+                    : (element.querySelector ? element.querySelector("img") : null);
+            return {
+                source_url: window.location.href,
+                page_title: document.title || null,
+                clip_title: titleFor(element, tagName, textValue),
+                outer_html: element.outerHTML || "",
+                text_excerpt: textValue,
+                tag_name: tagName,
+                href: (link && link.href) || element.getAttribute("href") || null,
+                image_url: (image && image.src) || null,
+                dom_path: domPathFor(element)
+            };
+        };
+
+        const candidates = Array.from(
+            document.querySelectorAll("main article, article, section, aside, figure, img, h1, h2, h3, li")
+        );
+        const seen = new Set();
+        const clips = [];
+        for (const element of candidates) {
+            if (!element || seen.has(element)) {
+                continue;
+            }
+            const rect = element.getBoundingClientRect();
+            if (rect.width < 120 || rect.height < 36) {
+                continue;
+            }
+            const textValue = normalizeWhitespace(element.innerText || element.textContent || "");
+            const score =
+                Math.min(textValue.length, 280) +
+                Math.min(rect.width * rect.height / 1800, 180) +
+                (element.querySelector?.("img") ? 60 : 0) +
+                (/^(article|section|figure|aside)$/i.test(element.tagName || "") ? 45 : 0) +
+                (/^h[1-3]$/i.test(element.tagName || "") ? 35 : 0);
+            clips.push({ element, score, rectTop: rect.top });
+            seen.add(element);
+        }
+
+        clips.sort((a, b) => b.score - a.score || a.rectTop - b.rectTop);
+        const selected = [];
+        const selectedTitles = new Set();
+        for (const candidate of clips) {
+            const payload = toPayload(candidate.element);
+            if (!payload.outer_html || payload.outer_html.length > 24000) {
+                continue;
+            }
+            if (!payload.text_excerpt && !payload.image_url) {
+                continue;
+            }
+            const titleKey = payload.clip_title.toLowerCase();
+            if (selectedTitles.has(titleKey)) {
+                continue;
+            }
+            selected.push(payload);
+            selectedTitles.add(titleKey);
+            if (selected.length >= 8) {
+                break;
+            }
+        }
+
+        if (selected.length === 0) {
+            return JSON.stringify({ ok: false, error: "No salient page components were found to clip." });
+        }
+
+        return JSON.stringify({ ok: true, clips: selected });
+    })()"#
+        .to_string()
+}
+
+fn build_clip_inspector_stack_script(local_point: Point2D<f32, DeviceIndependentPixel>) -> String {
+    let x = local_point.x;
+    let y = local_point.y;
+    format!(
+        r#"(function() {{
+            const normalizeWhitespace = (value) => (value || "").replace(/\s+/g, " ").trim();
+            const domPathFor = (element) => {{
+                if (!(element instanceof Element)) return null;
+                const segments = [];
+                let current = element;
+                while (current && current.nodeType === 1 && current !== document.body) {{
+                    const tag = (current.tagName || "div").toLowerCase();
+                    let index = 1;
+                    let sibling = current;
+                    while ((sibling = sibling.previousElementSibling)) {{
+                        if ((sibling.tagName || "").toLowerCase() === tag) {{
+                            index += 1;
+                        }}
+                    }}
+                    segments.unshift(`${{tag}}:nth-of-type(${{index}})`);
+                    current = current.parentElement;
+                }}
+                segments.unshift("body");
+                return segments.join(" > ");
+            }};
+            const toPayload = (element) => {{
+                const tagName = (element.tagName || "").toLowerCase();
+                const textValue = normalizeWhitespace(element.innerText || element.textContent || "");
+                const link = element.closest ? element.closest("a") : null;
+                const image =
+                    tagName === "img"
+                        ? element
+                        : (element.querySelector ? element.querySelector("img") : null);
+                return {{
+                    source_url: window.location.href,
+                    page_title: document.title || null,
+                    clip_title:
+                        textValue ||
+                        element.getAttribute("aria-label") ||
+                        element.getAttribute("title") ||
+                        element.getAttribute("alt") ||
+                        (tagName ? `Clip: <${{tagName}}>` : "Clipped element"),
+                    outer_html: element.outerHTML || "",
+                    text_excerpt: textValue,
+                    tag_name: tagName,
+                    href: (link && link.href) || element.getAttribute("href") || null,
+                    image_url: (image && image.src) || null,
+                    dom_path: domPathFor(element)
+                }};
+            }};
+
+            const dpr = window.devicePixelRatio || 1;
+            const stack = (document.elementsFromPoint({x} / dpr, {y} / dpr) || [])
+                .filter((element) => element instanceof Element)
+                .filter((element, index, arr) => arr.indexOf(element) === index)
+                .slice(0, 8)
+                .map(toPayload);
+            if (stack.length === 0) {{
+                return JSON.stringify({{ ok: false, error: "No DOM elements found under pointer." }});
+            }}
+            return JSON.stringify({{ ok: true, clips: stack }});
+        }})()"#
+    )
+}
+
+fn build_clip_inspector_highlight_script(dom_path: Option<&str>) -> String {
+    let dom_path_json = serde_json::to_string(&dom_path).unwrap_or_else(|_| "null".to_string());
+    format!(
+        r##"(function() {{
+            const OVERLAY_ID = "__graphshell_clip_inspector_overlay__";
+            const LABEL_ID = "__graphshell_clip_inspector_label__";
+            const existingOverlay = document.getElementById(OVERLAY_ID);
+            const existingLabel = document.getElementById(LABEL_ID);
+            if (existingOverlay) existingOverlay.remove();
+            if (existingLabel) existingLabel.remove();
+
+            const selector = {dom_path_json};
+            if (!selector) {{
+                return JSON.stringify({{ ok: true }});
+            }}
+
+            const element = document.querySelector(selector);
+            if (!element) {{
+                return JSON.stringify({{ ok: false, error: "Inspector highlight target not found." }});
+            }}
+
+            const rect = element.getBoundingClientRect();
+            const overlay = document.createElement("div");
+            overlay.id = OVERLAY_ID;
+            overlay.style.position = "fixed";
+            overlay.style.left = `${{rect.left}}px`;
+            overlay.style.top = `${{rect.top}}px`;
+            overlay.style.width = `${{rect.width}}px`;
+            overlay.style.height = `${{rect.height}}px`;
+            overlay.style.border = "2px solid #ff7a00";
+            overlay.style.background = "rgba(255, 122, 0, 0.12)";
+            overlay.style.boxShadow = "0 0 0 9999px rgba(14, 10, 6, 0.12)";
+            overlay.style.pointerEvents = "none";
+            overlay.style.zIndex = "2147483646";
+            overlay.style.borderRadius = "8px";
+            document.documentElement.appendChild(overlay);
+
+            const label = document.createElement("div");
+            label.id = LABEL_ID;
+            label.textContent = selector;
+            label.style.position = "fixed";
+            label.style.left = `${{Math.max(rect.left, 8)}}px`;
+            label.style.top = `${{Math.max(rect.top - 28, 8)}}px`;
+            label.style.padding = "4px 8px";
+            label.style.background = "#1f1610";
+            label.style.color = "#fff8f0";
+            label.style.font = "12px monospace";
+            label.style.borderRadius = "999px";
+            label.style.pointerEvents = "none";
+            label.style.zIndex = "2147483647";
+            document.documentElement.appendChild(label);
+
+            return JSON.stringify({{ ok: true }});
+        }})()"##
+    )
+}
+
+fn parse_clip_capture_result(
+    webview_id: WebViewId,
+    result: Result<JSValue, JavaScriptEvaluationError>,
+) -> Result<ClipCaptureData, String> {
+    let value = parse_clip_json_result(result)?;
+    clip_capture_data_from_value(webview_id, &value)
+}
+
+fn parse_clip_capture_batch_result(
+    webview_id: WebViewId,
+    result: Result<JSValue, JavaScriptEvaluationError>,
+) -> Result<Vec<ClipCaptureData>, String> {
+    let value = parse_clip_json_result(result)?;
+    let clips = value
+        .get("clips")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| "clip payload missing required field `clips`".to_string())?;
+    let mut captures = Vec::with_capacity(clips.len());
+    for clip in clips {
+        captures.push(clip_capture_data_from_value(webview_id, clip)?);
+    }
+    if captures.is_empty() {
+        return Err("clip payload contained no captured clips".to_string());
+    }
+    Ok(captures)
+}
+
+fn parse_clip_json_result(
+    result: Result<JSValue, JavaScriptEvaluationError>,
+) -> Result<JsonValue, String> {
+    let json = match result {
+        Ok(JSValue::String(json)) => json,
+        Ok(other) => return Err(format!("unexpected JavaScript clip result: {other:?}")),
+        Err(error) => return Err(format!("JavaScript clip extraction failed: {error:?}")),
+    };
+
+    let value: JsonValue = serde_json::from_str(&json)
+        .map_err(|error| format!("invalid clip payload JSON: {error}"))?;
+    if value.get("ok").and_then(JsonValue::as_bool) != Some(true) {
+        let detail = value
+            .get("error")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("Clip extraction returned an unknown failure.");
+        return Err(detail.to_string());
+    }
+    Ok(value)
+}
+
+fn clip_capture_data_from_value(
+    webview_id: WebViewId,
+    value: &JsonValue,
+) -> Result<ClipCaptureData, String> {
+    let required = |key: &str| -> Result<String, String> {
+        value
+            .get(key)
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned)
+            .filter(|entry| !entry.is_empty())
+            .ok_or_else(|| format!("clip payload missing required field `{key}`"))
+    };
+
+    Ok(ClipCaptureData {
+        webview_id,
+        source_url: required("source_url")?,
+        page_title: value
+            .get("page_title")
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned),
+        clip_title: required("clip_title")?,
+        outer_html: required("outer_html")?,
+        text_excerpt: value
+            .get("text_excerpt")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        tag_name: value
+            .get("tag_name")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        href: value
+            .get("href")
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned),
+        image_url: value
+            .get("image_url")
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned),
+        dom_path: value
+            .get("dom_path")
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned),
+    })
 }
 
 fn emit_navigation_transition_host_dialog_capture() {
@@ -1414,7 +1938,10 @@ impl PlatformWindow for HeadedWindow {
             },
             EmbedderControl::ContextMenu(prompt) => {
                 let offset = self.gui.borrow().toolbar_height();
-                self.add_dialog(webview_id, Dialog::new_context_menu(prompt, offset));
+                self.add_dialog(
+                    webview_id,
+                    Dialog::new_context_menu(webview_id, prompt, offset),
+                );
             }
         }
     }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::graph::badge::{Badge, badges_for_tags, tab_badge_token};
+use crate::graph::badge::{Badge, badges_for_node, tab_badge_token};
 
 impl<'a> GraphshellTileBehavior<'a> {
     pub(super) fn tab_title_for_tile(&mut self, pane: &TileKind) -> WidgetText {
@@ -72,15 +72,8 @@ fn render_tab_ui_impl(
                 .domain_graph()
                 .get_node(state.node)
                 .map(|node| {
-                    let tags = behavior
-                        .graph_app
-                        .workspace
-                        .semantic_tags
-                        .get(&state.node)
-                        .cloned()
-                        .unwrap_or_default();
-                    badges_for_tags(
-                        &tags,
+                    badges_for_node(
+                        node,
                         behavior.graph_app.membership_for_node(node.id).len(),
                         behavior
                             .graph_app

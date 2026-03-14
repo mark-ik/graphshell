@@ -15,10 +15,7 @@ fn set_node_pinned_intent_syncs_pin_tag() {
     assert!(
         harness
             .app
-            .workspace
-            .semantic_tags
-            .get(&node)
-            .is_some_and(|tags| tags.contains(GraphBrowserApp::TAG_PIN))
+            .node_has_canonical_tag(node, GraphBrowserApp::TAG_PIN)
     );
 
     harness
@@ -28,12 +25,9 @@ fn set_node_pinned_intent_syncs_pin_tag() {
             is_pinned: false,
         }]);
     assert!(
-        harness
+        !harness
             .app
-            .workspace
-            .semantic_tags
-            .get(&node)
-            .is_none_or(|tags| !tags.contains(GraphBrowserApp::TAG_PIN))
+            .node_has_canonical_tag(node, GraphBrowserApp::TAG_PIN)
     );
 }
 
@@ -81,28 +75,14 @@ fn tag_node_canonicalizes_valid_knowledge_tags_and_accepts_user_defined_tags() {
         tag: "519.6".to_string(),
     }]);
 
-    assert!(
-        harness
-            .app
-            .workspace
-            .semantic_tags
-            .get(&node)
-            .is_some_and(|tags| tags.contains("udc:519.6"))
-    );
+    assert!(harness.app.node_has_canonical_tag(node, "udc:519.6"));
 
     harness.app.apply_reducer_intents([GraphIntent::TagNode {
         key: node,
         tag: "unknown-subject".to_string(),
     }]);
 
-    assert!(
-        harness
-            .app
-            .workspace
-            .semantic_tags
-            .get(&node)
-            .is_some_and(|tags| tags.contains("unknown-subject"))
-    );
+    assert!(harness.app.node_has_canonical_tag(node, "unknown-subject"));
 }
 
 #[test]
@@ -118,9 +98,6 @@ fn tag_node_lowercases_reserved_hash_tags() {
     assert!(
         harness
             .app
-            .workspace
-            .semantic_tags
-            .get(&node)
-            .is_some_and(|tags| tags.contains(GraphBrowserApp::TAG_PIN))
+            .node_has_canonical_tag(node, GraphBrowserApp::TAG_PIN)
     );
 }
