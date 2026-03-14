@@ -34,6 +34,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 3. **Non-silent-degradation policy**: Bridge failures, stale updates, and unavailable capabilities must be observable via diagnostics and user-visible status.
 4. **Determinism policy**: Focus fallback, region cycle order, and mode transitions must remain deterministic and test-backed.
 5. **Cross-surface parity policy**: New pane/viewer paths must either meet accessibility contracts or explicitly declare/diagnose partial support.
+6. **Shared-surface policy**: Graph Bar, Workbench Sidebar/Navigator, settings pages, and diagnostics panes are all first-class accessibility surfaces and should reuse declared capability and focus contracts rather than each defining special-case behavior.
 
 ---
 
@@ -44,6 +45,10 @@ Accessibility is a **project-level reliability requirement**, not a one-time UI 
 The feature plan defines **what to build** (WebView bridge, Graph Reader, navigation, sonification). This document defines **what must remain true** as the system evolves — contracts, observability, validation, and extensibility gates that prevent silent regressions.
 
 Without subsystem-level guarantees, every new `TileKind` variant, every Wry/Servo backend change, and every mod-contributed pane becomes a silent accessibility regression vector.
+
+That includes shared projection/control surfaces. Navigator rows, settings rails,
+and workbench chrome should be treated as canonical accessibility surfaces, not
+as incidental wrappers around the "real" app.
 
 ---
 
@@ -116,6 +121,9 @@ notes: String  // reason for unsupported capabilities
 - `ViewerRegistry` entries (Servo, Wry, plaintext, future mod viewers) carry `AccessibilityCapabilities`.
 - `CanvasRegistry` carries capabilities for the graph canvas.
 - `WorkbenchSurfaceRegistry` carries capabilities for the tile-tree surface (tab bars, split handles, container chrome).
+- Settings/control surfaces and Navigator/workbench chrome should consume and
+  expose these capability declarations consistently rather than inventing
+  surface-local accessibility status models.
 
 ### 4.3 Why This Matters
 
@@ -157,6 +165,13 @@ The Diagnostic Inspector accessibility section exposes:
 - Focus sync success/failure counts
 - Active Graph Reader mode (`Off` / `Room` / `Map`)
 - Capability coverage summary by surface/viewer
+
+Shared-surface consequence:
+
+- Health/capability summaries should be reusable by settings/help/status UI.
+- Focus-region ordering for Graph Bar, Workbench Sidebar/Navigator, and settings
+  rails must remain aligned with the same declared capability model and not be
+  treated as out-of-band exceptions.
 
 ### 5.3 Invariant Violations as First-Class Events
 

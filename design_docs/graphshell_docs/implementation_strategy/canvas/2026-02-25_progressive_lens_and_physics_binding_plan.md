@@ -6,6 +6,7 @@
 - `2026-02-24_physics_engine_extensibility_plan.md` §User Configuration Surface (Lens-physics binding preference)
 - `2026-02-22_registry_layer_plan.md` (`LensCompositor`, `PhysicsProfileRegistry`)
 - `2026-02-24_immediate_priorities.md` §2 rank 8 (Progressive Lenses + Lens/Physics binding policy)
+- `2026-03-14_graph_relation_families.md` (`FamilyPhysicsPolicy` and shared family vocabulary)
 
 ## Purpose
 
@@ -19,6 +20,13 @@ This document resolves the two open design questions left in prior plans:
 This is a policy/interaction document. It intentionally precedes implementation to avoid the
 "surprising behavior" failure mode called out in `2026-02-24_interaction_and_semantic_design_schemes.md §5`.
 Implementation tickets should reference this document as their authoritative spec.
+
+Leverage note:
+
+- Even though the canonical contract now lives in `layout_behaviors_and_physics_spec.md`,
+  the intent remains cross-system: lens/physics switching should reuse the same
+  relation-family vocabulary exposed in Navigator, settings, and diagnostics
+  rather than becoming a canvas-private state machine.
 
 ---
 

@@ -100,7 +100,8 @@ Graphshell is composed of these major system responsibilities:
   - owns graph/content truth, node and edge semantics, graph interaction policy, and graph-space camera semantics/policy
 
 - **Workbench subsystem**
-  - owns arrangement truth, tile-tree layout, pane lifecycle, split/tab behavior, focus within workbench layout, and view-local camera state/preferences
+  - owns arrangement interaction/session mutation truth, tile-tree layout, pane lifecycle, split/tab behavior, focus within workbench layout, and view-local camera state/preferences
+  - may consume graph-rooted durable arrangement carriers (`ArrangementRelation`) without becoming a second graph-truth authority
 
 - **Viewer subsystem**
   - owns viewer presentation behavior, fallback/placeholder semantics, embedded/composited viewer policy

@@ -41,6 +41,10 @@ Supporting-doc rules:
 3. **Analyzer-boundary policy**: Live analyzers are read-only observers; synthetic side-effect assertions belong to harness/test lanes.
 4. **Coverage policy**: Started/terminal operation pairs across subsystems require watchdog invariant coverage and visibility.
 5. **Subsystem-service policy**: Diagnostics remains observability infrastructure and must not become mutation authority for other subsystems.
+6. **Shared-receipt policy**: Diagnostics is the preferred shared receipt path
+   for cross-lane behavior (relation-family projection, workbench/viewer state,
+   settings routing, signal routing) and should be reused before inventing
+   feature-local debug surfaces.
 
 ---
 
@@ -49,6 +53,10 @@ Supporting-doc rules:
 Diagnostics is the **reference cross-cutting subsystem**. It was the first concern in Graphshell to have declarative contracts (channel schemas, invariant watchdogs), runtime state (event ring, compositor snapshots), and structured validation (harness scenarios, contract tests).
 
 This document formalizes diagnostics as a subsystem with explicit guarantees, not just infrastructure. All other subsystems (accessibility, security, persistence) emit their observability through this subsystem's channels and invariant machinery.
+
+This also makes diagnostics the natural leverage layer between systems: one
+channel family can support pane health, Navigator badges, settings status,
+history health, and lane receipts simultaneously if the carrier is defined well.
 
 **The key insight from the 2026-02-24 research**: `DiagnosticsRegistry` is actually a *channel schema registry*. Freeing up the namespace reveals three distinct concerns:
 
@@ -194,6 +202,23 @@ Projection rule:
 - Diagnostics may aggregate these values into subsystem health, but it may not
   infer success from UI state alone. Health summary values must derive from
   explicit `history.*` channel traffic and/or history-owned state snapshots.
+
+### 5.4 Cross-System Leverage Baseline
+
+Diagnostics should explicitly support shared-carrier work in these areas:
+
+- **Relation families**: report projection health, missing-family degradation,
+  and lens/family-weight activation through one channel family instead of
+  canvas-local logging.
+- **Workbench / Navigator**: summarize arrangement-projection health, stale row
+  invalidation, and focus-handoff failures without creating sidebar-only debug
+  panels.
+- **Viewer platform**: continue to expose `TileRenderMode`, degradation, and
+  backend-health signals as the shared receipt path used by viewer, workbench,
+  settings, and parity lanes.
+- **Register routing**: surface signal-routing health and action-dispatch
+  mismatches so settings/command/workbench surfaces do not each invent their
+  own failure reporting.
 
 Gate rule:
 

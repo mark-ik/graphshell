@@ -61,20 +61,24 @@ It explains:
 
 Graphshell has these primary navigable regions:
 
-1. **Workbench Chrome**
-2. **Active Graph Pane**
-3. **Node/Content Pane**
-4. **Tool Pane**
-5. **Command Surface**
-6. **Omnibar/Search Surface**
-7. **Settings or History Surface**
-8. **Modal or Blocking Surface**
+1. **Graph Bar**
+2. **Workbench Sidebar / Navigator**
+3. **Active Graph Pane**
+4. **Node/Content Pane**
+5. **Tool Pane**
+6. **Command Surface**
+7. **Omnibar/Search Surface**
+8. **Settings or History Surface**
+9. **Modal or Blocking Surface**
 
 ### 2.2 Ownership model
 
 - Graphshell focus router owns semantic focus state and region handoff.
 - The framework may expose widget-local focus within a region.
 - Widget-local focus must not become the global authority for region focus.
+- Shared UI surfaces such as Graph Bar, Workbench Sidebar/Navigator, settings
+  rails, and command surfaces participate in one deterministic region model;
+  they are not special-case exceptions outside focus routing.
 
 ---
 
@@ -114,6 +118,10 @@ Graphshell has these primary navigable regions:
 - Exactly one region owns semantic focus at a time.
 - Hover may influence pointer targeting, but it does not silently replace semantic focus unless the owning interaction model explicitly permits it.
 - In canonical Graphshell routing, hover alone must not retarget keyboard/camera command ownership; semantic-owner transfer requires explicit activation (`click`/`tap`/region-cycle/command handoff) through the focus router.
+- Region transitions among Graph Bar, Workbench Sidebar/Navigator, graph pane,
+  and settings/history surfaces must remain deterministic and diagnostics-backed
+  under the same model; no surface may bypass region accounting because it is
+  “just chrome.”
 
 **Who owns it**
 

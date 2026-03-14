@@ -13,7 +13,7 @@
 - `2026-03-08_unified_storage_architecture_plan.md` (storage track split and durability-boundary clarification)
 - `2026-03-11_graphstore_vs_client_storage_manager_note.md` (GraphStore vs future WHATWG-style browser client storage boundary)
 - `archive_docs/` — historical persistence plans (superseded by this document)
-**Related**: `SUBSYSTEM_SECURITY.md` §3.4 (cryptographic correctness invariants overlap)
+**Related**: `SUBSYSTEM_SECURITY.md` §3.4 (cryptographic correctness invariants overlap), `../aspect_control/settings_and_control_surfaces_spec.md` (settings/control surfaces consume persisted configuration state), `../canvas/2026-03-14_graph_relation_families.md` (durable vs session-only relation tiers)
 
 **Policy authority**: This file is the single canonical policy authority for the Storage subsystem.
 Supporting storage docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -42,6 +42,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 5. **Recovery-observability policy**: Recovery/snapshot corruption, fallback, and repair paths must be diagnosable and test-backed.
 6. **Servo-compatibility-first policy for browser storage**: Graphshell's browser-storage layer must align with Servo's storage-spec direction and avoid inventing a rival browser-storage model.
 7. **Reference-truth vs storage-truth policy**: Graph nodes and panes are not the default owners of browser site data; deleting a node does not implicitly purge the associated storage context.
+8. **Shared-consumer policy**: Settings pages, Navigator projections, workbench chrome, and diagnostics may expose persisted state, but they must not become parallel storage authorities or write-path exceptions.
 
 ---
 
@@ -107,6 +108,15 @@ This distinction is architectural, not cosmetic.
 
 The two authorities may share low-level path, crypto, diagnostic, or quota
 helpers, but they are not a single merged conceptual model.
+
+Likewise, user-facing surfaces may summarize or mutate persisted state through
+approved routes, but must not grow separate durable stores for the same truth.
+Examples:
+
+- settings pages configure persisted preferences through canonical write paths;
+- Navigator/workbench project durable arrangement and history-derived state but
+  do not own it;
+- diagnostics reports persistence health but is not a repair authority.
 
 Graphshell may additionally host a **StorageInteropCoordinator** policy layer
 that sits above browser storage truth and handles backend routing, Servo/Wry
@@ -255,6 +265,13 @@ Current implementation note:
 - Encryption: `encrypted` / `legacy-migration-pending` / `key-unavailable`
 - Archive: traversal archive size, dissolved archive size
 - Recovery: last recovery status, replay count
+
+Shared projection/use rule:
+
+- These health summaries may be reused by settings and nearby control surfaces
+  as read-only status badges or links.
+- UI surfaces should not recompute their own persistence-health model from raw
+  storage internals when diagnostics/state snapshots already expose one.
 
 ### 5.3 Invariant Watchdogs
 

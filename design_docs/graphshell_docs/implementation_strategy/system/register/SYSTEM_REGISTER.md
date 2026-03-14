@@ -30,6 +30,10 @@ Policy in this file should be distilled from canonical specs and accepted resear
 3. **Misroute-visibility policy**: Boundary misroutes and no-op fallthroughs should surface during development via explicit warnings/diagnostics.
 4. **No-catch-all policy**: This hub does not replace subsystem or component authority docs; it reconciles them.
 5. **Convergence policy**: Transitional routing patterns must converge toward explicit typed signal and provider-routed contracts.
+6. **Shared-carrier policy**: When multiple surfaces need the same semantics
+   (settings routing, Navigator refresh, lens invalidation, viewer health,
+   workbench projection), prefer one register-owned route or signal path over
+   feature-local observer stacks.
 
 ---
 
@@ -92,6 +96,16 @@ Implemented:
 - Runtime-owned theme activation, built-in theme descriptors, and tokenized command/radial surfaces
 - Register-owned `AgentRegistry` with `ControlPanel` supervision and built-in `agent:tag_suggester`
   signal-driven suggestion ingress
+
+Cross-system leverage already available:
+
+- `ActionRegistry` + runtime dispatch can be the common execution path for top
+  chrome, command palette, workbench chrome, and settings launchers.
+- `SignalBus`/`SignalRoutingLayer` can fan out graph/lens/workflow/viewer state
+  changes to Navigator, diagnostics, and settings surfaces without direct
+  feature coupling.
+- diagnostics channels provide one shared receipt path for viewer, workbench,
+  settings, history, and subsystem integrity behavior.
 
 Gaps / active architectural work:
 - Canonical docs/terminology wording still needs tightening around `Signal` vs `Intent` vs direct calls (routing rules are defined here but not yet propagated everywhere)
@@ -225,6 +239,8 @@ Why:
 - Mods need to trigger cross-registry workflows without point-to-point coupling
 - Subsystem health/diagnostics propagation benefits from decoupled observers
 - Future async/event-heavy coordination will otherwise push coupling into `ControlPanel`
+- Shared UI projection surfaces (Navigator, settings pages, diagnostics panes)
+  need one reusable invalidation path instead of feature-local refresh plumbing
 
 Done gates:
 - [x] `Signal` type families and source metadata contract documented (`runtime/registries/signal_routing.rs`)

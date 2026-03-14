@@ -13,6 +13,7 @@
 - `2026-03-08_unified_history_architecture_plan.md` (top-level history taxonomy and sequencing)
 - `PLANNING_REGISTER.md` (temporal navigation adoption + Stage F append notes)
 **Related**: `SUBSYSTEM_STORAGE.md` (archive/WAL correctness), `SUBSYSTEM_DIAGNOSTICS.md` (timeline observability), `../../../verse_docs/implementation_strategy/lineage_dag_spec.md`, `../../../verse_docs/implementation_strategy/2026-03-09_agent_wal_and_distillery_architecture_plan.md`
+`../canvas/2026-03-14_graph_relation_families.md` (Traversal family + Navigator "Recent" projection)
 
 **Policy authority**: This file is the single canonical policy authority for the History subsystem.
 Supporting history docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -31,6 +32,9 @@ Policy in this file should be distilled from canonical specs and accepted resear
 4. **Archive-fidelity policy**: Dissolved/archived traversal state must preserve identity and reconstructable timeline semantics.
 5. **Temporal-observability policy**: Timeline append/replay/restore failures must surface via explicit diagnostics and tests.
 6. **Separate-authorities policy**: History may share traversal semantics with `AWAL` and lineage DAGs, but it remains the authority only for graph temporal truth.
+7. **Shared-projection policy**: History owns traversal truth; Navigator, settings,
+   diagnostics, and workbench chrome may project or summarize that truth, but
+   must not define an independent recent-history structure.
 
 ---
 
@@ -60,6 +64,10 @@ as a read-only runtime hint. That signal is not traversal truth and does not
 write archive state on its own; it is used to annotate History Manager rows
 with recent "node is currently alive/being-interacted-with" evidence without
 introducing a second polling path into the viewer runtime.
+
+History is also the canonical source for traversal-family projection into the
+Navigator's `Recent` section. That sidebar section is a read-only projection
+over history truth, not a second recents store.
 
 ---
 
@@ -169,6 +177,8 @@ Examples:
 - Web viewers: `traversal_capture`
 - History Manager tool pane: `timeline_navigation`, `archive_export`, recent
    compositor activity annotation
+- Navigator / Workbench Sidebar: read-only traversal projection (`Recent`
+  section) sourced from history truth rather than a local recents cache
 
 ---
 
@@ -200,6 +210,13 @@ Examples:
 - Preview mode status (`off` / `active`)
 - Replay isolation status (last violation / none)
 - Last return-to-present result
+
+Additional projection rule:
+
+- The same history-owned aggregates that power subsystem health may also drive
+  Navigator `Recent` section counts/badges. UI surfaces should reuse those
+  aggregates rather than recomputing their own recency models from raw viewer
+  state.
 
 ---
 

@@ -37,6 +37,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 3. **Crypto-correctness policy**: At-rest and in-transit cryptographic requirements are mandatory boundaries, not optional enhancements.
 4. **Identity-trust policy**: Identity resolution and trust state must be explicit, versioned, and diagnosable.
 5. **Denial-observability policy**: Security denials, bypass attempts, and fallback paths must surface with structured diagnostics.
+6. **Shared-surface policy**: Settings pages, diagnostics panes, and workbench/Navigator surfaces may expose trust, grant, and capability state, but security authority remains in identity/trust/grant/runtime boundaries rather than UI-local toggles.
 
 ---
 
@@ -47,6 +48,10 @@ Security is not a feature of Verse. It is a **cross-cutting guarantee** that mus
 The dominant failure mode is **silent contract erosion**: a new sync path silently bypasses access checks, a new intent variant isn't covered by the grant matrix, encryption is accidentally skipped for a new persistence keyspace, or a mod loads without capability restriction. None of these produce visible errors. All produce silent security regressions.
 
 Without subsystem-level treatment, every new `GraphIntent` variant, every Verse protocol change, every mod capability declaration, and every persistence path extension becomes an unaudited trust boundary crossing.
+
+Security is also a cross-surface concern: pairing, grant review, capability
+status, and degraded identity state must be exposed through shared UI surfaces
+without allowing those surfaces to invent alternate enforcement paths.
 
 ---
 
@@ -122,6 +127,9 @@ notes: String
 - `ViewerRegistry` entries: Servo (native, full transport via Noise), Wry (native, OS-level TLS), plaintext (no network).
 - `ProtocolRegistry` entries: protocol handlers declare transport security properties.
 - `ModRegistry` entries: sandbox level, declared requires/provides, capability verification status.
+- Settings and diagnostics surfaces consume these declarations to present trust,
+  capability, and degradation state; they do not redefine the underlying
+  security properties.
 
 ---
 
@@ -158,6 +166,13 @@ notes: String
 - Access denial counters (recent window)
 - Mod security: any capability violations in session
 - Cryptographic status: encryption active/degraded
+
+Shared exposure rule:
+
+- The same security-health aggregates may be surfaced in settings or nearby
+  control chrome as read-only status or launch points.
+- Denials and degraded trust state should reuse diagnostics-backed summaries
+  rather than each surface inventing bespoke counters or warning logic.
 
 ### 5.3 Invariant Watchdogs
 

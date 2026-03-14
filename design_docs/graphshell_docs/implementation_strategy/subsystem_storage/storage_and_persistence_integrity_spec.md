@@ -37,6 +37,12 @@ Persistence is the durable truth boundary for Graphshell state.
 All durable graph mutations must flow through one enforceable write path, and
 recovery must reconstruct valid state deterministically.
 
+Shared-consumer note:
+
+- Settings pages, Navigator/workbench projections, and diagnostics surfaces may
+  expose persisted state and trigger approved persistence actions, but they are
+  consumers of storage truth rather than separate storage authorities.
+
 Address-as-identity corollary:
 
 - durable graph citizenship changes are durable writes,
@@ -117,6 +123,15 @@ Guardrail:
 - Restore must not mint a fresh canonical internal address for a previously persisted frame, tool instance, graph view, settings page, or clip node. Runtime canonical formatting is `verso://...`; legacy `graphshell://...` remains compatibility-only.
 - Recovery logic must be able to distinguish "ephemeral pane re-opened" from "persisted graph-backed tile restored" so non-durable pane state is not mistaken for missing graph data.
 
+### 3.8 Surface consumption boundaries
+
+- Settings/configuration UI may edit durable preferences only through approved
+  write paths.
+- Workbench/Navigator surfaces may project durable arrangement/history state but
+  must not synthesize replacement persisted records for the same identity.
+- Diagnostics may summarize recovery and durability health but must not perform
+  silent repair actions outside approved storage authority paths.
+
 ---
 
 ## 4. Planned Extensions
@@ -142,4 +157,3 @@ Guardrail:
 - Single-write-path enforcement remains reviewable and structurally obvious.
 - Ephemeral pane open/close behavior is explicitly non-durable until graph enrollment occurs.
 - Address-as-identity write and restore semantics are explicit for internal `verso://` surfaces (with `graphshell://` treated only as a legacy alias during migration).
-

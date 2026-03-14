@@ -27,6 +27,11 @@ This spec defines the canonical contracts for:
 4. **History Manager surface** — Timeline and Dissolved tabs, archive queries.
 5. **Temporal navigation** — preview mode, scrubber contract (planned).
 
+Traversal here is not only a canvas/history concern. The same traversal truth
+is reused by Navigator `Recent`, diagnostics health summaries, and future
+settings/control surfaces that need to expose history policy without inventing
+separate recency stores.
+
 ---
 
 ## 2. Edge Semantic Model Contract
@@ -56,6 +61,10 @@ EdgeKindSet = one or more of:
 **Invariant**: Display-only computations (dominant direction, stroke width) are derived from `EdgePayload` at render time. They must not be stored in `EdgePayload`.
 
 **Family note**: `EdgeKindSet` maps to the relation families defined in `canvas/2026-03-14_graph_relation_families.md`. Currently implemented: `UserGrouped`, `Hyperlink`, `TraversalDerived`, `AgentDerived` (Semantic and Traversal families). Forthcoming families are additive; this set is open. Visual encoding for all families: `canvas/2026-03-14_edge_visual_encoding_spec.md`.
+
+Projection note: `TraversalDerived` is the canonical carrier for traversal
+family projection into History views and Navigator `Recent`; those surfaces read
+from traversal truth rather than minting independent "recently viewed" records.
 
 **Multi-kind invariant**: Any two kinds may coexist on the same node pair. The union represents an edge carrying multiple relation types. Rendering priority when multiple kinds are present follows `2026-03-14_edge_visual_encoding_spec.md §4` (primary stroke = highest-priority family; secondary dot indicator for additional kinds).
 
@@ -238,6 +247,14 @@ This avoids dependence on full traversal history and remains correct after rolli
 
 - Edge focus/highlight is inspection context, not traversal truth.
 - `SetHighlightedEdge` and `ClearHighlightedEdge` may update focus diagnostics/transition state, but must not append `Traversal` records.
+
+### 4.3 Navigator / Sidebar Parity
+
+- Sidebar `Recent` rows are read-only projections over traversal-family truth.
+- Selecting or hovering a `Recent` row may change focus/inspection context, but
+  must not append a new traversal unless an actual navigation occurs.
+- Counts, ordering, and badges shown in Navigator should derive from the same
+  traversal aggregates and archive/state contracts used by History Manager.
 - Traversal append occurs only on navigation/traversal actions routed through reducer traversal paths.
 - Hover and single-click inspection must not change `metrics.total_navigations`.
 

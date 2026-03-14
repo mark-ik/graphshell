@@ -32,7 +32,7 @@ It exists to make one boundary explicit:
 
 ## 2. What The Workbench Domain Feature Area Owns
 
-The Workbench owns arrangement truth and presentation hosting:
+The Workbench owns arrangement interaction/session mutation truth and presentation hosting:
 
 - the tile tree
 - frame branches and frame selection
@@ -44,13 +44,14 @@ The Workbench owns arrangement truth and presentation hosting:
 - workbench-level focus handoff
 - **Workbench Sidebar** (navigator, viewer controls, pane tree) — see `2026-03-13_chrome_scope_split_plan.md`
 
-The Workbench is the canonical owner of where content is shown.
+The Workbench is the canonical owner of where content is shown and how session
+arrangement is structurally realized.
 
 It is not the owner of graph identity, graph topology, or graph semantic truth.
 
 **Chrome visibility** is governed by `WorkbenchLayerState` (`GraphOnly`, `GraphOverlayActive`, `WorkbenchActive`, `WorkbenchPinned`) — a derived state machine computed each frame. The Workbench Sidebar is visible only when the state is `WorkbenchActive` or `WorkbenchPinned`. The **Graph Bar** (search, lens chips, zoom controls) is separate from the Workbench Sidebar and persists across all states. See `subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md §7–8`.
 
-**Frame membership** is graph-backed: frame/tile-group membership is stored as `ArrangementRelation` edges in the graph, not as workbench-only data structures. The workbench reads these edges to render the tile tree and navigator. Mutating frame membership emits `GraphIntent`s that assert or retract `ArrangementRelation` edges. See `canvas/2026-03-14_graph_relation_families.md §2.4`.
+**Frame membership** is graph-backed: frame/tile-group membership is stored as `ArrangementRelation` edges in the graph, not as workbench-only data structures. The workbench reads these edges to render the tile tree and navigator. Mutating durable frame membership emits `GraphIntent`s that assert or retract `ArrangementRelation` edges, while session-only tile/split structure remains under workbench mutation authority until promoted. See `canvas/2026-03-14_graph_relation_families.md §2.4`.
 
 ---
 
@@ -89,7 +90,7 @@ That means:
 - tile tree structure
 - active frame
 - active tile / pane
-- frame membership of presentation surfaces
+- frame membership of presentation surfaces as an interactive/session arrangement concern
 - pane open / close / split / reorder state
 - workbench-level focus transitions
 

@@ -16,6 +16,9 @@ Policy in this file should be distilled from canonical specs and accepted resear
 2. **Deterministic-layout policy**: Layout and interaction resolution must be reproducible under equivalent state/inputs.
 3. **Physics-execution policy**: Physics execution occurs in canvas territory using selected profile parameters from presentation policies.
 4. **No-hidden-authority policy**: Canvas callbacks must not bypass graph/workbench mutation authorities.
+5. **Shared-family policy**: Canvas policy should consume the canonical relation-family
+   vocabulary and `FamilyPhysicsPolicy` rather than inventing canvas-private
+   hierarchy/grouping semantics that diverge from Navigator, settings, or diagnostics.
 
 ## Purpose and Scope
 
@@ -25,6 +28,7 @@ In scope:
 - graph topology policy sets
 - graph layout algorithm selection
 - graph interaction/rendering policy and physics execution boundaries
+- family-aware layout/interaction participation as consumed from canonical relation-family contracts
 
 Out of scope:
 - tile-tree layout
@@ -45,6 +49,8 @@ Canonical interfaces:
 - CanvasRegistry is the graph-domain surface authority.
 - Topology, layout, and interaction/rendering are distinct sections and must not be conflated.
 - Graph camera and graph interaction policy are Graphshell-owned semantics.
+- Canvas consumes shared relation-family and diagnostics/routing carriers rather
+  than defining parallel recency, hierarchy, or arrangement models.
 
 ## Planned Extensions
 

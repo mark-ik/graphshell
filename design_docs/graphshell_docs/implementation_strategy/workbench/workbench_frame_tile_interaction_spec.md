@@ -134,7 +134,7 @@ Hierarchy:
 
 ### 2.4 Subsystem boundary
 
-- The Workbench subsystem owns arrangement truth:
+- The Workbench subsystem owns arrangement interaction/session mutation truth:
   - the tile tree,
   - frame branches,
   - split geometry,
@@ -143,6 +143,9 @@ Hierarchy:
 - The Graph subsystem does not own arrangement truth.
 - The Graph subsystem may request routing into the workbench, but it does not define the
   workbench tree structure.
+- Durable arrangement carriers (for example saved frame membership) may be
+  graph-rooted through `ArrangementRelation`; the workbench remains the owner of
+  interactive session mutation and structural realization.
 - The Workbench subsystem may persist arrangement state and return-path memory, but that persistence is workspace state, not durable content hierarchy.
 - The **Navigator** (Workbench Sidebar projection), when visible, is a Graph-owned read-only projection over relation families and is not part of workbench arrangement truth.
 
@@ -330,7 +333,7 @@ eventual UI is exposed.
 
 Make the workbench trustworthy, teachable, and usable under normal and degraded conditions.
 
-**Semantic boundaries**: (1) Edges and Traversals are graph truth (global within a `GraphId`). (2) Frames and Tiles are arrangement truth (workbench-local context). (3) Connected nodes are not required to co-exist in one frame. (4) A node may appear in multiple frames without duplicating graph identity.
+**Semantic boundaries**: (1) Edges and Traversals are graph truth (global within a `GraphId`). (2) Frames and Tiles are arrangement interaction/session context, with durable frame membership able to be graph-rooted via `ArrangementRelation`. (3) Connected nodes are not required to co-exist in one frame. (4) A node may appear in multiple frames without duplicating graph identity.
 
 **Frame identity**: Each frame has a stable identity (`Frame N`) and editable display label. Auto-suggest labels may be derived from member tiles, but the user label is authoritative.
 

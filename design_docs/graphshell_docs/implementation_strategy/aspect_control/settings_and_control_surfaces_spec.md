@@ -35,7 +35,7 @@ Normative settings/control contracts use: intent, trigger, preconditions, semant
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator is not content truth authority.
 - Physics presets are not camera modes.
 
 ---
@@ -82,6 +82,9 @@ Compatibility note:
 
 - Graphshell owns route resolution, apply semantics, persistence timing, and return paths.
 - The UI framework renders forms, lists, and pages but does not define settings meaning.
+- Register-owned action/runtime routes should be reused for settings launch,
+  workbench launch, and nearby chrome shortcuts rather than duplicating
+  per-surface dispatch logic.
 
 ---
 
@@ -160,6 +163,10 @@ Compatibility note:
 - History, diagnostics, and Navigator (Workbench Sidebar projection) remain related control surfaces, not settings categories, even when they are launched from nearby chrome.
 - Frame save/restore/prune actions belong to workbench/frame chrome, not inside persistence settings.
 - The top-level `Settings` entry point should behave like a launcher/router, not a long inline form. Direct value editing belongs on the pages themselves.
+- Settings pages should act as the reusable control home for adjacent subsystem
+  configuration (viewer capabilities, physics/lens policy, diagnostics toggles,
+  input bindings) instead of each subsystem growing independent dropdown
+  controls where page-backed configuration already exists.
 
 **Who owns it**
 

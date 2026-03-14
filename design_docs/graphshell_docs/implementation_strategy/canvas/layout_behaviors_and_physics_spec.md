@@ -33,6 +33,11 @@ This spec defines the canonical contracts for:
 
 All layout behavior is canvas-scoped (graph view panes only). Node viewer panes and tool panes are out of scope.
 
+Canvas scope here refers to where forces are rendered and felt. The governing
+family vocabulary is intentionally shared: `FamilyPhysicsPolicy` should line up
+with Navigator projection, arrangement carriers, and settings/diagnostics
+surfaces so physics does not become a private canvas-only semantics layer.
+
 Portfolio-level algorithm catalog, selection/fallback policy, and quality metric governance are defined in `layout_algorithm_portfolio_spec.md` (including diagnostics contract and acceptance criteria in §§6-8). This spec remains authoritative for physics micro-behavior and force injection details.
 
 ---
@@ -172,6 +177,14 @@ FamilyPhysicsPolicy {
 
 `family_physics = None` means default family weights (Semantic active at 1.0; all others at default). When a lens activates a containment or traversal view, it sets the corresponding weight to 1.0 and Semantic to its configured value (often still 1.0 — family weights compose, not replace). See `2026-03-14_graph_relation_families.md §6.1` for the canonical `FamilyPhysicsPolicy` definition.
 
+Shared-carrier rule:
+
+- `FamilyPhysicsPolicy` is not only a render/layout knob.
+- The same family activation choices should be inspectable in settings,
+  reflected in diagnostics, and legible against Navigator section ownership.
+- A family that is weighted to zero for layout may still remain visible in
+  Navigator/history/settings projections; family weighting is not deletion.
+
 ### 5.2 Binding Preference
 
 Stored in `AppPreferences`:
@@ -255,6 +268,13 @@ Preference chain at threshold crossing:
 
 1. Check `progressive_lens_auto_switch` first; if `Never`, stop.
 2. If target Lens carries a `physics_profile_id` and the switch is allowed, evaluate `lens_physics_binding` before activating the physics profile.
+
+Cross-system consequence:
+
+- Progressive lens switching should be understandable from outside the canvas.
+  When a lens changes family emphasis or physics profile, settings and
+  diagnostics surfaces should be able to describe that active policy, and
+  Navigator should remain consistent with the chosen family visibility model.
 
 ---
 

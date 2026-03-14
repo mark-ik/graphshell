@@ -16,6 +16,9 @@ Policy in this file should be distilled from canonical specs and accepted resear
 2. **Coordinated-semantics policy**: Theme and motion profiles coordinate here without collapsing into one undifferentiated control.
 3. **Explicit-cross-domain policy**: Cross-domain mappings (e.g., Liquid/Gas/Solid semantics) are explicit and diagnosable.
 4. **No-layout-override policy**: Presentation decisions must not usurp layout/workbench authority.
+5. **Shared-exposure policy**: Presentation-domain choices should be legible through
+   shared settings, diagnostics, and workbench/canvas status surfaces rather
+   than existing only as hidden runtime state.
 
 ## Purpose and Scope
 
@@ -25,6 +28,7 @@ In scope:
 - presentation sequencing after layout
 - theme and physics-profile coordination
 - presentation capability metadata
+- cross-domain presentation metadata consumed by shared control/diagnostic surfaces
 
 Out of scope:
 - graph topology
@@ -44,6 +48,8 @@ Canonical interfaces:
 - Presentation is applied after layout, never before.
 - Theme and motion semantics are coordinated but still separable.
 - Cross-domain presets like Liquid/Gas/Solid are resolved through explicit policy, not hidden defaults.
+- Presentation policy should remain explainable across canvas, settings, and
+  diagnostics surfaces through shared metadata and routing.
 
 ## Planned Extensions
 

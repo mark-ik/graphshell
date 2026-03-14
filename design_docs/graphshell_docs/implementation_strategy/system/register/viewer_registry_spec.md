@@ -21,6 +21,9 @@ Policy in this file should be distilled from canonical specs and accepted resear
 2. **Fallback-floor policy**: Unsupported content resolves through canonical fallback viewers/core-seed floor.
 3. **Diagnosable-selection policy**: Viewer selection/fallback paths must remain explicit and observable.
 4. **Capability-declaration policy**: Viewer providers declare capabilities/conformance before selection use.
+5. **Shared-consumer policy**: Viewer capability and render-mode information should
+   be reusable by workbench chrome, settings surfaces, diagnostics, and
+   accessibility contracts instead of being duplicated in viewer-local UI logic.
 
 ## Purpose and Scope
 
@@ -30,6 +33,7 @@ In scope:
 - viewer capability registration
 - MIME and content-type routing
 - core seed viewer floor and fallback ordering
+- capability metadata consumed by shared settings/workbench/diagnostics surfaces
 
 Out of scope:
 - viewer pane layout
@@ -50,6 +54,8 @@ Canonical interfaces:
 - Viewer selection is explicit and diagnosable; unsupported content resolves to canonical fallback viewers.
 - Core seed viewers keep the app useful without web backends.
 - Viewer selection is independent of pane arrangement and viewport behavior.
+- Viewer capability declarations are the shared source for backend/status
+  exposure across workbench, settings, diagnostics, and accessibility surfaces.
 
 ## Planned Extensions
 

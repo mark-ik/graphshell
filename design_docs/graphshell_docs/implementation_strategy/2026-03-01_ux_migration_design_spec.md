@@ -406,7 +406,7 @@ provides:
 Current architecture remains a two-authority runtime:
 
 - **Graph authority**: graph truth (`Node`, `EdgePayload`, traversal state)
-- **Workbench authority**: arrangement truth (tile tree / frame structure)
+- **Workbench authority**: arrangement interaction/session mutation truth (tile tree / frame structure), with durable arrangement able to be graph-rooted where specified
 
 `UxTree` is the authoritative **UX semantic projection** over both authorities.
 It does not yet replace either data structure. It is the runtime truth for:

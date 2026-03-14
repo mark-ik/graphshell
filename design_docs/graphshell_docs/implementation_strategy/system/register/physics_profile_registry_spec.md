@@ -21,6 +21,9 @@ Policy in this file should be distilled from canonical specs and accepted resear
 2. **Execution-separation policy**: Profile selection belongs here; physics engine execution remains in canvas territory.
 3. **Lookup-determinism policy**: Profile resolution and legacy mapping behavior are deterministic and diagnosable.
 4. **Override-policy**: Future user/mod overrides must preserve core fallback safety contracts.
+5. **Shared-policy policy**: Physics profiles participate in a broader cross-system
+   policy stack (`FamilyPhysicsPolicy`, lens switching, settings exposure,
+   diagnostics reporting) and must not become canvas-only hidden state.
 
 ## Purpose and Scope
 
@@ -30,6 +33,7 @@ In scope:
 - physics preset registration
 - named profile lookup
 - cross-domain semantic labels over numeric parameters
+- shared preset semantics consumed by lens/settings/diagnostics surfaces
 
 Out of scope:
 - physics engine execution
@@ -50,6 +54,8 @@ Canonical interfaces:
 - Profiles are parameters only; execution remains elsewhere.
 - Named presets are user-facing semantic contracts.
 - Preset lookup must be deterministic and overrideable.
+- The active profile should be inspectable and explainable outside the canvas via
+  shared settings/diagnostics surfaces; registry semantics must support that reuse.
 
 ## Planned Extensions
 

@@ -18,6 +18,9 @@ Policy in this file should be distilled from canonical specs and accepted resear
 - workbench = arrangement boundary.
 
 This registry owns arrangement policy and must not redefine graph truth or Navigator semantic ownership.
+Arrangement policy may still be graph-rooted: frames, tile groups, and other
+arrangement carriers can project `ArrangementRelation` family data without
+making the workbench a second graph authority.
 
 ## Contract template (inherits UX Contract Register §2A)
 
@@ -33,8 +36,12 @@ Normative workbench-surface contracts use: intent, trigger, preconditions, seman
 
 1. **Tile-tree-authority policy**: Workbench surface registry owns pane/tile structural interaction policy.
 2. **Graph-separation policy**: Workbench surface policy must not redefine graph semantic ownership.
-3. **Locking-constraint policy**: Split/reorder/lock constraints are explicit contracts, not implicit framework defaults.
-4. **Focus-handoff policy**: Surface-level transitions preserve deterministic focus and return-path rules.
+3. **Arrangement-projection policy**: Workbench chrome and Navigator rows may
+   project graph-rooted arrangement relations, but the registry remains the
+   owner of interactive session mutation semantics (split, tab, focus, close,
+   promote).
+4. **Locking-constraint policy**: Split/reorder/lock constraints are explicit contracts, not implicit framework defaults.
+5. **Focus-handoff policy**: Surface-level transitions preserve deterministic focus and return-path rules.
 
 ## Purpose and Scope
 
@@ -44,6 +51,8 @@ In scope:
 - split/tab/container policy
 - drag/drop and resize rules
 - tile-tree simplification and arrangement contracts
+- mapping arrangement carriers into Navigator / sidebar projection
+- promotion between session-only arrangement and durable saved-frame arrangement
 
 Out of scope:
 - graph semantics
@@ -61,7 +70,10 @@ Canonical interfaces:
 
 ## Normative Core
 
-- Workbench owns arrangement truth.
+- Workbench owns arrangement interaction truth and session mutation authority.
+- Durable arrangement may be projected from graph-rooted `ArrangementRelation`
+  carriers (frames, tile groups) without turning the workbench into a separate
+  content ontology.
 - Pane host behavior is distinct from pane payload behavior.
 - Tile-tree mutations are workbench authority, not graph reducer authority.
 

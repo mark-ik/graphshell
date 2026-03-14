@@ -15,7 +15,9 @@ engine share one coherent model rather than three ad hoc ones.
 - `agent_derived_edges_spec.md` — `AgentDerived` provenance and assertion protocol
 - `../canvas/2026-02-25_progressive_lens_and_physics_binding_plan.md` — physics profiles
 - `../../TERMINOLOGY.md` — `EdgeKind`, `EdgePayload`, `Graph`, `Frame`, `TileGroup`
-- `../workbench/WORKBENCH.md` — workbench owns arrangement truth, not graph meaning
+- `../workbench/WORKBENCH.md` — workbench owns arrangement interaction/session mutation truth, not graph meaning
+- `../system/register/SYSTEM_REGISTER.md` — register-owned routing / diagnostics carriers
+- `../aspect_control/settings_and_control_surfaces_spec.md` — control-surface ownership and settings routing
 
 ---
 
@@ -25,10 +27,11 @@ The current `EdgeKind` set — `Hyperlink`, `TraversalDerived`, `UserGrouped`,
 `AgentDerived` — captures semantic and traversal relations well but is silent on
 three increasingly important relation categories:
 
-1. **Arrangement / layout relations** — frames and tile groups currently live
-   outside the graph entirely (in tile-tree snapshots and in-memory workbench
-   state). They have no graph-backed durability and cannot be projected by the
-   navigator or reasoned about by the physics engine.
+1. **Arrangement / layout relations** — frames and tile groups have historically
+   lived outside the graph entirely (in tile-tree snapshots and in-memory
+   workbench state). Without graph-backed carriers they cannot be projected by
+   the navigator or reasoned about by the physics engine using the same
+   semantics as other relation families.
 
 2. **Containment / hierarchy relations** — the file:// URL hierarchy, domain
    membership, URL path prefixes, and user-defined notebooks or folders are all
@@ -47,6 +50,25 @@ nodes with different semantics, lifecycle, and projection rules. Unifying them
 under one typed family vocabulary lets a single sidebar navigator render all
 relation types legibly, lets the physics engine apply appropriate forces per
 family, and lets the persistence layer apply appropriate durability per family.
+
+### 1.1 Shared-carrier consequence
+
+This family model is intentionally not canvas-only. The same relation-family
+vocabulary is meant to be reused by:
+
+- the **Navigator** for section ownership and row hierarchy,
+- the **Workbench Sidebar** for arrangement projection,
+- the **History** subsystem for recent/traversal projection,
+- **filesystem/import** flows for derived hierarchy and imported grouping,
+- **lens + physics** policy (`FamilyPhysicsPolicy`) for family-aware layout and
+  visibility,
+- **settings / diagnostics** surfaces for inspection, toggles, and health
+  reporting.
+
+If a subsystem needs a new hierarchy, adjacency list, or grouping surface, it
+should first ask whether that behavior can be expressed as a relation family,
+its projection rule, or its diagnostics exposure before introducing a second
+parallel structure.
 
 ---
 
@@ -156,6 +178,11 @@ presentation and layout membership. Frames and tile groups are the primary
 carriers. This is the graph-rooted equivalent of what the workbench tile tree
 currently stores in memory.
 
+**Carrier note**: Frames and tile groups are the preferred first-class carriers
+for arrangement relations. They already provide collapsible, metadata-bearing,
+multi-node structure and should absorb most "relation pseudonode" use cases for
+workbench semantics before a generic hyperedge object is introduced.
+
 **Sub-kinds**:
 
 | Sub-kind tag | Meaning | Created by |
@@ -171,6 +198,10 @@ currently stores in memory.
 - **Session-only**: `tile-group` and `split-pair` edges are created automatically
   during the session and evaporate on close unless promoted to durable
   (i.e., unless the user saves the frame they belong to).
+
+This split is crucial: arrangement relations are graph-rooted, but not every
+runtime layout wiggle becomes durable graph truth. Promotion into a saved frame
+is the explicit bridge from session-only arrangement to durable arrangement.
 
 **Visibility rule**: Hidden from canvas by default. Arrangement is visible in the
 workbench sidebar navigator, not as canvas edges. Optionally visible as faint
@@ -258,6 +289,23 @@ Four tiers govern durability:
 ## 5. Navigator Projection Policy
 
 The workbench sidebar navigator (see `2026-03-13_chrome_scope_split_plan.md §5`)
+is the primary tree/list projection surface over relation families.
+
+### 5.0 Shared projection contract
+
+Navigator is the canonical reusable hierarchical projection for relation
+families. Workbench structure, containment, recent traversal, and imported
+groupings should appear as sections or family-owned rows within Navigator rather
+than as unrelated side panels.
+
+Corollaries:
+
+- workbench arrangement and graph hierarchy are distinct relation families, but
+  share one projection surface;
+- subsystem-specific trees should be avoided unless they need behaviors that
+  Navigator cannot express;
+- diagnostics and settings surfaces may configure Navigator sections/filters,
+  but do not become alternate truth owners of hierarchy.
 renders from a `WorkbenchChromeProjection`. That projection is now defined by
 family-scoped sections with explicit priority ordering.
 

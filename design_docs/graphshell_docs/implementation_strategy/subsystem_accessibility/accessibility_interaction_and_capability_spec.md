@@ -41,6 +41,13 @@ Every participating surface must declare:
 
 The owning subsystem may render partial capability, but it must declare that state explicitly.
 
+Shared-surface note:
+
+- This applies equally to graph canvas, workbench chrome, Navigator rows,
+  settings pages/rails, and diagnostics panes.
+- Shared UI surfaces should reuse the same capability/degradation model instead
+  of inventing bespoke accessibility assumptions.
+
 ---
 
 ## 3. Normative Core
@@ -56,6 +63,8 @@ The owning subsystem may render partial capability, but it must declare that sta
 - Focus preservation must be deterministic when a semantic target still exists.
 - If a target disappears, fallback focus must follow a documented policy.
 - Top-level region cycling must be deterministic and complete.
+- Shared top-level surfaces such as Graph Bar, Workbench Sidebar/Navigator, and
+  settings rails participate in the same deterministic region/focus policy.
 
 ### 3.3 Action Routing
 
