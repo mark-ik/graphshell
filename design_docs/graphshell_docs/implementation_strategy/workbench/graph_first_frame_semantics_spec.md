@@ -5,6 +5,7 @@
 **Priority**: Immediate terminology + authority alignment
 
 **Related**:
+
 - `workbench_frame_tile_interaction_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../canvas/multi_view_pane_spec.md`
@@ -12,6 +13,7 @@
 - `../aspect_input/input_interaction_spec.md`
 - `../subsystem_ux_semantics/ux_tree_and_probe_spec.md`
 - `../2026-03-01_ux_migration_design_spec.md`
+- `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation as the forthcoming graph-edge backing for frame membership (§2.4)
 - `../../../TERMINOLOGY.md`
 
 ---
@@ -118,6 +120,17 @@ The frame address is the canonical identity bridge between:
 - workbench handles (`OpenFrameHandle` / `CloseFrameHandle`),
 - frame-membership visualization on the canvas.
 
+### 3.0a ArrangementRelation backing (forthcoming)
+
+The `member_nodes: Vec<NodeKey>` field on `GraphFrame` is the current in-memory representation. The forthcoming migration replaces this with `ArrangementRelation` / `frame-member` edges in the graph (`EdgeKind::ArrangementRelation { sub_kind: "frame-member" }`). Under that model:
+
+- Frame membership is a set of durable `frame-member` edges between the frame node and its member tile nodes.
+- Named frames produce durable `frame-member` edges; unnamed/session frames produce session-only edges.
+- The `GraphFrame.member_nodes` field becomes a derived view over these edges, not the authoritative store.
+- `AddNodeToFrame` / `RemoveNodeFromFrame` intents assert / retract the corresponding `ArrangementRelation` edge.
+
+Until the migration lands, `GraphFrame.member_nodes` remains authoritative. See `canvas/2026-03-14_graph_relation_families.md §2.4`.
+
 ### 3.1 Membership cardinality
 
 - Nodes may be members of zero, one, or many frames.
@@ -206,7 +219,7 @@ UxTree must expose frame semantics for automation/accessibility:
 
 ### 6.1 Structural expectations
 
-- `uxnode://workbench/workbar/frame[{frame_id}]`
+- `uxnode://workbench/sidebar/frame[{frame_id}]` (legacy path: `uxnode://workbench/workbar/frame[{frame_id}]`)
 - `uxnode://workbench/tile[graph:{graph_view_id}]/graph-canvas/node[{node_key}]/frame-memberships`
 
 ---

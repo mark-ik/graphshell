@@ -22,7 +22,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
 Command dispatch may target these boundaries, but command surfaces do not redefine their ownership.
@@ -34,7 +34,7 @@ Normative command contracts use: intent, trigger, preconditions, semantic result
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator is not content truth authority.
 - Physics presets are not camera modes.
 
 ---

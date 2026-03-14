@@ -14,7 +14,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
 Lens composition is GraphView-scoped and must not assume workbench arrangement ownership.
@@ -26,7 +26,7 @@ Normative lens contracts use: intent, trigger, preconditions, semantic result, f
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator is not content truth authority.
 - Physics presets are not camera modes.
 
 ## Registry Policies

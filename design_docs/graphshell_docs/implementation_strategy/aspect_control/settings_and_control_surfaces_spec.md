@@ -10,6 +10,7 @@
 - `../2026-02-24_control_ui_ux_plan.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../workbench/workbench_profile_and_workflow_composition_spec.md`
+- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../../design/KEYBINDINGS.md`
 
@@ -22,7 +23,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- **Navigator** = graph-backed section-structured projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
 Settings surfaces may configure graph/view/workbench state but do not become semantic owners of those domains.
@@ -69,6 +70,8 @@ It explains:
 
 - Settings are nodes, not dialogs.
 - Internal routes such as `verso://settings/...` are page-backed, pane-composable app surfaces.
+- Presentation mode is separate from route identity: a control page may open as
+  a transient graph overlay or as a workbench-hosted pane.
 
 Compatibility note:
 
@@ -113,7 +116,8 @@ Compatibility note:
 **Core rules**
 
 - Internal control pages resolve through explicit Graphshell routes.
-- Opening a settings or history page creates or focuses an app-owned pane destination.
+- Opening a settings or history page resolves both target page and presentation
+  mode: transient graph overlay or workbench-hosted pane.
 
 **Who owns it**
 
@@ -122,7 +126,10 @@ Compatibility note:
 **State transitions**
 
 - Route open resolves the target page and presentation mode.
-- The workbench hosts the resulting pane like any other user-facing surface.
+- In graph-only context, a control page may open as a transient overlay above
+  the graph without forcing Workbench chrome to appear.
+- In workbench context, or after explicit `Tile This Page` / promote action,
+  the page is hosted like any other workbench pane.
 
 **Visual feedback**
 
@@ -142,6 +149,17 @@ Compatibility note:
 
 - Settings categories should be page-based and navigable.
 - Category pages may include persistence, keybindings, appearance, physics, downloads, bookmarks, history, workspaces, notifications, and about.
+- The default desktop taxonomy should keep `Settings` narrowly scoped to page-backed configuration categories such as:
+  - Overview
+  - Persistence
+  - Appearance and Viewer
+  - Input and Commands
+  - Physics
+  - Sync
+  - Advanced
+- History, diagnostics, and Navigator (Workbench Sidebar projection) remain related control surfaces, not settings categories, even when they are launched from nearby chrome.
+- Frame save/restore/prune actions belong to workbench/frame chrome, not inside persistence settings.
+- The top-level `Settings` entry point should behave like a launcher/router, not a long inline form. Direct value editing belongs on the pages themselves.
 
 **Who owns it**
 
@@ -155,7 +173,11 @@ Compatibility note:
 **Visual feedback**
 
 - Users must be able to tell which category they are editing.
-- Page navigation and current scope must be obvious.
+- Page navigation, current scope, and current presentation mode (overlay vs
+  tiled pane) must be obvious.
+- Category navigation should be rendered as a stable ordered list/rail rather
+  than an ad hoc cluster of toggles so focus order and page identity stay
+  legible.
 
 **Fallback / degraded behavior**
 
@@ -203,7 +225,10 @@ Compatibility note:
 **Core rules**
 
 - Closing or exiting a control page returns focus to a deterministic prior context.
-- Control pages can be pinned, split, and reopened through normal workbench semantics.
+- Only workbench-hosted control pages can be pinned, split, and reopened
+  through normal workbench semantics.
+- Transient overlays must preserve a deterministic graph return anchor until
+  they are explicitly promoted into the workbench.
 
 **Who owns it**
 
@@ -212,10 +237,14 @@ Compatibility note:
 **State transitions**
 
 - Open, close, and switch operations affect pane and focus state, not graph identity.
+- Promoting an overlay into the workbench changes presentation mode only; it
+  does not change route identity or settings ownership.
 
 **Visual feedback**
 
 - Entry and exit should visibly preserve context.
+- Hosted control pages should become visible in the Workbench Sidebar/tree when
+  tiled; transient overlays should remain visually anchored to the graph.
 
 **Fallback / degraded behavior**
 
@@ -307,3 +336,4 @@ Compatibility note:
 5. Missing or deferred pages are explicit.
 6. Control surfaces remain accessible and diagnosable.
 7. WorkbenchProfile and workflow preset routes, scope boundaries, and persistence rules are explicit.
+8. Control pages can move between transient graph overlay and workbench-hosted pane modes without changing route identity or losing return-path semantics.

@@ -24,7 +24,7 @@ Surface columns in this checklist:
 - Floating Windows
 - Dialogs
 - Omnibar
-- Workbar
+- Graph Bar / Workbench Sidebar
 
 Status vocabulary:
 
@@ -43,7 +43,7 @@ Known-gap alignment from UX integration research:
 
 ## 2. WCAG 2.2 Level A + AA checklist
 
-| Criterion | Level | Graph Pane | Node Pane | Tool Pane | Floating Windows | Dialogs | Omnibar | Workbar | Notes |
+| Criterion | Level | Graph Pane | Node Pane | Tool Pane | Floating Windows | Dialogs | Omnibar | Graph Bar / Workbench Sidebar | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1.1.1 Non-text Content | A | Fail | Untested | Untested | Untested | Untested | Untested | Untested | Graph nodes/icons need verified text alternatives and accessible names. |
 | 1.2.1 Audio-only and Video-only (Prerecorded) | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No dedicated prerecorded media workflow is currently scoped. |
@@ -65,7 +65,7 @@ Known-gap alignment from UX integration research:
 | 1.4.11 Non-text Contrast | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Visual indicators/focus rings require contrast validation. |
 | 1.4.12 Text Spacing | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Custom spacing tolerance not yet verified. |
 | 1.4.13 Content on Hover or Focus | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Tooltip/overlay persistence and dismissibility needs testing. |
-| 2.1.1 Keyboard | A | Pass | Untested | Untested | Untested | Untested | Untested | Pass | Graph-pane baseline includes deterministic keyboard traversal (`#298`); workbar command-surface keyboard invocations (`F1`/`F2`/`F3`) have explicit test evidence; omnibar submit-dispatch helper behavior is now explicitly covered for focused-enter, queued-submit, and focus-loss guard paths (2026-03-04 addendum). |
+| 2.1.1 Keyboard | A | Pass | Untested | Untested | Untested | Untested | Untested | Pass | Graph-pane baseline includes deterministic keyboard traversal (`#298`); top-level chrome command-surface keyboard invocations (`F1`/`F2`/`F3`) have explicit test evidence; omnibar submit-dispatch helper behavior is now explicitly covered for focused-enter, queued-submit, and focus-loss guard paths (2026-03-04 addendum). |
 | 2.1.2 No Keyboard Trap | A | Pass | Untested | Untested | Pass | Untested | Untested | Untested | Host focus-cycle return-path validation is complete for graph-pane routing (`#301`); floating command overlays plus clear-confirm modal dispatch gating now have explicit shortcut-consumption regressions (radial/command palette/help/clear-confirm); input-layer capture tests verify text-input shortcut suppression/allow-list behavior including `F1`/`F2`/`F3` suppression and `F9` global survivability (2026-03-04 addendum). |
 | 2.1.4 Character Key Shortcuts | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Single-key command behavior needs remap/disable verification. Input-layer evidence now confirms single-character shortcuts (`N`, `T`, `?`) are suppressed while text input captures keyboard (2026-03-04 addendum), with broader remap/disable validation still pending. |
 | 2.2.1 Timing Adjustable | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No time-limited interaction currently declared for these surfaces. |
@@ -106,7 +106,7 @@ Known-gap alignment from UX integration research:
 
 This matrix seeds the required baseline for `#295` and follow-on implementation issues.
 
-| Environment | Screen Reader | Graph Pane | Node Pane | Tool Pane | Floating Windows | Dialogs | Omnibar | Workbar | Notes |
+| Environment | Screen Reader | Graph Pane | Node Pane | Tool Pane | Floating Windows | Dialogs | Omnibar | Graph Bar / Workbench Sidebar | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | Windows 11 | NVDA (latest) | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Primary baseline target for desktop validation. |
 | Windows 11 | Narrator | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Secondary Microsoft-native verification pass. |
@@ -115,7 +115,7 @@ This matrix seeds the required baseline for `#295` and follow-on implementation 
 
 Execution note:
 
-- First pass should prioritize known gap surfaces (Graph Pane, Workbar/focus transitions, command surfaces).
+- First pass should prioritize known gap surfaces (Graph Pane, Graph Bar / Workbench Sidebar focus transitions, command surfaces).
 - Results should be copied back into §2 statuses and linked to follow-up issues (`#298`, `#301`).
 
 ---
@@ -124,7 +124,7 @@ Execution note:
 
 - [x] D4 checklist file exists at `design_docs/graphshell_docs/design/accessibility_baseline_checklist.md`.
 - [x] Contains one row per WCAG 2.2 Level A + AA criterion with no blank status cells.
-- [x] Includes all required surface columns (graph, node, tool, floating, dialogs, omnibar, workbar).
+- [x] Includes all required surface columns (graph, node, tool, floating, dialogs, omnibar, graph bar / workbench sidebar).
 - [x] Initial screen reader test matrix is included.
 
 ---

@@ -15,6 +15,8 @@
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
+- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar split
+- `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation edges backing frame/tile-group membership; Navigator projection sections
 - `workbench_profile_and_workflow_composition_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../system/register/SYSTEM_REGISTER.md`
@@ -31,10 +33,10 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- **Navigator** (Workbench Sidebar projection) = graph-backed hierarchical projection over relation families (replaces "file tree" — see `canvas/2026-03-14_graph_relation_families.md §5`).
 - workbench = arrangement boundary.
 
-This spec owns arrangement semantics only; it must not define graph truth or file-tree content authority.
+This spec owns arrangement semantics only; it must not define graph truth or Navigator content authority.
 
 ## Contract template (inherits UX Contract Register §2A)
 
@@ -43,8 +45,9 @@ Normative workbench contracts use: intent, trigger, preconditions, semantic resu
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator (Workbench Sidebar projection) is not content truth authority — it is a read-only projection.
 - Physics presets are not camera modes.
+- "File tree" is a legacy alias — use **Navigator** in new code and docs.
 
 ---
 
@@ -95,7 +98,7 @@ For cross-app focus rules, viewer-state clarity, and app-owned tool surfaces, se
 
 1. One `GraphId` maps to one workbench context.
 2. Workbench is the persistent host for that graph context.
-3. Workbench tracks an ordered set of Frames in the workbench bar.
+3. Workbench tracks an ordered set of Frames in workbench chrome.
 4. A Frame is a persisted branch/subtree of the workbench tile tree.
 5. A Frame contains arranged Tiles.
 6. A Tile is the primary arrangeable unit (tab-like affordance; canonical term: tile).
@@ -141,7 +144,7 @@ Hierarchy:
 - The Graph subsystem may request routing into the workbench, but it does not define the
   workbench tree structure.
 - The Workbench subsystem may persist arrangement state and return-path memory, but that persistence is workspace state, not durable content hierarchy.
-- If Graphshell exposes a file-tree or other hierarchical navigator, that navigator is a Graph-owned projection and not part of workbench arrangement truth.
+- The **Navigator** (Workbench Sidebar projection), when visible, is a Graph-owned read-only projection over relation families and is not part of workbench arrangement truth.
 
 ---
 
@@ -187,13 +190,22 @@ This section defines the stable target behavior for the current workbench layer.
 
 Create and select persistent arrangement contexts for the active graph.
 
-**Core controls**: Workbench bar exposes explicit `Create Tile` and `Create Frame` actions. Bar shows frame order, active frame, and compact context metadata (e.g. tile count). Selecting a frame changes the active frame context without changing graph identity.
+**Core controls**: Workbench chrome exposes explicit `Create Tile` and
+`Create Frame` actions. In the desktop default, these actions live in the
+Workbench Sidebar header and/or frame overflow affordances. A frame
+chip/dropdown summarizes frame order and active frame, while the sidebar body
+shows the full pane tree. Selecting a frame changes the active frame context
+without changing graph identity.
 
 **Owner**: Graphshell workbench controller owns frame creation semantics, active-frame state, and persistence. `egui_tiles` may render tab strips and layout chrome, but it does not define frame meaning.
 
 **State transitions**: `Create Tile` adds a new tile in the active frame context or declared destination. `Create Frame` creates a new persistent frame context. Switching frame changes active-frame focus and visible arrangement context only.
 
-**Visual feedback**: Active frame state must be obvious. Newly created frames and tiles must be visible immediately. Frame selection changes must be legible even when underlying content is similar.
+**Visual feedback**: Active frame state must be obvious. Newly created frames
+and tiles must be visible immediately. Frame selection changes must be legible
+even when underlying content is similar. Frames and tile groups may be
+summarized compactly in chrome, but panes remain first-class rows in the
+sidebar/tree projection because they have no graph-surface equivalent.
 
 **Fallback**: If a frame or tile cannot be created, the failure must be explicit. Blank or ambiguous frame-switch outcomes are forbidden.
 
@@ -299,7 +311,10 @@ Preserve usability and context integrity when presentation surfaces disappear.
 
 Preserve both navigation meaning and structural editing meaning without conflating them.
 
-**Core controls**: Back/Forward for tile navigation history (traversal-driven); Undo/Redo for workbench structural edits (global within the active workbench context).
+**Core controls**: Back/Forward cover tile navigation history
+(traversal-driven). Structural undo/redo remains a distinct workbench-history
+concern and must never masquerade as pane navigation, regardless of where its
+eventual UI is exposed.
 
 **Owner**: Graphshell history authority owns event capture, scope, merge policy, and undo semantics. The framework may only surface history UI and preview affordances.
 
@@ -386,7 +401,7 @@ These are exploratory design directions. They are informative only and should no
 
 1. Terminology docs and active strategy docs use `Tile` as the canonical term (`tab` only as UI-affordance wording).
 2. Node double-click follows open-tile-first behavior.
-3. Workbench bar includes explicit create actions for tile and frame.
+3. Workbench chrome includes explicit create actions for tile and frame.
 4. Frame grouping, reorder, and split semantics are implemented and test-covered.
 5. Merged history (Traversal + Workbench streams) is represented in design and diagnostics.
 6. Undo preview interaction contract is documented and exposed in help/keybinding surfaces.

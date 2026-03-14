@@ -287,6 +287,7 @@ That means one history boundary spans multiple ownership layers without an expli
 - comments frame it as graph-owned projection runtime state,
 - behavior is much closer to tool/workbench projection state,
 - it is not durable graph truth and not part of workbench arrangement semantics either.
+- "file_tree" naming is superseded by the **Navigator** model (`2026-03-14_graph_relation_families.md §5`) — should be renamed to `navigator_projection_state` or similar.
 
 **Target owner**:
 
@@ -294,7 +295,7 @@ That means one history boundary spans multiple ownership layers without an expli
 
 **Next action**:
 
-- reclassify it explicitly during the session/UI split.
+- reclassify it explicitly during the session/UI split; rename to `navigator_projection_state` at the same time.
 
 ---
 

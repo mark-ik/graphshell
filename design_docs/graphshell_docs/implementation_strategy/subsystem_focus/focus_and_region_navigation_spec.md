@@ -22,7 +22,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
 Focus routing respects these ownership boundaries and must not reassign semantic ownership across them.
@@ -34,7 +34,7 @@ Normative focus contracts use: intent, trigger, preconditions, semantic result, 
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator is not content truth authority.
 - Physics presets are not camera modes.
 
 ---
@@ -304,7 +304,7 @@ This section is the canonical deterministic mapping used for predictability clos
 
 | Region | Semantic owner | Local focus owner | Selection authority | Return-path anchor |
 |---|---|---|---|---|
-| Workbench Chrome | Focus router | Workbar/toolbar widgets | None | Active Frame root |
+| Workbench Chrome | Focus router | Graph Bar / Workbench Sidebar widgets | None | Active Frame root |
 | Active Graph Pane | Focus router | Graph canvas interaction target | Active `GraphViewId` | Last focused graph pane |
 | Node/Content Pane | Focus router | Viewer widget/webview local focus | Node-pane bound graph context | Parent tile slot |
 | Tool Pane | Focus router | Tool pane controls | Tool-defined (non-graph) | Previously active region |

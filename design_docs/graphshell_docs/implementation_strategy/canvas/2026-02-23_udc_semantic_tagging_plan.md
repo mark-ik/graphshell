@@ -70,6 +70,9 @@ A custom force added to the physics engine that runs alongside Fruchterman-Reing
     - UDC parse path (`udc:519.6`)
     - label-first search query hit (`math` -> includes `51`)
     - reconcile dirty-flag/index update + stale key pruning behavior.
+- Selected-node enrichment now shows semantic tag status/provenance text, suggestion rationale, and semantic placement-anchor context.
+- Graph search/filter now honors hierarchical `udc_classes` semantics for UDC-shaped queries (`udc:51` matches descendant classes such as `udc:519.6`).
+- A visible semantic graph payoff now exists in the current Graph View via `ViewDimension::ThreeD { z_source: UdcLevel }`, exposed from the selected-node enrichment card as a UDC depth view action.
 - Remaining Phase 1 work is dataset breadth + richer provider routing beyond MVP defaults.
 
 1.  **Implement `KnowledgeRegistry`**:

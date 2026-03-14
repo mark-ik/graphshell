@@ -13,6 +13,7 @@
 - `../workbench/WORKBENCH.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../workbench/pane_chrome_and_promotion_spec.md`
+- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../system/register/canvas_registry_spec.md`
 - `../system/register/workbench_surface_registry_spec.md`
@@ -22,7 +23,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
 This spec governs view/pane interaction contracts without collapsing graph truth into workbench structure.
@@ -34,7 +35,7 @@ Normative multi-view contracts use: intent, trigger, preconditions, semantic res
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator is not content truth authority.
 - Physics presets are not camera modes.
 
 ---
@@ -79,6 +80,11 @@ Each graph view pane has a stable `GraphViewId`. `GraphViewId` is the canonical 
 - Per-view layout/physics state (local simulation state for this view only).
 
 `GraphViewId` is generated at pane creation and persisted as part of the frame snapshot. It does not change when the pane is moved, split, or reordered.
+
+Desktop chrome tie-in: `GraphViewId` is the identity named by the Graph Bar's
+target chip, lens/dimension controls, and graph-view slot strip. Workbench
+chrome may host panes that present a `GraphViewId`, but it does not own
+`GraphViewId` semantics.
 
 ### 3.2 Per-View Camera
 
@@ -139,6 +145,9 @@ Guardrails:
 - Active (non-archived) slots must have unique `(row, col)` coordinates.
 - Move/restore into occupied coordinates must reject or auto-place deterministically.
 - Archiving does not delete graph content; it only removes active slot visibility.
+- Active non-archived slots are surfaced as compact selectors in the Graph Bar;
+  the full row/column manager remains a graph-surface workflow, not a
+  workbench-sidebar responsibility.
 
 ### 5.3 Routing to workbench panes
 
@@ -147,6 +156,8 @@ Routing from manager to pane hosting is explicit:
 - `GraphIntent::RouteGraphViewToWorkbench { view_id, mode }` emits
   `WorkbenchIntent::OpenGraphViewPane { view_id, mode }`.
 - Workbench authority opens/focuses the pane and applies split/tab mode.
+- Routed panes become visible in the Workbench Sidebar/tree projection, but the
+  Graph Bar continues to name the active graph target independently.
 - Reducer never mutates tile tree directly.
 
 ### 5.4 Persistence shape
@@ -200,6 +211,9 @@ TabGroupMetadata {
 
 - A pane belongs to at most one semantic tab group.
 - Persistence: serialized with rkyv into the frame bundle (redb). This is frame state, not WAL data — it must not appear in `LogEntry` variants.
+- `FrameTabSemantics` is also a semantic input to sidebar/tree projection per
+  `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`; the
+  projection is read-only and must not become a second semantic owner.
 
 ### 7.3 Structural Hoist / Unhoist Contract
 
@@ -239,6 +253,7 @@ When `egui_tiles::simplify()` runs and removes a tab container that has semantic
 | Slot create/rename/move/archive/restore flows are deterministic | Test: lifecycle intent sequence yields expected slot metadata |
 | Slot coordinate collision is guarded | Test: moving slot into occupied coordinates is rejected |
 | Graph-view route intent dispatches workbench pane-open intent | Test: route intent enqueues `OpenGraphViewPane` |
+| Routed graph view appears in workbench chrome projection without losing graph target identity | Test: route view to workbench -> sidebar/tree row appears while Graph Bar target remains `view_id`-stable |
 | `GraphViewId` persists across reorder | Test: reorder pane → `GraphViewId` unchanged |
 | Hoist creates `Container::Tabs` node | Test: hoist pane → tile tree contains `Container::Tabs` parent |
 | Unhoist removes container but retains semantic metadata | Test: unhoist → `TabGroupMetadata` still present in `FrameTabSemantics` |

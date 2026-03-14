@@ -64,7 +64,7 @@ PanePresentationMode =
 
 ### 3.1 Tab Bar Rendering
 
-Each Tab Group container renders a tab bar strip (the **Workbar** for frames; per-container tab strips for nested Tab Groups). The tab strip:
+Each Tab Group container renders a tab bar strip (legacy term: **Workbar** for frames; now: frame tabs in the **Workbench Sidebar** or per-container tab strips for nested Tab Groups). The tab strip:
 
 - Shows one tab entry per child tile with: title, badge strip (compact, per `../canvas/node_badge_and_tagging_spec.md §3.5`), close button.
 - Active tile's tab is highlighted.

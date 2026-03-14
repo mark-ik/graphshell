@@ -288,7 +288,7 @@ declared in the mod's `ModManifest` and must not shadow core role names.
 | Role | Semantics | AccessKit mapping |
 |------|-----------|-------------------|
 | `GraphViewLensScope` | Graph-view lens/scope projection node carrying active lens/profile/filter semantics for a `GraphViewId`. | `Group` |
-| `FileTreeProjection` | Workbench file-tree navigation projection node carrying containment source, sort/filter state, and row/selection expansion metrics. | `Tree` |
+| `FileTreeProjection` | **Legacy alias — use `NavigatorProjection` in new code.** Workbench Navigator projection node carrying active relation-family section, sort/filter state, and row/selection expansion metrics. Maps to the Workbench Sidebar Navigator section projection. | `Tree` |
 | `RouteOpenBoundary` | Workbench route/open projection node carrying pending contextual-open boundary state (context target, open-node mode, connected-open scope). | `Group` |
 
 ---
@@ -304,7 +304,7 @@ declared in the mod's `ModManifest` and must not shadow core role names.
 | `Open` | Open the node's content in a pane. | `GraphNode` |
 | `Close` | Close the associated pane or tab. | `NodePane`, `ToolPane`, `Tab` |
 | `ScrollTo` | Scroll the parent container to make this node visible. | `GraphNode`, `ListItem` |
-| `Navigate` | Move semantic navigation context within a projection or route boundary without mutating graph truth ownership. | `GraphView`, `GraphViewLensScope`, `FileTreeProjection`, `RouteOpenBoundary`, `Region` |
+| `Navigate` | Move semantic navigation context within a projection or route boundary without mutating graph truth ownership. | `GraphView`, `GraphViewLensScope`, `FileTreeProjection` (legacy) / `NavigatorProjection`, `RouteOpenBoundary`, `Region` |
 | `Expand` | Expand a collapsed region or group. | `GraphNodeGroup`, collapsible `Region` |
 | `Collapse` | Collapse an expanded region or group. | `GraphNodeGroup`, collapsible `Region` |
 
@@ -475,7 +475,7 @@ UxProbeSet continue operating.
 `AC4` — **Graph surface enrichment**
 - Graph semantic nodes carry graph-domain identity (`GraphViewId`) and graph-surface metadata derived from app/graph surface state.
 - Graph view semantic projection includes Lens/Scope state (`lens_id`, layout/physics/theme bindings, filters, dimension, fit-lock state, focused-view state).
-- Workbench semantic projection includes file-tree navigation state (containment source, sort mode, filter, row/selection expansion counts).
+- Workbench semantic projection includes Navigator projection state (active section, relation-family filter, sort mode, row/selection expansion counts). Legacy name: "file-tree navigation state".
 - Workbench semantic projection includes route/open boundary state (pending context target, pending open-node mode, pending connected-open scope).
 
 `AC5` — **Per-frame snapshot diagnostics**

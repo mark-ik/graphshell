@@ -269,7 +269,7 @@ where objects change representation based on scale. Key ZUI design principles:
 
 - **Semantic zoom**: At different zoom levels, objects show different
   representations rather than just scaling proportionally. Graphshell's LOD
-  system (Point → Compact → Standard → Detail) is exactly semantic zoom.
+  system (Point → Compact → Expanded) is exactly semantic zoom.
 - **Infinite desktop**: The graph canvas has no fixed bounds. Content appears
   directly on the surface, not in windows.
 - **Recursive nesting**: Graphshell's graph nodes can themselves contain
@@ -294,7 +294,7 @@ width. UI implications for Graphshell:
 | **Large targets** | Graph nodes should have generous hit areas, especially at Compact LOD. Edge hit areas should be wider than visual stroke width. |
 | **Short distances** | Contextual command surfaces (Search/Context/Radial Palette modes) pop up at the pointer, not at a fixed screen location. |
 | **Prime pixel** | Radial Palette Mode is centered on the activation point. Every sector is equidistant. |
-| **Magic corners** | Workbench chrome (Omnibar, Workbar) occupies screen edges, giving infinite-edge targeting in one dimension. |
+| **Magic corners** | Top-level chrome (Omnibar in the Graph Bar, Workbench Sidebar edge targets) occupies screen edges, giving infinite-edge targeting in one dimension. |
 | **Passive handlers** | Scroll/zoom event handlers should be registered as passive (no `preventDefault()`) to avoid blocking the compositor. In Graphshell, the `CanvasNavigationPolicy` scroll handler should never need to cancel default scroll behavior — it *is* the default. |
 
 ---
@@ -310,7 +310,7 @@ Graphshell has three distinct tree structures that the UX layer must relate:
 │                                                          │
 │  uxnode://workbench                                      │
 │  ├── /omnibar/location-field                             │
-│  ├── /workbar/tab[frame-0]                               │
+│  ├── /workbench-chrome/frame[frame-0]                    │
 │  ├── /tile[graph:uuid-a]/graph-canvas                    │
 │  │   ├── /node[42]   (LOD ≥ Compact only — C5)          │
 │  │   ├── /node[43]                                       │
@@ -582,7 +582,7 @@ facet navigation (context-specific binding), not camera pan, matching
 | Zoom reset | `0` | — | Reset to default zoom level |
 | Camera zoom-fit lock | `Z` | — | Toggle zoom follow-fit lock for active graph view |
 | Camera position-fit lock | `C` | — | Toggle position follow-fit lock for active graph view |
-| Zoom to node | Double-click on node | — | Center and zoom to Standard LOD for that node |
+| Zoom to node | Double-click on node | — | Center and zoom to Compact LOD for that node (zoom scale ≥ 0.55) |
 | Lock zoom to selection | `Ctrl+L` | — | Auto-fit maintains selection in viewport as graph moves |
 
 **Pointer-relative zoom**: The point under the cursor stays fixed during zoom.
@@ -740,8 +740,8 @@ muscle-memory efficiency of marking menus via keyboard.
 | Action | Primary Input | Alternate Input | WorkbenchIntent |
 |--------|--------------|----------------|-----------------|
 | Create frame from selection | `Ctrl+Shift+N` | — | Creates new Frame containing selected nodes |
-| Switch frame | Workbar click / `Ctrl+Tab` | — | Activate Frame by ordering |
-| Close frame | Workbar close button / `Ctrl+W` | — | Remove Frame |
+| Switch frame | Workbench Sidebar frame selector / `Ctrl+Tab` | — | Activate Frame by ordering |
+| Close frame | Workbench Sidebar frame action / `Ctrl+W` | — | Remove Frame |
 | Split pane horizontal | `Ctrl+Shift+H` | Drag to edge | SplitPane(Horizontal) |
 | Split pane vertical | `Ctrl+Shift+V` | Drag to edge | SplitPane(Vertical) |
 | Promote to tab | Drag node to tab bar | — | Opens node viewer as tab in target tab group |
@@ -881,10 +881,11 @@ can accept or dismiss.
 
 | LOD Level | Zoom Threshold | Node Representation | UxTree Emission |
 |-----------|---------------|---------------------|-----------------|
-| **Point** | < 0.25 | Colored dot | NOT emitted (C5) — `StatusIndicator` instead |
-| **Compact** | 0.25 – 0.6 | Label + icon badge | Emitted, minimal state |
-| **Standard** | 0.6 – 1.5 | Full label + badges + edge labels | Emitted, full state |
-| **Detail** | ≥ 1.5 | All metadata visible, preview thumbnail | Emitted, full state + metadata |
+| **Point** | < 0.55 | Colored dot | NOT emitted (C5) — `StatusIndicator` instead |
+| **Compact** | 0.55 – 1.10 | Label + icon badge | Emitted, minimal state |
+| **Expanded** | ≥ 1.10 | Full label + badges + edge labels + metadata | Emitted, full state |
+
+**Authority note**: These 3 LOD levels and thresholds are canonical per `canvas/graph_node_edge_interaction_spec.md §4.8`. The previous 4-level table (Point/Compact/Standard/Detail) is superseded. `CanvasStylePolicy` defines the thresholds; the accessibility profile may shift them to expose more nodes at lower zoom.
 
 LOD thresholds are defined in `CanvasStylePolicy` and are user-configurable
 via the Lens. The accessibility profile uses lower thresholds (more content

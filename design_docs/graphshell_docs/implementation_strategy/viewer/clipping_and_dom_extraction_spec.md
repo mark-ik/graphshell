@@ -1,7 +1,7 @@
 # Clipping and DOM Extraction — Interaction Spec
 
 **Date**: 2026-02-28
-**Status**: Canonical interaction contract
+**Status**: Canonical interaction contract, pending inspector-mode rewrite completion
 **Priority**: Implementation-ready
 
 **Related**:
@@ -27,15 +27,19 @@
 
 This spec defines the canonical contracts for:
 
-1. **Context menu event** — `GraphSemanticEvent::ContextMenu` and its trigger path across supported web backends.
-2. **Script injection contract** — how DOM extraction is performed via `EmbedderApi`.
-3. **Clip node data model** — the `#clip` tag, address scheme, and edge semantics.
-4. **Graph rendering of clip nodes** — how clip nodes appear in the canvas.
-5. **Backend capability contract** — how Servo and Wry expose clipping uniformly.
+1. **Context-menu / contextual-surface adapter contract** — how backend context actions feed Graphshell-owned inspection surfaces.
+2. **Script injection contract** — how DOM extraction is performed for single-element clip and inspector-candidate discovery.
+3. **Exploded inspector projection contract** — how the page's element structure is represented as a temporary inspectable Graphshell projection.
+4. **Inspector-first interaction contract** — how users filter/select page elements before clip-node creation.
+5. **Clip node data model** — the `#clip` tag, address scheme, and edge semantics after explicit materialization.
+6. **Graph rendering of clip nodes** — how clip nodes appear in the canvas.
+7. **Backend capability contract** — how Servo and Wry expose clipping uniformly.
 
 ---
 
-## 2. Context Menu Event Contract
+## 2. Context Menu / Contextual Surface Contract
+
+**Compatibility note (2026-03-13):** the older `GraphSemanticEvent::ContextMenu` model below is now historical/speculative rather than current runtime architecture. Current Servo-backed runtime uses `Dialog::ContextMenu` as an adapter seam and opens Graphshell-owned inspector/clip surfaces from there. The long-term invariant remains the same: browser-native context meaning must be surfaced through Graphshell command/inspection authority rather than a separate browser UX.
 
 ### 2.1 Trigger Path
 
@@ -65,9 +69,12 @@ ContextMenuHit =
 
 **Invariant**: `ContextMenuHit` is determined by Servo at event time. Graphshell must not re-derive hit information from DOM queries after the event arrives — the hit data in the event is authoritative.
 
-### 2.3 Clip Action in Context Menu
+### 2.3 Inspector and Clip Actions
 
-The Graphshell context menu includes a "Clip selection" item when `ContextMenuHit::Text { selected: Some(_) }` is present, and a "Clip image" item when `ContextMenuHit::Image` is present.
+The Graphshell contextual surface includes:
+
+- a direct "Clip Element" action for one-step capture
+- an "Inspect Page Elements" action that opens a Graphshell-owned inspector surface with filtering/search before node creation
 
 Activating a clip action emits a `ClipContent` intent:
 
@@ -83,27 +90,27 @@ ClipKind =
   | FullPage
 ```
 
-**Invariant**: `ClipContent` is the only intent that creates clip nodes. No code path other than `ClipContent` intent processing may create a `NodeState` with `#clip` tag.
+**Refactor note (2026-03-13):** current runtime implementation has not yet been normalized to a formal `ClipContent` intent. Clip node creation currently occurs through Graphshell app mutation helpers fed by inspector/clip extraction results. The design intent remains that clip creation semantics must converge behind one authoritative action contract.
 
 ---
 
 ## 3. Script Injection Contract
 
-For `FullPage` clip kind and for cases where richer DOM structure is needed beyond what `ContextMenuHit` provides, Graphshell uses `EmbedderApi` to inject a script into the active page.
+For single-element clip and for inspector-candidate discovery, Graphshell uses backend JS evaluation against the active page.
 
-### 3.1 EmbedderApi::inject_script
+### 3.1 Backend JS Evaluation Contract
 
 ```text
-EmbedderApi::inject_script(
-    node_key: NodeKey,
+ViewerBackend::evaluate_javascript(
+    webview_id: WebViewId,
     script: &str,
-    callback: impl Fn(ScriptResult) + Send + 'static,
+    callback: impl Fn(JsonResult) + Send + 'static,
 )
 ```
 
-- `script` is a JavaScript string injected into the page's top-level frame.
+- `script` is a JavaScript string evaluated in the page's top-level frame.
 - `callback` receives the serialized return value as a JSON string.
-- Injection is asynchronous; the callback runs on the embedder event thread.
+- Evaluation is asynchronous; the callback runs on the embedder event thread.
 
 **Invariant**: Scripts injected via `EmbedderApi` must be read-only. They must not mutate page DOM state, submit forms, or initiate navigation. Violations are a security bug.
 
@@ -118,14 +125,22 @@ The injection contract is backend-neutral at the Graphshell boundary:
 
 Backend-specific API names may differ; behavior at the Graphshell contract boundary must match §3.1.
 
-### 3.2 DOM Extraction Script
+### 3.2 DOM Extraction Scripts
 
-For full-page clipping, the injected script:
-1. Serializes the visible text content of the page (inner text, not raw HTML).
-2. Extracts `<meta>` tags (title, description, og:*, twitter:*).
-3. Returns a JSON object with keys: `title`, `description`, `text`, `url`.
+Current runtime uses two script classes:
+1. **Single-element clip** — resolves the target with `document.elementFromPoint(...)` and returns one serialized element payload.
+2. **Inspector candidate discovery** — scores salient page regions (`article`, `section`, `figure`, headings, images, etc.), deduplicates them, and returns a bounded array of candidate element payloads.
 
-The callback stores the JSON result as the clip node's content body (see §4.2).
+Each payload currently includes:
+- `source_url`
+- `page_title`
+- `clip_title`
+- `outer_html`
+- `text_excerpt`
+- `tag_name`
+- `href`
+- `image_url`
+- `dom_path`
 
 **Invariant**: The extraction script does not exfiltrate cookies, localStorage, or any credential data. It reads only publicly visible page content.
 
@@ -148,7 +163,72 @@ pub trait ViewerClipProvider {
 
 ---
 
-## 4. Clip Node Data Model Contract
+## 4. Exploded Inspector Projection Contract
+
+The exploded inspector is not just a list of clip candidates. The canonical direction is a temporary **Graphshell projection of the document element tree** for the active page.
+
+### 4.1 Base Topology
+
+The underlying browser structure is the rendered document element tree:
+- parent/child relationships
+- sibling ordering
+- attributes and text content
+- rendered footprint (bounds, overlap, visibility)
+
+### 4.2 Graphshell Projection
+
+Graphshell may project that tree into a temporary graph for inspection. The base projection is structural, but Graphshell may add semantic/grouping edges that turn the temporary projection into a DAG:
+- structural parent/child edges
+- repeated-component grouping edges
+- semantic-role grouping (`content`, `media`, `nav`, `comments`, etc.)
+- provenance edges to durable clip nodes created from inspected elements
+
+**Invariant**: the exploded inspector projection is temporary inspection state, not durable graph mutation by default. Entering inspector mode must not permanently materialize the entire page element tree into the user's graph.
+
+### 4.3 Extraction Layers
+
+Inspector outputs should be understood through four extraction layers:
+- **Structural extract**: HTML fragment plus relationships/metadata
+- **Semantic extract**: the meaningful content unit Graphshell thinks the element represents
+- **Layout-aware extract**: element plus bounding box / page-context placement
+- **Contextual extract**: element plus preserved surrounding page state
+
+Clip fidelity modes (`Clean`, `Contextual`, `Screenshot Note`, `Offline Slice`) are packaging choices built on top of these extraction layers.
+
+---
+
+## 5. Inspector-First Interaction Contract
+
+Before clip-node creation, Graphshell may open an inspector surface over the extracted candidate set.
+
+Current runtime initial slice:
+- search query
+- category filter (`All`, `Text`, `Link`, `Image`, `Structure`, `Media`)
+- explicit "Clip Selected" and "Clip Filtered" actions
+- in-situ highlight overlay
+- stacked-element traversal under pointer
+
+Deferred canonical inspector behavior:
+- ancestor/descendant stepping
+- temporary exploded element-tree projection view
+- contextual-palette parity with the rest of Graphshell command surfaces
+
+**Invariant**: multi-element page discovery must not force immediate node creation. Users need an inspection/filtering step before Graphshell materializes a batch of clip nodes.
+
+---
+
+## 6. Clip Node Data Model Contract
+
+### 5.0 Clip Fidelity Modes
+
+Clip materialization is not limited to a single content shape. The canonical direction is a family of locally stored clip modes:
+
+- **Clean**: extracted DOM element(s) only
+- **Contextual**: extracted DOM element(s) plus preserved page-context backdrop
+- **Screenshot Note**: screenshot/raster capture used as a note background
+- **Offline Slice**: richer local package combining semantic element payloads, backdrop, and supporting metadata/assets
+
+**Invariant**: the semantic foreground element(s) and the contextual backdrop are distinct capture layers. Graphshell must be able to preserve element semantics without requiring a screenshot, and preserve visual context without collapsing the semantic payload into raster-only form.
 
 ### 4.1 NodeState and Tag
 
@@ -194,7 +274,7 @@ Edge {
 
 ---
 
-## 5. Graph Rendering of Clip Nodes
+## 7. Graph Rendering of Clip Nodes
 
 ### 5.1 Visual Style
 
@@ -230,12 +310,14 @@ Clip nodes use `ClipViewer` (see `universal_content_model_spec.md §6`). `ClipVi
 
 ---
 
-## 6. Acceptance Criteria
+## 8. Acceptance Criteria
 
 | Criterion | Verification |
 |-----------|-------------|
-| Browser native context menu suppressed in web viewer tile | Test: right-click in Servo/Wry tile → no browser context menu shown |
-| `GraphSemanticEvent::ContextMenu` emitted on right-click | Test: right-click in Servo/Wry tile → `ContextMenu` event in event stream with correct `node_key` and `hit` |
+| Browser native context meaning bridged into Graphshell-owned actions | Test: right-click in Servo/Wry tile → Graphshell action surface appears rather than a standalone browser UX path |
+| Inspector action opens Graphshell-owned selection surface | Test: invoke "Inspect Page Elements" → inspector window shows extracted candidates |
+| Pointer-stack inspection works in situ | Test: move pointer over nested/stacked page content → inspector highlight can step through stacked elements |
+| Entering exploded inspector does not mutate the user graph by default | Test: open inspector/exploded view → no durable graph nodes created until explicit clip action |
 | Clip node address is `graphshell://clip/<uuid>` | Test: create clip → node address matches scheme |
 | `#clip` tag is system-managed and non-removable by user | Test: attempt to remove `#clip` tag via tag panel → tag remains |
 | Clip content stored locally, no external transmission | Architecture invariant: no outbound network calls during `ClipContent` intent processing |
@@ -244,4 +326,4 @@ Clip nodes use `ClipViewer` (see `universal_content_model_spec.md §6`). `ClipVi
 | Clipping contract is backend-neutral | Test: clip actions route through capability surface with both Servo and Wry implementations |
 | `ClipViewer` selected for `GraphshellClip` address | Test: clip node → `ViewerRegistry::select` returns `ClipViewer` |
 | "Delete clip" removes content and node | Test: delete clip → `graphshell://clip/<uuid>` address no longer resolves; node gone |
-| `ClipContent` is the only clip node creator | Architecture invariant: no `#clip`-tagged node creation outside `ClipContent` intent handler |
+| Inspector batch discovery does not force immediate node creation | Test: invoke inspector → no clip nodes appear until user chooses "Clip Selected" or "Clip Filtered" |

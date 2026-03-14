@@ -28,7 +28,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- **Navigator** (Workbench Sidebar projection) = graph-backed hierarchical projection over relation families.
 - workbench = arrangement boundary.
 
 This spec defines viewer-surface presentation semantics and must not redefine graph-truth or workbench-arrangement ownership.
@@ -40,8 +40,9 @@ Normative viewer contracts use: intent, trigger, preconditions, semantic result,
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator (Workbench Sidebar projection) is not content truth authority.
 - Physics presets are not camera modes.
+- "File tree" is a legacy alias — use **Navigator** in new code and docs.
 
 ---
 

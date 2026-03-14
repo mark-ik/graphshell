@@ -21,7 +21,7 @@ Policy alignment:
 - Floating Windows
 - Dialogs
 - Omnibar
-- Workbar
+- Graph Bar / Workbench Sidebar
 
 ## Waiver Entries
 

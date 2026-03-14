@@ -15,6 +15,8 @@
 - `2026-02-23_udc_semantic_tagging_plan.md`
 - `../system/register/canvas_registry_spec.md`
 - `../system/register/physics_profile_registry_spec.md`
+- `2026-03-14_graph_relation_families.md` — relation family vocabulary and `FamilyPhysicsPolicy` (§6.1); supersedes edge-type-based force assumptions
+- `2026-03-14_canvas_behavior_contract.md` — canonical physics scenario assertions for this spec's contracts
 
 ---
 
@@ -82,7 +84,7 @@ Applies weak attraction toward the centroid of nodes sharing the same eTLD+1.
 
 ## 4. Frame-Affinity Organizational Behavior Contract (Legacy Alias: Magnetic Zones)
 
-Terminology rule for this section: historical `Zone`/`MagneticZone` wording is retained only as a legacy alias. Canonical organizational framing is frame-affinity behavior under graph-first frame semantics.
+Terminology rule for this section: historical `Zone`/`MagneticZone` wording is retained only as a legacy alias. Canonical organizational framing is frame-affinity behavior under graph-first frame semantics. The forthcoming `ArrangementRelation` / `frame-member` edge model (see `2026-03-14_graph_relation_families.md §2.4`) will replace `GraphFrame.member_nodes` as the authoritative membership store; frame-affinity force magnitude will be governed by `FamilyPhysicsPolicy.arrangement_weight` rather than per-region `strength` parameters.
 
 ### 4.1 Data Model
 
@@ -148,16 +150,27 @@ Frame-affinity backdrops render as derived bounds/hulls of member nodes + paddin
 
 ### 5.1 Data Model
 
-`LensConfig` carries one optional field:
+`LensConfig` carries two optional fields relevant to physics:
 
 ```
 LensConfig {
     physics_profile_id: Option<PhysicsProfileId>,   -- None = no binding
+    family_physics: Option<FamilyPhysicsPolicy>,    -- None = all weights at default (1.0/0.0)
     // …existing fields…
+}
+
+FamilyPhysicsPolicy {
+    semantic_weight:     f32,  -- default 1.0
+    traversal_weight:    f32,  -- default 0.0
+    containment_weight:  f32,  -- default 0.0
+    arrangement_weight:  f32,  -- default 0.5
+    imported_weight:     f32,  -- always 0.0
 }
 ```
 
-`None` means the Lens has no physics opinion; the current active profile is preserved on Lens apply.
+`physics_profile_id = None` means the Lens has no physics opinion; the current active profile is preserved on Lens apply.
+
+`family_physics = None` means default family weights (Semantic active at 1.0; all others at default). When a lens activates a containment or traversal view, it sets the corresponding weight to 1.0 and Semantic to its configured value (often still 1.0 — family weights compose, not replace). See `2026-03-14_graph_relation_families.md §6.1` for the canonical `FamilyPhysicsPolicy` definition.
 
 ### 5.2 Binding Preference
 

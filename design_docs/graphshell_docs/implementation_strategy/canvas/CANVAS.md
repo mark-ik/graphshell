@@ -7,6 +7,10 @@
 **Related**:
 
 - `graph_node_edge_interaction_spec.md`
+- `2026-03-14_graph_relation_families.md` — canonical relation family vocabulary, persistence tiers, navigator projection
+- `2026-03-14_canvas_behavior_contract.md` — canonical physics scenarios and computable behavioral invariants
+- `2026-03-14_edge_visual_encoding_spec.md` — per-family edge stroke, color, opacity, and interaction affordances
+- `2026-03-14_edge_operability_matrix.md` — per-family operability gap analysis and priority order
 - `workbench_frame_tile_interaction_spec.md`
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`

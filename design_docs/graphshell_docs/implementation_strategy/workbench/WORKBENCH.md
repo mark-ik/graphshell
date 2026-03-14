@@ -10,6 +10,8 @@
 - `graph_node_edge_interaction_spec.md`
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`
+- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — chrome split authority: WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar
+- `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation as graph-edge backing for frame/tile-group membership
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §3.5)):
 - **WCAG 2.2 Level AA** — tile/pane interactive elements must meet SC 2.5.8 minimum target size; focus order within the tile tree must follow SC 2.4.3; focus appearance must meet SC 2.4.11
@@ -40,10 +42,15 @@ The Workbench owns arrangement truth and presentation hosting:
 - destination selection after routing is requested
 - visible arrangement context
 - workbench-level focus handoff
+- **Workbench Sidebar** (navigator, viewer controls, pane tree) — see `2026-03-13_chrome_scope_split_plan.md`
 
 The Workbench is the canonical owner of where content is shown.
 
 It is not the owner of graph identity, graph topology, or graph semantic truth.
+
+**Chrome visibility** is governed by `WorkbenchLayerState` (`GraphOnly`, `GraphOverlayActive`, `WorkbenchActive`, `WorkbenchPinned`) — a derived state machine computed each frame. The Workbench Sidebar is visible only when the state is `WorkbenchActive` or `WorkbenchPinned`. The **Graph Bar** (search, lens chips, zoom controls) is separate from the Workbench Sidebar and persists across all states. See `subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md §7–8`.
+
+**Frame membership** is graph-backed: frame/tile-group membership is stored as `ArrangementRelation` edges in the graph, not as workbench-only data structures. The workbench reads these edges to render the tile tree and navigator. Mutating frame membership emits `GraphIntent`s that assert or retract `ArrangementRelation` edges. See `canvas/2026-03-14_graph_relation_families.md §2.4`.
 
 ---
 

@@ -12,6 +12,7 @@
 - `../PLANNING_REGISTER.md` §0, §0.10
 - `../../../registries/atomic/lens/registry.rs` — LensRegistry, LensDefinition, LENS_ID_SEMANTIC_OVERLAY
 - `../viewer/node_lifecycle_and_runtime_reconcile_spec.md` — NodeLifecycle four-state model
+- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — default Graph Bar + Workbench Sidebar chrome projection
 
 ---
 
@@ -391,6 +392,11 @@ The canonical UX/accessibility projection layer consumes this output as a read-o
 **Authority boundary**: The compositor emits `TileAffordanceAnnotation` as an output of Pass 3 dispatch. The canonical UX/accessibility projection layer is the consumer and remains responsible for producing AccessKit-facing state. The compositor does not know what AccessKit does with the annotation.
 
 **Scope note**: This does not replace AccessKit's own focus tracking for keyboard navigation, and it does not replace the canonical UxTree / UX semantics authority path. `TileAffordanceAnnotation` is an enrichment signal describing what Pass 3 actually rendered, not the primary a11y semantic input.
+
+**Chrome tie-in**: The same post-dispatch affordance summary is also the right
+read-only source for Workbench Sidebar row/header badges in the default chrome
+model. That consumption should flow through the canonical UX/chrome projection
+layer rather than giving the compositor ownership of workbench chrome semantics.
 
 ### Acceptance criteria
 

@@ -343,10 +343,12 @@ Register canonical workbench actions:
 | `workbench:split_vertical` | `{ pane_id }` | `WorkbenchIntent::SplitPane(Vertical)` |
 | `workbench:close_pane` | `{ pane_id }` | `WorkbenchIntent::ClosePane { pane, restore_previous_focus: true }` |
 | `workbench:command_palette_open` | — | `WorkbenchIntent::OpenCommandPalette` |
-| `workbench:settings_open` | — | `WorkbenchIntent::OpenToolPane(Settings)` |
+| `workbench:settings_pane_open` | — | `WorkbenchIntent::OpenToolPane(Settings)` |
+| `workbench:settings_overlay_open` | — | `WorkbenchIntent::OpenSettingsUrl(verso://settings/general)` |
+| `workbench:settings_open` | — | Legacy alias for `workbench:settings_pane_open` |
 
 **Done gates:**
-- [ ] All 5 workbench actions registered.
+- [ ] All 7 workbench actions registered.
 - [ ] Workbench intents are routed to the workbench authority, not the graph reducer.
 - [ ] `log::warn!` emitted if a workbench intent is mistakenly sent to `apply_reducer_intents()`.
   (This is the SYSTEM_REGISTER "silent no-op" gap fix.)

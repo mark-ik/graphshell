@@ -107,7 +107,9 @@ The runtime `ActionRegistry` (action.rs) currently registers:
 - `workbench:split_vertical`
 - `workbench:close_pane`
 - `workbench:command_palette_open`
-- `workbench:settings_open`
+- `workbench:settings_pane_open`
+- `workbench:settings_overlay_open`
+- `workbench:settings_open` (legacy alias for `workbench:settings_pane_open`)
 - `verse:pair_device`
 - `verse:sync_now`
 - `verse:share_workspace`

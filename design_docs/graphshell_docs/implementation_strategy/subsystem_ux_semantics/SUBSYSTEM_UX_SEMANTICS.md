@@ -14,6 +14,7 @@
 - `../subsystem_diagnostics/2026-02-26_test_infrastructure_improvement_plan.md` (T1/T2 infrastructure — Phase 0 prerequisite)
 - `PLANNING_REGISTER.md`
 - `2026-03-08_unified_ux_semantics_architecture_plan.md`
+- `2026-03-13_chrome_scope_split_plan.md` (Graph Bar + Workbench Sidebar split chrome architecture — affects §4.2 UxTree build order and the top-level Graph Bar / Workbench chrome landmark split)
 
 **Policy authority**: This file is the single canonical policy authority for the UX Semantics subsystem.
 Supporting UX-semantics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -113,7 +114,7 @@ These must hold at every observable app state. Violations emit on `ux:structural
 |----|-----------|----------|
 | `N1` | The focus traversal graph (implied by `tab_index` ordering within each region) contains no cycles within a single modal context. | Error |
 | `N2` | From every open `Dialog`, the `UxAction::Dismiss` action is reachable within ≤ 10 Tab/arrow steps. | Error |
-| `N3` | Top-level landmark regions (`GraphView`, `NodePane`, `ToolPane`, Toolbar) are each reachable via F6 cycling in ≤ `region_count` steps. | Warn |
+| `N3` | Top-level landmark regions (`GraphBar`, `WorkbenchChrome`, `GraphView`, `NodePane`, `ToolPane`) are each reachable via F6 cycling in ≤ `region_count` steps. | Warn |
 | `N4` | Tab traversal from the focused node visits all `enabled = true` interactive widgets in the current modal context before returning to the start. | Warn |
 
 ### 3.3 State Machine Invariants (M-series)
@@ -199,22 +200,27 @@ The builder runs in the egui frame loop, after tile layout, before render. It is
 read-only projection — it does not modify app state.
 
 Build order:
-1. Walk `Gui::tiles_tree` (`egui_tiles::Tree<TileKind>`).
-2. Emit workbench-level landmarks: omnibar (`OmnibarField`), workbar (Tab region),
-   status bar (`StatusBar`).
-3. For each `TileKind::Graph(GraphViewId)`: emit a `GraphView` region. For each
+1. Read the active chrome projection plus `Gui::tiles_tree`
+   (`egui_tiles::Tree<TileKind>`).
+2. Emit top-level chrome landmarks in focus order: Graph Bar (`Toolbar`),
+   Workbench chrome/sidebar (`WorkbenchChrome`) when present, status bar
+   (`StatusBar`) when present.
+3. Walk `Gui::tiles_tree`.
+4. For each `TileKind::Graph(GraphViewId)`: emit a `GraphView` region. For each
    graph node at LOD ≥ Compact, emit a `GraphNode` child.
-4. For each `TileKind::Node(NodePaneState)`: emit a `NodePane` region with:
+5. For each `TileKind::Node(NodePaneState)`: emit a `NodePane` region with:
    - Navigation bar sub-region (back/forward buttons, location field).
    - Viewer area sub-region (role reflects `TileRenderMode`).
    - Overlay affordances sub-region (visible focus/selection indicators).
-5. For each `TileKind::Tool(ToolPaneState)`: emit a `ToolPane` region with
+6. For each `TileKind::Tool(ToolPaneState)`: emit a `ToolPane` region with
    subsystem-specific children.
-6. Collect all open dialogs as `Dialog` nodes.
-7. If the radial menu is open, emit the `radial-menu` subtree (8 `RadialSector` children).
-8. Assign `UxNodeId` paths using stable app identity sources.
-9. Derive `UxState` from: `NodeLifecycle`, `TileRenderMode`, focus state, dialog open state.
-10. Cache built tree for the frame duration.
+7. Collect all open dialogs as `Dialog` nodes.
+8. If the radial menu is open, emit the `radial-menu` subtree (8 `RadialSector`
+   children).
+9. Assign `UxNodeId` paths using stable app identity sources.
+10. Derive `UxState` from: `NodeLifecycle`, `TileRenderMode`, focus state,
+    dialog open state.
+11. Cache built tree for the frame duration.
 
 ### 4.3 Stability Guarantee
 

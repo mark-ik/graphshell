@@ -4,11 +4,11 @@
 
 # Node Badge and Tagging Plan (2026-02-20)
 
-**Status**: In Progress (Partially Implemented) — updated 2026-03-12 for compositor integration, GUI decomposition, `#focus` disambiguation, and current runtime state
+**Status**: In Progress (Partially Implemented) — updated 2026-03-13 for node-owned tag migration follow-through, compositor integration, GUI decomposition, and `#focus` disambiguation
 
 **Prerequisites**:
 - Persistence hub Phase 1 tag actions and runtime tag storage.
-- Current runtime reality: tags are stored in `workspace.semantic_tags`, not directly on `Node`.
+- Current runtime reality: canonical membership now lives on `Node.tags`; presentation ordering and icon choice are still missing.
 - A follow-up presentation metadata layer is required for durable per-tag icon choice and user-visible ordering.
 
 This plan covers the visual and interactive layers on top of that data model, plus the missing presentation metadata needed to make icon assignment and ordering durable.
@@ -182,7 +182,7 @@ In the detail-view tab bar, each tab header shows a compact badge row to the rig
 
 The original version of this plan assumed that tag order and icon choice could be layered directly on top of a plain set of tag strings. That is no longer sufficient.
 
-Current runtime storage (`workspace.semantic_tags`) can answer "does this node have tag X?" but it cannot durably answer:
+Current runtime storage can answer "does this node have tag X?" through `Node.tags`, but it still cannot durably answer:
 
 - which user tag should render first,
 - which icon the user assigned to a user-defined tag,
@@ -201,7 +201,7 @@ pub struct NodeTagPresentationState {
 
 This is intentionally presentation-only:
 
-- canonical membership remains the canonical tag set during the transition; today that is `workspace.semantic_tags`, but Phase 1.6 migrates ownership onto `Node.tags`
+- canonical membership remains the canonical tag set on `Node.tags`
 - system tags keep fixed icons and do not use overrides
 - user-defined tags may use `icon_overrides`
 - `ordered_tags` provides stable user-visible ordering when present
@@ -232,13 +232,13 @@ If no presentation metadata exists for a node, rendering falls back to determini
 
 ### Phase 1.6: Canonical Tag Ownership Migration
 
-The current runtime stores canonical tag membership in `workspace.semantic_tags`. That carrier is now considered a temporary bridge, not the correct long-term owner.
+Canonical tag ownership migration is now landed in code: `Node.tags` is the canonical durable tag set and the former `workspace.semantic_tags` mirror has been removed.
 
-Canonical tag truth should live on the node itself.
+Canonical tag truth now lives on the node itself.
 
 #### 1.6.1 Target Ownership
 
-- `Node.tags` becomes the canonical durable tag set.
+- `Node.tags` is the canonical durable tag set.
 - `workspace.semantic_index` remains a derived cache.
 - `workspace.suggested_semantic_tags` remains a non-canonical suggestion surface.
 - `workspace.tag_panel_state` remains transient UI state.
@@ -247,7 +247,7 @@ This aligns tags with their actual meaning: tags are node-associated metadata, n
 
 #### 1.6.2 Migration Strategy
 
-The migration should be staged so read paths can move before the old mirror is deleted.
+The migration was staged so read paths could move before the old mirror was deleted. The remaining work in this section is validation/documentation follow-through rather than ownership design.
 
 **Step 1 — Add tags to `Node`**
 
@@ -309,17 +309,16 @@ Update these families to read node-owned tags (preferably through helper APIs):
 
 #### Tasks
 
-- [ ] Add tags to `Node`.
-- [ ] Add helper read APIs that prefer node-owned tags.
-- [ ] Change `TagNode` / `UntagNode` reducers to write both node tags and `workspace.semantic_tags` temporarily.
-- [ ] Change all readers to use node tags.
-- [ ] Change `reconcile_semantics()` to iterate nodes, not `workspace.semantic_tags`.
-- [ ] Remove the temporary mirror field `workspace.semantic_tags`.
-- [ ] Update tests and snapshot compatibility as needed.
+- [x] Add tags to `Node`.
+- [x] Add helper read APIs that prefer node-owned tags.
+- [x] Change `TagNode` / `UntagNode` reducers to write node tags.
+- [x] Change all core readers to use node tags.
+- [x] Change `reconcile_semantics()` to iterate nodes, not `workspace.semantic_tags`.
+- [x] Remove the temporary mirror field `workspace.semantic_tags`.
+- [x] Update tests and snapshot compatibility as needed.
 
 #### Validation Tests
 
-- `test_tag_node_dual_write_bridge_updates_node_tags_and_workspace_mirror`
 - `test_badge_and_registry_reads_prefer_node_owned_tags`
 - `test_reconcile_semantics_rebuilds_from_node_tags`
 - `test_workspace_semantic_tags_removed_without_behavior_regression`
@@ -530,6 +529,13 @@ Badge state (tags, lifecycle, Crashed, `#unread`) is rendered in two separate co
 | **Tile-level overlay** | Workbench pane tile (Pass 3) | Compositor / `CompositorAdapter` | Lifecycle border treatment, focus/selection rings, recovery affordance badge |
 
 These are not the same thing. A node's graph-canvas badge orbit shows user-applied tags at the canvas level. A tile's Pass 3 border shows lifecycle state at the workbench level. Both can be visible simultaneously for the same node (if the canvas and a node-pane tile are visible at once).
+
+Chrome-scope tie-in: per `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`,
+graph-scope semantic filter chips belong in the Graph Bar, while pane runtime
+status (backend, degraded, blocked, loading) belongs in Workbench Sidebar
+rows/header. Node badges remain canvas/tab-level semantic output; they should
+not drift into generic toolbar chrome except as explicitly derived status
+signals.
 
 ### 4.2 `badges_for_node()` as Shared Semantic Resolver
 

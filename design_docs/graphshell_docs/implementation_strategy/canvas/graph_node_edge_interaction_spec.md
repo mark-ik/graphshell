@@ -18,6 +18,9 @@
 - `2026-02-23_graph_interaction_consistency_plan.md`
 - `../design/KEYBINDINGS.md`
 - `../../TERMINOLOGY.md`
+- `2026-03-14_graph_relation_families.md` — relation family vocabulary; Navigator replaces "file tree" as the hierarchical projection surface
+- `2026-03-14_edge_visual_encoding_spec.md` — per-family visual encoding and interaction affordances
+- `2026-03-14_edge_operability_matrix.md` — per-family operability contract
 
 **Adopted standards** (see [standards report](../../research/2026-03-04_standards_alignment_report.md) §§3.3, 3.5, 3.6):
 
@@ -29,7 +32,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- **Navigator** = the Workbench Sidebar body section projecting graph relations into a section-structured tree (replaces "file tree" — see `2026-03-14_graph_relation_families.md §5`).
 - workbench = arrangement boundary.
 
 This spec defines graph-surface semantics and must not redefine workbench arrangement ownership.
@@ -41,8 +44,9 @@ Normative graph contracts use: intent, trigger, preconditions, semantic result, 
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator (Workbench Sidebar projection) is not content truth authority — it is a read-only projection over graph relation families.
 - Physics presets are not camera modes.
+- "File tree" is a legacy alias — use **Navigator** in new code and docs.
 
 ---
 
@@ -71,7 +75,7 @@ This spec governs:
 - `Node`
 - `Edge`
 - `Canvas`
-- file-tree / hierarchical navigation when used as a graph-backed projection
+- **Navigator** (Workbench Sidebar hierarchical projection over graph relation families) — see `2026-03-14_graph_relation_families.md §5`
 - camera and selection semantics inside the graph pane
 - the user-facing contract of the graph structure subsystem
 
@@ -102,15 +106,15 @@ The graph surface is composed of four primary interactive layers:
 4. **Edge**
    - the relationship or traversal surface between nodes
 
-When the file tree is present, it is a graph-backed hierarchical navigation projection over the same content model rather than a separate content-truth authority.
+When the **Navigator** (Workbench Sidebar projection) is active, it is a section-structured hierarchical projection over graph relation families — not a separate content-truth authority. It reads graph edges and renders them as a tree; it does not own graph identity or topology.
 
 ### 2.2 What each layer is for
 
 - **Graph Pane**: the semantic navigation and manipulation surface for graph work.
 - **Canvas**: the continuous space users pan, zoom, lasso, and inspect.
 - **Node**: the primary content entity users act on.
-- **Edge**: the relationship surface users inspect and, when defined, traverse.
-- **File Tree (when present)**: a lower-complexity hierarchical navigator over a designated containment relation in the graph.
+- **Edge**: the relationship surface users inspect and, when defined, traverse. Edges have families (Semantic, Traversal, Containment, Arrangement, Imported) — see `2026-03-14_graph_relation_families.md`.
+- **Navigator (Workbench Sidebar)**: a section-structured hierarchical projection over graph relation families. Sections: Workbench (arrangement), Folders (containment/user-folder), Domain (containment/derived), Unrelated, Recent (traversal), Imported.
 
 ### 2.3 Ownership model
 
@@ -122,7 +126,7 @@ When the file tree is present, it is a graph-backed hierarchical navigation proj
   - lasso meaning,
   - node activation policy,
   - graph-to-workbench routing.
-- The file tree, when present, is a navigation projection over graph-backed items and must not become the owner of graph identity.
+- The Navigator (Workbench Sidebar projection), when active, is a read-only projection over graph relation families and must not become the owner of graph identity.
 
 ### 2.4 Subsystem boundary
 
@@ -164,7 +168,7 @@ Graph interactions fall into five semantic categories:
 - Modifier-click adjusts the current selection set.
 - Double click activates the target's primary action.
 - If a target has no defined activation behavior, double click is a no-op beyond maintaining selection or inspection state.
-- Hierarchical navigation actions, when invoked through a file-tree projection, must resolve through the same graph identity and routing rules as canvas-originated actions.
+- Hierarchical navigation actions, when invoked through the Navigator projection, must resolve through the same graph identity and routing rules as canvas-originated actions.
 
 ### 3.3 Canonical guarantees
 
@@ -175,7 +179,7 @@ The graph surface must make these user expectations reliable:
 - node activation routes through Graphshell open policy,
 - graph gestures do not silently fight each other,
 - blocked or degraded behavior is explicit rather than silent,
-- file-tree navigation and graph-canvas navigation resolve to the same underlying graph-backed identities.
+- Navigator (Workbench Sidebar) navigation and graph-canvas navigation resolve to the same underlying graph-backed identities.
 
 ---
 

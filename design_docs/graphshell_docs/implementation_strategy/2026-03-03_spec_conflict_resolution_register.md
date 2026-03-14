@@ -68,7 +68,7 @@ Decision: internal address scheme implementation is a precondition for fully clo
 2. `graph_first_frame_semantics_spec.md`
    - Current path: `implementation_strategy/workbench/graph_first_frame_semantics_spec.md`
    - Add frame address semantics (`graphshell://frame/<FrameId>` original spec basis; `verso://frame/<FrameId>` runtime canonical alias).
-   - Reconcile MagneticZone vs frame-affinity wording (define subtype/relationship explicitly).
+   - ~~Reconcile MagneticZone vs frame-affinity wording~~ — **Resolved 2026-03-14**: `MagneticZone` is deprecated as a legacy alias; canonical model is `ArrangementRelation` / `frame-member` edges + frame-affinity backdrop rendering. See `canvas/2026-03-14_graph_relation_families.md §2.4` and updated TERMINOLOGY.md Legacy section.
 
 3. `subsystem_history/edge_traversal_spec.md`
    - Current path: `implementation_strategy/subsystem_history/edge_traversal_spec.md`

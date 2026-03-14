@@ -10,6 +10,8 @@
 - `history_timeline_and_temporal_navigation_spec.md`
 - `2026-02-20_edge_traversal_impl_plan.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
+- `../canvas/2026-03-14_graph_relation_families.md` — relation family vocabulary; `TraversalDerived` and `AgentDerived` are the Traversal and Semantic/agent families respectively; `EdgeKindSet` is additive (forthcoming: `Hyperlink`, `ContainmentRelation`, `ArrangementRelation`, `ImportedRelation`)
+- `../canvas/2026-03-14_edge_visual_encoding_spec.md` — supersedes §4 visual rendering table; canonical per-family stroke style
 - `../../../TERMINOLOGY.md` — `Traversal`, `Edge Traversal History`, `EdgePayload`, `EdgeType`, `AgentRegistry`
 
 ---
@@ -41,14 +43,21 @@ EdgePayload {
 }
 
 EdgeKindSet = one or more of:
-  | UserGrouped       -- explicit user-created connection
-  | TraversalDerived  -- implicit; created by navigation event
-  | AgentDerived      -- implicit; created by an AgentRegistry agent recommendation
+  | UserGrouped       -- explicit user-created connection (Semantic family)
+  | Hyperlink         -- link-follow navigation asserted edge (Semantic family, always durable)
+  | TraversalDerived  -- implicit; created by navigation event (Traversal family)
+  | AgentDerived      -- implicit; created by AgentRegistry recommendation (Semantic/agent)
+  -- forthcoming:
+  | ContainmentRelation { sub_kind }  -- URL hierarchy, domain, folder, clip-source
+  | ArrangementRelation { sub_kind }  -- frame-member, tile-group, split-pair
+  | ImportedRelation                  -- graph import provenance
 ```
 
 **Invariant**: Display-only computations (dominant direction, stroke width) are derived from `EdgePayload` at render time. They must not be stored in `EdgePayload`.
 
-**Multi-kind invariant**: `UserGrouped` and `TraversalDerived` may coexist on the same node pair. The union represents an edge that is both user-asserted and traversal-active. Rendering priority when both are present is defined in §4.1.
+**Family note**: `EdgeKindSet` maps to the relation families defined in `canvas/2026-03-14_graph_relation_families.md`. Currently implemented: `UserGrouped`, `Hyperlink`, `TraversalDerived`, `AgentDerived` (Semantic and Traversal families). Forthcoming families are additive; this set is open. Visual encoding for all families: `canvas/2026-03-14_edge_visual_encoding_spec.md`.
+
+**Multi-kind invariant**: Any two kinds may coexist on the same node pair. The union represents an edge carrying multiple relation types. Rendering priority when multiple kinds are present follows `2026-03-14_edge_visual_encoding_spec.md §4` (primary stroke = highest-priority family; secondary dot indicator for additional kinds).
 
 ### 2.2 EdgeKind Rules
 
@@ -199,16 +208,19 @@ Archive operations:
 
 The render layer derives edge visuals from `EdgePayload`. It does not define traversal truth.
 
+**Authority note**: The canonical per-family visual encoding (stroke style, color tokens, opacity, directionality, multi-kind priority, hover/selection affordances) is now defined in `canvas/2026-03-14_edge_visual_encoding_spec.md`. The table in §4.1 below covers Traversal and Semantic family specifics; the full multi-family encoding is authoritative in that spec.
+
 ### 4.1 Traversal-Aware Edge Rendering
 
 | EdgePayload state | Visual |
 |-------------------|--------|
-| `TraversalDerived` only, 1 traversal | Thin solid line; direction arrow |
-| `TraversalDerived` only, N traversals | Stroke width proportional to log(N); direction arrow toward dominant direction |
-| `UserGrouped` only | Distinct style (e.g., dashed or colored); no direction arrow |
-| `UserGrouped` + `TraversalDerived` | `UserGrouped` base style dominates; traversal stroke-width and direction arrow applied as modifiers on top |
-| `AgentDerived` only | Low-opacity style (fading with time elapsed since assert); no direction arrow |
-| `AgentDerived` + `TraversalDerived` | `TraversalDerived` style takes over fully; opacity restored; decay halted |
+| `TraversalDerived` only, 1 traversal | Dashed blue stroke (`edge.traversal` token); direction arrow on dominant direction |
+| `TraversalDerived` only, N traversals | Stroke width proportional to `traversal_bonus`; direction arrow toward dominant direction |
+| `Hyperlink` only | Solid gray stroke (`edge.semantic.hyperlink`); arrowhead on hover only |
+| `UserGrouped` only | Solid bold amber stroke (`edge.semantic.grouped`); no direction arrow |
+| `UserGrouped` + `TraversalDerived` | `UserGrouped` base style dominates (highest priority); traversal secondary dot indicator at midpoint |
+| `AgentDerived` only | Muted violet solid thin stroke (`edge.semantic.agent`); opacity `lerp(0.55, 0.15, decay_progress)` |
+| `AgentDerived` + `TraversalDerived` | `TraversalDerived` style takes over as primary; opacity restored; decay halted |
 
 **Dominant direction**: Computed at render time from directional aggregates in `metrics`.
 
@@ -220,7 +232,7 @@ Canonical rule:
 
 This avoids dependence on full traversal history and remains correct after rolling-window eviction.
 
-**Multi-kind rendering priority**: When multiple kinds are present, the base visual style is determined by the highest-priority kind present: `UserGrouped` > `TraversalDerived` > `AgentDerived`. Traversal-derived modifiers (stroke width, direction arrow) are applied on top of the base style whenever `TraversalDerived` is in the set, regardless of what the base style is.
+**Multi-kind rendering priority**: Highest-priority kind determines the primary stroke. Priority order (per `2026-03-14_edge_visual_encoding_spec.md §4`): `UserGrouped` > `ContainmentRelation/user-folder` > `Hyperlink` > `AgentDerived` > `TraversalDerived` > other containment > `ArrangementRelation` > `ImportedRelation`. Additional kinds beyond the primary are shown as a secondary midpoint dot in the secondary family's color token.
 
 ### 4.2 Edge Focus vs Traversal Invariants (Canvas/History parity)
 

@@ -14,10 +14,10 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- file tree = graph-backed hierarchical projection.
+- `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
-This registry owns arrangement policy and must not redefine graph truth or file-tree semantic ownership.
+This registry owns arrangement policy and must not redefine graph truth or Navigator semantic ownership.
 
 ## Contract template (inherits UX Contract Register §2A)
 
@@ -26,7 +26,7 @@ Normative workbench-surface contracts use: intent, trigger, preconditions, seman
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- File tree is not content truth authority.
+- Navigator is not content truth authority.
 - Physics presets are not camera modes.
 
 ## Registry Policies
