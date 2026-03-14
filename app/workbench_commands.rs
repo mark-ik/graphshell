@@ -3,7 +3,7 @@ use egui_tiles::{Tile, TileId, Tree};
 use euclid::default::Point2D;
 use uuid::Uuid;
 
-use crate::graph::NodeKey;
+use crate::graph::{ArrangementSubKind, EdgeType, NodeKey};
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -127,7 +127,11 @@ impl GraphBrowserApp {
             "Tile Group".to_string(),
             self.workbench_group_position(&member_node_keys),
         );
-        self.replace_internal_surface_membership_edges(group_key, &member_node_keys);
+        self.replace_internal_surface_membership_edges(
+            group_key,
+            &member_node_keys,
+            ArrangementSubKind::TileGroup,
+        );
         Some(group_key)
     }
 
@@ -150,7 +154,11 @@ impl GraphBrowserApp {
             name.to_string(),
             self.workbench_group_position(&member_node_keys),
         );
-        self.replace_internal_surface_membership_edges(frame_key, &member_node_keys);
+        self.replace_internal_surface_membership_edges(
+            frame_key,
+            &member_node_keys,
+            ArrangementSubKind::FrameMember,
+        );
         frame_key
     }
 
@@ -179,24 +187,25 @@ impl GraphBrowserApp {
         &mut self,
         container_key: NodeKey,
         member_node_keys: &[NodeKey],
+        sub_kind: ArrangementSubKind,
     ) {
-        let existing_members: Vec<NodeKey> = self
+        let existing_members: Vec<(NodeKey, EdgeType)> = self
             .domain_graph()
             .edges()
             .filter(|edge| {
-                edge.edge_type == crate::graph::EdgeType::UserGrouped && edge.from == container_key
+                edge.from == container_key
+                    && matches!(
+                        edge.edge_type,
+                        EdgeType::UserGrouped | EdgeType::ArrangementRelation(_)
+                    )
             })
-            .map(|edge| edge.to)
+            .map(|edge| (edge.to, edge.edge_type))
             .collect();
-        for member_key in existing_members {
-            let _ = self.remove_edges_and_log(
-                container_key,
-                member_key,
-                crate::graph::EdgeType::UserGrouped,
-            );
+        for (member_key, edge_type) in existing_members {
+            let _ = self.remove_edges_and_log(container_key, member_key, edge_type);
         }
         for member_key in member_node_keys {
-            self.add_user_grouped_edge_if_missing(container_key, *member_key, None);
+            self.add_arrangement_relation_if_missing(container_key, *member_key, sub_kind);
         }
     }
 

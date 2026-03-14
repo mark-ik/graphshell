@@ -399,6 +399,7 @@ fn edge_type_label(edge_type: crate::graph::EdgeType) -> &'static str {
         crate::graph::EdgeType::Hyperlink => "hyperlink",
         crate::graph::EdgeType::History => "history",
         crate::graph::EdgeType::UserGrouped => "user_grouped",
+        crate::graph::EdgeType::ArrangementRelation(sub_kind) => sub_kind.as_tag(),
     }
 }
 

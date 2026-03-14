@@ -8,7 +8,7 @@ use egui::{RichText, SidePanel};
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
 
 use crate::app::{GraphBrowserApp, GraphViewId, WorkbenchIntent};
-use crate::graph::NodeKey;
+use crate::graph::{ArrangementSubKind, NodeKey};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
@@ -43,8 +43,23 @@ pub(crate) struct WorkbenchChromeProjection {
     pub(crate) layer_state: WorkbenchLayerState,
     pub(crate) active_pane_title: Option<String>,
     pub(crate) saved_frame_names: Vec<String>,
+    pub(crate) navigator_groups: Vec<WorkbenchNavigatorGroup>,
     pub(crate) pane_entries: Vec<WorkbenchPaneEntry>,
     pub(crate) tree_root: Option<WorkbenchChromeNode>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkbenchNavigatorGroup {
+    pub(crate) title: String,
+    pub(crate) sub_kind: ArrangementSubKind,
+    pub(crate) members: Vec<WorkbenchNavigatorMember>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkbenchNavigatorMember {
+    pub(crate) node_key: NodeKey,
+    pub(crate) title: String,
+    pub(crate) is_selected: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +119,35 @@ impl WorkbenchChromeProjection {
             .iter()
             .find(|entry| entry.is_active)
             .map(|entry| entry.title.clone());
+        let navigator_groups = graph_app
+            .arrangement_projection_groups()
+            .into_iter()
+            .map(|group| WorkbenchNavigatorGroup {
+                title: match group.sub_kind {
+                    ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
+                    ArrangementSubKind::TileGroup => format!("Tile Group: {}", group.title),
+                    ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
+                },
+                sub_kind: group.sub_kind,
+                members: group
+                    .member_keys
+                    .into_iter()
+                    .filter_map(|node_key| {
+                        let node = graph_app.domain_graph().get_node(node_key)?;
+                        let title = if node.title.trim().is_empty() {
+                            node.url.clone()
+                        } else {
+                            node.title.clone()
+                        };
+                        Some(WorkbenchNavigatorMember {
+                            node_key,
+                            title,
+                            is_selected: graph_app.focused_selection().contains(&node_key),
+                        })
+                    })
+                    .collect(),
+            })
+            .collect();
         let tree_root = tiles_tree
             .root()
             .and_then(|root| build_tree_node(graph_app, tiles_tree, root, active_pane));
@@ -111,6 +155,7 @@ impl WorkbenchChromeProjection {
             layer_state,
             active_pane_title,
             saved_frame_names,
+            navigator_groups,
             pane_entries,
             tree_root,
         }
@@ -330,6 +375,30 @@ pub(crate) fn render_workbench_sidebar(
                 });
                 ui.separator();
 
+                if !projection.navigator_groups.is_empty() {
+                    ui.heading("Navigator");
+                    for group in &projection.navigator_groups {
+                        let header = egui::CollapsingHeader::new(
+                            RichText::new(&group.title).small().strong(),
+                        )
+                        .id_salt(("workbench_sidebar_navigator", &group.title))
+                        .default_open(true);
+                        header.show(ui, |ui| {
+                            for member in &group.members {
+                                let response = ui.selectable_label(
+                                    member.is_selected,
+                                    RichText::new(&member.title).small(),
+                                );
+                                if response.clicked() {
+                                    post_panel_action =
+                                        Some(SidebarAction::SelectNode(member.node_key));
+                                }
+                            }
+                        });
+                    }
+                    ui.separator();
+                }
+
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if let Some(root) = projection.tree_root.as_ref() {
                         render_tree_node(ui, root, 0, &mut post_panel_action);
@@ -348,6 +417,7 @@ pub(crate) fn render_workbench_sidebar(
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SidebarAction {
     FocusPane(PaneId),
+    SelectNode(NodeKey),
     SplitPane(PaneId, SplitDirection),
     ClosePane(PaneId),
     OpenTool(ToolPaneState),
@@ -443,6 +513,9 @@ fn apply_sidebar_action(
     match action {
         SidebarAction::FocusPane(pane_id) => {
             let _ = tile_view_ops::focus_pane(tiles_tree, pane_id);
+        }
+        SidebarAction::SelectNode(node_key) => {
+            graph_app.select_node(node_key, false);
         }
         SidebarAction::SplitPane(source_pane, direction) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::SplitPane {
@@ -703,5 +776,38 @@ mod tests {
             }
             other => panic!("expected split root, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn projection_includes_arrangement_navigator_groups() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let left_node = app.add_node_and_sync(
+            "https://example.com/left".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let right_node = app.add_node_and_sync(
+            "https://example.com/right".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let left = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(left_node)));
+        let right = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(right_node)));
+        let left_tabs = tiles.insert_tab_tile(vec![graph, left]);
+        let right_tabs = tiles.insert_tab_tile(vec![right]);
+        let root = tiles.insert_horizontal_tile(vec![left_tabs, right_tabs]);
+        let tree = Tree::new("workbench_sidebar_navigator_groups", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-alpha", &tree);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(projection.navigator_groups.len(), 1);
+        assert_eq!(projection.navigator_groups[0].sub_kind, ArrangementSubKind::FrameMember);
+        assert_eq!(projection.navigator_groups[0].members.len(), 3);
+        assert!(projection.navigator_groups[0].title.contains("workspace-alpha"));
     }
 }

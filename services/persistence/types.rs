@@ -87,6 +87,9 @@ pub enum PersistedEdgeType {
     Hyperlink,
     History,
     UserGrouped,
+    ArrangementFrameMember,
+    ArrangementTileGroup,
+    ArrangementSplitPair,
 }
 
 /// Persisted traversal trigger classification (v1 scope).

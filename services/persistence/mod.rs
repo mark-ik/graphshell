@@ -1359,6 +1359,21 @@ impl GraphStore {
                         types::ArchivedPersistedEdgeType::UserGrouped => {
                             crate::graph::EdgeType::UserGrouped
                         }
+                        types::ArchivedPersistedEdgeType::ArrangementFrameMember => {
+                            crate::graph::EdgeType::ArrangementRelation(
+                                crate::graph::ArrangementSubKind::FrameMember,
+                            )
+                        }
+                        types::ArchivedPersistedEdgeType::ArrangementTileGroup => {
+                            crate::graph::EdgeType::ArrangementRelation(
+                                crate::graph::ArrangementSubKind::TileGroup,
+                            )
+                        }
+                        types::ArchivedPersistedEdgeType::ArrangementSplitPair => {
+                            crate::graph::EdgeType::ArrangementRelation(
+                                crate::graph::ArrangementSubKind::SplitPair,
+                            )
+                        }
                     };
                     let _ = apply_graph_delta(
                         graph,
@@ -1390,6 +1405,21 @@ impl GraphStore {
                         }
                         types::ArchivedPersistedEdgeType::UserGrouped => {
                             crate::graph::EdgeType::UserGrouped
+                        }
+                        types::ArchivedPersistedEdgeType::ArrangementFrameMember => {
+                            crate::graph::EdgeType::ArrangementRelation(
+                                crate::graph::ArrangementSubKind::FrameMember,
+                            )
+                        }
+                        types::ArchivedPersistedEdgeType::ArrangementTileGroup => {
+                            crate::graph::EdgeType::ArrangementRelation(
+                                crate::graph::ArrangementSubKind::TileGroup,
+                            )
+                        }
+                        types::ArchivedPersistedEdgeType::ArrangementSplitPair => {
+                            crate::graph::EdgeType::ArrangementRelation(
+                                crate::graph::ArrangementSubKind::SplitPair,
+                            )
                         }
                     };
                     let _ = apply_graph_delta(

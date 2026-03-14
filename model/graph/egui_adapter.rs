@@ -709,6 +709,7 @@ impl GraphNodeShape {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum GraphEdgeVisualStyle {
+    Hidden,
     Hyperlink,
     History,
     UserGrouped,
@@ -825,6 +826,7 @@ impl GraphEdgeShape {
         aggregate: LogicalPairTraversalAggregate,
     ) {
         self.style = style;
+        self.hidden = style == GraphEdgeVisualStyle::Hidden;
         self.traversal_total_count = aggregate.total_count;
         self.dominant_direction_cue = aggregate.dominant_cue;
     }
@@ -836,6 +838,7 @@ impl GraphEdgeShape {
             0.0
         };
         match self.style {
+            GraphEdgeVisualStyle::Hidden => (Color32::TRANSPARENT, 0.0),
             GraphEdgeVisualStyle::Hyperlink => (Color32::from_gray(160), 1.4 + traversal_bonus),
             GraphEdgeVisualStyle::History => {
                 (Color32::from_rgb(120, 180, 210), 1.8 + traversal_bonus)
@@ -849,6 +852,10 @@ impl GraphEdgeShape {
             GraphEdgeVisualStyle::UserGrouped
         } else if payload.has_kind(EdgeKind::TraversalDerived) {
             GraphEdgeVisualStyle::History
+        } else if payload.has_kind(EdgeKind::Hyperlink) {
+            GraphEdgeVisualStyle::Hyperlink
+        } else if payload.has_kind(EdgeKind::ArrangementRelation) {
+            GraphEdgeVisualStyle::Hidden
         } else {
             GraphEdgeVisualStyle::Hyperlink
         }
@@ -1018,6 +1025,14 @@ fn aggregate_logical_pair_traversals(
         || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::TraversalDerived))
     {
         GraphEdgeVisualStyle::History
+    } else if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::Hyperlink))
+        || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::Hyperlink))
+    {
+        GraphEdgeVisualStyle::Hyperlink
+    } else if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::ArrangementRelation))
+        || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::ArrangementRelation))
+    {
+        GraphEdgeVisualStyle::Hidden
     } else {
         GraphEdgeVisualStyle::Hyperlink
     };

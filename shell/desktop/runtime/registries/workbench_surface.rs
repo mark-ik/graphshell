@@ -1050,10 +1050,16 @@ mod tests {
         let group_node = tile_group_nodes[0].1;
         assert_eq!(group_node.title, "Tile Group");
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::UserGrouped && edge.from == group_key && edge.to == left
+            edge.edge_type == EdgeType::ArrangementRelation(
+                crate::graph::ArrangementSubKind::TileGroup,
+            ) && edge.from == group_key
+                && edge.to == left
         }));
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::UserGrouped && edge.from == group_key && edge.to == right
+            edge.edge_type == EdgeType::ArrangementRelation(
+                crate::graph::ArrangementSubKind::TileGroup,
+            ) && edge.from == group_key
+                && edge.to == right
         }));
     }
 
@@ -1095,8 +1101,9 @@ mod tests {
             })
             .expect("tile group node should be created");
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::UserGrouped
-                && edge.from == group_key
+            edge.edge_type == EdgeType::ArrangementRelation(
+                crate::graph::ArrangementSubKind::TileGroup,
+            ) && edge.from == group_key
                 && edge.to == view_member_key
         }));
     }

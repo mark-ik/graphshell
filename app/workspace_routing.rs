@@ -1,6 +1,73 @@
 use super::*;
+use crate::graph::{ArrangementSubKind, NodeKey};
+use crate::util::VersoAddress;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrangementProjectionGroup {
+    pub container_key: NodeKey,
+    pub sub_kind: ArrangementSubKind,
+    pub id: String,
+    pub title: String,
+    pub member_keys: Vec<NodeKey>,
+}
 
 impl GraphBrowserApp {
+    pub fn arrangement_projection_groups(&self) -> Vec<ArrangementProjectionGroup> {
+        let mut groups: HashMap<(NodeKey, ArrangementSubKind), Vec<NodeKey>> = HashMap::new();
+        for edge in self.domain_graph().arrangement_edges() {
+            if self.domain_graph().get_node(edge.from).is_none()
+                || self.domain_graph().get_node(edge.to).is_none()
+            {
+                continue;
+            }
+            groups
+                .entry((edge.from, edge.sub_kind))
+                .or_default()
+                .push(edge.to);
+        }
+
+        let mut projection = groups
+            .into_iter()
+            .filter_map(|((container_key, sub_kind), mut member_keys)| {
+                let container = self.domain_graph().get_node(container_key)?;
+                let (id, title) = arrangement_group_identity(container, sub_kind)?;
+                member_keys.sort_by(|left, right| arrangement_member_sort_key(self, *left).cmp(&arrangement_member_sort_key(self, *right)));
+                member_keys.dedup();
+                Some(ArrangementProjectionGroup {
+                    container_key,
+                    sub_kind,
+                    id,
+                    title,
+                    member_keys,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        projection.sort_by(|left, right| {
+            arrangement_group_priority(left.sub_kind)
+                .cmp(&arrangement_group_priority(right.sub_kind))
+                .then_with(|| left.title.cmp(&right.title))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        projection
+    }
+
+    pub fn arrangement_frame_membership_index(&self) -> HashMap<Uuid, BTreeSet<String>> {
+        let mut index: HashMap<Uuid, BTreeSet<String>> = HashMap::new();
+        for group in self.arrangement_projection_groups() {
+            if group.sub_kind != ArrangementSubKind::FrameMember {
+                continue;
+            }
+            for member_key in group.member_keys {
+                let Some(node) = self.domain_graph().get_node(member_key) else {
+                    continue;
+                };
+                index.entry(node.id).or_default().insert(group.id.clone());
+            }
+        }
+        index
+    }
+
     pub(crate) fn apply_open_node_frame_routed(
         &mut self,
         key: NodeKey,
@@ -699,6 +766,60 @@ impl GraphBrowserApp {
             _ => None,
         }
     }
+}
+
+fn arrangement_group_priority(sub_kind: ArrangementSubKind) -> u8 {
+    match sub_kind {
+        ArrangementSubKind::FrameMember => 0,
+        ArrangementSubKind::TileGroup => 1,
+        ArrangementSubKind::SplitPair => 2,
+    }
+}
+
+fn arrangement_group_identity(
+    container: &crate::graph::Node,
+    sub_kind: ArrangementSubKind,
+) -> Option<(String, String)> {
+    match VersoAddress::parse(&container.url) {
+        Some(VersoAddress::Frame(name)) => Some((name.clone(), container_label(container, &name))),
+        Some(VersoAddress::TileGroup(group_id)) => {
+            let fallback = if sub_kind == ArrangementSubKind::TileGroup {
+                "Tile Group"
+            } else {
+                sub_kind.as_tag()
+            };
+            Some((group_id.clone(), container_label(container, fallback)))
+        }
+        _ => {
+            let fallback = sub_kind.as_tag().to_string();
+            Some((fallback.clone(), container_label(container, &fallback)))
+        }
+    }
+}
+
+fn container_label(container: &crate::graph::Node, fallback: &str) -> String {
+    let title = container.title.trim();
+    if !title.is_empty() {
+        title.to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn arrangement_member_sort_key(app: &GraphBrowserApp, key: NodeKey) -> (String, usize) {
+    let label = app
+        .domain_graph()
+        .get_node(key)
+        .map(|node| {
+            let title = node.title.trim();
+            if !title.is_empty() {
+                title.to_string()
+            } else {
+                node.url.clone()
+            }
+        })
+        .unwrap_or_else(|| format!("Node {}", key.index()));
+    (label, key.index())
 }
 
 #[cfg(test)]

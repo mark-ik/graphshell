@@ -176,6 +176,15 @@ impl GraphBrowserApp {
                 crate::graph::EdgeType::Hyperlink => PersistedEdgeType::Hyperlink,
                 crate::graph::EdgeType::History => PersistedEdgeType::History,
                 crate::graph::EdgeType::UserGrouped => PersistedEdgeType::UserGrouped,
+                crate::graph::EdgeType::ArrangementRelation(
+                    crate::graph::ArrangementSubKind::FrameMember,
+                ) => PersistedEdgeType::ArrangementFrameMember,
+                crate::graph::EdgeType::ArrangementRelation(
+                    crate::graph::ArrangementSubKind::TileGroup,
+                ) => PersistedEdgeType::ArrangementTileGroup,
+                crate::graph::EdgeType::ArrangementRelation(
+                    crate::graph::ArrangementSubKind::SplitPair,
+                ) => PersistedEdgeType::ArrangementSplitPair,
             };
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id,
@@ -212,6 +221,15 @@ impl GraphBrowserApp {
                 crate::graph::EdgeType::Hyperlink => PersistedEdgeType::Hyperlink,
                 crate::graph::EdgeType::History => PersistedEdgeType::History,
                 crate::graph::EdgeType::UserGrouped => PersistedEdgeType::UserGrouped,
+                crate::graph::EdgeType::ArrangementRelation(
+                    crate::graph::ArrangementSubKind::FrameMember,
+                ) => PersistedEdgeType::ArrangementFrameMember,
+                crate::graph::EdgeType::ArrangementRelation(
+                    crate::graph::ArrangementSubKind::TileGroup,
+                ) => PersistedEdgeType::ArrangementTileGroup,
+                crate::graph::EdgeType::ArrangementRelation(
+                    crate::graph::ArrangementSubKind::SplitPair,
+                ) => PersistedEdgeType::ArrangementSplitPair,
             };
             store.log_mutation(&LogEntry::RemoveEdge {
                 from_node_id,
@@ -426,6 +444,32 @@ impl GraphBrowserApp {
         });
         if !already_grouped {
             let _ = self.add_edge_and_sync(from, to, EdgeType::UserGrouped, label);
+        }
+    }
+
+    pub(crate) fn add_arrangement_relation_if_missing(
+        &mut self,
+        from: NodeKey,
+        to: NodeKey,
+        sub_kind: crate::graph::ArrangementSubKind,
+    ) {
+        if from == to {
+            return;
+        }
+        if self.workspace.domain.graph.get_node(from).is_none()
+            || self.workspace.domain.graph.get_node(to).is_none()
+        {
+            return;
+        }
+        let edge_type = EdgeType::ArrangementRelation(sub_kind);
+        let already_exists = self
+            .workspace
+            .domain
+            .graph
+            .edges()
+            .any(|edge| edge.edge_type == edge_type && edge.from == from && edge.to == to);
+        if !already_exists {
+            let _ = self.add_edge_and_sync(from, to, edge_type, None);
         }
     }
 

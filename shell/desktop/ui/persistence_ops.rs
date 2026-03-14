@@ -283,6 +283,8 @@ pub(crate) fn save_named_frame_bundle(
     let bundle_json = serialize_named_frame_bundle(graph_app, name, tree)?;
     graph_app.save_workspace_layout_json(name, &bundle_json);
     graph_app.sync_named_workbench_frame_graph_representation(name, tree);
+    let membership_index = build_membership_index_from_layouts(graph_app);
+    graph_app.init_membership_index(membership_index);
     Ok(())
 }
 
@@ -590,6 +592,11 @@ fn workspace_nodes_from_tree(tree: &Tree<TileKind>) -> Vec<NodeKey> {
 pub(crate) fn build_membership_index_from_layouts(
     graph_app: &GraphBrowserApp,
 ) -> HashMap<Uuid, BTreeSet<String>> {
+    let graph_backed = graph_app.arrangement_frame_membership_index();
+    if !graph_backed.is_empty() {
+        return graph_backed;
+    }
+
     let mut index: HashMap<Uuid, BTreeSet<String>> = HashMap::new();
 
     for workspace_name in graph_app.list_workspace_layout_names() {
@@ -950,10 +957,16 @@ mod tests {
             .get_node_by_url(&view_url)
             .expect("graph view member node should be created");
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::UserGrouped && edge.from == frame_key && edge.to == view_key
+            edge.edge_type == EdgeType::ArrangementRelation(
+                crate::graph::ArrangementSubKind::FrameMember,
+            ) && edge.from == frame_key
+                && edge.to == view_key
         }));
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::UserGrouped && edge.from == frame_key && edge.to == node
+            edge.edge_type == EdgeType::ArrangementRelation(
+                crate::graph::ArrangementSubKind::FrameMember,
+            ) && edge.from == frame_key
+                && edge.to == node
         }));
     }
 

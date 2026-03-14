@@ -417,6 +417,39 @@ pub enum EdgeType {
 
     /// Explicit user grouping association
     UserGrouped,
+
+    /// Workbench/layout arrangement relation.
+    ArrangementRelation(ArrangementSubKind),
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Archive,
+    Serialize,
+    Deserialize,
+)]
+#[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
+pub enum ArrangementSubKind {
+    FrameMember,
+    TileGroup,
+    SplitPair,
+}
+
+impl ArrangementSubKind {
+    pub fn as_tag(self) -> &'static str {
+        match self {
+            Self::FrameMember => "frame-member",
+            Self::TileGroup => "tile-group",
+            Self::SplitPair => "split-pair",
+        }
+    }
 }
 
 /// Canonical edge kind set entry.
@@ -427,6 +460,7 @@ pub enum EdgeKind {
     TraversalDerived,
     UserGrouped,
     AgentDerived,
+    ArrangementRelation,
 }
 
 /// Trigger classification for a traversal event.
@@ -521,12 +555,36 @@ impl TraversalData {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Default)]
+pub struct ArrangementData {
+    pub sub_kinds: BTreeSet<ArrangementSubKind>,
+}
+
+impl ArrangementData {
+    fn insert(&mut self, sub_kind: ArrangementSubKind) -> bool {
+        self.sub_kinds.insert(sub_kind)
+    }
+
+    fn remove(&mut self, sub_kind: ArrangementSubKind) -> bool {
+        self.sub_kinds.remove(&sub_kind)
+    }
+
+    fn contains(&self, sub_kind: ArrangementSubKind) -> bool {
+        self.sub_kinds.contains(&sub_kind)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.sub_kinds.is_empty()
+    }
+}
+
 /// Edge semantics payload: structural assertions + temporal traversal events.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct EdgePayload {
     pub kinds: BTreeSet<EdgeKind>,
     pub user_grouped: Option<UserGroupedData>,
     pub traversal: Option<TraversalData>,
+    pub arrangement: Option<ArrangementData>,
 }
 
 impl EdgePayload {
@@ -535,6 +593,7 @@ impl EdgePayload {
             kinds: BTreeSet::new(),
             user_grouped: None,
             traversal: None,
+            arrangement: None,
         }
     }
 
@@ -566,6 +625,13 @@ impl EdgePayload {
                 let _ = self.traversal.get_or_insert_with(TraversalData::default);
                 inserted || !had_data
             }
+            EdgeType::ArrangementRelation(sub_kind) => {
+                let inserted = self.kinds.insert(EdgeKind::ArrangementRelation);
+                let data = self
+                    .arrangement
+                    .get_or_insert_with(ArrangementData::default);
+                inserted | data.insert(sub_kind)
+            }
         }
     }
 
@@ -581,6 +647,13 @@ impl EdgePayload {
             }
             EdgeType::History => {
                 self.kinds.contains(&EdgeKind::TraversalDerived) && self.traversal.is_some()
+            }
+            EdgeType::ArrangementRelation(sub_kind) => {
+                self.kinds.contains(&EdgeKind::ArrangementRelation)
+                    && self
+                        .arrangement
+                        .as_ref()
+                        .is_some_and(|data| data.contains(sub_kind))
             }
         }
     }
@@ -604,6 +677,18 @@ impl EdgePayload {
                 self.traversal = None;
                 true
             }
+            EdgeType::ArrangementRelation(sub_kind)
+                if self
+                    .arrangement
+                    .as_mut()
+                    .is_some_and(|data| data.remove(sub_kind)) =>
+            {
+                if self.arrangement.as_ref().is_some_and(ArrangementData::is_empty) {
+                    self.arrangement = None;
+                    self.kinds.remove(&EdgeKind::ArrangementRelation);
+                }
+                true
+            }
             _ => false,
         }
     }
@@ -624,6 +709,16 @@ impl EdgePayload {
 
     pub fn traversal_data(&self) -> Option<&TraversalData> {
         self.traversal.as_ref()
+    }
+
+    pub fn arrangement_data(&self) -> Option<&ArrangementData> {
+        self.arrangement.as_ref()
+    }
+
+    pub fn has_arrangement_sub_kind(&self, sub_kind: ArrangementSubKind) -> bool {
+        self.arrangement
+            .as_ref()
+            .is_some_and(|data| data.contains(sub_kind))
     }
 
     pub fn traversals(&self) -> &[Traversal] {
@@ -660,6 +755,13 @@ pub struct EdgeView {
     pub from: NodeKey,
     pub to: NodeKey,
     pub edge_type: EdgeType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArrangementEdgeView {
+    pub from: NodeKey,
+    pub to: NodeKey,
+    pub sub_kind: ArrangementSubKind,
 }
 
 /// Main graph structure backed by petgraph::StableGraph
@@ -1376,7 +1478,33 @@ impl Graph {
                     edge_type: EdgeType::UserGrouped,
                 });
             }
+            if let Some(arrangement) = payload.arrangement_data() {
+                for sub_kind in &arrangement.sub_kinds {
+                    out.push(EdgeView {
+                        from,
+                        to,
+                        edge_type: EdgeType::ArrangementRelation(*sub_kind),
+                    });
+                }
+            }
             out.into_iter()
+        })
+    }
+
+    pub fn arrangement_edges(&self) -> impl Iterator<Item = ArrangementEdgeView> + '_ {
+        self.inner.edge_references().flat_map(|e| {
+            let from = e.source();
+            let to = e.target();
+            e.weight()
+                .arrangement_data()
+                .map(|data| {
+                    data.sub_kinds
+                        .iter()
+                        .copied()
+                        .map(move |sub_kind| ArrangementEdgeView { from, to, sub_kind })
+                })
+                .into_iter()
+                .flatten()
         })
     }
 
@@ -1615,7 +1743,7 @@ impl Graph {
                     .map(|n| n.id.to_string())
                     .unwrap_or_default();
                 let payload = edge.weight();
-                let mut persisted_edges = Vec::with_capacity(3);
+                let mut persisted_edges = Vec::with_capacity(6);
                 if payload.has_kind(EdgeKind::Hyperlink) {
                     persisted_edges.push(PersistedEdge {
                         from_node_id: from_node_id.clone(),
@@ -1634,11 +1762,31 @@ impl Graph {
                 }
                 if payload.has_kind(EdgeKind::UserGrouped) {
                     persisted_edges.push(PersistedEdge {
-                        from_node_id,
-                        to_node_id,
+                        from_node_id: from_node_id.clone(),
+                        to_node_id: to_node_id.clone(),
                         edge_type: PersistedEdgeType::UserGrouped,
                         edge_label: payload.label().map(str::to_string),
                     });
+                }
+                if let Some(arrangement) = payload.arrangement_data() {
+                    for sub_kind in &arrangement.sub_kinds {
+                        persisted_edges.push(PersistedEdge {
+                            from_node_id: from_node_id.clone(),
+                            to_node_id: to_node_id.clone(),
+                            edge_type: match sub_kind {
+                                ArrangementSubKind::FrameMember => {
+                                    PersistedEdgeType::ArrangementFrameMember
+                                }
+                                ArrangementSubKind::TileGroup => {
+                                    PersistedEdgeType::ArrangementTileGroup
+                                }
+                                ArrangementSubKind::SplitPair => {
+                                    PersistedEdgeType::ArrangementSplitPair
+                                }
+                            },
+                            edge_label: None,
+                        });
+                    }
                 }
                 persisted_edges
             })
@@ -1730,6 +1878,15 @@ impl Graph {
                     PersistedEdgeType::Hyperlink => EdgeType::Hyperlink,
                     PersistedEdgeType::History => EdgeType::History,
                     PersistedEdgeType::UserGrouped => EdgeType::UserGrouped,
+                    PersistedEdgeType::ArrangementFrameMember => {
+                        EdgeType::ArrangementRelation(ArrangementSubKind::FrameMember)
+                    }
+                    PersistedEdgeType::ArrangementTileGroup => {
+                        EdgeType::ArrangementRelation(ArrangementSubKind::TileGroup)
+                    }
+                    PersistedEdgeType::ArrangementSplitPair => {
+                        EdgeType::ArrangementRelation(ArrangementSubKind::SplitPair)
+                    }
                 };
                 let _ = graph.add_edge(from, to, edge_type, pedge.edge_label.clone());
             }
