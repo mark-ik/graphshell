@@ -399,6 +399,8 @@ pub(crate) fn render_workbench_sidebar(
                     ui.separator();
                 }
 
+                ui.label(RichText::new("Tile Tree (legacy fallback)").small().weak());
+
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if let Some(root) = projection.tree_root.as_ref() {
                         render_tree_node(ui, root, 0, &mut post_panel_action);

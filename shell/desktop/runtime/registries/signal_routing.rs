@@ -95,6 +95,7 @@ pub(crate) enum RegistryEventSignal {
     ModUnloaded { mod_id: String },
     AgentSpawned { agent_id: String },
     IdentityRotated { identity_id: String },
+    WorkbenchProjectionRefreshRequested { reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

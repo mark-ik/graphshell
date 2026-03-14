@@ -67,7 +67,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_VERSE_INIT_MODE, CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
     CHANNEL_SURFACE_CONFORMANCE_NONE, CHANNEL_SURFACE_CONFORMANCE_PARTIAL, CHANNEL_THEME_ACTIVATED,
     CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
-    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_FOCUS_CAPTURE_ENTER,
+    CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION, CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
+    CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH, CHANNEL_UX_CONTRACT_WARNING,
+    CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_FOCUS_CAPTURE_ENTER,
     CHANNEL_UX_FOCUS_CAPTURE_EXIT, CHANNEL_UX_FOCUS_REALIZATION_MISMATCH,
     CHANNEL_UX_FOCUS_RETURN_FALLBACK, CHANNEL_UX_NAVIGATION_TRANSITION,
     CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_PROBE_DISABLED, CHANNEL_UX_PROBE_REGISTERED,
@@ -546,7 +548,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 127] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 130] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -786,6 +788,21 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 127] = [
         channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
         schema_version: 1,
         severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UX_FOCUS_CAPTURE_ENTER,

@@ -298,6 +298,12 @@ pub(crate) const CHANNEL_UX_DISPATCH_CONSUMED: &str = "ux:dispatch_consumed";
 pub(crate) const CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED: &str = "ux:dispatch_default_prevented";
 pub(crate) const CHANNEL_UX_NAVIGATION_TRANSITION: &str = "ux:navigation_transition";
 pub(crate) const CHANNEL_UX_NAVIGATION_VIOLATION: &str = "ux:navigation_violation";
+pub(crate) const CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH: &str =
+    "ux:arrangement_projection_health";
+pub(crate) const CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK: &str =
+    "ux:arrangement_missing_family_fallback";
+pub(crate) const CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION: &str =
+    "ux:arrangement_durability_transition";
 pub(crate) const CHANNEL_UX_FOCUS_CAPTURE_ENTER: &str = "ux:focus_capture_enter";
 pub(crate) const CHANNEL_UX_FOCUS_CAPTURE_EXIT: &str = "ux:focus_capture_exit";
 pub(crate) const CHANNEL_UX_FOCUS_RETURN_FALLBACK: &str = "ux:focus_return_fallback";
@@ -2040,6 +2046,16 @@ impl RegistryRuntime {
         ));
     }
 
+    pub(crate) fn publish_workbench_projection_refresh_requested(&self, reason: &str) {
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::WorkbenchProjectionRefreshRequested {
+                reason: reason.to_string(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+    }
+
     #[cfg(test)]
     pub(crate) fn publish_signal_for_tests(&self, envelope: SignalEnvelope) {
         self.publish_signal(envelope);
@@ -2087,6 +2103,11 @@ pub(crate) fn phase3_publish_navigation_mime_resolved(
 pub(crate) fn phase3_publish_navigation_node_activated(key: NodeKey, uri: &str, title: &str) {
     debug_assert!(!diagnostics::phase3_required_channels().is_empty());
     runtime().publish_navigation_node_activated(key, uri, title);
+}
+
+pub(crate) fn phase3_publish_workbench_projection_refresh_requested(reason: &str) {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+    runtime().publish_workbench_projection_refresh_requested(reason);
 }
 
 pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {

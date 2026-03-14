@@ -56,7 +56,7 @@ use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::nip07_bridge;
 use crate::shell::desktop::runtime::registries::signal_routing::{
-    LifecycleSignal, SignalKind, SignalTopic,
+    LifecycleSignal, RegistryEventSignal, SignalKind, SignalTopic,
 };
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime,
@@ -200,6 +200,9 @@ pub struct Gui {
 
     /// Pending lifecycle notifications for semantic-index-driven lens refresh.
     semantic_index_signal_rx: Receiver<usize>,
+
+    /// Pending register-event notifications for workbench projection refresh.
+    workbench_projection_refresh_signal_rx: Receiver<()>,
 
     /// Tokio runtime for async background workers
     tokio_runtime: tokio::runtime::Runtime,
@@ -349,6 +352,20 @@ impl Gui {
                 }
             }
         });
+        let (workbench_projection_refresh_signal_tx, workbench_projection_refresh_signal_rx) =
+            channel();
+        let mut workbench_projection_refresh_signal_async =
+            phase3_subscribe_signal_async(SignalTopic::RegistryEvent);
+        tokio_runtime.spawn(async move {
+            while let Some(signal) = workbench_projection_refresh_signal_async.recv().await {
+                if let SignalKind::RegistryEvent(
+                    RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. },
+                ) = signal.kind
+                {
+                    let _ = workbench_projection_refresh_signal_tx.send(());
+                }
+            }
+        });
 
         Self {
             rendering_context,
@@ -403,6 +420,7 @@ impl Gui {
             diagnostics_state: diagnostics::DiagnosticsState::new(),
             registry_runtime,
             semantic_index_signal_rx,
+            workbench_projection_refresh_signal_rx,
             tokio_runtime,
             control_panel,
         }
@@ -518,6 +536,16 @@ impl Gui {
         }
         if saw_update {
             self.graph_app.refresh_registry_backed_view_lenses();
+        }
+    }
+
+    fn apply_pending_workbench_projection_refresh_updates(&mut self) {
+        let mut saw_update = false;
+        while self.workbench_projection_refresh_signal_rx.try_recv().is_ok() {
+            saw_update = true;
+        }
+        if saw_update {
+            let _ = persistence_ops::refresh_frame_membership_cache_from_manifests(&mut self.graph_app);
         }
     }
 
@@ -695,6 +723,7 @@ impl Gui {
 
     fn run_update(&mut self, input: GuiUpdateInput<'_>) -> GuiUpdateOutput {
         self.apply_pending_semantic_index_updates();
+        self.apply_pending_workbench_projection_refresh_updates();
 
         let GuiUpdateInput {
             state,

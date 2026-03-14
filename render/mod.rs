@@ -21,7 +21,7 @@ use crate::graph::badge::{Badge, BadgeVisual, badge_visuals, badges_for_node, is
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
 use crate::graph::physics::apply_graph_physics_extensions;
-use crate::graph::{NodeKey, NodeLifecycle};
+use crate::graph::{EdgeKind, EdgePayload, NodeKey, NodeLifecycle};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -52,7 +52,7 @@ use egui_graphs::{
 use euclid::default::Point2D;
 use petgraph::stable_graph::NodeIndex;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -717,7 +717,7 @@ fn draw_hovered_edge_tooltip(
     let ab_count = ab_payload.map(|p| p.traversals().len()).unwrap_or(0);
     let ba_count = ba_payload.map(|p| p.traversals().len()).unwrap_or(0);
     let total = ab_count + ba_count;
-    if total == 0 {
+    if ab_payload.is_none() && ba_payload.is_none() {
         return;
     }
 
@@ -755,21 +755,62 @@ fn draw_hovered_edge_tooltip(
         })
         .unwrap_or_else(|| "unknown".to_string());
 
+    let mut family_rows: BTreeSet<String> = BTreeSet::new();
+    for payload in [ab_payload, ba_payload].into_iter().flatten() {
+        for row in edge_family_rows(payload) {
+            family_rows.insert(row);
+        }
+    }
+
     egui::Area::new(widget_id.with("edge_hover_tooltip"))
         .order(egui::Order::Tooltip)
         .fixed_pos(pointer + Vec2::new(14.0, 14.0))
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_max_width(320.0);
-                ui.label(egui::RichText::new("Traversal Edge").strong());
+                ui.label(egui::RichText::new("Edge Inspection").strong());
                 ui.label(format!("{from_label} <-> {to_label}"));
                 ui.separator();
-                ui.label(format!("{from_label} -> {to_label}: {ab_count}"));
-                ui.label(format!("{to_label} -> {from_label}: {ba_count}"));
-                ui.label(format!("Total traversals: {total}"));
-                ui.label(format!("Latest traversal: {latest_text}"));
+                if total > 0 {
+                    ui.label(format!("{from_label} -> {to_label}: {ab_count}"));
+                    ui.label(format!("{to_label} -> {from_label}: {ba_count}"));
+                    ui.label(format!("Total traversals: {total}"));
+                    ui.label(format!("Latest traversal: {latest_text}"));
+                    ui.separator();
+                }
+                ui.label(egui::RichText::new("Family | Durability | Provenance").small());
+                for row in family_rows {
+                    ui.label(egui::RichText::new(row).small());
+                }
             });
         });
+}
+
+fn edge_family_rows(payload: &EdgePayload) -> Vec<String> {
+    let mut rows = Vec::new();
+    if payload.has_kind(EdgeKind::Hyperlink) {
+        rows.push("hyperlink | durable | graph.link_extraction".to_string());
+    }
+    if payload.has_kind(EdgeKind::TraversalDerived) {
+        rows.push("history | durable | runtime.navigation_log".to_string());
+    }
+    if payload.has_kind(EdgeKind::UserGrouped) {
+        rows.push("user-grouped | durable | user.explicit_grouping".to_string());
+    }
+    if let Some(arrangement) = payload.arrangement_data() {
+        for sub_kind in &arrangement.sub_kinds {
+            rows.push(format!(
+                "arrangement/{} | {} | {}",
+                sub_kind.as_tag(),
+                sub_kind.durability().as_tag(),
+                sub_kind.provenance()
+            ));
+        }
+    }
+    if rows.is_empty() {
+        rows.push("unknown | session | runtime.edge_probe".to_string());
+    }
+    rows
 }
 
 fn edge_endpoints_at_pointer(

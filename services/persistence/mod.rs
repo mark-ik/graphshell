@@ -1365,14 +1365,10 @@ impl GraphStore {
                             )
                         }
                         types::ArchivedPersistedEdgeType::ArrangementTileGroup => {
-                            crate::graph::EdgeType::ArrangementRelation(
-                                crate::graph::ArrangementSubKind::TileGroup,
-                            )
+                            continue;
                         }
                         types::ArchivedPersistedEdgeType::ArrangementSplitPair => {
-                            crate::graph::EdgeType::ArrangementRelation(
-                                crate::graph::ArrangementSubKind::SplitPair,
-                            )
+                            continue;
                         }
                     };
                     let _ = apply_graph_delta(
@@ -1412,14 +1408,10 @@ impl GraphStore {
                             )
                         }
                         types::ArchivedPersistedEdgeType::ArrangementTileGroup => {
-                            crate::graph::EdgeType::ArrangementRelation(
-                                crate::graph::ArrangementSubKind::TileGroup,
-                            )
+                            continue;
                         }
                         types::ArchivedPersistedEdgeType::ArrangementSplitPair => {
-                            crate::graph::EdgeType::ArrangementRelation(
-                                crate::graph::ArrangementSubKind::SplitPair,
-                            )
+                            continue;
                         }
                     };
                     let _ = apply_graph_delta(

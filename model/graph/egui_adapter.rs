@@ -713,6 +713,8 @@ enum GraphEdgeVisualStyle {
     Hyperlink,
     History,
     UserGrouped,
+    ArrangementDurable,
+    ArrangementSession,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -776,7 +778,10 @@ impl<
         } else {
             base_color
         };
-        if self.style == GraphEdgeVisualStyle::History {
+        if matches!(
+            self.style,
+            GraphEdgeVisualStyle::History | GraphEdgeVisualStyle::ArrangementSession
+        ) {
             return self.dashed_shapes(start, end, ctx, color, width);
         }
 
@@ -844,6 +849,8 @@ impl GraphEdgeShape {
                 (Color32::from_rgb(120, 180, 210), 1.8 + traversal_bonus)
             }
             GraphEdgeVisualStyle::UserGrouped => (Color32::from_rgb(236, 171, 64), 3.0),
+            GraphEdgeVisualStyle::ArrangementDurable => (Color32::from_rgb(84, 166, 114), 2.6),
+            GraphEdgeVisualStyle::ArrangementSession => (Color32::from_rgb(84, 166, 114), 2.0),
         }
     }
 
@@ -854,8 +861,10 @@ impl GraphEdgeShape {
             GraphEdgeVisualStyle::History
         } else if payload.has_kind(EdgeKind::Hyperlink) {
             GraphEdgeVisualStyle::Hyperlink
-        } else if payload.has_kind(EdgeKind::ArrangementRelation) {
-            GraphEdgeVisualStyle::Hidden
+        } else if payload.has_durable_arrangement_relation() {
+            GraphEdgeVisualStyle::ArrangementDurable
+        } else if payload.has_session_arrangement_relation() {
+            GraphEdgeVisualStyle::ArrangementSession
         } else {
             GraphEdgeVisualStyle::Hyperlink
         }
@@ -1029,10 +1038,14 @@ fn aggregate_logical_pair_traversals(
         || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::Hyperlink))
     {
         GraphEdgeVisualStyle::Hyperlink
-    } else if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::ArrangementRelation))
-        || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::ArrangementRelation))
+    } else if ab_payload.is_some_and(EdgePayload::has_durable_arrangement_relation)
+        || ba_payload.is_some_and(EdgePayload::has_durable_arrangement_relation)
     {
-        GraphEdgeVisualStyle::Hidden
+        GraphEdgeVisualStyle::ArrangementDurable
+    } else if ab_payload.is_some_and(EdgePayload::has_session_arrangement_relation)
+        || ba_payload.is_some_and(EdgePayload::has_session_arrangement_relation)
+    {
+        GraphEdgeVisualStyle::ArrangementSession
     } else {
         GraphEdgeVisualStyle::Hyperlink
     };

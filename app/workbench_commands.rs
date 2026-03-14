@@ -133,6 +133,8 @@ impl GraphBrowserApp {
             ArrangementSubKind::TileGroup,
         );
         self.emit_ux_navigation_transition();
+        self.emit_arrangement_projection_health();
+        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested("tile_group_membership_changed");
         Some(group_key)
     }
 
@@ -161,6 +163,8 @@ impl GraphBrowserApp {
             ArrangementSubKind::FrameMember,
         );
         self.emit_ux_navigation_transition();
+        self.emit_arrangement_projection_health();
+        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested("frame_membership_changed");
         frame_key
     }
 
@@ -191,6 +195,8 @@ impl GraphBrowserApp {
         member_node_keys: &[NodeKey],
         sub_kind: ArrangementSubKind,
     ) {
+        let desired_members: std::collections::HashSet<NodeKey> =
+            member_node_keys.iter().copied().collect();
         let existing_members: Vec<(NodeKey, EdgeType)> = self
             .domain_graph()
             .edges()
@@ -203,6 +209,19 @@ impl GraphBrowserApp {
             })
             .map(|edge| (edge.to, edge.edge_type))
             .collect();
+
+        if sub_kind == ArrangementSubKind::FrameMember {
+            for (member_key, edge_type) in &existing_members {
+                if !desired_members.contains(member_key) || *edge_type == EdgeType::UserGrouped {
+                    let _ = self.remove_edges_and_log(container_key, *member_key, *edge_type);
+                }
+            }
+            for member_key in member_node_keys {
+                self.promote_arrangement_relation_to_frame_membership(container_key, *member_key);
+            }
+            return;
+        }
+
         for (member_key, edge_type) in existing_members {
             let _ = self.remove_edges_and_log(container_key, member_key, edge_type);
         }

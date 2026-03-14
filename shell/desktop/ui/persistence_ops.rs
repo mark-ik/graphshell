@@ -594,8 +594,11 @@ pub(crate) fn build_membership_index_from_layouts(
 ) -> HashMap<Uuid, BTreeSet<String>> {
     let graph_backed = graph_app.arrangement_frame_membership_index();
     if !graph_backed.is_empty() {
+        graph_app.emit_arrangement_projection_health();
         return graph_backed;
     }
+
+    graph_app.emit_arrangement_missing_family_fallback();
 
     let mut index: HashMap<Uuid, BTreeSet<String>> = HashMap::new();
 

@@ -1,5 +1,8 @@
 use super::*;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION,
+    CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
+    CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH,
     CHANNEL_UX_FOCUS_CAPTURE_ENTER, CHANNEL_UX_FOCUS_CAPTURE_EXIT,
 };
 
@@ -7,6 +10,27 @@ impl GraphBrowserApp {
     pub(crate) fn emit_ux_navigation_transition(&self) {
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
+
+    pub(crate) fn emit_arrangement_projection_health(&self) {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH,
+            latency_us: 0,
+        });
+    }
+
+    pub(crate) fn emit_arrangement_missing_family_fallback(&self) {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
+            latency_us: 0,
+        });
+    }
+
+    pub(crate) fn emit_arrangement_durability_transition(&self) {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION,
             latency_us: 0,
         });
     }
@@ -52,6 +76,7 @@ impl GraphBrowserApp {
         if !was_open {
             self.emit_focus_capture_enter();
             self.emit_ux_navigation_transition();
+            crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested("settings_overlay_opened");
         }
     }
 
@@ -68,6 +93,7 @@ impl GraphBrowserApp {
         }
         self.emit_focus_capture_exit();
         self.emit_ux_navigation_transition();
+        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested("settings_overlay_closed");
     }
 
     pub fn open_settings_overlay(&mut self, page: SettingsToolPage) {

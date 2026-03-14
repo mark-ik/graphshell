@@ -442,12 +442,42 @@ pub enum ArrangementSubKind {
     SplitPair,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
+pub enum RelationDurability {
+    Durable,
+    Session,
+}
+
+impl RelationDurability {
+    pub fn as_tag(self) -> &'static str {
+        match self {
+            Self::Durable => "durable",
+            Self::Session => "session",
+        }
+    }
+}
+
 impl ArrangementSubKind {
     pub fn as_tag(self) -> &'static str {
         match self {
             Self::FrameMember => "frame-member",
             Self::TileGroup => "tile-group",
             Self::SplitPair => "split-pair",
+        }
+    }
+
+    pub fn durability(self) -> RelationDurability {
+        match self {
+            Self::FrameMember => RelationDurability::Durable,
+            Self::TileGroup | Self::SplitPair => RelationDurability::Session,
+        }
+    }
+
+    pub fn provenance(self) -> &'static str {
+        match self {
+            Self::FrameMember => "workbench.frame_snapshot",
+            Self::TileGroup => "workbench.tile_grouping",
+            Self::SplitPair => "workbench.split_pairing",
         }
     }
 }
@@ -575,6 +605,20 @@ impl ArrangementData {
 
     fn is_empty(&self) -> bool {
         self.sub_kinds.is_empty()
+    }
+
+    fn has_durable_relation(&self) -> bool {
+        self.sub_kinds
+            .iter()
+            .copied()
+            .any(|sub_kind| sub_kind.durability() == RelationDurability::Durable)
+    }
+
+    fn has_session_relation(&self) -> bool {
+        self.sub_kinds
+            .iter()
+            .copied()
+            .any(|sub_kind| sub_kind.durability() == RelationDurability::Session)
     }
 }
 
@@ -719,6 +763,18 @@ impl EdgePayload {
         self.arrangement
             .as_ref()
             .is_some_and(|data| data.contains(sub_kind))
+    }
+
+    pub fn has_durable_arrangement_relation(&self) -> bool {
+        self.arrangement
+            .as_ref()
+            .is_some_and(ArrangementData::has_durable_relation)
+    }
+
+    pub fn has_session_arrangement_relation(&self) -> bool {
+        self.arrangement
+            .as_ref()
+            .is_some_and(ArrangementData::has_session_relation)
     }
 
     pub fn traversals(&self) -> &[Traversal] {
@@ -1770,6 +1826,9 @@ impl Graph {
                 }
                 if let Some(arrangement) = payload.arrangement_data() {
                     for sub_kind in &arrangement.sub_kinds {
+                        if sub_kind.durability() != RelationDurability::Durable {
+                            continue;
+                        }
                         persisted_edges.push(PersistedEdge {
                             from_node_id: from_node_id.clone(),
                             to_node_id: to_node_id.clone(),
@@ -1882,10 +1941,10 @@ impl Graph {
                         EdgeType::ArrangementRelation(ArrangementSubKind::FrameMember)
                     }
                     PersistedEdgeType::ArrangementTileGroup => {
-                        EdgeType::ArrangementRelation(ArrangementSubKind::TileGroup)
+                        continue;
                     }
                     PersistedEdgeType::ArrangementSplitPair => {
-                        EdgeType::ArrangementRelation(ArrangementSubKind::SplitPair)
+                        continue;
                     }
                 };
                 let _ = graph.add_edge(from, to, edge_type, pedge.edge_label.clone());

@@ -181,10 +181,10 @@ impl GraphBrowserApp {
                 ) => PersistedEdgeType::ArrangementFrameMember,
                 crate::graph::EdgeType::ArrangementRelation(
                     crate::graph::ArrangementSubKind::TileGroup,
-                ) => PersistedEdgeType::ArrangementTileGroup,
+                ) => return,
                 crate::graph::EdgeType::ArrangementRelation(
                     crate::graph::ArrangementSubKind::SplitPair,
-                ) => PersistedEdgeType::ArrangementSplitPair,
+                ) => return,
             };
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id,
@@ -226,10 +226,10 @@ impl GraphBrowserApp {
                 ) => PersistedEdgeType::ArrangementFrameMember,
                 crate::graph::EdgeType::ArrangementRelation(
                     crate::graph::ArrangementSubKind::TileGroup,
-                ) => PersistedEdgeType::ArrangementTileGroup,
+                ) => return,
                 crate::graph::EdgeType::ArrangementRelation(
                     crate::graph::ArrangementSubKind::SplitPair,
-                ) => PersistedEdgeType::ArrangementSplitPair,
+                ) => return,
             };
             store.log_mutation(&LogEntry::RemoveEdge {
                 from_node_id,
@@ -462,6 +462,20 @@ impl GraphBrowserApp {
             return;
         }
         let edge_type = EdgeType::ArrangementRelation(sub_kind);
+        let has_opposite_durability = self
+            .workspace
+            .domain
+            .graph
+            .find_edge_key(from, to)
+            .and_then(|edge_key| self.workspace.domain.graph.get_edge(edge_key))
+            .and_then(|payload| payload.arrangement_data())
+            .is_some_and(|arrangement| {
+                arrangement
+                    .sub_kinds
+                    .iter()
+                    .copied()
+                    .any(|existing| existing.durability() != sub_kind.durability())
+            });
         let already_exists = self
             .workspace
             .domain
@@ -470,6 +484,68 @@ impl GraphBrowserApp {
             .any(|edge| edge.edge_type == edge_type && edge.from == from && edge.to == to);
         if !already_exists {
             let _ = self.add_edge_and_sync(from, to, edge_type, None);
+            if has_opposite_durability {
+                self.emit_arrangement_durability_transition();
+            }
+        }
+    }
+
+    pub(crate) fn promote_arrangement_relation_to_frame_membership(
+        &mut self,
+        from: NodeKey,
+        to: NodeKey,
+    ) {
+        if from == to {
+            return;
+        }
+        if self.workspace.domain.graph.get_node(from).is_none()
+            || self.workspace.domain.graph.get_node(to).is_none()
+        {
+            return;
+        }
+
+        let had_tile_group = self.workspace.domain.graph.edges().any(|edge| {
+            edge.from == from
+                && edge.to == to
+                && edge.edge_type
+                    == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup)
+        });
+        let had_split_pair = self.workspace.domain.graph.edges().any(|edge| {
+            edge.from == from
+                && edge.to == to
+                && edge.edge_type
+                    == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::SplitPair)
+        });
+        let had_frame_member = self.workspace.domain.graph.edges().any(|edge| {
+            edge.from == from
+                && edge.to == to
+                && edge.edge_type
+                    == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::FrameMember)
+        });
+
+        self.add_arrangement_relation_if_missing(
+            from,
+            to,
+            crate::graph::ArrangementSubKind::FrameMember,
+        );
+
+        if had_tile_group {
+            let _ = self.remove_edges_and_log(
+                from,
+                to,
+                EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup),
+            );
+        }
+        if had_split_pair {
+            let _ = self.remove_edges_and_log(
+                from,
+                to,
+                EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::SplitPair),
+            );
+        }
+
+        if (had_tile_group || had_split_pair) && had_frame_member {
+            self.emit_arrangement_durability_transition();
         }
     }
 
