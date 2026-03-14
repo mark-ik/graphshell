@@ -703,6 +703,7 @@ pub fn delete_workspace_layout(&mut self, name: &str) -> Result<(), String> {
         .node_workspace_membership
         .retain(|_, memberships| !memberships.is_empty());
     self.workspace.egui_state_dirty = true;
+    self.emit_ux_navigation_transition();
     Ok(())
 }
 

@@ -132,6 +132,7 @@ impl GraphBrowserApp {
             &member_node_keys,
             ArrangementSubKind::TileGroup,
         );
+        self.emit_ux_navigation_transition();
         Some(group_key)
     }
 
@@ -159,6 +160,7 @@ impl GraphBrowserApp {
             &member_node_keys,
             ArrangementSubKind::FrameMember,
         );
+        self.emit_ux_navigation_transition();
         frame_key
     }
 
