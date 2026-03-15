@@ -38,9 +38,15 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
     CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED, CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED, CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED,
     CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE, CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE,
     CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED, CHANNEL_VIEWER_FALLBACK_USED,
     CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
+    CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION, CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
+    CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH, CHANNEL_UX_NAVIGATION_TRANSITION,
+    CHANNEL_UX_NAVIGATION_VIOLATION,
 };
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
@@ -463,6 +469,188 @@ fn analyze_tracing_hotpath_latency(
     }
 }
 
+fn analyze_render_mode_health(
+    graph: &DiagnosticGraph,
+    _event_ring: &VecDeque<DiagnosticEvent>,
+    _tracing_perf_snapshot: &Value,
+) -> AnalyzerResult {
+    let composited = graph
+        .message_counts
+        .get(CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE)
+        .copied()
+        .unwrap_or(0);
+    let native = graph
+        .message_counts
+        .get(CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY)
+        .copied()
+        .unwrap_or(0);
+    let embedded = graph
+        .message_counts
+        .get(CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI)
+        .copied()
+        .unwrap_or(0);
+    let placeholder_mode = graph
+        .message_counts
+        .get(CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER)
+        .copied()
+        .unwrap_or(0);
+    let fallback_used = graph
+        .message_counts
+        .get(CHANNEL_VIEWER_FALLBACK_USED)
+        .copied()
+        .unwrap_or(0);
+    let degraded_placeholder = graph
+        .message_counts
+        .get(CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE)
+        .copied()
+        .unwrap_or(0);
+
+    let observed = composited + native + embedded + placeholder_mode;
+    if observed == 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Quiet,
+            summary: "render-mode health pending first compositor overlay mode samples".to_string(),
+        };
+    }
+
+    let (signal, status) = if degraded_placeholder > 0 {
+        (AnalyzerSignal::Alert, "placeholder degradation observed")
+    } else if fallback_used > 0 || placeholder_mode > 0 {
+        (AnalyzerSignal::Active, "fallback or placeholder mode observed")
+    } else {
+        (AnalyzerSignal::Active, "render-mode mix healthy")
+    };
+
+    AnalyzerResult {
+        signal,
+        summary: format!(
+            "{status} (comp={composited}, native={native}, embedded={embedded}, placeholder={placeholder_mode}, fallback={fallback_used})"
+        ),
+    }
+}
+
+fn analyze_signal_routing_health(
+    graph: &DiagnosticGraph,
+    _event_ring: &VecDeque<DiagnosticEvent>,
+    _tracing_perf_snapshot: &Value,
+) -> AnalyzerResult {
+    let published = graph
+        .message_counts
+        .get(CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED)
+        .copied()
+        .unwrap_or(0);
+    let unrouted = graph
+        .message_counts
+        .get(CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED)
+        .copied()
+        .unwrap_or(0);
+    let failed = graph
+        .message_counts
+        .get(CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED)
+        .copied()
+        .unwrap_or(0);
+    let lagged = graph
+        .message_counts
+        .get(CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED)
+        .copied()
+        .unwrap_or(0);
+    let queue_samples = graph
+        .message_counts
+        .get(CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH)
+        .copied()
+        .unwrap_or(0);
+    let queue_total = graph
+        .message_bytes_sent
+        .get(CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH)
+        .copied()
+        .unwrap_or(0);
+    let avg_queue_depth = if queue_samples == 0 {
+        0
+    } else {
+        queue_total / queue_samples
+    };
+
+    if published == 0 && unrouted == 0 && failed == 0 && lagged == 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Quiet,
+            summary: "signal-routing health pending first published signals".to_string(),
+        };
+    }
+
+    let (signal, status) = if failed > 0 || unrouted > 0 {
+        (AnalyzerSignal::Alert, "signal-routing failures detected")
+    } else if lagged > 0 || avg_queue_depth > 0 {
+        (AnalyzerSignal::Active, "signal-routing active with backpressure")
+    } else {
+        (AnalyzerSignal::Active, "signal-routing healthy")
+    };
+
+    AnalyzerResult {
+        signal,
+        summary: format!(
+            "{status} (published={published}, unrouted={unrouted}, failed={failed}, lagged={lagged}, avg_queue_depth={avg_queue_depth})"
+        ),
+    }
+}
+
+fn analyze_navigator_projection_health(
+    graph: &DiagnosticGraph,
+    _event_ring: &VecDeque<DiagnosticEvent>,
+    _tracing_perf_snapshot: &Value,
+) -> AnalyzerResult {
+    let nav_transition = graph
+        .message_counts
+        .get(CHANNEL_UX_NAVIGATION_TRANSITION)
+        .copied()
+        .unwrap_or(0);
+    let nav_violation = graph
+        .message_counts
+        .get(CHANNEL_UX_NAVIGATION_VIOLATION)
+        .copied()
+        .unwrap_or(0);
+    let arrangement_health = graph
+        .message_counts
+        .get(CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH)
+        .copied()
+        .unwrap_or(0);
+    let missing_family = graph
+        .message_counts
+        .get(CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK)
+        .copied()
+        .unwrap_or(0);
+    let durability = graph
+        .message_counts
+        .get(CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION)
+        .copied()
+        .unwrap_or(0);
+
+    let observed =
+        nav_transition + nav_violation + arrangement_health + missing_family + durability;
+    if observed == 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Quiet,
+            summary: "navigator projection health pending first UX navigation signals"
+                .to_string(),
+        };
+    }
+
+    let (signal, status) = if nav_violation > 0 || missing_family > 0 {
+        (AnalyzerSignal::Alert, "navigator/arrangement contract violations detected")
+    } else {
+        (
+            AnalyzerSignal::Active,
+            "navigator projection and arrangement signals healthy",
+        )
+    };
+
+    AnalyzerResult {
+        signal,
+        summary: format!(
+            "{status} (nav_transition={nav_transition}, nav_violation={nav_violation}, projection_health={arrangement_health}, missing_family={missing_family}, durability={durability})"
+        ),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct EdgeMetric {
     count: u64,
@@ -582,18 +770,54 @@ fn invoke_minimal_test_harness_entry_point() -> Result<String, String> {
     ))
 }
 
-#[cfg(feature = "diagnostics_tests")]
 #[derive(Clone, Debug)]
 struct DiagnosticsHarnessRunResult {
     passed: bool,
     summary: String,
+    receipts: Vec<DiagnosticsHarnessReceipt>,
 }
 
-#[cfg(feature = "diagnostics_tests")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiagnosticsHarnessScenario {
+    SharedLanePack,
+    RenderModeHealth,
+    SignalRoutingHealth,
+    NavigatorProjectionHealth,
+}
+
+impl DiagnosticsHarnessScenario {
+    fn id(self) -> &'static str {
+        match self {
+            Self::SharedLanePack => "shared_lane_pack",
+            Self::RenderModeHealth => "render_mode_health",
+            Self::SignalRoutingHealth => "signal_routing_health",
+            Self::NavigatorProjectionHealth => "navigator_projection_health",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::SharedLanePack => "Shared Lane Pack",
+            Self::RenderModeHealth => "Render-Mode Health",
+            Self::SignalRoutingHealth => "Signal-Routing Health",
+            Self::NavigatorProjectionHealth => "Navigator Projection Health",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct DiagnosticsHarnessReceipt {
+    scenario_id: &'static str,
+    analyzer_id: &'static str,
+    signal: AnalyzerSignal,
+    summary: String,
+}
+
 #[derive(Clone, Debug, Default)]
 struct DiagnosticsTestHarnessState {
     run_count: u64,
     last_run: Option<DiagnosticsHarnessRunResult>,
+    selected_scenario: Option<DiagnosticsHarnessScenario>,
 }
 
 pub(crate) struct DiagnosticsState {
@@ -619,7 +843,6 @@ pub(crate) struct DiagnosticsState {
     tracing_perf_snapshot: Value,
     analyzer_registry: AnalyzerRegistry,
     startup_selfcheck_emitted: bool,
-    #[cfg(feature = "diagnostics_tests")]
     test_harness_state: DiagnosticsTestHarnessState,
 }
 
@@ -639,6 +862,21 @@ impl DiagnosticsState {
             "tracing.hotpath.latency",
             "Tracing Hotpath Latency",
             analyze_tracing_hotpath_latency,
+        );
+        let _ = self.register_analyzer(
+            "lane.render_mode.health",
+            "Lane Receipt: Render-Mode Health",
+            analyze_render_mode_health,
+        );
+        let _ = self.register_analyzer(
+            "lane.signal_routing.health",
+            "Lane Receipt: Signal-Routing Health",
+            analyze_signal_routing_health,
+        );
+        let _ = self.register_analyzer(
+            "lane.navigator_projection.health",
+            "Lane Receipt: Navigator Projection Health",
+            analyze_navigator_projection_health,
         );
     }
 
@@ -694,33 +932,129 @@ impl DiagnosticsState {
         self.startup_selfcheck_emitted = true;
     }
 
-    #[cfg(feature = "diagnostics_tests")]
+    fn run_harness_scenario(
+        &self,
+        scenario: DiagnosticsHarnessScenario,
+    ) -> DiagnosticsHarnessRunResult {
+        let perf = &self.tracing_perf_snapshot;
+        let graph = &self.diagnostic_graph;
+        let events = &self.event_ring;
+
+        let mut receipts = Vec::new();
+        match scenario {
+            DiagnosticsHarnessScenario::SharedLanePack => {
+                let render = analyze_render_mode_health(graph, events, perf);
+                receipts.push(DiagnosticsHarnessReceipt {
+                    scenario_id: scenario.id(),
+                    analyzer_id: "lane.render_mode.health",
+                    signal: render.signal,
+                    summary: render.summary,
+                });
+
+                let routing = analyze_signal_routing_health(graph, events, perf);
+                receipts.push(DiagnosticsHarnessReceipt {
+                    scenario_id: scenario.id(),
+                    analyzer_id: "lane.signal_routing.health",
+                    signal: routing.signal,
+                    summary: routing.summary,
+                });
+
+                let navigator = analyze_navigator_projection_health(graph, events, perf);
+                receipts.push(DiagnosticsHarnessReceipt {
+                    scenario_id: scenario.id(),
+                    analyzer_id: "lane.navigator_projection.health",
+                    signal: navigator.signal,
+                    summary: navigator.summary,
+                });
+            }
+            DiagnosticsHarnessScenario::RenderModeHealth => {
+                let result = analyze_render_mode_health(graph, events, perf);
+                receipts.push(DiagnosticsHarnessReceipt {
+                    scenario_id: scenario.id(),
+                    analyzer_id: "lane.render_mode.health",
+                    signal: result.signal,
+                    summary: result.summary,
+                });
+            }
+            DiagnosticsHarnessScenario::SignalRoutingHealth => {
+                let result = analyze_signal_routing_health(graph, events, perf);
+                receipts.push(DiagnosticsHarnessReceipt {
+                    scenario_id: scenario.id(),
+                    analyzer_id: "lane.signal_routing.health",
+                    signal: result.signal,
+                    summary: result.summary,
+                });
+            }
+            DiagnosticsHarnessScenario::NavigatorProjectionHealth => {
+                let result = analyze_navigator_projection_health(graph, events, perf);
+                receipts.push(DiagnosticsHarnessReceipt {
+                    scenario_id: scenario.id(),
+                    analyzer_id: "lane.navigator_projection.health",
+                    signal: result.signal,
+                    summary: result.summary,
+                });
+            }
+        }
+
+        let alert_count = receipts
+            .iter()
+            .filter(|receipt| receipt.signal == AnalyzerSignal::Alert)
+            .count();
+        let summary = format!(
+            "{} receipt(s), alert_count={alert_count}",
+            receipts.len(),
+        );
+
+        DiagnosticsHarnessRunResult {
+            passed: alert_count == 0,
+            summary,
+            receipts,
+        }
+    }
+
     fn render_test_harness_scaffold(&mut self, ui: &mut egui::Ui) {
-        egui::CollapsingHeader::new("Test Harness (feature-gated)")
+        egui::CollapsingHeader::new("Test Harness")
             .default_open(false)
             .show(ui, |ui| {
-                ui.small(
-                    "In-pane harness scaffold (`diagnostics_tests`) for lightweight diagnostics entry-point invocation.",
-                );
+                ui.small("In-pane harness scaffold for lane-shared diagnostics receipts.");
 
-                if ui.button("Run Minimal Harness Entry Point").clicked() {
+                let selected = self
+                    .test_harness_state
+                    .selected_scenario
+                    .unwrap_or(DiagnosticsHarnessScenario::SharedLanePack);
+                let mut selected_next = selected;
+                egui::ComboBox::from_id_salt("diag_harness_scenario")
+                    .selected_text(selected.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut selected_next,
+                            DiagnosticsHarnessScenario::SharedLanePack,
+                            DiagnosticsHarnessScenario::SharedLanePack.label(),
+                        );
+                        ui.selectable_value(
+                            &mut selected_next,
+                            DiagnosticsHarnessScenario::RenderModeHealth,
+                            DiagnosticsHarnessScenario::RenderModeHealth.label(),
+                        );
+                        ui.selectable_value(
+                            &mut selected_next,
+                            DiagnosticsHarnessScenario::SignalRoutingHealth,
+                            DiagnosticsHarnessScenario::SignalRoutingHealth.label(),
+                        );
+                        ui.selectable_value(
+                            &mut selected_next,
+                            DiagnosticsHarnessScenario::NavigatorProjectionHealth,
+                            DiagnosticsHarnessScenario::NavigatorProjectionHealth.label(),
+                        );
+                    });
+                self.test_harness_state.selected_scenario = Some(selected_next);
+
+                if ui.button("Run Lane Harness").clicked() {
                     self.test_harness_state.run_count =
                         self.test_harness_state.run_count.saturating_add(1);
 
-                    match invoke_minimal_test_harness_entry_point() {
-                        Ok(summary) => {
-                            self.test_harness_state.last_run = Some(DiagnosticsHarnessRunResult {
-                                passed: true,
-                                summary,
-                            });
-                        }
-                        Err(summary) => {
-                            self.test_harness_state.last_run = Some(DiagnosticsHarnessRunResult {
-                                passed: false,
-                                summary,
-                            });
-                        }
-                    }
+                    self.test_harness_state.last_run =
+                        Some(self.run_harness_scenario(selected_next));
                 }
 
                 ui.small(format!("Runs: {}", self.test_harness_state.run_count));
@@ -732,6 +1066,36 @@ impl DiagnosticsState {
                     };
                     let label = if last_run.passed { "PASS" } else { "FAIL" };
                     ui.colored_label(color, format!("Last run: {label} — {}", last_run.summary));
+
+                    egui::Grid::new("diag_harness_receipts")
+                        .num_columns(4)
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.strong("Scenario");
+                            ui.strong("Analyzer");
+                            ui.strong("Signal");
+                            ui.strong("Receipt");
+                            ui.end_row();
+
+                            for receipt in &last_run.receipts {
+                                ui.monospace(receipt.scenario_id);
+                                ui.monospace(receipt.analyzer_id);
+                                let (signal_label, signal_color) = match receipt.signal {
+                                    AnalyzerSignal::Quiet => {
+                                        ("quiet", egui::Color32::from_gray(180))
+                                    }
+                                    AnalyzerSignal::Active => {
+                                        ("active", egui::Color32::from_rgb(90, 200, 120))
+                                    }
+                                    AnalyzerSignal::Alert => {
+                                        ("alert", egui::Color32::from_rgb(255, 120, 120))
+                                    }
+                                };
+                                ui.colored_label(signal_color, signal_label);
+                                ui.label(&receipt.summary);
+                                ui.end_row();
+                            }
+                        });
                 } else {
                     ui.small("Last run: not executed");
                 }
@@ -1222,7 +1586,6 @@ impl DiagnosticsState {
             tracing_perf_snapshot: json!({}),
             analyzer_registry: AnalyzerRegistry::default(),
             startup_selfcheck_emitted: false,
-            #[cfg(feature = "diagnostics_tests")]
             test_harness_state: DiagnosticsTestHarnessState::default(),
         };
         state.register_builtin_analyzers();
@@ -1980,6 +2343,47 @@ mod tests {
             .expect("custom analyzer should produce result");
         assert_eq!(result.signal, AnalyzerSignal::Active);
         assert_eq!(result.summary, "test analyzer active");
+    }
+
+    #[test]
+    fn lane_health_analyzers_are_registered_and_run() {
+        let mut state = DiagnosticsState::new();
+        state.force_drain_for_tests();
+
+        let snapshots = state.analyzer_snapshots_for_tests();
+        for analyzer_id in [
+            "lane.render_mode.health",
+            "lane.signal_routing.health",
+            "lane.navigator_projection.health",
+        ] {
+            let snapshot = snapshots
+                .iter()
+                .find(|entry| entry.id == analyzer_id)
+                .expect("lane analyzer should be registered");
+            assert!(snapshot.run_count >= 1);
+            assert!(snapshot.last_result.is_some());
+        }
+    }
+
+    #[test]
+    fn harness_shared_lane_pack_emits_three_receipts() {
+        let mut state = DiagnosticsState::new();
+        state.force_drain_for_tests();
+
+        let run = state.run_harness_scenario(DiagnosticsHarnessScenario::SharedLanePack);
+        assert_eq!(run.receipts.len(), 3);
+        assert!(run
+            .receipts
+            .iter()
+            .any(|receipt| receipt.analyzer_id == "lane.render_mode.health"));
+        assert!(run
+            .receipts
+            .iter()
+            .any(|receipt| receipt.analyzer_id == "lane.signal_routing.health"));
+        assert!(run
+            .receipts
+            .iter()
+            .any(|receipt| receipt.analyzer_id == "lane.navigator_projection.health"));
     }
 
     #[test]

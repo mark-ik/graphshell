@@ -35,7 +35,7 @@ use super::persistence_ops;
 use super::thumbnail_pipeline;
 use crate::app::{
     BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
-    ToastAnchorPreference,
+    SettingsRouteTarget, ToastAnchorPreference, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::event_loop::AppEvent;
@@ -67,6 +67,7 @@ use crate::shell::desktop::ui::thumbnail_pipeline::{
 };
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::pane_model::PaneId;
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
@@ -203,6 +204,12 @@ pub struct Gui {
 
     /// Pending register-event notifications for workbench projection refresh.
     workbench_projection_refresh_signal_rx: Receiver<()>,
+
+    /// Pending register-event notifications for settings route requests.
+    settings_route_signal_rx: Receiver<(String, bool)>,
+
+    /// Pending register-event notifications for lens/profile invalidation refresh.
+    profile_invalidation_signal_rx: Receiver<()>,
 
     /// Tokio runtime for async background workers
     tokio_runtime: tokio::runtime::Runtime,
@@ -354,15 +361,32 @@ impl Gui {
         });
         let (workbench_projection_refresh_signal_tx, workbench_projection_refresh_signal_rx) =
             channel();
+        let (settings_route_signal_tx, settings_route_signal_rx) = channel();
+        let (profile_invalidation_signal_tx, profile_invalidation_signal_rx) = channel();
         let mut workbench_projection_refresh_signal_async =
             phase3_subscribe_signal_async(SignalTopic::RegistryEvent);
         tokio_runtime.spawn(async move {
             while let Some(signal) = workbench_projection_refresh_signal_async.recv().await {
-                if let SignalKind::RegistryEvent(
-                    RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. },
-                ) = signal.kind
-                {
-                    let _ = workbench_projection_refresh_signal_tx.send(());
+                if let SignalKind::RegistryEvent(registry_signal) = signal.kind {
+                    match registry_signal {
+                        RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. } => {
+                            let _ = workbench_projection_refresh_signal_tx.send(());
+                        }
+                        RegistryEventSignal::SettingsRouteRequested {
+                            url,
+                            prefer_overlay,
+                        } => {
+                            let _ = settings_route_signal_tx.send((url, prefer_overlay));
+                        }
+                        RegistryEventSignal::ThemeChanged { .. }
+                        | RegistryEventSignal::LensChanged { .. }
+                        | RegistryEventSignal::PhysicsProfileChanged { .. }
+                        | RegistryEventSignal::CanvasProfileChanged { .. }
+                        | RegistryEventSignal::WorkbenchSurfaceChanged { .. } => {
+                            let _ = profile_invalidation_signal_tx.send(());
+                        }
+                        _ => {}
+                    }
                 }
             }
         });
@@ -421,6 +445,8 @@ impl Gui {
             registry_runtime,
             semantic_index_signal_rx,
             workbench_projection_refresh_signal_rx,
+            settings_route_signal_rx,
+            profile_invalidation_signal_rx,
             tokio_runtime,
             control_panel,
         }
@@ -545,7 +571,46 @@ impl Gui {
             saw_update = true;
         }
         if saw_update {
-            let _ = persistence_ops::refresh_frame_membership_cache_from_manifests(&mut self.graph_app);
+            let _ = persistence_ops::refresh_workbench_projection_from_manifests(&mut self.graph_app);
+        }
+    }
+
+    fn apply_pending_settings_route_updates(&mut self) {
+        let mut pending_routes = Vec::new();
+        while let Ok((url, prefer_overlay)) = self.settings_route_signal_rx.try_recv() {
+            pending_routes.push((url, prefer_overlay));
+        }
+
+        for (url, prefer_overlay) in pending_routes {
+            if prefer_overlay {
+                self.graph_app
+                    .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl { url });
+                continue;
+            }
+
+            match GraphBrowserApp::resolve_settings_route(&url) {
+                Some(SettingsRouteTarget::Settings(page)) => {
+                    self.graph_app.workspace.settings_tool_page = page;
+                    self.graph_app
+                        .enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                            kind: ToolPaneState::Settings,
+                        });
+                }
+                _ => {
+                    self.graph_app
+                        .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl { url });
+                }
+            }
+        }
+    }
+
+    fn apply_pending_profile_invalidation_updates(&mut self) {
+        let mut saw_update = false;
+        while self.profile_invalidation_signal_rx.try_recv().is_ok() {
+            saw_update = true;
+        }
+        if saw_update {
+            self.graph_app.refresh_registry_backed_view_lenses();
         }
     }
 
@@ -724,6 +789,8 @@ impl Gui {
     fn run_update(&mut self, input: GuiUpdateInput<'_>) -> GuiUpdateOutput {
         self.apply_pending_semantic_index_updates();
         self.apply_pending_workbench_projection_refresh_updates();
+        self.apply_pending_settings_route_updates();
+        self.apply_pending_profile_invalidation_updates();
 
         let GuiUpdateInput {
             state,

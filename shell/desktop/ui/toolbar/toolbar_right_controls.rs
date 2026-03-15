@@ -1,41 +1,36 @@
 use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
-use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
-use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
-use crate::shell::desktop::workbench::pane_model::PaneId;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
 use egui::{WidgetInfo, WidgetType};
-use egui_tiles::Tree;
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn render_toolbar_right_controls(
     ui: &mut egui::Ui,
-    ctx: &egui::Context,
     state: &RunningAppState,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
-    tiles_tree: &Tree<TileKind>,
-    focused_toolbar_node: Option<NodeKey>,
-    active_toolbar_pane: Option<PaneId>,
-    local_widget_focus: &mut Option<LocalFocusTarget>,
-    has_node_panes: bool,
     is_graph_view: bool,
-    location: &mut String,
     location_dirty: &mut bool,
-    location_submitted: &mut bool,
-    focus_location_field_for_search: bool,
     show_clear_data_confirm: &mut bool,
-    omnibar_search_session: &mut Option<super::OmnibarSearchSession>,
     frame_intents: &mut Vec<GraphIntent>,
-    toggle_tile_view_requested: &mut bool,
-    open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 ) {
     // Sync status indicator
     render_sync_status_indicator(ui);
+
+    let fit_button = ui
+        .add(super::toolbar_button("Fit"))
+        .on_hover_text("Fit graph to screen");
+    if fit_button.clicked() {
+        frame_intents.push(GraphIntent::RequestFitToScreen);
+    }
+
+    let command_button = ui
+        .add(super::toolbar_button("Cmd"))
+        .on_hover_text("Open command palette (F2)");
+    if command_button.clicked() {
+        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
+    }
 
     ui.menu_button("Settings", |ui| {
         super::render_settings_menu(
@@ -51,23 +46,6 @@ pub(super) fn render_toolbar_right_controls(
         );
     });
 
-    let (view_icon, view_tooltip) = if has_node_panes {
-        ("Graph", "Switch to Graph View")
-    } else {
-        ("Detail", "Switch to Detail View")
-    };
-    let view_toggle_button = ui
-        .add(super::toolbar_button(view_icon))
-        .on_hover_text(view_tooltip);
-    view_toggle_button.widget_info(|| {
-        let mut info = WidgetInfo::new(WidgetType::Button);
-        info.label = Some("Toggle View".into());
-        info
-    });
-    if view_toggle_button.clicked() {
-        *toggle_tile_view_requested = true;
-    }
-
     let clear_data_button = ui
         .add(super::toolbar_button("Clr"))
         .on_hover_text("Clear graph and saved data");
@@ -79,34 +57,6 @@ pub(super) fn render_toolbar_right_controls(
     if clear_data_button.clicked() {
         *show_clear_data_confirm = true;
     }
-
-    let command_button = ui
-        .add(super::toolbar_button("Cmd"))
-        .on_hover_text("Open command palette (F2)");
-    if command_button.clicked() {
-        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
-    }
-
-    super::render_location_search_panel(
-        ui,
-        ctx,
-        state,
-        graph_app,
-        window,
-        tiles_tree,
-        focused_toolbar_node,
-        active_toolbar_pane,
-        local_widget_focus,
-        has_node_panes,
-        is_graph_view,
-        location,
-        location_dirty,
-        location_submitted,
-        focus_location_field_for_search,
-        omnibar_search_session,
-        frame_intents,
-        open_selected_mode_after_submit,
-    );
 }
 
 /// Render a simple sync status indicator showing Verse P2P status

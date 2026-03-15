@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::str::FromStr;
 use std::sync::OnceLock;
@@ -12,6 +13,7 @@ use crate::app::{
     OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference, ViewAction, WorkbenchIntent,
     clip_capture_matches_filter, clip_capture_matches_query,
 };
+use crate::graph::{ArrangementSubKind, EdgeType, NodeKey};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{
@@ -103,6 +105,63 @@ fn apply_semantic_depth_view_toggle(app: &mut GraphBrowserApp) {
         app,
         vec![GraphIntent::ToggleSemanticDepthView { view_id }],
     );
+}
+
+fn navigator_node_title(app: &GraphBrowserApp, node_key: NodeKey) -> String {
+    app.domain_graph()
+        .get_node(node_key)
+        .map(|node| {
+            let title = node.title.trim();
+            if title.is_empty() {
+                node.url.clone()
+            } else {
+                title.to_string()
+            }
+        })
+        .unwrap_or_else(|| format!("Node {}", node_key.index()))
+}
+
+fn navigator_node_row_key(app: &GraphBrowserApp, node_key: NodeKey) -> Option<String> {
+    app.navigator_projection_state()
+        .row_targets
+        .iter()
+        .find_map(|(row_key, target)| match target {
+            crate::app::NavigatorProjectionTarget::Node(key) if *key == node_key => {
+                Some(row_key.clone())
+            }
+            _ => None,
+        })
+}
+
+fn containment_domain_from_row_key(row_key: &str) -> Option<&str> {
+    row_key.strip_prefix("domain:")?.split('#').next()
+}
+
+fn containment_folder_from_row_key(row_key: &str) -> Option<&str> {
+    row_key.strip_prefix("folder:")?.split('#').next()
+}
+
+fn recent_traversal_node_timestamps(app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
+    let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
+    for edge in app.domain_graph().edges() {
+        if edge.edge_type != EdgeType::History {
+            continue;
+        }
+        let timestamp = app
+            .domain_graph()
+            .find_edge_key(edge.from, edge.to)
+            .and_then(|edge_key| app.domain_graph().get_edge(edge_key))
+            .and_then(|payload| payload.metrics().last_navigated_at)
+            .unwrap_or(0);
+        if timestamp == 0 {
+            continue;
+        }
+        by_node
+            .entry(edge.to)
+            .and_modify(|current| *current = (*current).max(timestamp))
+            .or_insert(timestamp);
+    }
+    by_node
 }
 
 pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
@@ -1220,18 +1279,40 @@ mod tests {
     }
 }
 
-pub fn render_file_tree_tool_pane_in_ui(
+pub fn render_navigator_tool_pane_in_ui(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
 ) -> Vec<GraphIntent> {
-    fn file_tree_row_label(row_key: &str) -> String {
-        if let Some(rest) = row_key.strip_prefix("fs:") {
-            let path = rest.split('#').next().unwrap_or(rest);
-            let name = path.rsplit('/').next().unwrap_or(path);
-            if !name.is_empty() && name != path {
-                return format!("{name} ({path})");
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum NavigatorSectionMode {
+        Mixed,
+        Workbench,
+        Containment,
+        TraversalDerived,
+    }
+
+    impl NavigatorSectionMode {
+        fn label(self) -> &'static str {
+            match self {
+                Self::Mixed => "Mixed",
+                Self::Workbench => "Workbench",
+                Self::Containment => "Containment",
+                Self::TraversalDerived => "Traversal",
             }
-            return path.to_string();
+        }
+    }
+
+    fn file_tree_row_label(row_key: &str) -> String {
+        if let Some(domain) = containment_domain_from_row_key(row_key) {
+            return format!("Domain: {domain}");
+        }
+
+        if let Some(folder) = containment_folder_from_row_key(row_key) {
+            let name = folder.rsplit('/').find(|segment| !segment.is_empty()).unwrap_or(folder);
+            if !name.is_empty() && name != folder {
+                return format!("Folder: {name} ({folder})");
+            }
+            return format!("Folder: {folder}");
         }
 
         if let Some(rest) = row_key.strip_prefix("node:") {
@@ -1246,7 +1327,7 @@ pub fn render_file_tree_tool_pane_in_ui(
     }
 
     let mut intents = Vec::new();
-    ui.heading("File Tree");
+    ui.heading("Navigator");
     ui.separator();
 
     ui.horizontal(|ui| {
@@ -1257,14 +1338,14 @@ pub fn render_file_tree_tool_pane_in_ui(
             });
         }
         if ui.button("Refresh").clicked() {
-            intents.push(ViewAction::RebuildFileTreeProjection.into());
+            intents.push(ViewAction::RebuildNavigatorProjection.into());
         }
     });
     ui.add_space(4.0);
 
-    ui.label("Graph-owned hierarchical projection (pane-hosted surface).");
+    ui.label("Graph-backed navigator projection (pane-hosted surface).");
 
-    let mut relation_source = app.file_tree_projection_state().containment_relation_source;
+    let mut relation_source = app.navigator_projection_state().containment_relation_source;
     ui.horizontal(|ui| {
         ui.label("Containment source:");
         ui.selectable_value(
@@ -1279,21 +1360,21 @@ pub fn render_file_tree_tool_pane_in_ui(
         );
         ui.selectable_value(
             &mut relation_source,
-            crate::app::FileTreeContainmentRelationSource::ImportedFilesystemProjection,
-            "Imported FS",
+            crate::app::FileTreeContainmentRelationSource::ContainmentRelations,
+            "Containment",
         );
     });
-    if relation_source != app.file_tree_projection_state().containment_relation_source {
+    if relation_source != app.navigator_projection_state().containment_relation_source {
         intents.push(
-            ViewAction::SetFileTreeContainmentRelationSource {
+            ViewAction::SetNavigatorContainmentRelationSource {
                 source: relation_source,
             }
             .into(),
         );
-        intents.push(ViewAction::RebuildFileTreeProjection.into());
+        intents.push(ViewAction::RebuildNavigatorProjection.into());
     }
 
-    let mut sort_mode = app.file_tree_projection_state().sort_mode;
+    let mut sort_mode = app.navigator_projection_state().sort_mode;
     ui.horizontal(|ui| {
         ui.label("Sort:");
         ui.selectable_value(
@@ -1312,14 +1393,14 @@ pub fn render_file_tree_tool_pane_in_ui(
             "Name ↓",
         );
     });
-    if sort_mode != app.file_tree_projection_state().sort_mode {
-        intents.push(ViewAction::SetFileTreeSortMode { sort_mode }.into());
+    if sort_mode != app.navigator_projection_state().sort_mode {
+        intents.push(ViewAction::SetNavigatorSortMode { sort_mode }.into());
     }
 
     ui.horizontal(|ui| {
         ui.label("Root filter:");
         let mut root_filter = app
-            .file_tree_projection_state()
+            .navigator_projection_state()
             .root_filter
             .clone()
             .unwrap_or_default();
@@ -1333,10 +1414,10 @@ pub fn render_file_tree_tool_pane_in_ui(
         {
             let trimmed = root_filter.trim().to_string();
             if trimmed.is_empty() {
-                intents.push(ViewAction::SetFileTreeRootFilter { root_filter: None }.into());
+                intents.push(ViewAction::SetNavigatorRootFilter { root_filter: None }.into());
             } else {
                 intents.push(
-                    ViewAction::SetFileTreeRootFilter {
+                    ViewAction::SetNavigatorRootFilter {
                         root_filter: Some(trimmed),
                     }
                     .into(),
@@ -1346,115 +1427,323 @@ pub fn render_file_tree_tool_pane_in_ui(
     });
 
     ui.separator();
-    ui.label(format!(
-        "Rows: {} mapped, {} selected, {} expanded",
-        app.file_tree_projection_state().row_targets.len(),
-        app.file_tree_projection_state().selected_rows.len(),
-        app.file_tree_projection_state().expanded_rows.len(),
-    ));
 
-    let mut row_targets: Vec<(String, crate::app::FileTreeProjectionTarget)> = app
-        .file_tree_projection_state()
-        .row_targets
-        .iter()
-        .map(|(row_key, target)| (row_key.clone(), *target))
-        .collect();
-    row_targets.sort_by(|(left, _), (right, _)| left.cmp(right));
+    let mode_id = ui.id().with("navigator_section_mode");
+    let mut section_mode = ui
+        .data(|data| data.get_temp::<NavigatorSectionMode>(mode_id))
+        .unwrap_or(NavigatorSectionMode::Mixed);
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Mode:");
+        ui.selectable_value(
+            &mut section_mode,
+            NavigatorSectionMode::Mixed,
+            NavigatorSectionMode::Mixed.label(),
+        );
+        ui.selectable_value(
+            &mut section_mode,
+            NavigatorSectionMode::Workbench,
+            NavigatorSectionMode::Workbench.label(),
+        );
+        ui.selectable_value(
+            &mut section_mode,
+            NavigatorSectionMode::Containment,
+            NavigatorSectionMode::Containment.label(),
+        );
+        ui.selectable_value(
+            &mut section_mode,
+            NavigatorSectionMode::TraversalDerived,
+            NavigatorSectionMode::TraversalDerived.label(),
+        );
+    });
+    ui.data_mut(|data| data.insert_temp(mode_id, section_mode));
 
-    if row_targets.is_empty() {
-        ui.small("No mapped rows yet.");
-    } else {
-        let selected_rows_current = app.file_tree_projection_state().selected_rows.clone();
-        let mut expanded_rows_next = app.file_tree_projection_state().expanded_rows.clone();
-
-        egui::ScrollArea::vertical()
-            .max_height(180.0)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                for (row_key, _) in &row_targets {
-                    ui.horizontal(|ui| {
-                        let is_expanded = expanded_rows_next.contains(row_key);
-                        if ui
-                            .small_button(if is_expanded { "▾" } else { "▸" })
-                            .clicked()
-                        {
-                            if is_expanded {
-                                expanded_rows_next.remove(row_key);
-                            } else {
-                                expanded_rows_next.insert(row_key.clone());
-                            }
-                        }
-
-                        let is_selected = selected_rows_current.contains(row_key);
-                        let response =
-                            ui.selectable_label(is_selected, file_tree_row_label(row_key));
-                        if response.clicked() {
-                            intents.push(
-                                ViewAction::SetFileTreeSelectedRows {
-                                    rows: vec![row_key.clone()],
-                                }
-                                .into(),
-                            );
-                        }
-                        response.on_hover_text(row_key);
-                    });
-                }
-            });
-
-        if expanded_rows_next != app.file_tree_projection_state().expanded_rows {
-            let mut expanded_rows: Vec<String> = expanded_rows_next.into_iter().collect();
-            expanded_rows.sort();
-            intents.push(
-                ViewAction::SetFileTreeExpandedRows {
-                    rows: expanded_rows,
-                }
-                .into(),
-            );
-        }
-
-        let selected_row = app
-            .file_tree_projection_state()
-            .selected_rows
-            .iter()
-            .next()
-            .cloned();
-        let selected_target = selected_row.as_ref().and_then(|row| {
-            app.file_tree_projection_state()
-                .row_targets
-                .get(row)
-                .copied()
+    let selected_rows_current = app.navigator_projection_state().selected_rows.clone();
+    let selected_row = selected_rows_current.iter().next().cloned();
+    let selected_node_from_row = selected_row
+        .as_ref()
+        .and_then(|row| app.navigator_projection_state().row_targets.get(row))
+        .and_then(|target| match target {
+            crate::app::NavigatorProjectionTarget::Node(node_key) => Some(*node_key),
+            _ => None,
         });
-        if let Some(selected_row) = selected_row
-            && let Some(target) = selected_target
-        {
-            ui.horizontal(|ui| {
-                ui.label(format!("Selected: {selected_row}"));
-                if ui.button("Open Target").clicked() {
-                    match target {
-                        crate::app::FileTreeProjectionTarget::Node(node_key) => {
-                            intents.push(GraphIntent::OpenNodeFrameRouted {
-                                key: node_key,
-                                prefer_frame: None,
-                            });
-                        }
-                        crate::app::FileTreeProjectionTarget::SavedView(view_id) => {
-                            app.enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl {
-                                url: VersoAddress::view(view_id.as_uuid().to_string()).to_string(),
-                            });
-                        }
-                    }
-                }
-            });
+
+    let groups = app.arrangement_projection_groups();
+    let mut grouped_nodes = HashSet::new();
+    for group in &groups {
+        for node_key in &group.member_keys {
+            grouped_nodes.insert(*node_key);
         }
     }
 
+    let traversal_timestamps = recent_traversal_node_timestamps(app);
+    let mut recent_nodes: Vec<(NodeKey, u64)> = traversal_timestamps
+        .iter()
+        .filter_map(|(node_key, timestamp)| {
+            (!grouped_nodes.contains(node_key)).then_some((*node_key, *timestamp))
+        })
+        .collect();
+    recent_nodes.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.index().cmp(&right.0.index())));
+    let recent_set: HashSet<NodeKey> = recent_nodes.iter().map(|(key, _)| *key).collect();
+
+    let mut unrelated_nodes: Vec<NodeKey> = app
+        .domain_graph()
+        .nodes()
+        .map(|(key, _)| key)
+        .filter(|key| !grouped_nodes.contains(key) && !recent_set.contains(key))
+        .collect();
+    unrelated_nodes.sort_by_key(|key| key.index());
+
+    let mut domain_sections: std::collections::BTreeMap<String, Vec<NodeKey>> =
+        std::collections::BTreeMap::new();
+    let mut folder_sections: std::collections::BTreeMap<String, Vec<NodeKey>> =
+        std::collections::BTreeMap::new();
+    for (row_key, target) in &app.navigator_projection_state().row_targets {
+        let crate::app::NavigatorProjectionTarget::Node(node_key) = target else {
+            continue;
+        };
+        if let Some(domain) = containment_domain_from_row_key(row_key) {
+            domain_sections
+                .entry(domain.to_string())
+                .or_default()
+                .push(*node_key);
+        }
+        if let Some(folder) = containment_folder_from_row_key(row_key) {
+            folder_sections
+                .entry(folder.to_string())
+                .or_default()
+                .push(*node_key);
+        }
+    }
+
+    ui.label(format!(
+        "Sections: Workbench {} groups, Folders {}, Domain {}, Unrelated {}, Recent {}",
+        groups.len(),
+        folder_sections.len(),
+        domain_sections.len(),
+        unrelated_nodes.len(),
+        recent_nodes.len(),
+    ));
+    ui.small(format!(
+        "Rows: {} mapped, {} selected, {} expanded",
+        app.navigator_projection_state().row_targets.len(),
+        app.navigator_projection_state().selected_rows.len(),
+        app.navigator_projection_state().expanded_rows.len(),
+    ));
+
+    let show_workbench_sections = matches!(
+        section_mode,
+        NavigatorSectionMode::Mixed | NavigatorSectionMode::Workbench
+    );
+    let show_containment_sections = matches!(
+        section_mode,
+        NavigatorSectionMode::Mixed | NavigatorSectionMode::Containment
+    );
+    let show_traversal_sections = matches!(
+        section_mode,
+        NavigatorSectionMode::Mixed | NavigatorSectionMode::TraversalDerived
+    );
+
+    egui::ScrollArea::vertical()
+        .max_height(260.0)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            if show_workbench_sections {
+                ui.collapsing("Workbench", |ui| {
+                    if groups.is_empty() {
+                        ui.small("No arrangement groups.");
+                        return;
+                    }
+                    for group in &groups {
+                        let header = match group.sub_kind {
+                            ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
+                            ArrangementSubKind::TileGroup => {
+                                format!("Tile Group: {}", group.title)
+                            }
+                            ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
+                        };
+                        ui.collapsing(header, |ui| {
+                            for node_key in &group.member_keys {
+                                let row_key = navigator_node_row_key(app, *node_key);
+                                let is_selected = row_key
+                                    .as_ref()
+                                    .is_some_and(|row| selected_rows_current.contains(row));
+                                let label = navigator_node_title(app, *node_key);
+                                let response = ui.selectable_label(is_selected, label);
+                                if response.clicked() {
+                                    if let Some(row) = row_key {
+                                        intents.push(
+                                            ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
+                                                .into(),
+                                        );
+                                    }
+                                    intents.push(GraphIntent::OpenNodeFrameRouted {
+                                        key: *node_key,
+                                        prefer_frame: None,
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            if show_containment_sections {
+                ui.collapsing("Folders", |ui| {
+                    if folder_sections.is_empty() {
+                        ui.small("No containment folders.");
+                        return;
+                    }
+                    for (folder, node_keys) in &folder_sections {
+                        ui.collapsing(file_tree_row_label(&format!("folder:{folder}")), |ui| {
+                            for node_key in node_keys {
+                                let row_key = navigator_node_row_key(app, *node_key);
+                                let is_selected = row_key
+                                    .as_ref()
+                                    .is_some_and(|row| selected_rows_current.contains(row));
+                                let response = ui.selectable_label(
+                                    is_selected,
+                                    navigator_node_title(app, *node_key),
+                                );
+                                if response.clicked() {
+                                    if let Some(row) = row_key {
+                                        intents.push(
+                                            ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
+                                                .into(),
+                                        );
+                                    }
+                                    intents.push(GraphIntent::OpenNodeFrameRouted {
+                                        key: *node_key,
+                                        prefer_frame: None,
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            if show_containment_sections {
+                ui.collapsing("Domain", |ui| {
+                    if domain_sections.is_empty() {
+                        ui.small("No domain containment rows.");
+                        return;
+                    }
+                    for (domain, node_keys) in &domain_sections {
+                        ui.collapsing(file_tree_row_label(&format!("domain:{domain}")), |ui| {
+                            for node_key in node_keys {
+                                let row_key = navigator_node_row_key(app, *node_key);
+                                let is_selected = row_key
+                                    .as_ref()
+                                    .is_some_and(|row| selected_rows_current.contains(row));
+                                let response = ui.selectable_label(
+                                    is_selected,
+                                    navigator_node_title(app, *node_key),
+                                );
+                                if response.clicked() {
+                                    if let Some(row) = row_key {
+                                        intents.push(
+                                            ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
+                                                .into(),
+                                        );
+                                    }
+                                    intents.push(GraphIntent::OpenNodeFrameRouted {
+                                        key: *node_key,
+                                        prefer_frame: None,
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            if show_traversal_sections {
+                ui.collapsing("Unrelated", |ui| {
+                    if unrelated_nodes.is_empty() {
+                        ui.small("No unrelated nodes.");
+                        return;
+                    }
+                    for node_key in &unrelated_nodes {
+                        let row_key = navigator_node_row_key(app, *node_key);
+                        let is_selected = row_key
+                            .as_ref()
+                            .is_some_and(|row| selected_rows_current.contains(row));
+                        let response =
+                            ui.selectable_label(is_selected, navigator_node_title(app, *node_key));
+                        if response.clicked() {
+                            if let Some(row) = row_key {
+                                intents.push(
+                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
+                                        .into(),
+                                );
+                            }
+                            intents.push(GraphIntent::OpenNodeFrameRouted {
+                                key: *node_key,
+                                prefer_frame: None,
+                            });
+                        }
+                    }
+                });
+            }
+
+            if show_traversal_sections {
+                ui.collapsing("Recent", |ui| {
+                    if recent_nodes.is_empty() {
+                        ui.small("No traversal-derived recents.");
+                        return;
+                    }
+                    for (node_key, timestamp_ms) in &recent_nodes {
+                        let row_key = navigator_node_row_key(app, *node_key);
+                        let is_selected = row_key
+                            .as_ref()
+                            .is_some_and(|row| selected_rows_current.contains(row));
+                        let label =
+                            format!("{}  [{}]", navigator_node_title(app, *node_key), timestamp_ms);
+                        let response = ui.selectable_label(is_selected, label);
+                        if response.clicked() {
+                            if let Some(row) = row_key {
+                                intents.push(
+                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
+                                        .into(),
+                                );
+                            }
+                            intents.push(GraphIntent::OpenNodeFrameRouted {
+                                key: *node_key,
+                                prefer_frame: None,
+                            });
+                        }
+                    }
+                });
+            }
+        });
+
+    if let Some(selected_node) = selected_node_from_row {
+        ui.horizontal(|ui| {
+            ui.label(format!("Selected node: {}", navigator_node_title(app, selected_node)));
+            if ui.button("Open Selected").clicked() {
+                intents.push(GraphIntent::OpenNodeFrameRouted {
+                    key: selected_node,
+                    prefer_frame: None,
+                });
+            }
+        });
+    }
+
     intents
+}
+
+pub fn render_file_tree_tool_pane_in_ui(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+) -> Vec<GraphIntent> {
+    render_navigator_tool_pane_in_ui(ui, app)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SettingsSurfaceMode {
     ToolPane,
     Overlay,
+    NodeViewer,
 }
 
 fn settings_page_label(page: SettingsToolPage) -> &'static str {
@@ -1564,6 +1853,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                 egui::RichText::new(match surface_mode {
                     SettingsSurfaceMode::ToolPane => "Workbench-hosted pane",
                     SettingsSurfaceMode::Overlay => "Transient graph overlay",
+                    SettingsSurfaceMode::NodeViewer => "Embedded settings viewer",
                 })
                 .small()
                 .weak(),
@@ -1579,6 +1869,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                         });
                     }
                     SettingsSurfaceMode::Overlay => app.close_settings_overlay(),
+                    SettingsSurfaceMode::NodeViewer => {}
                 }
             }
             if matches!(surface_mode, SettingsSurfaceMode::Overlay)
@@ -1588,6 +1879,13 @@ fn render_settings_surface_in_ui_with_control_panel(
                     kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
                 });
                 app.close_settings_overlay();
+            }
+            if matches!(surface_mode, SettingsSurfaceMode::NodeViewer)
+                && ui.button("Open Settings Pane").clicked()
+            {
+                app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                    kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
+                });
             }
         });
     });
@@ -1624,6 +1922,9 @@ fn render_settings_surface_in_ui_with_control_panel(
                         }
                         SettingsSurfaceMode::Overlay => {
                             "This page is currently a graph overlay. Use 'Tile This Page' to promote it into the workbench without changing the route."
+                        }
+                        SettingsSurfaceMode::NodeViewer => {
+                            "This page is rendered inside a node viewer pane so settings routes can remain page-backed even before they are promoted into dedicated tool surfaces."
                         }
                     });
 
@@ -2031,6 +2332,18 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
         app,
         control_panel,
         SettingsSurfaceMode::ToolPane,
+    )
+}
+
+pub fn render_settings_node_viewer_in_ui(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+) -> Vec<GraphIntent> {
+    render_settings_surface_in_ui_with_control_panel(
+        ui,
+        app,
+        None,
+        SettingsSurfaceMode::NodeViewer,
     )
 }
 

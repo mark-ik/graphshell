@@ -104,6 +104,44 @@ fn render_node_pane_impl(
             .to_string()
         });
 
+    if effective_viewer_id.as_str() == "viewer:settings" {
+        match GraphBrowserApp::resolve_settings_route(&node_url) {
+            Some(crate::app::SettingsRouteTarget::Settings(page)) => {
+                behavior.graph_app.workspace.settings_tool_page = page;
+                let intents = render::render_settings_node_viewer_in_ui(ui, behavior.graph_app);
+                behavior.extend_post_render_intents(intents);
+            }
+            Some(crate::app::SettingsRouteTarget::History) => {
+                let intents = render::render_history_manager_in_ui(ui, behavior.graph_app);
+                behavior.extend_post_render_intents(intents);
+            }
+            None => {
+                ui.colored_label(
+                    egui::Color32::from_rgb(220, 180, 60),
+                    "Settings route unresolved",
+                );
+                ui.label(format!("No settings page mapping exists for '{}'.", node_url));
+                ui.horizontal(|ui| {
+                    if ui.button("Open Settings Pane").clicked() {
+                        behavior
+                            .graph_app
+                            .enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
+                                kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
+                            });
+                    }
+                    if ui.button("Use WebView Fallback").clicked() {
+                        request_viewer_backend_swap(
+                            behavior.graph_app,
+                            state,
+                            Some(ViewerId::new("viewer:webview")),
+                        );
+                    }
+                });
+            }
+        }
+        return;
+    }
+
     if matches!(
         effective_viewer_id.as_str(),
         "viewer:plaintext" | "viewer:markdown"
@@ -345,5 +383,59 @@ fn render_node_pane_impl(
             node_key,
             rect
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+
+    use crate::app::SettingsToolPage;
+    use crate::shell::desktop::runtime::control_panel::ControlPanel;
+    use crate::util::{GraphshellSettingsPath, VersoAddress};
+
+    #[test]
+    fn viewer_settings_route_renders_embedded_settings_surface_and_updates_page() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        app.workspace.settings_tool_page = SettingsToolPage::General;
+
+        let mut state = NodePaneState::for_node(node_key);
+        state.viewer_id_override = Some(ViewerId::new("viewer:settings"));
+
+        let mut control_panel = ControlPanel::new();
+        let mut tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)> =
+            HashMap::new();
+        let search_matches = HashSet::new();
+
+        #[cfg(feature = "diagnostics")]
+        let mut diagnostics =
+            crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |_ctx| {
+            egui::CentralPanel::default().show(_ctx, |ui| {
+                let mut behavior = GraphshellTileBehavior::new(
+                    &mut app,
+                    &mut control_panel,
+                    &mut tile_favicon_textures,
+                    &search_matches,
+                    None,
+                    false,
+                    false,
+                    #[cfg(feature = "diagnostics")]
+                    &mut diagnostics,
+                    #[cfg(feature = "diagnostics")]
+                    None,
+                );
+                behavior.render_node_pane(ui, &mut state);
+            });
+        });
+
+        assert_eq!(app.workspace.settings_tool_page, SettingsToolPage::Physics);
     }
 }

@@ -47,7 +47,7 @@ use self::toolbar_settings_menu::render_settings_menu;
 use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingTileOpenMode, RadialMenuShortcut,
-    ToastAnchorPreference,
+    ToastAnchorPreference, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
@@ -309,6 +309,17 @@ fn render_fullscreen_origin_strip(
         });
 }
 
+fn graph_view_chip_label(graph_app: &GraphBrowserApp) -> String {
+    graph_app
+        .workspace
+        .focused_view
+        .and_then(|view_id| graph_app.workspace.views.get(&view_id))
+        .map(|view| view.name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .map(|name| format!("View: {name}"))
+        .unwrap_or_else(|| "View: Graph".to_string())
+}
+
 pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let Input {
         ctx,
@@ -343,52 +354,86 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         };
     }
 
-    let mut toggle_tile_view_requested = false;
+    let toggle_tile_view_requested = false;
     let mut open_selected_mode_after_submit = None;
     let is_graph_view = !has_node_panes;
     let frame = egui::Frame::default()
         .fill(ctx.style().visuals.window_fill)
         .inner_margin(4.0);
-    TopBottomPanel::top("toolbar").frame(frame).show(ctx, |ui| {
-        ui.allocate_ui_with_layout(
-            ui.available_size(),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| {
+    TopBottomPanel::top("graph_bar").frame(frame).show(ctx, |ui| {
+        ui.columns(3, |columns| {
+            columns[0].horizontal_wrapped(|ui| {
+                ui.label(graph_view_chip_label(graph_app));
                 render_graph_history_buttons(ui, frame_intents);
-                ui.add_space(2.0);
 
-                ui.allocate_ui_with_layout(
-                    ui.available_size(),
-                    egui::Layout::right_to_left(egui::Align::Center),
-                    |ui| {
-                        render_toolbar_right_controls(
-                            ui,
-                            ctx,
-                            state,
-                            graph_app,
-                            window,
-                            tiles_tree,
-                            focused_toolbar_node,
-                            active_toolbar_pane,
-                            local_widget_focus,
-                            has_node_panes,
-                            is_graph_view,
-                            location,
-                            location_dirty,
-                            location_submitted,
-                            focus_location_field_for_search,
-                            show_clear_data_confirm,
-                            omnibar_search_session,
-                            frame_intents,
-                            &mut toggle_tile_view_requested,
-                            &mut open_selected_mode_after_submit,
-                            #[cfg(feature = "diagnostics")]
-                            diagnostics_state,
-                        );
-                    },
-                );
-            },
-        );
+                let new_node_button = ui
+                    .add(toolbar_button("+Node"))
+                    .on_hover_text("Create node and open as tab");
+                if new_node_button.clicked() {
+                    frame_intents.push(GraphIntent::CreateNodeNearCenterAndOpen {
+                        mode: PendingTileOpenMode::Tab,
+                    });
+                }
+
+                let new_edge_button = ui
+                    .add(toolbar_button("+Edge"))
+                    .on_hover_text("Create user-grouped edge from primary selection");
+                if new_edge_button.clicked() {
+                    frame_intents.push(GraphIntent::CreateUserGroupedEdgeFromPrimarySelection);
+                }
+
+                let command_button = ui
+                    .add(toolbar_button("Cmd"))
+                    .on_hover_text("Open command palette (F2)");
+                if command_button.clicked() {
+                    graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
+                }
+            });
+
+            columns[1].with_layout(
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    render_location_search_panel(
+                        ui,
+                        ctx,
+                        state,
+                        graph_app,
+                        window,
+                        tiles_tree,
+                        focused_toolbar_node,
+                        active_toolbar_pane,
+                        local_widget_focus,
+                        has_node_panes,
+                        is_graph_view,
+                        location,
+                        location_dirty,
+                        location_submitted,
+                        focus_location_field_for_search,
+                        omnibar_search_session,
+                        frame_intents,
+                        &mut open_selected_mode_after_submit,
+                    );
+                },
+            );
+
+            columns[2].with_layout(
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    render_toolbar_right_controls(
+                        ui,
+                        state,
+                        graph_app,
+                        window,
+                        is_graph_view,
+                        location_dirty,
+                        show_clear_data_confirm,
+                        frame_intents,
+                        #[cfg(feature = "diagnostics")]
+                        diagnostics_state,
+                    );
+                },
+            );
+        });
     });
 
     Output {

@@ -488,9 +488,9 @@ Issue linkage:
 
 ### 0.12 WebRender Readiness Gate + Feature Guardrails
 
-**Status: Deferred indefinitely (2026-03-12)**. The wgpu renderer migration is not viable at current scale — maintaining a Servo fork is too costly and upstream acceptance is unlikely. Graphshell remains on egui_glow / Servo GL compositor.
+**Status: Product cutover deferred; upstream-readiness exploration remains valid (reframed 2026-03-14).** Graphshell remains on egui_glow / Servo GL compositor for product delivery, but the newer upstream posture makes WebRender-first `wgpu` exploration viable again. The key shift is to avoid a long-lived behavioral Servo fork: renderer work should target upstream/editable WebRender first, with thin Servo integration and Graphshell validation.
 
-Original decision (2026-03-01): keep Glow active for current milestone delivery, but start WebRender/wgpu switch-readiness work under explicit guardrails. That readiness work is now suspended.
+Original decision (2026-03-01): keep Glow active for current milestone delivery, but start WebRender/wgpu switch-readiness work under explicit guardrails. That product switch is still deferred; the readiness work is no longer assumed dead if it can proceed via the lighter upstream-first path.
 
 Canonical reference (archived):
 
@@ -498,11 +498,11 @@ Canonical reference (archived):
 
 ### 0.13 WebRender wgpu Renderer Implementation Plan
 
-**Status: Deferred indefinitely (2026-03-12)**. See §0.12. The P0–P12 phased implementation, Servo fork work, and G1–G5 readiness gates are all suspended. Trackers `#180`, `#183`, `#245` are no longer active blockers.
+**Status: Incubating / upstream-first (reframed 2026-03-14).** See §0.12. The original Servo-fork-first implementation posture is retired. The phased plan remains useful if interpreted as: upstream WebRender development first, thin Servo integration second, Graphshell validation third. Trackers `#180`, `#183`, `#245` remain non-milestone work rather than current product blockers.
 
-Canonical reference (archived):
+Canonical reference:
 
-- `aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md` — Deferred indefinitely.
+- `aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md` — Reframed around upstream-first execution.
 
 ---
 

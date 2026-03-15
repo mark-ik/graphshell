@@ -14,7 +14,7 @@
 
 use crate::app::GraphViewId;
 use crate::shell::desktop::workbench::pane_model::{
-    GraphPaneRef, NodePaneState, PaneId, ToolPaneRef, ToolPaneState,
+    GraphPaneRef, NodePaneState, PaneId, TileRenderMode, ToolPaneRef, ToolPaneState,
 };
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -45,6 +45,13 @@ impl TileKind {
     pub(crate) fn graph_view_id(&self) -> Option<GraphViewId> {
         match self {
             Self::Graph(graph_ref) => Some(graph_ref.graph_view_id),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn node_render_mode(&self) -> Option<TileRenderMode> {
+        match self {
+            Self::Node(node_state) => Some(node_state.render_mode),
             _ => None,
         }
     }

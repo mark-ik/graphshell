@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use egui::{RichText, SidePanel};
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
@@ -34,6 +34,7 @@ pub(crate) struct WorkbenchPaneEntry {
     pub(crate) kind: WorkbenchPaneKind,
     pub(crate) title: String,
     pub(crate) subtitle: Option<String>,
+    pub(crate) arrangement_memberships: Vec<String>,
     pub(crate) is_active: bool,
     pub(crate) closable: bool,
 }
@@ -88,17 +89,33 @@ impl WorkbenchChromeProjection {
         tiles_tree: &Tree<TileKind>,
         active_pane: Option<PaneId>,
     ) -> Self {
+        let arrangement_memberships = pane_arrangement_memberships(graph_app);
         let mut saved_frame_names = graph_app
             .list_workspace_layout_names()
             .into_iter()
             .filter(|name| !GraphBrowserApp::is_reserved_workspace_layout_name(name))
             .collect::<Vec<_>>();
+        for frame_name in arrangement_memberships
+            .values()
+            .flatten()
+            .filter_map(|membership| membership.strip_prefix("Frame: "))
+        {
+            if !saved_frame_names.iter().any(|existing| existing == frame_name) {
+                saved_frame_names.push(frame_name.to_string());
+            }
+        }
         saved_frame_names.sort();
+        saved_frame_names.dedup();
         let pane_entries = tiles_tree
             .tiles
             .iter()
             .filter_map(|(_, tile)| match tile {
-                Tile::Pane(kind) => Some(pane_entry_for_tile(graph_app, kind, active_pane)),
+                Tile::Pane(kind) => Some(pane_entry_for_tile(
+                    graph_app,
+                    kind,
+                    active_pane,
+                    &arrangement_memberships,
+                )),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -150,7 +167,15 @@ impl WorkbenchChromeProjection {
             .collect();
         let tree_root = tiles_tree
             .root()
-            .and_then(|root| build_tree_node(graph_app, tiles_tree, root, active_pane));
+            .and_then(|root| {
+                build_tree_node(
+                    graph_app,
+                    tiles_tree,
+                    root,
+                    active_pane,
+                    &arrangement_memberships,
+                )
+            });
         Self {
             layer_state,
             active_pane_title,
@@ -170,6 +195,7 @@ fn pane_entry_for_tile(
     graph_app: &GraphBrowserApp,
     kind: &TileKind,
     active_pane: Option<PaneId>,
+    arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
 ) -> WorkbenchPaneEntry {
     match kind {
         TileKind::Graph(graph_ref) => WorkbenchPaneEntry {
@@ -179,6 +205,7 @@ fn pane_entry_for_tile(
             },
             title: graph_view_title(graph_app, graph_ref.graph_view_id),
             subtitle: Some("Graph".to_string()),
+            arrangement_memberships: Vec::new(),
             is_active: active_pane == Some(graph_ref.pane_id),
             closable: false,
         },
@@ -203,6 +230,10 @@ fn pane_entry_for_tile(
                 },
                 title,
                 subtitle,
+                arrangement_memberships: arrangement_memberships
+                    .get(&state.node)
+                    .cloned()
+                    .unwrap_or_default(),
                 is_active: active_pane == Some(state.pane_id),
                 closable: true,
             }
@@ -215,10 +246,30 @@ fn pane_entry_for_tile(
             },
             title: tool.title().to_string(),
             subtitle: Some("Tool".to_string()),
+            arrangement_memberships: Vec::new(),
             is_active: active_pane == Some(tool.pane_id),
             closable: true,
         },
     }
+}
+
+fn pane_arrangement_memberships(graph_app: &GraphBrowserApp) -> HashMap<NodeKey, Vec<String>> {
+    let mut index: HashMap<NodeKey, Vec<String>> = HashMap::new();
+    for group in graph_app.arrangement_projection_groups() {
+        let label = match group.sub_kind {
+            ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
+            ArrangementSubKind::TileGroup => format!("Tile Group: {}", group.title),
+            ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
+        };
+        for node_key in group.member_keys {
+            index.entry(node_key).or_default().push(label.clone());
+        }
+    }
+    for memberships in index.values_mut() {
+        memberships.sort();
+        memberships.dedup();
+    }
+    index
 }
 
 fn graph_view_title(graph_app: &GraphBrowserApp, view_id: GraphViewId) -> String {
@@ -236,6 +287,7 @@ fn build_tree_node(
     tiles_tree: &Tree<TileKind>,
     tile_id: TileId,
     active_pane: Option<PaneId>,
+    arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
 ) -> Option<WorkbenchChromeNode> {
     let tile = tiles_tree.tiles.get(tile_id)?;
     match tile {
@@ -243,6 +295,7 @@ fn build_tree_node(
             graph_app,
             kind,
             active_pane,
+            arrangement_memberships,
         ))),
         Tile::Container(Container::Tabs(tabs)) => Some(WorkbenchChromeNode::Tabs {
             tile_id,
@@ -250,7 +303,15 @@ fn build_tree_node(
             children: tabs
                 .children
                 .iter()
-                .filter_map(|child| build_tree_node(graph_app, tiles_tree, *child, active_pane))
+                .filter_map(|child| {
+                    build_tree_node(
+                        graph_app,
+                        tiles_tree,
+                        *child,
+                        active_pane,
+                        arrangement_memberships,
+                    )
+                })
                 .collect(),
         }),
         Tile::Container(Container::Linear(linear)) => {
@@ -264,7 +325,15 @@ fn build_tree_node(
                 children: linear
                     .children
                     .iter()
-                    .filter_map(|child| build_tree_node(graph_app, tiles_tree, *child, active_pane))
+                    .filter_map(|child| {
+                        build_tree_node(
+                            graph_app,
+                            tiles_tree,
+                            *child,
+                            active_pane,
+                            arrangement_memberships,
+                        )
+                    })
                     .collect(),
             })
         }
@@ -273,7 +342,15 @@ fn build_tree_node(
             label: format!("Grid ({})", grid.children().count()),
             children: grid
                 .children()
-                .filter_map(|child| build_tree_node(graph_app, tiles_tree, *child, active_pane))
+                .filter_map(|child| {
+                    build_tree_node(
+                        graph_app,
+                        tiles_tree,
+                        *child,
+                        active_pane,
+                        arrangement_memberships,
+                    )
+                })
                 .collect(),
         }),
     }
@@ -369,8 +446,9 @@ pub(crate) fn render_workbench_sidebar(
                         post_panel_action =
                             Some(SidebarAction::OpenTool(ToolPaneState::HistoryManager));
                     }
-                    if ui.small_button("File Tree").clicked() {
-                        post_panel_action = Some(SidebarAction::OpenTool(ToolPaneState::FileTree));
+                    if ui.small_button("Navigator").clicked() {
+                        post_panel_action =
+                            Some(SidebarAction::OpenTool(ToolPaneState::navigator_surface()));
                     }
                 });
                 ui.separator();
@@ -476,6 +554,17 @@ fn render_tree_node(
             if let Some(subtitle) = &entry.subtitle {
                 ui.add_space((depth as f32) * 10.0 + 2.0);
                 ui.label(RichText::new(subtitle).small().weak());
+            }
+            if !entry.arrangement_memberships.is_empty() {
+                ui.add_space((depth as f32) * 10.0 + 2.0);
+                ui.label(
+                    RichText::new(format!(
+                        "Memberships: {}",
+                        entry.arrangement_memberships.join(", ")
+                    ))
+                    .small()
+                    .weak(),
+                );
             }
             ui.add_space(6.0);
         }

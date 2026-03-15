@@ -311,7 +311,9 @@ fn add_nodes_to_named_frame_snapshot(
     }
     match persistence_ops::save_named_frame_bundle(graph_app, name, &workspace_tree) {
         Ok(()) => {
-            let _ = persistence_ops::refresh_frame_membership_cache_from_manifests(graph_app);
+            crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+                "frame_snapshot_add_nodes",
+            );
         }
         Err(e) => warn!("Failed to save frame snapshot '{name}' after add-tab operation: {e}"),
     }

@@ -63,9 +63,9 @@ mod spatial_index;
 #[cfg(test)]
 pub(crate) use panels::history_manager_entry_limit_for_tests;
 pub use panels::{
-    render_clip_inspector_panel, render_file_tree_tool_pane_in_ui, render_help_panel,
+    render_clip_inspector_panel, render_navigator_tool_pane_in_ui, render_help_panel,
     render_history_manager_in_ui, render_settings_overlay_panel,
-    render_settings_tool_pane_in_ui_with_control_panel,
+    render_settings_node_viewer_in_ui, render_settings_tool_pane_in_ui_with_control_panel,
 };
 use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
 use spatial_index::NodeSpatialIndex;

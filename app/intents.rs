@@ -14,6 +14,11 @@ use super::{
     UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
 };
 
+/// Navigator adapter aliases to preserve behavior while migrating away from
+/// legacy FileTree naming in intent callers.
+pub type NavigatorContainmentRelationSource = FileTreeContainmentRelationSource;
+pub type NavigatorSortMode = FileTreeSortMode;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserCommand {
     Back,
@@ -196,6 +201,67 @@ pub enum ViewAction {
         rows: Vec<String>,
     },
     RebuildFileTreeProjection,
+    SetNavigatorContainmentRelationSource {
+        source: NavigatorContainmentRelationSource,
+    },
+    SetNavigatorSortMode {
+        sort_mode: NavigatorSortMode,
+    },
+    SetNavigatorRootFilter {
+        root_filter: Option<String>,
+    },
+    SetNavigatorSelectedRows {
+        rows: Vec<String>,
+    },
+    SetNavigatorExpandedRows {
+        rows: Vec<String>,
+    },
+    RebuildNavigatorProjection,
+}
+
+/// Navigator-shaped adapter intents that map directly to existing GraphIntent
+/// FileTree projection operations.
+#[derive(Debug, Clone)]
+pub enum NavigatorProjectionIntent {
+    SetContainmentRelationSource {
+        source: NavigatorContainmentRelationSource,
+    },
+    SetSortMode {
+        sort_mode: NavigatorSortMode,
+    },
+    SetRootFilter {
+        root_filter: Option<String>,
+    },
+    SetSelectedRows {
+        rows: Vec<String>,
+    },
+    SetExpandedRows {
+        rows: Vec<String>,
+    },
+    RebuildProjection,
+}
+
+impl From<NavigatorProjectionIntent> for GraphIntent {
+    fn from(value: NavigatorProjectionIntent) -> Self {
+        match value {
+            NavigatorProjectionIntent::SetContainmentRelationSource { source } => {
+                GraphIntent::SetNavigatorContainmentRelationSource { source }
+            }
+            NavigatorProjectionIntent::SetSortMode { sort_mode } => {
+                GraphIntent::SetNavigatorSortMode { sort_mode }
+            }
+            NavigatorProjectionIntent::SetRootFilter { root_filter } => {
+                GraphIntent::SetNavigatorRootFilter { root_filter }
+            }
+            NavigatorProjectionIntent::SetSelectedRows { rows } => {
+                GraphIntent::SetNavigatorSelectedRows { rows }
+            }
+            NavigatorProjectionIntent::SetExpandedRows { rows } => {
+                GraphIntent::SetNavigatorExpandedRows { rows }
+            }
+            NavigatorProjectionIntent::RebuildProjection => GraphIntent::RebuildNavigatorProjection,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -692,6 +758,22 @@ pub enum GraphIntent {
         rows: Vec<String>,
     },
     RebuildFileTreeProjection,
+    SetNavigatorContainmentRelationSource {
+        source: NavigatorContainmentRelationSource,
+    },
+    SetNavigatorSortMode {
+        sort_mode: NavigatorSortMode,
+    },
+    SetNavigatorRootFilter {
+        root_filter: Option<String>,
+    },
+    SetNavigatorSelectedRows {
+        rows: Vec<String>,
+    },
+    SetNavigatorExpandedRows {
+        rows: Vec<String>,
+    },
+    RebuildNavigatorProjection,
 }
 
 impl From<ViewAction> for GraphIntent {
@@ -750,6 +832,18 @@ impl From<ViewAction> for GraphIntent {
             ViewAction::SetFileTreeSelectedRows { rows } => Self::SetFileTreeSelectedRows { rows },
             ViewAction::SetFileTreeExpandedRows { rows } => Self::SetFileTreeExpandedRows { rows },
             ViewAction::RebuildFileTreeProjection => Self::RebuildFileTreeProjection,
+            ViewAction::SetNavigatorContainmentRelationSource { source } => {
+                Self::SetNavigatorContainmentRelationSource { source }
+            }
+            ViewAction::SetNavigatorSortMode { sort_mode } => {
+                Self::SetNavigatorSortMode { sort_mode }
+            }
+            ViewAction::SetNavigatorRootFilter { root_filter } => {
+                Self::SetNavigatorRootFilter { root_filter }
+            }
+            ViewAction::SetNavigatorSelectedRows { rows } => Self::SetNavigatorSelectedRows { rows },
+            ViewAction::SetNavigatorExpandedRows { rows } => Self::SetNavigatorExpandedRows { rows },
+            ViewAction::RebuildNavigatorProjection => Self::RebuildNavigatorProjection,
         }
     }
 }
@@ -1004,6 +1098,26 @@ impl GraphIntent {
                 Some(ViewAction::SetFileTreeExpandedRows { rows: rows.clone() })
             }
             Self::RebuildFileTreeProjection => Some(ViewAction::RebuildFileTreeProjection),
+            Self::SetNavigatorContainmentRelationSource { source } => {
+                Some(ViewAction::SetNavigatorContainmentRelationSource { source: *source })
+            }
+            Self::SetNavigatorSortMode { sort_mode } => {
+                Some(ViewAction::SetNavigatorSortMode {
+                    sort_mode: *sort_mode,
+                })
+            }
+            Self::SetNavigatorRootFilter { root_filter } => {
+                Some(ViewAction::SetNavigatorRootFilter {
+                    root_filter: root_filter.clone(),
+                })
+            }
+            Self::SetNavigatorSelectedRows { rows } => {
+                Some(ViewAction::SetNavigatorSelectedRows { rows: rows.clone() })
+            }
+            Self::SetNavigatorExpandedRows { rows } => {
+                Some(ViewAction::SetNavigatorExpandedRows { rows: rows.clone() })
+            }
+            Self::RebuildNavigatorProjection => Some(ViewAction::RebuildNavigatorProjection),
             _ => None,
         }
     }

@@ -2,6 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+//! Tile compositor frame assembly for the Surface Composition Contract.
+//! GL callback state isolation is enforced by `CompositorAdapter` guardrails so
+//! content callbacks cannot leak viewport/scissor/blend/texture/framebuffer
+//! state across composition passes.
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
@@ -115,6 +120,12 @@ struct ScheduledPanePass {
     tile_rect: egui::Rect,
     semantic: TileSemanticOverlayInput,
     overlays: Vec<ScheduledOverlay>,
+}
+
+#[derive(Clone)]
+struct PreparedPanePass {
+    pass: ScheduledPanePass,
+    interaction_render_mode: TileRenderMode,
 }
 
 #[derive(Clone)]
@@ -916,8 +927,14 @@ pub(crate) fn composite_active_node_pane_webviews(
         frame_index,
     };
     let mut affordance_annotations = Vec::with_capacity(scheduled_passes.len());
+    let mut prepared_passes = Vec::with_capacity(scheduled_passes.len());
+
+    #[cfg(feature = "diagnostics")]
+    let pass1_started = Instant::now();
+
+    // Pass 1: prepare/sync stage (viewport culling, native overlay sync, thumbnail ghost).
     for pass in scheduled_passes {
-        let semantic = pass.semantic;
+        let semantic = pass.semantic.clone();
         let node_key = semantic.node_key;
         let tile_rect = pass.tile_rect;
         let render_mode = semantic.render_mode;
@@ -954,6 +971,28 @@ pub(crate) fn composite_active_node_pane_webviews(
             frame_activity.active_tile_keys.push(node_key);
         }
 
+        prepared_passes.push(PreparedPanePass {
+            pass,
+            interaction_render_mode,
+        });
+    }
+
+    #[cfg(feature = "diagnostics")]
+    crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+        "tile_compositor::pass1_prepare",
+        pass1_started.elapsed().as_micros() as u64,
+    );
+
+    #[cfg(feature = "diagnostics")]
+    let pass2_started = Instant::now();
+
+    // Pass 2: content stage (composited content callback registration and activity accounting).
+    for prepared in prepared_passes {
+        let pass = prepared.pass;
+        let semantic = pass.semantic;
+        let tile_rect = pass.tile_rect;
+        let render_mode = semantic.render_mode;
+
         if render_mode == TileRenderMode::CompositedTexture
             && semantic.lifecycle != NodeLifecycle::Cold
             && semantic.lifecycle != NodeLifecycle::Tombstone
@@ -986,10 +1025,17 @@ pub(crate) fn composite_active_node_pane_webviews(
                 tile_rect,
                 focus_ring_alpha,
                 &presentation,
-                Some(interaction_render_mode),
+                Some(prepared.interaction_render_mode),
             ));
         }
     }
+
+    #[cfg(feature = "diagnostics")]
+    crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+        "tile_compositor::pass2_content",
+        pass2_started.elapsed().as_micros() as u64,
+    );
+
     if composited_counters.evaluated > 0 {
         let skip_rate_basis_points =
             (composited_counters.skipped * 10_000) / composited_counters.evaluated;
@@ -1015,7 +1061,19 @@ pub(crate) fn composite_active_node_pane_webviews(
     *latest_affordance_annotations()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = affordance_annotations;
+
+    #[cfg(feature = "diagnostics")]
+    let pass3_started = Instant::now();
+
+    // Pass 3: overlay affordance stage (focus/selection/hover rings over post-content surface).
     CompositorAdapter::execute_overlay_affordance_pass(ctx, &pass_tracker, pending_overlay_passes);
+
+    #[cfg(feature = "diagnostics")]
+    crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+        "tile_compositor::pass3_overlay",
+        pass3_started.elapsed().as_micros() as u64,
+    );
+
     render_degraded_receipts(ctx, &degraded_receipts, &presentation);
 
     #[cfg(feature = "diagnostics")]
@@ -1073,9 +1131,16 @@ pub(crate) fn active_node_pane(tiles_tree: &Tree<TileKind>) -> Option<FocusedNod
 }
 
 fn render_mode_for_pane(tiles_tree: &Tree<TileKind>, pane_id: PaneId) -> TileRenderMode {
-    crate::shell::desktop::workbench::tile_runtime::render_mode_for_pane_in_tree(
-        tiles_tree, pane_id,
-    )
+    tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(_, tile)| match tile {
+            Tile::Pane(kind @ TileKind::Node(state)) if state.pane_id == pane_id => {
+                kind.node_render_mode()
+            }
+            _ => None,
+        })
+        .unwrap_or(TileRenderMode::Placeholder)
 }
 
 #[derive(Clone, Copy)]
@@ -1096,12 +1161,8 @@ fn overlay_affordance_policy_for_render_mode(
             style: OverlayAffordanceStyle::ChromeOnly,
             rounding: 0.0,
         },
-        TileRenderMode::EmbeddedEgui => OverlayAffordancePolicy {
+        TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => OverlayAffordancePolicy {
             style: OverlayAffordanceStyle::EguiAreaStroke,
-            rounding: 4.0,
-        },
-        TileRenderMode::Placeholder => OverlayAffordancePolicy {
-            style: OverlayAffordanceStyle::RectStroke,
             rounding: 4.0,
         },
     }
@@ -1840,7 +1901,10 @@ mod tests {
         );
 
         assert_eq!(effective_mode, TileRenderMode::Placeholder);
-        assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
+        assert!(matches!(
+            overlay.style,
+            OverlayAffordanceStyle::EguiAreaStroke
+        ));
     }
 
     #[test]
@@ -1994,7 +2058,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_overlay_for_placeholder_uses_rect_stroke_style() {
+    fn focus_overlay_for_placeholder_uses_area_style() {
         let node = NodeKey::new(44);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(50.0, 50.0), egui::pos2(150.0, 110.0));
         let overlay = focus_overlay_for_mode(
@@ -2004,7 +2068,10 @@ mod tests {
             &test_presentation_profile(),
         );
 
-        assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
+        assert!(matches!(
+            overlay.style,
+            OverlayAffordanceStyle::EguiAreaStroke
+        ));
         assert_eq!(overlay.render_mode, TileRenderMode::Placeholder);
     }
 
@@ -2023,6 +2090,21 @@ mod tests {
             OverlayAffordanceStyle::EguiAreaStroke
         ));
         assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedEgui);
+    }
+
+    #[test]
+    fn selection_overlay_for_placeholder_uses_area_style() {
+        let node = NodeKey::new(46);
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(70.0, 70.0), egui::pos2(170.0, 130.0));
+        let mut semantic = test_semantic_input(node, TileRenderMode::Placeholder);
+        semantic.selection_state = TileSelectionState::SelectionPrimary;
+        let overlay = selection_overlay_for_mode(semantic, tile_rect, &test_presentation_profile());
+
+        assert!(matches!(
+            overlay.style,
+            OverlayAffordanceStyle::EguiAreaStroke
+        ));
+        assert_eq!(overlay.render_mode, TileRenderMode::Placeholder);
     }
 
     #[test]

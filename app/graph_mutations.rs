@@ -185,6 +185,7 @@ impl GraphBrowserApp {
                 crate::graph::EdgeType::ArrangementRelation(
                     crate::graph::ArrangementSubKind::SplitPair,
                 ) => return,
+                crate::graph::EdgeType::ContainmentRelation(_) => return,
             };
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id,
@@ -230,6 +231,7 @@ impl GraphBrowserApp {
                 crate::graph::EdgeType::ArrangementRelation(
                     crate::graph::ArrangementSubKind::SplitPair,
                 ) => return,
+                crate::graph::EdgeType::ContainmentRelation(_) => return,
             };
             store.log_mutation(&LogEntry::RemoveEdge {
                 from_node_id,

@@ -25,7 +25,7 @@ impl<'a> GraphshellTileBehavior<'a> {
                 Self::render_accessibility_inspector_scaffold(ui, self.graph_app);
             }
             ToolPaneState::FileTree => {
-                let intents = render::render_file_tree_tool_pane_in_ui(ui, self.graph_app);
+                let intents = render::render_navigator_tool_pane_in_ui(ui, self.graph_app);
                 self.extend_post_render_intents(intents);
             }
             ToolPaneState::Settings => {

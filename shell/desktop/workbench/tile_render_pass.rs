@@ -83,6 +83,67 @@ fn open_mode_from_pending(mode: PendingOpenMode) -> TileOpenMode {
     }
 }
 
+fn draw_diagnostics_hover_overlay_for_mode(
+    ctx: &egui::Context,
+    node_key: NodeKey,
+    hovered_rect: egui::Rect,
+    render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode,
+) {
+    let stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 80, 80));
+    match render_mode {
+        crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture => {
+            let overlay_layer = egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("graphshell_diag_hover_overlay"),
+            );
+            ctx.layer_painter(overlay_layer).rect_stroke(
+                hovered_rect.shrink(1.0),
+                4.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        crate::shell::desktop::workbench::pane_model::TileRenderMode::NativeOverlay => {
+            let overlay_layer = egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("graphshell_diag_hover_overlay_native"),
+            );
+            let painter = ctx.layer_painter(overlay_layer);
+            let inset = 2.0;
+            let top = hovered_rect.top() + inset;
+            let left = hovered_rect.left() + inset;
+            let right = hovered_rect.right() - inset;
+            let marker_len = 12.0_f32.min((hovered_rect.height() - inset * 2.0).max(0.0));
+            painter.line_segment([egui::pos2(left, top), egui::pos2(right, top)], stroke);
+            painter.line_segment(
+                [egui::pos2(left, top), egui::pos2(left, top + marker_len)],
+                stroke,
+            );
+            painter.line_segment(
+                [egui::pos2(right, top), egui::pos2(right, top + marker_len)],
+                stroke,
+            );
+        }
+        crate::shell::desktop::workbench::pane_model::TileRenderMode::EmbeddedEgui
+        | crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder => {
+            egui::Area::new(egui::Id::new(("graphshell_diag_hover_overlay_area", node_key)))
+                .order(egui::Order::Tooltip)
+                .fixed_pos(hovered_rect.min)
+                .interactable(false)
+                .show(ctx, |ui| {
+                    ui.set_min_size(hovered_rect.size());
+                    ui.painter().rect_stroke(
+                        egui::Rect::from_min_size(egui::Pos2::ZERO, hovered_rect.size())
+                            .shrink(1.0),
+                        4.0,
+                        stroke,
+                        egui::StrokeKind::Inside,
+                    );
+                });
+        }
+    }
+}
+
 #[cfg(feature = "diagnostics")]
 fn emit_navigation_transition_when_focus_hint_changes(
     previous_focus_hint: Option<NodeKey>,
@@ -674,16 +735,22 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 .copied()
                 .find(|(_, node_key, _)| *node_key == hovered_node)
         {
-            let overlay_layer = egui::LayerId::new(
-                egui::Order::Foreground,
-                egui::Id::new("graphshell_diag_hover_overlay"),
-            );
-            ctx.layer_painter(overlay_layer).rect_stroke(
-                hovered_rect.shrink(1.0),
-                4.0,
-                egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 80, 80)),
-                egui::StrokeKind::Inside,
-            );
+            let render_mode = active_tiles_for_diag
+                .iter()
+                .find_map(|(pane_id, node_key, _)| {
+                    if *node_key == hovered_node {
+                        Some(
+                            crate::shell::desktop::workbench::tile_runtime::render_mode_for_pane_in_tree(
+                                tiles_tree,
+                                *pane_id,
+                            ),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder);
+            draw_diagnostics_hover_overlay_for_mode(ctx, hovered_node, hovered_rect, render_mode);
         }
     }
 

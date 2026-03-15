@@ -1943,6 +1943,17 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_registry_declares_gl_state_violation_as_warn_severity() {
+        let descriptor = phase3_required_channels()
+            .iter()
+            .find(|entry| entry.channel_id == CHANNEL_COMPOSITOR_GL_STATE_VIOLATION)
+            .expect("phase3 channels must include compositor.gl_state_violation");
+
+        assert_eq!(descriptor.severity, ChannelSeverity::Warn);
+        assert_eq!(descriptor.schema_version, 1);
+    }
+
+    #[test]
     fn diagnostics_registry_config_roundtrip() {
         let mut registry = DiagnosticsRegistry::default();
         let channel = CHANNEL_VIEWER_SELECT_STARTED;

@@ -536,8 +536,10 @@ pub enum FileTreeContainmentRelationSource {
     #[default]
     GraphContainment,
     SavedViewCollections,
-    ImportedFilesystemProjection,
+    ContainmentRelations,
 }
+
+pub type NavigatorContainmentRelationSource = FileTreeContainmentRelationSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FileTreeSortMode {
@@ -547,22 +549,28 @@ pub enum FileTreeSortMode {
     NameDescending,
 }
 
+pub type NavigatorSortMode = FileTreeSortMode;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileTreeProjectionTarget {
     Node(NodeKey),
     SavedView(GraphViewId),
 }
 
+pub type NavigatorProjectionTarget = FileTreeProjectionTarget;
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct FileTreeProjectionState {
+pub struct NavigatorProjectionState {
     pub containment_relation_source: FileTreeContainmentRelationSource,
     pub expanded_rows: HashSet<String>,
     pub collapsed_rows: HashSet<String>,
     pub selected_rows: HashSet<String>,
     pub sort_mode: FileTreeSortMode,
     pub root_filter: Option<String>,
-    pub row_targets: HashMap<String, FileTreeProjectionTarget>,
+    pub row_targets: HashMap<String, NavigatorProjectionTarget>,
 }
+
+pub type FileTreeProjectionState = NavigatorProjectionState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeBlockReason {
@@ -1757,27 +1765,46 @@ impl GraphBrowserApp {
         }
     }
 
-    pub fn file_tree_projection_state(&self) -> &FileTreeProjectionState {
+    pub fn navigator_projection_state(&self) -> &NavigatorProjectionState {
         &self.workspace.file_tree_projection_state
+    }
+
+    pub fn file_tree_projection_state(&self) -> &FileTreeProjectionState {
+        self.navigator_projection_state()
+    }
+
+    pub fn set_navigator_containment_relation_source(
+        &mut self,
+        source: NavigatorContainmentRelationSource,
+    ) {
+        self.workspace
+            .file_tree_projection_state
+            .containment_relation_source = source;
+        self.rebuild_navigator_projection_rows();
     }
 
     pub fn set_file_tree_containment_relation_source(
         &mut self,
         source: FileTreeContainmentRelationSource,
     ) {
-        self.workspace
-            .file_tree_projection_state
-            .containment_relation_source = source;
-        self.rebuild_file_tree_projection_rows();
+        self.set_navigator_containment_relation_source(source);
     }
 
-    pub fn set_file_tree_sort_mode(&mut self, sort_mode: FileTreeSortMode) {
+    pub fn set_navigator_sort_mode(&mut self, sort_mode: NavigatorSortMode) {
         self.workspace.file_tree_projection_state.sort_mode = sort_mode;
     }
 
-    pub fn set_file_tree_root_filter(&mut self, root_filter: Option<String>) {
+    pub fn set_file_tree_sort_mode(&mut self, sort_mode: FileTreeSortMode) {
+        self.set_navigator_sort_mode(sort_mode);
+    }
+
+    pub fn set_navigator_root_filter(&mut self, root_filter: Option<String>) {
         self.workspace.file_tree_projection_state.root_filter = root_filter;
-        self.rebuild_file_tree_projection_rows();
+        self.rebuild_navigator_projection_rows();
+    }
+
+    pub fn set_file_tree_root_filter(&mut self, root_filter: Option<String>) {
+        self.set_navigator_root_filter(root_filter);
     }
 
     #[cfg(test)]
@@ -1792,11 +1819,15 @@ impl GraphBrowserApp {
             .insert(row_key.into(), target);
     }
 
-    pub fn set_file_tree_selected_rows(&mut self, rows: impl IntoIterator<Item = String>) {
+    pub fn set_navigator_selected_rows(&mut self, rows: impl IntoIterator<Item = String>) {
         self.workspace.file_tree_projection_state.selected_rows = rows.into_iter().collect();
     }
 
-    pub fn set_file_tree_expanded_rows(&mut self, rows: impl IntoIterator<Item = String>) {
+    pub fn set_file_tree_selected_rows(&mut self, rows: impl IntoIterator<Item = String>) {
+        self.set_navigator_selected_rows(rows);
+    }
+
+    pub fn set_navigator_expanded_rows(&mut self, rows: impl IntoIterator<Item = String>) {
         let expanded_rows: HashSet<String> = rows.into_iter().collect();
         self.workspace.file_tree_projection_state.expanded_rows = expanded_rows.clone();
         self.workspace
@@ -1805,10 +1836,14 @@ impl GraphBrowserApp {
             .retain(|row| !expanded_rows.contains(row));
     }
 
-    pub fn rebuild_file_tree_projection_rows(&mut self) {
+    pub fn set_file_tree_expanded_rows(&mut self, rows: impl IntoIterator<Item = String>) {
+        self.set_navigator_expanded_rows(rows);
+    }
+
+    pub fn rebuild_navigator_projection_rows(&mut self) {
         use FileTreeContainmentRelationSource as Source;
 
-        let mut row_targets: HashMap<String, FileTreeProjectionTarget> = HashMap::new();
+        let mut row_targets: HashMap<String, NavigatorProjectionTarget> = HashMap::new();
 
         match self
             .workspace
@@ -1827,7 +1862,7 @@ impl GraphBrowserApp {
                 for (key, node_id) in nodes {
                     row_targets.insert(
                         format!("node:{node_id}"),
-                        FileTreeProjectionTarget::Node(key),
+                        NavigatorProjectionTarget::Node(key),
                     );
                 }
             }
@@ -1837,40 +1872,68 @@ impl GraphBrowserApp {
                 for view_id in view_ids {
                     row_targets.insert(
                         format!("view:{}", view_id.as_uuid()),
-                        FileTreeProjectionTarget::SavedView(view_id),
+                        NavigatorProjectionTarget::SavedView(view_id),
                     );
                 }
             }
-            Source::ImportedFilesystemProjection => {
-                let mut file_rows: Vec<(String, NodeKey, Uuid)> = self
+            Source::ContainmentRelations => {
+                self.workspace
+                    .domain
+                    .graph
+                    .rebuild_derived_containment_relations();
+
+                let mut containment_rows: Vec<(String, NodeKey, Uuid)> = self
                     .workspace
                     .domain
                     .graph
                     .nodes()
-                    .filter_map(|(key, node)| {
-                        let parsed = url::Url::parse(&node.url).ok()?;
-                        if parsed.scheme() != "file" {
-                            return None;
+                    .flat_map(|(key, node)| {
+                        let mut rows = Vec::new();
+                        let Ok(parsed) = url::Url::parse(&node.url) else {
+                            return rows;
+                        };
+
+                        if let Some(host) = parsed.host_str() {
+                            rows.push((format!("domain:{}", host.to_ascii_lowercase()), key, node.id));
                         }
-                        let mut path = parsed.path().to_string();
-                        if path.is_empty() {
-                            return None;
+
+                        if matches!(parsed.scheme(), "http" | "https" | "file") {
+                            let mut parent = parsed.clone();
+                            parent.set_query(None);
+                            parent.set_fragment(None);
+                            let mut segments: Vec<String> = parent
+                                .path_segments()
+                                .map(|parts| {
+                                    parts
+                                        .filter(|segment| !segment.is_empty())
+                                        .map(ToString::to_string)
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+                            if !segments.is_empty() {
+                                segments.pop();
+                                let parent_path = if segments.is_empty() {
+                                    "/".to_string()
+                                } else {
+                                    format!("/{}/", segments.join("/"))
+                                };
+                                parent.set_path(&parent_path);
+                                rows.push((format!("folder:{}", parent), key, node.id));
+                            }
                         }
-                        while path.len() > 1 && path.ends_with('/') {
-                            path.pop();
-                        }
-                        Some((format!("fs:{path}"), key, node.id))
+
+                        rows
                     })
                     .collect();
-                file_rows.sort_by(|(left_path, _, left_id), (right_path, _, right_id)| {
+                containment_rows.sort_by(|(left_path, _, left_id), (right_path, _, right_id)| {
                     left_path
                         .cmp(right_path)
                         .then_with(|| left_id.cmp(right_id))
                 });
-                for (row_key, key, node_id) in file_rows {
+                for (row_key, key, node_id) in containment_rows {
                     row_targets.insert(
                         format!("{row_key}#{node_id}"),
-                        FileTreeProjectionTarget::Node(key),
+                        NavigatorProjectionTarget::Node(key),
                     );
                 }
             }
@@ -1902,6 +1965,10 @@ impl GraphBrowserApp {
             .file_tree_projection_state
             .collapsed_rows
             .retain(|row| valid_rows.contains(row));
+    }
+
+    pub fn rebuild_file_tree_projection_rows(&mut self) {
+        self.rebuild_navigator_projection_rows();
     }
 
     /// Set whether the user is actively interacting with the graph
@@ -2201,7 +2268,7 @@ impl GraphBrowserApp {
                     .containment_relation_source
                     != source
                 {
-                    self.set_file_tree_containment_relation_source(source);
+                    self.set_navigator_containment_relation_source(source);
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                         latency_us: 0,
@@ -2210,17 +2277,17 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::SetFileTreeSortMode { sort_mode } => {
-                self.set_file_tree_sort_mode(sort_mode);
+                self.set_navigator_sort_mode(sort_mode);
                 true
             }
             ViewAction::SetFileTreeRootFilter { root_filter } => {
-                self.set_file_tree_root_filter(root_filter);
+                self.set_navigator_root_filter(root_filter);
                 true
             }
             ViewAction::SetFileTreeSelectedRows { rows } => {
                 let next_rows: HashSet<String> = rows.iter().cloned().collect();
                 if self.workspace.file_tree_projection_state.selected_rows != next_rows {
-                    self.set_file_tree_selected_rows(rows);
+                    self.set_navigator_selected_rows(rows);
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                         latency_us: 0,
@@ -2229,11 +2296,53 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::SetFileTreeExpandedRows { rows } => {
-                self.set_file_tree_expanded_rows(rows);
+                self.set_navigator_expanded_rows(rows);
                 true
             }
             ViewAction::RebuildFileTreeProjection => {
-                self.rebuild_file_tree_projection_rows();
+                self.rebuild_navigator_projection_rows();
+                true
+            }
+            ViewAction::SetNavigatorContainmentRelationSource { source } => {
+                if self
+                    .workspace
+                    .file_tree_projection_state
+                    .containment_relation_source
+                    != source
+                {
+                    self.set_navigator_containment_relation_source(source);
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                }
+                true
+            }
+            ViewAction::SetNavigatorSortMode { sort_mode } => {
+                self.set_navigator_sort_mode(sort_mode);
+                true
+            }
+            ViewAction::SetNavigatorRootFilter { root_filter } => {
+                self.set_navigator_root_filter(root_filter);
+                true
+            }
+            ViewAction::SetNavigatorSelectedRows { rows } => {
+                let next_rows: HashSet<String> = rows.iter().cloned().collect();
+                if self.workspace.file_tree_projection_state.selected_rows != next_rows {
+                    self.set_navigator_selected_rows(rows);
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                }
+                true
+            }
+            ViewAction::SetNavigatorExpandedRows { rows } => {
+                self.set_navigator_expanded_rows(rows);
+                true
+            }
+            ViewAction::RebuildNavigatorProjection => {
+                self.rebuild_navigator_projection_rows();
                 true
             }
         }
@@ -2448,7 +2557,13 @@ impl GraphBrowserApp {
             | GraphIntent::SetFileTreeRootFilter { .. }
             | GraphIntent::SetFileTreeSelectedRows { .. }
             | GraphIntent::SetFileTreeExpandedRows { .. }
-            | GraphIntent::RebuildFileTreeProjection => {
+            | GraphIntent::RebuildFileTreeProjection
+            | GraphIntent::SetNavigatorContainmentRelationSource { .. }
+            | GraphIntent::SetNavigatorSortMode { .. }
+            | GraphIntent::SetNavigatorRootFilter { .. }
+            | GraphIntent::SetNavigatorSelectedRows { .. }
+            | GraphIntent::SetNavigatorExpandedRows { .. }
+            | GraphIntent::RebuildNavigatorProjection => {
                 unreachable!("workspace-only intents are handled before side-effect reducer match")
             }
             GraphIntent::ToggleHelpPanel => {
@@ -8391,7 +8506,7 @@ mod tests {
     }
 
     #[test]
-    fn test_file_tree_projection_rebuild_populates_imported_filesystem_rows_from_file_urls() {
+    fn test_file_tree_projection_rebuild_populates_containment_rows_from_file_urls() {
         let mut app = GraphBrowserApp::new_for_testing();
         app.workspace
             .domain
@@ -8404,7 +8519,7 @@ mod tests {
 
         app.apply_reducer_intents([
             GraphIntent::SetFileTreeContainmentRelationSource {
-                source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+                source: FileTreeContainmentRelationSource::ContainmentRelations,
             },
             GraphIntent::RebuildFileTreeProjection,
         ]);
@@ -8414,28 +8529,28 @@ mod tests {
             .row_targets
             .keys()
             .collect();
-        assert_eq!(keys.len(), 1);
-        assert!(keys[0].starts_with("fs:/tmp/a.txt#"));
+        assert!(keys.iter().any(|row| row.starts_with("folder:file:///tmp/#")));
+        assert!(keys.iter().any(|row| row.starts_with("domain:example.com#")));
     }
 
     #[test]
-    fn test_file_tree_projection_root_filter_limits_imported_filesystem_rows() {
+    fn test_file_tree_projection_root_filter_limits_containment_rows() {
         let mut app = GraphBrowserApp::new_for_testing();
         app.workspace
             .domain
             .graph
-            .add_node("file:///tmp/a.txt".to_string(), Point2D::new(0.0, 0.0));
+            .add_node("file:///tmp/a/a.txt".to_string(), Point2D::new(0.0, 0.0));
         app.workspace
             .domain
             .graph
-            .add_node("file:///tmp/b.log".to_string(), Point2D::new(1.0, 0.0));
+            .add_node("file:///tmp/b/b.log".to_string(), Point2D::new(1.0, 0.0));
 
         app.apply_reducer_intents([
             GraphIntent::SetFileTreeContainmentRelationSource {
-                source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+                source: FileTreeContainmentRelationSource::ContainmentRelations,
             },
             GraphIntent::SetFileTreeRootFilter {
-                root_filter: Some("a.txt".to_string()),
+                root_filter: Some("/tmp/a/".to_string()),
             },
             GraphIntent::RebuildFileTreeProjection,
         ]);
@@ -8446,7 +8561,7 @@ mod tests {
             .keys()
             .collect();
         assert_eq!(keys.len(), 1);
-        assert!(keys[0].contains("a.txt"));
+        assert!(keys[0].contains("/tmp/a/"));
     }
 
     #[test]
@@ -8455,7 +8570,7 @@ mod tests {
 
         app.apply_reducer_intents([
             GraphIntent::SetFileTreeContainmentRelationSource {
-                source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+                source: FileTreeContainmentRelationSource::ContainmentRelations,
             },
             GraphIntent::SetFileTreeSortMode {
                 sort_mode: FileTreeSortMode::NameDescending,
@@ -8473,7 +8588,7 @@ mod tests {
 
         assert_eq!(
             app.file_tree_projection_state().containment_relation_source,
-            FileTreeContainmentRelationSource::ImportedFilesystemProjection
+            FileTreeContainmentRelationSource::ContainmentRelations
         );
         assert_eq!(
             app.file_tree_projection_state().sort_mode,
@@ -8500,7 +8615,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
 
         app.set_file_tree_containment_relation_source(
-            FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+            FileTreeContainmentRelationSource::ContainmentRelations,
         );
         app.set_file_tree_sort_mode(FileTreeSortMode::NameAscending);
         app.set_file_tree_root_filter(Some("root:collections".to_string()));

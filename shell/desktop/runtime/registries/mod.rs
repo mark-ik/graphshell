@@ -2056,6 +2056,17 @@ impl RegistryRuntime {
         ));
     }
 
+    pub(crate) fn publish_settings_route_requested(&self, url: &str, prefer_overlay: bool) {
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::SettingsRouteRequested {
+                url: url.to_string(),
+                prefer_overlay,
+            }),
+            SignalSource::ControlPanel,
+            None,
+        ));
+    }
+
     #[cfg(test)]
     pub(crate) fn publish_signal_for_tests(&self, envelope: SignalEnvelope) {
         self.publish_signal(envelope);
@@ -2108,6 +2119,11 @@ pub(crate) fn phase3_publish_navigation_node_activated(key: NodeKey, uri: &str, 
 pub(crate) fn phase3_publish_workbench_projection_refresh_requested(reason: &str) {
     debug_assert!(!diagnostics::phase3_required_channels().is_empty());
     runtime().publish_workbench_projection_refresh_requested(reason);
+}
+
+pub(crate) fn phase3_publish_settings_route_requested(url: &str, prefer_overlay: bool) {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+    runtime().publish_settings_route_requested(url, prefer_overlay);
 }
 
 pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
@@ -3715,6 +3731,32 @@ mod tests {
 
         assert_eq!(observer_a.load(Ordering::Relaxed), 1);
         assert_eq!(observer_b.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn phase3_settings_route_requested_routes_through_registry_event_signal_observers() {
+        let runtime = RegistryRuntime::default();
+        let observer_count = Arc::new(AtomicUsize::new(0));
+
+        {
+            let observer_count = Arc::clone(&observer_count);
+            runtime.subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
+                if let SignalKind::RegistryEvent(RegistryEventSignal::SettingsRouteRequested {
+                    url,
+                    prefer_overlay,
+                }) = &signal.kind
+                    && url == "verso://settings/general"
+                    && *prefer_overlay
+                {
+                    observer_count.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(())
+            });
+        }
+
+        runtime.publish_settings_route_requested("verso://settings/general", true);
+
+        assert_eq!(observer_count.load(Ordering::Relaxed), 1);
     }
 
     #[test]

@@ -244,19 +244,31 @@ pub(crate) enum ToolPaneState {
     HistoryManager,
     /// Accessibility inspection surface.
     AccessibilityInspector,
-    /// Graph-backed hierarchical projection surface.
+    /// Legacy file-tree projection surface, now presented as Navigator.
     FileTree,
     /// Application and workspace settings.
     Settings,
 }
 
 impl ToolPaneState {
+    pub(crate) fn navigator_surface() -> Self {
+        Self::FileTree
+    }
+
+    pub(crate) fn is_navigator_surface(&self) -> bool {
+        matches!(self, Self::FileTree)
+    }
+
+    pub(crate) fn is_file_tree_surface(&self) -> bool {
+        self.is_navigator_surface()
+    }
+
     pub(crate) fn title(&self) -> &'static str {
         match self {
             Self::Diagnostics => "Diagnostics",
             Self::HistoryManager => "History",
             Self::AccessibilityInspector => "Accessibility",
-            Self::FileTree => "File Tree",
+            Self::FileTree => "Navigator",
             Self::Settings => "Settings",
         }
     }
@@ -425,7 +437,7 @@ mod tests {
             ToolPaneState::AccessibilityInspector.title(),
             "Accessibility"
         );
-        assert_eq!(ToolPaneState::FileTree.title(), "File Tree");
+        assert_eq!(ToolPaneState::FileTree.title(), "Navigator");
         assert_eq!(ToolPaneState::Settings.title(), "Settings");
     }
 

@@ -1,7 +1,7 @@
 # WebRender wgpu Renderer — Implementation Plan
 
 **Date**: 2026-03-01
-**Status**: ⚠️ Deferred indefinitely (2026-03-12) — wgpu renderer migration suspended. Graphshell ships on egui_glow. See `PLANNING_REGISTER.md` §0.13.
+**Status**: Incubating / upstream-first (reframed 2026-03-14) — Graphshell still ships on `egui_glow`, but WebRender `wgpu` work is now treated as upstream renderer development first, with thin Servo integration and Graphshell-local validation. See `PLANNING_REGISTER.md` §0.12/§0.13.
 **Author**: Arc
 **Source research**: `research/2026-03-01_webrender_wgpu_renderer_research.md`
 **Active audit log**: `2026-03-03_servo_wgpu_upgrade_audit_report.md`
@@ -33,10 +33,18 @@ save/restore chaos mode and closing `#180`.
 current milestone. This plan runs as Track B (WebRender readiness) in parallel with
 Track A (milestone delivery on Glow), per the readiness gate contract.
 
-**Current audit note (2026-03-03)**: Servo-side `wgpu 26 -> 27` compatibility work is active
-in the sibling `servo-graphshell` fork. The direct `components/webgpu` compatibility pass now
-checks cleanly on the audit branch; follow-on WebRender renderer churn remains a separate
-post-audit branch concern. See `2026-03-03_servo_wgpu_upgrade_audit_report.md`.
+**Current audit note (2026-03-14)**: the Servo-side `wgpu 26 -> 27` compatibility pass still
+matters, but it is now treated as enabling integration work rather than as the main development
+home. The primary implementation target is upstream WebRender `device` / `renderer`; Servo should
+only carry the minimum dependency-redirection or integration delta required to exercise a local
+editable WebRender checkout. See `2026-03-03_servo_wgpu_upgrade_audit_report.md`.
+
+**Execution posture update (2026-03-14)**:
+
+- Do renderer development and most validation in upstream WebRender first.
+- Use Servo as the thinnest possible integration consumer.
+- Use Graphshell as the final downstream validation environment.
+- Avoid a long-lived behavioral Servo fork unless Cargo/source topology makes it unavoidable.
 
 ---
 
@@ -46,7 +54,7 @@ post-audit branch concern. See `2026-03-03_servo_wgpu_upgrade_audit_report.md`.
 |-------|------|------|----------|------|
 | **P0** | Dependency Audit + Version Alignment | G1 | Version compatibility matrix, patch path proof | Low |
 | **P1** | Upstream Reconnaissance | G1 | Coordination posture, duplicate-work avoidance | Low |
-| **P2** | Fork + Patch Scaffold | G1 | Reproducible Servo fork build with WebRender patch slot | Medium |
+| **P2** | Local Patch / Thin Integration Scaffold | G1 | Reproducible local WebRender checkout consumed by Servo/Graphshell with minimal integration delta | Medium |
 | **P3** | WebRender Backend Trait Extraction | G2 | Backend-agnostic `Device`/`Renderer` trait boundary inside WebRender | High |
 | **P4** | Shader Translation Pipeline | G2 | GLSL → WGSL build-time pipeline via naga; translated shader set | Medium |
 | **P5** | wgpu Device Implementation | G2, G3 | `WgpuDevice` struct passing WebRender resource management tests | High |
@@ -126,39 +134,40 @@ to avoid duplicating effort and identify coordination opportunities.
 
 ### P2 — Fork + Patch Scaffold
 
-**Objective**: Establish a reproducible build of Graphshell using a Servo fork with a
-WebRender patch slot, proving the dependency-control path works end-to-end.
+**Objective**: Establish a reproducible build path that lets Graphshell exercise a local editable
+WebRender checkout through Servo while keeping Servo changes as thin as possible.
 
 **Entry conditions**:
 - P0 complete (version alignment known)
-- P1 complete (upstream posture known — determines whether to fork Servo main or track an upstream branch)
+- P1 complete (upstream posture known — determines whether local patching is sufficient or a thin
+  integration branch is required)
 
 **Tasks**:
 
 | # | Task | Validation method |
 |---|------|-------------------|
-| P2.1 | Fork `servo/servo` to `mark-ik/servo` (or equivalent) | Fork exists on GitHub |
-| P2.2 | Create a `graphshell/webrender-wgpu` branch from the Servo commit currently pinned in `Cargo.lock` | Branch exists at pinned commit |
-| P2.3 | Add `[patch.crates-io]` entries to Graphshell's `Cargo.toml` for `webrender` and `webrender_api` pointing to the fork branch | Entries present in `Cargo.toml` |
-| P2.4 | Alternatively, change the Servo git dependency URL to point to the fork if the patch approach introduces resolution conflicts | Git dep updated in `Cargo.toml` |
-| P2.5 | Run `cargo check -q` — build must succeed with zero WebRender source changes | Clean build |
-| P2.6 | Run `cargo test` — existing tests pass | All tests green |
-| P2.7 | Add a no-op `wgpu_device` module stub inside the forked WebRender crate to prove the patch slot works | Module compiles, no behavior change |
-| P2.8 | Document the patch path in a `WEBRENDER_PATCH.md` file | Documentation exists |
-| P2.9 | Document the rollback path: reverting `Cargo.toml` changes restores upstream Servo | Rollback tested and documented |
+| P2.1 | Create or adopt a local editable WebRender checkout (`../webrender` or equivalent) | Checkout exists and builds standalone |
+| P2.2 | Point Servo at the local WebRender checkout through `[patch.crates-io]` or equivalent local override | Cargo resolves `webrender` from the local checkout |
+| P2.3 | If local patching is insufficient, create a thin Servo integration branch whose only job is dependency redirection and compatibility shims | Branch exists with narrowly scoped diff |
+| P2.4 | Run `cargo check -q` with zero behavioral WebRender renderer changes | Clean build |
+| P2.5 | Run targeted Servo/Graphshell validation to prove the local checkout is in the dependency graph | Validation passes |
+| P2.6 | Add a no-op `wgpu_device` module stub inside the local WebRender checkout to prove the patch slot works | Module compiles, no behavior change |
+| P2.7 | Document the patch path in a `WEBRENDER_PATCH.md` file | Documentation exists |
+| P2.8 | Document the rollback path: reverting the local override restores stock Servo consumption | Rollback tested and documented |
 
 **Exit criteria**:
-- Graphshell builds and tests pass against the forked Servo with WebRender patch slot
-- Rollback to upstream Servo is proven (one `Cargo.toml` revert)
+- Graphshell or targeted integration checks pass against the local WebRender checkout
+- Rollback to stock Servo/WebRender consumption is proven
 - G1 closed: dependency control and reproducibility demonstrated
 
-**Rollback**: Revert `Cargo.toml` changes (remove `[patch.crates-io]` or restore original git URL).
+**Rollback**: Revert the local override path (remove `[patch.crates-io]` or restore original
+dependency source).
 
 ---
 
 ### P3 — WebRender Backend Trait Extraction
 
-**Objective**: Inside the forked WebRender, introduce a backend abstraction trait that
+**Objective**: Inside the editable WebRender checkout, introduce a backend abstraction trait that
 the existing GL implementation satisfies, without changing any GL behavior. This creates
 the seam where the wgpu implementation plugs in.
 
@@ -185,7 +194,7 @@ the seam where the wgpu implementation plugs in.
 - The trait surface is documented with method-level doc comments
 - G2 evidence: backend contract boundary exists
 
-**Rollback**: Revert the WebRender fork branch to pre-extraction commit.
+**Rollback**: Revert the WebRender checkout or upstream branch to the pre-extraction commit.
 
 **Risk mitigation**: This is the highest-risk refactoring phase. If the `Device`/`Renderer`
 interface proves too entangled for clean trait extraction:

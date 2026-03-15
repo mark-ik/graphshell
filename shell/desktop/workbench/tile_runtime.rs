@@ -94,7 +94,13 @@ impl TileCoordinator {
         state: &NodePaneState,
         graph_app: &GraphBrowserApp,
     ) -> bool {
-        Self::resolve_node_pane_render_mode(state, graph_app) == TileRenderMode::CompositedTexture
+        let effective_mode = if state.render_mode == TileRenderMode::Placeholder {
+            // Transitional fallback for panes that have not yet had render mode refreshed.
+            Self::resolve_node_pane_render_mode(state, graph_app)
+        } else {
+            state.render_mode
+        };
+        effective_mode == TileRenderMode::CompositedTexture
     }
 
     fn collect_node_pane_keys_using_composited_runtime(
@@ -388,7 +394,9 @@ pub(crate) fn render_mode_for_node_pane_in_tree(
         .tiles
         .iter()
         .find_map(|(_, tile)| match tile {
-            Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(state.render_mode),
+            Tile::Pane(kind @ TileKind::Node(state)) if state.node == node_key => {
+                kind.node_render_mode()
+            }
             _ => None,
         })
         .unwrap_or(TileRenderMode::Placeholder)
@@ -402,8 +410,8 @@ pub(crate) fn render_mode_for_pane_in_tree(
         .tiles
         .iter()
         .find_map(|(_, tile)| match tile {
-            Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => {
-                Some(state.render_mode)
+            Tile::Pane(kind @ TileKind::Node(state)) if state.pane_id == pane_id => {
+                kind.node_render_mode()
             }
             _ => None,
         })
@@ -569,6 +577,22 @@ mod tests {
 
         assert!(!http_hosts.contains(&http_node));
         assert!(file_hosts.contains(&file_node));
+    }
+
+    #[test]
+    fn node_pane_composited_host_selection_prefers_explicit_render_mode_field() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
+
+        let mut state = NodePaneState::for_node(node_key);
+        state.render_mode = TileRenderMode::EmbeddedEgui;
+        let tree = tree_with_node_pane(state);
+
+        let hosts = TileCoordinator::all_node_pane_keys_using_composited_runtime(&tree, &app);
+        assert!(
+            !hosts.contains(&node_key),
+            "explicit non-composited render mode should override inferred viewer selection"
+        );
     }
 
     #[test]

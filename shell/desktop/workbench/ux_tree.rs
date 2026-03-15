@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use egui_tiles::{Container, Tile, TileId, Tree};
 
 use crate::app::{GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode};
-use crate::graph::NodeKey;
+use crate::graph::{EdgeType, NodeKey};
 use crate::render::radial_menu::latest_semantic_snapshot;
 
 use super::pane_model::TileRenderMode;
@@ -32,6 +32,7 @@ pub(crate) enum UxNodeRole {
     RadialSector,
     RadialSummary,
     GraphViewLensScope,
+    NavigatorProjection,
     FileTreeProjection,
     RouteOpenBoundary,
     #[cfg(feature = "diagnostics")]
@@ -102,6 +103,19 @@ pub(crate) enum UxDomainIdentity {
         zoom_fit_locked: bool,
         focused_view: bool,
         selection_count: usize,
+    },
+    NavigatorProjection {
+        containment_relation_source: String,
+        sort_mode: String,
+        root_filter: Option<String>,
+        row_count: usize,
+        selected_count: usize,
+        expanded_count: usize,
+        collapsed_count: usize,
+        workbench_group_count: usize,
+        workbench_member_count: usize,
+        unrelated_count: usize,
+        recent_count: usize,
     },
     FileTreeProjection {
         containment_relation_source: String,
@@ -326,6 +340,29 @@ fn append_workbench_semantics_nodes(
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
 ) {
+    fn recent_traversal_node_timestamps(graph_app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
+        let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
+        for edge in graph_app.domain_graph().edges() {
+            if edge.edge_type != EdgeType::History {
+                continue;
+            }
+            let timestamp = graph_app
+                .domain_graph()
+                .find_edge_key(edge.from, edge.to)
+                .and_then(|edge_key| graph_app.domain_graph().get_edge(edge_key))
+                .and_then(|payload| payload.metrics().last_navigated_at)
+                .unwrap_or(0);
+            if timestamp == 0 {
+                continue;
+            }
+            by_node
+                .entry(edge.to)
+                .and_modify(|current| *current = (*current).max(timestamp))
+                .or_insert(timestamp);
+        }
+        by_node
+    }
+
     for (view_id, view_state) in &graph_app.workspace.views {
         let selection_count = graph_app.selection_for_view(*view_id).len();
         let focused_view = graph_app.workspace.focused_view == Some(*view_id);
@@ -377,43 +414,69 @@ fn append_workbench_semantics_nodes(
         });
     }
 
-    let file_tree = graph_app.file_tree_projection_state();
-    let file_tree_node_id = "uxnode://workbench/file-tree/projection".to_string();
+    let navigator_projection = graph_app.file_tree_projection_state();
+    let arrangement_groups = graph_app.arrangement_projection_groups();
+    let workbench_group_count = arrangement_groups.len();
+    let mut arranged_nodes = HashSet::new();
+    let mut workbench_member_count = 0usize;
+    for group in arrangement_groups {
+        workbench_member_count += group.member_keys.len();
+        for node_key in group.member_keys {
+            arranged_nodes.insert(node_key);
+        }
+    }
+    let recent_timestamps = recent_traversal_node_timestamps(graph_app);
+    let recent_count = recent_timestamps
+        .keys()
+        .filter(|key| !arranged_nodes.contains(key))
+        .count();
+    let unrelated_count = graph_app
+        .domain_graph()
+        .nodes()
+        .filter(|(node_key, _)| {
+            !arranged_nodes.contains(node_key) && !recent_timestamps.contains_key(node_key)
+        })
+        .count();
+    let navigator_projection_node_id = "uxnode://workbench/navigator/projection".to_string();
     semantic_nodes.push(UxSemanticNode {
-        ux_node_id: file_tree_node_id.clone(),
+        ux_node_id: navigator_projection_node_id.clone(),
         parent_ux_node_id: Some(UX_TREE_WORKBENCH_ROOT_ID.to_string()),
-        role: UxNodeRole::FileTreeProjection,
-        label: "File-Tree Projection".to_string(),
+        role: UxNodeRole::NavigatorProjection,
+        label: "Navigator Projection".to_string(),
         state: UxNodeState {
             focused: false,
-            selected: !file_tree.selected_rows.is_empty(),
-            blocked: file_tree.row_targets.is_empty(),
+            selected: !navigator_projection.selected_rows.is_empty(),
+            blocked: navigator_projection.row_targets.is_empty(),
             degraded: false,
         },
         allowed_actions: vec![UxAction::Navigate],
-        domain: UxDomainIdentity::FileTreeProjection {
-            containment_relation_source: format!("{:?}", file_tree.containment_relation_source),
-            sort_mode: format!("{:?}", file_tree.sort_mode),
-            root_filter: file_tree.root_filter.clone(),
-            row_count: file_tree.row_targets.len(),
-            selected_count: file_tree.selected_rows.len(),
-            expanded_count: file_tree.expanded_rows.len(),
-            collapsed_count: file_tree.collapsed_rows.len(),
+        domain: UxDomainIdentity::NavigatorProjection {
+            containment_relation_source: format!("{:?}", navigator_projection.containment_relation_source),
+            sort_mode: format!("{:?}", navigator_projection.sort_mode),
+            root_filter: navigator_projection.root_filter.clone(),
+            row_count: navigator_projection.row_targets.len(),
+            selected_count: navigator_projection.selected_rows.len(),
+            expanded_count: navigator_projection.expanded_rows.len(),
+            collapsed_count: navigator_projection.collapsed_rows.len(),
+            workbench_group_count,
+            workbench_member_count,
+            unrelated_count,
+            recent_count,
         },
     });
     presentation_nodes.push(UxPresentationNode {
-        ux_node_id: file_tree_node_id.clone(),
+        ux_node_id: navigator_projection_node_id.clone(),
         bounds: None,
         render_mode: Some(TileRenderMode::EmbeddedEgui),
-        z_pass: "workbench.file_tree.projection",
-        style_flags: vec!["surface:file-tree"],
+        z_pass: "workbench.navigator.projection",
+        style_flags: vec!["surface:navigator"],
         transient_flags: Vec::new(),
     });
     trace_nodes.push(UxTraceNode {
-        ux_node_id: file_tree_node_id,
-        event_route: "workbench.file_tree_route",
+        ux_node_id: navigator_projection_node_id,
+        event_route: "workbench.navigator_route",
         backend_path: "egui",
-        diagnostics_counter: file_tree.row_targets.len() as u64,
+        diagnostics_counter: navigator_projection.row_targets.len() as u64,
     });
 
     let route_node_id = "uxnode://workbench/route-open/boundary".to_string();
@@ -1340,7 +1403,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_projects_lens_scope_file_tree_and_route_open_boundary_nodes() {
+    fn snapshot_projects_lens_scope_navigator_and_route_open_boundary_nodes() {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-route-open.example");
         harness.open_node_tab(node);
@@ -1393,10 +1456,10 @@ mod tests {
         );
         assert!(
             snapshot.semantic_nodes.iter().any(|entry| {
-                entry.role == UxNodeRole::FileTreeProjection
+                entry.role == UxNodeRole::NavigatorProjection
                     && matches!(
                         &entry.domain,
-                        UxDomainIdentity::FileTreeProjection {
+                        UxDomainIdentity::NavigatorProjection {
                             containment_relation_source,
                             selected_count,
                             row_count,
@@ -1406,7 +1469,7 @@ mod tests {
                             && *row_count >= 1
                     )
             }),
-            "snapshot should include file-tree projection metadata"
+            "snapshot should include navigator projection metadata"
         );
         assert!(
             snapshot.semantic_nodes.iter().any(|entry| {

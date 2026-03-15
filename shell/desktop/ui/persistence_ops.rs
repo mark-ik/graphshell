@@ -451,6 +451,61 @@ pub(crate) fn refresh_frame_membership_cache_from_manifests(
     Ok(())
 }
 
+fn refresh_frame_arrangement_projection_from_manifests(graph_app: &mut GraphBrowserApp) {
+    let manifest_frame_names: BTreeSet<String> = graph_app
+        .list_workspace_layout_names()
+        .into_iter()
+        .filter(|name| !GraphBrowserApp::is_reserved_workspace_layout_name(name))
+        .collect();
+
+    let stale_frame_titles = graph_app
+        .arrangement_projection_groups()
+        .into_iter()
+        .filter(|group| {
+            group.sub_kind == crate::graph::ArrangementSubKind::FrameMember
+                && !manifest_frame_names.contains(&group.title)
+        })
+        .map(|group| group.title)
+        .collect::<Vec<_>>();
+
+    for stale_title in stale_frame_titles {
+        graph_app.remove_named_workbench_frame_graph_representation(&stale_title);
+    }
+
+    for frame_name in manifest_frame_names {
+        let bundle = match load_named_frame_bundle(graph_app, &frame_name) {
+            Ok(bundle) => bundle,
+            Err(error) => {
+                warn!(
+                    "Skipping arrangement projection refresh for frame '{frame_name}': failed to load bundle: {error}"
+                );
+                continue;
+            }
+        };
+
+        let tree = match restore_runtime_tree_from_frame_bundle(graph_app, &bundle) {
+            Ok((tree, _)) => tree,
+            Err(error) => {
+                warn!(
+                    "Skipping arrangement projection refresh for frame '{frame_name}': failed to restore runtime tree: {error}"
+                );
+                continue;
+            }
+        };
+
+        graph_app.sync_named_workbench_frame_graph_representation(&frame_name, &tree);
+    }
+}
+
+pub(crate) fn refresh_workbench_projection_from_manifests(
+    graph_app: &mut GraphBrowserApp,
+) -> Result<(), String> {
+    graph_app.rebuild_navigator_projection_rows();
+    refresh_frame_membership_cache_from_manifests(graph_app)?;
+    refresh_frame_arrangement_projection_from_manifests(graph_app);
+    Ok(())
+}
+
 pub(crate) fn build_frame_activation_recency_from_frame_manifests(
     graph_app: &GraphBrowserApp,
 ) -> (HashMap<Uuid, (u64, String)>, u64) {
@@ -731,6 +786,7 @@ pub(crate) fn parse_data_dir_input(raw: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use crate::graph::EdgeType;
+    use crate::shell::desktop::ui::workbench_sidebar::WorkbenchChromeProjection;
     use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneState};
     use crate::util::VersoAddress;
     use egui_tiles::{Tiles, Tree};
@@ -970,6 +1026,62 @@ mod tests {
                 crate::graph::ArrangementSubKind::FrameMember,
             ) && edge.from == frame_key
                 && edge.to == node
+        }));
+    }
+
+    #[test]
+    fn refresh_workbench_projection_from_manifests_updates_navigator_rows_and_arrangement_projection(
+    ) {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let node = app.add_node_and_sync(
+            "https://refresh-projection.example".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let view_id = GraphViewId::default();
+        app.ensure_graph_view_registered(view_id);
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
+        let node_pane = tiles.insert_pane(TileKind::Node(node.into()));
+        let root = tiles.insert_tab_tile(vec![graph, node_pane]);
+        let tree = Tree::new("workspace-refresh-projection", root, tiles);
+
+        save_named_frame_bundle(&mut app, "workspace-refresh-projection", &tree)
+            .expect("save frame bundle");
+        app.remove_named_workbench_frame_graph_representation("workspace-refresh-projection");
+
+        assert!(app.arrangement_projection_groups().into_iter().all(|group| {
+            group.sub_kind != crate::graph::ArrangementSubKind::FrameMember
+                || group.title != "workspace-refresh-projection"
+        }));
+
+        app.set_navigator_containment_relation_source(
+            crate::app::NavigatorContainmentRelationSource::ContainmentRelations,
+        );
+
+        app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+            key: node,
+            new_url: "file:///workspace-refresh-projection.md".to_string(),
+        }]);
+
+        refresh_workbench_projection_from_manifests(&mut app)
+            .expect("refresh workbench projection should succeed");
+
+        assert!(
+            app.navigator_projection_state()
+                .row_targets
+                .keys()
+                .any(|row| row.starts_with("folder:")),
+            "refresh should rebuild navigator projection rows"
+        );
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+        assert!(projection.pane_entries.iter().any(|entry| {
+            entry
+                .arrangement_memberships
+                .iter()
+                .any(|membership| membership == "Frame: workspace-refresh-projection")
         }));
     }
 

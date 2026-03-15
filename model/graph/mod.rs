@@ -420,6 +420,9 @@ pub enum EdgeType {
 
     /// Workbench/layout arrangement relation.
     ArrangementRelation(ArrangementSubKind),
+
+    /// URL-derived containment hierarchy relation.
+    ContainmentRelation(ContainmentSubKind),
 }
 
 #[derive(
@@ -440,6 +443,34 @@ pub enum ArrangementSubKind {
     FrameMember,
     TileGroup,
     SplitPair,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Archive,
+    Serialize,
+    Deserialize,
+)]
+#[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
+pub enum ContainmentSubKind {
+    UrlPath,
+    Domain,
+}
+
+impl ContainmentSubKind {
+    pub fn as_tag(self) -> &'static str {
+        match self {
+            Self::UrlPath => "url-path",
+            Self::Domain => "domain",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
@@ -491,6 +522,7 @@ pub enum EdgeKind {
     UserGrouped,
     AgentDerived,
     ArrangementRelation,
+    ContainmentRelation,
 }
 
 /// Trigger classification for a traversal event.
@@ -590,6 +622,29 @@ pub struct ArrangementData {
     pub sub_kinds: BTreeSet<ArrangementSubKind>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Default)]
+pub struct ContainmentData {
+    pub sub_kinds: BTreeSet<ContainmentSubKind>,
+}
+
+impl ContainmentData {
+    fn insert(&mut self, sub_kind: ContainmentSubKind) -> bool {
+        self.sub_kinds.insert(sub_kind)
+    }
+
+    fn remove(&mut self, sub_kind: ContainmentSubKind) -> bool {
+        self.sub_kinds.remove(&sub_kind)
+    }
+
+    fn contains(&self, sub_kind: ContainmentSubKind) -> bool {
+        self.sub_kinds.contains(&sub_kind)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.sub_kinds.is_empty()
+    }
+}
+
 impl ArrangementData {
     fn insert(&mut self, sub_kind: ArrangementSubKind) -> bool {
         self.sub_kinds.insert(sub_kind)
@@ -629,6 +684,7 @@ pub struct EdgePayload {
     pub user_grouped: Option<UserGroupedData>,
     pub traversal: Option<TraversalData>,
     pub arrangement: Option<ArrangementData>,
+    pub containment: Option<ContainmentData>,
 }
 
 impl EdgePayload {
@@ -638,6 +694,7 @@ impl EdgePayload {
             user_grouped: None,
             traversal: None,
             arrangement: None,
+            containment: None,
         }
     }
 
@@ -676,6 +733,13 @@ impl EdgePayload {
                     .get_or_insert_with(ArrangementData::default);
                 inserted | data.insert(sub_kind)
             }
+            EdgeType::ContainmentRelation(sub_kind) => {
+                let inserted = self.kinds.insert(EdgeKind::ContainmentRelation);
+                let data = self
+                    .containment
+                    .get_or_insert_with(ContainmentData::default);
+                inserted | data.insert(sub_kind)
+            }
         }
     }
 
@@ -696,6 +760,13 @@ impl EdgePayload {
                 self.kinds.contains(&EdgeKind::ArrangementRelation)
                     && self
                         .arrangement
+                        .as_ref()
+                        .is_some_and(|data| data.contains(sub_kind))
+            }
+            EdgeType::ContainmentRelation(sub_kind) => {
+                self.kinds.contains(&EdgeKind::ContainmentRelation)
+                    && self
+                        .containment
                         .as_ref()
                         .is_some_and(|data| data.contains(sub_kind))
             }
@@ -733,6 +804,18 @@ impl EdgePayload {
                 }
                 true
             }
+            EdgeType::ContainmentRelation(sub_kind)
+                if self
+                    .containment
+                    .as_mut()
+                    .is_some_and(|data| data.remove(sub_kind)) =>
+            {
+                if self.containment.as_ref().is_some_and(ContainmentData::is_empty) {
+                    self.containment = None;
+                    self.kinds.remove(&EdgeKind::ContainmentRelation);
+                }
+                true
+            }
             _ => false,
         }
     }
@@ -757,6 +840,10 @@ impl EdgePayload {
 
     pub fn arrangement_data(&self) -> Option<&ArrangementData> {
         self.arrangement.as_ref()
+    }
+
+    pub fn containment_data(&self) -> Option<&ContainmentData> {
+        self.containment.as_ref()
     }
 
     pub fn has_arrangement_sub_kind(&self, sub_kind: ArrangementSubKind) -> bool {
@@ -818,6 +905,13 @@ pub struct ArrangementEdgeView {
     pub from: NodeKey,
     pub to: NodeKey,
     pub sub_kind: ArrangementSubKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContainmentEdgeView {
+    pub from: NodeKey,
+    pub to: NodeKey,
+    pub sub_kind: ContainmentSubKind,
 }
 
 /// Main graph structure backed by petgraph::StableGraph
@@ -1512,7 +1606,7 @@ impl Graph {
             let from = e.source();
             let to = e.target();
             let payload = e.weight();
-            let mut out = Vec::with_capacity(3);
+            let mut out = Vec::with_capacity(6);
             if payload.has_kind(EdgeKind::Hyperlink) {
                 out.push(EdgeView {
                     from,
@@ -1543,6 +1637,15 @@ impl Graph {
                     });
                 }
             }
+            if let Some(containment) = payload.containment_data() {
+                for sub_kind in &containment.sub_kinds {
+                    out.push(EdgeView {
+                        from,
+                        to,
+                        edge_type: EdgeType::ContainmentRelation(*sub_kind),
+                    });
+                }
+            }
             out.into_iter()
         })
     }
@@ -1562,6 +1665,114 @@ impl Graph {
                 .into_iter()
                 .flatten()
         })
+    }
+
+    pub fn containment_edges(&self) -> impl Iterator<Item = ContainmentEdgeView> + '_ {
+        self.inner.edge_references().flat_map(|e| {
+            let from = e.source();
+            let to = e.target();
+            e.weight()
+                .containment_data()
+                .map(|data| {
+                    data.sub_kinds
+                        .iter()
+                        .copied()
+                        .map(move |sub_kind| ContainmentEdgeView { from, to, sub_kind })
+                })
+                .into_iter()
+                .flatten()
+        })
+    }
+
+    /// Rebuild derived containment edges from current node URLs.
+    ///
+    /// Derived relations are additive/read-only and are never persisted.
+    pub(crate) fn rebuild_derived_containment_relations(&mut self) {
+        let edge_ids: Vec<EdgeKey> = self.inner.edge_indices().collect();
+        let mut empty_edges = Vec::new();
+        for edge_id in edge_ids {
+            if let Some(payload) = self.inner.edge_weight_mut(edge_id) {
+                let mut removed_any = false;
+                removed_any |= payload.remove_edge_type(EdgeType::ContainmentRelation(
+                    ContainmentSubKind::UrlPath,
+                ));
+                removed_any |= payload.remove_edge_type(EdgeType::ContainmentRelation(
+                    ContainmentSubKind::Domain,
+                ));
+                if removed_any && payload.is_empty() {
+                    empty_edges.push(edge_id);
+                }
+            }
+        }
+        for edge_id in empty_edges {
+            let _ = self.inner.remove_edge(edge_id);
+        }
+
+        let mut domain_anchor: HashMap<String, (NodeKey, usize, Uuid)> = HashMap::new();
+        for (key, node) in self.nodes() {
+            let Ok(parsed) = url::Url::parse(&node.url) else {
+                continue;
+            };
+            let depth = parsed
+                .path_segments()
+                .map_or(0, |segments| segments.filter(|segment| !segment.is_empty()).count());
+
+            let Some(host) = parsed.host_str() else {
+                continue;
+            };
+            let host = host.to_ascii_lowercase();
+            let candidate = (key, depth, node.id);
+            domain_anchor
+                .entry(host)
+                .and_modify(|current| {
+                    if candidate.1 < current.1 || (candidate.1 == current.1 && candidate.2 < current.2)
+                    {
+                        *current = candidate;
+                    }
+                })
+                .or_insert(candidate);
+        }
+
+        let mut url_parent_edges = Vec::new();
+        let mut domain_edges = Vec::new();
+        for (key, node) in self.nodes() {
+            let Ok(parsed) = url::Url::parse(&node.url) else {
+                continue;
+            };
+
+            if let Some(parent_url) = containment_parent_url(&parsed)
+                && let Some((parent_key, _)) = self.get_node_by_url(&parent_url)
+                && parent_key != key
+            {
+                url_parent_edges.push((key, parent_key));
+            }
+
+            if let Some(host) = parsed.host_str() {
+                let host = host.to_ascii_lowercase();
+                if let Some((anchor_key, _, _)) = domain_anchor.get(&host)
+                    && *anchor_key != key
+                {
+                    domain_edges.push((key, *anchor_key));
+                }
+            }
+        }
+
+        for (from, to) in url_parent_edges {
+            let _ = self.add_edge(
+                from,
+                to,
+                EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath),
+                None,
+            );
+        }
+        for (from, to) in domain_edges {
+            let _ = self.add_edge(
+                from,
+                to,
+                EdgeType::ContainmentRelation(ContainmentSubKind::Domain),
+                None,
+            );
+        }
     }
 
     /// Iterate outgoing neighbor keys for a node
@@ -1951,6 +2162,8 @@ impl Graph {
             }
         }
 
+        graph.rebuild_derived_containment_relations();
+
         graph
     }
 
@@ -1962,6 +2175,40 @@ impl Graph {
             }
         }
     }
+}
+
+fn containment_parent_url(url: &url::Url) -> Option<String> {
+    if !matches!(url.scheme(), "http" | "https" | "file") {
+        return None;
+    }
+
+    let mut parent = url.clone();
+    parent.set_query(None);
+    parent.set_fragment(None);
+
+    let mut segments: Vec<String> = parent
+        .path_segments()
+        .map(|parts| {
+            parts
+                .filter(|segment| !segment.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if segments.is_empty() {
+        return None;
+    }
+    segments.pop();
+
+    let parent_path = if segments.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}/", segments.join("/"))
+    };
+
+    parent.set_path(&parent_path);
+    Some(parent.to_string())
 }
 
 impl Default for Graph {

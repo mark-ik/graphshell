@@ -332,7 +332,6 @@ impl DiagnosticsState {
                                 });
                         });
                 }
-                #[cfg(feature = "diagnostics_tests")]
                 self.render_test_harness_scaffold(ui);
                 let active_tile_violations = self.channel_count(CHANNEL_ACTIVE_TILE_VIOLATION);
                 if active_tile_violations > 0 {

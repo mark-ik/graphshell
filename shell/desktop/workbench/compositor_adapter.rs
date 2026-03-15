@@ -1180,8 +1180,9 @@ mod tests {
         CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
         chaos_mode_enabled_from_raw, chaos_probe_passed, clear_content_callbacks_for_tests,
         clear_replay_samples_for_tests, emit_chaos_probe_outcome, framebuffer_binding_target,
-        gl_state_violated, push_replay_sample, replay_samples_snapshot, run_guarded_callback,
-        run_guarded_callback_with_snapshots, run_guarded_callback_with_snapshots_and_perturbation,
+        gl_state_change_flags, gl_state_violated, push_replay_sample, replay_samples_snapshot,
+        run_guarded_callback, run_guarded_callback_with_snapshots,
+        run_guarded_callback_with_snapshots_and_perturbation,
     };
 
     #[test]
@@ -1766,6 +1767,56 @@ mod tests {
         assert!(restore_verified);
         assert_ne!(after.framebuffer_binding, before.framebuffer_binding);
         assert_eq!(*state.borrow(), before);
+    }
+
+    #[test]
+    fn guarded_mock_callback_detects_all_gl_state_invariants() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        let state = RefCell::new(before);
+        let (violated, captured_before, captured_after, restore_verified) =
+            run_guarded_callback_with_snapshots_and_perturbation(
+                || *state.borrow(),
+                || {
+                    // Simulate a backend callback that mutates every tracked GL state field.
+                    let mut snapshot = *state.borrow();
+                    snapshot.viewport = [11, 13, 97, 89];
+                    snapshot.scissor_enabled = true;
+                    snapshot.blend_enabled = true;
+                    snapshot.active_texture = 3;
+                    snapshot.framebuffer_binding = 9;
+                    *state.borrow_mut() = snapshot;
+                },
+                || {},
+                |snapshot| {
+                    *state.borrow_mut() = snapshot;
+                },
+            );
+
+        assert!(violated);
+        assert!(restore_verified);
+        assert_eq!(captured_before, before);
+        assert_eq!(*state.borrow(), before);
+
+        let (
+            viewport_changed,
+            scissor_changed,
+            blend_changed,
+            active_texture_changed,
+            framebuffer_binding_changed,
+        ) = gl_state_change_flags(captured_before, captured_after);
+
+        assert!(viewport_changed);
+        assert!(scissor_changed);
+        assert!(blend_changed);
+        assert!(active_texture_changed);
+        assert!(framebuffer_binding_changed);
     }
 
     #[test]

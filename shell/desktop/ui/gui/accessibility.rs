@@ -607,6 +607,7 @@ fn map_uxtree_role_to_accesskit_role(role: UxNodeRole) -> egui::accesskit::Role 
         UxNodeRole::RadialSector => egui::accesskit::Role::MenuItem,
         UxNodeRole::RadialSummary => egui::accesskit::Role::Status,
         UxNodeRole::GraphViewLensScope => egui::accesskit::Role::Group,
+        UxNodeRole::NavigatorProjection => egui::accesskit::Role::Tree,
         UxNodeRole::FileTreeProjection => egui::accesskit::Role::Tree,
         UxNodeRole::RouteOpenBoundary => egui::accesskit::Role::Group,
         #[cfg(feature = "diagnostics")]

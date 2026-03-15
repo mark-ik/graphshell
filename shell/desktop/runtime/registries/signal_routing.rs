@@ -91,6 +91,10 @@ pub(crate) enum RegistryEventSignal {
     CanvasProfileChanged { new_profile_id: String },
     WorkbenchSurfaceChanged { new_profile_id: String },
     SemanticIndexUpdated { indexed_nodes: usize },
+    SettingsRouteRequested {
+        url: String,
+        prefer_overlay: bool,
+    },
     ModLoaded { mod_id: String },
     ModUnloaded { mod_id: String },
     AgentSpawned { agent_id: String },

@@ -1,9 +1,9 @@
 # Servo wgpu Upgrade Audit Report
 
 **Date**: 2026-03-03
-**Status**: ⚠️ Deferred indefinitely (2026-03-12) — wgpu renderer migration suspended. Graphshell ships on egui_glow. See `PLANNING_REGISTER.md` §0.12/0.13.
+**Status**: Active audit receipt / integration enabling evidence (reframed 2026-03-14). Graphshell still ships on egui_glow, but this report now feeds an upstream-WebRender-first renderer strategy rather than a Servo-fork-first migration.
 **Scope**: Servo-side `wgpu 26 -> 27` compatibility audit for the WebRender wgpu migration lane
-**Primary workspace**: `../servo-graphshell` (sibling repo fork used for renderer migration work)
+**Primary workspace**: `../servo-graphshell` for thin integration/audit work, plus a local editable `../webrender` checkout for primary renderer development
 **Related plans**:
 - `2026-03-01_webrender_wgpu_renderer_implementation_plan.md`
 - `2026-03-01_webrender_readiness_gate_feature_guardrails.md`
@@ -14,15 +14,18 @@
 
 ## 1. Purpose
 
-This report tracks the actual Servo-side version-audit work for the WebRender wgpu migration.
+This report tracks the Servo-side version-audit and dependency-redirection work that enables
+the WebRender wgpu migration.
 
-It exists to answer one narrow question with evidence:
+It exists to answer two narrow questions with evidence:
 
 - can the Servo fork move from its current `wgpu-core = 26` / `wgpu-types = 26` line to `27`
   without destabilizing the migration lane more than it helps?
+- can Servo act as a thin consumer of a local editable WebRender checkout without becoming the
+  primary renderer-development fork?
 
-This is a **working report**, not a frozen spec. Update it as the audit branch and post-WebRender
-branch evolve.
+This is a **working report**, not a frozen spec. Update it as the audit branch, local WebRender
+checkout, and post-audit integration path evolve.
 
 ---
 
@@ -45,8 +48,9 @@ All branches below live in the sibling fork repository `../servo-graphshell`.
 
 ## 3. Baseline Before The Audit
 
-Graphshell currently consumes Servo directly from `servo/servo.git`, but the renderer migration
-work now uses the sibling fork `../servo-graphshell` as the controlled test fork.
+Graphshell currently consumes Servo directly from `servo/servo.git`, but the renderer audit work
+uses the sibling fork `../servo-graphshell` as a controlled integration surface while renderer
+implementation work is expected to concentrate in a local editable WebRender checkout.
 
 Before the audit:
 
@@ -174,7 +178,8 @@ Observed confirmation:
 - the path override resolves cleanly on the post-upgrade branch
 
 This closes the "can Servo be pointed at a local editable WebRender checkout on the `wgpu 27`
-branch?" question enough to begin the actual renderer-side fork work.
+line?" question enough to begin renderer work in WebRender itself, with Servo kept as a thin
+consumer.
 
 ---
 
@@ -236,8 +241,10 @@ This audit must stay conceptually separate from the actual WebRender renderer mi
 
 - **This audit branch** answers:
   - can Servo's current WebGPU-facing code survive the `26 -> 27` API move?
-- **The post-WebRender branch** will answer:
+- **The editable WebRender checkout / upstream branch** will answer:
   - what breaks when WebRender itself is patched to add a real wgpu renderer path?
+- **The thin Servo integration branch** will answer:
+  - what minimal dependency-redirection or embedder fixes are required to consume that renderer work?
 
 These are related, but they are not the same task.
 
@@ -248,12 +255,13 @@ It is "WebRender renderer and compositor integration churn."
 
 ## 8. Recommended Next Steps
 
-1. Start the first WebRender-side backend seam extraction on `renderer-webrender-wgpu-27-post-upgrade`
-   now that the local editable checkout is in the build graph.
-2. Focus the first renderer edits in WebRender's `device` / `renderer::init` boundary, where the
-   current GL-backed `Device::new(...)` path is constructed.
-3. Append new findings from that branch to this report under a new dated subsection instead of
-   scattering notes across unrelated docs.
+1. Start the first WebRender-side backend seam extraction in the local editable WebRender checkout
+   now that Servo can consume it through path overrides.
+2. Keep Servo changes constrained to dependency redirection, integration shims, and validation.
+3. Focus the first renderer edits in WebRender's `device` / `renderer` boundary, where the
+   current GL-backed initialization path is constructed.
+4. Append new integration findings here under dated subsections instead of scattering notes across
+   unrelated docs.
 
 ---
 

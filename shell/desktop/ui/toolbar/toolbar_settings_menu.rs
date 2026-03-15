@@ -5,7 +5,7 @@ use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
 fn open_settings_page(
-    graph_app: &mut GraphBrowserApp,
+    _graph_app: &mut GraphBrowserApp,
     page: SettingsToolPage,
     prefer_overlay: bool,
 ) {
@@ -19,16 +19,10 @@ fn open_settings_page(
         SettingsToolPage::Advanced => GraphshellSettingsPath::Advanced,
     };
 
-    if prefer_overlay {
-        graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-            url: VersoAddress::settings(path).to_string(),
-        });
-    } else {
-        graph_app.workspace.settings_tool_page = page;
-        graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
-            kind: ToolPaneState::Settings,
-        });
-    }
+    crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
+        &VersoAddress::settings(path).to_string(),
+        prefer_overlay,
+    );
 }
 
 pub(super) fn render_settings_menu(
