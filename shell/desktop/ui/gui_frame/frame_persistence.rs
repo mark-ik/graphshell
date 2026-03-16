@@ -255,6 +255,8 @@ fn pending_tile_mode_to_tile_mode(mode: PendingTileOpenMode) -> tile_view_ops::T
     match mode {
         PendingTileOpenMode::Tab => tile_view_ops::TileOpenMode::Tab,
         PendingTileOpenMode::SplitHorizontal => tile_view_ops::TileOpenMode::SplitHorizontal,
+        PendingTileOpenMode::QuarterPane => tile_view_ops::TileOpenMode::QuarterPane,
+        PendingTileOpenMode::HalfPane => tile_view_ops::TileOpenMode::HalfPane,
     }
 }
 

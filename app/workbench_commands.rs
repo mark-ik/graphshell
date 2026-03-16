@@ -232,6 +232,27 @@ impl GraphBrowserApp {
 
     fn ensure_workbench_tile_graph_identity(&mut self, tile_kind: &TileKind) -> Option<NodeKey> {
         match tile_kind {
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)) => Some(state.node),
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref)) => Some(self.ensure_internal_surface_node(
+                VersoAddress::view(graph_ref.graph_view_id.as_uuid().to_string()).to_string(),
+                "Graph View".to_string(),
+                self.suggested_new_node_position(None),
+            )),
+            #[cfg(feature = "diagnostics")]
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool_ref)) => Some(
+                self.ensure_internal_surface_node(
+                    VersoAddress::Other {
+                        category: "tool-pane".to_string(),
+                        segments: vec![
+                            tool_pane_route_segment(&tool_ref.kind).to_string(),
+                            tool_ref.pane_id.to_string(),
+                        ],
+                    }
+                    .to_string(),
+                    tool_ref.title().to_string(),
+                    self.suggested_new_node_position(None),
+                ),
+            ),
             TileKind::Node(state) => Some(state.node),
             TileKind::Graph(graph_ref) => Some(self.ensure_internal_surface_node(
                 VersoAddress::view(graph_ref.graph_view_id.as_uuid().to_string()).to_string(),

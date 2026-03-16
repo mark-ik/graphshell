@@ -129,6 +129,8 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
                         active_context_return_target(tiles_tree),
                     );
                 }
+                let pointer = ui.ctx().input(|i| i.pointer.latest_pos());
+                graph_app.set_context_palette_anchor(pointer.map(|pos| [pos.x, pos.y]));
                 graph_app.open_context_palette();
             }
         }

@@ -653,6 +653,8 @@ pub enum EdgeCommand {
 pub enum PendingTileOpenMode {
     Tab,
     SplitHorizontal,
+    QuarterPane,
+    HalfPane,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -909,6 +911,14 @@ pub enum WorkbenchIntent {
         node: NodeKey,
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
     },
+    SetPanePresentationMode {
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        mode: crate::shell::desktop::workbench::pane_model::PanePresentationMode,
+    },
+    PromoteEphemeralPane {
+        target_tile_context:
+            crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext,
+    },
     SwapViewerBackend {
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
         node: NodeKey,
@@ -1033,8 +1043,12 @@ pub struct GraphWorkspace {
 
     /// Whether the command palette is open
     pub show_command_palette: bool,
+    /// Whether the contextual command popup is open.
+    pub show_context_palette: bool,
     /// Whether the command palette is in contextual list mode.
     pub command_palette_contextual_mode: bool,
+    /// Pointer anchor for the contextual command popup.
+    pub context_palette_anchor: Option<[f32; 2]>,
     /// Whether the radial command UI is open.
     pub show_radial_menu: bool,
     /// Whether the web clip inspector surface is open.
@@ -1387,7 +1401,9 @@ impl GraphBrowserApp {
                 show_settings_overlay: false,
                 show_help_panel: false,
                 show_command_palette: false,
+                show_context_palette: false,
                 command_palette_contextual_mode: false,
+                context_palette_anchor: None,
                 show_radial_menu: false,
                 show_clip_inspector: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
@@ -1509,7 +1525,9 @@ impl GraphBrowserApp {
                 show_settings_overlay: false,
                 show_help_panel: false,
                 show_command_palette: false,
+                show_context_palette: false,
                 command_palette_contextual_mode: false,
+                context_palette_anchor: None,
                 show_radial_menu: false,
                 show_clip_inspector: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
@@ -2565,6 +2583,19 @@ impl GraphBrowserApp {
             | GraphIntent::SetNavigatorExpandedRows { .. }
             | GraphIntent::RebuildNavigatorProjection => {
                 unreachable!("workspace-only intents are handled before side-effect reducer match")
+            }
+            GraphIntent::SetPanePresentationMode { pane, mode } => {
+                self.enqueue_workbench_intent(WorkbenchIntent::SetPanePresentationMode {
+                    pane,
+                    mode,
+                });
+            }
+            GraphIntent::PromoteEphemeralPane {
+                target_tile_context,
+            } => {
+                self.enqueue_workbench_intent(WorkbenchIntent::PromoteEphemeralPane {
+                    target_tile_context,
+                });
             }
             GraphIntent::ToggleHelpPanel => {
                 self.enqueue_workbench_intent(WorkbenchIntent::ToggleHelpPanel);
@@ -10458,6 +10489,38 @@ mod tests {
     }
 
     #[test]
+    fn reducer_pane_presentation_and_promotion_flow_through_workbench_intents() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let pane = crate::shell::desktop::workbench::pane_model::PaneId::new();
+
+        app.apply_reducer_intents([
+            GraphIntent::SetPanePresentationMode {
+                pane,
+                mode: crate::shell::desktop::workbench::pane_model::PanePresentationMode::Docked,
+            },
+            GraphIntent::PromoteEphemeralPane {
+                target_tile_context:
+                    crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::Split,
+            },
+        ]);
+
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [
+                WorkbenchIntent::SetPanePresentationMode {
+                    pane: drained_pane,
+                    mode: crate::shell::desktop::workbench::pane_model::PanePresentationMode::Docked,
+                },
+                WorkbenchIntent::PromoteEphemeralPane {
+                    target_tile_context:
+                        crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::Split,
+                }
+            ] if *drained_pane == pane
+        ));
+    }
+
+    #[test]
     fn workbench_tile_selection_update_modes_track_primary_tile() {
         let mut app = GraphBrowserApp::new_for_testing();
         let mut tiles = egui_tiles::Tiles::default();
@@ -11156,6 +11219,7 @@ mod tests {
     fn opening_help_panel_closes_other_capture_surfaces() {
         let mut app = GraphBrowserApp::new_for_testing();
         app.workspace.show_command_palette = true;
+        app.workspace.show_context_palette = true;
         app.workspace.command_palette_contextual_mode = true;
         app.workspace.show_radial_menu = true;
         app.set_pending_node_context_target(Some(NodeKey::new(9)));
@@ -11164,6 +11228,7 @@ mod tests {
 
         assert!(app.workspace.show_help_panel);
         assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.show_context_palette);
         assert!(!app.workspace.command_palette_contextual_mode);
         assert!(!app.workspace.show_radial_menu);
         assert!(app.pending_node_context_target().is_none());
@@ -11179,6 +11244,7 @@ mod tests {
         app.open_command_palette();
 
         assert!(app.workspace.show_command_palette);
+        assert!(!app.workspace.show_context_palette);
         assert!(!app.workspace.command_palette_contextual_mode);
         assert!(!app.workspace.show_help_panel);
         assert!(!app.workspace.show_radial_menu);
@@ -11193,13 +11259,15 @@ mod tests {
 
         app.open_context_palette();
 
-        assert!(app.workspace.show_command_palette);
+        assert!(!app.workspace.show_command_palette);
+        assert!(app.workspace.show_context_palette);
         assert!(app.workspace.command_palette_contextual_mode);
         assert_eq!(app.pending_node_context_target(), Some(target));
 
         app.close_command_palette();
 
         assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.show_context_palette);
         assert!(!app.workspace.command_palette_contextual_mode);
         assert!(app.pending_node_context_target().is_none());
     }
@@ -11223,11 +11291,13 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         app.workspace.show_help_panel = true;
         app.workspace.show_command_palette = true;
+        app.workspace.show_context_palette = true;
 
         app.open_radial_menu();
 
         assert!(app.workspace.show_radial_menu);
         assert!(!app.workspace.show_help_panel);
         assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.show_context_palette);
     }
 }

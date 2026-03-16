@@ -6,9 +6,9 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use egui_tiles::Tree;
+use egui_tiles::{Container, Tile, Tree};
 #[cfg(feature = "diagnostics")]
-use egui_tiles::{Container, Tile, TileId};
+use egui_tiles::TileId;
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
 use super::tile_behavior::PendingOpenMode;
@@ -80,7 +80,125 @@ fn latch_focus_ring_transition(
 fn open_mode_from_pending(mode: PendingOpenMode) -> TileOpenMode {
     match mode {
         PendingOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
+        PendingOpenMode::QuarterPane => TileOpenMode::QuarterPane,
+        PendingOpenMode::HalfPane => TileOpenMode::HalfPane,
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FloatingOverlayAction {
+    Promote,
+    Dismiss,
+}
+
+fn infer_floating_target_context(
+    tiles_tree: &Tree<TileKind>,
+) -> crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext {
+    match tiles_tree.root().and_then(|root_id| tiles_tree.tiles.get(root_id)) {
+        Some(Tile::Container(Container::Tabs(_))) => {
+            crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::TabGroup
+        }
+        Some(Tile::Container(Container::Linear(_))) => {
+            crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::Split
+        }
+        _ => crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::BareGraph,
+    }
+}
+
+fn render_floating_pane_overlays(
+    ctx: &egui::Context,
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<FloatingOverlayAction> {
+    let floating_state = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+        Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+        )) if state.presentation_mode
+            == crate::shell::desktop::workbench::pane_model::PanePresentationMode::Floating =>
+        {
+            Some(state)
+        }
+        _ => None,
+    })?;
+
+    let viewport = ctx.available_rect();
+    let size = if floating_state.viewer_id_override.is_some() {
+        egui::vec2(viewport.width() * 0.5, viewport.height() * 0.5)
+    } else {
+        egui::vec2(viewport.width() * 0.38, viewport.height() * 0.38)
+    };
+    let rect = egui::Rect::from_center_size(viewport.center(), size);
+    let title = graph_app
+        .domain_graph()
+        .get_node(floating_state.node)
+        .map(|node| node.title.clone())
+        .unwrap_or_else(|| format!("Node {:?}", floating_state.node));
+    let subtitle = graph_app
+        .domain_graph()
+        .get_node(floating_state.node)
+        .map(|node| node.url.clone())
+        .unwrap_or_else(|| "Floating pane".to_string());
+
+    let mut action = None;
+    egui::Area::new(egui::Id::new(("graphshell_floating_overlay", floating_state.pane_id)))
+        .order(egui::Order::Foreground)
+        .fixed_pos(rect.min)
+        .show(ctx, |ui| {
+            ui.set_min_size(rect.size());
+            let frame_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, rect.size());
+            let response = ui.allocate_rect(frame_rect, egui::Sense::hover());
+            let hovered = response.hovered();
+            ui.painter().rect(
+                frame_rect,
+                12.0,
+                egui::Color32::from_rgba_unmultiplied(22, 24, 30, 244),
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 104, 126)),
+                egui::StrokeKind::Inside,
+            );
+
+            let band_rect = egui::Rect::from_min_size(frame_rect.min, egui::vec2(frame_rect.width(), 30.0));
+            if hovered {
+                ui.painter().rect_filled(
+                    band_rect,
+                    12.0,
+                    egui::Color32::from_rgba_unmultiplied(44, 49, 60, 220),
+                );
+            }
+
+            let content_rect = frame_rect.shrink2(egui::vec2(16.0, 16.0));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
+                ui.add_space(18.0);
+                ui.label(egui::RichText::new(title).size(20.0).strong());
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(subtitle).color(egui::Color32::from_rgb(170, 176, 190)));
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Floating pane skeleton").color(egui::Color32::from_rgb(215, 220, 230)));
+                ui.add_space(6.0);
+                ui.small("This overlay remains ephemeral until promoted into the workbench tile tree.");
+            });
+
+            if hovered {
+                ui.scope_builder(
+                    egui::UiBuilder::new().max_rect(band_rect.shrink2(egui::vec2(8.0, 4.0))),
+                    |ui| {
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            if ui.small_button("▣").clicked() {
+                                action = Some(FloatingOverlayAction::Promote);
+                            }
+                            ui.add_space(4.0);
+                            ui.small("Promote");
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.small_button("✕").clicked() {
+                                    action = Some(FloatingOverlayAction::Dismiss);
+                                }
+                            });
+                        });
+                    },
+                );
+            }
+        });
+
+    action
 }
 
 fn draw_diagnostics_hover_overlay_for_mode(
@@ -176,6 +294,22 @@ fn tile_hierarchy_lines(
         let indent = "  ".repeat(depth);
         let marker = if active.contains(&tile_id) { "*" } else { " " };
         let (label, node_key) = match tile {
+            Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(_),
+            )) => ("Graph".to_string(), None),
+            Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+            )) => {
+                let mapped = graph_app.get_webview_for_node(state.node).is_some();
+                (
+                    format!("Floating Node {:?} mapped={}", state.node, mapped),
+                    Some(state.node),
+                )
+            }
+            #[cfg(feature = "diagnostics")]
+            Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(_),
+            )) => ("Tool".to_string(), None),
             Tile::Pane(TileKind::Graph(_)) => ("Graph".to_string(), None),
             Tile::Pane(TileKind::Node(state)) => {
                 let mapped = graph_app.get_webview_for_node(state.node).is_some();
@@ -314,6 +448,18 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             open.key,
             open_mode_from_pending(open.mode),
         );
+    }
+
+    match render_floating_pane_overlays(ctx, graph_app, tiles_tree) {
+        Some(FloatingOverlayAction::Promote) => {
+            post_render_intents.push(GraphIntent::PromoteEphemeralPane {
+                target_tile_context: infer_floating_target_context(tiles_tree),
+            });
+        }
+        Some(FloatingOverlayAction::Dismiss) => {
+            tile_view_ops::dismiss_floating_panes(tiles_tree);
+        }
+        None => {}
     }
 
     #[cfg(feature = "diagnostics")]
@@ -468,6 +614,16 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     log::debug!("tile_render_pass: {} egui active_tiles", active_tiles.len());
     for tile_id in active_tiles.iter().copied() {
         let tile_label = match tiles_tree.tiles.get(tile_id) {
+            Some(egui_tiles::Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Node(_),
+            ))) => "Node",
+            Some(egui_tiles::Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(_),
+            ))) => "Graph",
+            #[cfg(feature = "diagnostics")]
+            Some(egui_tiles::Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(_),
+            ))) => "Tool",
             Some(egui_tiles::Tile::Pane(TileKind::Node(_))) => "Node",
             Some(egui_tiles::Tile::Pane(TileKind::Graph(_))) => "Graph",
             #[cfg(feature = "diagnostics")]

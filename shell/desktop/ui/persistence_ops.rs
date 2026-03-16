@@ -195,6 +195,9 @@ fn runtime_tree_to_bundle(
         let runtime_pane: TileKind =
             serde_json::from_value(pane_value.clone()).map_err(|e| e.to_string())?;
         let persisted_pane = match runtime_pane {
+            TileKind::Pane(_) => {
+                continue;
+            }
             TileKind::Graph(_) => PersistedPaneTile::Graph,
             TileKind::Node(state) => {
                 let node = graph_app

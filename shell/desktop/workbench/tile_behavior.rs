@@ -216,6 +216,8 @@ fn render_markdown_embedded(ui: &mut Ui, markdown: &str) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PendingOpenMode {
     SplitHorizontal,
+    QuarterPane,
+    HalfPane,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -814,6 +816,18 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: TileId, pane: &mut TileKind) -> UiResponse {
         match pane {
+            TileKind::Pane(view) => match view {
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref) => {
+                    self.render_graph_pane(ui, view_ref.graph_view_id);
+                }
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state) => {
+                    self.render_node_pane(ui, state);
+                }
+                #[cfg(feature = "diagnostics")]
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool) => {
+                    self.render_tool_pane(ui, tool);
+                }
+            },
             TileKind::Graph(view_ref) => {
                 self.render_graph_pane(ui, view_ref.graph_view_id);
             }
@@ -845,6 +859,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn is_tab_closable(&self, tiles: &Tiles<TileKind>, tile_id: TileId) -> bool {
         match tiles.get(tile_id) {
+            Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(_)))) => false,
+            Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(_)))) => true,
+            #[cfg(feature = "diagnostics")]
+            Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(_)))) => true,
             Some(Tile::Pane(TileKind::Node(_))) => true,
             Some(Tile::Pane(TileKind::Graph(_))) => false,
             #[cfg(feature = "diagnostics")]
@@ -856,6 +874,17 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     fn on_tab_close(&mut self, tiles: &mut Tiles<TileKind>, tile_id: TileId) -> bool {
         Self::activate_successor_tab_in_parent_before_close(tiles, tile_id);
 
+        if let Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)))) = tiles.get(tile_id) {
+            let node_key = state.node;
+            self.pending_closed_nodes.push(node_key);
+            self.graph_app
+                .workspace
+                .selected_tab_nodes
+                .remove(&node_key);
+            if self.graph_app.workspace.tab_selection_anchor == Some(node_key) {
+                self.graph_app.workspace.tab_selection_anchor = None;
+            }
+        }
         if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id) {
             let node_key = state.node;
             self.pending_closed_nodes.push(node_key);

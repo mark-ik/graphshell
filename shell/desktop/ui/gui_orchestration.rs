@@ -397,6 +397,8 @@ fn open_mode_from_pending(mode: PendingTileOpenMode) -> TileOpenMode {
     match mode {
         PendingTileOpenMode::Tab => TileOpenMode::Tab,
         PendingTileOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
+        PendingTileOpenMode::QuarterPane => TileOpenMode::QuarterPane,
+        PendingTileOpenMode::HalfPane => TileOpenMode::HalfPane,
     }
 }
 
@@ -1121,7 +1123,10 @@ fn prime_runtime_focus_authority_for_workbench_intent(
                 tiles_tree,
             );
         }
-        WorkbenchIntent::ToggleCommandPalette if graph_app.workspace.show_command_palette => {
+        WorkbenchIntent::ToggleCommandPalette
+            if graph_app.workspace.show_command_palette
+                || graph_app.workspace.show_context_palette =>
+        {
             crate::shell::desktop::ui::gui::seed_command_surface_return_target_from_authority(
                 focus_authority,
                 graph_app,
@@ -1399,6 +1404,8 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::OpenClipUrl { .. }
         | WorkbenchIntent::SwapViewerBackend { .. }
         | WorkbenchIntent::SetPaneView { .. }
+        | WorkbenchIntent::SetPanePresentationMode { .. }
+        | WorkbenchIntent::PromoteEphemeralPane { .. }
         | WorkbenchIntent::SplitPane { .. }
         | WorkbenchIntent::DetachNodeToSplit { .. }
         | WorkbenchIntent::OpenNodeInPane { .. }

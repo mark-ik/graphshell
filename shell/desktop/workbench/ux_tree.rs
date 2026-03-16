@@ -537,6 +537,8 @@ fn pending_tile_mode_label(mode: PendingTileOpenMode) -> &'static str {
     match mode {
         PendingTileOpenMode::Tab => "tab",
         PendingTileOpenMode::SplitHorizontal => "split-horizontal",
+        PendingTileOpenMode::QuarterPane => "quarter-pane",
+        PendingTileOpenMode::HalfPane => "half-pane",
     }
 }
 
@@ -777,6 +779,152 @@ fn push_nodes(
         .contains(&tile_id);
 
     match tile {
+        Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref))) => {
+            let focused_selection = graph_app.focused_selection();
+            semantic_nodes.push(UxSemanticNode {
+                ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
+                role: UxNodeRole::GraphSurface,
+                label: format!("Graph View {:?}", view_ref.graph_view_id),
+                state: UxNodeState {
+                    focused,
+                    selected: tile_selected,
+                    blocked: false,
+                    degraded: false,
+                },
+                allowed_actions: vec![UxAction::Focus, UxAction::Navigate],
+                domain: UxDomainIdentity::GraphView {
+                    graph_view_id: view_ref.graph_view_id,
+                },
+            });
+            presentation_nodes.push(UxPresentationNode {
+                ux_node_id: ux_node_id.clone(),
+                bounds: None,
+                render_mode: Some(TileRenderMode::EmbeddedEgui),
+                z_pass: "workbench.content",
+                style_flags: vec!["surface:graph", "backend:egui_graphs"],
+                transient_flags: Vec::new(),
+            });
+            trace_nodes.push(UxTraceNode {
+                ux_node_id: ux_node_id.clone(),
+                event_route: "graph.input_route",
+                backend_path: "egui_graphs",
+                diagnostics_counter: graph_app.domain_graph().node_count() as u64,
+            });
+
+            for (node_key, node) in graph_app.domain_graph().nodes() {
+                let graph_node_ux_id = format!(
+                    "uxnode://workbench/graph/{:?}/node/{}",
+                    view_ref.graph_view_id, node.id
+                );
+                let selected = focused_selection.contains(&node_key);
+                let focused_graph_node = focused_selection.primary() == Some(node_key);
+                let blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
+                let degraded = graph_app.runtime_crash_state_for_node(node_key).is_some();
+
+                semantic_nodes.push(UxSemanticNode {
+                    ux_node_id: graph_node_ux_id.clone(),
+                    parent_ux_node_id: Some(ux_node_id.clone()),
+                    role: UxNodeRole::GraphNode,
+                    label: if node.title.is_empty() {
+                        node.url.clone()
+                    } else {
+                        node.title.clone()
+                    },
+                    state: UxNodeState {
+                        focused: focused_graph_node,
+                        selected,
+                        blocked,
+                        degraded,
+                    },
+                    allowed_actions: vec![UxAction::Select, UxAction::Open, UxAction::Navigate],
+                    domain: UxDomainIdentity::Node { node_key },
+                });
+                presentation_nodes.push(UxPresentationNode {
+                    ux_node_id: graph_node_ux_id.clone(),
+                    bounds: None,
+                    render_mode: Some(TileRenderMode::EmbeddedEgui),
+                    z_pass: "graph.layer.node",
+                    style_flags: vec!["surface:graph-node"],
+                    transient_flags: Vec::new(),
+                });
+                trace_nodes.push(UxTraceNode {
+                    ux_node_id: graph_node_ux_id,
+                    event_route: "graph.node_route",
+                    backend_path: "egui_graphs",
+                    diagnostics_counter: u64::from(selected),
+                });
+            }
+        }
+        Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+        )) => {
+            let focused_selection = graph_app.focused_selection();
+            let blocked = graph_app.runtime_block_state_for_node(state.node).is_some();
+            let degraded = matches!(state.render_mode, TileRenderMode::Placeholder);
+            let selected = focused_selection.contains(&state.node);
+
+            semantic_nodes.push(UxSemanticNode {
+                ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
+                role: UxNodeRole::NodePane,
+                label: format!("Node Pane {:?}", state.node),
+                state: UxNodeState {
+                    focused,
+                    selected: selected || tile_selected,
+                    blocked,
+                    degraded,
+                },
+                allowed_actions: vec![
+                    UxAction::Focus,
+                    UxAction::Open,
+                    UxAction::Close,
+                    UxAction::SplitHorizontal,
+                ],
+                domain: UxDomainIdentity::Node {
+                    node_key: state.node,
+                },
+            });
+            presentation_nodes.push(UxPresentationNode {
+                ux_node_id: ux_node_id.clone(),
+                bounds: None,
+                render_mode: Some(state.render_mode),
+                z_pass: "workbench.content",
+                style_flags: vec!["surface:node", "presentation:floating"],
+                transient_flags: Vec::new(),
+            });
+            trace_nodes.push(UxTraceNode {
+                ux_node_id: ux_node_id.clone(),
+                event_route: "workbench.node_route",
+                backend_path: match state.render_mode {
+                    TileRenderMode::CompositedTexture => "viewer.composited",
+                    TileRenderMode::NativeOverlay => "viewer.native_overlay",
+                    TileRenderMode::EmbeddedEgui => "viewer.embedded_egui",
+                    TileRenderMode::Placeholder => "viewer.placeholder",
+                },
+                diagnostics_counter: u64::from(focused),
+            });
+        }
+        #[cfg(feature = "diagnostics")]
+        Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool),
+        )) => {
+            let tool_kind = tool.title();
+            semantic_nodes.push(UxSemanticNode {
+                ux_node_id: ux_node_id.clone(),
+                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
+                role: UxNodeRole::ToolPane,
+                label: format!("Tool Pane {tool_kind}"),
+                state: UxNodeState {
+                    focused,
+                    selected: tile_selected,
+                    blocked: false,
+                    degraded: false,
+                },
+                allowed_actions: vec![UxAction::Focus, UxAction::Close],
+                domain: UxDomainIdentity::Tool { tool_kind },
+            });
+        }
         Tile::Pane(TileKind::Graph(view_ref)) => {
             let focused_selection = graph_app.focused_selection();
             semantic_nodes.push(UxSemanticNode {
@@ -1068,6 +1216,19 @@ fn push_nodes(
 
 fn ux_node_id_for_tile(tile_id: TileId, tile: &Tile<TileKind>) -> String {
     match tile {
+        Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref))) => {
+            format!(
+                "uxnode://workbench/tile/{tile_id:?}/graph/{:?}",
+                view_ref.graph_view_id
+            )
+        }
+        Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state))) => {
+            format!("uxnode://workbench/tile/{tile_id:?}/node/{:?}", state.node)
+        }
+        #[cfg(feature = "diagnostics")]
+        Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool))) => {
+            format!("uxnode://workbench/tile/{tile_id:?}/tool/{}", tool.title())
+        }
         Tile::Pane(TileKind::Graph(view_ref)) => {
             format!(
                 "uxnode://workbench/tile/{tile_id:?}/graph/{:?}",

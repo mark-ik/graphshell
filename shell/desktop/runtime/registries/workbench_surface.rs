@@ -18,7 +18,7 @@ use crate::registries::domain::layout::workbench_surface::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::ui::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
 use crate::shell::desktop::workbench::pane_model::{
-    PaneId, PaneViewState, SplitDirection, ToolPaneState, ViewerId,
+    PaneId, PanePresentationMode, PaneViewState, SplitDirection, ToolPaneState, ViewerId,
 };
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
@@ -249,6 +249,8 @@ impl WorkbenchSurfaceRegistry {
                     | WorkbenchIntent::ClosePane { .. }
                     | WorkbenchIntent::CloseToolPane { .. }
                     | WorkbenchIntent::OpenToolPane { .. }
+                    | WorkbenchIntent::SetPanePresentationMode { .. }
+                    | WorkbenchIntent::PromoteEphemeralPane { .. }
                     | WorkbenchIntent::SetPaneView { .. }
                     | WorkbenchIntent::OpenGraphViewPane { .. }
                     | WorkbenchIntent::OpenNodeInPane { .. }
@@ -390,6 +392,16 @@ impl WorkbenchSurfaceRegistry {
                 handle_open_node_in_pane_intent(graph_app, tiles_tree, node, pane);
                 None
             }
+            WorkbenchIntent::SetPanePresentationMode { pane, mode } => {
+                handle_set_pane_presentation_mode_intent(tiles_tree, pane, mode);
+                None
+            }
+            WorkbenchIntent::PromoteEphemeralPane {
+                target_tile_context,
+            } => {
+                handle_promote_ephemeral_pane_intent(graph_app, tiles_tree, target_tile_context);
+                None
+            }
             WorkbenchIntent::SwapViewerBackend {
                 pane,
                 node,
@@ -529,7 +541,7 @@ fn handle_open_command_palette_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) {
-    if !graph_app.workspace.show_command_palette {
+    if !graph_app.workspace.show_command_palette && !graph_app.workspace.show_context_palette {
         maybe_capture_command_surface_return_target(graph_app, tiles_tree);
     }
     graph_app.open_command_palette();
@@ -540,7 +552,7 @@ fn handle_toggle_command_palette_intent(
     tiles_tree: &mut Tree<TileKind>,
     focus_handoff: &FocusHandoffPolicy,
 ) {
-    if graph_app.workspace.show_command_palette {
+    if graph_app.workspace.show_command_palette || graph_app.workspace.show_context_palette {
         graph_app.toggle_command_palette();
         let _ = restore_command_surface_return_target_or_ensure_active_tile(
             graph_app,
@@ -559,6 +571,28 @@ fn handle_open_tool_pane_intent(
     kind: ToolPaneState,
 ) {
     pane_ops::handle_open_tool_pane_intent(graph_app, tiles_tree, kind);
+}
+
+fn handle_set_pane_presentation_mode_intent(
+    tiles_tree: &mut Tree<TileKind>,
+    pane: PaneId,
+    mode: PanePresentationMode,
+) {
+    for tile in tiles_tree.tiles.iter_mut().filter_map(|(_, tile)| match tile {
+        Tile::Pane(kind) => Some(kind),
+        _ => None,
+    }) {
+        if tile.pane_id() == pane {
+            match tile {
+                TileKind::Pane(view) => view.set_presentation_mode(mode),
+                TileKind::Graph(graph_ref) => graph_ref.presentation_mode = mode,
+                TileKind::Node(node_state) => node_state.presentation_mode = mode,
+                #[cfg(feature = "diagnostics")]
+                TileKind::Tool(tool_ref) => tool_ref.presentation_mode = mode,
+            }
+            break;
+        }
+    }
 }
 
 fn handle_close_tool_pane_intent(
@@ -693,8 +727,27 @@ fn handle_open_graph_view_pane_intent(
     let tile_mode = match mode {
         PendingTileOpenMode::Tab => TileOpenMode::Tab,
         PendingTileOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
+        PendingTileOpenMode::QuarterPane => TileOpenMode::QuarterPane,
+        PendingTileOpenMode::HalfPane => TileOpenMode::HalfPane,
     };
     tile_view_ops::open_or_focus_graph_pane_with_mode(tiles_tree, view_id, tile_mode);
+}
+
+fn handle_promote_ephemeral_pane_intent(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    target_tile_context: crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext,
+) {
+    let mode = match target_tile_context {
+        crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::Split => {
+            TileOpenMode::SplitHorizontal
+        }
+        crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::TabGroup
+        | crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::BareGraph => {
+            TileOpenMode::Tab
+        }
+    };
+    let _ = tile_view_ops::promote_floating_node_pane(tiles_tree, graph_app, mode);
 }
 
 fn open_settings_route_target(

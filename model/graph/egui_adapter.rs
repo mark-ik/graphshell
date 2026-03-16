@@ -189,6 +189,11 @@ impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeSha
         let Some(label_text) = self.label_text_for_zoom(ctx.meta.zoom) else {
             return res;
         };
+        // Suppress persistent labels at normal zoom. Labels are only rendered when the
+        // node is hovered or selected, or when zoomed into the full-detail tier (>1.5).
+        if !self.hovered && !self.selected && ctx.meta.zoom <= 1.5 {
+            return res;
+        }
 
         let galley = self.label_galley(ctx, circle_radius, color, label_text);
         let label_pos = Pos2::new(

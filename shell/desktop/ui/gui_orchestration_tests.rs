@@ -2202,7 +2202,8 @@ fn authority_realizer_opens_context_palette_when_semantic_region_requests_it() {
     );
 
     assert!(intents.is_empty());
-    assert!(app.workspace.show_command_palette);
+    assert!(!app.workspace.show_command_palette);
+    assert!(app.workspace.show_context_palette);
     assert!(app.workspace.command_palette_contextual_mode);
 }
 

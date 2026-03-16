@@ -69,6 +69,7 @@ impl GraphBrowserApp {
         self.workspace.show_help_panel = true;
         self.workspace.show_settings_overlay = false;
         self.workspace.show_command_palette = false;
+        self.workspace.show_context_palette = false;
         self.workspace.command_palette_contextual_mode = false;
         self.workspace.show_radial_menu = false;
         self.close_clip_inspector();
@@ -86,6 +87,7 @@ impl GraphBrowserApp {
         }
         self.workspace.show_help_panel = false;
         if !self.workspace.show_command_palette
+            && !self.workspace.show_context_palette
             && !self.workspace.show_radial_menu
             && !self.workspace.show_settings_overlay
         {
@@ -109,6 +111,7 @@ impl GraphBrowserApp {
         self.workspace.show_settings_overlay = true;
         self.workspace.show_help_panel = false;
         self.workspace.show_command_palette = false;
+        self.workspace.show_context_palette = false;
         self.workspace.command_palette_contextual_mode = false;
         self.workspace.show_radial_menu = false;
         self.close_clip_inspector();
@@ -125,6 +128,7 @@ impl GraphBrowserApp {
         }
         self.workspace.show_settings_overlay = false;
         if !self.workspace.show_command_palette
+            && !self.workspace.show_context_palette
             && !self.workspace.show_help_panel
             && !self.workspace.show_radial_menu
         {
@@ -135,27 +139,32 @@ impl GraphBrowserApp {
     }
 
     pub fn open_command_palette(&mut self) {
-        self.workspace.command_palette_contextual_mode = false;
+        self.workspace.context_palette_anchor = None;
         self.set_pending_node_context_target(None);
-        self.set_command_palette_visibility(true);
+        self.set_command_surface_visibility(true, false);
     }
 
     pub fn open_context_palette(&mut self) {
-        self.workspace.command_palette_contextual_mode = true;
-        self.set_command_palette_visibility(true);
+        self.set_command_surface_visibility(false, true);
+    }
+
+    pub fn set_context_palette_anchor(&mut self, anchor: Option<[f32; 2]>) {
+        self.workspace.context_palette_anchor = anchor;
     }
 
     pub fn close_command_palette(&mut self) {
-        self.set_command_palette_visibility(false);
+        self.workspace.context_palette_anchor = None;
+        self.set_command_surface_visibility(false, false);
     }
 
     pub fn toggle_command_palette(&mut self) {
         if self.workspace.show_command_palette {
-            self.set_command_palette_visibility(false);
+            self.workspace.context_palette_anchor = None;
+            self.set_command_surface_visibility(false, false);
         } else {
-            self.workspace.command_palette_contextual_mode = false;
+            self.workspace.context_palette_anchor = None;
             self.set_pending_node_context_target(None);
-            self.set_command_palette_visibility(true);
+            self.set_command_surface_visibility(true, false);
         }
     }
 
@@ -172,7 +181,9 @@ impl GraphBrowserApp {
         self.workspace.show_help_panel = false;
         self.workspace.show_settings_overlay = false;
         self.workspace.show_command_palette = false;
+        self.workspace.show_context_palette = false;
         self.workspace.command_palette_contextual_mode = false;
+        self.workspace.context_palette_anchor = None;
         self.workspace.show_radial_menu = true;
         self.close_clip_inspector();
         if !was_open {
@@ -188,6 +199,7 @@ impl GraphBrowserApp {
         self.workspace.show_radial_menu = false;
         self.set_pending_node_context_target(None);
         if !self.workspace.show_command_palette
+            && !self.workspace.show_context_palette
             && !self.workspace.show_help_panel
             && !self.workspace.show_settings_overlay
         {
@@ -197,13 +209,17 @@ impl GraphBrowserApp {
         self.emit_ux_navigation_transition();
     }
 
-    fn set_command_palette_visibility(&mut self, open: bool) {
-        if self.workspace.show_command_palette == open {
+    fn set_command_surface_visibility(&mut self, show_command_palette: bool, show_context_palette: bool) {
+        if self.workspace.show_command_palette == show_command_palette
+            && self.workspace.show_context_palette == show_context_palette
+        {
             return;
         }
 
-        self.workspace.show_command_palette = open;
-        if open {
+        self.workspace.show_command_palette = show_command_palette;
+        self.workspace.show_context_palette = show_context_palette;
+        self.workspace.command_palette_contextual_mode = show_context_palette;
+        if show_command_palette || show_context_palette {
             self.workspace.show_help_panel = false;
             self.workspace.show_settings_overlay = false;
             self.workspace.show_radial_menu = false;

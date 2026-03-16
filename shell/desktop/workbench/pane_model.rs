@@ -49,6 +49,32 @@ impl std::fmt::Display for PaneId {
     }
 }
 
+/// Presentation/chrome mode for a workbench pane.
+///
+/// This is workbench-owned UI state and does not change graph identity.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+pub(crate) enum PanePresentationMode {
+    /// Full tile chrome with normal tile-tree mobility.
+    #[default]
+    Tiled,
+    /// Reduced chrome with position-locked interaction.
+    Docked,
+    /// Chromeless overlay presentation used by ephemeral panes before promotion.
+    Floating,
+    /// Content-only presentation; reserved for future use.
+    Fullscreen,
+}
+
+/// Placement context for promoting a floating pane into the tile tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(crate) enum FloatingPaneTargetTileContext {
+    TabGroup,
+    Split,
+    BareGraph,
+}
+
 /// Opaque viewer backend identifier.
 ///
 /// Examples: `"viewer:webview"`, `"viewer:wry"`, `"viewer:plaintext"`, `"viewer:pdf"`.
@@ -83,6 +109,9 @@ pub(crate) struct GraphPaneRef {
     pub pane_id: PaneId,
     /// The graph view state driving this pane's camera, Lens, and layout.
     pub graph_view_id: GraphViewId,
+    /// Chrome/presentation mode for this pane.
+    #[serde(default)]
+    pub presentation_mode: PanePresentationMode,
 }
 
 impl GraphPaneRef {
@@ -90,6 +119,7 @@ impl GraphPaneRef {
         Self {
             pane_id: PaneId::new(),
             graph_view_id,
+            presentation_mode: PanePresentationMode::Tiled,
         }
     }
 
@@ -106,6 +136,8 @@ enum GraphPaneRefCompat {
         #[serde(default)]
         pane_id: Option<PaneId>,
         graph_view_id: GraphViewId,
+        #[serde(default)]
+        presentation_mode: PanePresentationMode,
     },
 }
 
@@ -116,9 +148,11 @@ impl From<GraphPaneRefCompat> for GraphPaneRef {
             GraphPaneRefCompat::Current {
                 pane_id,
                 graph_view_id,
+                presentation_mode,
             } => Self {
                 pane_id: pane_id.unwrap_or_default(),
                 graph_view_id,
+                presentation_mode,
             },
         }
     }
@@ -162,6 +196,9 @@ pub(crate) struct NodePaneState {
     /// Runtime-authoritative render pipeline mode for this pane.
     #[serde(default)]
     pub render_mode: TileRenderMode,
+    /// Chrome/presentation mode for this pane.
+    #[serde(default)]
+    pub presentation_mode: PanePresentationMode,
 }
 
 impl NodePaneState {
@@ -171,6 +208,7 @@ impl NodePaneState {
             node,
             viewer_id_override: None,
             render_mode: TileRenderMode::Placeholder,
+            presentation_mode: PanePresentationMode::Tiled,
         }
     }
 
@@ -180,6 +218,7 @@ impl NodePaneState {
             node,
             viewer_id_override: Some(viewer_id),
             render_mode: TileRenderMode::Placeholder,
+            presentation_mode: PanePresentationMode::Tiled,
         }
     }
 }
@@ -205,6 +244,8 @@ enum NodePaneStateCompat {
         viewer_id_override: Option<ViewerId>,
         #[serde(default)]
         render_mode: TileRenderMode,
+        #[serde(default)]
+        presentation_mode: PanePresentationMode,
     },
 }
 
@@ -216,17 +257,20 @@ impl From<NodePaneStateCompat> for NodePaneState {
                 node,
                 viewer_id_override: None,
                 render_mode: TileRenderMode::Placeholder,
+                presentation_mode: PanePresentationMode::Tiled,
             },
             NodePaneStateCompat::Current {
                 pane_id,
                 node,
                 viewer_id_override,
                 render_mode,
+                presentation_mode,
             } => Self {
                 pane_id: pane_id.unwrap_or_default(),
                 node,
                 viewer_id_override,
                 render_mode,
+                presentation_mode,
             },
         }
     }
@@ -281,6 +325,9 @@ pub(crate) struct ToolPaneRef {
     pub pane_id: PaneId,
     /// Which tool surface this pane renders.
     pub kind: ToolPaneState,
+    /// Chrome/presentation mode for this pane.
+    #[serde(default)]
+    pub presentation_mode: PanePresentationMode,
 }
 
 impl ToolPaneRef {
@@ -288,6 +335,7 @@ impl ToolPaneRef {
         Self {
             pane_id: PaneId::new(),
             kind,
+            presentation_mode: PanePresentationMode::Tiled,
         }
     }
 
@@ -304,6 +352,8 @@ enum ToolPaneRefCompat {
         #[serde(default)]
         pane_id: Option<PaneId>,
         kind: ToolPaneState,
+        #[serde(default)]
+        presentation_mode: PanePresentationMode,
     },
 }
 
@@ -311,9 +361,14 @@ impl From<ToolPaneRefCompat> for ToolPaneRef {
     fn from(compat: ToolPaneRefCompat) -> Self {
         match compat {
             ToolPaneRefCompat::Legacy(kind) => Self::new(kind),
-            ToolPaneRefCompat::Current { pane_id, kind } => Self {
+            ToolPaneRefCompat::Current {
+                pane_id,
+                kind,
+                presentation_mode,
+            } => Self {
                 pane_id: pane_id.unwrap_or_default(),
                 kind,
+                presentation_mode,
             },
         }
     }
@@ -372,6 +427,22 @@ impl PaneViewState {
             Self::Tool(tool_ref) => tool_ref.pane_id,
         }
     }
+
+    pub(crate) fn presentation_mode(&self) -> PanePresentationMode {
+        match self {
+            Self::Graph(graph_ref) => graph_ref.presentation_mode,
+            Self::Node(state) => state.presentation_mode,
+            Self::Tool(tool_ref) => tool_ref.presentation_mode,
+        }
+    }
+
+    pub(crate) fn set_presentation_mode(&mut self, mode: PanePresentationMode) {
+        match self {
+            Self::Graph(graph_ref) => graph_ref.presentation_mode = mode,
+            Self::Node(state) => state.presentation_mode = mode,
+            Self::Tool(tool_ref) => tool_ref.presentation_mode = mode,
+        }
+    }
 }
 
 /// Direction for pane split operations.
@@ -427,6 +498,7 @@ mod tests {
         assert_ne!(state.pane_id, PaneId::default());
         assert!(state.viewer_id_override.is_none());
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
+        assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }
 
     #[test]
@@ -450,6 +522,7 @@ mod tests {
         assert_eq!(state.node, key);
         assert_eq!(state.viewer_id_override, Some(viewer));
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
+        assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }
 
     #[test]
@@ -472,6 +545,7 @@ mod tests {
         assert_eq!(state.node, NodeIndex::new(3));
         assert!(state.viewer_id_override.is_none());
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
+        assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }
 
     #[test]
@@ -485,6 +559,7 @@ mod tests {
             Some(ViewerId::new("viewer:webview"))
         );
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
+        assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }
 
     #[test]
@@ -495,6 +570,19 @@ mod tests {
         assert_eq!(state.node, NodeIndex::new(6));
         assert!(state.viewer_id_override.is_none());
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
+        assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
+    }
+
+    #[test]
+    fn pane_view_state_presentation_mode_mutates_across_variants() {
+        let view_id = GraphViewId::new();
+        let mut graph = PaneViewState::Graph(GraphPaneRef::new(view_id));
+        graph.set_presentation_mode(PanePresentationMode::Docked);
+        assert_eq!(graph.presentation_mode(), PanePresentationMode::Docked);
+
+        let mut tool = PaneViewState::Tool(ToolPaneRef::new(ToolPaneState::Settings));
+        tool.set_presentation_mode(PanePresentationMode::Floating);
+        assert_eq!(tool.presentation_mode(), PanePresentationMode::Floating);
     }
 
     #[test]

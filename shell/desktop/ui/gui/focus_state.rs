@@ -50,6 +50,7 @@ pub(crate) fn workspace_runtime_focus_state(
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
         show_command_palette: graph_app.workspace.show_command_palette,
+        show_context_palette: graph_app.workspace.show_context_palette,
         command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.show_help_panel,
         show_settings_overlay: graph_app.workspace.show_settings_overlay,
@@ -113,6 +114,7 @@ pub(crate) fn workbench_runtime_focus_state(
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
         show_command_palette: graph_app.workspace.show_command_palette,
+        show_context_palette: graph_app.workspace.show_context_palette,
         command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.show_help_panel,
         show_settings_overlay: graph_app.workspace.show_settings_overlay,
@@ -211,6 +213,7 @@ pub(crate) fn refresh_realized_runtime_focus_state(
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
         show_command_palette: graph_app.workspace.show_command_palette,
+        show_context_palette: graph_app.workspace.show_context_palette,
         command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.show_help_panel,
         show_settings_overlay: graph_app.workspace.show_settings_overlay,
@@ -261,7 +264,8 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
         embedded_content_focus_webview,
         embedded_content_focus_node,
         show_command_palette,
-        command_palette_contextual_mode,
+        show_context_palette,
+        command_palette_contextual_mode: _command_palette_contextual_mode,
         show_help_panel,
         show_settings_overlay,
         show_radial_menu,
@@ -280,11 +284,15 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
     }
     if show_command_palette {
         capture_stack.push(FocusCaptureEntry {
-            surface: if command_palette_contextual_mode {
-                FocusCaptureSurface::ContextPalette
-            } else {
-                FocusCaptureSurface::CommandPalette
-            },
+            surface: FocusCaptureSurface::CommandPalette,
+            return_anchor: command_surface_return_target
+                .clone()
+                .map(ReturnAnchor::ToolSurface),
+        });
+    }
+    if show_context_palette {
+        capture_stack.push(FocusCaptureEntry {
+            surface: FocusCaptureSurface::ContextPalette,
             return_anchor: command_surface_return_target.map(ReturnAnchor::ToolSurface),
         });
     }
@@ -321,12 +329,10 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
 
     let semantic_region = if show_clear_data_confirm {
         SemanticRegionFocus::ModalDialog
+    } else if show_context_palette {
+        SemanticRegionFocus::ContextPalette
     } else if show_command_palette {
-        if command_palette_contextual_mode {
-            SemanticRegionFocus::ContextPalette
-        } else {
-            SemanticRegionFocus::CommandPalette
-        }
+        SemanticRegionFocus::CommandPalette
     } else if show_radial_menu {
         SemanticRegionFocus::RadialPalette
     } else if show_settings_overlay {
@@ -791,6 +797,7 @@ pub(super) fn apply_graph_surface_focus_state(
 
 pub(super) fn ui_overlay_active_from_flags(
     show_command_palette: bool,
+    show_context_palette: bool,
     show_help_panel: bool,
     show_settings_overlay: bool,
     show_radial_menu: bool,
@@ -808,7 +815,8 @@ pub(super) fn ui_overlay_active_from_flags(
         embedded_content_focus_webview: None,
         embedded_content_focus_node: None,
         show_command_palette,
-        command_palette_contextual_mode: false,
+        show_context_palette,
+        command_palette_contextual_mode: show_context_palette,
         show_help_panel,
         show_settings_overlay,
         show_radial_menu,
@@ -864,7 +872,8 @@ mod tests {
             }),
             embedded_content_focus_webview: Some(webview_id),
             embedded_content_focus_node: Some(node_key),
-            show_command_palette: true,
+            show_command_palette: false,
+            show_context_palette: true,
             command_palette_contextual_mode: true,
             show_help_panel: false,
             show_settings_overlay: false,
@@ -914,6 +923,7 @@ mod tests {
             embedded_content_focus_webview: None,
             embedded_content_focus_node: None,
             show_command_palette: false,
+            show_context_palette: false,
             command_palette_contextual_mode: false,
             show_help_panel: false,
             show_settings_overlay: false,
@@ -938,7 +948,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace.focused_view = Some(view_id);
-        app.workspace.show_command_palette = true;
+        app.workspace.show_context_palette = true;
         app.workspace.command_palette_contextual_mode = true;
         app.set_pending_command_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
             view_id,

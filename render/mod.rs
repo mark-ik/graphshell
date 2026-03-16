@@ -212,6 +212,7 @@ fn handle_hovered_node_secondary_click(
                     crate::app::ToolSurfaceReturnTarget::Graph(view_id),
                 ));
             }
+            app.set_context_palette_anchor(pointer.map(|pos| [pos.x, pos.y]));
             app.open_context_palette();
         }
     }
@@ -884,6 +885,22 @@ fn draw_hovered_node_tooltip(
     widget_id: egui::Id,
     metadata_id: egui::Id,
 ) {
+    fn compact_hover_node_label(node: &crate::graph::Node) -> String {
+        let raw = if node.title.trim().is_empty() {
+            node.url.trim()
+        } else {
+            node.title.trim()
+        };
+        if raw.is_empty() {
+            return "Untitled node".to_string();
+        }
+        if raw.chars().count() <= 72 {
+            return raw.to_string();
+        }
+        let shortened: String = raw.chars().take(71).collect();
+        format!("{shortened}…")
+    }
+
     let Some(key) = app.workspace.hovered_graph_node else {
         return;
     };
@@ -929,14 +946,7 @@ fn draw_hovered_node_tooltip(
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(240.0);
-                ui.strong(if node.title.is_empty() {
-                    &node.url
-                } else {
-                    &node.title
-                });
-                if !node.title.is_empty() && node.title != node.url {
-                    ui.label(&node.url);
-                }
+                ui.strong(compact_hover_node_label(node));
                 ui.small(format!("Last visited: {last_visited_text}"));
                 ui.small(format!("Lifecycle: {lifecycle_text}"));
                 if !workspace_memberships.is_empty() {
@@ -4880,13 +4890,13 @@ mod tests {
         app.set_context_command_surface_preference(
             crate::app::ContextCommandSurfacePreference::RadialPalette,
         );
-        app.workspace.show_command_palette = true;
+        app.workspace.show_context_palette = true;
         app.workspace.command_palette_contextual_mode = true;
 
         handle_hovered_node_secondary_click(&ctx, &mut app, view_id, target, Some(pointer));
 
         assert!(!app.workspace.show_radial_menu);
-        assert!(app.workspace.show_command_palette);
+        assert!(app.workspace.show_context_palette);
         assert!(app.pending_node_context_target().is_none());
         assert!(app.workspace.command_palette_contextual_mode);
         assert!(matches!(
@@ -4911,7 +4921,7 @@ mod tests {
 
         handle_hovered_node_secondary_click(&ctx, &mut app, view_id, target, None);
 
-        assert!(app.workspace.show_command_palette);
+        assert!(app.workspace.show_context_palette);
         assert!(!app.workspace.show_radial_menu);
         assert!(app.workspace.command_palette_contextual_mode);
         assert_eq!(app.pending_node_context_target(), Some(target));

@@ -16,7 +16,9 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
-use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState, PaneId};
+use crate::shell::desktop::workbench::pane_model::{
+    GraphPaneRef, NodePaneState, PaneId, PanePresentationMode, PaneViewState,
+};
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::workbench::pane_model::{ToolPaneRef, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -26,6 +28,48 @@ use crate::shell::desktop::workbench::tile_runtime;
 pub(crate) enum TileOpenMode {
     Tab,
     SplitHorizontal,
+    QuarterPane,
+    HalfPane,
+}
+
+fn tile_matches_node(tile: &TileKind, node_key: NodeKey) -> bool {
+    matches!(tile.node_state(), Some(state) if state.node == node_key)
+}
+
+fn remove_unattached_tile(tiles_tree: &mut Tree<TileKind>, tile_id: TileId) {
+    if tiles_tree.root() == Some(tile_id) {
+        tiles_tree.root = None;
+    }
+    let _ = tiles_tree.tiles.remove(tile_id);
+}
+
+fn remove_all_floating_panes(tiles_tree: &mut Tree<TileKind>) {
+    let floating_ids: Vec<TileId> = tiles_tree
+        .tiles
+        .iter()
+        .filter_map(|(tile_id, tile)| match tile {
+            Tile::Pane(kind)
+                if kind.is_floating()
+                    && tiles_tree.root() != Some(*tile_id)
+                    && tiles_tree.tiles.parent_of(*tile_id).is_none() =>
+            {
+                Some(*tile_id)
+            }
+            _ => None,
+        })
+        .collect();
+    for tile_id in floating_ids {
+        remove_unattached_tile(tiles_tree, tile_id);
+    }
+}
+
+fn insert_floating_node_pane(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) {
+    remove_all_floating_panes(tiles_tree);
+    let mut state = NodePaneState::for_node(node_key);
+    state.presentation_mode = PanePresentationMode::Floating;
+    let _ = tiles_tree
+        .tiles
+        .insert_pane(TileKind::Pane(PaneViewState::Node(state)));
 }
 
 pub(crate) struct ToggleTileViewArgs<'a> {
@@ -62,7 +106,10 @@ pub(crate) fn ensure_active_tile(tiles_tree: &mut Tree<TileKind>) -> bool {
     let mut has_active_pane = tiles_tree.active_tiles().into_iter().any(|tile_id| {
         matches!(
             tiles_tree.tiles.get(tile_id),
-            Some(Tile::Pane(TileKind::Graph(_))) | Some(Tile::Pane(TileKind::Node(_)))
+            Some(Tile::Pane(TileKind::Graph(_)))
+                | Some(Tile::Pane(TileKind::Node(_)))
+                | Some(Tile::Pane(TileKind::Pane(PaneViewState::Graph(_))))
+                | Some(Tile::Pane(TileKind::Pane(PaneViewState::Node(_))))
         )
     });
 
@@ -73,6 +120,7 @@ pub(crate) fn ensure_active_tile(tiles_tree: &mut Tree<TileKind>) -> bool {
                 matches!(
                     tiles_tree.tiles.get(tile_id),
                     Some(Tile::Pane(TileKind::Tool(_)))
+                        | Some(Tile::Pane(TileKind::Pane(PaneViewState::Tool(_))))
                 )
             });
     }
@@ -81,16 +129,31 @@ pub(crate) fn ensure_active_tile(tiles_tree: &mut Tree<TileKind>) -> bool {
         return false;
     }
 
-    if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_)))) {
+    if tiles_tree.make_active(|_, tile| {
+        matches!(
+            tile,
+            Tile::Pane(TileKind::Graph(_)) | Tile::Pane(TileKind::Pane(PaneViewState::Graph(_)))
+        )
+    }) {
         return true;
     }
 
-    if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_)))) {
+    if tiles_tree.make_active(|_, tile| {
+        matches!(
+            tile,
+            Tile::Pane(TileKind::Node(_)) | Tile::Pane(TileKind::Pane(PaneViewState::Node(_)))
+        )
+    }) {
         return true;
     }
 
     #[cfg(feature = "diagnostics")]
-    if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_)))) {
+    if tiles_tree.make_active(|_, tile| {
+        matches!(
+            tile,
+            Tile::Pane(TileKind::Tool(_)) | Tile::Pane(TileKind::Pane(PaneViewState::Tool(_)))
+        )
+    }) {
         return true;
     }
 
@@ -109,10 +172,19 @@ fn active_focus_cycle_region(tiles_tree: &Tree<TileKind>) -> Option<FocusCycleRe
     let mut active = None;
     for tile_id in tiles_tree.active_tiles() {
         match tiles_tree.tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Graph(_))) => active = Some(FocusCycleRegion::Graph),
-            Some(Tile::Pane(TileKind::Node(_))) => active = Some(FocusCycleRegion::Node),
+            Some(Tile::Pane(TileKind::Graph(_)))
+            | Some(Tile::Pane(TileKind::Pane(PaneViewState::Graph(_)))) => {
+                active = Some(FocusCycleRegion::Graph)
+            }
+            Some(Tile::Pane(TileKind::Node(_)))
+            | Some(Tile::Pane(TileKind::Pane(PaneViewState::Node(_)))) => {
+                active = Some(FocusCycleRegion::Node)
+            }
             #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Tool(_))) => active = Some(FocusCycleRegion::Tool),
+            Some(Tile::Pane(TileKind::Tool(_)))
+            | Some(Tile::Pane(TileKind::Pane(PaneViewState::Tool(_)))) => {
+                active = Some(FocusCycleRegion::Tool)
+            }
             _ => {}
         }
     }
@@ -125,9 +197,13 @@ fn focus_cycle_region_is_present(tiles_tree: &Tree<TileKind>, region: FocusCycle
         .iter()
         .any(|(_, tile)| match (region, tile) {
             (FocusCycleRegion::Graph, Tile::Pane(TileKind::Graph(_))) => true,
+            (FocusCycleRegion::Graph, Tile::Pane(TileKind::Pane(PaneViewState::Graph(_)))) => true,
             (FocusCycleRegion::Node, Tile::Pane(TileKind::Node(_))) => true,
+            (FocusCycleRegion::Node, Tile::Pane(TileKind::Pane(PaneViewState::Node(_)))) => true,
             #[cfg(feature = "diagnostics")]
             (FocusCycleRegion::Tool, Tile::Pane(TileKind::Tool(_))) => true,
+            #[cfg(feature = "diagnostics")]
+            (FocusCycleRegion::Tool, Tile::Pane(TileKind::Pane(PaneViewState::Tool(_)))) => true,
             _ => false,
         })
 }
@@ -138,14 +214,32 @@ fn make_focus_cycle_region_active(
 ) -> bool {
     match region {
         FocusCycleRegion::Graph => {
-            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))))
+            tiles_tree.make_active(|_, tile| {
+                matches!(
+                    tile,
+                    Tile::Pane(TileKind::Graph(_))
+                        | Tile::Pane(TileKind::Pane(PaneViewState::Graph(_)))
+                )
+            })
         }
         FocusCycleRegion::Node => {
-            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_))))
+            tiles_tree.make_active(|_, tile| {
+                matches!(
+                    tile,
+                    Tile::Pane(TileKind::Node(_))
+                        | Tile::Pane(TileKind::Pane(PaneViewState::Node(_)))
+                )
+            })
         }
         #[cfg(feature = "diagnostics")]
         FocusCycleRegion::Tool => {
-            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_))))
+            tiles_tree.make_active(|_, tile| {
+                matches!(
+                    tile,
+                    Tile::Pane(TileKind::Tool(_))
+                        | Tile::Pane(TileKind::Pane(PaneViewState::Tool(_)))
+                )
+            })
         }
     }
 }
@@ -259,12 +353,13 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
         tiles_tree.root = Some(match mode {
             TileOpenMode::Tab => graph_pane_tile_id,
             TileOpenMode::SplitHorizontal => split_leaf_tile_id,
+            TileOpenMode::QuarterPane | TileOpenMode::HalfPane => graph_pane_tile_id,
         });
         return;
     };
 
     match mode {
-        TileOpenMode::Tab => {
+        TileOpenMode::Tab | TileOpenMode::QuarterPane | TileOpenMode::HalfPane => {
             if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(root_id)
             {
                 tabs.add_child(graph_pane_tile_id);
@@ -727,14 +822,20 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
         node_key,
         mode
     );
-    if tiles_tree.make_active(
-        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
-    ) {
+    if tiles_tree.make_active(|_, tile| match tile {
+        Tile::Pane(kind) => tile_matches_node(kind, node_key) && !kind.is_floating(),
+        _ => false,
+    }) {
         log::debug!(
             "tile_view_ops: focused existing node pane for node {:?}",
             node_key
         );
         tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+        return;
+    }
+
+    if matches!(mode, TileOpenMode::QuarterPane | TileOpenMode::HalfPane) {
+        insert_floating_node_pane(tiles_tree, node_key);
         return;
     }
 
@@ -752,6 +853,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
         tiles_tree.root = Some(match mode {
             TileOpenMode::Tab => node_pane_tile_id,
             TileOpenMode::SplitHorizontal => split_leaf_tile_id,
+            TileOpenMode::QuarterPane | TileOpenMode::HalfPane => node_pane_tile_id,
         });
         log::debug!("tile_view_ops: no root, set root to {:?}", tiles_tree.root);
         tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
@@ -759,7 +861,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
     };
 
     match mode {
-        TileOpenMode::Tab => {
+        TileOpenMode::Tab | TileOpenMode::QuarterPane | TileOpenMode::HalfPane => {
             if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(root_id)
             {
                 tabs.add_child(node_pane_tile_id);
@@ -772,13 +874,13 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
                 .tiles
                 .insert_tab_tile(vec![root_id, node_pane_tile_id]);
             tiles_tree.root = Some(tabs_root);
-            tiles_tree.make_active(
-                |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
-            );
+            let _ = tiles_tree.make_active(|_, tile| match tile {
+                Tile::Pane(kind) => tile_matches_node(kind, node_key) && !kind.is_floating(),
+                _ => false,
+            });
             tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
         }
         TileOpenMode::SplitHorizontal => {
-            // Never split directly against a raw leaf pane: wrap it in tabs first.
             let split_lhs_id = if matches!(tiles_tree.tiles.get(root_id), Some(Tile::Pane(_))) {
                 let wrapped = tiles_tree.tiles.insert_tab_tile(vec![root_id]);
                 tiles_tree.root = Some(wrapped);
@@ -791,9 +893,10 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
                 tiles_tree.tiles.get_mut(split_lhs_id)
             {
                 linear.add_child(split_leaf_tile_id);
-                tiles_tree.make_active(
-                    |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
-                );
+                let _ = tiles_tree.make_active(|_, tile| match tile {
+                    Tile::Pane(kind) => tile_matches_node(kind, node_key) && !kind.is_floating(),
+                    _ => false,
+                });
                 tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
                 return;
             }
@@ -801,12 +904,99 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
                 .tiles
                 .insert_horizontal_tile(vec![split_lhs_id, split_leaf_tile_id]);
             tiles_tree.root = Some(split_root);
-            tiles_tree.make_active(
-                |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
-            );
+            let _ = tiles_tree.make_active(|_, tile| match tile {
+                Tile::Pane(kind) => tile_matches_node(kind, node_key) && !kind.is_floating(),
+                _ => false,
+            });
             tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
         }
     }
+}
+
+pub(crate) fn promote_floating_node_pane(
+    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    mode: TileOpenMode,
+) -> Option<NodeKey> {
+    let floating = tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
+        Tile::Pane(TileKind::Pane(PaneViewState::Node(state)))
+            if state.presentation_mode == PanePresentationMode::Floating =>
+        {
+            Some((*tile_id, state.clone()))
+        }
+        _ => None,
+    })?;
+
+    let (floating_tile_id, mut state) = floating;
+    remove_unattached_tile(tiles_tree, floating_tile_id);
+
+    if tiles_tree.make_active(|_, tile| match tile {
+        Tile::Pane(kind) => tile_matches_node(kind, state.node) && !kind.is_floating(),
+        _ => false,
+    }) {
+        return Some(state.node);
+    }
+
+    state.presentation_mode = PanePresentationMode::Tiled;
+    let promoted_tile_id = tiles_tree.tiles.insert_pane(TileKind::Node(state.clone()));
+    let split_leaf_tile_id = tiles_tree.tiles.insert_tab_tile(vec![promoted_tile_id]);
+
+    let Some(root_id) = tiles_tree.root() else {
+        tiles_tree.root = Some(match mode {
+            TileOpenMode::SplitHorizontal => split_leaf_tile_id,
+            TileOpenMode::Tab | TileOpenMode::QuarterPane | TileOpenMode::HalfPane => {
+                promoted_tile_id
+            }
+        });
+        tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+        return Some(state.node);
+    };
+
+    match mode {
+        TileOpenMode::Tab | TileOpenMode::QuarterPane | TileOpenMode::HalfPane => {
+            if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(root_id)
+            {
+                tabs.add_child(promoted_tile_id);
+                tabs.set_active(promoted_tile_id);
+            } else {
+                let tabs_root = tiles_tree
+                    .tiles
+                    .insert_tab_tile(vec![root_id, promoted_tile_id]);
+                tiles_tree.root = Some(tabs_root);
+            }
+        }
+        TileOpenMode::SplitHorizontal => {
+            let split_lhs_id = if matches!(tiles_tree.tiles.get(root_id), Some(Tile::Pane(_))) {
+                let wrapped = tiles_tree.tiles.insert_tab_tile(vec![root_id]);
+                tiles_tree.root = Some(wrapped);
+                wrapped
+            } else {
+                root_id
+            };
+
+            if let Some(Tile::Container(Container::Linear(linear))) =
+                tiles_tree.tiles.get_mut(split_lhs_id)
+            {
+                linear.add_child(split_leaf_tile_id);
+            } else {
+                let split_root = tiles_tree
+                    .tiles
+                    .insert_horizontal_tile(vec![split_lhs_id, split_leaf_tile_id]);
+                tiles_tree.root = Some(split_root);
+            }
+        }
+    }
+
+    let _ = tiles_tree.make_active(|_, tile| match tile {
+        Tile::Pane(kind) => tile_matches_node(kind, state.node) && !kind.is_floating(),
+        _ => false,
+    });
+    tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+    Some(state.node)
+}
+
+pub(crate) fn dismiss_floating_panes(tiles_tree: &mut Tree<TileKind>) {
+    remove_all_floating_panes(tiles_tree);
 }
 
 pub(crate) fn detach_node_pane_to_split(
@@ -920,11 +1110,29 @@ mod tests {
             match tiles_tree.tiles.get(tile_id) {
                 Some(Tile::Pane(TileKind::Graph(_))) => Some("graph"),
                 Some(Tile::Pane(TileKind::Node(_))) => Some("node"),
+                Some(Tile::Pane(TileKind::Pane(PaneViewState::Graph(_)))) => Some("graph"),
+                Some(Tile::Pane(TileKind::Pane(PaneViewState::Node(_)))) => Some("node"),
                 #[cfg(feature = "diagnostics")]
                 Some(Tile::Pane(TileKind::Tool(_))) => Some("tool"),
+                #[cfg(feature = "diagnostics")]
+                Some(Tile::Pane(TileKind::Pane(PaneViewState::Tool(_)))) => Some("tool"),
                 _ => None,
             }
         })
+    }
+
+    fn count_floating_node_panes(tiles_tree: &Tree<TileKind>) -> usize {
+        tiles_tree
+            .tiles
+            .iter()
+            .filter(|(_, tile)| {
+                matches!(
+                    tile,
+                    Tile::Pane(TileKind::Pane(PaneViewState::Node(state)))
+                        if state.presentation_mode == PanePresentationMode::Floating
+                )
+            })
+            .count()
     }
 
     #[test]
@@ -1050,6 +1258,68 @@ mod tests {
                 Some(Tile::Pane(TileKind::Node(state))) if state.node == node_key
             )
         }));
+    }
+
+    #[test]
+    fn open_or_focus_node_pane_quarter_creates_single_floating_ephemeral_pane() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://example.com/floating-quarter".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let root_graph = tiles.insert_pane(graph_pane(GraphViewId::new()));
+        let mut tree = Tree::new("floating_quarter", root_graph, tiles);
+
+        open_or_focus_node_pane_with_mode(&mut tree, &app, node_key, TileOpenMode::QuarterPane);
+        assert_eq!(count_floating_node_panes(&tree), 1);
+
+        open_or_focus_node_pane_with_mode(&mut tree, &app, node_key, TileOpenMode::QuarterPane);
+        assert_eq!(count_floating_node_panes(&tree), 1);
+    }
+
+    #[test]
+    fn promote_floating_node_pane_converts_to_tiled_node_pane() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://example.com/floating-promote".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let root_graph = tiles.insert_pane(graph_pane(GraphViewId::new()));
+        let mut tree = Tree::new("floating_promote", root_graph, tiles);
+
+        open_or_focus_node_pane_with_mode(&mut tree, &app, node_key, TileOpenMode::HalfPane);
+        assert_eq!(count_floating_node_panes(&tree), 1);
+
+        let promoted = promote_floating_node_pane(&mut tree, &app, TileOpenMode::Tab);
+        assert_eq!(promoted, Some(node_key));
+        assert_eq!(count_floating_node_panes(&tree), 0);
+        assert!(tree
+            .tiles
+            .iter()
+            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)));
+    }
+
+    #[test]
+    fn dismiss_floating_panes_removes_ephemeral_carriers() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://example.com/floating-dismiss".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let root_graph = tiles.insert_pane(graph_pane(GraphViewId::new()));
+        let mut tree = Tree::new("floating_dismiss", root_graph, tiles);
+
+        open_or_focus_node_pane_with_mode(&mut tree, &app, node_key, TileOpenMode::QuarterPane);
+        assert_eq!(count_floating_node_panes(&tree), 1);
+
+        dismiss_floating_panes(&mut tree);
+        assert_eq!(count_floating_node_panes(&tree), 0);
     }
 
     #[cfg(feature = "diagnostics")]

@@ -221,6 +221,7 @@ pub(crate) struct RuntimeFocusInputs {
     pub(crate) embedded_content_focus_webview: Option<WebViewId>,
     pub(crate) embedded_content_focus_node: Option<NodeKey>,
     pub(crate) show_command_palette: bool,
+    pub(crate) show_context_palette: bool,
     pub(crate) command_palette_contextual_mode: bool,
     pub(crate) show_help_panel: bool,
     pub(crate) show_settings_overlay: bool,

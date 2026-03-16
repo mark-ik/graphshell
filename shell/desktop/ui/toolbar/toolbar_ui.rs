@@ -63,6 +63,9 @@ const OMNIBAR_CONNECTED_NON_AT_CAP: usize = 8;
 const OMNIBAR_GLOBAL_NODES_FALLBACK_CAP: usize = 3;
 const OMNIBAR_GLOBAL_TABS_FALLBACK_CAP: usize = 3;
 const OMNIBAR_PROVIDER_DEBOUNCE_MS: u64 = 140;
+/// Fixed height of the top chrome bar. All columns within the bar must fit within
+/// this budget; content that exceeds it is clipped rather than allowed to grow.
+const TOOLBAR_HEIGHT: f32 = 40.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OmnibarSessionKind {
@@ -360,7 +363,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let frame = egui::Frame::default()
         .fill(ctx.style().visuals.window_fill)
         .inner_margin(4.0);
-    TopBottomPanel::top("graph_bar").frame(frame).show(ctx, |ui| {
+    TopBottomPanel::top("graph_bar").frame(frame).exact_height(TOOLBAR_HEIGHT).show(ctx, |ui| {
         ui.columns(3, |columns| {
             columns[0].horizontal_wrapped(|ui| {
                 ui.label(graph_view_chip_label(graph_app));

@@ -1066,6 +1066,7 @@ impl Gui {
 }
 fn ui_overlay_active_from_flags(
     show_command_palette: bool,
+    show_context_palette: bool,
     show_help_panel: bool,
     show_settings_overlay: bool,
     show_radial_menu: bool,
@@ -1074,6 +1075,7 @@ fn ui_overlay_active_from_flags(
 ) -> bool {
     focus_state::ui_overlay_active_from_flags(
         show_command_palette,
+        show_context_palette,
         show_help_panel,
         show_settings_overlay,
         show_radial_menu,

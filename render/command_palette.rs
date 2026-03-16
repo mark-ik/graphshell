@@ -35,7 +35,7 @@ use crate::shell::desktop::runtime::registries::{
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::pane_model::{PaneId, ViewerId};
 use crate::util::{GraphshellSettingsPath, VersoAddress};
-use egui::{Key, Window};
+use egui::{Area, Frame, Key, Order, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
@@ -262,7 +262,7 @@ pub fn render_command_palette_panel(
     focused_pane_node: Option<NodeKey>,
     focused_pane_id: Option<PaneId>,
 ) {
-    let was_open = app.workspace.show_command_palette;
+    let was_open = app.workspace.show_command_palette || app.workspace.show_context_palette;
     if !was_open {
         return;
     }
@@ -305,8 +305,9 @@ pub fn render_command_palette_panel(
         &load_category_recency(ctx),
         &load_pinned_categories(ctx),
     );
-    let contextual_mode = app.workspace.command_palette_contextual_mode
+    let contextual_mode = app.workspace.show_context_palette
         || app.pending_node_context_target().is_some();
+    let contextual_anchor = app.workspace.context_palette_anchor;
     let search_query_id = egui::Id::new("command_palette_search_query");
     let search_scope_id = egui::Id::new("command_palette_search_scope");
 
@@ -320,15 +321,10 @@ pub fn render_command_palette_panel(
         "Command Palette"
     };
 
-    Window::new(window_title)
-        .open(&mut open)
-        .default_width(320.0)
-        .default_height(420.0)
-        .resizable(true)
-        .show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
+    let mut render_palette_contents = |ui: &mut egui::Ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
                     let fallback_notice_id = egui::Id::new(RADIAL_FALLBACK_NOTICE_KEY);
                     let fallback_notice = ctx
                         .data_mut(|d| d.get_persisted::<bool>(fallback_notice_id))
@@ -340,11 +336,21 @@ pub fn render_command_palette_panel(
                         );
                         ctx.data_mut(|d| d.remove::<bool>(fallback_notice_id));
                     }
-                    ui.label("Node, tile, edge, graph, and persistence commands");
-                    ui.small("Delete Node(s) is graph content mutation; tile close remains a tile-tree operation.");
                     if contextual_mode {
-                        ui.small("Mode: Context Interaction (Tier 1 categories + Tier 2 commands)");
+                        ui.label("Context actions");
+                        if let Some(target) = source_context.or(hovered_node) {
+                            if let Some(node) = app.domain_graph().get_node(target) {
+                                let label = if node.title.trim().is_empty() {
+                                    node.url.as_str()
+                                } else {
+                                    node.title.as_str()
+                                };
+                                ui.small(format!("Target: {label}"));
+                            }
+                        }
                     } else {
+                        ui.label("Node, tile, edge, graph, and persistence commands");
+                        ui.small("Delete Node(s) is graph content mutation; tile close remains a tile-tree operation.");
                         ui.small("Mode: Search Interaction (global grouped list)");
                     }
                     if let Some(message) = empty_graph_message(graph_node_count) {
@@ -401,7 +407,6 @@ pub fn render_command_palette_panel(
                         });
 
                         ui.add_space(4.0);
-                        ui.small("Tier 2:");
                         let tier2_actions: Vec<_> = actions
                             .iter()
                             .filter(|e| e.id.category() == selected_category)
@@ -502,16 +507,62 @@ pub fn render_command_palette_panel(
                     }
 
                     ui.separator();
-                    if ui.button("Close").clicked() {
-                        should_close = true;
+                    if contextual_mode {
+                        ui.horizontal(|ui| {
+                            if ui.small_button("Close").clicked() {
+                                should_close = true;
+                            }
+                        });
+                    } else {
+                        if ui.button("Close").clicked() {
+                            should_close = true;
+                        }
+                        ui.add_space(6.0);
+                        ui.small("Keyboard: G, Shift+G, Alt+G, I, U");
                     }
-                    ui.add_space(6.0);
-                    ui.small("Keyboard: G, Shift+G, Alt+G, I, U");
                 });
-        });
+    };
 
-    if !open || should_close {
-        app.enqueue_workbench_intent(crate::app::WorkbenchIntent::ToggleCommandPalette);
+    if contextual_mode {
+        let anchor = contextual_anchor
+            .map(|[x, y]| egui::pos2(x, y))
+            .or_else(|| ctx.input(|i| i.pointer.latest_pos()))
+            .unwrap_or_else(|| egui::pos2(120.0, 120.0));
+        let inner = Area::new("context_palette_popup".into())
+            .order(Order::Foreground)
+            .fixed_pos(anchor + egui::vec2(10.0, 10.0))
+            .show(ctx, |ui| {
+                ui.set_min_width(260.0);
+                ui.set_max_width(320.0);
+                Frame::popup(ui.style()).show(ui, |ui| {
+                    render_palette_contents(ui);
+                });
+            });
+
+        if ctx.input(|i| i.pointer.primary_clicked() || i.pointer.secondary_clicked()) {
+            if let Some(pointer) = ctx.input(|i| i.pointer.latest_pos())
+                && !inner.response.rect.contains(pointer)
+            {
+                should_close = true;
+            }
+        }
+    } else {
+        Window::new(window_title)
+            .open(&mut open)
+            .default_width(320.0)
+            .default_height(420.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                render_palette_contents(ui);
+            });
+    }
+
+    if (!contextual_mode && !open) || should_close {
+        if contextual_mode {
+            app.close_command_palette();
+        } else {
+            app.enqueue_workbench_intent(crate::app::WorkbenchIntent::ToggleCommandPalette);
+        }
     }
     super::apply_ui_intents_with_checkpoint(app, intents);
 }

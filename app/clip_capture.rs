@@ -108,6 +108,7 @@ impl GraphBrowserApp {
         self.workspace.pending_clip_inspector_highlight_clear = None;
         self.workspace.show_clip_inspector = true;
         self.workspace.show_command_palette = false;
+        self.workspace.show_context_palette = false;
         self.workspace.command_palette_contextual_mode = false;
         self.workspace.show_radial_menu = false;
         self.workspace.clip_inspector_state = Some(ClipInspectorState {

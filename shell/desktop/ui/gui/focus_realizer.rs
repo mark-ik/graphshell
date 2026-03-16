@@ -27,7 +27,8 @@ impl<'a> FocusRealizer<'a> {
                 None
             }
             WorkbenchIntent::ToggleCommandPalette
-                if self.graph_app.workspace.show_command_palette =>
+                if self.graph_app.workspace.show_command_palette
+                    || self.graph_app.workspace.show_context_palette =>
             {
                 self.close_command_palette_from_authority(focus_authority);
                 None
@@ -309,6 +310,7 @@ impl<'a> FocusRealizer<'a> {
         focus_authority: &mut RuntimeFocusAuthorityState,
     ) {
         if self.graph_app.workspace.show_command_palette
+            || self.graph_app.workspace.show_context_palette
             || self.graph_app.workspace.show_help_panel
             || self.graph_app.workspace.show_settings_overlay
             || self.graph_app.workspace.show_radial_menu

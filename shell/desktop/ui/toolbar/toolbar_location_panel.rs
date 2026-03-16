@@ -5,6 +5,7 @@ use crate::shell::desktop::ui::gui_state::toolbar_location_input_id;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
 const LOCATION_INPUT_HINT_TEXT: &str = "Search or enter address";
+const LOCATION_INPUT_HEIGHT: f32 = 28.0;
 
 fn provider_cache_key(provider: SearchProviderKind, query: &str) -> String {
     let provider_key = match provider {
@@ -72,7 +73,7 @@ pub(super) fn render_location_search_panel(
 ) {
     let location_id = toolbar_location_input_id(active_toolbar_pane);
     let location_field = ui.add_sized(
-        ui.available_size(),
+        [ui.available_width().max(160.0), LOCATION_INPUT_HEIGHT],
         egui::TextEdit::singleline(location)
             .id(location_id)
             .hint_text(LOCATION_INPUT_HINT_TEXT),

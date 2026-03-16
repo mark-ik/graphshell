@@ -6,14 +6,39 @@ use std::collections::{HashMap, HashSet};
 
 use egui::{RichText, SidePanel};
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
+use uuid::Uuid;
 
 use crate::app::{GraphBrowserApp, GraphViewId, WorkbenchIntent};
 use crate::graph::{ArrangementSubKind, NodeKey};
+use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops;
+use crate::util::VersoAddress;
+
+/// Maximum sidebar width as a fraction of screen width. Clamped so the sidebar
+/// never exceeds one-fifth of the available screen, with an absolute floor of 180 px.
+const SIDEBAR_MAX_FRACTION: f32 = 0.20;
+const SIDEBAR_MAX_FLOOR: f32 = 180.0;
+const SIDEBAR_LABEL_MAX_CHARS: usize = 40;
+const NAVIGATOR_RECENT_LIMIT: usize = 12;
+
+fn compact_sidebar_text(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.chars().count() <= SIDEBAR_LABEL_MAX_CHARS {
+        return trimmed.to_string();
+    }
+    let shortened: String = trimmed
+        .chars()
+        .take(SIDEBAR_LABEL_MAX_CHARS.saturating_sub(1))
+        .collect();
+    format!("{shortened}…")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkbenchLayerState {
@@ -51,9 +76,16 @@ pub(crate) struct WorkbenchChromeProjection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkbenchNavigatorGroup {
+    pub(crate) section: WorkbenchNavigatorSection,
     pub(crate) title: String,
-    pub(crate) sub_kind: ArrangementSubKind,
     pub(crate) members: Vec<WorkbenchNavigatorMember>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WorkbenchNavigatorSection {
+    Arrangement(ArrangementSubKind),
+    Recent,
+    Unrelated,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,35 +168,7 @@ impl WorkbenchChromeProjection {
             .iter()
             .find(|entry| entry.is_active)
             .map(|entry| entry.title.clone());
-        let navigator_groups = graph_app
-            .arrangement_projection_groups()
-            .into_iter()
-            .map(|group| WorkbenchNavigatorGroup {
-                title: match group.sub_kind {
-                    ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
-                    ArrangementSubKind::TileGroup => format!("Tile Group: {}", group.title),
-                    ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
-                },
-                sub_kind: group.sub_kind,
-                members: group
-                    .member_keys
-                    .into_iter()
-                    .filter_map(|node_key| {
-                        let node = graph_app.domain_graph().get_node(node_key)?;
-                        let title = if node.title.trim().is_empty() {
-                            node.url.clone()
-                        } else {
-                            node.title.clone()
-                        };
-                        Some(WorkbenchNavigatorMember {
-                            node_key,
-                            title,
-                            is_selected: graph_app.focused_selection().contains(&node_key),
-                        })
-                    })
-                    .collect(),
-            })
-            .collect();
+        let navigator_groups = navigator_groups(graph_app, &arrangement_memberships);
         let tree_root = tiles_tree
             .root()
             .and_then(|root| {
@@ -191,6 +195,187 @@ impl WorkbenchChromeProjection {
     }
 }
 
+fn navigator_groups(
+    graph_app: &GraphBrowserApp,
+    arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
+) -> Vec<WorkbenchNavigatorGroup> {
+    let mut groups = arrangement_navigator_groups(graph_app);
+    let recent_keys = recent_navigator_members(graph_app, arrangement_memberships)
+        .iter()
+        .map(|member| member.node_key)
+        .collect::<HashSet<_>>();
+    groups.extend(unrelated_navigator_group(
+        graph_app,
+        arrangement_memberships,
+        &recent_keys,
+    ));
+    groups.extend(recent_navigator_group(graph_app, arrangement_memberships));
+    groups
+}
+
+fn arrangement_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNavigatorGroup> {
+    graph_app
+        .arrangement_projection_groups()
+        .into_iter()
+        .map(|group| WorkbenchNavigatorGroup {
+            section: WorkbenchNavigatorSection::Arrangement(group.sub_kind),
+            title: match group.sub_kind {
+                ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
+                ArrangementSubKind::TileGroup => format!("Tile Group: {}", group.title),
+                ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
+            },
+            members: group
+                .member_keys
+                .into_iter()
+                .filter_map(|node_key| navigator_member_for_node(graph_app, node_key, None))
+                .collect(),
+        })
+        .collect()
+}
+
+fn recent_navigator_group(
+    graph_app: &GraphBrowserApp,
+    arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
+) -> Option<WorkbenchNavigatorGroup> {
+    let members = recent_navigator_members(graph_app, arrangement_memberships);
+    if members.is_empty() {
+        return None;
+    }
+    Some(WorkbenchNavigatorGroup {
+        section: WorkbenchNavigatorSection::Recent,
+        title: "Recent".to_string(),
+        members,
+    })
+}
+
+fn recent_navigator_members(
+    graph_app: &GraphBrowserApp,
+    arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
+) -> Vec<WorkbenchNavigatorMember> {
+    let mut recent: HashMap<NodeKey, (u64, usize)> = HashMap::new();
+    for entry in graph_app.history_manager_timeline_entries(NAVIGATOR_RECENT_LIMIT * 4) {
+        let LogEntry::AppendTraversal {
+            to_node_id,
+            timestamp_ms,
+            ..
+        } = entry
+        else {
+            continue;
+        };
+        let Ok(node_id) = Uuid::parse_str(&to_node_id) else {
+            continue;
+        };
+        let Some(node_key) = graph_app.domain_graph().get_node_key_by_id(node_id) else {
+            continue;
+        };
+        let Some(node) = graph_app.domain_graph().get_node(node_key) else {
+            continue;
+        };
+        if arrangement_memberships.contains_key(&node_key) || is_internal_surface_node(node) {
+            continue;
+        }
+        let stats = recent.entry(node_key).or_insert((timestamp_ms, 0));
+        stats.0 = stats.0.max(timestamp_ms);
+        stats.1 += 1;
+    }
+
+    let mut rows = recent.into_iter().collect::<Vec<_>>();
+    rows.sort_by(|(left_key, left_stats), (right_key, right_stats)| {
+        right_stats
+            .0
+            .cmp(&left_stats.0)
+            .then_with(|| right_stats.1.cmp(&left_stats.1))
+            .then_with(|| navigator_member_sort_key(graph_app, *left_key).cmp(&navigator_member_sort_key(graph_app, *right_key)))
+    });
+    rows.truncate(NAVIGATOR_RECENT_LIMIT);
+    rows.into_iter()
+        .filter_map(|(node_key, (_timestamp_ms, visit_count))| {
+            let suffix = format!("({visit_count} visit{})", if visit_count == 1 { "" } else { "s" });
+            navigator_member_for_node(graph_app, node_key, Some(suffix))
+        })
+        .collect()
+}
+
+fn unrelated_navigator_group(
+    graph_app: &GraphBrowserApp,
+    arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
+    recent_keys: &HashSet<NodeKey>,
+) -> Option<WorkbenchNavigatorGroup> {
+    let mut members = graph_app
+        .domain_graph()
+        .nodes()
+        .filter(|(node_key, node)| {
+            !arrangement_memberships.contains_key(node_key)
+                && !recent_keys.contains(node_key)
+                && !is_internal_surface_node(node)
+        })
+        .map(|(node_key, _)| node_key)
+        .collect::<Vec<_>>();
+    members.sort_by(|left, right| navigator_member_sort_key(graph_app, *left).cmp(&navigator_member_sort_key(graph_app, *right)));
+    if members.is_empty() {
+        return None;
+    }
+    Some(WorkbenchNavigatorGroup {
+        section: WorkbenchNavigatorSection::Unrelated,
+        title: "Unrelated".to_string(),
+        members: members
+            .into_iter()
+            .filter_map(|node_key| navigator_member_for_node(graph_app, node_key, None))
+            .collect(),
+    })
+}
+
+fn navigator_member_for_node(
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+    suffix: Option<String>,
+) -> Option<WorkbenchNavigatorMember> {
+    let node = graph_app.domain_graph().get_node(node_key)?;
+    let mut title = node_primary_label(node);
+    if let Some(suffix) = suffix {
+        title.push(' ');
+        title.push_str(&suffix);
+    }
+    Some(WorkbenchNavigatorMember {
+        node_key,
+        title,
+        is_selected: graph_app.focused_selection().contains(&node_key),
+    })
+}
+
+fn navigator_member_sort_key(app: &GraphBrowserApp, key: NodeKey) -> (String, usize) {
+    let label = app
+        .domain_graph()
+        .get_node(key)
+        .map(node_primary_label)
+        .unwrap_or_else(|| format!("Node {}", key.index()));
+    (label, key.index())
+}
+
+fn node_primary_label(node: &crate::graph::Node) -> String {
+    let title = node.title.trim();
+    if !title.is_empty() {
+        title.to_string()
+    } else if !node.url.trim().is_empty() {
+        node.url.clone()
+    } else {
+        "Untitled node".to_string()
+    }
+}
+
+fn is_internal_surface_node(node: &crate::graph::Node) -> bool {
+    matches!(
+        VersoAddress::parse(&node.url),
+        Some(
+            VersoAddress::Frame(_)
+                | VersoAddress::TileGroup(_)
+                | VersoAddress::View(_)
+                | VersoAddress::Tool { .. }
+                | VersoAddress::Other { .. }
+        )
+    )
+}
+
 fn pane_entry_for_tile(
     graph_app: &GraphBrowserApp,
     kind: &TileKind,
@@ -198,6 +383,58 @@ fn pane_entry_for_tile(
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
 ) -> WorkbenchPaneEntry {
     match kind {
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref)) => WorkbenchPaneEntry {
+            pane_id: graph_ref.pane_id,
+            kind: WorkbenchPaneKind::Graph {
+                view_id: graph_ref.graph_view_id,
+            },
+            title: graph_view_title(graph_app, graph_ref.graph_view_id),
+            subtitle: Some("Graph".to_string()),
+            arrangement_memberships: Vec::new(),
+            is_active: active_pane == Some(graph_ref.pane_id),
+            closable: false,
+        },
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)) => {
+            let title = graph_app
+                .domain_graph()
+                .get_node(state.node)
+                .and_then(|node| {
+                    let title = node.title.trim();
+                    (!title.is_empty()).then(|| title.to_string())
+                })
+                .unwrap_or_else(|| format!("Node {}", state.node.index()));
+            let subtitle = graph_app
+                .domain_graph()
+                .get_node(state.node)
+                .map(|node| node.url.clone())
+                .filter(|url| !url.trim().is_empty());
+            WorkbenchPaneEntry {
+                pane_id: state.pane_id,
+                kind: WorkbenchPaneKind::Node {
+                    node_key: state.node,
+                },
+                title,
+                subtitle,
+                arrangement_memberships: arrangement_memberships
+                    .get(&state.node)
+                    .cloned()
+                    .unwrap_or_default(),
+                is_active: active_pane == Some(state.pane_id),
+                closable: true,
+            }
+        }
+        #[cfg(feature = "diagnostics")]
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool)) => WorkbenchPaneEntry {
+            pane_id: tool.pane_id,
+            kind: WorkbenchPaneKind::Tool {
+                kind: tool.kind.clone(),
+            },
+            title: tool.title().to_string(),
+            subtitle: Some("Tool".to_string()),
+            arrangement_memberships: Vec::new(),
+            is_active: active_pane == Some(tool.pane_id),
+            closable: true,
+        },
         TileKind::Graph(graph_ref) => WorkbenchPaneEntry {
             pane_id: graph_ref.pane_id,
             kind: WorkbenchPaneKind::Graph {
@@ -381,11 +618,14 @@ pub(crate) fn render_workbench_sidebar(
     let focused_pane_pin_name =
         focused_toolbar_node.and_then(|node| frame_pin_name_for_node(node, graph_app));
     let mut post_panel_action = None;
+    let sidebar_max_width = (ctx.content_rect().width() * SIDEBAR_MAX_FRACTION).max(SIDEBAR_MAX_FLOOR);
+    let sidebar_default_width = (sidebar_max_width * 0.75).clamp(SIDEBAR_MAX_FLOOR, sidebar_max_width);
 
     SidePanel::right("workbench_sidebar")
         .resizable(true)
-        .default_width(260.0)
-        .min_width(180.0)
+        .default_width(sidebar_default_width)
+        .min_width(SIDEBAR_MAX_FLOOR)
+        .max_width(sidebar_max_width)
         .show(ctx, |ui| {
             ui.vertical(|ui| {
                 ui.heading("Workbench");
@@ -460,7 +700,7 @@ pub(crate) fn render_workbench_sidebar(
                             RichText::new(&group.title).small().strong(),
                         )
                         .id_salt(("workbench_sidebar_navigator", &group.title))
-                        .default_open(true);
+                        .default_open(!matches!(group.section, WorkbenchNavigatorSection::Recent));
                         header.show(ui, |ui| {
                             for member in &group.members {
                                 let response = ui.selectable_label(
@@ -477,13 +717,25 @@ pub(crate) fn render_workbench_sidebar(
                     ui.separator();
                 }
 
-                ui.label(RichText::new("Tile Tree (legacy fallback)").small().weak());
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    if let Some(root) = projection.tree_root.as_ref() {
-                        render_tree_node(ui, root, 0, &mut post_panel_action);
-                    }
-                });
+                ui.label(RichText::new("Open Panes").small().strong());
+                egui::ScrollArea::vertical()
+                    .id_salt("sidebar_pane_list")
+                    .show(ui, |ui| {
+                        for entry in &projection.pane_entries {
+                            render_pane_row(ui, entry, &mut post_panel_action);
+                        }
+                        ui.add_space(4.0);
+                        egui::CollapsingHeader::new(
+                            RichText::new("Tile Structure").small().weak(),
+                        )
+                        .id_salt("workbench_sidebar_tile_structure")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            if let Some(root) = projection.tree_root.as_ref() {
+                                render_tree_node(ui, root, 0, &mut post_panel_action);
+                            }
+                        });
+                    });
             });
         });
 
@@ -516,12 +768,15 @@ fn render_tree_node(
         WorkbenchChromeNode::Pane(entry) => {
             ui.add_space((depth as f32) * 10.0);
             ui.horizontal(|ui| {
+                let compact_title = compact_sidebar_text(&entry.title);
                 let text = if entry.is_active {
-                    RichText::new(&entry.title).strong()
+                    RichText::new(&compact_title).strong()
                 } else {
-                    RichText::new(&entry.title)
+                    RichText::new(&compact_title)
                 };
-                let response = ui.selectable_label(entry.is_active, text);
+                let response = ui
+                    .selectable_label(entry.is_active, text)
+                    .on_hover_text(&entry.title);
                 if response.clicked() {
                     *action = Some(SidebarAction::FocusPane(entry.pane_id));
                 }
@@ -552,8 +807,10 @@ fn render_tree_node(
                 });
             });
             if let Some(subtitle) = &entry.subtitle {
+                let compact_subtitle = compact_sidebar_text(subtitle);
                 ui.add_space((depth as f32) * 10.0 + 2.0);
-                ui.label(RichText::new(subtitle).small().weak());
+                ui.label(RichText::new(compact_subtitle).small().weak())
+                    .on_hover_text(subtitle);
             }
             if !entry.arrangement_memberships.is_empty() {
                 ui.add_space((depth as f32) * 10.0 + 2.0);
@@ -583,7 +840,9 @@ fn render_tree_node(
             label,
             children,
         } => {
-            let header = egui::CollapsingHeader::new(RichText::new(label).small().strong())
+            let compact_label = compact_sidebar_text(label);
+            let header =
+                egui::CollapsingHeader::new(RichText::new(compact_label).small().strong())
                 .id_salt(("workbench_sidebar_container", tile_id))
                 .default_open(true);
             header.show(ui, |ui| {
@@ -594,6 +853,56 @@ fn render_tree_node(
             ui.add_space(4.0);
         }
     }
+}
+
+fn render_pane_row(
+    ui: &mut egui::Ui,
+    entry: &WorkbenchPaneEntry,
+    action: &mut Option<SidebarAction>,
+) {
+    ui.horizontal(|ui| {
+        let compact_title = compact_sidebar_text(&entry.title);
+        let text = if entry.is_active {
+            RichText::new(&compact_title).strong()
+        } else {
+            RichText::new(&compact_title)
+        };
+        let response = ui.selectable_label(entry.is_active, text);
+        let response = if let Some(subtitle) = &entry.subtitle {
+            response.on_hover_text(subtitle)
+        } else {
+            response
+        };
+        if response.clicked() {
+            *action = Some(SidebarAction::FocusPane(entry.pane_id));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
+                *action = Some(SidebarAction::ClosePane(entry.pane_id));
+            }
+            if ui
+                .small_button("V")
+                .on_hover_text("Split vertically")
+                .clicked()
+            {
+                *action = Some(SidebarAction::SplitPane(
+                    entry.pane_id,
+                    SplitDirection::Vertical,
+                ));
+            }
+            if ui
+                .small_button("H")
+                .on_hover_text("Split horizontally")
+                .clicked()
+            {
+                *action = Some(SidebarAction::SplitPane(
+                    entry.pane_id,
+                    SplitDirection::Horizontal,
+                ));
+            }
+        });
+    });
+    ui.add_space(2.0);
 }
 
 fn apply_sidebar_action(
@@ -778,8 +1087,10 @@ fn render_frame_pin_controls(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::persistence::types::LogEntry;
     use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState, ToolPaneRef};
     use egui_tiles::Tiles;
+    use uuid::Uuid;
 
     #[test]
     fn projection_is_graph_only_when_tree_has_only_graph_panes() {
@@ -896,9 +1207,129 @@ mod tests {
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
-        assert_eq!(projection.navigator_groups.len(), 1);
-        assert_eq!(projection.navigator_groups[0].sub_kind, ArrangementSubKind::FrameMember);
-        assert_eq!(projection.navigator_groups[0].members.len(), 3);
-        assert!(projection.navigator_groups[0].title.contains("workspace-alpha"));
+        let arrangement_group = projection
+            .navigator_groups
+            .iter()
+            .find(|group| {
+                group.section == WorkbenchNavigatorSection::Arrangement(ArrangementSubKind::FrameMember)
+            })
+            .expect("arrangement group");
+        assert_eq!(arrangement_group.members.len(), 3);
+        assert!(arrangement_group.title.contains("workspace-alpha"));
+    }
+
+    #[test]
+    fn projection_adds_unrelated_group_for_nodes_without_arrangement_membership() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let unrelated_key = app.add_node_and_sync(
+            "https://example.com/unrelated".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(unrelated_key)));
+        let root = tiles.insert_tab_tile(vec![graph, node]);
+        let tree = Tree::new("workbench_sidebar_unrelated", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        let unrelated_group = projection
+            .navigator_groups
+            .iter()
+            .find(|group| group.section == WorkbenchNavigatorSection::Unrelated)
+            .expect("unrelated group");
+        assert_eq!(unrelated_group.members.len(), 1);
+        assert_eq!(unrelated_group.members[0].node_key, unrelated_key);
+    }
+
+    #[test]
+    fn recent_navigator_members_count_visits_and_skip_arranged_nodes() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let recent_key = app.add_node_and_sync(
+            "https://example.com/recent".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let arranged_key = app.add_node_and_sync(
+            "https://example.com/arranged".to_string(),
+            euclid::default::Point2D::new(1.0, 0.0),
+        );
+        let recent_id = app.domain_graph().get_node(recent_key).expect("recent node").id;
+        let arranged_id = app.domain_graph().get_node(arranged_key).expect("arranged node").id;
+
+        let arrangement_memberships = HashMap::from([(arranged_key, vec!["Frame: alpha".to_string()])]);
+        let entries = vec![
+            LogEntry::AppendTraversal {
+                from_node_id: Uuid::new_v4().to_string(),
+                to_node_id: recent_id.to_string(),
+                timestamp_ms: 20,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::LinkClick,
+            },
+            LogEntry::AppendTraversal {
+                from_node_id: Uuid::new_v4().to_string(),
+                to_node_id: recent_id.to_string(),
+                timestamp_ms: 10,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::LinkClick,
+            },
+            LogEntry::AppendTraversal {
+                from_node_id: Uuid::new_v4().to_string(),
+                to_node_id: arranged_id.to_string(),
+                timestamp_ms: 30,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::LinkClick,
+            },
+        ];
+
+        let mut recent: HashMap<NodeKey, (u64, usize)> = HashMap::new();
+        for entry in entries {
+            let LogEntry::AppendTraversal {
+                to_node_id,
+                timestamp_ms,
+                ..
+            } = entry else {
+                continue;
+            };
+            let node_id = Uuid::parse_str(&to_node_id).expect("valid node uuid");
+            let node_key = app
+                .domain_graph()
+                .get_node_key_by_id(node_id)
+                .expect("node key");
+            let node = app.domain_graph().get_node(node_key).expect("node");
+            if arrangement_memberships.contains_key(&node_key) || is_internal_surface_node(node) {
+                continue;
+            }
+            let stats = recent.entry(node_key).or_insert((timestamp_ms, 0));
+            stats.0 = stats.0.max(timestamp_ms);
+            stats.1 += 1;
+        }
+
+        let mut rows = recent.into_iter().collect::<Vec<_>>();
+        rows.sort_by(|(left_key, left_stats), (right_key, right_stats)| {
+            right_stats
+                .0
+                .cmp(&left_stats.0)
+                .then_with(|| right_stats.1.cmp(&left_stats.1))
+                .then_with(|| navigator_member_sort_key(&app, *left_key).cmp(&navigator_member_sort_key(&app, *right_key)))
+        });
+        let members = rows
+            .into_iter()
+            .filter_map(|(node_key, (_timestamp_ms, visit_count))| {
+                navigator_member_for_node(
+                    &app,
+                    node_key,
+                    Some(format!(
+                        "({visit_count} visit{})",
+                        if visit_count == 1 { "" } else { "s" }
+                    )),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].node_key, recent_key);
+        assert!(members[0].title.contains("2 visits"));
     }
 }

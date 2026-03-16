@@ -28,6 +28,12 @@ This spec defines the canonical contracts for:
 6. **Pane locking** — preventing accidental reflow.
 7. **Floating pane promotion** — the canonical path from ephemeral overlay pane to graph-backed tile.
 
+This spec does **not** define duplicated cross-context appearances as
+presentation-instances of one shared node. Reuse across frames/graphlets is
+handled by explicit node operations (`Move`, `Associate`, `Copy`) in graph /
+workbench authority. Navigator lifecycle acts on node-bearing container entries,
+not on bare pane instances.
+
 ---
 
 ## 2. Pane Presentation Mode Contract
@@ -127,9 +133,10 @@ Rules:
 
 1. Opening a pane in an ephemeral mode may create a visible pane without writing any graph node.
 2. Creating graph citizenship (for example, writing a pane address into the graph and turning it into a graph-backed tile) is an opening-mode concern, not a chrome-mode concern — **except** for `Floating` pane promotion (§5.3), which is the explicit crossing of this boundary by user intent.
-3. Once a pane is already graph-backed, switching between `Tiled` and `Docked` changes only presentation and lock affordances.
-4. Internal surfaces that are graph-backed at creation time (for example `verso://tool/*`, `verso://view/*`, `verso://frame/<FrameId>`) are already across the opening-mode boundary before this spec applies.
-5. `Floating` panes opened in `QuarterPane` or `HalfPane` opening mode begin as ephemeral. Their `PaneOpeningMode` transitions to `Tile` only when the user triggers promotion (§5.3).
+3. Moving a node into another frame, associating it with another graphlet, or copying it into another context are explicit node operations and are outside the scope of pane chrome. This spec must not describe those operations as generic "open elsewhere" behavior.
+4. Once a pane is already graph-backed, switching between `Tiled` and `Docked` changes only presentation and lock affordances.
+5. Internal surfaces that are graph-backed at creation time (for example `verso://tool/*`, `verso://view/*`, `verso://frame/<FrameId>`) are already across the opening-mode boundary before this spec applies.
+6. `Floating` panes opened in `QuarterPane` or `HalfPane` opening mode begin as ephemeral. Their `PaneOpeningMode` transitions to `Tile` only when the user triggers promotion (§5.3).
 
 Compatibility note:
 
@@ -211,6 +218,10 @@ Effect:
 3. `SimplificationSuppressed` is cleared.
 4. If the enclosing surface closed (not an explicit dismiss click), the floating pane is discarded silently — no signal, no undo entry.
 5. If the user clicked ✕ explicitly, workbench emits `PaneDiscarded` signal (for observability; no undo entry since the pane was never graph-backed).
+
+**Non-goal clarification**: `Dismiss` here is pane-surface discard only. It is
+not the same as Navigator `DismissNode`, which removes a node from its current
+container and may demote or delete that node depending on lifecycle state.
 
 ---
 

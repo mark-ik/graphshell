@@ -13,6 +13,9 @@ use super::{
     PendingTileOpenMode, RendererId, SelectionUpdateMode, ToolSurfaceReturnTarget,
     UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
 };
+use crate::shell::desktop::workbench::pane_model::{
+    FloatingPaneTargetTileContext, PaneId, PanePresentationMode,
+};
 
 /// Navigator adapter aliases to preserve behavior while migrating away from
 /// legacy FileTree naming in intent callers.
@@ -548,6 +551,13 @@ pub enum GraphIntent {
     OpenNodeFrameRouted {
         key: NodeKey,
         prefer_frame: Option<String>,
+    },
+    SetPanePresentationMode {
+        pane: PaneId,
+        mode: PanePresentationMode,
+    },
+    PromoteEphemeralPane {
+        target_tile_context: FloatingPaneTargetTileContext,
     },
     OpenNodeWorkspaceRouted {
         key: NodeKey,

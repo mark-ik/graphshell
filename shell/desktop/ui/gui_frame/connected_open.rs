@@ -8,6 +8,8 @@ fn tile_open_mode_from_pending(mode: PendingTileOpenMode) -> tile_view_ops::Tile
     match mode {
         PendingTileOpenMode::Tab => tile_view_ops::TileOpenMode::Tab,
         PendingTileOpenMode::SplitHorizontal => tile_view_ops::TileOpenMode::SplitHorizontal,
+        PendingTileOpenMode::QuarterPane => tile_view_ops::TileOpenMode::QuarterPane,
+        PendingTileOpenMode::HalfPane => tile_view_ops::TileOpenMode::HalfPane,
     }
 }
 
@@ -215,7 +217,9 @@ fn open_connected_nodes_by_mode(
     graph_app.mark_current_frame_synthesized();
     let tile_mode = tile_open_mode_from_pending(open_mode);
     match tile_mode {
-        tile_view_ops::TileOpenMode::Tab => {
+        tile_view_ops::TileOpenMode::Tab
+        | tile_view_ops::TileOpenMode::QuarterPane
+        | tile_view_ops::TileOpenMode::HalfPane => {
             open_connected_nodes_as_tabs(graph_app, tiles_tree, ordered);
         }
         tile_view_ops::TileOpenMode::SplitHorizontal => {
