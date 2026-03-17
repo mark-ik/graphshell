@@ -172,9 +172,9 @@ impl GraphBrowserApp {
 
     /// Mark the current frame context as synthesized from runtime actions.
     pub fn mark_current_workspace_synthesized(&mut self) {
-        self.workspace.current_workspace_is_synthesized = true;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
+        self.workspace.workbench_session.current_workspace_is_synthesized = true;
+        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
+        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
     }
 
     /// Mark the current frame context as synthesized from runtime actions.
@@ -188,6 +188,7 @@ impl GraphBrowserApp {
             return 0;
         };
         self.workspace
+            .workbench_session
             .node_last_active_workspace
             .get(&node.id)
             .map(|(seq, _)| *seq)
@@ -205,7 +206,7 @@ impl GraphBrowserApp {
         let Some(node) = self.workspace.domain.graph.get_node(key) else {
             return names;
         };
-        if let Some((_, recent)) = self.workspace.node_last_active_workspace.get(&node.id)
+        if let Some((_, recent)) = self.workspace.workbench_session.node_last_active_workspace.get(&node.id)
             && let Some(idx) = names.iter().position(|name| name == recent)
         {
             let recent = names.remove(idx);
@@ -221,6 +222,7 @@ impl GraphBrowserApp {
     /// Last activation sequence associated with a workspace name.
     pub fn workspace_recency_seq_for_name(&self, workspace_name: &str) -> u64 {
         self.workspace
+            .workbench_session
             .node_last_active_workspace
             .values()
             .filter_map(|(seq, name)| (name == workspace_name).then_some(*seq))
@@ -239,27 +241,29 @@ impl GraphBrowserApp {
         workspace_name: &str,
         nodes: impl IntoIterator<Item = NodeKey>,
     ) {
-        self.workspace.workspace_activation_seq =
-            self.workspace.workspace_activation_seq.saturating_add(1);
-        let seq = self.workspace.workspace_activation_seq;
+        self.workspace.workbench_session.workspace_activation_seq =
+            self.workspace.workbench_session.workspace_activation_seq.saturating_add(1);
+        let seq = self.workspace.workbench_session.workspace_activation_seq;
         let workspace_name = workspace_name.to_string();
         for key in nodes {
             let Some(node) = self.workspace.domain.graph.get_node(key) else {
                 continue;
             };
             self.workspace
+                .workbench_session
                 .node_last_active_workspace
                 .insert(node.id, (seq, workspace_name.clone()));
             self.workspace
+                .workbench_session
                 .node_workspace_membership
                 .entry(node.id)
                 .or_default()
                 .insert(workspace_name.clone());
         }
-        self.workspace.current_workspace_is_synthesized = false;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
-        self.workspace.egui_state_dirty = true;
+        self.workspace.workbench_session.current_workspace_is_synthesized = false;
+        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
+        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     /// Mark a named frame snapshot as activated, updating per-node recency.
@@ -273,8 +277,8 @@ impl GraphBrowserApp {
 
     /// Initialize membership index from desktop-layer workspace scan.
     pub fn init_membership_index(&mut self, index: HashMap<Uuid, BTreeSet<String>>) {
-        self.workspace.node_workspace_membership = index;
-        self.workspace.egui_state_dirty = true;
+        self.workspace.workbench_session.node_workspace_membership = index;
+        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     /// Initialize UUID-keyed workspace activation recency from desktop-layer manifest scan.
@@ -283,8 +287,8 @@ impl GraphBrowserApp {
         recency: HashMap<Uuid, (u64, String)>,
         activation_seq: u64,
     ) {
-        self.workspace.node_last_active_workspace = recency;
-        self.workspace.workspace_activation_seq = activation_seq;
+        self.workspace.workbench_session.node_last_active_workspace = recency;
+        self.workspace.workbench_session.workspace_activation_seq = activation_seq;
     }
 
     /// Initialize UUID-keyed frame activation recency from desktop-layer manifest scan.
@@ -304,6 +308,7 @@ impl GraphBrowserApp {
     /// Frame membership set for a stable node UUID.
     pub fn membership_for_node(&self, uuid: Uuid) -> &BTreeSet<String> {
         self.workspace
+            .workbench_session
             .node_workspace_membership
             .get(&uuid)
             .unwrap_or_else(|| Self::empty_workspace_membership())
@@ -351,7 +356,7 @@ impl GraphBrowserApp {
 
         if !memberships.is_empty() {
             if let Some((_, recent_workspace)) =
-                node_uuid.and_then(|uuid| self.workspace.node_last_active_workspace.get(&uuid))
+                node_uuid.and_then(|uuid| self.workspace.workbench_session.node_last_active_workspace.get(&uuid))
                 && memberships.contains(recent_workspace)
             {
                 return (
@@ -858,7 +863,7 @@ mod tests {
             })
         );
         assert_eq!(app.pending_open_node_request(), None);
-        assert!(!app.workspace.current_workspace_is_synthesized);
+        assert!(!app.workspace.workbench_session.current_workspace_is_synthesized);
     }
 
     #[test]
@@ -889,6 +894,6 @@ mod tests {
                 mode: PendingTileOpenMode::Tab,
             })
         );
-        assert!(app.workspace.current_workspace_is_synthesized);
+        assert!(app.workspace.workbench_session.current_workspace_is_synthesized);
     }
 }

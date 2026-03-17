@@ -7,6 +7,7 @@ impl<'a> GraphshellTileBehavior<'a> {
             TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref)) => self
                 .graph_app
                 .workspace
+                .graph_runtime
                 .views
                 .get(&view_ref.graph_view_id)
                 .map(|v| v.name.clone().into())
@@ -22,6 +23,7 @@ impl<'a> GraphshellTileBehavior<'a> {
             TileKind::Graph(view_ref) => self
                 .graph_app
                 .workspace
+                .graph_runtime
                 .views
                 .get(&view_ref.graph_view_id)
                 .map(|v| v.name.clone().into())
@@ -69,6 +71,7 @@ fn render_tab_ui_impl(
             let name = behavior
                 .graph_app
                 .workspace
+                .graph_runtime
                 .views
                 .get(&view_ref.graph_view_id)
                 .map(|v| v.name.clone())
@@ -95,6 +98,7 @@ fn render_tab_ui_impl(
             let name = behavior
                 .graph_app
                 .workspace
+                .graph_runtime
                 .views
                 .get(&view_ref.graph_view_id)
                 .map(|v| v.name.clone())
@@ -212,6 +216,7 @@ fn render_tab_ui_impl(
                 let anchor_key = behavior
                     .graph_app
                     .workspace
+                    .graph_runtime
                     .tab_selection_anchor
                     .unwrap_or(node_key);
                 let anchor_index = ordered_nodes
@@ -219,7 +224,7 @@ fn render_tab_ui_impl(
                     .position(|key| *key == anchor_key)
                     .unwrap_or(target_index);
                 if !modifiers.ctrl {
-                    behavior.graph_app.workspace.selected_tab_nodes.clear();
+                    behavior.graph_app.workspace.graph_runtime.selected_tab_nodes.clear();
                 }
                 if let Some(range) =
                     inclusive_index_range(anchor_index, target_index, ordered_nodes.len())
@@ -252,6 +257,7 @@ fn render_tab_ui_impl(
                 let anchor_key = behavior
                     .graph_app
                     .workspace
+                    .graph_runtime
                     .tab_selection_anchor
                     .unwrap_or(node_key);
                 let anchor_index = ordered_nodes
@@ -259,7 +265,7 @@ fn render_tab_ui_impl(
                     .position(|key| *key == anchor_key)
                     .unwrap_or(target_index);
                 if !modifiers.ctrl {
-                    behavior.graph_app.workspace.selected_tab_nodes.clear();
+                    behavior.graph_app.workspace.graph_runtime.selected_tab_nodes.clear();
                 }
                 if let Some(range) =
                     inclusive_index_range(anchor_index, target_index, ordered_nodes.len())
@@ -305,11 +311,11 @@ fn render_tab_ui_impl(
         let tab_multi_selected = matches!(
             tiles.get(tile_id),
             Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state))))
-                if behavior.graph_app.workspace.selected_tab_nodes.contains(&state.node)
+                if behavior.graph_app.workspace.graph_runtime.selected_tab_nodes.contains(&state.node)
         ) || matches!(
             tiles.get(tile_id),
             Some(Tile::Pane(TileKind::Node(state)))
-                if behavior.graph_app.workspace.selected_tab_nodes.contains(&state.node)
+                if behavior.graph_app.workspace.graph_runtime.selected_tab_nodes.contains(&state.node)
         );
         if tab_multi_selected && !state.active {
             bg_color = bg_color.linear_multiply(1.08);

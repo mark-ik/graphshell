@@ -101,7 +101,9 @@ Graphshell has these primary navigable regions:
 - opening a new surface produces deterministic focus handoff,
 - closing a surface returns focus to a visible valid successor,
 - users must not get trapped in a region without an escape path,
-- focus changes must be visible and diagnosable.
+- focus changes must be visible and diagnosable,
+- hidden or non-present surfaces may retain runtime memory, but they do not
+  retain live semantic focus.
 
 ---
 
@@ -307,6 +309,11 @@ This section is the canonical deterministic mapping used for predictability clos
 - Workbench/global surfaces may inspect selection state but must not mutate selection without routing through Graph/Workbench authority intents.
 - Frame switches preserve runtime focus context (`active region`, `active pane`, `last focused control`) and per-view selection/camera as runtime memory for the target Frame.
 - Frame Snapshot persistence remains a storage concern; runtime focus/selection restoration is a focus-router concern and must be deterministic even when no persistence write occurs.
+- Hidden or non-present surfaces may retain active-item memory and return-target
+  state, but they do not retain live focus.
+- Live selection applies only to currently visible, interactable objects.
+- When a selected object leaves view, its live selection is cleared unless that
+  object remains simultaneously visible through another active surface.
 
 #### 4.7.2 Focus ownership map
 

@@ -50,7 +50,7 @@ impl GraphBrowserApp {
     }
 
     pub fn toggle_help_panel(&mut self) {
-        if self.workspace.show_help_panel {
+        if self.workspace.chrome_ui.show_help_panel {
             self.close_help_panel();
         } else {
             self.open_help_panel();
@@ -58,20 +58,21 @@ impl GraphBrowserApp {
     }
 
     pub fn open_help_panel(&mut self) {
-        let was_open = self.workspace.show_help_panel;
+        let was_open = self.workspace.chrome_ui.show_help_panel;
         if self.pending_transient_surface_return_target().is_none() {
             self.set_pending_transient_surface_return_target(
                 self.workspace
+                    .graph_runtime
                     .focused_view
                     .map(ToolSurfaceReturnTarget::Graph),
             );
         }
-        self.workspace.show_help_panel = true;
-        self.workspace.show_settings_overlay = false;
-        self.workspace.show_command_palette = false;
-        self.workspace.show_context_palette = false;
-        self.workspace.command_palette_contextual_mode = false;
-        self.workspace.show_radial_menu = false;
+        self.workspace.chrome_ui.show_help_panel = true;
+        self.workspace.chrome_ui.show_settings_overlay = false;
+        self.workspace.chrome_ui.show_command_palette = false;
+        self.workspace.chrome_ui.show_context_palette = false;
+        self.workspace.chrome_ui.command_palette_contextual_mode = false;
+        self.workspace.chrome_ui.show_radial_menu = false;
         self.close_clip_inspector();
         self.set_pending_node_context_target(None);
         if !was_open {
@@ -82,14 +83,14 @@ impl GraphBrowserApp {
     }
 
     pub fn close_help_panel(&mut self) {
-        if !self.workspace.show_help_panel {
+        if !self.workspace.chrome_ui.show_help_panel {
             return;
         }
-        self.workspace.show_help_panel = false;
-        if !self.workspace.show_command_palette
-            && !self.workspace.show_context_palette
-            && !self.workspace.show_radial_menu
-            && !self.workspace.show_settings_overlay
+        self.workspace.chrome_ui.show_help_panel = false;
+        if !self.workspace.chrome_ui.show_command_palette
+            && !self.workspace.chrome_ui.show_context_palette
+            && !self.workspace.chrome_ui.show_radial_menu
+            && !self.workspace.chrome_ui.show_settings_overlay
         {
             self.request_restore_transient_surface_focus();
         }
@@ -99,21 +100,22 @@ impl GraphBrowserApp {
     }
 
     pub fn open_settings_overlay(&mut self, page: SettingsToolPage) {
-        let was_open = self.workspace.show_settings_overlay;
-        self.workspace.settings_tool_page = page;
+        let was_open = self.workspace.chrome_ui.show_settings_overlay;
+        self.workspace.chrome_ui.settings_tool_page = page;
         if self.pending_transient_surface_return_target().is_none() {
             self.set_pending_transient_surface_return_target(
                 self.workspace
+                    .graph_runtime
                     .focused_view
                     .map(ToolSurfaceReturnTarget::Graph),
             );
         }
-        self.workspace.show_settings_overlay = true;
-        self.workspace.show_help_panel = false;
-        self.workspace.show_command_palette = false;
-        self.workspace.show_context_palette = false;
-        self.workspace.command_palette_contextual_mode = false;
-        self.workspace.show_radial_menu = false;
+        self.workspace.chrome_ui.show_settings_overlay = true;
+        self.workspace.chrome_ui.show_help_panel = false;
+        self.workspace.chrome_ui.show_command_palette = false;
+        self.workspace.chrome_ui.show_context_palette = false;
+        self.workspace.chrome_ui.command_palette_contextual_mode = false;
+        self.workspace.chrome_ui.show_radial_menu = false;
         self.close_clip_inspector();
         self.set_pending_node_context_target(None);
         if !was_open {
@@ -123,14 +125,14 @@ impl GraphBrowserApp {
     }
 
     pub fn close_settings_overlay(&mut self) {
-        if !self.workspace.show_settings_overlay {
+        if !self.workspace.chrome_ui.show_settings_overlay {
             return;
         }
-        self.workspace.show_settings_overlay = false;
-        if !self.workspace.show_command_palette
-            && !self.workspace.show_context_palette
-            && !self.workspace.show_help_panel
-            && !self.workspace.show_radial_menu
+        self.workspace.chrome_ui.show_settings_overlay = false;
+        if !self.workspace.chrome_ui.show_command_palette
+            && !self.workspace.chrome_ui.show_context_palette
+            && !self.workspace.chrome_ui.show_help_panel
+            && !self.workspace.chrome_ui.show_radial_menu
         {
             self.request_restore_transient_surface_focus();
         }
@@ -139,7 +141,7 @@ impl GraphBrowserApp {
     }
 
     pub fn open_command_palette(&mut self) {
-        self.workspace.context_palette_anchor = None;
+        self.workspace.chrome_ui.context_palette_anchor = None;
         self.set_pending_node_context_target(None);
         self.set_command_surface_visibility(true, false);
     }
@@ -149,27 +151,27 @@ impl GraphBrowserApp {
     }
 
     pub fn set_context_palette_anchor(&mut self, anchor: Option<[f32; 2]>) {
-        self.workspace.context_palette_anchor = anchor;
+        self.workspace.chrome_ui.context_palette_anchor = anchor;
     }
 
     pub fn close_command_palette(&mut self) {
-        self.workspace.context_palette_anchor = None;
+        self.workspace.chrome_ui.context_palette_anchor = None;
         self.set_command_surface_visibility(false, false);
     }
 
     pub fn toggle_command_palette(&mut self) {
-        if self.workspace.show_command_palette {
-            self.workspace.context_palette_anchor = None;
+        if self.workspace.chrome_ui.show_command_palette {
+            self.workspace.chrome_ui.context_palette_anchor = None;
             self.set_command_surface_visibility(false, false);
         } else {
-            self.workspace.context_palette_anchor = None;
+            self.workspace.chrome_ui.context_palette_anchor = None;
             self.set_pending_node_context_target(None);
             self.set_command_surface_visibility(true, false);
         }
     }
 
     pub fn toggle_radial_menu(&mut self) {
-        if self.workspace.show_radial_menu {
+        if self.workspace.chrome_ui.show_radial_menu {
             self.close_radial_menu();
         } else {
             self.open_radial_menu();
@@ -177,14 +179,14 @@ impl GraphBrowserApp {
     }
 
     pub fn open_radial_menu(&mut self) {
-        let was_open = self.workspace.show_radial_menu;
-        self.workspace.show_help_panel = false;
-        self.workspace.show_settings_overlay = false;
-        self.workspace.show_command_palette = false;
-        self.workspace.show_context_palette = false;
-        self.workspace.command_palette_contextual_mode = false;
-        self.workspace.context_palette_anchor = None;
-        self.workspace.show_radial_menu = true;
+        let was_open = self.workspace.chrome_ui.show_radial_menu;
+        self.workspace.chrome_ui.show_help_panel = false;
+        self.workspace.chrome_ui.show_settings_overlay = false;
+        self.workspace.chrome_ui.show_command_palette = false;
+        self.workspace.chrome_ui.show_context_palette = false;
+        self.workspace.chrome_ui.command_palette_contextual_mode = false;
+        self.workspace.chrome_ui.context_palette_anchor = None;
+        self.workspace.chrome_ui.show_radial_menu = true;
         self.close_clip_inspector();
         if !was_open {
             self.emit_focus_capture_enter();
@@ -193,15 +195,15 @@ impl GraphBrowserApp {
     }
 
     pub fn close_radial_menu(&mut self) {
-        if !self.workspace.show_radial_menu {
+        if !self.workspace.chrome_ui.show_radial_menu {
             return;
         }
-        self.workspace.show_radial_menu = false;
+        self.workspace.chrome_ui.show_radial_menu = false;
         self.set_pending_node_context_target(None);
-        if !self.workspace.show_command_palette
-            && !self.workspace.show_context_palette
-            && !self.workspace.show_help_panel
-            && !self.workspace.show_settings_overlay
+        if !self.workspace.chrome_ui.show_command_palette
+            && !self.workspace.chrome_ui.show_context_palette
+            && !self.workspace.chrome_ui.show_help_panel
+            && !self.workspace.chrome_ui.show_settings_overlay
         {
             self.request_restore_transient_surface_focus();
         }
@@ -210,24 +212,24 @@ impl GraphBrowserApp {
     }
 
     fn set_command_surface_visibility(&mut self, show_command_palette: bool, show_context_palette: bool) {
-        if self.workspace.show_command_palette == show_command_palette
-            && self.workspace.show_context_palette == show_context_palette
+        if self.workspace.chrome_ui.show_command_palette == show_command_palette
+            && self.workspace.chrome_ui.show_context_palette == show_context_palette
         {
             return;
         }
 
-        self.workspace.show_command_palette = show_command_palette;
-        self.workspace.show_context_palette = show_context_palette;
-        self.workspace.command_palette_contextual_mode = show_context_palette;
+        self.workspace.chrome_ui.show_command_palette = show_command_palette;
+        self.workspace.chrome_ui.show_context_palette = show_context_palette;
+        self.workspace.chrome_ui.command_palette_contextual_mode = show_context_palette;
         if show_command_palette || show_context_palette {
-            self.workspace.show_help_panel = false;
-            self.workspace.show_settings_overlay = false;
-            self.workspace.show_radial_menu = false;
+            self.workspace.chrome_ui.show_help_panel = false;
+            self.workspace.chrome_ui.show_settings_overlay = false;
+            self.workspace.chrome_ui.show_radial_menu = false;
             self.close_clip_inspector();
             self.emit_focus_capture_enter();
         } else {
             self.set_pending_node_context_target(None);
-            self.workspace.command_palette_contextual_mode = false;
+            self.workspace.chrome_ui.command_palette_contextual_mode = false;
             self.emit_focus_capture_exit();
         }
         self.emit_ux_navigation_transition();

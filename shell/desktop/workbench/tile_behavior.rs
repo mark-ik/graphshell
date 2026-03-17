@@ -879,10 +879,11 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             self.pending_closed_nodes.push(node_key);
             self.graph_app
                 .workspace
+                .graph_runtime
                 .selected_tab_nodes
                 .remove(&node_key);
-            if self.graph_app.workspace.tab_selection_anchor == Some(node_key) {
-                self.graph_app.workspace.tab_selection_anchor = None;
+            if self.graph_app.workspace.graph_runtime.tab_selection_anchor == Some(node_key) {
+                self.graph_app.workspace.graph_runtime.tab_selection_anchor = None;
             }
         }
         if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id) {
@@ -890,10 +891,11 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             self.pending_closed_nodes.push(node_key);
             self.graph_app
                 .workspace
+                .graph_runtime
                 .selected_tab_nodes
                 .remove(&node_key);
-            if self.graph_app.workspace.tab_selection_anchor == Some(node_key) {
-                self.graph_app.workspace.tab_selection_anchor = None;
+            if self.graph_app.workspace.graph_runtime.tab_selection_anchor == Some(node_key) {
+                self.graph_app.workspace.graph_runtime.tab_selection_anchor = None;
             }
         }
         #[cfg(feature = "diagnostics")]
@@ -915,7 +917,7 @@ fn render_graph_pane_overlay(
     pane_rect: egui::Rect,
     pending_intents: &mut Vec<TilePendingIntent>,
 ) {
-    let Some(view) = app.workspace.views.get(&view_id) else {
+    let Some(view) = app.workspace.graph_runtime.views.get(&view_id) else {
         return;
     };
     let lens_name = view
@@ -1335,7 +1337,7 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let view_id = GraphViewId::new();
-        app.workspace.views.insert(
+        app.workspace.graph_runtime.views.insert(
             view_id,
             crate::app::GraphViewState::new_with_id(view_id, "Focused"),
         );
@@ -1363,7 +1365,7 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let view_id = GraphViewId::new();
-        app.workspace.views.insert(
+        app.workspace.graph_runtime.views.insert(
             view_id,
             crate::app::GraphViewState::new_with_id(view_id, "Focused"),
         );

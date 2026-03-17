@@ -331,7 +331,7 @@ pub fn render_radial_command_menu(
     focused_pane_node: Option<NodeKey>,
     focused_pane_id: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
 ) {
-    let was_open = app.workspace.show_radial_menu;
+    let was_open = app.workspace.chrome_ui.show_radial_menu;
     if !was_open {
         return;
     }
@@ -352,6 +352,7 @@ pub fn render_radial_command_menu(
         input_mode: InputMode::Gamepad,
         view_id: app
             .workspace
+            .graph_runtime
             .focused_view
             .unwrap_or_else(crate::app::GraphViewId::new),
         wry_override_allowed: cfg!(feature = "wry")
@@ -1108,9 +1109,9 @@ pub fn render_radial_command_menu(
     if should_close {
         app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
     } else {
-        app.workspace.show_radial_menu = true;
+        app.workspace.chrome_ui.show_radial_menu = true;
     }
-    if !app.workspace.show_radial_menu {
+    if !app.workspace.chrome_ui.show_radial_menu {
         clear_semantic_snapshot();
         app.set_pending_node_context_target(None);
         ctx.data_mut(|d| {

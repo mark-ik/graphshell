@@ -1987,7 +1987,7 @@ impl DiagnosticsState {
     }
 
     pub(crate) fn sync_runtime_cache_snapshot_from_app(&mut self, graph_app: &GraphBrowserApp) {
-        let metrics = graph_app.workspace.runtime_caches.metrics_snapshot();
+        let metrics = graph_app.workspace.graph_runtime.runtime_caches.metrics_snapshot();
         self.runtime_cache_snapshot = json!({
             "hits": metrics.hits,
             "misses": metrics.misses,
@@ -3273,10 +3273,11 @@ Object {
         let app = GraphBrowserApp::new_for_testing();
 
         app.workspace
+            .graph_runtime
             .runtime_caches
             .insert_suggestions("diag:key".to_string(), vec!["rust".to_string()]);
-        let _ = app.workspace.runtime_caches.get_suggestions("diag:key");
-        let _ = app.workspace.runtime_caches.get_suggestions("diag:missing");
+        let _ = app.workspace.graph_runtime.runtime_caches.get_suggestions("diag:key");
+        let _ = app.workspace.graph_runtime.runtime_caches.get_suggestions("diag:missing");
 
         state.sync_runtime_cache_snapshot_from_app(&app);
         let snapshot = state.snapshot_json_value();

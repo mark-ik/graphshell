@@ -12,7 +12,7 @@
 - `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — canonical authority for `PaneOpeningMode` and `SimplificationSuppressed`
 - `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` — `FrameTabSemantics` overlay plan (§7 canonicalized there)
 - `../canvas/node_badge_and_tagging_spec.md` — badge strip rendering contract referenced in §3.1
-- `../../../TERMINOLOGY.md` — `Tiled Pane`, `Docked Pane`, `Pane Presentation Mode`, `Tab Group`, `Tile`
+- `../../../TERMINOLOGY.md` — `Tiled Pane`, `Docked Pane`, `Pane Presentation Mode`, `Tile`
 
 ---
 
@@ -24,7 +24,7 @@ This spec defines the canonical contracts for:
 2. **Tab selector overlay** — when and how the tile-selection chrome renders.
 3. **Pane opening mode boundary** — where graph-citizenship decisions stop and chrome behavior begins.
 4. **Presentation-mode transitions** — moving panes between Tiled, Docked, and Floating presentation.
-5. **Tab ordering and reorder** — drag-reorder semantics within a Tab Group.
+5. **Tab ordering and reorder** — drag-reorder semantics within a Tile.
 6. **Pane locking** — preventing accidental reflow.
 7. **Floating pane promotion** — the canonical path from ephemeral overlay pane to graph-backed tile.
 
@@ -50,7 +50,12 @@ PanePresentationMode =
 
 **Invariant**: `PanePresentationMode` is workbench-owned state. It does not affect graph content identity. Changing the mode of a pane must not create or delete graph nodes, write addresses, append traversal history, or otherwise mutate graph data.
 
-**Exception — promotion**: transitioning a `Floating` pane to `Tiled` via the promote action (§2.3, §5.3) is the one presentation-mode transition that *does* cross the graph-citizenship boundary. It is the canonical **Promotion** event: graph citizenship is written, a node is created or reused, and a `PaneId` plus `ArrangementRelation` edge are assigned. All other mode transitions remain graph-neutral.
+**Exception — promotion**: transitioning a `Floating` pane to `Tiled` via the
+promote action (§2.3, §5.3) is the one presentation-mode transition that *does*
+cross the graph-citizenship boundary. It is the canonical **Promotion** event:
+graph citizenship is written, a node is created or reused, and a `PaneId` plus
+any required container membership are assigned. All other mode transitions
+remain graph-neutral.
 
 ### 2.1 Tiled Pane
 
@@ -86,9 +91,12 @@ A `Floating` pane is a chromeless overlay pane rendered at a fractional size (`Q
 
 **Lifetime contract**:
 
-- A `Floating` pane's lifetime is scoped to the tile surface it overlays. If that surface closes (e.g., the enclosing Tab Group is closed), the floating pane is discarded without any graph write — it was never graph-citizened.
+- A `Floating` pane's lifetime is scoped to the hosting surface/context it
+  overlays. That host may be a tile surface, graph surface, frame context, or
+  split context. If that host closes, the floating pane is discarded without any
+  graph write — it was never graph-citizened.
 - A `Floating` pane that is dismissed via ✕ produces no graph node, no address write, and no traversal edge.
-- A `Floating` pane is not a member of any Tab Group or tile tree container. It floats above the tile tree render layer until promoted or dismissed.
+- A `Floating` pane is not a member of any Tile or tile tree container. It floats above the tile tree render layer until promoted or dismissed.
 
 **Rationale**: This formalises the "chromeless dialog/temp window" UX that previously appeared as an undefined side effect. The `Floating` mode makes it a managed, intentional surface with predictable lifecycle and a clear upgrade path to full graph citizenship.
 
@@ -98,7 +106,9 @@ A `Floating` pane is a chromeless overlay pane rendered at a fractional size (`Q
 
 ### 3.1 Tab Bar Rendering
 
-Each Tab Group container renders a tab bar strip (legacy term: **Workbar** for frames; now: frame tabs in the **Workbench Sidebar** or per-container tab strips for nested Tab Groups). The tab strip:
+Each Tile that contains multiple node entries renders a tab bar strip (legacy
+term: **Workbar** for frames; now: frame tabs in the **Workbench Sidebar** or
+per-tile tab strips for multi-node tiles). The tab strip:
 
 - Shows one tab entry per child tile with: title, badge strip (compact, per `../canvas/node_badge_and_tagging_spec.md §3.5`), close button.
 - Active tile's tab is highlighted.
@@ -106,7 +116,8 @@ Each Tab Group container renders a tab bar strip (legacy term: **Workbar** for f
 
 ### 3.2 Tab Overlay on Hover
 
-When the cursor hovers over a non-active pane within a Tab Group that has multiple children, a **tile-selection affordance** is shown:
+When the cursor hovers over a non-active pane within a multi-node Tile, a
+**tile-selection affordance** is shown:
 
 - A hover ring or highlight border on the pane boundary.
 - The tab bar scrolls to make the hovered pane's tab entry visible.
@@ -183,7 +194,7 @@ Effect:
 
 **Effect** (in order):
 
-1. Emit `GraphIntent::PromoteEphemeralPane { target_tile_context }`.
+1. Emit `PromoteFloatingPane { target_tile_context }`.
 2. In `apply_intents()`:
    - Resolve the pane's content address and write it through the canonical graph write path.
    - Create or reuse a graph node according to address-as-identity rules.
@@ -201,9 +212,9 @@ Effect:
 
 | Context the floating pane overlays | Placement on promotion |
 |-------------------------------------|------------------------|
-| Inside or over a Tab Group container | New tab in that Tab Group; `ArrangementRelation` sub-kind `tile-group` |
-| Over a split (horizontal or vertical tile, no enclosing Tab Group) | New split at current tile tree level; `ArrangementRelation` sub-kind `split-pair` |
-| Over the bare graph canvas (no workbench tiles open) | New solo tile; no `ArrangementRelation` edge needed |
+| Inside or over an existing Tile | New node entry in that Tile; `ArrangementRelation` sub-kind `tile-member` when tile membership is graph-rooted for that context |
+| Over a split (horizontal or vertical tile, no enclosing multi-node Tile) | New split at current tile tree level; `ArrangementRelation` sub-kind `split-pair` |
+| Over the bare graph canvas (no workbench tiles open) | New solo tile; no default `ArrangementRelation` edge is required |
 
 **Invariant**: The floating pane's content and address are preserved through promotion. No content reload occurs. The pane receives its tab handle at its insertion position in the tile tree.
 
@@ -227,15 +238,15 @@ container and may demote or delete that node depending on lifecycle state.
 
 ## 6. Tab Reorder Contract
 
-Within a Tab Group, tabs may be reordered by drag-and-drop.
+Within a Tile, tabs may be reordered by drag-and-drop.
 
 ### 6.1 Drag Semantics
 
 - Drag target: the tab entry in the tab strip (not the pane body).
-- Drop target: any position in the same tab strip (reorder within the same Tab Group).
-- Cross-Tab-Group drag: drops a tab into a different Tab Group (moves the tile, not just reorders).
+- Drop target: any position in the same tab strip (reorder within the same Tile).
+- Cross-Tile drag: drops a tab into a different Tile (moves the tile membership, not just reorders).
 
-**Invariant**: Tab reorder within a Tab Group only changes `Vec<TileId>` ordering in the container. It does not change tile tree depth or split geometry. No graph data is affected.
+**Invariant**: Tab reorder within a Tile only changes the ordered node-entry list in that container. It does not change tile tree depth or split geometry. No graph data is affected.
 
 ### 6.2 Docked Panes and Reorder
 
@@ -281,15 +292,15 @@ Key rules (full contract in `pane_presentation_and_locking_spec.md §3`):
 | Tab reorder changes `Vec<TileId>` order only | Test: drag tab to new position → only container child order changed; no depth change |
 | Docked pane is not user-draggable | Test: mode = `Docked` → drag attempt has no effect |
 | Active tab indicator visible without animation | Test: `prefers-reduced-motion` set → active tab indicator renders distinctly |
-| Cross-Tab-Group drop moves tile | Test: drag tab to different Tab Group → tile moves to new container |
+| Cross-Tile drop moves tab membership | Test: drag tab to different Tile → node entry moves to new container |
 | `PanePresentationModeChanged` signal emitted on mode switch | Test: switch presentation mode → `PanePresentationModeChanged` signal present in signal log |
 | Floating pane renders no top bar, tab strip, or title | Test: mode = `Floating` → no chrome elements rendered outside the top-edge hover band |
 | Floating pane hover controls appear only on cursor entry | Test: cursor outside pane rect → controls not visible; cursor enters → controls visible within 80 ms |
 | Floating pane hover controls do not intercept content pointer events | Test: click on pane content area (not top-edge band) → event reaches pane content, not intercepted by chrome |
 | Floating pane dismiss produces no graph write | Test: click ✕ on `Floating` pane → no graph node created, no address written, no traversal edge appended |
-| Floating pane dismissed when enclosing surface closes | Test: close Tab Group containing a `Floating` pane → pane is discarded; no graph write |
+| Floating pane dismissed when enclosing surface closes | Test: close host Tile containing a `Floating` pane → pane is discarded; no graph write |
 | Floating pane promotion creates graph node and `PaneId` | Test: click ▣ on `Floating` pane → graph node created, `PaneId` assigned, `ArrangementRelation` edge asserted |
-| Promoted pane inserted into Tab Group as new tab | Test: promote `Floating` pane overlaying a Tab Group → pane appears as new tab in that group with tab handle |
+| Promoted pane inserted into Tile as new tab | Test: promote `Floating` pane overlaying a Tile → pane appears as a new tab in that tile with tab handle |
 | Promoted pane loses floating geometry | Test: promote `Floating` pane → floating overlay removed; pane occupies tile tree position |
 | `SimplificationSuppressed` cleared after promotion | Test: promote `Floating` pane → `SimplificationSuppressed` not set on resulting `Tiled` pane |
 | `SimplificationSuppressed` cleared after dismiss | Test: dismiss `Floating` pane → `SimplificationSuppressed` cleared before removal |

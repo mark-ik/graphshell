@@ -89,7 +89,7 @@ pub(super) fn initialize_startup_graph_and_tiles(
     graph_app.init_frame_activation_recency(workspace_recency, workspace_activation_seq);
 
     let initial_search_filter_mode = matches!(
-        graph_app.workspace.search_display_mode,
+        graph_app.workspace.graph_runtime.search_display_mode,
         SearchDisplayMode::Filter
     );
 

@@ -121,7 +121,7 @@ fn graph_surface_focus_state_noop_does_not_emit_ux_navigation_transition() {
         deferred_open_child_webviews: Vec::new(),
     };
     let mut app = GraphBrowserApp::new_for_testing();
-    app.workspace.focused_view = Some(graph_view);
+    app.workspace.graph_runtime.focused_view = Some(graph_view);
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
 
     apply_graph_surface_focus_state(&mut runtime_state, &mut app, Some(graph_view));

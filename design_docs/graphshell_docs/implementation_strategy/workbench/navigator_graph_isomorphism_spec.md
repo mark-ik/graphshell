@@ -28,7 +28,7 @@ The canonical click grammar is therefore **row-type specific**:
 |---------|-------------|--------------|
 | `Node` row | Select node | Navigate to node presentation target |
 | `Frame` row | Expand/collapse contents | No-op |
-| `Tile Group` row | Expand/collapse contents | No-op |
+| `Tile` row | Expand/collapse contents | No-op |
 | Other structural row (`Split`, `Group`) | Expand/collapse contents | No-op |
 
 The Sidebar Navigator and Toolbar Navigator must behave identically.
@@ -42,7 +42,7 @@ The Sidebar Navigator and Toolbar Navigator must behave identically.
 The Navigator projects:
 
 - graph-backed nodes that have container-backed tile representations
-- structural arrangement containers (`Frame`, `Tile Group`, `Split`, `Group`)
+- structural arrangement containers (`Frame`, `Tile`, `Split`, `Group`)
 - node residency/presentation state needed to decide whether a node is live in
   workbench memory or cold on the graph
 
@@ -131,7 +131,7 @@ shown when graph is focused.
 
 ## 4. Structural Row Contract
 
-### 4.1 Single Click on a Frame / Tile Group / Split / Group Row
+### 4.1 Single Click on a Frame / Tile / Split / Group Row
 
 **Sentence form**:
 
@@ -155,7 +155,7 @@ explicitly rather than inferred.
 
 ### 4.3 Header Chips
 
-Frame chips and tile-group chips in the workbench header/sidebar are structural
+Frame chips and tile chips in the workbench header/sidebar are structural
 switch affordances, not node rows. They do not participate in node selection.
 
 ---

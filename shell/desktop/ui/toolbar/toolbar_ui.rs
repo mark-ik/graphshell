@@ -315,8 +315,9 @@ fn render_fullscreen_origin_strip(
 fn graph_view_chip_label(graph_app: &GraphBrowserApp) -> String {
     graph_app
         .workspace
+        .graph_runtime
         .focused_view
-        .and_then(|view_id| graph_app.workspace.views.get(&view_id))
+        .and_then(|view_id| graph_app.workspace.graph_runtime.views.get(&view_id))
         .map(|view| view.name.trim().to_string())
         .filter(|name| !name.is_empty())
         .map(|name| format!("View: {name}"))

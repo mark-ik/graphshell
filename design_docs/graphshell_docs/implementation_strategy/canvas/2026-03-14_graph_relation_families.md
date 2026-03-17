@@ -27,7 +27,7 @@ The current `EdgeKind` set — `Hyperlink`, `TraversalDerived`, `UserGrouped`,
 `AgentDerived` — captures semantic and traversal relations well but is silent on
 three increasingly important relation categories:
 
-1. **Arrangement / layout relations** — frames and tile groups have historically
+1. **Arrangement / layout relations** — frames and tiles have historically
    lived outside the graph entirely (in tile-tree snapshots and in-memory
    workbench state). Without graph-backed carriers they cannot be projected by
    the navigator or reasoned about by the physics engine using the same
@@ -69,6 +69,18 @@ If a subsystem needs a new hierarchy, adjacency list, or grouping surface, it
 should first ask whether that behavior can be expressed as a relation family,
 its projection rule, or its diagnostics exposure before introducing a second
 parallel structure.
+
+### 1.2 View-local edge policy consequence
+
+Relation-family truth and edge presentation are intentionally distinct.
+
+- Underlying edge/relation truth is graph-owned.
+- Rendering, suppression, and emphasis are `GraphViewId`-local `EdgePolicy`
+  concerns.
+- Dismissing an edge removes only that edge instance's presentation/effect in
+  the current graph view unless a broader family policy is explicitly changed.
+- Copying a graph view clones its `EdgePolicy`, including per-family toggles and
+  per-edge dismissal state, so layout and visibility choices survive the copy.
 
 ---
 
@@ -174,11 +186,11 @@ containment edge (user-folder > clip-source > url-path > domain > none).
 ### 2.4 Arrangement Family
 
 **What it captures**: "A is displayed alongside or grouped with B for work" —
-presentation and layout membership. Frames and tile groups are the primary
+presentation and layout membership. Frames and tiles are the primary
 carriers. This is the graph-rooted equivalent of what the workbench tile tree
 currently stores in memory.
 
-**Carrier note**: Frames and tile groups are the preferred first-class carriers
+**Carrier note**: Frames and tiles are the preferred first-class carriers
 for arrangement relations. They already provide collapsible, metadata-bearing,
 multi-node structure and should absorb most "relation pseudonode" use cases for
 workbench semantics before a generic hyperedge object is introduced.
@@ -188,14 +200,14 @@ workbench semantics before a generic hyperedge object is introduced.
 | Sub-kind tag | Meaning | Created by |
 | --- | --- | --- |
 | `frame-member` | Nodes belong to a named frame (persistent layout) | User creates a named frame; saving it persists these edges |
-| `tile-group` | Nodes share a tab group in the current session | Automatic when user opens multiple nodes in a tile group |
+| `tile-member` | Nodes share a tile in the current session (solo or multi-node) | Automatic when user opens one or more nodes in a tile |
 | `split-pair` | Two nodes appear in adjacent splits | Automatic when user splits a pane |
 
 **Persistence tier**: Split into two tiers:
 - **Durable**: `frame-member` edges with a named frame persist across sessions
   when the user explicitly saves the frame. They are the mechanism by which
   "pinning a frame" works — a frame is a named set of arrangement edges.
-- **Session-only**: `tile-group` and `split-pair` edges are created automatically
+- **Session-only**: `tile-member` and `split-pair` edges are created automatically
   during the session and evaporate on close unless promoted to durable
   (i.e., unless the user saves the frame they belong to).
 
@@ -218,7 +230,7 @@ soft cluster without overriding the global force-directed layout.
 
 **Projection precedence in navigator**: Default navigator tree structure owner
 when the workbench is active. In workbench mode, the sidebar tree is organized
-by arrangement edges (frames, tile groups) first, then falls back to semantic
+by arrangement edges (frames, tiles) first, then falls back to semantic
 grouping. Nodes without any arrangement edge appear in an "Uncategorized" section.
 
 ### 2.5 Imported Family
@@ -280,7 +292,7 @@ Four tiers govern durability:
 | Tier | Meaning | Examples |
 | --- | --- | --- |
 | **Durable** | Persisted to graph storage; survives session close and reload | `UserGrouped`, `Hyperlink`, named `ArrangementRelation` (saved frame), user-folder `ContainmentRelation` |
-| **Session-only** | Lives in memory for the current session; evaporates on close | `tile-group` and `split-pair` `ArrangementRelation` edges |
+| **Session-only** | Lives in memory for the current session; evaporates on close | `tile-member` and `split-pair` `ArrangementRelation` edges |
 | **Rolling-window** | Persisted but evicted when a max-age or max-count threshold is reached | `TraversalDerived` event records; `AgentDerived` within decay window |
 | **Derived-readonly** | Recomputed from node data or external import on load; never persisted as edges | `url-path`, `domain`, `filesystem` `ContainmentRelation` edges |
 
@@ -312,11 +324,11 @@ family-scoped sections with explicit priority ordering.
 ### 5.1 Section Priority (default navigator mode)
 
 ```
-[Workbench]             ← Arrangement family: frames, tile groups, active panes
+[Workbench]             ← Arrangement family: frames, tiles, active panes
   Frame A
     └─ node 1
     └─ node 2
-  Tile Group B
+  Tile B
     └─ node 3
 [Folders]               ← Containment / user-folder sub-kind
   My Notebook
@@ -362,7 +374,7 @@ The navigator can be switched to a single-family projection mode:
 - **Workbench mode** (default when workbench is active): arrangement-first, as
   described in §5.1
 - **Containment mode**: containment-first; tree structure driven by containment
-  edges; frames/tile groups become annotation badges
+  edges; frames/tiles become annotation badges
 - **Semantic mode**: semantic-first; groups nodes by their UserGrouped clusters;
   useful for knowledge exploration without the workbench active
 - **All nodes mode**: flat roster of all nodes, sorted by recency; no family
@@ -489,7 +501,7 @@ can be retired: filesystem containment edges replace it.
 
 ### Slice C — Arrangement family edges as durable graph relations
 
-Add `EdgeKind::ArrangementRelation` with `frame-member`, `tile-group`, and
+Add `EdgeKind::ArrangementRelation` with `frame-member`, `tile-member`, and
 `split-pair` sub-kinds. Frames become named sets of durable `frame-member` edges
 rather than workspace layout snapshots. This is a significant model change and
 is the right final step once the navigator sections are stable and the containment
@@ -517,7 +529,7 @@ family is validated.
 
 ## 10. Non-Goals
 
-- Generic pseudonodes for hyperedge membership — frames and tile groups use
+- Generic pseudonodes for hyperedge membership — frames and tiles use
   `ArrangementRelation` edges, not synthetic "frame nodes"
 - Custom per-edge physics properties — physics is always view-scope policy,
   never per-edge

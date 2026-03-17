@@ -107,7 +107,7 @@ fn render_node_pane_impl(
     if effective_viewer_id.as_str() == "viewer:settings" {
         match GraphBrowserApp::resolve_settings_route(&node_url) {
             Some(crate::app::SettingsRouteTarget::Settings(page)) => {
-                behavior.graph_app.workspace.settings_tool_page = page;
+                behavior.graph_app.workspace.chrome_ui.settings_tool_page = page;
                 let intents = render::render_settings_node_viewer_in_ui(ui, behavior.graph_app);
                 behavior.extend_post_render_intents(intents);
             }
@@ -402,7 +402,7 @@ mod tests {
             VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
-        app.workspace.settings_tool_page = SettingsToolPage::General;
+        app.workspace.chrome_ui.settings_tool_page = SettingsToolPage::General;
 
         let mut state = NodePaneState::for_node(node_key);
         state.viewer_id_override = Some(ViewerId::new("viewer:settings"));
@@ -436,6 +436,6 @@ mod tests {
             });
         });
 
-        assert_eq!(app.workspace.settings_tool_page, SettingsToolPage::Physics);
+        assert_eq!(app.workspace.chrome_ui.settings_tool_page, SettingsToolPage::Physics);
     }
 }

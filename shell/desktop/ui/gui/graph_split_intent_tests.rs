@@ -262,8 +262,8 @@ fn settings_root_url_opens_transient_settings_overlay_by_default() {
 
     assert!(intents.is_empty());
     assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 0);
-    assert!(app.workspace.show_settings_overlay);
-    assert_eq!(app.workspace.settings_tool_page, SettingsToolPage::General);
+    assert!(app.workspace.chrome_ui.show_settings_overlay);
+    assert_eq!(app.workspace.chrome_ui.settings_tool_page, SettingsToolPage::General);
 }
 
 #[test]
@@ -414,7 +414,7 @@ fn graph_surface_focus_state_clears_node_hint_and_syncs_focused_view() {
 
     assert_eq!(runtime_state.focused_node_hint, None);
     assert!(runtime_state.graph_surface_focused);
-    assert_eq!(app.workspace.focused_view, Some(graph_view));
+    assert_eq!(app.workspace.graph_runtime.focused_view, Some(graph_view));
 }
 
 #[test]
@@ -424,12 +424,14 @@ fn reconcile_workspace_graph_views_prunes_stale_state_and_preserves_active_focus
     let live_view = GraphViewId::new();
 
     app.workspace
+        .graph_runtime
         .views
         .insert(stale_view, GraphViewState::new_with_id(stale_view, "Stale"));
     app.workspace
+        .graph_runtime
         .views
         .insert(live_view, GraphViewState::new_with_id(live_view, "Live"));
-    app.workspace.graph_view_frames.insert(
+    app.workspace.graph_runtime.graph_view_frames.insert(
         stale_view,
         GraphViewFrame {
             zoom: 1.0,
@@ -438,7 +440,7 @@ fn reconcile_workspace_graph_views_prunes_stale_state_and_preserves_active_focus
         },
     );
 
-    app.workspace.focused_view = Some(stale_view);
+    app.workspace.graph_runtime.focused_view = Some(stale_view);
     app.request_camera_command_for_view(Some(stale_view), CameraCommand::Fit);
     app.apply_reducer_intents(vec![GraphIntent::RequestZoomIn]);
     app.queue_pending_wheel_zoom_delta(stale_view, 1.0, Some((10.0, 20.0)));
@@ -452,10 +454,10 @@ fn reconcile_workspace_graph_views_prunes_stale_state_and_preserves_active_focus
 
     super::pane_queries::reconcile_workspace_graph_views_from_tiles(&mut app, &tree);
 
-    assert!(app.workspace.views.contains_key(&live_view));
-    assert!(!app.workspace.views.contains_key(&stale_view));
-    assert!(!app.workspace.graph_view_frames.contains_key(&stale_view));
-    assert_eq!(app.workspace.focused_view, Some(live_view));
+    assert!(app.workspace.graph_runtime.views.contains_key(&live_view));
+    assert!(!app.workspace.graph_runtime.views.contains_key(&stale_view));
+    assert!(!app.workspace.graph_runtime.graph_view_frames.contains_key(&stale_view));
+    assert_eq!(app.workspace.graph_runtime.focused_view, Some(live_view));
     assert!(app.pending_camera_command().is_none());
     assert!(app.take_pending_keyboard_zoom_request(stale_view).is_none());
     assert_eq!(app.pending_wheel_zoom_delta(stale_view), 0.0);

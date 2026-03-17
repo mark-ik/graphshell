@@ -2,7 +2,7 @@
 
 **Date**: 2026-03-15
 **Status**: Design — Pre-Implementation
-**Purpose**: Define how Frames and Tab Groups are visually represented on the
+**Purpose**: Define how Frames and Tiles are visually represented on the
 graph canvas, establishing the rule that a Frame renders as a spatial minimap
 bounding box where each member node is positioned to reflect its tile-center
 coordinates within the frame's viewport layout.
@@ -10,14 +10,14 @@ coordinates within the frame's viewport layout.
 **Related**:
 
 - `../canvas/2026-03-14_graph_relation_families.md` — §2.4 Arrangement family,
-  `frame-member` and `tile-group` sub-kinds
+  `frame-member` and `tile-member` sub-kinds
 - `../workbench/workbench_frame_tile_interaction_spec.md` — §2.2 canonical
   hierarchy; Frame and Tile structure
 - `../workbench/navigator_graph_isomorphism_spec.md` — interaction symmetry
   between canvas and Navigator
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — §5.2
-  frame chip and tile group chip; §7 WorkbenchLayerState
-- `../../TERMINOLOGY.md` — `Frame`, `Tab Group`, `Tile`, `ArrangementRelation`
+  frame chip and tile chip; §7 WorkbenchLayerState
+- `../../TERMINOLOGY.md` — `Frame`, `Tile`, `ArrangementRelation`
 
 ---
 
@@ -41,6 +41,11 @@ nodes, not shared presentation-instances of one node. A frame therefore
 contains node-bearing tiles/nodes. Bare panes with no container-backed
 node/tile representation are out of scope for this visualization and do not
 appear in the Navigator.
+
+**Arrangement-object rule**: Frames and tile-backed graphlets are arrangement
+objects on the canvas. They may expand into minimap/cluster form or contract
+into node-sized arrangement objects, and that expand/contract state remains
+available even when the current `EdgePolicy` hides arrangement edges.
 
 ---
 
@@ -151,30 +156,30 @@ bounding boxes.
 
 ---
 
-## 4. Tab Group Representation
+## 4. Tile Representation
 
-A Tab Group (a `Container::Tabs` tile tree container) is a lighter-weight
-arrangement structure than a Frame. It does not have a named identity or
-durable graph-backed edges by default — it is session-only until promoted to
-a saved frame.
+A Tile (especially a multi-node Tile) is a lighter-weight arrangement structure
+than a Frame. It does not have a named identity or durable graph-backed edges by
+default — it is session-only until promoted to a saved frame.
 
 ### 4.1 Canvas Representation
 
-A Tab Group is **not** rendered as a bounding box. Instead, its member nodes
+A Tile is **not** rendered as a full frame bounding box. Instead, its member nodes
 are drawn with a **shared color accent** on the graph canvas — a colored ring
 or halo around each member node using a group-specific color. This signals
 "these nodes are grouped together" without implying the spatial arrangement
 semantics that a Frame has.
 
-**Rationale**: A Tab Group is ordering (which nodes are tabbed together) but
-not layout (where each tile is positioned spatially). The bounding-box
-minimap would be misleading — all tab-group members share the same viewport
+**Rationale**: A Tile conveys shared container context (which nodes are tabbed
+together in one tile) but not the richer saved layout semantics of a Frame. The
+bounding-box
+minimap would be misleading — all multi-node-tile members share the same viewport
 region by definition (one tile shows at a time). A color ring correctly
 communicates "these are grouped" without false spatial information.
 
 ### 4.2 Color Assignment
 
-Group colors are assigned per `TileId` of the Tab Group container, drawn from
+Group colors are assigned per `TileId` of the Tile container, drawn from
 a small stable palette. Colors are not user-configurable in this spec (that is
 future work).
 
@@ -246,6 +251,6 @@ without requiring the user to open a separate view.
 | Single click on frame box reveals frame contents without switching workbench | Test: click frame box → frame contents revealed in Navigator; active workbench frame unchanged |
 | Double click on frame box switches active workbench frame | Test: double-click frame box → workbench active frame switches to this frame |
 | Session-only arrangements do not render bounding box | Test: unsaved tile arrangement → no bounding box on canvas |
-| Tab Group renders as color ring accent, not bounding box | Test: open tab group → member nodes have shared color halo; no bounding box |
+| Tile renders as color ring accent, not bounding box | Test: open multi-node tile → member nodes have shared color halo; no bounding box |
 | Frame box moves as single physics body | Test: drag frame box → member node markers move with it; relative positions preserved |
 | Frame box hidden in GraphOnly state by default | Test: `WorkbenchLayerState::GraphOnly` → frame boxes not rendered (or reduced opacity) |

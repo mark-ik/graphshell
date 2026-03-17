@@ -9,6 +9,11 @@
 - [2026-02-28_ux_contract_register.md](2026-02-28_ux_contract_register.md) - Cross-spec UX ownership map and contract register.
 - [2026-03-03_pre_wgpu_feature_validation_gate_checklist.md](2026-03-03_pre_wgpu_feature_validation_gate_checklist.md) - Feature/validation-gate-only closure checklist for pre-wgpu readiness.
 - [2026-03-03_spec_conflict_resolution_register.md](2026-03-03_spec_conflict_resolution_register.md) - Priority-ordered spec conflict and terminology resolution register for pre-wgpu closure.
+- [system/2026-03-17_matrix_layer_positioning.md](system/2026-03-17_matrix_layer_positioning.md) - Places Matrix as a durable shared-space layer above iroh/libp2p, with Nostr interop via explicit bindings/bridges rather than identity collapse.
+- [system/2026-03-17_multi_identity_binding_rules.md](system/2026-03-17_multi_identity_binding_rules.md) - Defines the three-identity model (`NodeId`, `npub`, Matrix ID) and the explicit binding/verification rules between them.
+- [system/2026-03-17_matrix_core_adoption_plan.md](system/2026-03-17_matrix_core_adoption_plan.md) - Phase-by-phase execution plan for `MatrixCore`: session lifecycle, room projection, allowlisted graph events, and optional Nostr bridge affordances.
+- [system/2026-03-17_matrix_event_schema.md](system/2026-03-17_matrix_event_schema.md) - Concrete `graphshell.room.*` event schema for Matrix-backed rooms: payload families, validation rules, and reducer/workbench routing boundaries.
+- [system/register/2026-03-17_matrix_core_type_sketch.md](system/register/2026-03-17_matrix_core_type_sketch.md) - Rust-facing type sketch for `MatrixCoreRegistry`, supervised worker commands, normalized Matrix events, and bounded proposal routing.
 
 ## Contents
 
@@ -130,6 +135,140 @@ Done-gate implication:
   explicitly state why an existing shared carrier is insufficient.
 - If an existing carrier is reused, the lane's done gate should name the shared
   carrier and the dependent systems it now supports.
+
+### Interaction Decisions Receipt (2026-03-16)
+
+The following interaction-model decisions were settled and should be treated as
+binding unless explicitly superseded by a dated follow-up receipt:
+
+1. **Navigator click grammar is row-type specific**:
+   - single-click on a `Node` row selects the node
+   - single-click on a `Frame` / `Tile` / structural row expands or collapses it
+   - double-click on a `Node` row navigates by residency state
+2. **Residency-aware node navigation**:
+   - if a node is live / in memory, Navigator double-click resolves to the
+     workbench presentation
+   - if a node is cold, Navigator double-click resolves to the graph presentation
+3. **Selection reveal rule**:
+   - selecting a Navigator node reveals it on the graph only when the graph is
+     visible and the node is offscreen
+   - if the graph is visible and the node is already onscreen, selection only
+     highlights it in place
+   - switching tabs in a visible tile updates graph selection truth to the newly
+     visible node; the previously hidden node loses live selection
+4. **Selection lifecycle**:
+   - hidden or non-present surfaces may retain active-item memory and
+     return-target state, but not live focus
+   - objects that leave view should stop being selected
+5. **Selection targeting**:
+   - mixed selections of nodes, tiles, frames, edges, and arrangement objects
+     are allowed
+   - plain click replaces the current selection set
+   - `Ctrl+Click` toggles membership in the current selection set
+   - lasso may select any visible interactable object
+   - purely informational hover-only UI with no interaction contract is not selectable
+6. **Command applicability rule**:
+   - the selection set is always the command target
+   - a command is available only if it validly applies to every selected object
+   - silent fallback to a single implicit primary target is forbidden
+7. **Tile terminology**:
+   - `Tile` is the broad container term
+   - solo and grouped placements are both tiles
+   - tabs belong to tiles and enumerate node entries within a tile, not panes as
+     a separate primary ontology
+8. **Cross-context reuse model**:
+   - reuse across frames / graphlets is explicit `Move`, `Associate`, or `Copy`
+   - `MoveNode` is spatial/contextual repositioning and may carry semantic/layout consequences
+   - `AssociateNode` is relation/edge creation between objects
+   - `Copy` creates a new node UUID
+   - copied nodes inherit content/presentation metadata such as title, URL, and
+     viewer settings; tags/badges are optional on user confirmation
+   - copied nodes do not inherit edges, geometry, pin state, or other graph structure
+   - edits to one copy never propagate to another after copy time
+9. **Copy provenance**:
+   - copying creates provenance truth via a copy edge/event
+   - deleting that copy edge erases provenance truth
+   - whether copy edges render by default is an `EdgePolicy` question, not an ontology question
+10. **Edge presentation model**:
+    - the graph is a presentation layer for edges, analogous to the workbench as
+      a presentation layer for tiles
+    - single-click on an edge selects it
+    - double-click on an edge opens the relevant family/category in History Manager
+    - dismissing an edge removes only that edge instance's presentation/effect in
+      the current graph view via `EdgePolicy`
+    - edge dismissal is view-local and does not erase underlying truth
+    - edge/family visibility is explicitly configurable through `EdgePolicy`;
+      whether a relation such as `copied_from` is visible by default is policy,
+      not ontology
+11. **Graph-view copy semantics**:
+    - copying a graph view clones its `EdgePolicy`, per-edge dismissal state,
+      layout-affecting presentation state, and preservable selection state
+    - the copied graph view becomes the focused view immediately
+12. **Node dismiss lifecycle**:
+    - dismissing a selected node removes it from its current tile/frame context
+      and demotes it to `Recent` / `Cold`
+    - dismissing a cold node deletes it
+    - after dismissing a node from a container, focus/interaction should fall to
+      the next most recently interacted-with node in that same container
+    - dismiss provenance/history should be preserved as node history for
+      workbench-level undo; a dismissed node may therefore support "Undo Dismiss"
+      from node history or contextual affordances
+    - deleting the node is the operation that removes that provenance path entirely
+13. **Recent semantics**:
+    - `Recent` is a recency-sorted catchall for cold, exiled, and contextless nodes
+    - newly created nodes are not `Recent` by default; they become recent only
+      after leaving active tile context / going cold
+    - nodes promoted into active tile context leave `Recent`
+14. **Switch Surface semantics**:
+    - `Switch Surface` is confirmation-gated
+    - if the alternate surface can be restored, restore with confirmation
+    - if it cannot be restored but can be created, create with confirmation
+    - if the action is not confirmed, refuse the switch
+15. **Arrangement object semantics on graph**:
+    - frames and graphlets/tile-context groupings should be treated as
+      expandable/contractible arrangement objects on the graph
+    - they may minimize to a node-sized arrangement object and expand back to a
+      richer mini-layout view
+    - this arrangement-object behavior remains available even when relevant group
+      edges are hidden by the current `EdgePolicy`
+16. **Command target focus rule**:
+    - selected objects of any supported type become the command target set for
+      commands relevant to those selected objects
+    - single-clicking a collapsed frame/tile in Navigator both expands it and
+      assigns it command focus as the currently selected object
+
+### Interaction Clause Writing Guardrail (2026-03-16)
+
+When specifying a new interaction or clarifying an ambiguous one, prefer to
+write the contract first in this sentence form:
+
+> "When [user does X on surface Y], [intent Z is emitted], which causes [state
+> change A] owned by [subsystem B], resulting in [visual C on surfaces D and
+> E]."
+
+This sentence is the canonical spec clause. If the clause cannot be written
+clearly, the interaction is not yet specified enough for reliable
+implementation.
+
+Before describing how the interaction looks, answer these three questions:
+
+1. **What data does this surface project?**  
+   The surface reads from some authority; name it explicitly.
+2. **What actions does it trigger?**  
+   The surface writes through some intent or command path; name it explicitly.
+3. **Who is the authority for the state it represents?**  
+   If two surfaces show the same thing, specify which subsystem wins if they
+   disagree.
+
+Practical implication:
+
+- Prefer clauses about projection, action, and authority before visual
+  description.
+- Rendering detail is secondary to naming the emitted intent and the subsystem
+  that owns the resulting state transition.
+- If an interaction table row cannot be translated into the sentence form
+  above, the owning spec should be treated as under-specified and not yet
+  implementation-ready.
 
 ---
 
@@ -537,6 +676,14 @@ _Source file before consolidation: `2026-02-24_immediate_priorities.md`_
 
 ## 0. Latest Checkpoint Delta (Code + Doc Audit)
 
+### Code checkpoint (2026-03-17)
+
+- **`GraphWorkspace` god-struct separation** (`lane:embedder-debt`): `GraphWorkspace` (~62 fields) split into four typed sub-states — `DomainState` (unchanged), `GraphViewRuntimeState`, `WorkbenchSessionState`, `ChromeUiState` — defined in new `app/workspace_state.rs`. All field paths updated across ~35 files. Field renamed: `file_tree_projection_state` → `navigator_projection_state` (type rename deferred).
+- **Arrangement→graph bridge** (`lane:embedder-debt`): New `app/arrangement_graph_bridge.rs` introduces `ArrangementSnapshot` / `ArrangementGraphDelta` as the single authorised data-in/data-out boundary from workbench arrangement state to graph mutations. All graph-writing helpers are now private to this module; callers in `workbench_commands.rs` build a snapshot and call `apply_arrangement_snapshot`.
+- **Intent handler phasing** (`lane:embedder-debt`): `apply_reducer_intent_internal` (~300-arm match) replaced by four phase handlers in new `app/intent_phases.rs` — `handle_workspace_view_intent`, `handle_workbench_bridge_intent`, `handle_runtime_lifecycle_intent`, `handle_domain_graph_intent`. Dispatch order is explicit; each phase has a clear responsibility boundary.
+- **`WorkbenchSessionState::on_node_deleted`** (`lane:embedder-debt`): Node-deletion cache cleanup consolidated into an explicit ownership method; callers in `arrangement_graph_bridge.rs` and `graph_mutations.rs` notify `WorkbenchSessionState` directly instead of reaching in to clear fields.
+- Compile baseline remains green (`cargo check`); only pre-existing `mozjs_sys` Windows toolchain error unrelated to these changes.
+
 ### Code checkpoint (2026-02-24)
 
 - Registry Phase 6.2 boundary hardening advanced: workspace-only reducer path extracted and covered by boundary tests.
@@ -694,7 +841,7 @@ Issue-ready intake stubs from the latest user report:
 
 - `lane:embedder-debt` (servoshell inheritance retirement)
   - Hub: `#90` (Servoshell inheritance retirement tracker)
-  - Scope: `shell/desktop/ui/gui.rs`/`gui_frame.rs` decomposition ✅ largely complete; next targets are `graph_app.rs` (14.7k lines) and `render/mod.rs` (5.6k lines); `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
+  - Scope: `shell/desktop/ui/gui.rs`/`gui_frame.rs` decomposition ✅ largely complete; `graph_app.rs` god-struct separation ✅ complete (2026-03-17 — see code checkpoint above); next targets are `render/mod.rs` (5.6k lines), `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
   - Important child slice: composited webview callback pass contract + GL state isolation (`tile_compositor.rs`) to fix Servo-path overlay affordance failures that are not Wry/native-overlay limitations
   - Primary guide: `design_docs/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md`
   - Coordinator policy: treat `shell/desktop/ui/gui.rs` / `shell/desktop/ui/gui_frame.rs` / `shell/desktop/ui/gui_orchestration.rs` as orchestration façades with explicit authority boundaries; enforce via `CONTRIBUTING.md` coordinator checklist when these files are touched

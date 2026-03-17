@@ -26,9 +26,9 @@ pub(super) fn handle_open_settings_url_intent(
         focused_after,
         Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Settings))
             | Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::HistoryManager))
-    ) || graph_app.workspace.show_settings_overlay;
+    ) || graph_app.workspace.chrome_ui.show_settings_overlay;
     if transitioned_to_settings_surface
-        && (focused_before != focused_after || graph_app.workspace.show_settings_overlay)
+        && (focused_before != focused_after || graph_app.workspace.chrome_ui.show_settings_overlay)
     {
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
@@ -279,7 +279,7 @@ fn open_settings_route_target(
             open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::HistoryManager);
         }
         crate::app::SettingsRouteTarget::Settings(page) => {
-            graph_app.workspace.settings_tool_page = page;
+            graph_app.workspace.chrome_ui.settings_tool_page = page;
             if settings_tool_pane_exists(tiles_tree) {
                 open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::Settings);
             } else {

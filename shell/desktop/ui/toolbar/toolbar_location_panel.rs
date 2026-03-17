@@ -269,6 +269,7 @@ pub(super) fn render_location_search_panel(
             let cache_key = provider_cache_key(provider, &provider_query);
             if let Some(cached_suggestions) = graph_app
                 .workspace
+                .graph_runtime
                 .runtime_caches
                 .get_suggestions(&cache_key)
             {
@@ -280,7 +281,7 @@ pub(super) fn render_location_search_panel(
                 session.provider_rx = Some(spawn_provider_suggestion_request(
                     provider,
                     &provider_query,
-                    graph_app.workspace.runtime_caches.clone(),
+                    graph_app.workspace.graph_runtime.runtime_caches.clone(),
                 ));
             }
         }
@@ -320,7 +321,7 @@ pub(super) fn render_location_search_panel(
                     .collect();
                 if !suggestions.is_empty() {
                     let provider_query = provider_query_for_session(session);
-                    graph_app.workspace.runtime_caches.insert_suggestions(
+                    graph_app.workspace.graph_runtime.runtime_caches.insert_suggestions(
                         provider_cache_key(provider, &provider_query),
                         suggestions,
                     );
@@ -328,12 +329,12 @@ pub(super) fn render_location_search_panel(
             }
             session.provider_status = outcome.status;
             if !session.query.starts_with('@') {
-                let fallback_scope = if graph_app.workspace.omnibar_preferred_scope
+                let fallback_scope = if graph_app.workspace.chrome_ui.omnibar_preferred_scope
                     == OmnibarPreferredScope::ProviderDefault
                 {
                     OmnibarPreferredScope::Auto
                 } else {
-                    graph_app.workspace.omnibar_preferred_scope
+                    graph_app.workspace.chrome_ui.omnibar_preferred_scope
                 };
                 let primary_matches = non_at_primary_matches_for_scope(
                     graph_app,
@@ -342,7 +343,7 @@ pub(super) fn render_location_search_panel(
                     has_node_panes,
                     fallback_scope,
                 );
-                match graph_app.workspace.omnibar_non_at_order {
+                match graph_app.workspace.chrome_ui.omnibar_non_at_order {
                     OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal => {
                         session.matches.extend(outcome.matches);
                     }

@@ -512,6 +512,7 @@ fn pane_arrangement_memberships(graph_app: &GraphBrowserApp) -> HashMap<NodeKey,
 fn graph_view_title(graph_app: &GraphBrowserApp, view_id: GraphViewId) -> String {
     graph_app
         .workspace
+        .graph_runtime
         .views
         .get(&view_id)
         .map(|view| view.name.trim().to_string())

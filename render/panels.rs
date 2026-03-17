@@ -28,10 +28,10 @@ use crate::util::{GraphshellSettingsPath, VersoAddress};
 use super::reducer_bridge::apply_reducer_graph_intents_hardened;
 
 fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::GraphViewId> {
-    if let Some(view_id) = app.workspace.focused_view {
+    if let Some(view_id) = app.workspace.graph_runtime.focused_view {
         Some(view_id)
-    } else if app.workspace.views.len() == 1 {
-        app.workspace.views.keys().next().copied()
+    } else if app.workspace.graph_runtime.views.len() == 1 {
+        app.workspace.graph_runtime.views.keys().next().copied()
     } else {
         None
     }
@@ -53,7 +53,7 @@ fn apply_node_dynamics_profile_selection(app: &mut GraphBrowserApp, physics_id: 
 
 fn selected_dynamic_layout_algorithm_id(app: &GraphBrowserApp) -> String {
     if let Some(view_id) = camera_settings_target_view_id(app)
-        && let Some(view) = app.workspace.views.get(&view_id)
+        && let Some(view) = app.workspace.graph_runtime.views.get(&view_id)
     {
         return view.lens.layout_algorithm_id.clone();
     }
@@ -68,7 +68,7 @@ fn apply_dynamic_layout_algorithm_selection(app: &mut GraphBrowserApp, algorithm
     let Some(view_id) = camera_settings_target_view_id(app) else {
         return;
     };
-    let Some(view) = app.workspace.views.get(&view_id) else {
+    let Some(view) = app.workspace.graph_runtime.views.get(&view_id) else {
         return;
     };
 
@@ -80,7 +80,7 @@ fn apply_dynamic_layout_algorithm_selection(app: &mut GraphBrowserApp, algorithm
 
 fn semantic_depth_view_toggle_label(app: &GraphBrowserApp) -> Option<&'static str> {
     let view_id = camera_settings_target_view_id(app)?;
-    let view = app.workspace.views.get(&view_id)?;
+    let view = app.workspace.graph_runtime.views.get(&view_id)?;
     Some(
         if matches!(
             view.dimension,
@@ -247,7 +247,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
         ui.small("Select or focus a graph view to toggle the semantic depth view.");
     }
 
-    let mut config = app.workspace.physics.clone();
+    let mut config = app.workspace.graph_runtime.physics.clone();
     let mut config_changed = false;
 
     ui.label("Repulsion (c_repulse):");
@@ -324,19 +324,19 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
             config_changed = true;
         }
 
-        ui.small(if app.workspace.physics.base.is_running {
+        ui.small(if app.workspace.graph_runtime.physics.base.is_running {
             "Status: Running"
         } else {
             "Status: Paused"
         });
     });
 
-    if let Some(last_avg) = app.workspace.physics.base.last_avg_displacement {
+    if let Some(last_avg) = app.workspace.graph_runtime.physics.base.last_avg_displacement {
         ui.small(format!("Last avg displacement: {:.4}", last_avg));
     }
     ui.small(format!(
         "Step count: {}",
-        app.workspace.physics.base.step_count
+        app.workspace.graph_runtime.physics.base.step_count
     ));
 
     ui.separator();
@@ -436,12 +436,12 @@ fn render_camera_controls_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp)
 }
 
 pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
-    let was_open = app.workspace.show_help_panel;
+    let was_open = app.workspace.chrome_ui.show_help_panel;
     if !was_open {
         return;
     }
 
-    let mut open = app.workspace.show_help_panel;
+    let mut open = app.workspace.chrome_ui.show_help_panel;
     Window::new("Keyboard Shortcuts")
         .open(&mut open)
         .default_width(350.0)
@@ -523,12 +523,12 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
     if was_open && !open {
         app.enqueue_workbench_intent(WorkbenchIntent::ToggleHelpPanel);
     } else {
-        app.workspace.show_help_panel = open;
+        app.workspace.chrome_ui.show_help_panel = open;
     }
 }
 
 pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
-    if !app.workspace.show_clip_inspector {
+    if !app.workspace.chrome_ui.show_clip_inspector {
         return;
     }
 
@@ -538,10 +538,10 @@ pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserAp
         StepStack(isize),
     }
 
-    let mut open = app.workspace.show_clip_inspector;
+    let mut open = app.workspace.chrome_ui.show_clip_inspector;
     let mut close_requested = false;
     let mut action = None;
-    if let Some(state) = app.workspace.clip_inspector_state.as_ref()
+    if let Some(state) = app.workspace.graph_runtime.clip_inspector_state.as_ref()
         && !state.pointer_stack.is_empty()
     {
         egui::Area::new(egui::Id::new("clip_inspector_overlay"))
@@ -581,7 +581,7 @@ pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserAp
         .default_height(520.0)
         .resizable(true)
         .show(ctx, |ui| {
-            let Some(state) = app.workspace.clip_inspector_state.as_mut() else {
+            let Some(state) = app.workspace.graph_runtime.clip_inspector_state.as_mut() else {
                 close_requested = true;
                 return;
             };
@@ -725,7 +725,7 @@ pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserAp
     if !open || close_requested {
         app.close_clip_inspector();
     } else {
-        app.workspace.show_clip_inspector = open;
+        app.workspace.chrome_ui.show_clip_inspector = open;
     }
 
     match action {
@@ -778,12 +778,12 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
 
     ui.horizontal(|ui| {
         ui.selectable_value(
-            &mut app.workspace.history_manager_tab,
+            &mut app.workspace.chrome_ui.history_manager_tab,
             HistoryManagerTab::Timeline,
             "Timeline",
         );
         ui.selectable_value(
-            &mut app.workspace.history_manager_tab,
+            &mut app.workspace.chrome_ui.history_manager_tab,
             HistoryManagerTab::Dissolved,
             "Dissolved",
         );
@@ -863,7 +863,7 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
     }
     ui.add_space(6.0);
 
-    match app.workspace.history_manager_tab {
+    match app.workspace.chrome_ui.history_manager_tab {
         HistoryManagerTab::Timeline => {
             ui.horizontal(|ui| {
                 ui.label(format!("Archived traversal entries: {timeline_total}"));
@@ -1233,11 +1233,11 @@ mod tests {
     fn semantic_depth_view_toggle_label_reflects_focused_view_state() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = crate::app::GraphViewId::new();
-        app.workspace.views.insert(
+        app.workspace.graph_runtime.views.insert(
             view_id,
             crate::app::GraphViewState::new_with_id(view_id, "Focused"),
         );
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         assert_eq!(
             semantic_depth_view_toggle_label(&app),
@@ -1258,8 +1258,8 @@ mod tests {
             mode: crate::app::ThreeDMode::Isometric,
             z_source: crate::app::ZSource::BfsDepth { scale: 7.0 },
         };
-        app.workspace.views.insert(view_id, view);
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.views.insert(view_id, view);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         apply_semantic_depth_view_toggle(&mut app);
         assert_eq!(semantic_depth_view_toggle_label(&app), Some("Restore View"));
@@ -1270,7 +1270,7 @@ mod tests {
             Some("UDC Depth View")
         );
         assert!(matches!(
-            app.workspace.views.get(&view_id).unwrap().dimension,
+            app.workspace.graph_runtime.views.get(&view_id).unwrap().dimension,
             crate::app::ViewDimension::ThreeD {
                 mode: crate::app::ThreeDMode::Isometric,
                 z_source: crate::app::ZSource::BfsDepth { scale: 7.0 }
@@ -1892,12 +1892,12 @@ fn render_settings_surface_in_ui_with_control_panel(
     ui.separator();
 
     ui.horizontal_top(|ui| {
-        ui.vertical(|ui| render_settings_nav(ui, &mut app.workspace.settings_tool_page));
+        ui.vertical(|ui| render_settings_nav(ui, &mut app.workspace.chrome_ui.settings_tool_page));
         ui.separator();
         ui.vertical(|ui| {
-            ui.heading(settings_page_label(app.workspace.settings_tool_page));
+            ui.heading(settings_page_label(app.workspace.chrome_ui.settings_tool_page));
             ui.label(
-                egui::RichText::new(settings_page_summary(app.workspace.settings_tool_page))
+                egui::RichText::new(settings_page_summary(app.workspace.chrome_ui.settings_tool_page))
                     .small()
                     .weak(),
             );
@@ -1905,7 +1905,7 @@ fn render_settings_surface_in_ui_with_control_panel(
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    match app.workspace.settings_tool_page {
+                    match app.workspace.chrome_ui.settings_tool_page {
                 SettingsToolPage::General => {
                     ui.label(
                         "Settings surfaces configure graph, view, and workbench behavior without becoming the semantic owner of those domains.",
@@ -1936,7 +1936,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                         });
                     }
                     if ui
-                        .button(if app.workspace.show_help_panel {
+                        .button(if app.workspace.chrome_ui.show_help_panel {
                             "Hide Help Panel"
                         } else {
                             "Show Help Panel"
@@ -2062,7 +2062,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                     ui.label("Notifications");
                     ui.label(format!(
                         "Toast anchor: {}",
-                        toast_anchor_label(app.workspace.toast_anchor_preference)
+                        toast_anchor_label(app.workspace.chrome_ui.toast_anchor_preference)
                     ));
                     for anchor in [
                         ToastAnchorPreference::BottomRight,
@@ -2072,7 +2072,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                     ] {
                         if ui
                             .selectable_label(
-                                app.workspace.toast_anchor_preference == anchor,
+                                app.workspace.chrome_ui.toast_anchor_preference == anchor,
                                 toast_anchor_label(anchor),
                             )
                             .clicked()
@@ -2206,7 +2206,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                     ui.label("Omnibar");
                     ui.label(format!(
                         "Preferred scope: {}",
-                        omnibar_preferred_scope_label(app.workspace.omnibar_preferred_scope)
+                        omnibar_preferred_scope_label(app.workspace.chrome_ui.omnibar_preferred_scope)
                     ));
                     for scope in [
                         OmnibarPreferredScope::Auto,
@@ -2218,7 +2218,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                     ] {
                         if ui
                             .selectable_label(
-                                app.workspace.omnibar_preferred_scope == scope,
+                                app.workspace.chrome_ui.omnibar_preferred_scope == scope,
                                 omnibar_preferred_scope_label(scope),
                             )
                             .clicked()
@@ -2228,7 +2228,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                     }
                     ui.label(format!(
                         "Non-@ order: {}",
-                        omnibar_non_at_order_label(app.workspace.omnibar_non_at_order)
+                        omnibar_non_at_order_label(app.workspace.chrome_ui.omnibar_non_at_order)
                     ));
                     for order in [
                         OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
@@ -2236,7 +2236,7 @@ fn render_settings_surface_in_ui_with_control_panel(
                     ] {
                         if ui
                             .selectable_label(
-                                app.workspace.omnibar_non_at_order == order,
+                                app.workspace.chrome_ui.omnibar_non_at_order == order,
                                 omnibar_non_at_order_label(order),
                             )
                             .clicked()
@@ -2352,11 +2352,11 @@ pub fn render_settings_overlay_panel(
     app: &mut GraphBrowserApp,
     control_panel: Option<&mut crate::shell::desktop::runtime::control_panel::ControlPanel>,
 ) {
-    if !app.workspace.show_settings_overlay {
+    if !app.workspace.chrome_ui.show_settings_overlay {
         return;
     }
 
-    let mut open = app.workspace.show_settings_overlay;
+    let mut open = app.workspace.chrome_ui.show_settings_overlay;
     Window::new("Settings")
         .open(&mut open)
         .default_width(520.0)
@@ -2371,10 +2371,10 @@ pub fn render_settings_overlay_panel(
             );
         });
 
-    if app.workspace.show_settings_overlay && !open {
+    if app.workspace.chrome_ui.show_settings_overlay && !open {
         app.close_settings_overlay();
     } else {
-        app.workspace.show_settings_overlay = open;
+        app.workspace.chrome_ui.show_settings_overlay = open;
     }
 }
 

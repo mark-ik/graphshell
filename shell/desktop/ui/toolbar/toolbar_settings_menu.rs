@@ -91,7 +91,7 @@ pub(super) fn render_settings_menu(
                 ui.close();
             }
             if ui
-                .button(if graph_app.workspace.show_help_panel {
+                .button(if graph_app.workspace.chrome_ui.show_help_panel {
                     "Hide Help Panel"
                 } else {
                     "Show Help Panel"

@@ -41,7 +41,7 @@ pub(crate) fn workspace_runtime_focus_state(
             .and_then(|authority| authority.semantic_region.clone()),
         pane_activation: focus_authority.and_then(|authority| authority.pane_activation),
         pane_region_hint: None,
-        focused_view: graph_app.workspace.focused_view,
+        focused_view: graph_app.workspace.graph_runtime.focused_view,
         focused_node_hint: None,
         graph_surface_focused: false,
         local_widget_focus,
@@ -49,13 +49,13 @@ pub(crate) fn workspace_runtime_focus_state(
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
-        show_command_palette: graph_app.workspace.show_command_palette,
-        show_context_palette: graph_app.workspace.show_context_palette,
-        command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
-        show_help_panel: graph_app.workspace.show_help_panel,
-        show_settings_overlay: graph_app.workspace.show_settings_overlay,
-        show_radial_menu: graph_app.workspace.show_radial_menu,
-        show_clip_inspector: graph_app.workspace.show_clip_inspector,
+        show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
+        show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
+        command_palette_contextual_mode: graph_app.workspace.chrome_ui.command_palette_contextual_mode,
+        show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
+        show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
+        show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
+        show_clip_inspector: graph_app.workspace.chrome_ui.show_clip_inspector,
         show_clear_data_confirm,
         command_surface_return_target: focus_authority
             .and_then(|authority| authority.command_surface_return_target.clone())
@@ -87,17 +87,17 @@ pub(crate) fn workbench_runtime_focus_state(
             ),
             Some(ToolSurfaceReturnTarget::Node(node_key)) => (
                 Some(PaneRegionHint::NodePane),
-                graph_app.workspace.focused_view,
+                graph_app.workspace.graph_runtime.focused_view,
                 Some(node_key),
                 false,
             ),
             Some(ToolSurfaceReturnTarget::Tool(_)) => (
                 Some(PaneRegionHint::ToolPane),
-                graph_app.workspace.focused_view,
+                graph_app.workspace.graph_runtime.focused_view,
                 None,
                 false,
             ),
-            None => (None, graph_app.workspace.focused_view, None, false),
+            None => (None, graph_app.workspace.graph_runtime.focused_view, None, false),
         };
 
     build_runtime_focus_state(RuntimeFocusInputs {
@@ -113,13 +113,13 @@ pub(crate) fn workbench_runtime_focus_state(
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
-        show_command_palette: graph_app.workspace.show_command_palette,
-        show_context_palette: graph_app.workspace.show_context_palette,
-        command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
-        show_help_panel: graph_app.workspace.show_help_panel,
-        show_settings_overlay: graph_app.workspace.show_settings_overlay,
-        show_radial_menu: graph_app.workspace.show_radial_menu,
-        show_clip_inspector: graph_app.workspace.show_clip_inspector,
+        show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
+        show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
+        command_palette_contextual_mode: graph_app.workspace.chrome_ui.command_palette_contextual_mode,
+        show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
+        show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
+        show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
+        show_clip_inspector: graph_app.workspace.chrome_ui.show_clip_inspector,
         show_clear_data_confirm,
         command_surface_return_target: focus_authority
             .and_then(|authority| authority.command_surface_return_target.clone())
@@ -146,9 +146,9 @@ pub(crate) fn desired_runtime_focus_state(
         pane_activation: focus_authority.pane_activation,
         graph_view_focus: match focus_authority.semantic_region.as_ref() {
             Some(SemanticRegionFocus::GraphSurface { view_id }) => {
-                view_id.or(graph_app.workspace.focused_view)
+                view_id.or(graph_app.workspace.graph_runtime.focused_view)
             }
-            _ => graph_app.workspace.focused_view,
+            _ => graph_app.workspace.graph_runtime.focused_view,
         },
         local_widget_focus,
         embedded_content_focus: embedded_content_focus_webview.map(|renderer_id| {
@@ -188,17 +188,17 @@ pub(crate) fn refresh_realized_runtime_focus_state(
             ),
             Some(ToolSurfaceReturnTarget::Node(node_key)) => (
                 Some(PaneRegionHint::NodePane),
-                graph_app.workspace.focused_view,
+                graph_app.workspace.graph_runtime.focused_view,
                 Some(node_key),
                 false,
             ),
             Some(ToolSurfaceReturnTarget::Tool(_)) => (
                 Some(PaneRegionHint::ToolPane),
-                graph_app.workspace.focused_view,
+                graph_app.workspace.graph_runtime.focused_view,
                 None,
                 false,
             ),
-            None => (None, graph_app.workspace.focused_view, None, false),
+            None => (None, graph_app.workspace.graph_runtime.focused_view, None, false),
         };
     focus_authority.realized_focus_state = Some(build_runtime_focus_state(RuntimeFocusInputs {
         semantic_region_override: None,
@@ -212,13 +212,13 @@ pub(crate) fn refresh_realized_runtime_focus_state(
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
-        show_command_palette: graph_app.workspace.show_command_palette,
-        show_context_palette: graph_app.workspace.show_context_palette,
-        command_palette_contextual_mode: graph_app.workspace.command_palette_contextual_mode,
-        show_help_panel: graph_app.workspace.show_help_panel,
-        show_settings_overlay: graph_app.workspace.show_settings_overlay,
-        show_radial_menu: graph_app.workspace.show_radial_menu,
-        show_clip_inspector: graph_app.workspace.show_clip_inspector,
+        show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
+        show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
+        command_palette_contextual_mode: graph_app.workspace.chrome_ui.command_palette_contextual_mode,
+        show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
+        show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
+        show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
+        show_clip_inspector: graph_app.workspace.chrome_ui.show_clip_inspector,
         show_clear_data_confirm,
         command_surface_return_target: focus_authority.command_surface_return_target.clone(),
         transient_surface_return_target: focus_authority.transient_surface_return_target.clone(),
@@ -790,7 +790,7 @@ pub(super) fn apply_graph_surface_focus_state(
 ) {
     apply_canvas_region_focus_state(
         runtime_state,
-        Some(&mut graph_app.workspace.focused_view),
+        Some(&mut graph_app.workspace.graph_runtime.focused_view),
         CanvasFocusTarget::GraphSurface(active_graph_view),
     );
 }
@@ -947,9 +947,9 @@ mod tests {
     fn workspace_runtime_focus_state_tracks_command_surface_capture() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
-        app.workspace.focused_view = Some(view_id);
-        app.workspace.show_context_palette = true;
-        app.workspace.command_palette_contextual_mode = true;
+        app.workspace.graph_runtime.focused_view = Some(view_id);
+        app.workspace.chrome_ui.show_context_palette = true;
+        app.workspace.chrome_ui.command_palette_contextual_mode = true;
         app.set_pending_command_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
             view_id,
         )));
@@ -998,7 +998,7 @@ mod tests {
     fn workbench_runtime_focus_state_tracks_active_node_region() {
         let mut app = GraphBrowserApp::new_for_testing();
         let graph_view = GraphViewId::new();
-        app.workspace.focused_view = Some(graph_view);
+        app.workspace.graph_runtime.focused_view = Some(graph_view);
         let node_key = NodeKey::new(29);
 
         let mut tiles = Tiles::default();
@@ -1352,7 +1352,7 @@ mod tests {
     fn runtime_semantic_region_sync_tracks_active_workbench_region() {
         let mut app = GraphBrowserApp::new_for_testing();
         let graph_view = GraphViewId::new();
-        app.workspace.focused_view = Some(graph_view);
+        app.workspace.graph_runtime.focused_view = Some(graph_view);
         let node_key = NodeKey::new(91);
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));

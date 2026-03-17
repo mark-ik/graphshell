@@ -24,7 +24,6 @@ use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::physics::{GraphPhysicsState, default_graph_physics_state};
 use crate::graph::{EdgeKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
-use crate::registries::atomic::knowledge::SemanticClassVector;
 use crate::registries::atomic::lens::{
     LayoutMode, PhysicsProfile, ThemeData, deserialize_optional_theme_data,
 };
@@ -242,6 +241,10 @@ mod workspace_routing;
 #[path = "app/workbench_commands.rs"]
 mod workbench_commands;
 
+#[path = "app/arrangement_graph_bridge.rs"]
+mod arrangement_graph_bridge;
+pub use arrangement_graph_bridge::{ArrangementGraphDelta, ArrangementSnapshot};
+
 #[path = "app/focus_selection.rs"]
 mod focus_selection;
 
@@ -265,6 +268,13 @@ mod startup_persistence;
 
 #[path = "app/storage_interop/mod.rs"]
 mod storage_interop;
+
+#[path = "app/workspace_state.rs"]
+mod workspace_state;
+pub use workspace_state::{ChromeUiState, GraphViewRuntimeState, WorkbenchSessionState};
+
+#[path = "app/intent_phases.rs"]
+mod intent_phases;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsToolPage {
@@ -983,267 +993,17 @@ impl AppServices {
 
 /// Pure, serializable workspace data.
 pub struct GraphWorkspace {
-    /// Durable domain state remains nested here during the first CLAT extraction.
+    /// Canonical durable graph and domain truth.
     pub domain: DomainState,
 
-    /// Force-directed layout state owned by app/runtime UI controls.
-    pub physics: GraphPhysicsState,
+    /// View-layer runtime state: physics, selection, views, search, history, rendering.
+    pub graph_runtime: GraphViewRuntimeState,
 
-    /// Physics running state before user drag/pan interaction began.
-    physics_running_before_interaction: Option<bool>,
+    /// Workbench session state: frame layouts, pending intents, arrangement sync caches.
+    pub workbench_session: WorkbenchSessionState,
 
-    /// Canonical selection state keyed by runtime selection scope.
-    ///
-    /// `SelectionScope::View` stores per-graph-view selection, while
-    /// `SelectionScope::Unfocused` carries the selection visible when no graph
-    /// view is focused.
-    selection_by_scope: HashMap<SelectionScope, SelectionState>,
-
-    /// Bidirectional mapping between renderer instances and graph nodes
-    webview_to_node: HashMap<RendererId, NodeKey>,
-    node_to_webview: HashMap<NodeKey, RendererId>,
-    /// Explicit embedded-content focus authority for host/content routing.
-    pub embedded_content_focus_webview: Option<RendererId>,
-    /// Runtime-only block/backoff metadata keyed by graph node.
-    runtime_block_state: HashMap<NodeKey, RuntimeBlockState>,
-    /// Non-authoritative runtime caches for data-plane acceleration.
-    pub(crate) runtime_caches: RuntimeCaches,
-
-    /// Nodes that had webviews before switching to graph view (for restoration).
-    /// Managed by the webview_controller module.
-    pub(crate) active_webview_nodes: Vec<NodeKey>,
-
-    /// Active mapped nodes in LRU order (oldest at index 0, newest at end).
-    active_lru: Vec<NodeKey>,
-
-    /// Maximum number of active mapped webviews to retain.
-    active_webview_limit: usize,
-
-    /// Warm-cached nodes in LRU order (oldest at index 0, newest at end).
-    warm_cache_lru: Vec<NodeKey>,
-
-    /// Maximum number of warm-cached webviews to retain.
-    warm_cache_limit: usize,
-
-    /// True while the user is actively interacting (drag/pan) with the graph
-    pub(crate) is_interacting: bool,
-
-    /// Short post-drag decay window to preserve "weight" when physics was paused.
-    drag_release_frames_remaining: u8,
-
-    /// Active tab in the History Manager panel.
-    pub history_manager_tab: HistoryManagerTab,
-    /// Active page in the Settings tool pane.
-    pub settings_tool_page: SettingsToolPage,
-    /// Whether the graph-scoped settings overlay is open.
-    pub show_settings_overlay: bool,
-
-    /// Whether the keyboard shortcut help panel is open
-    pub show_help_panel: bool,
-
-    /// Whether the command palette is open
-    pub show_command_palette: bool,
-    /// Whether the contextual command popup is open.
-    pub show_context_palette: bool,
-    /// Whether the command palette is in contextual list mode.
-    pub command_palette_contextual_mode: bool,
-    /// Pointer anchor for the contextual command popup.
-    pub context_palette_anchor: Option<[f32; 2]>,
-    /// Whether the radial command UI is open.
-    pub show_radial_menu: bool,
-    /// Whether the web clip inspector surface is open.
-    pub show_clip_inspector: bool,
-
-    /// Preferred toast anchor location.
-    pub toast_anchor_preference: ToastAnchorPreference,
-    /// Shortcut binding for command palette.
-    pub command_palette_shortcut: CommandPaletteShortcut,
-    /// Shortcut binding for help panel.
-    pub help_panel_shortcut: HelpPanelShortcut,
-    /// Shortcut binding for radial menu.
-    pub radial_menu_shortcut: RadialMenuShortcut,
-    /// Preferred contextual command surface for secondary-click invocation.
-    pub context_command_surface_preference: ContextCommandSurfacePreference,
-    /// Keyboard pan speed for graph camera controls.
-    pub keyboard_pan_step: f32,
-    /// Keyboard pan input mode (WASD + arrows, or arrows-only).
-    pub keyboard_pan_input_mode: KeyboardPanInputMode,
-    /// Whether camera panning keeps slight inertia after manual input ends.
-    pub camera_pan_inertia_enabled: bool,
-    /// Damping factor for camera pan inertia (lower settles faster).
-    pub camera_pan_inertia_damping: f32,
-    /// Preferred lasso binding for canvas interactions.
-    pub lasso_binding_preference: CanvasLassoBinding,
-    /// Preferred default non-`@` omnibar scope behavior.
-    pub omnibar_preferred_scope: OmnibarPreferredScope,
-    /// Non-`@` omnibar ordering preset.
-    pub omnibar_non_at_order: OmnibarNonAtOrderPreset,
-    /// Global Wry backend enable toggle (disabled by default).
-    pub wry_enabled: bool,
-    /// Independent multi-selection for workspace tabs.
-    pub selected_tab_nodes: HashSet<NodeKey>,
-    /// Range-select anchor for workspace tab multi-selection.
-    pub tab_selection_anchor: Option<NodeKey>,
-    /// Last hovered node in graph view (updated by graph render pass).
-    pub hovered_graph_node: Option<NodeKey>,
-    /// Graph search display mode (context-preserving highlight vs strict filter).
-    pub search_display_mode: SearchDisplayMode,
-    /// Current graph search query mirrored from the UI search flow.
-    pub active_graph_search_query: String,
-    /// Current graph search match count mirrored from the UI search flow.
-    pub active_graph_search_match_count: usize,
-    /// Source of the active graph search query.
-    pub active_graph_search_origin: GraphSearchOrigin,
-    /// Optional node whose undirected neighborhood should be included in the active search slice.
-    pub active_graph_search_neighborhood_anchor: Option<NodeKey>,
-    /// Hop depth for the active neighborhood expansion when an anchor is present.
-    pub active_graph_search_neighborhood_depth: u8,
-    /// Recent graph search states for breadcrumb restore.
-    pub graph_search_history: Vec<GraphSearchHistoryEntry>,
-    /// Optional pinned graph search slice for quick restore.
-    pub pinned_graph_search: Option<GraphSearchHistoryEntry>,
-    /// Non-modal tag editor state for the currently targeted node.
-    pub tag_panel_state: Option<TagPanelState>,
-    /// Non-modal web clip inspector state for the current extracted page surface.
-    pub clip_inspector_state: Option<ClipInspectorState>,
-    /// Pending webview highlight-clear request for inspector teardown.
-    pub pending_clip_inspector_highlight_clear: Option<RendererId>,
-    /// Graph-owned hierarchical projection runtime state for file-tree navigation.
-    ///
-    /// This is semantic view-projection state and must not be owned by workbench
-    /// arrangement structures.
-    pub file_tree_projection_state: FileTreeProjectionState,
-    /// Explicit highlighted edge in graph view (for edge-search targeting).
-    pub highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
-    /// Pending workbench-authority intents staged for frame-loop orchestration.
-    pending_workbench_intents: Vec<WorkbenchIntent>,
-
-    /// Ordered app-command queue replacing a subset of hand-managed pending snapshot fields.
-    pending_app_commands: VecDeque<AppCommand>,
-
-    /// Accepted child-webview create requests awaiting reconcile-time renderer creation.
-    pending_host_create_tokens: HashMap<NodeKey, PendingCreateToken>,
-
-    /// Active graph views, keyed by ID.
-    pub views: HashMap<GraphViewId, GraphViewState>,
-    /// Graph-view layout manager state (slot grid + manager overlay toggle).
-    pub graph_view_layout_manager: GraphViewLayoutManagerState,
-
-    /// Last known camera frame per graph view (updated by graph render pass).
-    pub graph_view_frames: HashMap<GraphViewId, GraphViewFrame>,
-
-    /// The currently focused graph view (target for keyboard zoom/pan).
-    pub focused_view: Option<GraphViewId>,
-
-    /// Accessibility Graph Reader mode override and return-path state.
-    pub graph_reader_state: GraphReaderState,
-
-    /// Camera state (zoom bounds)
-    pub camera: Camera,
-
-    /// Global undo history snapshots.
-    undo_stack: Vec<UndoRedoSnapshot>,
-    /// Global redo history snapshots.
-    redo_stack: Vec<UndoRedoSnapshot>,
-    /// Cached hop-distance map from current primary selection for omnibar ranking/signifiers.
-    hop_distance_cache: Option<(NodeKey, HashMap<NodeKey, usize>)>,
-
-    /// Hash of last persisted session frame layout json.
-    last_session_workspace_layout_hash: Option<u64>,
-    /// Last known live session frame layout JSON (runtime `Tree<TileKind>` shape) for undo checkpoints.
-    last_session_workspace_layout_json: Option<String>,
-
-    /// Minimum interval between autosaved session frame writes.
-    workspace_autosave_interval: Duration,
-
-    /// Number of previous autosaved session frame revisions to keep.
-    workspace_autosave_retention: u8,
-
-    /// Timestamp of last autosaved session frame write.
-    last_workspace_autosave_at: Option<Instant>,
-
-    /// Monotonic activation counter for named frame recency tracking.
-    workspace_activation_seq: u64,
-
-    /// Per-node most-recent named frame activation metadata keyed by stable node UUID.
-    node_last_active_workspace: HashMap<Uuid, (u64, String)>,
-
-    /// UUID-keyed frame membership index (runtime-derived from persisted layouts).
-    node_workspace_membership: HashMap<Uuid, BTreeSet<String>>,
-
-    /// True while current tile tree was synthesized without a named restore context.
-    /// Retained for routing/session bookkeeping only.
-    current_workspace_is_synthesized: bool,
-
-    /// True if graph-mutating action happened since last workspace baseline/save.
-    workspace_has_unsaved_changes: bool,
-
-    /// True after we've emitted a warning for the current unsaved workspace state.
-    unsaved_workspace_prompt_warned: bool,
-
-    /// Cached egui_graphs state (persists across frames for drag/interaction)
-    pub egui_state: Option<EguiGraphState>,
-
-    /// Invariant: must only be set directly for non-structural visual changes
-    /// (selection, search highlights, viewport culling). All graph structure
-    /// changes must go through `apply_graph_delta_and_sync`.
-    pub egui_state_dirty: bool,
-
-    /// Node keys excluded by viewport culling on the previous rebuild.
-    /// egui_state is only rebuilt when this set changes, to avoid resetting
-    /// physics state every frame for nodes that stay in/out of the viewport.
-    pub last_culled_node_keys: Option<HashSet<NodeKey>>,
-
-    /// Last sampled runtime memory pressure classification.
-    memory_pressure_level: MemoryPressureLevel,
-    /// Last sampled available system memory (MiB).
-    memory_available_mib: u64,
-    /// Last sampled total system memory (MiB).
-    memory_total_mib: u64,
-
-    /// Count of traversal append attempts rejected in this runtime session.
-    history_recent_traversal_append_failures: u64,
-    /// True while history timeline preview mode is active.
-    history_preview_mode_active: bool,
-    /// True when preview-mode isolation has been violated in this session.
-    history_last_preview_isolation_violation: bool,
-    /// Tracks active timeline replay and cursor progression.
-    history_replay_in_progress: bool,
-    history_replay_cursor: Option<usize>,
-    history_replay_total_steps: Option<usize>,
-    /// Detached graph copy captured when preview mode is entered.
-    history_preview_live_graph_snapshot: Option<Graph>,
-    /// Detached graph produced by replay-to-timestamp while preview is active.
-    history_preview_graph: Option<Graph>,
-    /// Most recent history subsystem event timestamp observed this session.
-    history_last_event_unix_ms: Option<u64>,
-    /// Most recent history error text surfaced to operators.
-    history_last_error: Option<String>,
-    /// Last traversal/archive failure bucket label.
-    history_recent_failure_reason_bucket: Option<HistoryTraversalFailureReason>,
-    /// Last known return-to-present outcome summary.
-    history_last_return_to_present_result: Option<String>,
-
-    /// Whether form draft capture/replay metadata is enabled.
-    form_draft_capture_enabled: bool,
-
-    /// Persisted default registry lens id override for view lens resolution.
-    default_registry_lens_id: Option<String>,
-    /// Persisted default physics preset selection for graph dynamics controls.
-    default_registry_physics_id: Option<String>,
-    /// Persisted default theme selection for workspace appearance controls.
-    default_registry_theme_id: Option<String>,
-
-    /// Cached semantic codes for physics calculations.
-    /// Maps NodeKey -> parsed canonical UDC class vector.
-    pub semantic_index: HashMap<NodeKey, SemanticClassVector>,
-    pub semantic_index_dirty: bool,
-
-    /// Per-view restore target used by reversible semantic depth toggles.
-    semantic_depth_restore_dimensions: HashMap<GraphViewId, ViewDimension>,
-
-    /// Display-only semantic tag suggestions surfaced by background agents.
-    pub suggested_semantic_tags: HashMap<NodeKey, Vec<String>>,
+    /// Transient chrome overlay flags, shortcuts, and UI preferences.
+    pub chrome_ui: ChromeUiState,
 }
 
 #[derive(Debug, Clone)]
@@ -1282,8 +1042,8 @@ impl GraphBrowserApp {
         Some(UndoRedoSnapshot {
             graph_bytes,
             active_selection: self.focused_selection().clone(),
-            selection_by_scope: self.workspace.selection_by_scope.clone(),
-            highlighted_graph_edge: self.workspace.highlighted_graph_edge,
+            selection_by_scope: self.workspace.graph_runtime.selection_by_scope.clone(),
+            highlighted_graph_edge: self.workspace.graph_runtime.highlighted_graph_edge,
             workspace_layout_json,
         })
     }
@@ -1381,112 +1141,118 @@ impl GraphBrowserApp {
                     next_placeholder_id,
                     notes: HashMap::new(),
                 },
-                physics: Self::default_physics_state(),
-                physics_running_before_interaction: None,
-                selection_by_scope: HashMap::new(),
-                webview_to_node: HashMap::new(),
-                node_to_webview: HashMap::new(),
-                embedded_content_focus_webview: None,
-                runtime_block_state: HashMap::new(),
-                runtime_caches: RuntimeCaches::new(CachePolicy::default(), None),
-                active_webview_nodes: Vec::new(),
-                active_lru: Vec::new(),
-                active_webview_limit: Self::DEFAULT_ACTIVE_WEBVIEW_LIMIT,
-                warm_cache_lru: Vec::new(),
-                warm_cache_limit: Self::DEFAULT_WARM_CACHE_LIMIT,
-                is_interacting: false,
-                drag_release_frames_remaining: 0,
-                history_manager_tab: HistoryManagerTab::Timeline,
-                settings_tool_page: SettingsToolPage::General,
-                show_settings_overlay: false,
-                show_help_panel: false,
-                show_command_palette: false,
-                show_context_palette: false,
-                command_palette_contextual_mode: false,
-                context_palette_anchor: None,
-                show_radial_menu: false,
-                show_clip_inspector: false,
-                toast_anchor_preference: ToastAnchorPreference::BottomRight,
-                command_palette_shortcut: CommandPaletteShortcut::F2,
-                help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
-                radial_menu_shortcut: RadialMenuShortcut::F3,
-                context_command_surface_preference: ContextCommandSurfacePreference::RadialPalette,
-                keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
-                keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
-                camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
-                camera_pan_inertia_damping: Self::DEFAULT_CAMERA_PAN_INERTIA_DAMPING,
-                lasso_binding_preference: CanvasLassoBinding::RightDrag,
-                omnibar_preferred_scope: OmnibarPreferredScope::Auto,
-                omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
-                wry_enabled: false,
-                selected_tab_nodes: HashSet::new(),
-                tab_selection_anchor: None,
-                hovered_graph_node: None,
-                search_display_mode: SearchDisplayMode::Highlight,
-                active_graph_search_query: String::new(),
-                active_graph_search_match_count: 0,
-                active_graph_search_origin: GraphSearchOrigin::Manual,
-                active_graph_search_neighborhood_anchor: None,
-                active_graph_search_neighborhood_depth: 1,
-                graph_search_history: Vec::new(),
-                pinned_graph_search: None,
-                tag_panel_state: None,
-                clip_inspector_state: None,
-                pending_clip_inspector_highlight_clear: None,
-                file_tree_projection_state: FileTreeProjectionState::default(),
-                highlighted_graph_edge: None,
-                pending_workbench_intents: Vec::new(),
-                pending_app_commands: VecDeque::new(),
-                pending_host_create_tokens: HashMap::new(),
-                camera: Camera::new(),
-                views: HashMap::new(),
-                graph_view_layout_manager: GraphViewLayoutManagerState::default(),
-                graph_view_frames: HashMap::new(),
-                focused_view: None,
-                graph_reader_state: GraphReaderState::default(),
-                undo_stack: Vec::new(),
-                redo_stack: Vec::new(),
-                hop_distance_cache: None,
-                last_session_workspace_layout_hash: None,
-                last_session_workspace_layout_json: None,
-                workspace_autosave_interval: Duration::from_secs(
-                    Self::DEFAULT_WORKSPACE_AUTOSAVE_INTERVAL_SECS,
-                ),
-                workspace_autosave_retention: Self::DEFAULT_WORKSPACE_AUTOSAVE_RETENTION,
-                last_workspace_autosave_at: None,
-                workspace_activation_seq: 0,
-                node_last_active_workspace: HashMap::new(),
-                node_workspace_membership: HashMap::new(),
-                current_workspace_is_synthesized: false,
-                workspace_has_unsaved_changes: false,
-                unsaved_workspace_prompt_warned: false,
-                egui_state: None,
-                egui_state_dirty: true,
-                last_culled_node_keys: None,
-                memory_pressure_level: MemoryPressureLevel::Unknown,
-                memory_available_mib: 0,
-                memory_total_mib: 0,
-                history_recent_traversal_append_failures: 0,
-                history_preview_mode_active: false,
-                history_last_preview_isolation_violation: false,
-                history_replay_in_progress: false,
-                history_replay_cursor: None,
-                history_replay_total_steps: None,
-                history_preview_live_graph_snapshot: None,
-                history_preview_graph: None,
-                history_last_event_unix_ms: None,
-                history_last_error: None,
-                history_recent_failure_reason_bucket: None,
-                history_last_return_to_present_result: None,
-                form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
-                    .is_some(),
-                default_registry_lens_id: None,
-                default_registry_physics_id: None,
-                default_registry_theme_id: None,
-                semantic_index: HashMap::new(),
-                semantic_index_dirty: true,
-                semantic_depth_restore_dimensions: HashMap::new(),
-                suggested_semantic_tags: HashMap::new(),
+                graph_runtime: GraphViewRuntimeState {
+                    physics: Self::default_physics_state(),
+                    physics_running_before_interaction: None,
+                    selection_by_scope: HashMap::new(),
+                    webview_to_node: HashMap::new(),
+                    node_to_webview: HashMap::new(),
+                    embedded_content_focus_webview: None,
+                    runtime_block_state: HashMap::new(),
+                    runtime_caches: RuntimeCaches::new(CachePolicy::default(), None),
+                    active_webview_nodes: Vec::new(),
+                    active_lru: Vec::new(),
+                    active_webview_limit: Self::DEFAULT_ACTIVE_WEBVIEW_LIMIT,
+                    warm_cache_lru: Vec::new(),
+                    warm_cache_limit: Self::DEFAULT_WARM_CACHE_LIMIT,
+                    is_interacting: false,
+                    drag_release_frames_remaining: 0,
+                    views: HashMap::new(),
+                    graph_view_layout_manager: GraphViewLayoutManagerState::default(),
+                    graph_view_frames: HashMap::new(),
+                    focused_view: None,
+                    graph_reader_state: GraphReaderState::default(),
+                    camera: Camera::new(),
+                    undo_stack: Vec::new(),
+                    redo_stack: Vec::new(),
+                    hop_distance_cache: None,
+                    egui_state: None,
+                    egui_state_dirty: true,
+                    last_culled_node_keys: None,
+                    memory_pressure_level: MemoryPressureLevel::Unknown,
+                    memory_available_mib: 0,
+                    memory_total_mib: 0,
+                    history_recent_traversal_append_failures: 0,
+                    history_preview_mode_active: false,
+                    history_last_preview_isolation_violation: false,
+                    history_replay_in_progress: false,
+                    history_replay_cursor: None,
+                    history_replay_total_steps: None,
+                    history_preview_live_graph_snapshot: None,
+                    history_preview_graph: None,
+                    history_last_event_unix_ms: None,
+                    history_last_error: None,
+                    history_recent_failure_reason_bucket: None,
+                    history_last_return_to_present_result: None,
+                    semantic_index: HashMap::new(),
+                    semantic_index_dirty: true,
+                    semantic_depth_restore_dimensions: HashMap::new(),
+                    suggested_semantic_tags: HashMap::new(),
+                    hovered_graph_node: None,
+                    highlighted_graph_edge: None,
+                    navigator_projection_state: FileTreeProjectionState::default(),
+                    selected_tab_nodes: HashSet::new(),
+                    tab_selection_anchor: None,
+                    search_display_mode: SearchDisplayMode::Highlight,
+                    active_graph_search_query: String::new(),
+                    active_graph_search_match_count: 0,
+                    active_graph_search_origin: GraphSearchOrigin::Manual,
+                    active_graph_search_neighborhood_anchor: None,
+                    active_graph_search_neighborhood_depth: 1,
+                    graph_search_history: Vec::new(),
+                    pinned_graph_search: None,
+                    tag_panel_state: None,
+                    clip_inspector_state: None,
+                    pending_clip_inspector_highlight_clear: None,
+                },
+                workbench_session: WorkbenchSessionState {
+                    last_session_workspace_layout_hash: None,
+                    last_session_workspace_layout_json: None,
+                    workspace_autosave_interval: Duration::from_secs(
+                        Self::DEFAULT_WORKSPACE_AUTOSAVE_INTERVAL_SECS,
+                    ),
+                    workspace_autosave_retention: Self::DEFAULT_WORKSPACE_AUTOSAVE_RETENTION,
+                    last_workspace_autosave_at: None,
+                    workspace_activation_seq: 0,
+                    node_last_active_workspace: HashMap::new(),
+                    node_workspace_membership: HashMap::new(),
+                    current_workspace_is_synthesized: false,
+                    workspace_has_unsaved_changes: false,
+                    unsaved_workspace_prompt_warned: false,
+                    pending_workbench_intents: Vec::new(),
+                    pending_app_commands: VecDeque::new(),
+                    pending_host_create_tokens: HashMap::new(),
+                },
+                chrome_ui: ChromeUiState {
+                    history_manager_tab: HistoryManagerTab::Timeline,
+                    settings_tool_page: SettingsToolPage::General,
+                    show_settings_overlay: false,
+                    show_help_panel: false,
+                    show_command_palette: false,
+                    show_context_palette: false,
+                    command_palette_contextual_mode: false,
+                    context_palette_anchor: None,
+                    show_radial_menu: false,
+                    show_clip_inspector: false,
+                    toast_anchor_preference: ToastAnchorPreference::BottomRight,
+                    command_palette_shortcut: CommandPaletteShortcut::F2,
+                    help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
+                    radial_menu_shortcut: RadialMenuShortcut::F3,
+                    context_command_surface_preference: ContextCommandSurfacePreference::RadialPalette,
+                    keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
+                    keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
+                    camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
+                    camera_pan_inertia_damping: Self::DEFAULT_CAMERA_PAN_INERTIA_DAMPING,
+                    lasso_binding_preference: CanvasLassoBinding::RightDrag,
+                    omnibar_preferred_scope: OmnibarPreferredScope::Auto,
+                    omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
+                    wry_enabled: false,
+                    form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
+                        .is_some(),
+                    default_registry_lens_id: None,
+                    default_registry_physics_id: None,
+                    default_registry_theme_id: None,
+                },
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
             services: AppServices::new(persistence),
@@ -1505,111 +1271,117 @@ impl GraphBrowserApp {
                     next_placeholder_id: 0,
                     notes: HashMap::new(),
                 },
-                physics: Self::default_physics_state(),
-                physics_running_before_interaction: None,
-                selection_by_scope: HashMap::new(),
-                webview_to_node: HashMap::new(),
-                node_to_webview: HashMap::new(),
-                embedded_content_focus_webview: None,
-                runtime_block_state: HashMap::new(),
-                runtime_caches: RuntimeCaches::new(CachePolicy::default(), None),
-                active_webview_nodes: Vec::new(),
-                active_lru: Vec::new(),
-                active_webview_limit: Self::DEFAULT_ACTIVE_WEBVIEW_LIMIT,
-                warm_cache_lru: Vec::new(),
-                warm_cache_limit: Self::DEFAULT_WARM_CACHE_LIMIT,
-                is_interacting: false,
-                drag_release_frames_remaining: 0,
-                history_manager_tab: HistoryManagerTab::Timeline,
-                settings_tool_page: SettingsToolPage::General,
-                show_settings_overlay: false,
-                show_help_panel: false,
-                show_command_palette: false,
-                show_context_palette: false,
-                command_palette_contextual_mode: false,
-                context_palette_anchor: None,
-                show_radial_menu: false,
-                show_clip_inspector: false,
-                toast_anchor_preference: ToastAnchorPreference::BottomRight,
-                command_palette_shortcut: CommandPaletteShortcut::F2,
-                help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
-                radial_menu_shortcut: RadialMenuShortcut::F3,
-                context_command_surface_preference: ContextCommandSurfacePreference::RadialPalette,
-                keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
-                keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
-                camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
-                camera_pan_inertia_damping: Self::DEFAULT_CAMERA_PAN_INERTIA_DAMPING,
-                lasso_binding_preference: CanvasLassoBinding::RightDrag,
-                omnibar_preferred_scope: OmnibarPreferredScope::Auto,
-                omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
-                wry_enabled: false,
-                selected_tab_nodes: HashSet::new(),
-                tab_selection_anchor: None,
-                hovered_graph_node: None,
-                search_display_mode: SearchDisplayMode::Highlight,
-                active_graph_search_query: String::new(),
-                active_graph_search_match_count: 0,
-                active_graph_search_origin: GraphSearchOrigin::Manual,
-                active_graph_search_neighborhood_anchor: None,
-                active_graph_search_neighborhood_depth: 1,
-                graph_search_history: Vec::new(),
-                pinned_graph_search: None,
-                tag_panel_state: None,
-                clip_inspector_state: None,
-                pending_clip_inspector_highlight_clear: None,
-                file_tree_projection_state: FileTreeProjectionState::default(),
-                highlighted_graph_edge: None,
-                pending_workbench_intents: Vec::new(),
-                pending_app_commands: VecDeque::new(),
-                pending_host_create_tokens: HashMap::new(),
-                camera: Camera::new(),
-                views: HashMap::new(),
-                graph_view_layout_manager: GraphViewLayoutManagerState::default(),
-                graph_view_frames: HashMap::new(),
-                focused_view: None,
-                graph_reader_state: GraphReaderState::default(),
-                undo_stack: Vec::new(),
-                redo_stack: Vec::new(),
-                hop_distance_cache: None,
-                last_session_workspace_layout_hash: None,
-                last_session_workspace_layout_json: None,
-                workspace_autosave_interval: Duration::from_secs(
-                    Self::DEFAULT_WORKSPACE_AUTOSAVE_INTERVAL_SECS,
-                ),
-                workspace_autosave_retention: Self::DEFAULT_WORKSPACE_AUTOSAVE_RETENTION,
-                last_workspace_autosave_at: None,
-                workspace_activation_seq: 0,
-                node_last_active_workspace: HashMap::new(),
-                node_workspace_membership: HashMap::new(),
-                current_workspace_is_synthesized: false,
-                workspace_has_unsaved_changes: false,
-                unsaved_workspace_prompt_warned: false,
-                egui_state: None,
-                egui_state_dirty: true,
-                last_culled_node_keys: None,
-                memory_pressure_level: MemoryPressureLevel::Unknown,
-                memory_available_mib: 0,
-                memory_total_mib: 0,
-                history_recent_traversal_append_failures: 0,
-                history_preview_mode_active: false,
-                history_last_preview_isolation_violation: false,
-                history_replay_in_progress: false,
-                history_replay_cursor: None,
-                history_replay_total_steps: None,
-                history_preview_live_graph_snapshot: None,
-                history_preview_graph: None,
-                history_last_event_unix_ms: None,
-                history_last_error: None,
-                history_recent_failure_reason_bucket: None,
-                history_last_return_to_present_result: None,
-                form_draft_capture_enabled: false,
-                default_registry_lens_id: None,
-                default_registry_physics_id: None,
-                default_registry_theme_id: None,
-                semantic_index: HashMap::new(),
-                semantic_index_dirty: true,
-                semantic_depth_restore_dimensions: HashMap::new(),
-                suggested_semantic_tags: HashMap::new(),
+                graph_runtime: GraphViewRuntimeState {
+                    physics: Self::default_physics_state(),
+                    physics_running_before_interaction: None,
+                    selection_by_scope: HashMap::new(),
+                    webview_to_node: HashMap::new(),
+                    node_to_webview: HashMap::new(),
+                    embedded_content_focus_webview: None,
+                    runtime_block_state: HashMap::new(),
+                    runtime_caches: RuntimeCaches::new(CachePolicy::default(), None),
+                    active_webview_nodes: Vec::new(),
+                    active_lru: Vec::new(),
+                    active_webview_limit: Self::DEFAULT_ACTIVE_WEBVIEW_LIMIT,
+                    warm_cache_lru: Vec::new(),
+                    warm_cache_limit: Self::DEFAULT_WARM_CACHE_LIMIT,
+                    is_interacting: false,
+                    drag_release_frames_remaining: 0,
+                    views: HashMap::new(),
+                    graph_view_layout_manager: GraphViewLayoutManagerState::default(),
+                    graph_view_frames: HashMap::new(),
+                    focused_view: None,
+                    graph_reader_state: GraphReaderState::default(),
+                    camera: Camera::new(),
+                    undo_stack: Vec::new(),
+                    redo_stack: Vec::new(),
+                    hop_distance_cache: None,
+                    egui_state: None,
+                    egui_state_dirty: true,
+                    last_culled_node_keys: None,
+                    memory_pressure_level: MemoryPressureLevel::Unknown,
+                    memory_available_mib: 0,
+                    memory_total_mib: 0,
+                    history_recent_traversal_append_failures: 0,
+                    history_preview_mode_active: false,
+                    history_last_preview_isolation_violation: false,
+                    history_replay_in_progress: false,
+                    history_replay_cursor: None,
+                    history_replay_total_steps: None,
+                    history_preview_live_graph_snapshot: None,
+                    history_preview_graph: None,
+                    history_last_event_unix_ms: None,
+                    history_last_error: None,
+                    history_recent_failure_reason_bucket: None,
+                    history_last_return_to_present_result: None,
+                    semantic_index: HashMap::new(),
+                    semantic_index_dirty: true,
+                    semantic_depth_restore_dimensions: HashMap::new(),
+                    suggested_semantic_tags: HashMap::new(),
+                    hovered_graph_node: None,
+                    highlighted_graph_edge: None,
+                    navigator_projection_state: FileTreeProjectionState::default(),
+                    selected_tab_nodes: HashSet::new(),
+                    tab_selection_anchor: None,
+                    search_display_mode: SearchDisplayMode::Highlight,
+                    active_graph_search_query: String::new(),
+                    active_graph_search_match_count: 0,
+                    active_graph_search_origin: GraphSearchOrigin::Manual,
+                    active_graph_search_neighborhood_anchor: None,
+                    active_graph_search_neighborhood_depth: 1,
+                    graph_search_history: Vec::new(),
+                    pinned_graph_search: None,
+                    tag_panel_state: None,
+                    clip_inspector_state: None,
+                    pending_clip_inspector_highlight_clear: None,
+                },
+                workbench_session: WorkbenchSessionState {
+                    last_session_workspace_layout_hash: None,
+                    last_session_workspace_layout_json: None,
+                    workspace_autosave_interval: Duration::from_secs(
+                        Self::DEFAULT_WORKSPACE_AUTOSAVE_INTERVAL_SECS,
+                    ),
+                    workspace_autosave_retention: Self::DEFAULT_WORKSPACE_AUTOSAVE_RETENTION,
+                    last_workspace_autosave_at: None,
+                    workspace_activation_seq: 0,
+                    node_last_active_workspace: HashMap::new(),
+                    node_workspace_membership: HashMap::new(),
+                    current_workspace_is_synthesized: false,
+                    workspace_has_unsaved_changes: false,
+                    unsaved_workspace_prompt_warned: false,
+                    pending_workbench_intents: Vec::new(),
+                    pending_app_commands: VecDeque::new(),
+                    pending_host_create_tokens: HashMap::new(),
+                },
+                chrome_ui: ChromeUiState {
+                    history_manager_tab: HistoryManagerTab::Timeline,
+                    settings_tool_page: SettingsToolPage::General,
+                    show_settings_overlay: false,
+                    show_help_panel: false,
+                    show_command_palette: false,
+                    show_context_palette: false,
+                    command_palette_contextual_mode: false,
+                    context_palette_anchor: None,
+                    show_radial_menu: false,
+                    show_clip_inspector: false,
+                    toast_anchor_preference: ToastAnchorPreference::BottomRight,
+                    command_palette_shortcut: CommandPaletteShortcut::F2,
+                    help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
+                    radial_menu_shortcut: RadialMenuShortcut::F3,
+                    context_command_surface_preference: ContextCommandSurfacePreference::RadialPalette,
+                    keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
+                    keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
+                    camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
+                    camera_pan_inertia_damping: Self::DEFAULT_CAMERA_PAN_INERTIA_DAMPING,
+                    lasso_binding_preference: CanvasLassoBinding::RightDrag,
+                    omnibar_preferred_scope: OmnibarPreferredScope::Auto,
+                    omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
+                    wry_enabled: false,
+                    form_draft_capture_enabled: false,
+                    default_registry_lens_id: None,
+                    default_registry_physics_id: None,
+                    default_registry_theme_id: None,
+                },
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
             services: AppServices::new(None),
@@ -1680,7 +1452,7 @@ impl GraphBrowserApp {
     }
 
     pub fn graph_reader_mode(&self) -> Option<GraphReaderModeState> {
-        match self.workspace.graph_reader_state.mode_override {
+        match self.workspace.graph_runtime.graph_reader_state.mode_override {
             Some(GraphReaderModeState::Map { focused_node }) => Some(GraphReaderModeState::Map {
                 focused_node: focused_node
                     .filter(|node_key| self.workspace.domain.graph.get_node(*node_key).is_some()),
@@ -1713,7 +1485,7 @@ impl GraphBrowserApp {
         if self.workspace.domain.graph.get_node(node_key).is_none() {
             return;
         }
-        self.workspace.graph_reader_state.mode_override = Some(GraphReaderModeState::Map {
+        self.workspace.graph_runtime.graph_reader_state.mode_override = Some(GraphReaderModeState::Map {
             focused_node: Some(node_key),
         });
     }
@@ -1731,7 +1503,7 @@ impl GraphBrowserApp {
             None => Some(node_key),
         };
         self.select_node(node_key, false);
-        self.workspace.graph_reader_state.mode_override = Some(GraphReaderModeState::Room {
+        self.workspace.graph_runtime.graph_reader_state.mode_override = Some(GraphReaderModeState::Room {
             node_key,
             return_map_node,
         });
@@ -1746,7 +1518,7 @@ impl GraphBrowserApp {
             Some(GraphReaderModeState::Map { focused_node }) => focused_node,
             None => None,
         };
-        self.workspace.graph_reader_state.mode_override =
+        self.workspace.graph_runtime.graph_reader_state.mode_override =
             Some(GraphReaderModeState::Map { focused_node });
     }
 
@@ -1754,19 +1526,19 @@ impl GraphBrowserApp {
         if self.workspace.domain.graph.get_node(key).is_none() {
             return;
         }
-        self.workspace.selected_tab_nodes.clear();
-        self.workspace.selected_tab_nodes.insert(key);
-        self.workspace.tab_selection_anchor = Some(key);
+        self.workspace.graph_runtime.selected_tab_nodes.clear();
+        self.workspace.graph_runtime.selected_tab_nodes.insert(key);
+        self.workspace.graph_runtime.tab_selection_anchor = Some(key);
     }
 
     pub fn toggle_tab_selection(&mut self, key: NodeKey) {
         if self.workspace.domain.graph.get_node(key).is_none() {
             return;
         }
-        if !self.workspace.selected_tab_nodes.remove(&key) {
-            self.workspace.selected_tab_nodes.insert(key);
+        if !self.workspace.graph_runtime.selected_tab_nodes.remove(&key) {
+            self.workspace.graph_runtime.selected_tab_nodes.insert(key);
         }
-        self.workspace.tab_selection_anchor = Some(key);
+        self.workspace.graph_runtime.tab_selection_anchor = Some(key);
     }
 
     pub fn add_tab_selection_keys(&mut self, keys: impl IntoIterator<Item = NodeKey>) {
@@ -1775,20 +1547,16 @@ impl GraphBrowserApp {
             if self.workspace.domain.graph.get_node(key).is_none() {
                 continue;
             }
-            self.workspace.selected_tab_nodes.insert(key);
+            self.workspace.graph_runtime.selected_tab_nodes.insert(key);
             last = Some(key);
         }
         if let Some(key) = last {
-            self.workspace.tab_selection_anchor = Some(key);
+            self.workspace.graph_runtime.tab_selection_anchor = Some(key);
         }
     }
 
     pub fn navigator_projection_state(&self) -> &NavigatorProjectionState {
-        &self.workspace.file_tree_projection_state
-    }
-
-    pub fn file_tree_projection_state(&self) -> &FileTreeProjectionState {
-        self.navigator_projection_state()
+        &self.workspace.graph_runtime.navigator_projection_state
     }
 
     pub fn set_navigator_containment_relation_source(
@@ -1796,7 +1564,8 @@ impl GraphBrowserApp {
         source: NavigatorContainmentRelationSource,
     ) {
         self.workspace
-            .file_tree_projection_state
+            .graph_runtime
+            .navigator_projection_state
             .containment_relation_source = source;
         self.rebuild_navigator_projection_rows();
     }
@@ -1809,7 +1578,7 @@ impl GraphBrowserApp {
     }
 
     pub fn set_navigator_sort_mode(&mut self, sort_mode: NavigatorSortMode) {
-        self.workspace.file_tree_projection_state.sort_mode = sort_mode;
+        self.workspace.graph_runtime.navigator_projection_state.sort_mode = sort_mode;
     }
 
     pub fn set_file_tree_sort_mode(&mut self, sort_mode: FileTreeSortMode) {
@@ -1817,7 +1586,7 @@ impl GraphBrowserApp {
     }
 
     pub fn set_navigator_root_filter(&mut self, root_filter: Option<String>) {
-        self.workspace.file_tree_projection_state.root_filter = root_filter;
+        self.workspace.graph_runtime.navigator_projection_state.root_filter = root_filter;
         self.rebuild_navigator_projection_rows();
     }
 
@@ -1832,13 +1601,14 @@ impl GraphBrowserApp {
         target: FileTreeProjectionTarget,
     ) {
         self.workspace
-            .file_tree_projection_state
+            .graph_runtime
+            .navigator_projection_state
             .row_targets
             .insert(row_key.into(), target);
     }
 
     pub fn set_navigator_selected_rows(&mut self, rows: impl IntoIterator<Item = String>) {
-        self.workspace.file_tree_projection_state.selected_rows = rows.into_iter().collect();
+        self.workspace.graph_runtime.navigator_projection_state.selected_rows = rows.into_iter().collect();
     }
 
     pub fn set_file_tree_selected_rows(&mut self, rows: impl IntoIterator<Item = String>) {
@@ -1847,9 +1617,10 @@ impl GraphBrowserApp {
 
     pub fn set_navigator_expanded_rows(&mut self, rows: impl IntoIterator<Item = String>) {
         let expanded_rows: HashSet<String> = rows.into_iter().collect();
-        self.workspace.file_tree_projection_state.expanded_rows = expanded_rows.clone();
+        self.workspace.graph_runtime.navigator_projection_state.expanded_rows = expanded_rows.clone();
         self.workspace
-            .file_tree_projection_state
+            .graph_runtime
+            .navigator_projection_state
             .collapsed_rows
             .retain(|row| !expanded_rows.contains(row));
     }
@@ -1865,7 +1636,8 @@ impl GraphBrowserApp {
 
         match self
             .workspace
-            .file_tree_projection_state
+            .graph_runtime
+            .navigator_projection_state
             .containment_relation_source
         {
             Source::GraphContainment => {
@@ -1885,7 +1657,7 @@ impl GraphBrowserApp {
                 }
             }
             Source::SavedViewCollections => {
-                let mut view_ids: Vec<GraphViewId> = self.workspace.views.keys().copied().collect();
+                let mut view_ids: Vec<GraphViewId> = self.workspace.graph_runtime.views.keys().copied().collect();
                 view_ids.sort_by_key(|view_id| view_id.as_uuid());
                 for view_id in view_ids {
                     row_targets.insert(
@@ -1959,7 +1731,8 @@ impl GraphBrowserApp {
 
         if let Some(root_filter) = self
             .workspace
-            .file_tree_projection_state
+            .graph_runtime
+            .navigator_projection_state
             .root_filter
             .as_deref()
         {
@@ -1970,17 +1743,20 @@ impl GraphBrowserApp {
         }
 
         let valid_rows: HashSet<String> = row_targets.keys().cloned().collect();
-        self.workspace.file_tree_projection_state.row_targets = row_targets;
+        self.workspace.graph_runtime.navigator_projection_state.row_targets = row_targets;
         self.workspace
-            .file_tree_projection_state
+            .graph_runtime
+            .navigator_projection_state
             .selected_rows
             .retain(|row| valid_rows.contains(row));
         self.workspace
-            .file_tree_projection_state
+            .graph_runtime
+            .navigator_projection_state
             .expanded_rows
             .retain(|row| valid_rows.contains(row));
         self.workspace
-            .file_tree_projection_state
+            .graph_runtime
+            .navigator_projection_state
             .collapsed_rows
             .retain(|row| valid_rows.contains(row));
     }
@@ -1991,26 +1767,26 @@ impl GraphBrowserApp {
 
     /// Set whether the user is actively interacting with the graph
     pub fn set_interacting(&mut self, interacting: bool) {
-        if self.workspace.is_interacting == interacting {
+        if self.workspace.graph_runtime.is_interacting == interacting {
             return;
         }
-        self.workspace.is_interacting = interacting;
+        self.workspace.graph_runtime.is_interacting = interacting;
 
         if interacting {
-            self.workspace.physics_running_before_interaction =
-                Some(self.workspace.physics.base.is_running);
-            self.workspace.physics.base.is_running = false;
-            self.workspace.drag_release_frames_remaining = 0;
-        } else if let Some(was_running) = self.workspace.physics_running_before_interaction.take() {
+            self.workspace.graph_runtime.physics_running_before_interaction =
+                Some(self.workspace.graph_runtime.physics.base.is_running);
+            self.workspace.graph_runtime.physics.base.is_running = false;
+            self.workspace.graph_runtime.drag_release_frames_remaining = 0;
+        } else if let Some(was_running) = self.workspace.graph_runtime.physics_running_before_interaction.take() {
             if was_running {
-                self.workspace.physics.base.is_running = true;
-                self.workspace.drag_release_frames_remaining = 0;
+                self.workspace.graph_runtime.physics.base.is_running = true;
+                self.workspace.graph_runtime.drag_release_frames_remaining = 0;
             } else if self.camera_position_fit_locked() {
-                self.workspace.physics.base.is_running = false;
-                self.workspace.drag_release_frames_remaining = 0;
+                self.workspace.graph_runtime.physics.base.is_running = false;
+                self.workspace.graph_runtime.drag_release_frames_remaining = 0;
             } else {
-                self.workspace.physics.base.is_running = true;
-                self.workspace.drag_release_frames_remaining = 10;
+                self.workspace.graph_runtime.physics.base.is_running = true;
+                self.workspace.graph_runtime.drag_release_frames_remaining = 10;
             }
         }
     }
@@ -2021,18 +1797,18 @@ impl GraphBrowserApp {
         #[cfg(feature = "tracing")]
         let _tick_span = tracing::trace_span!(
             "graph.tick_frame",
-            drag_release_frames_remaining = self.workspace.drag_release_frames_remaining,
-            is_interacting = self.workspace.is_interacting,
-            physics_running = self.workspace.physics.base.is_running,
+            drag_release_frames_remaining = self.workspace.graph_runtime.drag_release_frames_remaining,
+            is_interacting = self.workspace.graph_runtime.is_interacting,
+            physics_running = self.workspace.graph_runtime.physics.base.is_running,
         )
         .entered();
 
-        if self.workspace.drag_release_frames_remaining == 0 || self.workspace.is_interacting {
+        if self.workspace.graph_runtime.drag_release_frames_remaining == 0 || self.workspace.graph_runtime.is_interacting {
             return;
         }
-        self.workspace.drag_release_frames_remaining -= 1;
-        if self.workspace.drag_release_frames_remaining == 0 {
-            self.workspace.physics.base.is_running = false;
+        self.workspace.graph_runtime.drag_release_frames_remaining -= 1;
+        if self.workspace.graph_runtime.drag_release_frames_remaining == 0 {
+            self.workspace.graph_runtime.physics.base.is_running = false;
         }
     }
 
@@ -2177,8 +1953,8 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::ReheatPhysics => {
-                self.workspace.physics.base.is_running = true;
-                self.workspace.drag_release_frames_remaining = 0;
+                self.workspace.graph_runtime.physics.base.is_running = true;
+                self.workspace.graph_runtime.drag_release_frames_remaining = 0;
                 true
             }
             ViewAction::UpdateSelection { keys, mode } => {
@@ -2202,8 +1978,8 @@ impl GraphBrowserApp {
             }
             ViewAction::SetZoom { zoom } => {
                 if !self.camera_zoom_fit_locked() {
-                    if let Some(focused_view) = self.workspace.focused_view
-                        && let Some(view) = self.workspace.views.get_mut(&focused_view)
+                    if let Some(focused_view) = self.workspace.graph_runtime.focused_view
+                        && let Some(view) = self.workspace.graph_runtime.views.get_mut(&focused_view)
                     {
                         view.camera.current_zoom = view.camera.clamp(zoom);
                     }
@@ -2211,9 +1987,9 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::SetHighlightedEdge { from, to } => {
-                let previous = self.workspace.highlighted_graph_edge;
-                self.workspace.highlighted_graph_edge = Some((from, to));
-                if self.workspace.highlighted_graph_edge != previous {
+                let previous = self.workspace.graph_runtime.highlighted_graph_edge;
+                self.workspace.graph_runtime.highlighted_graph_edge = Some((from, to));
+                if self.workspace.graph_runtime.highlighted_graph_edge != previous {
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                         latency_us: 0,
@@ -2222,8 +1998,8 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::ClearHighlightedEdge => {
-                let had_highlighted_edge = self.workspace.highlighted_graph_edge.is_some();
-                self.workspace.highlighted_graph_edge = None;
+                let had_highlighted_edge = self.workspace.graph_runtime.highlighted_graph_edge.is_some();
+                self.workspace.graph_runtime.highlighted_graph_edge = None;
                 if had_highlighted_edge {
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
@@ -2233,7 +2009,7 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::SetNodeFormDraft { key, form_draft } => {
-                if !self.workspace.form_draft_capture_enabled {
+                if !self.workspace.chrome_ui.form_draft_capture_enabled {
                     return true;
                 }
                 let _ = self
@@ -2282,7 +2058,8 @@ impl GraphBrowserApp {
             ViewAction::SetFileTreeContainmentRelationSource { source } => {
                 if self
                     .workspace
-                    .file_tree_projection_state
+                    .graph_runtime
+                    .navigator_projection_state
                     .containment_relation_source
                     != source
                 {
@@ -2304,7 +2081,7 @@ impl GraphBrowserApp {
             }
             ViewAction::SetFileTreeSelectedRows { rows } => {
                 let next_rows: HashSet<String> = rows.iter().cloned().collect();
-                if self.workspace.file_tree_projection_state.selected_rows != next_rows {
+                if self.workspace.graph_runtime.navigator_projection_state.selected_rows != next_rows {
                     self.set_navigator_selected_rows(rows);
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
@@ -2324,7 +2101,8 @@ impl GraphBrowserApp {
             ViewAction::SetNavigatorContainmentRelationSource { source } => {
                 if self
                     .workspace
-                    .file_tree_projection_state
+                    .graph_runtime
+                    .navigator_projection_state
                     .containment_relation_source
                     != source
                 {
@@ -2346,7 +2124,7 @@ impl GraphBrowserApp {
             }
             ViewAction::SetNavigatorSelectedRows { rows } => {
                 let next_rows: HashSet<String> = rows.iter().cloned().collect();
-                if self.workspace.file_tree_projection_state.selected_rows != next_rows {
+                if self.workspace.graph_runtime.navigator_projection_state.selected_rows != next_rows {
                     self.set_navigator_selected_rows(rows);
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
@@ -2481,6 +2259,7 @@ impl GraphBrowserApp {
 
     fn current_undo_checkpoint_layout_json(&self) -> Option<String> {
         self.workspace
+            .workbench_session
             .last_session_workspace_layout_json
             .clone()
             .or_else(|| self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME))
@@ -2499,7 +2278,7 @@ impl GraphBrowserApp {
     }
 
     fn apply_reducer_intent_internal(&mut self, intent: GraphIntent, allow_undo_capture: bool) {
-        if self.workspace.history_preview_mode_active
+        if self.workspace.graph_runtime.history_preview_mode_active
             && Self::intent_blocked_during_history_preview(&intent)
         {
             self.apply_reducer_intents([GraphIntent::HistoryTimelinePreviewIsolationViolation {
@@ -2543,642 +2322,20 @@ impl GraphBrowserApp {
         ) {
             // Any graph mutation starts a fresh unsaved-change episode for
             // workspace-switch prompt gating.
-            self.workspace.unsaved_workspace_prompt_warned = false;
-            self.workspace.workspace_has_unsaved_changes = true;
+            self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+            self.workspace.workbench_session.workspace_has_unsaved_changes = true;
         }
 
-        if self.apply_workspace_only_intent(&intent) {
+        if self.handle_workspace_view_intent(&intent) {
             return;
         }
-
-        match intent {
-            GraphIntent::TogglePhysics => self.toggle_physics(),
-            GraphIntent::ToggleCameraPositionFitLock
-            | GraphIntent::ToggleCameraZoomFitLock
-            | GraphIntent::RequestFitToScreen
-            | GraphIntent::RequestZoomIn
-            | GraphIntent::RequestZoomOut
-            | GraphIntent::RequestZoomReset
-            | GraphIntent::RequestZoomToSelected
-            | GraphIntent::ReheatPhysics
-            | GraphIntent::UpdateSelection { .. }
-            | GraphIntent::SelectAll
-            | GraphIntent::SetNodePosition { .. }
-            | GraphIntent::SetZoom { .. }
-            | GraphIntent::SetHighlightedEdge { .. }
-            | GraphIntent::ClearHighlightedEdge
-            | GraphIntent::SetNodeFormDraft { .. }
-            | GraphIntent::SetNodeThumbnail { .. }
-            | GraphIntent::SetNodeFavicon { .. }
-            | GraphIntent::SetFileTreeContainmentRelationSource { .. }
-            | GraphIntent::SetFileTreeSortMode { .. }
-            | GraphIntent::SetFileTreeRootFilter { .. }
-            | GraphIntent::SetFileTreeSelectedRows { .. }
-            | GraphIntent::SetFileTreeExpandedRows { .. }
-            | GraphIntent::RebuildFileTreeProjection
-            | GraphIntent::SetNavigatorContainmentRelationSource { .. }
-            | GraphIntent::SetNavigatorSortMode { .. }
-            | GraphIntent::SetNavigatorRootFilter { .. }
-            | GraphIntent::SetNavigatorSelectedRows { .. }
-            | GraphIntent::SetNavigatorExpandedRows { .. }
-            | GraphIntent::RebuildNavigatorProjection => {
-                unreachable!("workspace-only intents are handled before side-effect reducer match")
-            }
-            GraphIntent::SetPanePresentationMode { pane, mode } => {
-                self.enqueue_workbench_intent(WorkbenchIntent::SetPanePresentationMode {
-                    pane,
-                    mode,
-                });
-            }
-            GraphIntent::PromoteEphemeralPane {
-                target_tile_context,
-            } => {
-                self.enqueue_workbench_intent(WorkbenchIntent::PromoteEphemeralPane {
-                    target_tile_context,
-                });
-            }
-            GraphIntent::ToggleHelpPanel => {
-                self.enqueue_workbench_intent(WorkbenchIntent::ToggleHelpPanel);
-            }
-            GraphIntent::ToggleCommandPalette => {
-                self.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
-            }
-            GraphIntent::ToggleRadialMenu => {
-                self.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
-            }
-            GraphIntent::TraverseBack => {
-                let target = BrowserCommandTarget::ChromeProjection {
-                    fallback_node: self.focused_selection().primary(),
-                };
-                self.request_browser_command(target, BrowserCommand::Back);
-            }
-            GraphIntent::TraverseForward => {
-                let target = BrowserCommandTarget::ChromeProjection {
-                    fallback_node: self.focused_selection().primary(),
-                };
-                self.request_browser_command(target, BrowserCommand::Forward);
-            }
-            GraphIntent::EnterGraphViewLayoutManager => {
-                self.workspace.graph_view_layout_manager.active = true;
-                self.persist_graph_view_layout_manager_state();
-            }
-            GraphIntent::ExitGraphViewLayoutManager => {
-                self.workspace.graph_view_layout_manager.active = false;
-                self.persist_graph_view_layout_manager_state();
-            }
-            GraphIntent::ToggleGraphViewLayoutManager => {
-                self.workspace.graph_view_layout_manager.active =
-                    !self.workspace.graph_view_layout_manager.active;
-                self.persist_graph_view_layout_manager_state();
-            }
-            GraphIntent::CreateGraphViewSlot {
-                anchor_view,
-                direction,
-                open_mode,
-            } => {
-                self.create_graph_view_slot(anchor_view, direction, open_mode);
-            }
-            GraphIntent::RenameGraphViewSlot { view_id, name } => {
-                self.rename_graph_view_slot(view_id, name);
-            }
-            GraphIntent::MoveGraphViewSlot { view_id, row, col } => {
-                self.move_graph_view_slot(view_id, row, col);
-            }
-            GraphIntent::ArchiveGraphViewSlot { view_id } => {
-                self.archive_graph_view_slot(view_id);
-            }
-            GraphIntent::RestoreGraphViewSlot { view_id, row, col } => {
-                self.restore_graph_view_slot(view_id, row, col);
-            }
-            GraphIntent::RouteGraphViewToWorkbench { view_id, mode } => {
-                self.route_graph_view_to_workbench(view_id, mode);
-            }
-            GraphIntent::Undo => {
-                let current_layout = self.current_undo_checkpoint_layout_json();
-                let _ = self.perform_undo(current_layout);
-            }
-            GraphIntent::Redo => {
-                let current_layout = self.current_undo_checkpoint_layout_json();
-                let _ = self.perform_redo(current_layout);
-            }
-            GraphIntent::CreateNodeNearCenter => {
-                self.create_new_node_near_center();
-            }
-            GraphIntent::CreateNodeNearCenterAndOpen { mode } => {
-                let key = self.create_new_node_near_center();
-                self.request_open_node_tile_mode(key, mode);
-            }
-            GraphIntent::CreateNodeAtUrl { url, position } => {
-                let key = self.add_node_and_sync(url, position);
-                self.select_node(key, false);
-            }
-            GraphIntent::CreateNodeAtUrlAndOpen {
-                url,
-                position,
-                mode,
-            } => {
-                let key = self.add_node_and_sync(url, position);
-                self.select_node(key, false);
-                self.request_open_node_tile_mode(key, mode);
-            }
-            GraphIntent::AcceptHostOpenRequest { request } => {
-                self.handle_host_open_request(request);
-            }
-            GraphIntent::CreateNoteForNode { key, title } => {
-                let _ = self.create_note_for_node(key, title);
-            }
-            GraphIntent::RemoveSelectedNodes => self.remove_selected_nodes(),
-            GraphIntent::ClearGraph => self.clear_graph(),
-            GraphIntent::SelectNode { key, multi_select } => {
-                self.select_node(key, multi_select);
-                // Single-selecting an unloaded node should prewarm it (without opening a tile).
-                if !multi_select
-                    && self.focused_selection().primary() == Some(key)
-                    && !self.is_crash_blocked(key)
-                    && self.get_webview_for_node(key).is_none()
-                    && self
-                        .workspace
-                        .domain
-                        .graph
-                        .get_node(key)
-                        .map(|node| node.lifecycle != crate::graph::NodeLifecycle::Active)
-                        .unwrap_or(false)
-                {
-                    self.promote_node_to_active_with_cause(key, LifecycleCause::SelectedPrewarm);
-                }
-            }
-            GraphIntent::SetInteracting { interacting } => self.set_interacting(interacting),
-            GraphIntent::SetViewLens { view_id, lens } => {
-                let requested_layout_algorithm_id = lens.layout_algorithm_id.clone();
-                let lens = self.with_registry_lens_defaults(lens);
-                let mut lens = if let Some(lens_id) = lens.lens_id.as_deref() {
-                    crate::shell::desktop::runtime::registries::phase2_resolve_lens(lens_id)
-                } else if lens.name.starts_with("lens:") {
-                    crate::shell::desktop::runtime::registries::phase2_resolve_lens(&lens.name)
-                } else {
-                    lens
-                };
-                lens.layout_algorithm_id = requested_layout_algorithm_id;
-                if let Some(view) = self.workspace.views.get_mut(&view_id) {
-                    view.lens = lens;
-                }
-            }
-            GraphIntent::SetViewDimension { view_id, dimension } => {
-                if !is_semantic_depth_dimension(&dimension) {
-                    self.workspace
-                        .semantic_depth_restore_dimensions
-                        .remove(&view_id);
-                }
-                if let Some(view) = self.workspace.views.get_mut(&view_id) {
-                    // F9 tracked capability: persist view preference now; renderer/runtime
-                    // behavior for 3D modes lands in follow-up implementation slices.
-                    view.dimension = dimension;
-                }
-            }
-            GraphIntent::ToggleSemanticDepthView { view_id } => {
-                let Some(current_dimension) = self
-                    .workspace
-                    .views
-                    .get(&view_id)
-                    .map(|view| view.dimension.clone())
-                else {
-                    return;
-                };
-
-                let next_dimension = if is_semantic_depth_dimension(&current_dimension) {
-                    self.workspace
-                        .semantic_depth_restore_dimensions
-                        .remove(&view_id)
-                        .unwrap_or_default()
-                } else {
-                    self.workspace
-                        .semantic_depth_restore_dimensions
-                        .insert(view_id, current_dimension);
-                    default_semantic_depth_dimension()
-                };
-
-                if let Some(view) = self.workspace.views.get_mut(&view_id) {
-                    view.dimension = next_dimension;
-                }
-            }
-            GraphIntent::SetPhysicsProfile { profile_id } => {
-                self.set_default_registry_physics_id(Some(&profile_id));
-            }
-            GraphIntent::SetTheme { theme_id } => {
-                self.set_default_registry_theme_id(Some(&theme_id));
-            }
-            GraphIntent::SetNodeUrl { key, new_url } => {
-                let _ = self.update_node_url_and_log(key, new_url);
-            }
-            GraphIntent::OpenNodeFrameRouted { key, prefer_frame } => {
-                self.apply_open_node_frame_routed(key, prefer_frame);
-            }
-            GraphIntent::OpenNodeWorkspaceRouted {
-                key,
-                prefer_workspace,
-            } => {
-                self.apply_open_node_workspace_routed(key, prefer_workspace);
-            }
-            GraphIntent::CreateUserGroupedEdge { from, to, label } => {
-                self.add_user_grouped_edge_if_missing(from, to, label);
-            }
-            GraphIntent::RemoveEdge {
-                from,
-                to,
-                edge_type,
-            } => {
-                let _ = self.remove_edges_and_log(from, to, edge_type);
-            }
-            GraphIntent::CreateUserGroupedEdgeFromPrimarySelection => {
-                self.create_user_grouped_edge_from_primary_selection();
-            }
-            GraphIntent::GroupNodesBySemanticTags => {
-                self.group_nodes_by_semantic_tags();
-            }
-            GraphIntent::ExecuteEdgeCommand { command } => {
-                let intents = self.intents_for_edge_command(command);
-                self.apply_reducer_intents(intents);
-            }
-            GraphIntent::SetNodePinned { key, is_pinned } => {
-                self.set_node_pinned_and_log(key, is_pinned);
-            }
-            GraphIntent::TogglePrimaryNodePin => {
-                if let Some(key) = self.focused_selection().primary()
-                    && let Some(node) = self.workspace.domain.graph.get_node(key)
-                {
-                    self.apply_reducer_intents([GraphIntent::SetNodePinned {
-                        key,
-                        is_pinned: !node.is_pinned,
-                    }]);
-                }
-            }
-            GraphIntent::PromoteNodeToActive { key, cause } => {
-                self.promote_node_to_active_with_cause(key, cause);
-            }
-            GraphIntent::DemoteNodeToWarm { key, cause } => {
-                self.demote_node_to_warm_with_cause(key, cause);
-            }
-            GraphIntent::DemoteNodeToCold { key, cause } => {
-                self.demote_node_to_cold_with_cause(key, cause);
-            }
-            GraphIntent::MarkRuntimeBlocked {
-                key,
-                reason,
-                retry_at,
-            } => {
-                self.mark_runtime_blocked(key, reason, retry_at);
-            }
-            GraphIntent::ClearRuntimeBlocked { key, cause } => {
-                let _ = cause;
-                self.clear_runtime_blocked(key);
-            }
-            GraphIntent::MapWebviewToNode { webview_id, key } => {
-                self.map_webview_to_node(webview_id, key);
-            }
-            GraphIntent::UnmapWebview { webview_id } => {
-                let _ = self.unmap_webview(webview_id);
-            }
-            GraphIntent::WebViewCreated {
-                parent_webview_id,
-                child_webview_id,
-                initial_url,
-            } => {
-                self.handle_webview_created(parent_webview_id, child_webview_id, initial_url);
-            }
-            GraphIntent::WebViewUrlChanged {
-                webview_id,
-                new_url,
-            } => {
-                self.handle_webview_url_changed(webview_id, new_url);
-            }
-            GraphIntent::WebViewHistoryChanged {
-                webview_id,
-                entries,
-                current,
-            } => {
-                self.handle_webview_history_changed(webview_id, entries, current);
-            }
-            GraphIntent::WebViewScrollChanged {
-                webview_id,
-                scroll_x,
-                scroll_y,
-            } => {
-                self.handle_webview_scroll_changed(webview_id, scroll_x, scroll_y);
-            }
-            GraphIntent::WebViewTitleChanged { webview_id, title } => {
-                self.handle_webview_title_changed(webview_id, title);
-            }
-            GraphIntent::WebViewCrashed {
-                webview_id,
-                reason,
-                has_backtrace,
-            } => {
-                self.handle_webview_crashed(webview_id, reason, has_backtrace);
-            }
-            GraphIntent::TagNode { key, tag } => {
-                if self.workspace.domain.graph.get_node(key).is_some() {
-                    let trimmed = tag.trim();
-                    if trimmed.is_empty() {
-                        return;
-                    }
-
-                    let normalized_tag = if trimmed.starts_with('#') {
-                        trimmed.to_ascii_lowercase()
-                    } else {
-                        match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(
-                            trimmed,
-                        ) {
-                            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
-                                canonical_code,
-                                ..
-                            } => format!("udc:{canonical_code}"),
-                            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
-                            | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {
-                                trimmed.to_string()
-                            }
-                        }
-                    };
-
-                    if normalized_tag == Self::TAG_PIN {
-                        self.set_node_pinned_and_log(key, true);
-                    }
-
-                    if self
-                        .workspace
-                        .domain
-                        .graph
-                        .insert_node_tag(key, normalized_tag.clone())
-                    {
-                        self.workspace.semantic_index_dirty = true;
-                    }
-                    if let Some(suggestions) = self.workspace.suggested_semantic_tags.get_mut(&key)
-                    {
-                        suggestions.retain(|suggestion| suggestion != &normalized_tag);
-                        if suggestions.is_empty() {
-                            self.workspace.suggested_semantic_tags.remove(&key);
-                        }
-                    }
-                }
-            }
-            GraphIntent::UntagNode { key, tag } => {
-                if tag == Self::TAG_PIN {
-                    self.set_node_pinned_and_log(key, false);
-                }
-
-                if self.workspace.domain.graph.remove_node_tag(key, &tag) {
-                    self.workspace.semantic_index_dirty = true;
-                }
-            }
-            GraphIntent::SuggestNodeTags { key, suggestions } => {
-                if self.workspace.domain.graph.get_node(key).is_none() {
-                    return;
-                }
-
-                let existing_tags = self
-                    .workspace
-                    .domain
-                    .graph
-                    .node_tags(key)
-                    .cloned()
-                    .unwrap_or_default();
-                let mut normalized = BTreeSet::new();
-                for suggestion in suggestions {
-                    match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(
-                        &suggestion,
-                    ) {
-                        crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
-                            canonical_code,
-                            ..
-                        } => {
-                            let canonical = format!("udc:{canonical_code}");
-                            if !existing_tags.contains(&canonical) {
-                                normalized.insert(canonical);
-                            }
-                        }
-                        crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
-                        | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {}
-                    }
-                }
-
-                if normalized.is_empty() {
-                    self.workspace.suggested_semantic_tags.remove(&key);
-                } else {
-                    self.workspace
-                        .suggested_semantic_tags
-                        .insert(key, normalized.into_iter().collect());
-                }
-            }
-            GraphIntent::ClearHistoryTimeline
-            | GraphIntent::ClearHistoryDissolved
-            | GraphIntent::AutoCurateHistoryTimeline { .. }
-            | GraphIntent::AutoCurateHistoryDissolved { .. }
-            | GraphIntent::ExportHistoryTimeline
-            | GraphIntent::ExportHistoryDissolved
-            | GraphIntent::EnterHistoryTimelinePreview
-            | GraphIntent::ExitHistoryTimelinePreview
-            | GraphIntent::HistoryTimelinePreviewIsolationViolation { .. }
-            | GraphIntent::HistoryTimelineReplayStarted
-            | GraphIntent::HistoryTimelineReplaySetTotal { .. }
-            | GraphIntent::HistoryTimelineReplayAdvance { .. }
-            | GraphIntent::HistoryTimelineReplayReset
-            | GraphIntent::HistoryTimelineReplayProgress { .. }
-            | GraphIntent::HistoryTimelineReplayFinished { .. }
-            | GraphIntent::HistoryTimelineReturnToPresentFailed { .. } => {
-                self.apply_history_runtime_intent(intent)
-            }
-            GraphIntent::WorkflowActivated { .. } => {}
-            GraphIntent::PersistNostrSubscriptions => {
-                self.save_persisted_nostr_subscriptions();
-            }
-            GraphIntent::NostrEventReceived {
-                subscription_id,
-                event_id,
-                pubkey,
-                created_at,
-                kind,
-                content,
-                tags,
-            } => {
-                log::trace!(
-                    "nostr event received: sub={subscription_id} kind={kind} id={event_id} from={pubkey} at={created_at} content_len={} tags={}",
-                    content.len(),
-                    tags.len(),
-                );
-            }
-            GraphIntent::Noop => {}
-            GraphIntent::SetMemoryPressureStatus {
-                level,
-                available_mib,
-                total_mib,
-            } => {
-                self.set_memory_pressure_status(level, available_mib, total_mib);
-                crate::shell::desktop::runtime::registries::phase3_propagate_subsystem_health_memory_pressure(
-                    level,
-                    available_mib,
-                    total_mib,
-                );
-            }
-            GraphIntent::ModActivated { mod_id } => {
-                crate::shell::desktop::runtime::registries::phase3_route_mod_lifecycle_event(
-                    &mod_id, true,
-                );
-                log::info!("mod activated: {mod_id}");
-            }
-            GraphIntent::ModLoadFailed { mod_id, reason } => {
-                crate::shell::desktop::runtime::registries::phase3_route_mod_lifecycle_event(
-                    &mod_id, false,
-                );
-                log::warn!("mod load failed: {mod_id} ({reason})");
-            }
-            GraphIntent::ApplyRemoteDelta { entries } => {
-                // TODO: Phase 6.2 - sync integrated logic for applying peer log entries
-                log::debug!("peer log entries received: {} bytes", entries.len());
-            }
-            GraphIntent::SyncNow => {
-                match self.request_sync_all_trusted_peers(Self::SESSION_WORKSPACE_LAYOUT_NAME) {
-                    Ok(enqueued) => {
-                        log::info!("manual Verse sync queued for {} peer(s)", enqueued);
-                    }
-                    Err(error) => {
-                        log::warn!("manual Verse sync unavailable: {error}");
-                    }
-                }
-            }
-            GraphIntent::TrustPeer {
-                peer_id,
-                display_name,
-            } => match peer_id.parse::<iroh::NodeId>() {
-                Ok(node_id) => {
-                    crate::shell::desktop::runtime::registries::phase3_trust_peer(
-                        crate::mods::native::verse::TrustedPeer {
-                            node_id,
-                            display_name,
-                            role: crate::mods::native::verse::PeerRole::Friend,
-                            added_at: std::time::SystemTime::now(),
-                            last_seen: Some(std::time::SystemTime::now()),
-                            workspace_grants: Vec::new(),
-                        },
-                    );
-                    log::info!("paired trusted peer: {peer_id}");
-                }
-                Err(error) => {
-                    log::warn!("invalid peer id for trust-peer '{peer_id}': {error}");
-                }
-            },
-            GraphIntent::GrantWorkspaceAccess {
-                peer_id,
-                workspace_id,
-            } => match peer_id.parse::<iroh::NodeId>() {
-                Ok(node_id) => {
-                    crate::shell::desktop::runtime::registries::phase3_grant_workspace_access(
-                        node_id,
-                        &workspace_id,
-                        crate::mods::native::verse::AccessLevel::ReadWrite,
-                    );
-                    log::info!(
-                        "granting workspace access '{}' to peer {}",
-                        workspace_id,
-                        peer_id
-                    );
-                }
-                Err(error) => {
-                    log::warn!("invalid peer id for grant-workspace-access '{peer_id}': {error}");
-                }
-            },
-            GraphIntent::ForgetDevice { peer_id } => match peer_id.parse::<iroh::NodeId>() {
-                Ok(node_id) => {
-                    crate::shell::desktop::runtime::registries::phase3_revoke_peer(node_id);
-                    log::info!("forgetting device: {peer_id}");
-                }
-                Err(error) => {
-                    log::warn!("invalid peer id for forget-device '{peer_id}': {error}");
-                }
-            },
-            GraphIntent::RevokeWorkspaceAccess {
-                peer_id,
-                workspace_id,
-            } => match peer_id.parse::<iroh::NodeId>() {
-                Ok(node_id) => {
-                    crate::shell::desktop::runtime::registries::phase3_revoke_workspace_access(
-                        node_id,
-                        &workspace_id,
-                    );
-                    log::info!(
-                        "revoking workspace access '{}' for peer {}",
-                        workspace_id,
-                        peer_id
-                    );
-                }
-                Err(error) => {
-                    log::warn!("invalid peer id for revoke-workspace-access '{peer_id}': {error}");
-                }
-            },
-            GraphIntent::UpdateNodeMimeHint { key, mime_hint } => {
-                let node_id = self
-                    .workspace
-                    .domain
-                    .graph
-                    .get_node(key)
-                    .map(|node| node.id);
-                let GraphDeltaResult::NodeMetadataUpdated(updated) = self
-                    .apply_graph_delta_and_sync(GraphDelta::SetNodeMimeHint {
-                        key,
-                        mime_hint: mime_hint.clone(),
-                    })
-                else {
-                    unreachable!("mime hint delta must return NodeMetadataUpdated");
-                };
-                if updated
-                    && let Some(store) = &mut self.services.persistence
-                    && let Some(node_id) = node_id
-                {
-                    store.log_mutation(&LogEntry::UpdateNodeMimeHint {
-                        node_id: node_id.to_string(),
-                        mime_hint,
-                    });
-                }
-                if updated && let Some(node) = self.workspace.domain.graph.get_node(key) {
-                    crate::shell::desktop::runtime::registries::phase3_publish_navigation_mime_resolved(
-                        key,
-                        &node.url,
-                        node.mime_hint.as_deref(),
-                    );
-                }
-            }
-            GraphIntent::UpdateNodeAddressKind { key, kind } => {
-                let node_id = self
-                    .workspace
-                    .domain
-                    .graph
-                    .get_node(key)
-                    .map(|node| node.id);
-                let GraphDeltaResult::NodeMetadataUpdated(updated) =
-                    self.apply_graph_delta_and_sync(GraphDelta::SetNodeAddressKind { key, kind })
-                else {
-                    unreachable!("address kind delta must return NodeMetadataUpdated");
-                };
-                if updated
-                    && let Some(store) = &mut self.services.persistence
-                    && let Some(node_id) = node_id
-                {
-                    let persisted_kind = match kind {
-                        crate::graph::AddressKind::Http => {
-                            crate::services::persistence::types::PersistedAddressKind::Http
-                        }
-                        crate::graph::AddressKind::File => {
-                            crate::services::persistence::types::PersistedAddressKind::File
-                        }
-                        crate::graph::AddressKind::Custom => {
-                            crate::services::persistence::types::PersistedAddressKind::Custom
-                        }
-                    };
-                    store.log_mutation(&LogEntry::UpdateNodeAddressKind {
-                        node_id: node_id.to_string(),
-                        kind: persisted_kind,
-                    });
-                }
-            }
+        if self.handle_workbench_bridge_intent(&intent) {
+            return;
         }
+        if self.handle_runtime_lifecycle_intent(intent.clone()) {
+            return;
+        }
+        self.handle_domain_graph_intent(intent);
     }
 
     /// Check if it's time for a periodic snapshot
@@ -3289,9 +2446,9 @@ impl GraphBrowserApp {
             warn!("Failed to save frame layout '{name}': {e}");
         }
         if !Self::is_reserved_workspace_layout_name(name) {
-            self.workspace.current_workspace_is_synthesized = false;
-            self.workspace.workspace_has_unsaved_changes = false;
-            self.workspace.unsaved_workspace_prompt_warned = false;
+            self.workspace.workbench_session.current_workspace_is_synthesized = false;
+            self.workspace.workbench_session.workspace_has_unsaved_changes = false;
+            self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
         }
     }
 
@@ -3306,7 +2463,7 @@ impl GraphBrowserApp {
     }
 
     fn rotate_session_workspace_history(&mut self, latest_layout_before_overwrite: &str) {
-        let retention = self.workspace.workspace_autosave_retention;
+        let retention = self.workspace.workbench_session.workspace_autosave_retention;
         if retention == 0 {
             return;
         }
@@ -3328,11 +2485,11 @@ impl GraphBrowserApp {
     /// runtime `egui_tiles::Tree<TileKind>` JSON.
     pub fn save_session_workspace_layout_json_if_changed(&mut self, layout_json: &str) {
         let next_hash = Self::layout_json_hash(layout_json);
-        if self.workspace.last_session_workspace_layout_hash == Some(next_hash) {
+        if self.workspace.workbench_session.last_session_workspace_layout_hash == Some(next_hash) {
             return;
         }
-        if let Some(last_at) = self.workspace.last_workspace_autosave_at
-            && last_at.elapsed() < self.workspace.workspace_autosave_interval
+        if let Some(last_at) = self.workspace.workbench_session.last_workspace_autosave_at
+            && last_at.elapsed() < self.workspace.workbench_session.workspace_autosave_interval
         {
             return;
         }
@@ -3341,17 +2498,17 @@ impl GraphBrowserApp {
         if let Some(previous_latest) = previous_latest {
             self.rotate_session_workspace_history(&previous_latest);
         }
-        self.workspace.last_session_workspace_layout_hash = Some(next_hash);
-        self.workspace.last_session_workspace_layout_json = Some(layout_json.to_string());
-        self.workspace.last_workspace_autosave_at = Some(Instant::now());
+        self.workspace.workbench_session.last_session_workspace_layout_hash = Some(next_hash);
+        self.workspace.workbench_session.last_session_workspace_layout_json = Some(layout_json.to_string());
+        self.workspace.workbench_session.last_workspace_autosave_at = Some(Instant::now());
     }
 
     /// Mark currently loaded layout as session baseline to suppress redundant writes.
     pub fn mark_session_workspace_layout_json(&mut self, layout_json: &str) {
-        self.workspace.last_session_workspace_layout_hash =
+        self.workspace.workbench_session.last_session_workspace_layout_hash =
             Some(Self::layout_json_hash(layout_json));
-        self.workspace.last_session_workspace_layout_json = Some(layout_json.to_string());
-        self.workspace.last_workspace_autosave_at = Some(Instant::now());
+        self.workspace.workbench_session.last_session_workspace_layout_json = Some(layout_json.to_string());
+        self.workspace.workbench_session.last_workspace_autosave_at = Some(Instant::now());
     }
 
     /// Mark currently loaded layout as session baseline to suppress redundant writes.
@@ -3360,7 +2517,7 @@ impl GraphBrowserApp {
     }
 
     pub fn last_session_workspace_layout_json(&self) -> Option<&str> {
-        self.workspace.last_session_workspace_layout_json.as_deref()
+        self.workspace.workbench_session.last_session_workspace_layout_json.as_deref()
     }
 
     /// Load serialized tile layout JSON by workspace name.
@@ -3411,55 +2568,55 @@ impl GraphBrowserApp {
     }
 
     pub fn set_toast_anchor_preference(&mut self, preference: ToastAnchorPreference) {
-        self.workspace.toast_anchor_preference = preference;
+        self.workspace.chrome_ui.toast_anchor_preference = preference;
         self.save_toast_anchor_preference();
     }
 
     fn save_toast_anchor_preference(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_TOAST_ANCHOR_NAME,
-            &self.workspace.toast_anchor_preference.to_string(),
+            &self.workspace.chrome_ui.toast_anchor_preference.to_string(),
         );
     }
 
     pub fn set_command_palette_shortcut(&mut self, shortcut: CommandPaletteShortcut) {
-        self.workspace.command_palette_shortcut = shortcut;
+        self.workspace.chrome_ui.command_palette_shortcut = shortcut;
         self.save_command_palette_shortcut();
     }
 
     fn save_command_palette_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME,
-            &self.workspace.command_palette_shortcut.to_string(),
+            &self.workspace.chrome_ui.command_palette_shortcut.to_string(),
         );
     }
 
     pub fn set_help_panel_shortcut(&mut self, shortcut: HelpPanelShortcut) {
-        self.workspace.help_panel_shortcut = shortcut;
+        self.workspace.chrome_ui.help_panel_shortcut = shortcut;
         self.save_help_panel_shortcut();
     }
 
     fn save_help_panel_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME,
-            &self.workspace.help_panel_shortcut.to_string(),
+            &self.workspace.chrome_ui.help_panel_shortcut.to_string(),
         );
     }
 
     pub fn set_radial_menu_shortcut(&mut self, shortcut: RadialMenuShortcut) {
-        self.workspace.radial_menu_shortcut = shortcut;
+        self.workspace.chrome_ui.radial_menu_shortcut = shortcut;
         self.save_radial_menu_shortcut();
     }
 
     pub fn context_command_surface_preference(&self) -> ContextCommandSurfacePreference {
-        self.workspace.context_command_surface_preference
+        self.workspace.chrome_ui.context_command_surface_preference
     }
 
     pub fn set_context_command_surface_preference(
         &mut self,
         preference: ContextCommandSurfacePreference,
     ) {
-        self.workspace.context_command_surface_preference = preference;
+        self.workspace.chrome_ui.context_command_surface_preference = preference;
         self.save_context_command_surface_preference();
     }
 
@@ -3472,7 +2629,7 @@ impl GraphBrowserApp {
 
     pub fn set_keyboard_pan_step(&mut self, step: f32) {
         let normalized = step.clamp(1.0, 200.0);
-        self.workspace.keyboard_pan_step = normalized;
+        self.workspace.chrome_ui.keyboard_pan_step = normalized;
         crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
             normalized,
         );
@@ -3480,30 +2637,30 @@ impl GraphBrowserApp {
     }
 
     pub fn keyboard_pan_input_mode(&self) -> KeyboardPanInputMode {
-        self.workspace.keyboard_pan_input_mode
+        self.workspace.chrome_ui.keyboard_pan_input_mode
     }
 
     pub fn set_keyboard_pan_input_mode(&mut self, mode: KeyboardPanInputMode) {
-        self.workspace.keyboard_pan_input_mode = mode;
+        self.workspace.chrome_ui.keyboard_pan_input_mode = mode;
         self.save_keyboard_pan_input_mode();
     }
 
     pub fn camera_pan_inertia_enabled(&self) -> bool {
-        self.workspace.camera_pan_inertia_enabled
+        self.workspace.chrome_ui.camera_pan_inertia_enabled
     }
 
     pub fn set_camera_pan_inertia_enabled(&mut self, enabled: bool) {
-        self.workspace.camera_pan_inertia_enabled = enabled;
+        self.workspace.chrome_ui.camera_pan_inertia_enabled = enabled;
         self.save_camera_pan_inertia_enabled();
     }
 
     pub fn camera_pan_inertia_damping(&self) -> f32 {
-        self.workspace.camera_pan_inertia_damping
+        self.workspace.chrome_ui.camera_pan_inertia_damping
     }
 
     pub fn set_camera_pan_inertia_damping(&mut self, damping: f32) {
         let normalized = damping.clamp(0.70, 0.99);
-        self.workspace.camera_pan_inertia_damping = normalized;
+        self.workspace.chrome_ui.camera_pan_inertia_damping = normalized;
         self.save_camera_pan_inertia_damping();
     }
 
@@ -3515,7 +2672,7 @@ impl GraphBrowserApp {
     }
 
     pub fn set_lasso_binding_preference(&mut self, binding: CanvasLassoBinding) {
-        self.workspace.lasso_binding_preference = binding;
+        self.workspace.chrome_ui.lasso_binding_preference = binding;
         crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(binding);
         self.save_lasso_binding_preference();
     }
@@ -3592,7 +2749,7 @@ impl GraphBrowserApp {
     fn save_radial_menu_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME,
-            &self.workspace.radial_menu_shortcut.to_string(),
+            &self.workspace.chrome_ui.radial_menu_shortcut.to_string(),
         );
     }
 
@@ -3601,6 +2758,7 @@ impl GraphBrowserApp {
             Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME,
             &self
                 .workspace
+                .chrome_ui
                 .context_command_surface_preference
                 .to_string(),
         );
@@ -3609,21 +2767,21 @@ impl GraphBrowserApp {
     fn save_keyboard_pan_step(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_KEYBOARD_PAN_STEP_NAME,
-            &format!("{:.3}", self.workspace.keyboard_pan_step),
+            &format!("{:.3}", self.workspace.chrome_ui.keyboard_pan_step),
         );
     }
 
     fn save_keyboard_pan_input_mode(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME,
-            &self.workspace.keyboard_pan_input_mode.to_string(),
+            &self.workspace.chrome_ui.keyboard_pan_input_mode.to_string(),
         );
     }
 
     fn save_camera_pan_inertia_enabled(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME,
-            if self.workspace.camera_pan_inertia_enabled {
+            if self.workspace.chrome_ui.camera_pan_inertia_enabled {
                 "true"
             } else {
                 "false"
@@ -3634,14 +2792,14 @@ impl GraphBrowserApp {
     fn save_camera_pan_inertia_damping(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME,
-            &format!("{:.3}", self.workspace.camera_pan_inertia_damping),
+            &format!("{:.3}", self.workspace.chrome_ui.camera_pan_inertia_damping),
         );
     }
 
     fn save_lasso_binding_preference(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_LASSO_BINDING_NAME,
-            &self.workspace.lasso_binding_preference.to_string(),
+            &self.workspace.chrome_ui.lasso_binding_preference.to_string(),
         );
     }
 
@@ -3751,42 +2909,42 @@ impl GraphBrowserApp {
     }
 
     pub fn set_omnibar_preferred_scope(&mut self, scope: OmnibarPreferredScope) {
-        self.workspace.omnibar_preferred_scope = scope;
+        self.workspace.chrome_ui.omnibar_preferred_scope = scope;
         self.save_omnibar_preferred_scope();
     }
 
     fn save_omnibar_preferred_scope(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME,
-            &self.workspace.omnibar_preferred_scope.to_string(),
+            &self.workspace.chrome_ui.omnibar_preferred_scope.to_string(),
         );
     }
 
     pub fn set_omnibar_non_at_order(&mut self, order: OmnibarNonAtOrderPreset) {
-        self.workspace.omnibar_non_at_order = order;
+        self.workspace.chrome_ui.omnibar_non_at_order = order;
         self.save_omnibar_non_at_order();
     }
 
     fn save_omnibar_non_at_order(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME,
-            &self.workspace.omnibar_non_at_order.to_string(),
+            &self.workspace.chrome_ui.omnibar_non_at_order.to_string(),
         );
     }
 
     pub fn wry_enabled(&self) -> bool {
-        self.workspace.wry_enabled
+        self.workspace.chrome_ui.wry_enabled
     }
 
     pub fn set_wry_enabled(&mut self, enabled: bool) {
-        self.workspace.wry_enabled = enabled;
+        self.workspace.chrome_ui.wry_enabled = enabled;
         self.save_wry_enabled();
     }
 
     fn save_wry_enabled(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_WRY_ENABLED_NAME,
-            if self.workspace.wry_enabled {
+            if self.workspace.chrome_ui.wry_enabled {
                 "true"
             } else {
                 "false"
@@ -3796,7 +2954,7 @@ impl GraphBrowserApp {
 
     pub fn set_default_registry_lens_id(&mut self, lens_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(lens_id.map(str::to_owned));
-        self.workspace.default_registry_lens_id = normalized.clone();
+        self.workspace.chrome_ui.default_registry_lens_id = normalized.clone();
         self.save_workspace_layout_json(
             Self::SETTINGS_REGISTRY_LENS_ID_NAME,
             normalized.as_deref().unwrap_or(""),
@@ -3805,7 +2963,7 @@ impl GraphBrowserApp {
 
     pub fn set_default_registry_physics_id(&mut self, physics_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(physics_id.map(str::to_owned));
-        self.workspace.default_registry_physics_id = normalized.clone();
+        self.workspace.chrome_ui.default_registry_physics_id = normalized.clone();
         let resolution =
             crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
                 normalized
@@ -3825,7 +2983,7 @@ impl GraphBrowserApp {
             crate::shell::desktop::runtime::registries::phase3_set_active_theme(requested)
                 .resolved_id
         });
-        self.workspace.default_registry_theme_id = persisted.clone();
+        self.workspace.chrome_ui.default_registry_theme_id = persisted.clone();
         self.save_workspace_layout_json(
             Self::SETTINGS_REGISTRY_THEME_ID_NAME,
             persisted.as_deref().unwrap_or(""),
@@ -3833,15 +2991,15 @@ impl GraphBrowserApp {
     }
 
     pub fn default_registry_lens_id(&self) -> Option<&str> {
-        self.workspace.default_registry_lens_id.as_deref()
+        self.workspace.chrome_ui.default_registry_lens_id.as_deref()
     }
 
     pub fn default_registry_physics_id(&self) -> Option<&str> {
-        self.workspace.default_registry_physics_id.as_deref()
+        self.workspace.chrome_ui.default_registry_physics_id.as_deref()
     }
 
     pub fn default_registry_theme_id(&self) -> Option<&str> {
-        self.workspace.default_registry_theme_id.as_deref()
+        self.workspace.chrome_ui.default_registry_theme_id.as_deref()
     }
 
     pub fn set_diagnostics_channel_config(&mut self, channel_id: &str, config: &ChannelConfig) {
@@ -3883,7 +3041,7 @@ impl GraphBrowserApp {
             return self.load_additional_persisted_ui_settings();
         };
         if let Ok(preference) = raw.parse::<ToastAnchorPreference>() {
-            self.workspace.toast_anchor_preference = preference;
+            self.workspace.chrome_ui.toast_anchor_preference = preference;
         } else {
             warn!("Ignoring invalid persisted toast anchor preference: '{raw}'");
         }
@@ -3895,7 +3053,7 @@ impl GraphBrowserApp {
             self.load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME)
         {
             if let Ok(shortcut) = raw.parse::<CommandPaletteShortcut>() {
-                self.workspace.command_palette_shortcut = shortcut;
+                self.workspace.chrome_ui.command_palette_shortcut = shortcut;
             } else {
                 warn!("Ignoring invalid persisted command-palette shortcut: '{raw}'");
             }
@@ -3903,7 +3061,7 @@ impl GraphBrowserApp {
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME)
         {
             if let Ok(shortcut) = raw.parse::<HelpPanelShortcut>() {
-                self.workspace.help_panel_shortcut = shortcut;
+                self.workspace.chrome_ui.help_panel_shortcut = shortcut;
             } else {
                 warn!("Ignoring invalid persisted help-panel shortcut: '{raw}'");
             }
@@ -3911,7 +3069,7 @@ impl GraphBrowserApp {
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME)
         {
             if let Ok(shortcut) = raw.parse::<RadialMenuShortcut>() {
-                self.workspace.radial_menu_shortcut = shortcut;
+                self.workspace.chrome_ui.radial_menu_shortcut = shortcut;
             } else {
                 warn!("Ignoring invalid persisted radial-menu shortcut: '{raw}'");
             }
@@ -3920,14 +3078,14 @@ impl GraphBrowserApp {
             self.load_workspace_layout_json(Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME)
         {
             if let Ok(preference) = raw.parse::<ContextCommandSurfacePreference>() {
-                self.workspace.context_command_surface_preference = preference;
+                self.workspace.chrome_ui.context_command_surface_preference = preference;
             } else {
                 warn!("Ignoring invalid persisted context-command surface preference: '{raw}'");
             }
         }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_STEP_NAME) {
             if let Ok(step) = raw.trim().parse::<f32>() {
-                self.workspace.keyboard_pan_step = step.clamp(1.0, 200.0);
+                self.workspace.chrome_ui.keyboard_pan_step = step.clamp(1.0, 200.0);
             } else {
                 warn!("Ignoring invalid persisted keyboard pan step: '{raw}'");
             }
@@ -3936,7 +3094,7 @@ impl GraphBrowserApp {
             self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME)
         {
             if let Ok(mode) = raw.parse::<KeyboardPanInputMode>() {
-                self.workspace.keyboard_pan_input_mode = mode;
+                self.workspace.chrome_ui.keyboard_pan_input_mode = mode;
             } else {
                 warn!("Ignoring invalid persisted keyboard pan input mode: '{raw}'");
             }
@@ -3945,8 +3103,8 @@ impl GraphBrowserApp {
             self.load_workspace_layout_json(Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME)
         {
             match raw.trim().to_ascii_lowercase().as_str() {
-                "true" | "1" | "yes" | "on" => self.workspace.camera_pan_inertia_enabled = true,
-                "false" | "0" | "no" | "off" => self.workspace.camera_pan_inertia_enabled = false,
+                "true" | "1" | "yes" | "on" => self.workspace.chrome_ui.camera_pan_inertia_enabled = true,
+                "false" | "0" | "no" | "off" => self.workspace.chrome_ui.camera_pan_inertia_enabled = false,
                 _ => warn!("Ignoring invalid persisted camera pan inertia enabled flag: '{raw}'"),
             }
         }
@@ -3954,14 +3112,14 @@ impl GraphBrowserApp {
             self.load_workspace_layout_json(Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME)
         {
             if let Ok(damping) = raw.trim().parse::<f32>() {
-                self.workspace.camera_pan_inertia_damping = damping.clamp(0.70, 0.99);
+                self.workspace.chrome_ui.camera_pan_inertia_damping = damping.clamp(0.70, 0.99);
             } else {
                 warn!("Ignoring invalid persisted camera pan inertia damping: '{raw}'");
             }
         }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_LASSO_BINDING_NAME) {
             if let Ok(binding) = raw.parse::<CanvasLassoBinding>() {
-                self.workspace.lasso_binding_preference = binding;
+                self.workspace.chrome_ui.lasso_binding_preference = binding;
             } else {
                 warn!("Ignoring invalid persisted lasso binding preference: '{raw}'");
             }
@@ -3971,7 +3129,7 @@ impl GraphBrowserApp {
             self.load_workspace_layout_json(Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME)
         {
             if let Ok(scope) = raw.parse::<OmnibarPreferredScope>() {
-                self.workspace.omnibar_preferred_scope = scope;
+                self.workspace.chrome_ui.omnibar_preferred_scope = scope;
             } else {
                 warn!("Ignoring invalid persisted omnibar preferred scope: '{raw}'");
             }
@@ -3979,34 +3137,34 @@ impl GraphBrowserApp {
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME)
         {
             if let Ok(order) = raw.parse::<OmnibarNonAtOrderPreset>() {
-                self.workspace.omnibar_non_at_order = order;
+                self.workspace.chrome_ui.omnibar_non_at_order = order;
             } else {
                 warn!("Ignoring invalid persisted omnibar non-@ order preset: '{raw}'");
             }
         }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_WRY_ENABLED_NAME) {
             match raw.trim().to_ascii_lowercase().as_str() {
-                "true" | "1" | "yes" | "on" => self.workspace.wry_enabled = true,
-                "false" | "0" | "no" | "off" => self.workspace.wry_enabled = false,
+                "true" | "1" | "yes" | "on" => self.workspace.chrome_ui.wry_enabled = true,
+                "false" | "0" | "no" | "off" => self.workspace.chrome_ui.wry_enabled = false,
                 _ => warn!("Ignoring invalid persisted wry enabled flag: '{raw}'"),
             }
         }
-        self.workspace.default_registry_lens_id = self
+        self.workspace.chrome_ui.default_registry_lens_id = self
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_LENS_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
-        self.workspace.default_registry_physics_id = self
+        self.workspace.chrome_ui.default_registry_physics_id = self
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_PHYSICS_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
-        self.workspace.default_registry_theme_id = self
+        self.workspace.chrome_ui.default_registry_theme_id = self
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
-        if let Some(theme_id) = self.workspace.default_registry_theme_id.as_deref() {
+        if let Some(theme_id) = self.workspace.chrome_ui.default_registry_theme_id.as_deref() {
             let resolution =
                 crate::shell::desktop::runtime::registries::phase3_set_active_theme(theme_id);
-            self.workspace.default_registry_theme_id = Some(resolution.resolved_id);
+            self.workspace.chrome_ui.default_registry_theme_id = Some(resolution.resolved_id);
         }
         let canvas_profile_id = self
             .load_workspace_layout_json(Self::SETTINGS_CANVAS_PROFILE_ID_NAME)
@@ -4020,7 +3178,7 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME)
             .map(|raw| raw.trim().to_ascii_lowercase())
             .filter(|raw| !raw.is_empty());
-        if let Some(physics_id) = self.workspace.default_registry_physics_id.as_deref() {
+        if let Some(physics_id) = self.workspace.chrome_ui.default_registry_physics_id.as_deref() {
             let resolution =
                 crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
                     physics_id,
@@ -4043,10 +3201,10 @@ impl GraphBrowserApp {
             );
         }
         crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
-            self.workspace.keyboard_pan_step,
+            self.workspace.chrome_ui.keyboard_pan_step,
         );
         crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
-            self.workspace.lasso_binding_preference,
+            self.workspace.chrome_ui.lasso_binding_preference,
         );
         if let Some(profile_id) = workbench_surface_profile_id.as_deref() {
             crate::shell::desktop::runtime::registries::phase3_set_active_workbench_surface_profile(
@@ -4062,10 +3220,10 @@ impl GraphBrowserApp {
             warn!("Ignoring invalid persisted workflow activation '{workflow_id}': {error:?}");
         }
         crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
-            self.workspace.keyboard_pan_step,
+            self.workspace.chrome_ui.keyboard_pan_step,
         );
         crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
-            self.workspace.lasso_binding_preference,
+            self.workspace.chrome_ui.lasso_binding_preference,
         );
         self.load_persisted_nostr_signer_settings();
         self.load_persisted_nostr_nip07_permissions();
@@ -4122,7 +3280,7 @@ impl GraphBrowserApp {
 
     fn with_registry_lens_defaults(&self, mut lens: LensConfig) -> LensConfig {
         if lens.lens_id.is_none() {
-            lens.lens_id = self.workspace.default_registry_lens_id.clone();
+            lens.lens_id = self.workspace.chrome_ui.default_registry_lens_id.clone();
         }
         lens
     }
@@ -4140,15 +3298,17 @@ impl GraphBrowserApp {
             .map_err(|e| e.to_string())?;
         self.remove_named_workbench_frame_graph_representation(name);
         self.workspace
+            .workbench_session
             .node_last_active_workspace
             .retain(|_, (_, workspace_name)| workspace_name != name);
-        for memberships in self.workspace.node_workspace_membership.values_mut() {
+        for memberships in self.workspace.workbench_session.node_workspace_membership.values_mut() {
             memberships.remove(name);
         }
         self.workspace
+            .workbench_session
             .node_workspace_membership
             .retain(|_, memberships| !memberships.is_empty());
-        self.workspace.egui_state_dirty = true;
+        self.workspace.graph_runtime.egui_state_dirty = true;
         Ok(())
     }
 
@@ -4166,56 +3326,56 @@ impl GraphBrowserApp {
         for name in names_to_delete {
             let _ = store.delete_workspace_layout(&name);
         }
-        self.workspace.last_session_workspace_layout_hash = None;
-        self.workspace.last_session_workspace_layout_json = None;
-        self.workspace.last_workspace_autosave_at = None;
+        self.workspace.workbench_session.last_session_workspace_layout_hash = None;
+        self.workspace.workbench_session.last_session_workspace_layout_json = None;
+        self.workspace.workbench_session.last_workspace_autosave_at = None;
         Ok(())
     }
 
     pub fn workspace_autosave_interval_secs(&self) -> u64 {
-        self.workspace.workspace_autosave_interval.as_secs()
+        self.workspace.workbench_session.workspace_autosave_interval.as_secs()
     }
 
     pub fn set_workspace_autosave_interval_secs(&mut self, secs: u64) -> Result<(), String> {
         if secs == 0 {
             return Err("Workspace autosave interval must be greater than zero".to_string());
         }
-        self.workspace.workspace_autosave_interval = Duration::from_secs(secs);
+        self.workspace.workbench_session.workspace_autosave_interval = Duration::from_secs(secs);
         Ok(())
     }
 
     pub fn workspace_autosave_retention(&self) -> u8 {
-        self.workspace.workspace_autosave_retention
+        self.workspace.workbench_session.workspace_autosave_retention
     }
 
     pub fn set_workspace_autosave_retention(&mut self, count: u8) -> Result<(), String> {
         if count > 5 {
             return Err("Workspace autosave retention must be between 0 and 5".to_string());
         }
-        if count < self.workspace.workspace_autosave_retention
+        if count < self.workspace.workbench_session.workspace_autosave_retention
             && let Some(store) = self.services.persistence.as_mut()
         {
             for idx in (count + 1)..=5 {
                 let _ = store.delete_workspace_layout(&Self::session_workspace_history_key(idx));
             }
         }
-        self.workspace.workspace_autosave_retention = count;
+        self.workspace.workbench_session.workspace_autosave_retention = count;
         Ok(())
     }
 
     /// Whether the current frame has unsaved graph changes.
     pub fn should_prompt_unsaved_workspace_save(&self) -> bool {
-        self.workspace.workspace_has_unsaved_changes
+        self.workspace.workbench_session.workspace_has_unsaved_changes
     }
 
     /// Returns true once per unsaved-changes episode to enable one-shot warnings.
     pub fn consume_unsaved_workspace_prompt_warning(&mut self) -> bool {
         if !self.should_prompt_unsaved_workspace_save()
-            || self.workspace.unsaved_workspace_prompt_warned
+            || self.workspace.workbench_session.unsaved_workspace_prompt_warned
         {
             return false;
         }
-        self.workspace.unsaved_workspace_prompt_warned = true;
+        self.workspace.workbench_session.unsaved_workspace_prompt_warned = true;
         true
     }
 
@@ -4285,38 +3445,38 @@ impl GraphBrowserApp {
     fn apply_loaded_graph(&mut self, graph: Graph) {
         self.workspace.domain.graph = graph;
         self.reset_selection_state();
-        self.workspace.webview_to_node.clear();
-        self.workspace.node_to_webview.clear();
-        self.workspace.active_lru.clear();
-        self.workspace.warm_cache_lru.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.active_webview_nodes.clear();
-        self.workspace.pending_app_commands.clear();
-        self.workspace.pending_host_create_tokens.clear();
+        self.workspace.graph_runtime.webview_to_node.clear();
+        self.workspace.graph_runtime.node_to_webview.clear();
+        self.workspace.graph_runtime.active_lru.clear();
+        self.workspace.graph_runtime.warm_cache_lru.clear();
+        self.workspace.graph_runtime.runtime_block_state.clear();
+        self.workspace.graph_runtime.active_webview_nodes.clear();
+        self.workspace.workbench_session.pending_app_commands.clear();
+        self.workspace.workbench_session.pending_host_create_tokens.clear();
         self.clear_choose_frame_picker();
         self.set_pending_camera_command(None, Some(CameraCommand::Fit));
         self.clear_pending_wheel_zoom_delta();
-        self.workspace.node_workspace_membership.clear();
-        self.workspace.views.clear();
-        self.workspace.graph_view_frames.clear();
+        self.workspace.workbench_session.node_workspace_membership.clear();
+        self.workspace.graph_runtime.views.clear();
+        self.workspace.graph_runtime.graph_view_frames.clear();
         self.workspace.domain.notes.clear();
         self.set_workspace_focused_view_with_transition(None);
-        self.workspace.current_workspace_is_synthesized = false;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
+        self.workspace.workbench_session.current_workspace_is_synthesized = false;
+        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
+        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
         self.workspace.domain.next_placeholder_id =
             Self::scan_max_placeholder_id(&self.workspace.domain.graph);
-        self.workspace.egui_state = None;
-        self.workspace.egui_state_dirty = true;
-        self.workspace.semantic_index.clear();
-        self.workspace.semantic_index_dirty = true;
-        self.workspace.active_graph_search_query.clear();
-        self.workspace.active_graph_search_match_count = 0;
-        self.workspace.active_graph_search_origin = GraphSearchOrigin::Manual;
-        self.workspace.active_graph_search_neighborhood_anchor = None;
-        self.workspace.active_graph_search_neighborhood_depth = 1;
-        self.workspace.graph_search_history.clear();
-        self.workspace.pinned_graph_search = None;
+        self.workspace.graph_runtime.egui_state = None;
+        self.workspace.graph_runtime.egui_state_dirty = true;
+        self.workspace.graph_runtime.semantic_index.clear();
+        self.workspace.graph_runtime.semantic_index_dirty = true;
+        self.workspace.graph_runtime.active_graph_search_query.clear();
+        self.workspace.graph_runtime.active_graph_search_match_count = 0;
+        self.workspace.graph_runtime.active_graph_search_origin = GraphSearchOrigin::Manual;
+        self.workspace.graph_runtime.active_graph_search_neighborhood_anchor = None;
+        self.workspace.graph_runtime.active_graph_search_neighborhood_depth = 1;
+        self.workspace.graph_runtime.graph_search_history.clear();
+        self.workspace.graph_runtime.pinned_graph_search = None;
     }
 
     /// List named full-graph snapshots.
@@ -4347,94 +3507,95 @@ impl GraphBrowserApp {
         self.workspace.domain.graph = graph;
         self.services.persistence = Some(store);
         self.reset_selection_state();
-        self.workspace.webview_to_node.clear();
-        self.workspace.node_to_webview.clear();
-        self.workspace.active_lru.clear();
-        self.workspace.warm_cache_lru.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.active_webview_nodes.clear();
-        self.workspace.pending_app_commands.clear();
+        self.workspace.graph_runtime.webview_to_node.clear();
+        self.workspace.graph_runtime.node_to_webview.clear();
+        self.workspace.graph_runtime.active_lru.clear();
+        self.workspace.graph_runtime.warm_cache_lru.clear();
+        self.workspace.graph_runtime.runtime_block_state.clear();
+        self.workspace.graph_runtime.active_webview_nodes.clear();
+        self.workspace.workbench_session.pending_app_commands.clear();
         self.clear_choose_frame_picker();
         self.set_pending_camera_command(None, Some(CameraCommand::Fit));
         self.clear_pending_wheel_zoom_delta();
         self.workspace.domain.notes.clear();
-        self.workspace.views.clear();
-        self.workspace.graph_view_frames.clear();
+        self.workspace.graph_runtime.views.clear();
+        self.workspace.graph_runtime.graph_view_frames.clear();
         self.set_workspace_focused_view_with_transition(None);
         self.workspace.domain.next_placeholder_id = next_placeholder_id;
-        self.workspace.egui_state = None;
-        self.workspace.egui_state_dirty = true;
-        self.workspace.semantic_index.clear();
-        self.workspace.semantic_index_dirty = true;
-        self.workspace.active_graph_search_query.clear();
-        self.workspace.active_graph_search_match_count = 0;
-        self.workspace.active_graph_search_origin = GraphSearchOrigin::Manual;
-        self.workspace.active_graph_search_neighborhood_anchor = None;
-        self.workspace.active_graph_search_neighborhood_depth = 1;
-        self.workspace.graph_search_history.clear();
-        self.workspace.pinned_graph_search = None;
-        self.workspace.last_session_workspace_layout_hash = None;
-        self.workspace.last_session_workspace_layout_json = None;
-        self.workspace.last_workspace_autosave_at = None;
-        self.workspace.workspace_activation_seq = 0;
-        self.workspace.node_last_active_workspace.clear();
-        self.workspace.node_workspace_membership.clear();
-        self.workspace.current_workspace_is_synthesized = false;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
-        self.workspace.is_interacting = false;
-        self.workspace.physics_running_before_interaction = None;
-        self.workspace.toast_anchor_preference = ToastAnchorPreference::BottomRight;
-        self.workspace.command_palette_shortcut = CommandPaletteShortcut::F2;
-        self.workspace.help_panel_shortcut = HelpPanelShortcut::F1OrQuestion;
-        self.workspace.radial_menu_shortcut = RadialMenuShortcut::F3;
-        self.workspace.omnibar_preferred_scope = OmnibarPreferredScope::Auto;
-        self.workspace.omnibar_non_at_order =
+        self.workspace.graph_runtime.egui_state = None;
+        self.workspace.graph_runtime.egui_state_dirty = true;
+        self.workspace.graph_runtime.semantic_index.clear();
+        self.workspace.graph_runtime.semantic_index_dirty = true;
+        self.workspace.graph_runtime.active_graph_search_query.clear();
+        self.workspace.graph_runtime.active_graph_search_match_count = 0;
+        self.workspace.graph_runtime.active_graph_search_origin = GraphSearchOrigin::Manual;
+        self.workspace.graph_runtime.active_graph_search_neighborhood_anchor = None;
+        self.workspace.graph_runtime.active_graph_search_neighborhood_depth = 1;
+        self.workspace.graph_runtime.graph_search_history.clear();
+        self.workspace.graph_runtime.pinned_graph_search = None;
+        self.workspace.workbench_session.last_session_workspace_layout_hash = None;
+        self.workspace.workbench_session.last_session_workspace_layout_json = None;
+        self.workspace.workbench_session.last_workspace_autosave_at = None;
+        self.workspace.workbench_session.workspace_activation_seq = 0;
+        self.workspace.workbench_session.node_last_active_workspace.clear();
+        self.workspace.workbench_session.node_workspace_membership.clear();
+        self.workspace.workbench_session.current_workspace_is_synthesized = false;
+        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
+        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+        self.workspace.graph_runtime.is_interacting = false;
+        self.workspace.graph_runtime.physics_running_before_interaction = None;
+        self.workspace.chrome_ui.toast_anchor_preference = ToastAnchorPreference::BottomRight;
+        self.workspace.chrome_ui.command_palette_shortcut = CommandPaletteShortcut::F2;
+        self.workspace.chrome_ui.help_panel_shortcut = HelpPanelShortcut::F1OrQuestion;
+        self.workspace.chrome_ui.radial_menu_shortcut = RadialMenuShortcut::F3;
+        self.workspace.chrome_ui.omnibar_preferred_scope = OmnibarPreferredScope::Auto;
+        self.workspace.chrome_ui.omnibar_non_at_order =
             OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal;
-        self.workspace.wry_enabled = false;
-        self.workspace.selected_tab_nodes.clear();
-        self.workspace.tab_selection_anchor = None;
+        self.workspace.chrome_ui.wry_enabled = false;
+        self.workspace.graph_runtime.selected_tab_nodes.clear();
+        self.workspace.graph_runtime.tab_selection_anchor = None;
         self.load_persisted_ui_settings();
         Ok(())
     }
 
     /// Toggle force-directed layout simulation.
     pub fn toggle_physics(&mut self) {
-        if self.workspace.is_interacting {
+        if self.workspace.graph_runtime.is_interacting {
             let next = !self
                 .workspace
+                .graph_runtime
                 .physics_running_before_interaction
-                .unwrap_or(self.workspace.physics.base.is_running);
-            self.workspace.physics_running_before_interaction = Some(next);
-            self.workspace.drag_release_frames_remaining = 0;
+                .unwrap_or(self.workspace.graph_runtime.physics.base.is_running);
+            self.workspace.graph_runtime.physics_running_before_interaction = Some(next);
+            self.workspace.graph_runtime.drag_release_frames_remaining = 0;
             return;
         }
-        self.workspace.physics.base.is_running = !self.workspace.physics.base.is_running;
-        self.workspace.drag_release_frames_remaining = 0;
+        self.workspace.graph_runtime.physics.base.is_running = !self.workspace.graph_runtime.physics.base.is_running;
+        self.workspace.graph_runtime.drag_release_frames_remaining = 0;
     }
 
     /// Update force-directed layout configuration.
     pub fn update_physics_config(&mut self, config: GraphPhysicsState) {
-        self.workspace.physics = config;
+        self.workspace.graph_runtime.physics = config;
     }
 
     fn apply_physics_profile(&mut self, profile: &PhysicsProfile) {
-        let was_running = self.workspace.physics.base.is_running;
+        let was_running = self.workspace.graph_runtime.physics.base.is_running;
         let mut config = Self::default_physics_state();
         profile.apply_to_state(&mut config);
-        config.base.is_running = was_running || !self.workspace.is_interacting;
+        config.base.is_running = was_running || !self.workspace.graph_runtime.is_interacting;
         config.base.last_avg_displacement = None;
         config.base.step_count = 0;
-        self.workspace.physics = config;
-        self.workspace.drag_release_frames_remaining = 0;
+        self.workspace.graph_runtime.physics = config;
+        self.workspace.graph_runtime.drag_release_frames_remaining = 0;
 
-        if self.workspace.is_interacting {
-            self.workspace.physics_running_before_interaction = Some(true);
+        if self.workspace.graph_runtime.is_interacting {
+            self.workspace.graph_runtime.physics_running_before_interaction = Some(true);
         } else {
-            self.workspace.physics.base.is_running = true;
+            self.workspace.graph_runtime.physics.base.is_running = true;
         }
 
-        for view in self.workspace.views.values_mut() {
+        for view in self.workspace.graph_runtime.views.values_mut() {
             view.lens.physics = profile.clone();
         }
     }
@@ -4444,10 +3605,10 @@ impl GraphBrowserApp {
         if Self::graph_structure_changed(&result) {
             self.clear_hop_distance_cache();
         }
-        if let Some(egui_state) = self.workspace.egui_state.as_mut()
+        if let Some(egui_state) = self.workspace.graph_runtime.egui_state.as_mut()
             && !egui_state.sync_from_delta(&self.workspace.domain.graph, &delta, &result)
         {
-            self.workspace.egui_state_dirty = true;
+            self.workspace.graph_runtime.egui_state_dirty = true;
         }
         result
     }
@@ -4621,12 +3782,13 @@ impl GraphBrowserApp {
     }
 
     pub fn graph_view_layout_manager_active(&self) -> bool {
-        self.workspace.graph_view_layout_manager.active
+        self.workspace.graph_runtime.graph_view_layout_manager.active
     }
 
     #[cfg(test)]
     pub fn graph_view_slots_for_tests(&self) -> Vec<GraphViewSlot> {
         self.workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .values()
@@ -4684,26 +3846,30 @@ impl GraphBrowserApp {
             capture_status,
             recent_traversal_append_failures: self
                 .workspace
+                .graph_runtime
                 .history_recent_traversal_append_failures,
             recent_failure_reason_bucket: self
                 .workspace
+                .graph_runtime
                 .history_recent_failure_reason_bucket
                 .map(|reason| reason.as_str().to_string()),
-            last_error: self.workspace.history_last_error.clone(),
+            last_error: self.workspace.graph_runtime.history_last_error.clone(),
             traversal_archive_count,
             dissolved_archive_count,
-            preview_mode_active: self.workspace.history_preview_mode_active,
+            preview_mode_active: self.workspace.graph_runtime.history_preview_mode_active,
             last_preview_isolation_violation: self
                 .workspace
+                .graph_runtime
                 .history_last_preview_isolation_violation,
-            replay_in_progress: self.workspace.history_replay_in_progress,
-            replay_cursor: self.workspace.history_replay_cursor,
-            replay_total_steps: self.workspace.history_replay_total_steps,
+            replay_in_progress: self.workspace.graph_runtime.history_replay_in_progress,
+            replay_cursor: self.workspace.graph_runtime.history_replay_cursor,
+            replay_total_steps: self.workspace.graph_runtime.history_replay_total_steps,
             last_return_to_present_result: self
                 .workspace
+                .graph_runtime
                 .history_last_return_to_present_result
                 .clone(),
-            last_event_unix_ms: self.workspace.history_last_event_unix_ms,
+            last_event_unix_ms: self.workspace.graph_runtime.history_last_event_unix_ms,
         }
     }
 
@@ -4735,18 +3901,18 @@ impl GraphBrowserApp {
             warn!("Failed to serialize graph for undo checkpoint; skipping capture");
             return;
         };
-        self.workspace.undo_stack.push(snapshot);
-        self.workspace.redo_stack.clear();
+        self.workspace.graph_runtime.undo_stack.push(snapshot);
+        self.workspace.graph_runtime.redo_stack.clear();
         const MAX_UNDO_STEPS: usize = 128;
-        if self.workspace.undo_stack.len() > MAX_UNDO_STEPS {
-            let excess = self.workspace.undo_stack.len() - MAX_UNDO_STEPS;
-            self.workspace.undo_stack.drain(0..excess);
+        if self.workspace.graph_runtime.undo_stack.len() > MAX_UNDO_STEPS {
+            let excess = self.workspace.graph_runtime.undo_stack.len() - MAX_UNDO_STEPS;
+            self.workspace.graph_runtime.undo_stack.drain(0..excess);
         }
     }
 
     /// Perform one global undo step using current frame layout as redo checkpoint.
     fn perform_undo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
-        let Some(prev) = self.workspace.undo_stack.last().cloned() else {
+        let Some(prev) = self.workspace.graph_runtime.undo_stack.last().cloned() else {
             return false;
         };
         let Some(prev_graph) = Self::decode_undo_graph_bytes(&prev.graph_bytes) else {
@@ -4758,18 +3924,18 @@ impl GraphBrowserApp {
             warn!("Failed to serialize graph for redo checkpoint");
             return false;
         };
-        let _ = self.workspace.undo_stack.pop();
-        self.workspace.redo_stack.push(redo_snapshot);
+        let _ = self.workspace.graph_runtime.undo_stack.pop();
+        self.workspace.graph_runtime.redo_stack.push(redo_snapshot);
         self.apply_loaded_graph(prev_graph);
         self.restore_selection_snapshot(prev.active_selection, prev.selection_by_scope);
-        self.workspace.highlighted_graph_edge = prev.highlighted_graph_edge;
+        self.workspace.graph_runtime.highlighted_graph_edge = prev.highlighted_graph_edge;
         self.set_pending_history_workspace_layout_json(prev.workspace_layout_json);
         true
     }
 
     /// Perform one global redo step using current frame layout as undo checkpoint.
     fn perform_redo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
-        let Some(next) = self.workspace.redo_stack.last().cloned() else {
+        let Some(next) = self.workspace.graph_runtime.redo_stack.last().cloned() else {
             return false;
         };
         let Some(next_graph) = Self::decode_undo_graph_bytes(&next.graph_bytes) else {
@@ -4781,23 +3947,23 @@ impl GraphBrowserApp {
             warn!("Failed to serialize graph for undo checkpoint during redo");
             return false;
         };
-        let _ = self.workspace.redo_stack.pop();
-        self.workspace.undo_stack.push(undo_snapshot);
+        let _ = self.workspace.graph_runtime.redo_stack.pop();
+        self.workspace.graph_runtime.undo_stack.push(undo_snapshot);
         self.apply_loaded_graph(next_graph);
         self.restore_selection_snapshot(next.active_selection, next.selection_by_scope);
-        self.workspace.highlighted_graph_edge = next.highlighted_graph_edge;
+        self.workspace.graph_runtime.highlighted_graph_edge = next.highlighted_graph_edge;
         self.set_pending_history_workspace_layout_json(next.workspace_layout_json);
         true
     }
 
     /// Get the length of the undo stack (for testing).
     pub fn undo_stack_len(&self) -> usize {
-        self.workspace.undo_stack.len()
+        self.workspace.graph_runtime.undo_stack.len()
     }
 
     /// Get the length of the redo stack (for testing).
     pub fn redo_stack_len(&self) -> usize {
-        self.workspace.redo_stack.len()
+        self.workspace.graph_runtime.redo_stack.len()
     }
 
     /// Take pending frame layout restore emitted by undo/redo.
@@ -4816,11 +3982,11 @@ impl GraphBrowserApp {
     }
 
     pub fn active_webview_limit(&self) -> usize {
-        self.workspace.active_webview_limit
+        self.workspace.graph_runtime.active_webview_limit
     }
 
     pub fn warm_cache_limit(&self) -> usize {
-        self.workspace.warm_cache_limit
+        self.workspace.graph_runtime.warm_cache_limit
     }
 
     pub fn lifecycle_counts(&self) -> (usize, usize, usize, usize) {
@@ -4840,24 +4006,24 @@ impl GraphBrowserApp {
     }
 
     pub fn mapped_webview_count(&self) -> usize {
-        self.workspace.node_to_webview.len()
+        self.workspace.graph_runtime.node_to_webview.len()
     }
 
     pub fn memory_pressure_level(&self) -> MemoryPressureLevel {
-        self.workspace.memory_pressure_level
+        self.workspace.graph_runtime.memory_pressure_level
     }
 
     #[cfg(test)]
     fn set_form_draft_capture_enabled_for_testing(&mut self, enabled: bool) {
-        self.workspace.form_draft_capture_enabled = enabled;
+        self.workspace.chrome_ui.form_draft_capture_enabled = enabled;
     }
 
     pub fn memory_available_mib(&self) -> u64 {
-        self.workspace.memory_available_mib
+        self.workspace.graph_runtime.memory_available_mib
     }
 
     pub fn memory_total_mib(&self) -> u64 {
-        self.workspace.memory_total_mib
+        self.workspace.graph_runtime.memory_total_mib
     }
 
     pub(crate) fn set_memory_pressure_status(
@@ -4866,9 +4032,9 @@ impl GraphBrowserApp {
         available_mib: u64,
         total_mib: u64,
     ) {
-        self.workspace.memory_pressure_level = level;
-        self.workspace.memory_available_mib = available_mib;
-        self.workspace.memory_total_mib = total_mib;
+        self.workspace.graph_runtime.memory_pressure_level = level;
+        self.workspace.graph_runtime.memory_available_mib = available_mib;
+        self.workspace.graph_runtime.memory_total_mib = total_mib;
     }
 
     /// Scan graph for existing `about:blank#N` placeholder URLs and return
@@ -5194,9 +4360,11 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
 
@@ -5232,6 +4400,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
 
@@ -5250,6 +4419,7 @@ mod tests {
         app.select_node(canonical, false);
 
         app.workspace
+            .graph_runtime
             .selection_by_scope
             .insert(SelectionScope::Unfocused, {
                 let mut selection = SelectionState::new();
@@ -5268,9 +4438,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
@@ -5289,9 +4460,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "OnlyView"));
-        app.workspace.focused_view = None;
+        app.workspace.graph_runtime.focused_view = None;
 
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
@@ -5308,13 +4480,15 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
-        app.workspace.focused_view = None;
-        app.workspace.graph_view_frames.clear();
+        app.workspace.graph_runtime.focused_view = None;
+        app.workspace.graph_runtime.graph_view_frames.clear();
 
         app.clear_pending_camera_command();
         app.request_fit_to_screen();
@@ -5329,14 +4503,16 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
-        app.workspace.focused_view = None;
-        app.workspace.graph_view_frames.clear();
-        app.workspace.graph_view_frames.insert(
+        app.workspace.graph_runtime.focused_view = None;
+        app.workspace.graph_runtime.graph_view_frames.clear();
+        app.workspace.graph_runtime.graph_view_frames.insert(
             view_b,
             GraphViewFrame {
                 zoom: 1.0,
@@ -5357,9 +4533,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
         app.clear_pending_camera_command();
 
         app.apply_reducer_intents([
@@ -5378,17 +4555,19 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
 
-        app.workspace.focused_view = Some(view_a);
+        app.workspace.graph_runtime.focused_view = Some(view_a);
         app.set_camera_fit_locked(true);
         assert!(app.camera_fit_locked());
 
-        app.workspace.focused_view = Some(view_b);
+        app.workspace.graph_runtime.focused_view = Some(view_b);
         assert!(!app.camera_position_fit_locked());
         assert!(!app.camera_zoom_fit_locked());
 
@@ -5396,7 +4575,7 @@ mod tests {
         assert!(app.camera_position_fit_locked());
         assert!(!app.camera_zoom_fit_locked());
 
-        app.workspace.focused_view = Some(view_a);
+        app.workspace.graph_runtime.focused_view = Some(view_a);
         assert!(app.camera_position_fit_locked());
         assert!(app.camera_zoom_fit_locked());
     }
@@ -5406,9 +4585,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         app.set_camera_fit_locked(true);
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
@@ -5429,9 +4609,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         app.set_camera_fit_locked(true);
         app.clear_pending_camera_command();
@@ -5442,6 +4623,7 @@ mod tests {
 
         app.clear_pending_camera_command();
         app.workspace
+            .graph_runtime
             .views
             .get_mut(&view_id)
             .unwrap()
@@ -5450,6 +4632,7 @@ mod tests {
         app.apply_reducer_intents([GraphIntent::SetZoom { zoom: 0.25 }]);
         assert_eq!(
             app.workspace
+                .graph_runtime
                 .views
                 .get(&view_id)
                 .unwrap()
@@ -5464,9 +4647,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         app.set_camera_position_fit_locked(true);
         app.set_camera_zoom_fit_locked(false);
@@ -5484,10 +4668,11 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
-        app.workspace.physics.base.is_running = false;
+        app.workspace.graph_runtime.focused_view = Some(view_id);
+        app.workspace.graph_runtime.physics.base.is_running = false;
 
         app.set_camera_position_fit_locked(false);
         app.set_camera_zoom_fit_locked(true);
@@ -5495,8 +4680,8 @@ mod tests {
         app.set_interacting(true);
         app.set_interacting(false);
 
-        assert!(app.workspace.physics.base.is_running);
-        assert_eq!(app.workspace.drag_release_frames_remaining, 10);
+        assert!(app.workspace.graph_runtime.physics.base.is_running);
+        assert_eq!(app.workspace.graph_runtime.drag_release_frames_remaining, 10);
     }
 
     #[test]
@@ -5504,9 +4689,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
         assert_eq!(
@@ -5533,9 +4719,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "OnlyView"));
-        app.workspace.focused_view = None;
+        app.workspace.graph_runtime.focused_view = None;
 
         app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
 
@@ -5550,9 +4737,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "RetryView"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
         let consumed = app.take_pending_keyboard_zoom_request(view_id);
@@ -5572,9 +4760,11 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
 
@@ -5595,12 +4785,14 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
-        app.workspace.focused_view = None;
+        app.workspace.graph_runtime.focused_view = None;
 
         app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
 
@@ -5614,14 +4806,16 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
-        app.workspace.focused_view = None;
-        app.workspace.graph_view_frames.clear();
-        app.workspace.graph_view_frames.insert(
+        app.workspace.graph_runtime.focused_view = None;
+        app.workspace.graph_runtime.graph_view_frames.clear();
+        app.workspace.graph_runtime.graph_view_frames.insert(
             view_b,
             GraphViewFrame {
                 zoom: 1.0,
@@ -5644,9 +4838,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
         assert!(app.focused_selection().is_empty());
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
@@ -5662,9 +4857,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
         let key = app
             .workspace
             .domain
@@ -5685,9 +4881,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
         let key_a = app
             .workspace
             .domain
@@ -5719,12 +4916,14 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
-        app.workspace.focused_view = None;
+        app.workspace.graph_runtime.focused_view = None;
         let key_a = app
             .workspace
             .domain
@@ -5763,6 +4962,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
         app.clear_pending_camera_command();
@@ -5783,9 +4983,11 @@ mod tests {
         let view_a = GraphViewId::new();
         let view_b = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
 
@@ -5805,9 +5007,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
         let key_a = app
             .workspace
             .domain
@@ -5842,9 +5045,11 @@ mod tests {
         let view_b = GraphViewId::new();
 
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
 
@@ -5872,6 +5077,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view, GraphViewState::new_with_id(view, "A"));
 
@@ -5893,6 +5099,7 @@ mod tests {
         let view = GraphViewId::new();
 
         app.workspace
+            .graph_runtime
             .views
             .insert(view, GraphViewState::new_with_id(view, "A"));
 
@@ -5912,6 +5119,7 @@ mod tests {
         let view = GraphViewId::new();
 
         app.workspace
+            .graph_runtime
             .views
             .insert(view, GraphViewState::new_with_id(view, "A"));
 
@@ -5932,9 +5140,11 @@ mod tests {
         let view_b = GraphViewId::new();
 
         app.workspace
+            .graph_runtime
             .views
             .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
         app.workspace
+            .graph_runtime
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
 
@@ -6022,9 +5232,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         app.apply_view_actions([ViewAction::RequestZoomIn]);
 
@@ -7580,6 +6791,7 @@ mod tests {
         assert_eq!(app.workspace.domain.graph.node_count(), 3);
         let preview_graph = app
             .workspace
+            .graph_runtime
             .history_preview_graph
             .as_ref()
             .expect("preview graph should be populated");
@@ -7588,9 +6800,10 @@ mod tests {
 
         app.apply_reducer_intents([GraphIntent::ExitHistoryTimelinePreview]);
         assert_eq!(app.workspace.domain.graph.node_count(), 3);
-        assert!(app.workspace.history_preview_graph.is_none());
+        assert!(app.workspace.graph_runtime.history_preview_graph.is_none());
         assert_eq!(
             app.workspace
+                .graph_runtime
                 .history_last_return_to_present_result
                 .as_deref(),
             Some("restored")
@@ -7760,7 +6973,7 @@ mod tests {
 
         app.select_node(from, false);
         app.select_node(to, true);
-        app.workspace.physics.base.is_running = false;
+        app.workspace.graph_runtime.physics.base.is_running = false;
 
         app.apply_reducer_intents([GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::ConnectSelectedPair,
@@ -7773,7 +6986,7 @@ mod tests {
                 .edges()
                 .any(|e| e.edge_type == EdgeType::UserGrouped && e.from == from && e.to == to)
         );
-        assert!(app.workspace.physics.base.is_running);
+        assert!(app.workspace.graph_runtime.physics.base.is_running);
     }
 
     #[test]
@@ -7817,7 +7030,7 @@ mod tests {
         app.add_user_grouped_edge_if_missing(to, from, None);
         app.select_node(from, false);
         app.select_node(to, true);
-        app.workspace.physics.base.is_running = false;
+        app.workspace.graph_runtime.physics.base.is_running = false;
 
         app.apply_reducer_intents([GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::RemoveUserEdge,
@@ -7830,7 +7043,7 @@ mod tests {
                 .edges()
                 .any(|e| e.edge_type == EdgeType::UserGrouped)
         );
-        assert!(app.workspace.physics.base.is_running);
+        assert!(app.workspace.graph_runtime.physics.base.is_running);
     }
 
     #[test]
@@ -7869,25 +7082,25 @@ mod tests {
     #[test]
     fn test_add_node_and_sync_reheats_physics() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.physics.base.is_running = false;
-        app.workspace.drag_release_frames_remaining = 5;
+        app.workspace.graph_runtime.physics.base.is_running = false;
+        app.workspace.graph_runtime.drag_release_frames_remaining = 5;
 
         app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
 
-        assert!(app.workspace.physics.base.is_running);
-        assert_eq!(app.workspace.drag_release_frames_remaining, 0);
+        assert!(app.workspace.graph_runtime.physics.base.is_running);
+        assert_eq!(app.workspace.graph_runtime.drag_release_frames_remaining, 0);
     }
 
     #[test]
     fn test_reheat_physics_intent_enables_simulation() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.physics.base.is_running = false;
-        app.workspace.drag_release_frames_remaining = 5;
+        app.workspace.graph_runtime.physics.base.is_running = false;
+        app.workspace.graph_runtime.drag_release_frames_remaining = 5;
 
         app.apply_reducer_intents([GraphIntent::ReheatPhysics]);
 
-        assert!(app.workspace.physics.base.is_running);
-        assert_eq!(app.workspace.drag_release_frames_remaining, 0);
+        assert!(app.workspace.graph_runtime.physics.base.is_running);
+        assert_eq!(app.workspace.graph_runtime.drag_release_frames_remaining, 0);
     }
 
     #[test]
@@ -7895,15 +7108,16 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
-        app.workspace.drag_release_frames_remaining = 7;
+        app.workspace.graph_runtime.focused_view = Some(view_id);
+        app.workspace.graph_runtime.drag_release_frames_remaining = 7;
 
         app.set_camera_fit_locked(true);
 
         assert!(app.camera_fit_locked());
-        assert_eq!(app.workspace.drag_release_frames_remaining, 0);
+        assert_eq!(app.workspace.graph_runtime.drag_release_frames_remaining, 0);
     }
 
     #[test]
@@ -7911,17 +7125,18 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
-        app.workspace.physics.base.is_running = false;
+        app.workspace.graph_runtime.focused_view = Some(view_id);
+        app.workspace.graph_runtime.physics.base.is_running = false;
         app.set_camera_fit_locked(true);
 
         app.set_interacting(true);
         app.set_interacting(false);
 
-        assert!(!app.workspace.physics.base.is_running);
-        assert_eq!(app.workspace.drag_release_frames_remaining, 0);
+        assert!(!app.workspace.graph_runtime.physics.base.is_running);
+        assert_eq!(app.workspace.graph_runtime.drag_release_frames_remaining, 0);
     }
 
     #[test]
@@ -8447,32 +7662,32 @@ mod tests {
         let fake_wv_id = test_webview_id();
         app.map_webview_to_node(fake_wv_id, k1);
         app.demote_node_to_warm(k1);
-        assert_eq!(app.workspace.warm_cache_lru, vec![k1]);
+        assert_eq!(app.workspace.graph_runtime.warm_cache_lru, vec![k1]);
 
         app.clear_graph();
 
         assert_eq!(app.workspace.domain.graph.node_count(), 0);
         assert!(app.focused_selection().is_empty());
         assert!(app.get_node_for_webview(fake_wv_id).is_none());
-        assert!(app.workspace.warm_cache_lru.is_empty());
-        assert!(!app.workspace.workspace_has_unsaved_changes);
+        assert!(app.workspace.graph_runtime.warm_cache_lru.is_empty());
+        assert!(!app.workspace.workbench_session.workspace_has_unsaved_changes);
         assert!(!app.should_prompt_unsaved_workspace_save());
     }
 
     #[test]
-    fn test_file_tree_projection_state_defaults_are_graph_owned() {
+    fn test_navigator_projection_state_defaults_are_graph_owned() {
         let app = GraphBrowserApp::new_for_testing();
 
         assert_eq!(
-            app.file_tree_projection_state().containment_relation_source,
+            app.navigator_projection_state().containment_relation_source,
             FileTreeContainmentRelationSource::GraphContainment
         );
         assert_eq!(
-            app.file_tree_projection_state().sort_mode,
+            app.navigator_projection_state().sort_mode,
             FileTreeSortMode::Manual
         );
-        assert!(app.file_tree_projection_state().row_targets.is_empty());
-        assert!(app.file_tree_projection_state().selected_rows.is_empty());
+        assert!(app.navigator_projection_state().row_targets.is_empty());
+        assert!(app.navigator_projection_state().selected_rows.is_empty());
     }
 
     #[test]
@@ -8493,7 +7708,7 @@ mod tests {
         app.apply_reducer_intents([GraphIntent::RebuildFileTreeProjection]);
 
         assert_eq!(
-            app.file_tree_projection_state()
+            app.navigator_projection_state()
                 .row_targets
                 .get(&format!("node:{node_id}")),
             Some(&FileTreeProjectionTarget::Node(node_key))
@@ -8505,6 +7720,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Saved View"));
 
@@ -8516,7 +7732,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            app.file_tree_projection_state()
+            app.navigator_projection_state()
                 .row_targets
                 .get(&format!("view:{}", view_id.as_uuid())),
             Some(&FileTreeProjectionTarget::SavedView(view_id))
@@ -8532,8 +7748,8 @@ mod tests {
 
         app.apply_reducer_intents([GraphIntent::RebuildFileTreeProjection]);
 
-        assert!(app.file_tree_projection_state().selected_rows.is_empty());
-        assert!(app.file_tree_projection_state().expanded_rows.is_empty());
+        assert!(app.navigator_projection_state().selected_rows.is_empty());
+        assert!(app.navigator_projection_state().expanded_rows.is_empty());
     }
 
     #[test]
@@ -8556,7 +7772,7 @@ mod tests {
         ]);
 
         let keys: Vec<&String> = app
-            .file_tree_projection_state()
+            .navigator_projection_state()
             .row_targets
             .keys()
             .collect();
@@ -8587,7 +7803,7 @@ mod tests {
         ]);
 
         let keys: Vec<&String> = app
-            .file_tree_projection_state()
+            .navigator_projection_state()
             .row_targets
             .keys()
             .collect();
@@ -8618,31 +7834,31 @@ mod tests {
         ]);
 
         assert_eq!(
-            app.file_tree_projection_state().containment_relation_source,
+            app.navigator_projection_state().containment_relation_source,
             FileTreeContainmentRelationSource::ContainmentRelations
         );
         assert_eq!(
-            app.file_tree_projection_state().sort_mode,
+            app.navigator_projection_state().sort_mode,
             FileTreeSortMode::NameDescending
         );
         assert_eq!(
-            app.file_tree_projection_state().root_filter.as_deref(),
+            app.navigator_projection_state().root_filter.as_deref(),
             Some("root:tests")
         );
         assert!(
-            app.file_tree_projection_state()
+            app.navigator_projection_state()
                 .selected_rows
                 .contains("row:selected")
         );
         assert!(
-            app.file_tree_projection_state()
+            app.navigator_projection_state()
                 .expanded_rows
                 .contains("row:expanded")
         );
     }
 
     #[test]
-    fn test_clear_graph_resets_file_tree_projection_state() {
+    fn test_clear_graph_resets_navigator_projection_state() {
         let mut app = GraphBrowserApp::new_for_testing();
 
         app.set_file_tree_containment_relation_source(
@@ -8659,16 +7875,16 @@ mod tests {
         app.clear_graph();
 
         assert_eq!(
-            app.file_tree_projection_state().containment_relation_source,
+            app.navigator_projection_state().containment_relation_source,
             FileTreeContainmentRelationSource::GraphContainment
         );
         assert_eq!(
-            app.file_tree_projection_state().sort_mode,
+            app.navigator_projection_state().sort_mode,
             FileTreeSortMode::Manual
         );
-        assert!(app.file_tree_projection_state().root_filter.is_none());
-        assert!(app.file_tree_projection_state().row_targets.is_empty());
-        assert!(app.file_tree_projection_state().selected_rows.is_empty());
+        assert!(app.navigator_projection_state().root_filter.is_none());
+        assert!(app.navigator_projection_state().row_targets.is_empty());
+        assert!(app.navigator_projection_state().selected_rows.is_empty());
     }
 
     // --- TEST-1: create_new_node_near_center ---
@@ -8768,7 +7984,7 @@ mod tests {
             app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
             NodeLifecycle::Warm
         );
-        assert!(app.workspace.warm_cache_lru.is_empty());
+        assert!(app.workspace.graph_runtime.warm_cache_lru.is_empty());
 
         let wv_id = test_webview_id();
         app.map_webview_to_node(wv_id, key);
@@ -8777,7 +7993,7 @@ mod tests {
             app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
             NodeLifecycle::Warm
         );
-        assert_eq!(app.workspace.warm_cache_lru, vec![key]);
+        assert_eq!(app.workspace.graph_runtime.warm_cache_lru, vec![key]);
     }
 
     #[test]
@@ -8974,14 +8190,14 @@ mod tests {
             app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
             NodeLifecycle::Warm
         );
-        assert_eq!(app.workspace.warm_cache_lru, vec![key]);
+        assert_eq!(app.workspace.graph_runtime.warm_cache_lru, vec![key]);
 
         app.promote_node_to_active(key);
         assert_eq!(
             app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
             NodeLifecycle::Active
         );
-        assert!(app.workspace.warm_cache_lru.is_empty());
+        assert!(app.workspace.graph_runtime.warm_cache_lru.is_empty());
     }
 
     #[test]
@@ -8995,20 +8211,23 @@ mod tests {
         );
 
         for idx in 0..32 {
-            app.workspace.runtime_caches.insert_parsed_metadata(
+            app.workspace.graph_runtime.runtime_caches.insert_parsed_metadata(
                 format!("lifecycle:meta:{idx}"),
                 serde_json::json!({"i": idx}),
             );
             app.workspace
+                .graph_runtime
                 .runtime_caches
                 .insert_suggestions(format!("lifecycle:suggest:{idx}"), vec![format!("q{idx}")]);
         }
         let _ = app
             .workspace
+            .graph_runtime
             .runtime_caches
             .get_parsed_metadata("lifecycle:meta:0");
         let _ = app
             .workspace
+            .graph_runtime
             .runtime_caches
             .get_parsed_metadata("lifecycle:meta:missing");
 
@@ -9024,6 +8243,7 @@ mod tests {
 
         for idx in 32..64 {
             app.workspace
+                .graph_runtime
                 .runtime_caches
                 .insert_thumbnail(key, vec![idx as u8; 4]);
         }
@@ -9061,10 +8281,10 @@ mod tests {
         let wv_id = test_webview_id();
         app.map_webview_to_node(wv_id, key);
         app.demote_node_to_warm(key);
-        assert_eq!(app.workspace.warm_cache_lru, vec![key]);
+        assert_eq!(app.workspace.graph_runtime.warm_cache_lru, vec![key]);
 
         let _ = app.unmap_webview(wv_id);
-        assert!(app.workspace.warm_cache_lru.is_empty());
+        assert!(app.workspace.graph_runtime.warm_cache_lru.is_empty());
     }
 
     #[test]
@@ -9093,12 +8313,12 @@ mod tests {
         app.map_webview_to_node(test_webview_id(), key_c);
         app.demote_node_to_warm(key_c);
 
-        assert_eq!(app.workspace.warm_cache_lru, vec![key_a, key_b, key_c]);
+        assert_eq!(app.workspace.graph_runtime.warm_cache_lru, vec![key_a, key_b, key_c]);
 
-        app.workspace.warm_cache_limit = 2;
+        app.workspace.graph_runtime.warm_cache_limit = 2;
         let evicted = app.take_warm_cache_evictions();
         assert_eq!(evicted, vec![key_a]);
-        assert_eq!(app.workspace.warm_cache_lru, vec![key_b, key_c]);
+        assert_eq!(app.workspace.graph_runtime.warm_cache_lru, vec![key_b, key_c]);
     }
 
     #[test]
@@ -9132,7 +8352,7 @@ mod tests {
             app.map_webview_to_node(test_webview_id(), key);
         }
 
-        app.workspace.active_webview_limit = 3;
+        app.workspace.graph_runtime.active_webview_limit = 3;
         let protected = HashSet::from([key_a]);
         let evicted = app.take_active_webview_evictions(&protected);
 
@@ -9514,6 +8734,7 @@ mod tests {
         );
         app.init_membership_index(index);
         app.workspace
+            .workbench_session
             .node_last_active_workspace
             .insert(node_id, (99, "workspace-missing".to_string()));
 
@@ -9597,7 +8818,7 @@ mod tests {
 
         let app = GraphBrowserApp::new_from_dir(path);
         assert_eq!(
-            app.workspace.toast_anchor_preference,
+            app.workspace.chrome_ui.toast_anchor_preference,
             ToastAnchorPreference::TopLeft
         );
     }
@@ -9664,11 +8885,11 @@ mod tests {
 
         let reopened = GraphBrowserApp::new_from_dir(path);
         assert_eq!(
-            reopened.workspace.omnibar_preferred_scope,
+            reopened.workspace.chrome_ui.omnibar_preferred_scope,
             OmnibarPreferredScope::ProviderDefault
         );
         assert_eq!(
-            reopened.workspace.omnibar_non_at_order,
+            reopened.workspace.chrome_ui.omnibar_non_at_order,
             OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal
         );
     }
@@ -9852,10 +9073,10 @@ mod tests {
     #[test]
     fn test_set_physics_profile_intent_updates_runtime_and_reheats() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.physics.base.is_running = false;
+        app.workspace.graph_runtime.physics.base.is_running = false;
 
         let view_id = GraphViewId::new();
-        app.workspace.views.insert(
+        app.workspace.graph_runtime.views.insert(
             view_id,
             GraphViewState::new_with_id(view_id, "Physics Test"),
         );
@@ -9868,14 +9089,14 @@ mod tests {
             app.default_registry_physics_id(),
             Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
         );
-        assert!(app.workspace.physics.base.is_running);
+        assert!(app.workspace.graph_runtime.physics.base.is_running);
         assert_eq!(
             crate::shell::desktop::runtime::registries::phase3_resolve_active_physics_profile()
                 .resolved_id,
             crate::registries::atomic::lens::PHYSICS_ID_GAS
         );
         assert_eq!(
-            app.workspace.views.get(&view_id).unwrap().lens.physics.name,
+            app.workspace.graph_runtime.views.get(&view_id).unwrap().lens.physics.name,
             "Gas"
         );
     }
@@ -9917,7 +9138,7 @@ mod tests {
         }]);
 
         assert_eq!(
-            app.workspace.suggested_semantic_tags.get(&key),
+            app.workspace.graph_runtime.suggested_semantic_tags.get(&key),
             Some(&vec!["udc:51".to_string(), "udc:519.6".to_string()])
         );
         assert!(app.canonical_tags_for_node(key).is_empty());
@@ -9928,7 +9149,7 @@ mod tests {
         }]);
 
         assert_eq!(
-            app.workspace.suggested_semantic_tags.get(&key),
+            app.workspace.graph_runtime.suggested_semantic_tags.get(&key),
             Some(&vec!["udc:51".to_string()])
         );
         assert!(app.node_has_canonical_tag(key, "udc:519.6"));
@@ -9940,6 +9161,7 @@ mod tests {
 
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
 
@@ -9961,7 +9183,7 @@ mod tests {
 
         app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
 
-        let resolved = &app.workspace.views.get(&view_id).unwrap().lens;
+        let resolved = &app.workspace.graph_runtime.views.get(&view_id).unwrap().lens;
         assert_eq!(resolved.physics.name, "Gas");
         assert!(matches!(resolved.layout, LayoutMode::Grid { gap: 24.0 }));
         assert_eq!(
@@ -9977,6 +9199,7 @@ mod tests {
 
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
 
@@ -9994,7 +9217,7 @@ mod tests {
 
         app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
 
-        let resolved = &app.workspace.views.get(&view_id).unwrap().lens;
+        let resolved = &app.workspace.graph_runtime.views.get(&view_id).unwrap().lens;
         assert_eq!(resolved.lens_id.as_deref(), Some("lens:default"));
         assert_eq!(resolved.name, "Default");
         assert_eq!(resolved.physics.name, "Liquid");
@@ -10019,12 +9242,12 @@ mod tests {
             mode: ThreeDMode::Isometric,
             z_source: ZSource::BfsDepth { scale: 12.0 },
         };
-        app.workspace.views.insert(view_id, view);
+        app.workspace.graph_runtime.views.insert(view_id, view);
 
         app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
 
         assert!(matches!(
-            app.workspace.views.get(&view_id).unwrap().dimension,
+            app.workspace.graph_runtime.views.get(&view_id).unwrap().dimension,
             ViewDimension::ThreeD {
                 mode: ThreeDMode::TwoPointFive,
                 z_source: ZSource::UdcLevel { scale: 48.0 }
@@ -10034,7 +9257,7 @@ mod tests {
         app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
 
         assert!(matches!(
-            app.workspace.views.get(&view_id).unwrap().dimension,
+            app.workspace.graph_runtime.views.get(&view_id).unwrap().dimension,
             ViewDimension::ThreeD {
                 mode: ThreeDMode::Isometric,
                 z_source: ZSource::BfsDepth { scale: 12.0 }
@@ -10048,6 +9271,7 @@ mod tests {
 
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Semantic"));
 
@@ -10062,7 +9286,7 @@ mod tests {
         app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
 
         assert!(matches!(
-            app.workspace.views.get(&view_id).unwrap().dimension,
+            app.workspace.graph_runtime.views.get(&view_id).unwrap().dimension,
             ViewDimension::ThreeD {
                 mode: ThreeDMode::TwoPointFive,
                 z_source: ZSource::UdcLevel { scale: 48.0 }
@@ -10088,6 +9312,7 @@ mod tests {
             overlay_descriptor: None,
         };
         app.workspace
+            .graph_runtime
             .views
             .insert(registry_backed_view, stale_registry_lens);
 
@@ -10109,13 +9334,14 @@ mod tests {
             overlay_descriptor: None,
         };
         app.workspace
+            .graph_runtime
             .views
             .insert(direct_view, direct_lens_view.clone());
 
         let refreshed = app.refresh_registry_backed_view_lenses();
         assert_eq!(refreshed, 1);
 
-        let registry_backed = &app.workspace.views.get(&registry_backed_view).unwrap().lens;
+        let registry_backed = &app.workspace.graph_runtime.views.get(&registry_backed_view).unwrap().lens;
         assert_eq!(registry_backed.lens_id.as_deref(), Some("lens:default"));
         assert_eq!(registry_backed.name, "Default");
         assert_eq!(registry_backed.physics.name, "Liquid");
@@ -10125,7 +9351,7 @@ mod tests {
             crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
         );
 
-        let direct = &app.workspace.views.get(&direct_view).unwrap().lens;
+        let direct = &app.workspace.graph_runtime.views.get(&direct_view).unwrap().lens;
         assert_eq!(direct.name, "Direct Lens");
         assert_eq!(direct.physics.name, direct_lens_view.lens.physics.name);
         assert!(matches!(direct.layout, LayoutMode::Grid { gap: 24.0 }));
@@ -10160,26 +9386,27 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
+            .graph_runtime
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
 
         app.apply_reducer_intents([GraphIntent::SetZoom { zoom: 2.5 }]);
 
-        assert!((app.workspace.views[&view_id].camera.current_zoom - 2.5).abs() < 0.0001);
-        assert!((app.workspace.camera.current_zoom - Camera::new().current_zoom).abs() < 0.0001);
+        assert!((app.workspace.graph_runtime.views[&view_id].camera.current_zoom - 2.5).abs() < 0.0001);
+        assert!((app.workspace.graph_runtime.camera.current_zoom - Camera::new().current_zoom).abs() < 0.0001);
     }
 
     #[test]
     fn set_zoom_with_missing_focused_view_is_noop() {
         let mut app = GraphBrowserApp::new_for_testing();
         let missing_view_id = GraphViewId::new();
-        app.workspace.focused_view = Some(missing_view_id);
-        let before = app.workspace.camera.current_zoom;
+        app.workspace.graph_runtime.focused_view = Some(missing_view_id);
+        let before = app.workspace.graph_runtime.camera.current_zoom;
 
         app.apply_reducer_intents([GraphIntent::SetZoom { zoom: 3.0 }]);
 
-        assert!((app.workspace.camera.current_zoom - before).abs() < 0.0001);
+        assert!((app.workspace.graph_runtime.camera.current_zoom - before).abs() < 0.0001);
     }
 
     #[test]
@@ -10797,11 +10024,11 @@ mod tests {
     fn toggle_command_palette_emits_ux_navigation_transition_channel() {
         let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
         let mut app = GraphBrowserApp::new_for_testing();
-        assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
 
         app.toggle_command_palette();
 
-        assert!(app.workspace.show_command_palette);
+        assert!(app.workspace.chrome_ui.show_command_palette);
         diagnostics.force_drain_for_tests();
         let snapshot = diagnostics.snapshot_json_for_tests().to_string();
         assert!(
@@ -10816,7 +10043,7 @@ mod tests {
 
         app.apply_reducer_intents([GraphIntent::ToggleHelpPanel]);
 
-        assert!(!app.workspace.show_help_panel);
+        assert!(!app.workspace.chrome_ui.show_help_panel);
         let drained = app.take_pending_workbench_intents();
         assert!(matches!(
             drained.as_slice(),
@@ -10830,7 +10057,7 @@ mod tests {
 
         app.apply_reducer_intents([GraphIntent::ToggleRadialMenu]);
 
-        assert!(!app.workspace.show_radial_menu);
+        assert!(!app.workspace.chrome_ui.show_radial_menu);
         let drained = app.take_pending_workbench_intents();
         assert!(matches!(
             drained.as_slice(),
@@ -10861,11 +10088,11 @@ mod tests {
     fn clear_graph_focused_view_reset_emits_ux_navigation_transition_channel() {
         let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.focused_view = Some(GraphViewId::new());
+        app.workspace.graph_runtime.focused_view = Some(GraphViewId::new());
 
         app.clear_graph();
 
-        assert!(app.workspace.focused_view.is_none());
+        assert!(app.workspace.graph_runtime.focused_view.is_none());
         diagnostics.force_drain_for_tests();
         let snapshot = diagnostics.snapshot_json_for_tests().to_string();
         assert!(
@@ -11029,7 +10256,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
         let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));
-        app.workspace.highlighted_graph_edge = Some((from, to));
+        app.workspace.graph_runtime.highlighted_graph_edge = Some((from, to));
 
         app.apply_reducer_intents([GraphIntent::ClearHighlightedEdge]);
 
@@ -11218,36 +10445,36 @@ mod tests {
     #[test]
     fn opening_help_panel_closes_other_capture_surfaces() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.show_command_palette = true;
-        app.workspace.show_context_palette = true;
-        app.workspace.command_palette_contextual_mode = true;
-        app.workspace.show_radial_menu = true;
+        app.workspace.chrome_ui.show_command_palette = true;
+        app.workspace.chrome_ui.show_context_palette = true;
+        app.workspace.chrome_ui.command_palette_contextual_mode = true;
+        app.workspace.chrome_ui.show_radial_menu = true;
         app.set_pending_node_context_target(Some(NodeKey::new(9)));
 
         app.open_help_panel();
 
-        assert!(app.workspace.show_help_panel);
-        assert!(!app.workspace.show_command_palette);
-        assert!(!app.workspace.show_context_palette);
-        assert!(!app.workspace.command_palette_contextual_mode);
-        assert!(!app.workspace.show_radial_menu);
+        assert!(app.workspace.chrome_ui.show_help_panel);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_context_palette);
+        assert!(!app.workspace.chrome_ui.command_palette_contextual_mode);
+        assert!(!app.workspace.chrome_ui.show_radial_menu);
         assert!(app.pending_node_context_target().is_none());
     }
 
     #[test]
     fn opening_command_palette_closes_other_capture_surfaces() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.show_help_panel = true;
-        app.workspace.show_radial_menu = true;
+        app.workspace.chrome_ui.show_help_panel = true;
+        app.workspace.chrome_ui.show_radial_menu = true;
         app.set_pending_node_context_target(Some(NodeKey::new(10)));
 
         app.open_command_palette();
 
-        assert!(app.workspace.show_command_palette);
-        assert!(!app.workspace.show_context_palette);
-        assert!(!app.workspace.command_palette_contextual_mode);
-        assert!(!app.workspace.show_help_panel);
-        assert!(!app.workspace.show_radial_menu);
+        assert!(app.workspace.chrome_ui.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_context_palette);
+        assert!(!app.workspace.chrome_ui.command_palette_contextual_mode);
+        assert!(!app.workspace.chrome_ui.show_help_panel);
+        assert!(!app.workspace.chrome_ui.show_radial_menu);
         assert!(app.pending_node_context_target().is_none());
     }
 
@@ -11259,16 +10486,16 @@ mod tests {
 
         app.open_context_palette();
 
-        assert!(!app.workspace.show_command_palette);
-        assert!(app.workspace.show_context_palette);
-        assert!(app.workspace.command_palette_contextual_mode);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
+        assert!(app.workspace.chrome_ui.show_context_palette);
+        assert!(app.workspace.chrome_ui.command_palette_contextual_mode);
         assert_eq!(app.pending_node_context_target(), Some(target));
 
         app.close_command_palette();
 
-        assert!(!app.workspace.show_command_palette);
-        assert!(!app.workspace.show_context_palette);
-        assert!(!app.workspace.command_palette_contextual_mode);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_context_palette);
+        assert!(!app.workspace.chrome_ui.command_palette_contextual_mode);
         assert!(app.pending_node_context_target().is_none());
     }
 
@@ -11278,7 +10505,7 @@ mod tests {
 
         app.apply_reducer_intents([GraphIntent::ToggleCommandPalette]);
 
-        assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
         let drained = app.take_pending_workbench_intents();
         assert!(matches!(
             drained.as_slice(),
@@ -11289,15 +10516,15 @@ mod tests {
     #[test]
     fn opening_radial_menu_closes_other_capture_surfaces() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.show_help_panel = true;
-        app.workspace.show_command_palette = true;
-        app.workspace.show_context_palette = true;
+        app.workspace.chrome_ui.show_help_panel = true;
+        app.workspace.chrome_ui.show_command_palette = true;
+        app.workspace.chrome_ui.show_context_palette = true;
 
         app.open_radial_menu();
 
-        assert!(app.workspace.show_radial_menu);
-        assert!(!app.workspace.show_help_panel);
-        assert!(!app.workspace.show_command_palette);
-        assert!(!app.workspace.show_context_palette);
+        assert!(app.workspace.chrome_ui.show_radial_menu);
+        assert!(!app.workspace.chrome_ui.show_help_panel);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_context_palette);
     }
 }

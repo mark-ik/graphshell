@@ -3803,7 +3803,7 @@ mod tests {
             .domain
             .graph
             .insert_node_tag(node, "udc:51".to_string());
-        app.workspace.semantic_index_dirty = true;
+        app.workspace.graph_runtime.semantic_index_dirty = true;
 
         let observer_count = Arc::new(AtomicUsize::new(0));
         {
@@ -3849,7 +3849,7 @@ mod tests {
             .domain
             .graph
             .insert_node_tag(numerical, "udc:519.6".to_string());
-        app.workspace.semantic_index_dirty = true;
+        app.workspace.graph_runtime.semantic_index_dirty = true;
         let _ = runtime.reconcile_semantics(&mut app);
 
         assert_eq!(runtime.query_knowledge_by_tag(&app, "51"), vec![math]);

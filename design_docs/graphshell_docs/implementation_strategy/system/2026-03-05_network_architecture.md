@@ -11,9 +11,10 @@
 
 **Related docs**:
 
-- [`coop_session_spec.md`](coop_session_spec.md) — Coop session authority (§3 transport, §15 identity, §16 wallet)
-- [`2026-03-05_cp4_p2p_sync_plan.md`](2026-03-05_cp4_p2p_sync_plan.md) — Device Sync (iroh transport, ControlPanel boundary)
-- [`2026-02-23_verse_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) — Verso mod and iroh endpoint authority
+- [`coop_session_spec.md`](coop_session_spec.md) - Coop session authority (§3 transport, §15 identity, §16 wallet)
+- [`2026-03-05_cp4_p2p_sync_plan.md`](2026-03-05_cp4_p2p_sync_plan.md) - Device Sync (iroh transport, ControlPanel boundary)
+- [`2026-03-17_matrix_layer_positioning.md`](2026-03-17_matrix_layer_positioning.md) - Optional Matrix placement as a durable shared-space layer above the P2P stack
+- [`2026-02-23_verse_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) - Verso mod and iroh endpoint authority
 
 ---
 

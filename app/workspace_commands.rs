@@ -2,7 +2,7 @@ use super::*;
 
 impl GraphBrowserApp {
     pub(crate) fn enqueue_app_command(&mut self, command: AppCommand) {
-        self.workspace.pending_app_commands.push_back(command);
+        self.workspace.workbench_session.pending_app_commands.push_back(command);
     }
 
     pub(crate) fn request_browser_command(
@@ -168,9 +168,9 @@ impl GraphBrowserApp {
 
     pub(crate) fn sanitize_pending_frame_import_commands(&mut self) {
         let mut retained_commands =
-            VecDeque::with_capacity(self.workspace.pending_app_commands.len());
+            VecDeque::with_capacity(self.workspace.workbench_session.pending_app_commands.len());
 
-        while let Some(command) = self.workspace.pending_app_commands.pop_front() {
+        while let Some(command) = self.workspace.workbench_session.pending_app_commands.pop_front() {
             let retained = match command {
                 AppCommand::AddNodeToWorkspace {
                     node,
@@ -232,7 +232,7 @@ impl GraphBrowserApp {
             }
         }
 
-        self.workspace.pending_app_commands = retained_commands;
+        self.workspace.workbench_session.pending_app_commands = retained_commands;
     }
 
     pub(crate) fn pending_app_command<P>(&self, mut predicate: P) -> Option<&AppCommand>
@@ -240,6 +240,7 @@ impl GraphBrowserApp {
         P: FnMut(&AppCommand) -> bool,
     {
         self.workspace
+            .workbench_session
             .pending_app_commands
             .iter()
             .find(|command| predicate(command))
@@ -251,10 +252,11 @@ impl GraphBrowserApp {
     {
         let index = self
             .workspace
+            .workbench_session
             .pending_app_commands
             .iter()
             .position(predicate)?;
-        self.workspace.pending_app_commands.remove(index)
+        self.workspace.workbench_session.pending_app_commands.remove(index)
     }
 
     /// Request saving current frame (tile layout) snapshot.

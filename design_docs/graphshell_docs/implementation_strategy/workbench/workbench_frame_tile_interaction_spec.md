@@ -16,7 +16,7 @@
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar split
-- `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation edges backing frame/tile-group membership; Navigator projection sections
+- `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation edges backing frame/tile membership; Navigator projection sections
 - `workbench_profile_and_workflow_composition_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../system/register/SYSTEM_REGISTER.md`
@@ -102,21 +102,35 @@ For cross-app focus rules, viewer-state clarity, and app-owned tool surfaces, se
 4. A Frame is a persisted branch/subtree of the workbench tile tree.
 5. A Frame contains arranged Tiles.
 6. A Tile is the primary arrangeable unit (tab-like affordance; canonical term: tile).
-7. A Pane is the content presentation surface rendered within a Tile.
-8. A Pane may host a `GraphViewId`, viewer surface, or tool surface.
-9. A `GraphViewId` is a Graph-owned scoped view instance within the current `GraphId`.
-10. A Node is canonical graph content identity/state.
+7. A Tile contains one or more node entries and owns any tab chrome used to
+   switch among them.
+8. A Pane is the active content presentation surface rendered for the Tile's
+   currently active node entry.
+9. A Pane may host a `GraphViewId`, viewer surface, or tool surface.
+10. A `GraphViewId` is a Graph-owned scoped view instance within the current `GraphId`.
+11. A Node is canonical graph content identity/state.
 
 Hierarchy:
 
 `Node -> GraphViewId -> Pane -> Tile -> Frame -> Workbench`
 
+Additional structure rules:
+
+- A `Tile` is the broad arrangement container term; a solo placement is a
+  `Tile` with one node entry, and a grouped placement is a `Tile` with multiple
+  node entries.
+- Tabs belong to the `Tile` and enumerate node entries within that tile.
+- A `Pane` is not the primary navigator/workbench container identity; it is the
+  live rendered surface for the Tile's currently active node entry.
+
 ### 2.2 What each layer is for
 
 - **Workbench**: persistent context host for one graph.
 - **Frame**: named and persisted arrangement context inside the workbench.
-- **Tile**: primary arrangeable workspace unit users move, group, split, and focus.
-- **Pane**: rendered presentation surface hosted by a tile.
+- **Tile**: primary arrangeable workspace container users move, split, focus,
+  and populate with one or more node entries.
+- **Pane**: rendered presentation surface hosted by a tile for its currently
+  active node entry.
 - **GraphViewId**: Graph-owned scoped view and lens-state target that may be presented in a pane.
 - **Node**: graph identity; never reduced to a tile instance.
 
@@ -168,7 +182,11 @@ Workbench interactions fall into four semantic categories:
 
 ### 3.2 Core selection vs activation rule
 
-- Single click selects and focuses the target UI object (tile, frame, or related workbench element).
+- Single click without a selection modifier selects and focuses the target UI
+  object and replaces the prior selection set.
+- `Ctrl`-click toggles the target object's membership in the current selection
+  set.
+- Workbench selections may mix nodes, tiles, and frames.
 - Double click activates the target's primary action.
 - If an object is non-activatable, double click is a no-op beyond maintaining selection.
 
@@ -206,9 +224,9 @@ without changing graph identity.
 
 **Visual feedback**: Active frame state must be obvious. Newly created frames
 and tiles must be visible immediately. Frame selection changes must be legible
-even when underlying content is similar. Frames and tile groups may be
-summarized compactly in chrome, but panes remain first-class rows in the
-sidebar/tree projection because they have no graph-surface equivalent.
+even when underlying content is similar. Frames and tiles may be summarized
+compactly in chrome, but panes remain presentation surfaces rather than the
+primary structural rows in the sidebar/tree projection.
 
 **Fallback**: If a frame or tile cannot be created, the failure must be explicit. Blank or ambiguous frame-switch outcomes are forbidden.
 
@@ -388,7 +406,7 @@ These are exploratory design directions. They are informative only and should no
 
 ### 6.2 Richer structural semantics
 
-- Semantic tile groups beyond basic split/tab structure
+- Semantic tile composition beyond basic split/tab structure
 - Promotable and demotable structural groupings
 - More expressive persistent workspace arrangements
 

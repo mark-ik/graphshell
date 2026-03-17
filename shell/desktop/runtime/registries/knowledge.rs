@@ -18,15 +18,15 @@ pub fn reconcile_semantics(
     app: &mut GraphBrowserApp,
     registry: &KnowledgeRegistry,
 ) -> SemanticReconcileReport {
-    if !app.workspace.semantic_index_dirty {
+    if !app.workspace.graph_runtime.semantic_index_dirty {
         return SemanticReconcileReport {
-            indexed_nodes: app.workspace.semantic_index.len(),
+            indexed_nodes: app.workspace.graph_runtime.semantic_index.len(),
             removed_stale_tags: 0,
             changed: false,
         };
     }
 
-    let previous_index = app.workspace.semantic_index.clone();
+    let previous_index = app.workspace.graph_runtime.semantic_index.clone();
     let removed_stale_tags = 0;
 
     let mut rebuilt_index = std::collections::HashMap::new();
@@ -43,11 +43,11 @@ pub fn reconcile_semantics(
     }
 
     let changed = previous_index != rebuilt_index || removed_stale_tags > 0;
-    app.workspace.semantic_index = rebuilt_index;
-    app.workspace.semantic_index_dirty = false;
+    app.workspace.graph_runtime.semantic_index = rebuilt_index;
+    app.workspace.graph_runtime.semantic_index_dirty = false;
 
     SemanticReconcileReport {
-        indexed_nodes: app.workspace.semantic_index.len(),
+        indexed_nodes: app.workspace.graph_runtime.semantic_index.len(),
         removed_stale_tags,
         changed,
     }
@@ -99,9 +99,10 @@ pub fn suggest_placement_anchor(
     registry: &KnowledgeRegistry,
     key: NodeKey,
 ) -> Option<NodeKey> {
-    let source = app.workspace.semantic_index.get(&key)?;
+    let source = app.workspace.graph_runtime.semantic_index.get(&key)?;
     let mut ranked = app
         .workspace
+        .graph_runtime
         .semantic_index
         .iter()
         .filter_map(|(candidate_key, candidate)| {
@@ -155,19 +156,19 @@ mod tests {
             .domain
             .graph
             .insert_node_tag(key, "udc:51".to_string());
-        app.workspace.semantic_index_dirty = true;
+        app.workspace.graph_runtime.semantic_index_dirty = true;
 
         let report = reconcile_semantics(&mut app, &registry);
 
         assert!(report.changed);
         assert_eq!(report.indexed_nodes, 1);
-        assert!(!app.workspace.semantic_index_dirty);
-        let index = app.workspace.semantic_index.get(&key).unwrap();
+        assert!(!app.workspace.graph_runtime.semantic_index_dirty);
+        let index = app.workspace.graph_runtime.semantic_index.get(&key).unwrap();
         assert_eq!(index.primary_code, Some(CompactCode(vec![5, 1])));
         assert_eq!(index.classes, vec![CompactCode(vec![5, 1])]);
 
         let stale = NodeKey::new(999_999);
-        app.workspace.semantic_index_dirty = true;
+        app.workspace.graph_runtime.semantic_index_dirty = true;
         let report = reconcile_semantics(&mut app, &registry);
         assert_eq!(report.removed_stale_tags, 0);
         assert!(app.workspace.domain.graph.get_node(stale).is_none());
@@ -241,7 +242,7 @@ mod tests {
             .domain
             .graph
             .insert_node_tag(music, "udc:78".to_string());
-        app.workspace.semantic_index_dirty = true;
+        app.workspace.graph_runtime.semantic_index_dirty = true;
         let _ = reconcile_semantics(&mut app, &registry);
 
         assert_eq!(

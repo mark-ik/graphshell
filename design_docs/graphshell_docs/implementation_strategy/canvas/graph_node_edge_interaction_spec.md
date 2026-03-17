@@ -108,6 +108,12 @@ The graph surface is composed of four primary interactive layers:
 
 When the **Navigator** (Workbench Sidebar projection) is active, it is a section-structured hierarchical projection over graph relation families — not a separate content-truth authority. It reads graph edges and renders them as a tree; it does not own graph identity or topology.
 
+Selectable graph-surface objects are the interactable objects rendered on the
+canvas: nodes, edges, arrangement objects (for example frames or minimized tile
+objects), and minimap markers when they expose direct actions. Purely
+informational hover-only UI (labels, passive badges, transient tooltips) is not
+selectable.
+
 ### 2.2 What each layer is for
 
 - **Graph Pane**: the semantic navigation and manipulation surface for graph work.
@@ -165,10 +171,15 @@ Graph interactions fall into five semantic categories:
 ### 3.2 Core semantic rules
 
 - Single click selects the target under the pointer.
-- Modifier-click adjusts the current selection set.
+- Single click without a selection modifier replaces the current selection set
+  with the target under the pointer.
+- `Ctrl`-click (or configured additive-selection modifier) toggles the target's
+  membership in the current selection set.
 - Double click activates the target's primary action.
 - If a target has no defined activation behavior, double click is a no-op beyond maintaining selection or inspection state.
 - Hierarchical navigation actions, when invoked through the Navigator projection, must resolve through the same graph identity and routing rules as canvas-originated actions.
+- Selection sets may mix any visible interactable graph-surface objects. Graphshell
+  must not invent a hidden primary target inside a mixed selection.
 
 ### 3.3 Canonical guarantees
 
@@ -361,8 +372,9 @@ Default bindings are profile-configurable, but semantic action mapping is fixed:
 **Core controls**
 
 - Hover edge: inspect relationship or traversal information.
-- Single click edge: set the edge as the active inspection target.
-- Double click edge: invoke the edge's primary traversal action when that action is defined.
+- Single click edge: select the edge and make it the active inspection target.
+- Double click edge: open the edge's family/category in History Manager and
+  reveal the matching recency-ordered entry.
 - Context action on edge: expose edge-scoped commands through the canonical palette shell.
 
 **Who owns it**
@@ -373,23 +385,30 @@ Default bindings are profile-configurable, but semantic action mapping is fixed:
 **State transitions**
 
 - Edge hover changes inspection context only.
-- Edge single-click changes the active relationship target for inspection.
-- Edge double-click may trigger traversal or related open behavior when the edge semantics define a primary action.
+- Edge single-click replaces the current selection set with the target edge
+  unless modifier selection is active.
+- Edge double-click opens History Manager scoped to the relevant edge family and
+  edge/event entry; it does not append traversal history by itself.
+- Dismissing an edge updates the current `GraphViewId`'s `EdgePolicy` for that
+  edge instance only, removing its presentation and graph effect from the
+  current view without deleting the underlying relation/event truth.
 
 **Edge-focus and traversal invariants**
 
 - Edge focus (`SetHighlightedEdge` / `ClearHighlightedEdge`) is inspection-only state and must not append traversal history by itself.
 - Traversal history mutation is owned by the history/reducer traversal append path, not by edge hover or single-click inspection.
 - Clearing edge focus is explicit and deterministic when the active inspection target changes to none.
+- Edge dismissal is view-local. Suppressing one edge in the current graph view
+  must not hide other edges of the same family or delete provenance truth.
 
 **Edge-management interaction parity (UX migration §5.4 closure)**
 
 | Interaction | Canvas semantic result | History semantic result |
 |---|---|---|
 | Edge hover | Update inspection context only | No traversal append |
-| Edge single-click | Set highlighted edge for inspection | No traversal append |
-| Edge double-click with traversal action defined | Invoke traversal/open action | Append traversal through reducer path only |
-| Edge double-click with no traversal action | No-op beyond inspection continuity | No traversal append |
+| Edge single-click | Select edge and set highlighted edge for inspection | No traversal append |
+| Edge double-click | Open matching family/category entry in History Manager | No traversal append |
+| Edge dismiss | Suppress this edge instance in current `GraphViewId` via `EdgePolicy` | Underlying truth remains visible to History Manager |
 
 **Edge-context command map (C2.2 closure)**
 
@@ -398,6 +417,8 @@ category first. The minimum edge-context command set is:
 
 | Action semantic | Default command/binding | Required behavior |
 |---|---|---|
+| Dismiss edge in this view | `Dismiss Edge` command (contextual) | Suppress only this edge instance in the current `GraphViewId` |
+| Open edge family in history | `Open Edge History` command (default `Enter` on selected edge if double-click unavailable) | Open History Manager to the edge's family/category and reveal matching entry |
 | Remove user edge | `Remove User Edge` command (default `Alt+G` for selected pair) | Remove user-grouped edge semantics for the active/selected pair |
 | Connect source -> target | `Connect Pair` command (default `G` for selected pair) | Create one directed user-grouped edge from ordered pair source to target |
 | Connect both directions | `Connect Both Directions` command (default `Shift+G` for selected pair) | Create user-grouped edges in both directions for the active/selected pair |
@@ -436,7 +457,8 @@ Edge-context invariants:
 **Core controls**
 
 - Empty-canvas click: clear selection when no other mode is active.
-- Lasso gesture: select nodes by region using the declared lasso binding.
+- Lasso gesture: select visible interactable graph-surface objects by region
+  using the declared lasso binding.
 - Empty-canvas context action: expose graph-scope commands.
 
 **Who owns it**
@@ -447,18 +469,21 @@ Edge-context invariants:
 **State transitions**
 
 - Empty-canvas click clears the current selection set.
-- Lasso updates the app-owned selection set based on the chosen region and selection mode.
+- Lasso updates the app-owned mixed selection set based on the chosen region and selection mode.
 - Context commands do not directly mutate graph truth until a command is executed.
 
 **Lasso invariants (pre-renderer/WGPU closure)**
 
 - Lasso selection mode is deterministic from binding + modifiers: `Alt => Toggle`; otherwise `Add` when `Ctrl` is active or when the binding is `RightDrag` with `Shift`; otherwise `Replace`.
-- Lasso key sets are canonicalized before intent dispatch (stable sort + deduplicate by node key).
+- Lasso candidate sets are canonicalized before intent dispatch (stable sort +
+  deduplicate by selection-object key).
 - Lasso, pan, and node drag are mutually exclusive gesture owners for a pointer sequence; ambiguity must be canceled explicitly with diagnostics.
 
 **Lasso boundary semantics (UX migration §5.1 closure)**
 
-- Boundary inclusion policy is intersection-inclusive: a node is in the lasso candidate set when its hit bounds intersect the lasso polygon/rectangle by any positive area.
+- Boundary inclusion policy is intersection-inclusive: an interactable object is
+  in the lasso candidate set when its hit bounds intersect the lasso
+  polygon/rectangle by any positive area.
 - Replace/Add/Toggle semantics apply over the candidate set after canonicalization (stable sort + dedupe).
 - Lasso region sampling is deterministic: evaluation uses pointer-up finalized region, not intermediate hover jitter.
 - If lasso starts on an eligible node-handle region, node drag owns the sequence and lasso does not arm.

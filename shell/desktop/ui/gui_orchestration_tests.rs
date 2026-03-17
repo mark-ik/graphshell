@@ -98,7 +98,7 @@ fn toggle_command_palette_intent_is_consumed_by_orchestration_authority() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert!(intents.is_empty());
-    assert!(app.workspace.show_command_palette);
+    assert!(app.workspace.chrome_ui.show_command_palette);
 }
 
 #[cfg(feature = "diagnostics")]
@@ -160,9 +160,9 @@ fn settings_history_url_intent_is_consumed_by_orchestration_authority() {
 #[test]
 fn graph_search_history_pushes_previous_search_when_request_changes() {
     let mut app = GraphBrowserApp::new_for_testing();
-    app.workspace.active_graph_search_query = "udc:51".to_string();
-    app.workspace.search_display_mode = crate::app::SearchDisplayMode::Filter;
-    app.workspace.active_graph_search_origin = crate::app::GraphSearchOrigin::SemanticTag;
+    app.workspace.graph_runtime.active_graph_search_query = "udc:51".to_string();
+    app.workspace.graph_runtime.search_display_mode = crate::app::SearchDisplayMode::Filter;
+    app.workspace.graph_runtime.active_graph_search_origin = crate::app::GraphSearchOrigin::SemanticTag;
 
     super::maybe_push_graph_search_history(
         &mut app,
@@ -177,8 +177,8 @@ fn graph_search_history_pushes_previous_search_when_request_changes() {
         },
     );
 
-    assert_eq!(app.workspace.graph_search_history.len(), 1);
-    let entry = &app.workspace.graph_search_history[0];
+    assert_eq!(app.workspace.graph_runtime.graph_search_history.len(), 1);
+    let entry = &app.workspace.graph_runtime.graph_search_history[0];
     assert_eq!(entry.query, "udc:51");
     assert!(entry.filter_mode);
     assert_eq!(entry.origin, crate::app::GraphSearchOrigin::SemanticTag);
@@ -211,13 +211,13 @@ fn refresh_graph_search_matches_includes_anchor_neighborhood_context() {
         .domain
         .graph
         .insert_node_tag(far, "udc:51".to_string());
-    app.workspace.semantic_index_dirty = true;
+    app.workspace.graph_runtime.semantic_index_dirty = true;
     let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
         &mut app,
         &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
     );
-    app.workspace.active_graph_search_neighborhood_anchor = Some(anchor);
-    app.workspace.active_graph_search_neighborhood_depth = 1;
+    app.workspace.graph_runtime.active_graph_search_neighborhood_anchor = Some(anchor);
+    app.workspace.graph_runtime.active_graph_search_neighborhood_depth = 1;
 
     let mut matches = Vec::new();
     let mut active_index = None;
@@ -255,13 +255,13 @@ fn refresh_graph_search_matches_supports_two_hop_anchor_neighborhood_context() {
         .domain
         .graph
         .insert_node_tag(anchor, "udc:51".to_string());
-    app.workspace.semantic_index_dirty = true;
+    app.workspace.graph_runtime.semantic_index_dirty = true;
     let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
         &mut app,
         &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
     );
-    app.workspace.active_graph_search_neighborhood_anchor = Some(anchor);
-    app.workspace.active_graph_search_neighborhood_depth = 2;
+    app.workspace.graph_runtime.active_graph_search_neighborhood_anchor = Some(anchor);
+    app.workspace.graph_runtime.active_graph_search_neighborhood_depth = 2;
 
     let mut matches = Vec::new();
     let mut active_index = None;
@@ -294,7 +294,7 @@ fn run_graph_search_phase_applies_filter_mode_for_udc_descendant_query_end_to_en
         .domain
         .graph
         .insert_node_tag(ancestor_only, "udc:5".to_string());
-    app.workspace.semantic_index_dirty = true;
+    app.workspace.graph_runtime.semantic_index_dirty = true;
     let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
         &mut app,
         &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
@@ -346,7 +346,7 @@ fn run_graph_search_phase_applies_filter_mode_for_udc_descendant_query_end_to_en
 
     assert_eq!(graph_search_query, "facet:udc_classes=udc:51");
     assert!(graph_search_filter_mode);
-    assert_eq!(app.workspace.search_display_mode, SearchDisplayMode::Filter);
+    assert_eq!(app.workspace.graph_runtime.search_display_mode, SearchDisplayMode::Filter);
     assert!(graph_search_matches.contains(&descendant));
     assert!(!graph_search_matches.contains(&ancestor_only));
 }
@@ -1161,7 +1161,7 @@ fn modal_isolation_consumes_non_modal_workbench_intent() {
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_dispatch_modal_isolation", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
-    app.workspace.show_command_palette = true;
+    app.workspace.chrome_ui.show_command_palette = true;
 
     let mut intents = vec![WorkbenchIntent::CycleFocusRegion];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -1936,7 +1936,7 @@ fn command_palette_close_restores_captured_focus_target() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert!(intents.is_empty());
-    assert!(app.workspace.show_command_palette);
+    assert!(app.workspace.chrome_ui.show_command_palette);
     assert_eq!(
         app.pending_command_surface_return_target(),
         Some(captured_target.clone())
@@ -1951,7 +1951,7 @@ fn command_palette_close_restores_captured_focus_target() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert!(intents.is_empty());
-    assert!(!app.workspace.show_command_palette);
+    assert!(!app.workspace.chrome_ui.show_command_palette);
     assert!(app.pending_command_surface_return_target().is_none());
     assert!(
         tree.active_tiles().into_iter().any(|tile_id| {
@@ -1981,7 +1981,7 @@ fn command_palette_close_uses_runtime_focus_authority_when_app_queue_is_empty() 
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
-    app.workspace.show_command_palette = true;
+    app.workspace.chrome_ui.show_command_palette = true;
     focus_authority.command_surface_return_target =
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
@@ -2001,7 +2001,7 @@ fn command_palette_close_uses_runtime_focus_authority_when_app_queue_is_empty() 
     );
 
     assert!(intents.is_empty());
-    assert!(!app.workspace.show_command_palette);
+    assert!(!app.workspace.chrome_ui.show_command_palette);
     assert!(app.pending_command_surface_return_target().is_none());
     assert_eq!(
         focus_authority.command_surface_return_target,
@@ -2202,9 +2202,9 @@ fn authority_realizer_opens_context_palette_when_semantic_region_requests_it() {
     );
 
     assert!(intents.is_empty());
-    assert!(!app.workspace.show_command_palette);
-    assert!(app.workspace.show_context_palette);
-    assert!(app.workspace.command_palette_contextual_mode);
+    assert!(!app.workspace.chrome_ui.show_command_palette);
+    assert!(app.workspace.chrome_ui.show_context_palette);
+    assert!(app.workspace.chrome_ui.command_palette_contextual_mode);
 }
 
 #[test]
@@ -2259,9 +2259,9 @@ fn authority_realizer_opens_help_panel_from_focus_authority() {
     );
 
     assert!(intents.is_empty());
-    assert!(app.workspace.show_help_panel);
-    assert!(!app.workspace.show_command_palette);
-    assert!(!app.workspace.show_radial_menu);
+    assert!(app.workspace.chrome_ui.show_help_panel);
+    assert!(!app.workspace.chrome_ui.show_command_palette);
+    assert!(!app.workspace.chrome_ui.show_radial_menu);
 }
 
 #[test]
@@ -2277,7 +2277,7 @@ fn authority_realizer_closes_help_panel_and_restores_graph_focus() {
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
-    app.workspace.show_help_panel = true;
+    app.workspace.chrome_ui.show_help_panel = true;
     let _ = tree.make_active(
         |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
     );
@@ -2296,7 +2296,7 @@ fn authority_realizer_closes_help_panel_and_restores_graph_focus() {
     );
 
     assert!(intents.is_empty());
-    assert!(!app.workspace.show_help_panel);
+    assert!(!app.workspace.chrome_ui.show_help_panel);
     assert!(
         tree.active_tiles().into_iter().any(|tile_id| {
             matches!(
@@ -2333,9 +2333,9 @@ fn authority_realizer_opens_radial_menu_from_focus_authority() {
     );
 
     assert!(intents.is_empty());
-    assert!(app.workspace.show_radial_menu);
-    assert!(!app.workspace.show_help_panel);
-    assert!(!app.workspace.show_command_palette);
+    assert!(app.workspace.chrome_ui.show_radial_menu);
+    assert!(!app.workspace.chrome_ui.show_help_panel);
+    assert!(!app.workspace.chrome_ui.show_command_palette);
 }
 
 #[test]
@@ -2351,7 +2351,7 @@ fn authority_realizer_closes_radial_menu_and_restores_graph_focus() {
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
-    app.workspace.show_radial_menu = true;
+    app.workspace.chrome_ui.show_radial_menu = true;
     let _ = tree.make_active(
         |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
     );
@@ -2370,7 +2370,7 @@ fn authority_realizer_closes_radial_menu_and_restores_graph_focus() {
     );
 
     assert!(intents.is_empty());
-    assert!(!app.workspace.show_radial_menu);
+    assert!(!app.workspace.chrome_ui.show_radial_menu);
     assert!(
         tree.active_tiles().into_iter().any(|tile_id| {
             matches!(
@@ -2468,7 +2468,7 @@ fn command_palette_restore_mismatch_emits_focus_realization_mismatch() {
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
-    app.workspace.show_command_palette = true;
+    app.workspace.chrome_ui.show_command_palette = true;
     focus_authority.command_surface_return_target =
         Some(ToolSurfaceReturnTarget::Node(missing_node));
     focus_authority.semantic_region =

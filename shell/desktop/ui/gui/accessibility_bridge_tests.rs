@@ -301,7 +301,7 @@ fn graph_reader_map_click_action_resolves_to_enter_room_dispatch() {
     let node_key =
         graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
     let graph_view_id = GraphViewId::new();
-    graph_app.workspace.focused_view = Some(graph_view_id);
+    graph_app.workspace.graph_runtime.focused_view = Some(graph_view_id);
 
     let graph_surface_id = format!("uxnode://workbench/tile/test/graph/{graph_view_id:?}");
     let snapshot = UxTreeSnapshot {
@@ -363,7 +363,7 @@ fn graph_reader_map_focus_action_resolves_to_map_focus_dispatch() {
     let node_key =
         graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
     let graph_view_id = GraphViewId::new();
-    graph_app.workspace.focused_view = Some(graph_view_id);
+    graph_app.workspace.graph_runtime.focused_view = Some(graph_view_id);
 
     let graph_surface_id = format!("uxnode://workbench/tile/test/graph/{graph_view_id:?}");
     let snapshot = UxTreeSnapshot {
@@ -427,7 +427,7 @@ fn graph_reader_room_root_click_action_resolves_to_return_to_map_dispatch() {
         Point2D::new(0.0, 0.0),
     );
     let graph_view_id = GraphViewId::new();
-    graph_app.workspace.focused_view = Some(graph_view_id);
+    graph_app.workspace.graph_runtime.focused_view = Some(graph_view_id);
     graph_app.graph_reader_enter_room(node_key);
 
     let graph_surface_id = format!("uxnode://workbench/tile/test/graph/{graph_view_id:?}");
@@ -499,7 +499,7 @@ fn graph_reader_room_item_click_action_resolves_to_enter_room_dispatch() {
         label: None,
     }]);
     let graph_view_id = GraphViewId::new();
-    graph_app.workspace.focused_view = Some(graph_view_id);
+    graph_app.workspace.graph_runtime.focused_view = Some(graph_view_id);
     graph_app.graph_reader_enter_room(room_node);
 
     let graph_surface_id = format!("uxnode://workbench/tile/test/graph/{graph_view_id:?}");
@@ -570,7 +570,7 @@ fn graph_reader_return_to_map_suppresses_room_projection_and_preserves_map_focus
         Point2D::new(0.0, 0.0),
     );
     let graph_view_id = GraphViewId::new();
-    graph_app.workspace.focused_view = Some(graph_view_id);
+    graph_app.workspace.graph_runtime.focused_view = Some(graph_view_id);
     graph_app.graph_reader_enter_room(node_key);
     graph_app.graph_reader_return_to_map();
 

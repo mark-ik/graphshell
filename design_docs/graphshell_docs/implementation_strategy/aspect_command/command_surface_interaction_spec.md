@@ -78,6 +78,9 @@ Context Palette Mode and Radial Palette Mode are not separate semantic systems; 
 ### 2.2 Retired and non-canonical surfaces
 
 - The term `Context Menu` is retired as a first-class Graphshell concept.
+- This does **not** retire the anchored contextual list surface itself. The
+  small right-click contextual surface remains first-class; only the ambiguous
+  browser-style label `Context Menu` is retired in favor of `Context Palette`.
 - Servo's native webview context menu may still exist as an embedder surface, but it is not a Graphshell command authority.
 
 ### 2.2A Naming note
@@ -126,7 +129,9 @@ The command system must make these user expectations reliable:
 - contextual filtering changes visibility, not semantics,
 - disabled actions are visible and explained rather than silently hidden,
 - command failure is explicit rather than silent,
-- input mode affects presentation, not command authority.
+- input mode affects presentation, not command authority,
+- command applicability is determined from the full resolved selection set, not
+  by inventing a hidden primary target.
 
 ### 3.3 Two-tier command palette contract
 
@@ -150,9 +155,13 @@ Cross-mode equivalence rule:
 Invocation and dismissal contract:
 
 - Right-click on a graph node summons contextual shell (Context Palette Mode / Radial Palette Mode).
-- Right-click on non-node tile-tree surfaces (canvas background, pane body, tab region, tool pane body) summons Search Palette Mode.
+- Right-click on other interactable graph/workbench surfaces summons the same
+  contextual shell scoped to that surface.
 - The shell may open directly in Search Palette Mode, Context Palette Mode, or Radial Palette Mode per user preference/profile.
-- When Search Palette Mode is opened from right-click contextual invocation, it must show a search bar with a scope dropdown (for example: current target, active pane, active graph, or workbench).
+- When Search Palette Mode is opened from right-click contextual invocation, it
+  is an explicit search-first fallback or user-preference choice and must show a
+  search bar with a scope dropdown (for example: current target, active pane,
+  active graph, or workbench).
 - Clicking outside current palette context dismisses the shell without command mutation.
 - Palette surfaces are resizable in situ.
 
@@ -183,6 +192,13 @@ Canonical wording rules:
 **Core rule**: - Every command surface must route through the same Graphshell command authority.
 - `ActionRegistry::list_actions_for_context(...)` defines what the user can see.
 - `ActionRegistry::execute(...)` defines what the user actually runs.
+- The resolved command target is the current selection set when one exists.
+- The selection set may be mixed (`Node`, `Tile`, `Frame`, `Edge`, or other
+  interactable graph/workbench objects).
+- A command is available only if it validly applies to every object in the
+  resolved selection set.
+- When invoked, the command applies to all selected objects.
+- Silent fallback to a hidden primary target is forbidden.
 
 **Who owns it**: - Graphshell command dispatcher and action registry.
 - UI surfaces are render and input adapters only.

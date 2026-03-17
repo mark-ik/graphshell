@@ -305,7 +305,7 @@ fn focused_graph_surface(
     snapshot: &UxTreeSnapshot,
     graph_app: &GraphBrowserApp,
 ) -> Option<(String, GraphViewId)> {
-    let focused_view = graph_app.workspace.focused_view;
+    let focused_view = graph_app.workspace.graph_runtime.focused_view;
     snapshot
         .semantic_nodes
         .iter()

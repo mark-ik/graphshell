@@ -105,13 +105,13 @@ impl GraphBrowserApp {
         let Some(first) = captures.first() else {
             return Err("no clip captures were returned".to_string());
         };
-        self.workspace.pending_clip_inspector_highlight_clear = None;
-        self.workspace.show_clip_inspector = true;
-        self.workspace.show_command_palette = false;
-        self.workspace.show_context_palette = false;
-        self.workspace.command_palette_contextual_mode = false;
-        self.workspace.show_radial_menu = false;
-        self.workspace.clip_inspector_state = Some(ClipInspectorState {
+        self.workspace.graph_runtime.pending_clip_inspector_highlight_clear = None;
+        self.workspace.chrome_ui.show_clip_inspector = true;
+        self.workspace.chrome_ui.show_command_palette = false;
+        self.workspace.chrome_ui.show_context_palette = false;
+        self.workspace.chrome_ui.command_palette_contextual_mode = false;
+        self.workspace.chrome_ui.show_radial_menu = false;
+        self.workspace.graph_runtime.clip_inspector_state = Some(ClipInspectorState {
             webview_id: first.webview_id,
             source_url: first.source_url.clone(),
             page_title: first.page_title.clone(),
@@ -127,13 +127,14 @@ impl GraphBrowserApp {
     }
 
     pub fn close_clip_inspector(&mut self) {
-        self.workspace.pending_clip_inspector_highlight_clear = self
+        self.workspace.graph_runtime.pending_clip_inspector_highlight_clear = self
             .workspace
+            .graph_runtime
             .clip_inspector_state
             .as_ref()
             .map(|state| state.webview_id);
-        self.workspace.show_clip_inspector = false;
-        self.workspace.clip_inspector_state = None;
+        self.workspace.chrome_ui.show_clip_inspector = false;
+        self.workspace.graph_runtime.clip_inspector_state = None;
     }
 
     pub fn update_clip_inspector_pointer_stack(
@@ -141,7 +142,7 @@ impl GraphBrowserApp {
         webview_id: RendererId,
         stack: Vec<ClipCaptureData>,
     ) {
-        let Some(state) = self.workspace.clip_inspector_state.as_mut() else {
+        let Some(state) = self.workspace.graph_runtime.clip_inspector_state.as_mut() else {
             return;
         };
         if state.webview_id != webview_id {
@@ -155,7 +156,7 @@ impl GraphBrowserApp {
     }
 
     pub fn clip_inspector_step_stack(&mut self, delta: isize) {
-        let Some(state) = self.workspace.clip_inspector_state.as_mut() else {
+        let Some(state) = self.workspace.graph_runtime.clip_inspector_state.as_mut() else {
             return;
         };
         if state.pointer_stack.is_empty() {
@@ -168,12 +169,12 @@ impl GraphBrowserApp {
     }
 
     pub fn selected_clip_inspector_stack_capture(&self) -> Option<&ClipCaptureData> {
-        let state = self.workspace.clip_inspector_state.as_ref()?;
+        let state = self.workspace.graph_runtime.clip_inspector_state.as_ref()?;
         state.pointer_stack.get(state.pointer_stack_index)
     }
 
     pub fn clear_clip_inspector_highlight_dirty(&mut self) {
-        if let Some(state) = self.workspace.clip_inspector_state.as_mut() {
+        if let Some(state) = self.workspace.graph_runtime.clip_inspector_state.as_mut() {
             state.highlight_dirty = false;
         }
     }
@@ -207,7 +208,7 @@ impl GraphBrowserApp {
         let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
         let _ = graph.set_node_address_kind(clip_key, AddressKind::Custom);
         let _ = graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
-        self.workspace.semantic_index_dirty = true;
+        self.workspace.graph_runtime.semantic_index_dirty = true;
         let _ = self.add_edge_and_sync(
             source_key,
             clip_key,

@@ -38,8 +38,8 @@ impl GraphBrowserApp {
                 position_y: position.y,
             });
         }
-        self.workspace.physics.base.is_running = true;
-        self.workspace.drag_release_frames_remaining = 0;
+        self.workspace.graph_runtime.physics.base.is_running = true;
+        self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         self.refresh_protocol_probe_for_node(key, &url, false);
         key
     }
@@ -93,8 +93,8 @@ impl GraphBrowserApp {
         };
         if edge_key.is_some() {
             self.log_edge_mutation(from_key, to_key, edge_type, edge_label);
-            self.workspace.physics.base.is_running = true;
-            self.workspace.drag_release_frames_remaining = 0;
+            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         }
         edge_key
     }
@@ -133,7 +133,7 @@ impl GraphBrowserApp {
         };
 
         if emitted_dissolved_append {
-            self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+            self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
                 latency_us: 0,
@@ -142,9 +142,9 @@ impl GraphBrowserApp {
 
         if removed > 0 {
             self.log_edge_removal_mutation(from_key, to_key, edge_type);
-            self.workspace.egui_state_dirty = true;
-            self.workspace.physics.base.is_running = true;
-            self.workspace.drag_release_frames_remaining = 0;
+            self.workspace.graph_runtime.egui_state_dirty = true;
+            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         }
         removed
     }
@@ -361,7 +361,7 @@ impl GraphBrowserApp {
             return false;
         }
 
-        self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+        self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
 
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORDED,
@@ -372,8 +372,8 @@ impl GraphBrowserApp {
             self.log_edge_mutation(from_key, to_key, EdgeType::History, None);
         }
         self.log_traversal_mutation(from_key, to_key, traversal);
-        self.workspace.physics.base.is_running = true;
-        self.workspace.drag_release_frames_remaining = 0;
+        self.workspace.graph_runtime.physics.base.is_running = true;
+        self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         true
     }
 
@@ -567,7 +567,7 @@ impl GraphBrowserApp {
 
         let mut clusters: HashMap<u8, HashSet<NodeKey>> = HashMap::new();
 
-        for (&node_key, vector) in &self.workspace.semantic_index {
+        for (&node_key, vector) in &self.workspace.graph_runtime.semantic_index {
             for code in &vector.classes {
                 if let Some(&first_digit) = code.0.first() {
                     clusters.entry(first_digit).or_default().insert(node_key);
@@ -738,7 +738,7 @@ impl GraphBrowserApp {
         };
 
         if tags_changed {
-            self.workspace.semantic_index_dirty = true;
+            self.workspace.graph_runtime.semantic_index_dirty = true;
         }
 
         if let Some(store) = &mut self.services.persistence {
@@ -783,17 +783,16 @@ impl GraphBrowserApp {
                 }
             }
 
-            if let Some(webview_id) = self.workspace.node_to_webview.get(&node_key).copied() {
+            if let Some(webview_id) = self.workspace.graph_runtime.node_to_webview.get(&node_key).copied() {
                 let _ = self.unmap_webview(webview_id);
             }
             self.remove_active_node(node_key);
             self.remove_warm_cache_node(node_key);
-            self.workspace.runtime_block_state.remove(&node_key);
-            self.workspace.runtime_block_state.remove(&node_key);
-            self.workspace.suggested_semantic_tags.remove(&node_key);
+            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+            self.workspace.graph_runtime.suggested_semantic_tags.remove(&node_key);
             if let Some(node_id) = node_id {
-                self.workspace.node_last_active_workspace.remove(&node_id);
-                self.workspace.node_workspace_membership.remove(&node_id);
+                self.workspace.workbench_session.on_node_deleted(node_id);
             }
 
             if let Some(store) = &mut self.services.persistence {
@@ -801,7 +800,7 @@ impl GraphBrowserApp {
                 let _ = store.dissolve_and_remove_node(&mut self.workspace.domain.graph, node_key);
                 let dissolved_after = store.dissolved_archive_len();
                 if dissolved_after > dissolved_before {
-                    self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                    self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
                         latency_us: 0,
@@ -814,7 +813,7 @@ impl GraphBrowserApp {
 
         self.clear_selection();
         self.prune_selection_to_existing_nodes();
-        self.workspace.highlighted_graph_edge = None;
+        self.workspace.graph_runtime.highlighted_graph_edge = None;
         let pending_node_context_target = self
             .pending_node_context_target()
             .filter(|key| self.workspace.domain.graph.get_node(*key).is_some());
@@ -833,6 +832,7 @@ impl GraphBrowserApp {
 
     pub(crate) fn suggested_semantic_tags_for_node(&self, key: NodeKey) -> Vec<String> {
         self.workspace
+            .graph_runtime
             .suggested_semantic_tags
             .get(&key)
             .cloned()
@@ -845,34 +845,34 @@ impl GraphBrowserApp {
         }
         self.workspace.domain.graph = Graph::new();
         self.reset_selection_state();
-        self.workspace.highlighted_graph_edge = None;
-        self.workspace.file_tree_projection_state = FileTreeProjectionState::default();
+        self.workspace.graph_runtime.highlighted_graph_edge = None;
+        self.workspace.graph_runtime.navigator_projection_state = FileTreeProjectionState::default();
         self.clear_choose_frame_picker();
-        self.workspace.pending_app_commands.clear();
+        self.workspace.workbench_session.pending_app_commands.clear();
         self.clear_pending_camera_command();
         self.clear_pending_wheel_zoom_delta();
         self.workspace.domain.notes.clear();
-        self.workspace.views.clear();
-        self.workspace.graph_view_frames.clear();
+        self.workspace.graph_runtime.views.clear();
+        self.workspace.graph_runtime.graph_view_frames.clear();
         self.set_workspace_focused_view_with_transition(None);
-        self.workspace.webview_to_node.clear();
-        self.workspace.node_to_webview.clear();
-        self.workspace.active_lru.clear();
-        self.workspace.warm_cache_lru.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.suggested_semantic_tags.clear();
-        self.workspace.semantic_index.clear();
-        self.workspace.semantic_index_dirty = true;
-        self.workspace.node_last_active_workspace.clear();
-        self.workspace.node_workspace_membership.clear();
-        self.workspace.last_session_workspace_layout_hash = None;
-        self.workspace.last_session_workspace_layout_json = None;
-        self.workspace.last_workspace_autosave_at = None;
-        self.workspace.current_workspace_is_synthesized = false;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
-        self.workspace.egui_state_dirty = true;
+        self.workspace.graph_runtime.webview_to_node.clear();
+        self.workspace.graph_runtime.node_to_webview.clear();
+        self.workspace.graph_runtime.active_lru.clear();
+        self.workspace.graph_runtime.warm_cache_lru.clear();
+        self.workspace.graph_runtime.runtime_block_state.clear();
+        self.workspace.graph_runtime.runtime_block_state.clear();
+        self.workspace.graph_runtime.suggested_semantic_tags.clear();
+        self.workspace.graph_runtime.semantic_index.clear();
+        self.workspace.graph_runtime.semantic_index_dirty = true;
+        self.workspace.workbench_session.node_last_active_workspace.clear();
+        self.workspace.workbench_session.node_workspace_membership.clear();
+        self.workspace.workbench_session.last_session_workspace_layout_hash = None;
+        self.workspace.workbench_session.last_session_workspace_layout_json = None;
+        self.workspace.workbench_session.last_workspace_autosave_at = None;
+        self.workspace.workbench_session.current_workspace_is_synthesized = false;
+        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
+        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn clear_graph_and_persistence(&mut self) {
@@ -883,32 +883,32 @@ impl GraphBrowserApp {
         }
         self.workspace.domain.graph = Graph::new();
         self.reset_selection_state();
-        self.workspace.highlighted_graph_edge = None;
-        self.workspace.file_tree_projection_state = FileTreeProjectionState::default();
+        self.workspace.graph_runtime.highlighted_graph_edge = None;
+        self.workspace.graph_runtime.navigator_projection_state = FileTreeProjectionState::default();
         self.clear_choose_frame_picker();
-        self.workspace.pending_app_commands.clear();
+        self.workspace.workbench_session.pending_app_commands.clear();
         self.clear_pending_camera_command();
         self.clear_pending_wheel_zoom_delta();
-        self.workspace.views.clear();
-        self.workspace.graph_view_frames.clear();
+        self.workspace.graph_runtime.views.clear();
+        self.workspace.graph_runtime.graph_view_frames.clear();
         self.set_workspace_focused_view_with_transition(None);
-        self.workspace.webview_to_node.clear();
-        self.workspace.node_to_webview.clear();
-        self.workspace.active_lru.clear();
-        self.workspace.warm_cache_lru.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.suggested_semantic_tags.clear();
-        self.workspace.node_last_active_workspace.clear();
-        self.workspace.node_workspace_membership.clear();
-        self.workspace.current_workspace_is_synthesized = false;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
-        self.workspace.active_webview_nodes.clear();
+        self.workspace.graph_runtime.webview_to_node.clear();
+        self.workspace.graph_runtime.node_to_webview.clear();
+        self.workspace.graph_runtime.active_lru.clear();
+        self.workspace.graph_runtime.warm_cache_lru.clear();
+        self.workspace.graph_runtime.runtime_block_state.clear();
+        self.workspace.graph_runtime.runtime_block_state.clear();
+        self.workspace.graph_runtime.suggested_semantic_tags.clear();
+        self.workspace.workbench_session.node_last_active_workspace.clear();
+        self.workspace.workbench_session.node_workspace_membership.clear();
+        self.workspace.workbench_session.current_workspace_is_synthesized = false;
+        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
+        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+        self.workspace.graph_runtime.active_webview_nodes.clear();
         self.workspace.domain.next_placeholder_id = 0;
-        self.workspace.egui_state_dirty = true;
-        self.workspace.semantic_index.clear();
-        self.workspace.semantic_index_dirty = true;
+        self.workspace.graph_runtime.egui_state_dirty = true;
+        self.workspace.graph_runtime.semantic_index.clear();
+        self.workspace.graph_runtime.semantic_index_dirty = true;
     }
 
     pub fn update_node_url_and_log(&mut self, key: NodeKey, new_url: String) -> Option<String> {
@@ -962,7 +962,7 @@ impl GraphBrowserApp {
                 });
             }
         }
-        self.workspace.egui_state_dirty = true;
+        self.workspace.graph_runtime.egui_state_dirty = true;
         self.refresh_protocol_probe_for_node(key, &new_url, true);
         Some(old_url)
     }

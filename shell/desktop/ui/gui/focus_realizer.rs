@@ -27,8 +27,8 @@ impl<'a> FocusRealizer<'a> {
                 None
             }
             WorkbenchIntent::ToggleCommandPalette
-                if self.graph_app.workspace.show_command_palette
-                    || self.graph_app.workspace.show_context_palette =>
+                if self.graph_app.workspace.chrome_ui.show_command_palette
+                    || self.graph_app.workspace.chrome_ui.show_context_palette =>
             {
                 self.close_command_palette_from_authority(focus_authority);
                 None
@@ -37,7 +37,7 @@ impl<'a> FocusRealizer<'a> {
                 self.open_command_palette_from_authority(focus_authority);
                 None
             }
-            WorkbenchIntent::ToggleHelpPanel if self.graph_app.workspace.show_help_panel => {
+            WorkbenchIntent::ToggleHelpPanel if self.graph_app.workspace.chrome_ui.show_help_panel => {
                 self.close_transient_surface_from_authority(
                     focus_authority,
                     crate::shell::desktop::ui::gui_state::FocusCaptureSurface::HelpPanel,
@@ -48,7 +48,7 @@ impl<'a> FocusRealizer<'a> {
                 self.open_help_panel_from_authority(focus_authority);
                 None
             }
-            WorkbenchIntent::ToggleRadialMenu if self.graph_app.workspace.show_radial_menu => {
+            WorkbenchIntent::ToggleRadialMenu if self.graph_app.workspace.chrome_ui.show_radial_menu => {
                 self.close_transient_surface_from_authority(
                     focus_authority,
                     crate::shell::desktop::ui::gui_state::FocusCaptureSurface::RadialPalette,
@@ -309,11 +309,11 @@ impl<'a> FocusRealizer<'a> {
         &mut self,
         focus_authority: &mut RuntimeFocusAuthorityState,
     ) {
-        if self.graph_app.workspace.show_command_palette
-            || self.graph_app.workspace.show_context_palette
-            || self.graph_app.workspace.show_help_panel
-            || self.graph_app.workspace.show_settings_overlay
-            || self.graph_app.workspace.show_radial_menu
+        if self.graph_app.workspace.chrome_ui.show_command_palette
+            || self.graph_app.workspace.chrome_ui.show_context_palette
+            || self.graph_app.workspace.chrome_ui.show_help_panel
+            || self.graph_app.workspace.chrome_ui.show_settings_overlay
+            || self.graph_app.workspace.chrome_ui.show_radial_menu
         {
             return;
         }

@@ -125,7 +125,7 @@ pub(crate) fn ingest_pre_frame(
         let focused_node = graph_app
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id));
-        let radial_menu_open = graph_app.workspace.show_radial_menu;
+        let radial_menu_open = graph_app.workspace.chrome_ui.show_radial_menu;
         for command in app_state.take_pending_gamepad_ui_commands() {
             let (binding, context) = match command {
                 GamepadUiCommand::NavigateUp => (

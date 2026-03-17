@@ -166,12 +166,13 @@ pub(crate) fn run_post_render_phase<FActive>(
     render::render_clip_inspector_panel(ctx, graph_app);
     if let Some(webview_id) = graph_app
         .workspace
+        .graph_runtime
         .pending_clip_inspector_highlight_clear
         .take()
     {
         headed_window.sync_clip_inspector_highlight(window, webview_id, None);
     }
-    if let Some(state) = graph_app.workspace.clip_inspector_state.as_ref()
+    if let Some(state) = graph_app.workspace.graph_runtime.clip_inspector_state.as_ref()
         && state.highlight_dirty
     {
         headed_window.sync_clip_inspector_highlight(
@@ -194,14 +195,14 @@ pub(crate) fn run_post_render_phase<FActive>(
     render::render_command_palette_panel(
         ctx,
         graph_app,
-        graph_app.workspace.hovered_graph_node,
+        graph_app.workspace.graph_runtime.hovered_graph_node,
         focused_pane_node,
         active_node_pane.map(|pane| pane.pane_id),
     );
     render::render_radial_command_menu(
         ctx,
         graph_app,
-        graph_app.workspace.hovered_graph_node,
+        graph_app.workspace.graph_runtime.hovered_graph_node,
         focused_pane_node,
         active_node_pane.map(|pane| pane.pane_id),
     );

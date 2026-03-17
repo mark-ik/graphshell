@@ -160,7 +160,7 @@ pub(crate) fn create_runtime_for_active_prewarm_nodes(
 
 pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     if args.graph_app.domain_graph().node_count() == 0 {
-        args.graph_app.workspace.active_webview_nodes.clear();
+        args.graph_app.workspace.graph_runtime.active_webview_nodes.clear();
         args.webview_creation_backpressure.clear();
         tile_runtime::reset_runtime_webview_state(
             args.tiles_tree,

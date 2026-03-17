@@ -106,8 +106,8 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     // radial/context handling in render::mod.
     if should_summon_radial_palette_on_secondary_click(
         ui.ctx().input(|i| i.pointer.secondary_clicked()),
-        graph_app.workspace.hovered_graph_node,
-        graph_app.workspace.show_radial_menu,
+        graph_app.workspace.graph_runtime.hovered_graph_node,
+        graph_app.workspace.chrome_ui.show_radial_menu,
     ) {
         match graph_app.context_command_surface_preference() {
             crate::app::ContextCommandSurfacePreference::RadialPalette => {
@@ -119,7 +119,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
                         active_context_return_target(tiles_tree),
                     );
                 }
-                if !graph_app.workspace.show_radial_menu {
+                if !graph_app.workspace.chrome_ui.show_radial_menu {
                     graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
                 }
             }

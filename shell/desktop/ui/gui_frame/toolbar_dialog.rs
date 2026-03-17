@@ -105,7 +105,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
     let has_node_panes = tile_runtime::has_any_node_panes(tiles_tree);
     let is_graph_view = !has_node_panes;
     if !is_graph_view {
-        graph_app.workspace.hovered_graph_node = None;
+        graph_app.workspace.graph_runtime.hovered_graph_node = None;
     }
 
     let _workbench_projection = workbench_sidebar::render_workbench_sidebar(

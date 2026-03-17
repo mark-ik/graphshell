@@ -10,11 +10,11 @@ use egui_tiles::{Tiles, Tree};
 fn camera_lock_toggle_survives_webview_focus_routing() {
     let mut harness = TestRegistry::new();
     let view_id = GraphViewId::new();
-    harness.app.workspace.views.insert(
+    harness.app.workspace.graph_runtime.views.insert(
         view_id,
         GraphViewState::new_with_id(view_id, "Scenario View"),
     );
-    harness.app.workspace.focused_view = Some(view_id);
+    harness.app.workspace.graph_runtime.focused_view = Some(view_id);
     assert!(!harness.app.camera_position_fit_locked());
     assert!(!harness.app.camera_zoom_fit_locked());
 
@@ -31,11 +31,11 @@ fn camera_lock_toggle_survives_webview_focus_routing() {
 fn camera_lock_toggle_survives_omnibar_focus_routing() {
     let mut harness = TestRegistry::new();
     let view_id = GraphViewId::new();
-    harness.app.workspace.views.insert(
+    harness.app.workspace.graph_runtime.views.insert(
         view_id,
         GraphViewState::new_with_id(view_id, "Scenario View"),
     );
-    harness.app.workspace.focused_view = Some(view_id);
+    harness.app.workspace.graph_runtime.focused_view = Some(view_id);
     assert!(!harness.app.camera_position_fit_locked());
     assert!(!harness.app.camera_zoom_fit_locked());
 
@@ -71,7 +71,7 @@ fn focus_cycle_survives_webview_focus_routing() {
 #[test]
 fn modal_isolation_preserves_camera_lock_toggle() {
     let mut app = GraphBrowserApp::new_for_testing();
-    app.workspace.show_radial_menu = true;
+    app.workspace.chrome_ui.show_radial_menu = true;
 
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
@@ -89,11 +89,11 @@ fn modal_isolation_preserves_camera_lock_toggle() {
 fn graph_pan_zoom_liveness_after_omnibar_focus_release() {
     let mut harness = TestRegistry::new();
     let view_id = GraphViewId::new();
-    harness.app.workspace.views.insert(
+    harness.app.workspace.graph_runtime.views.insert(
         view_id,
         GraphViewState::new_with_id(view_id, "Scenario View"),
     );
-    harness.app.workspace.focused_view = Some(view_id);
+    harness.app.workspace.graph_runtime.focused_view = Some(view_id);
     harness.app.set_camera_fit_locked(false);
     harness.app.clear_pending_camera_command();
 
@@ -116,16 +116,16 @@ fn settings_and_split_shortcut_paths_produce_identical_lock_state_transition() {
     let mut via_shortcut = TestRegistry::new();
     let view_id = GraphViewId::new();
 
-    via_settings.app.workspace.views.insert(
+    via_settings.app.workspace.graph_runtime.views.insert(
         view_id,
         GraphViewState::new_with_id(view_id, "Settings Path"),
     );
-    via_settings.app.workspace.focused_view = Some(view_id);
-    via_shortcut.app.workspace.views.insert(
+    via_settings.app.workspace.graph_runtime.focused_view = Some(view_id);
+    via_shortcut.app.workspace.graph_runtime.views.insert(
         view_id,
         GraphViewState::new_with_id(view_id, "Shortcut Path"),
     );
-    via_shortcut.app.workspace.focused_view = Some(view_id);
+    via_shortcut.app.workspace.graph_runtime.focused_view = Some(view_id);
 
     via_settings.app.set_camera_fit_locked(true);
 

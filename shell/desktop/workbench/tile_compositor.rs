@@ -375,7 +375,7 @@ fn resolved_lens_config_for_tile(
     node_key: NodeKey,
 ) -> crate::app::LensConfig {
     if let Some(view_id) = tile_view_ops::active_graph_view_id(tiles_tree)
-        && let Some(view) = graph_app.workspace.views.get(&view_id)
+        && let Some(view) = graph_app.workspace.graph_runtime.views.get(&view_id)
         && let Some(lens_id) = view.lens.lens_id.as_deref()
     {
         return crate::shell::desktop::runtime::registries::phase2_resolve_lens(lens_id);
@@ -913,9 +913,9 @@ pub(crate) fn composite_active_node_pane_webviews(
         hovered_node_key,
     );
     let interaction_ui = InteractionUiState::new(
-        graph_app.workspace.show_command_palette,
-        graph_app.workspace.show_help_panel,
-        graph_app.workspace.show_radial_menu,
+        graph_app.workspace.chrome_ui.show_command_palette,
+        graph_app.workspace.chrome_ui.show_help_panel,
+        graph_app.workspace.chrome_ui.show_radial_menu,
     );
     let mut active_composited_nodes = HashSet::new();
     let mut composited_counters = CompositedPassCounters::default();

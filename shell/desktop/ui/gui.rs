@@ -409,7 +409,7 @@ impl Gui {
             },
             toasts: egui_notify::Toasts::default()
                 .with_anchor(Self::toast_anchor(
-                    graph_app.workspace.toast_anchor_preference,
+                    graph_app.workspace.chrome_ui.toast_anchor_preference,
                 ))
                 .with_margin(egui::vec2(12.0, 12.0)),
             clipboard: Clipboard::new().ok(),
@@ -590,7 +590,7 @@ impl Gui {
 
             match GraphBrowserApp::resolve_settings_route(&url) {
                 Some(SettingsRouteTarget::Settings(page)) => {
-                    self.graph_app.workspace.settings_tool_page = page;
+                    self.graph_app.workspace.chrome_ui.settings_tool_page = page;
                     self.graph_app
                         .enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
                             kind: ToolPaneState::Settings,
@@ -866,7 +866,7 @@ impl Gui {
         } = runtime_state;
 
         let winit_window = headed_window.winit_window();
-        Self::configure_frame_toasts(toasts, graph_app.workspace.toast_anchor_preference);
+        Self::configure_frame_toasts(toasts, graph_app.workspace.chrome_ui.toast_anchor_preference);
         context.run_ui_frame(winit_window, |ctx| {
             Self::execute_update_frame(ExecuteUpdateFrameArgs {
                 ctx,
@@ -1031,6 +1031,7 @@ impl Gui {
     pub(crate) fn clip_inspector_target_webview_id(&self) -> Option<WebViewId> {
         self.graph_app
             .workspace
+            .graph_runtime
             .clip_inspector_state
             .as_ref()
             .map(|state| state.webview_id)

@@ -106,16 +106,17 @@ pub(crate) fn apply_semantic_clustering_forces(
         return;
     }
 
-    if !app.workspace.physics.base.is_running {
+    if !app.workspace.graph_runtime.physics.base.is_running {
         return;
     }
 
-    if app.workspace.semantic_index.is_empty() {
+    if app.workspace.graph_runtime.semantic_index.is_empty() {
         return;
     }
 
     let tagged_nodes: Vec<(NodeKey, SemanticClassVector)> = app
         .workspace
+        .graph_runtime
         .semantic_index
         .iter()
         .map(|(&key, vector)| (key, vector.clone()))
@@ -174,7 +175,7 @@ pub(crate) fn apply_semantic_clustering_forces(
             Some((*key, position))
         })
         .collect();
-    if let Some(state_mut) = app.workspace.egui_state.as_mut() {
+    if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
         for (key, position) in projected_positions {
             if let Some(egui_node) = state_mut.graph.node_mut(key) {
                 egui_node.set_location(position.to_pos2());

@@ -319,13 +319,13 @@ pub(super) fn non_at_matches_for_settings(
         tiles_tree,
         query,
         has_node_panes,
-        graph_app.workspace.omnibar_preferred_scope,
+        graph_app.workspace.chrome_ui.omnibar_preferred_scope,
     );
 
-    match graph_app.workspace.omnibar_non_at_order {
+    match graph_app.workspace.chrome_ui.omnibar_non_at_order {
         OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal => {
             if primary_matches.is_empty()
-                || graph_app.workspace.omnibar_preferred_scope
+                || graph_app.workspace.chrome_ui.omnibar_preferred_scope
                     == OmnibarPreferredScope::ProviderDefault
             {
                 (primary_matches, true)
@@ -906,8 +906,8 @@ mod tests {
     #[test]
     fn test_non_at_matches_for_settings_contextual_order_uses_primary_matches_first() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.omnibar_preferred_scope = OmnibarPreferredScope::LocalTabs;
-        app.workspace.omnibar_non_at_order =
+        app.workspace.chrome_ui.omnibar_preferred_scope = OmnibarPreferredScope::LocalTabs;
+        app.workspace.chrome_ui.omnibar_non_at_order =
             OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal;
 
         let tab_key = app.add_node_and_sync("https://alpha-tab.example".into(), Point2D::zero());
@@ -926,8 +926,8 @@ mod tests {
     #[test]
     fn test_non_at_matches_for_settings_provider_first_defers_to_provider_loading() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.omnibar_preferred_scope = OmnibarPreferredScope::LocalTabs;
-        app.workspace.omnibar_non_at_order =
+        app.workspace.chrome_ui.omnibar_preferred_scope = OmnibarPreferredScope::LocalTabs;
+        app.workspace.chrome_ui.omnibar_non_at_order =
             OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal;
 
         let tab_key = app.add_node_and_sync("https://alpha-tab.example".into(), Point2D::zero());
@@ -1334,7 +1334,7 @@ mod tests {
         );
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.workspace.highlighted_graph_edge, Some((from, to)));
+        assert_eq!(app.workspace.graph_runtime.highlighted_graph_edge, Some((from, to)));
         assert!(app.focused_selection().contains(&from));
         assert!(app.focused_selection().contains(&to));
     }

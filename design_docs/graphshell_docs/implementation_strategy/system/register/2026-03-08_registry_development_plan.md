@@ -48,6 +48,7 @@ All registries in the system spec family are listed here. Implementation state i
 | `RendererRegistry` | Atomic (new) | ❌ | ❌ | ❌ | ❌ | ❌ | [B](#sector-b) |
 | `IdentityRegistry` | Atomic | ✅ | ⚠️ stub crypto | ✅ | ✅ | ✅ | [C](#sector-c) |
 | `NostrCoreRegistry` | Native mod | ✅ | ✅ | ✅ | ✅ | ✅ | [C](#sector-c) |
+| `MatrixCoreRegistry` | Native mod (future) | ❌ | ❌ | ❌ | ❌ | ❌ | [C](#sector-c) |
 | `CanvasRegistry` | Surface | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
 | `LayoutRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
 | `PhysicsProfileRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
@@ -72,7 +73,7 @@ The registries are grouped into eight development sectors. Each sector is a self
 ```text
 Sector A  — Content Pipeline         Protocol → ViewerSurface → Viewer → Lens
 Sector B  — Input & Dispatch         Input → Action → Renderer
-Sector C  — Identity & Verse         Identity → NostrCore
+Sector C  — Identity & Federation    Identity → NostrCore → MatrixCore (future)
 Sector D  — Canvas Surface           Canvas → Layout → Physics → LayoutDomain → PresentationDomain
 Sector E  — Workbench Surface        WorkbenchSurface → Workflow
 Sector F  — Knowledge & Index        Knowledge → Index → Diagnostics
@@ -143,10 +144,11 @@ Current state: Both `InputRegistry` and `ActionRegistry` have functional cores b
 
 ---
 
-### Sector C — Identity & Verse {#sector-c}
+### Sector C — Identity & Federation {#sector-c}
 
-**Registries:** `IdentityRegistry`, `NostrCoreRegistry`
+**Registries:** `IdentityRegistry`, `NostrCoreRegistry`, `MatrixCoreRegistry` (future)
 **Plan:** [2026-03-08_sector_c_identity_verse_plan.md](2026-03-08_sector_c_identity_verse_plan.md)
+**Future Matrix plan:** [../2026-03-17_matrix_core_adoption_plan.md](../2026-03-17_matrix_core_adoption_plan.md)
 
 Identity and Verse are co-dependent, but they no longer share one cryptographic lane: transport
 trust and `NodeId` stay in `IdentityRegistry`, while public/user signing remains the unfinished
@@ -160,6 +162,15 @@ remaining work in Sector C is signer-surface follow-on depth rather than registr
 Bunker URI parsing, session-only secret handling, local permission memory, and the host-owned
 NIP-07 bridge are already landed. Remaining depth is optional browser-wallet method coverage and
 approval UX polish, not missing registry authority.
+
+Future extension:
+
+- `MatrixCoreRegistry` is the prospective durable room/session provider for Matrix-backed shared
+  spaces. Its positioning, identity rules, and adoption sequence are documented in
+  [../2026-03-17_matrix_layer_positioning.md](../2026-03-17_matrix_layer_positioning.md),
+  [../2026-03-17_multi_identity_binding_rules.md](../2026-03-17_multi_identity_binding_rules.md),
+  [matrix_core_registry_spec.md](matrix_core_registry_spec.md), and
+  [../2026-03-17_matrix_core_adoption_plan.md](../2026-03-17_matrix_core_adoption_plan.md).
 
 ---
 

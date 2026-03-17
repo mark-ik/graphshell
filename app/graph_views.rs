@@ -12,13 +12,13 @@ impl GraphBrowserApp {
 
     pub fn camera_position_fit_locked(&self) -> bool {
         self.camera_lock_target_view()
-            .and_then(|view_id| self.workspace.views.get(&view_id))
+            .and_then(|view_id| self.workspace.graph_runtime.views.get(&view_id))
             .is_some_and(|view| view.position_fit_locked)
     }
 
     pub fn camera_zoom_fit_locked(&self) -> bool {
         self.camera_lock_target_view()
-            .and_then(|view_id| self.workspace.views.get(&view_id))
+            .and_then(|view_id| self.workspace.graph_runtime.views.get(&view_id))
             .is_some_and(|view| view.zoom_fit_locked)
     }
 
@@ -32,17 +32,18 @@ impl GraphBrowserApp {
         };
         let was_locked = self
             .workspace
+            .graph_runtime
             .views
             .get(&view_id)
             .is_some_and(|view| view.position_fit_locked);
         if was_locked == locked {
             return;
         }
-        if let Some(view) = self.workspace.views.get_mut(&view_id) {
+        if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
             view.position_fit_locked = locked;
         }
         if locked {
-            self.workspace.drag_release_frames_remaining = 0;
+            self.workspace.graph_runtime.drag_release_frames_remaining = 0;
             self.request_fit_to_screen();
         } else if matches!(
             self.pending_app_command(|command| {
@@ -62,8 +63,8 @@ impl GraphBrowserApp {
             locked,
             self.pending_camera_command(),
             self.pending_camera_command_target_raw(),
-            self.workspace.physics.base.is_running,
-            self.workspace.is_interacting,
+            self.workspace.graph_runtime.physics.base.is_running,
+            self.workspace.graph_runtime.is_interacting,
         );
     }
 
@@ -73,13 +74,14 @@ impl GraphBrowserApp {
         };
         let was_locked = self
             .workspace
+            .graph_runtime
             .views
             .get(&view_id)
             .is_some_and(|view| view.zoom_fit_locked);
         if was_locked == locked {
             return;
         }
-        if let Some(view) = self.workspace.views.get_mut(&view_id) {
+        if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
             view.zoom_fit_locked = locked;
         }
         if locked {
@@ -92,8 +94,8 @@ impl GraphBrowserApp {
             locked,
             self.pending_camera_command(),
             self.pending_camera_command_target_raw(),
-            self.workspace.physics.base.is_running,
-            self.workspace.is_interacting,
+            self.workspace.graph_runtime.physics.base.is_running,
+            self.workspace.graph_runtime.is_interacting,
         );
     }
 
@@ -103,7 +105,7 @@ impl GraphBrowserApp {
     }
 
     fn next_graph_view_slot_name(&self) -> String {
-        let count = self.workspace.graph_view_layout_manager.slots.len() + 1;
+        let count = self.workspace.graph_runtime.graph_view_layout_manager.slots.len() + 1;
         format!("Graph View {count}")
     }
 
@@ -114,6 +116,7 @@ impl GraphBrowserApp {
         except_view: Option<GraphViewId>,
     ) -> bool {
         self.workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .values()
@@ -139,6 +142,7 @@ impl GraphBrowserApp {
     fn ensure_graph_view_slot_exists(&mut self, view_id: GraphViewId) {
         if self
             .workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .contains_key(&view_id)
@@ -148,13 +152,14 @@ impl GraphBrowserApp {
 
         let name = self
             .workspace
+            .graph_runtime
             .views
             .get(&view_id)
             .map(|view| view.name.clone())
             .filter(|name| !name.trim().is_empty())
             .unwrap_or_else(|| self.next_graph_view_slot_name());
         let (row, col) = self.next_free_graph_view_slot_position();
-        self.workspace.graph_view_layout_manager.slots.insert(
+        self.workspace.graph_runtime.graph_view_layout_manager.slots.insert(
             view_id,
             GraphViewSlot {
                 view_id,
@@ -167,13 +172,14 @@ impl GraphBrowserApp {
     }
 
     pub fn ensure_graph_view_registered(&mut self, view_id: GraphViewId) {
-        let had_view = self.workspace.views.contains_key(&view_id);
+        let had_view = self.workspace.graph_runtime.views.contains_key(&view_id);
         let had_slot = self
             .workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .contains_key(&view_id);
-        if !self.workspace.views.contains_key(&view_id) {
+        if !self.workspace.graph_runtime.views.contains_key(&view_id) {
             let name = self.next_graph_view_slot_name();
             let mut state = GraphViewState::new_with_id(view_id, name);
             state.local_simulation = Some(LocalSimulation {
@@ -185,8 +191,8 @@ impl GraphBrowserApp {
                     .map(|(key, node)| (key, node.projected_position()))
                     .collect(),
             });
-            self.workspace.views.insert(view_id, state);
-        } else if self.workspace.views[&view_id].local_simulation.is_none() {
+            self.workspace.graph_runtime.views.insert(view_id, state);
+        } else if self.workspace.graph_runtime.views[&view_id].local_simulation.is_none() {
             let positions = self
                 .workspace
                 .domain
@@ -194,7 +200,7 @@ impl GraphBrowserApp {
                 .nodes()
                 .map(|(key, node)| (key, node.projected_position()))
                 .collect();
-            if let Some(view) = self.workspace.views.get_mut(&view_id) {
+            if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                 view.local_simulation = Some(LocalSimulation { positions });
             }
         }
@@ -208,9 +214,10 @@ impl GraphBrowserApp {
     pub(crate) fn persist_graph_view_layout_manager_state(&mut self) {
         let persisted = PersistedGraphViewLayoutManager {
             version: PersistedGraphViewLayoutManager::VERSION,
-            active: self.workspace.graph_view_layout_manager.active,
+            active: self.workspace.graph_runtime.graph_view_layout_manager.active,
             slots: self
                 .workspace
+                .graph_runtime
                 .graph_view_layout_manager
                 .slots
                 .values()
@@ -244,8 +251,8 @@ impl GraphBrowserApp {
         for slot in persisted.slots {
             slots.insert(slot.view_id, slot);
         }
-        self.workspace.graph_view_layout_manager.active = persisted.active;
-        self.workspace.graph_view_layout_manager.slots = slots;
+        self.workspace.graph_runtime.graph_view_layout_manager.active = persisted.active;
+        self.workspace.graph_runtime.graph_view_layout_manager.slots = slots;
     }
 
     pub(crate) fn create_graph_view_slot(
@@ -265,11 +272,12 @@ impl GraphBrowserApp {
                 .map(|(key, node)| (key, node.projected_position()))
                 .collect(),
         });
-        self.workspace.views.insert(view_id, state.clone());
+        self.workspace.graph_runtime.views.insert(view_id, state.clone());
 
         let (row, col) = if let Some(anchor_id) = anchor_view {
             if let Some(anchor_slot) = self
                 .workspace
+                .graph_runtime
                 .graph_view_layout_manager
                 .slots
                 .get(&anchor_id)
@@ -292,7 +300,7 @@ impl GraphBrowserApp {
             self.next_free_graph_view_slot_position()
         };
 
-        self.workspace.graph_view_layout_manager.slots.insert(
+        self.workspace.graph_runtime.graph_view_layout_manager.slots.insert(
             view_id,
             GraphViewSlot {
                 view_id,
@@ -316,12 +324,13 @@ impl GraphBrowserApp {
         }
         if let Some(slot) = self
             .workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .get_mut(&view_id)
         {
             slot.name = trimmed.to_string();
-            if let Some(view) = self.workspace.views.get_mut(&view_id) {
+            if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                 view.name = slot.name.clone();
             }
             self.persist_graph_view_layout_manager_state();
@@ -331,6 +340,7 @@ impl GraphBrowserApp {
     pub(crate) fn refresh_registry_backed_view_lenses(&mut self) -> usize {
         let refreshes: Vec<(GraphViewId, LensConfig)> = self
             .workspace
+            .graph_runtime
             .views
             .iter()
             .filter_map(|(&view_id, view)| {
@@ -354,7 +364,7 @@ impl GraphBrowserApp {
             .collect();
 
         for (view_id, lens) in &refreshes {
-            if let Some(view) = self.workspace.views.get_mut(view_id) {
+            if let Some(view) = self.workspace.graph_runtime.views.get_mut(view_id) {
                 let layout_algorithm_id = view.lens.layout_algorithm_id.clone();
                 view.lens = lens.clone();
                 view.lens.layout_algorithm_id = layout_algorithm_id;
@@ -370,6 +380,7 @@ impl GraphBrowserApp {
         }
         if let Some(slot) = self
             .workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .get_mut(&view_id)
@@ -383,12 +394,13 @@ impl GraphBrowserApp {
     pub(crate) fn archive_graph_view_slot(&mut self, view_id: GraphViewId) {
         if let Some(slot) = self
             .workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .get_mut(&view_id)
         {
             slot.archived = true;
-            if self.workspace.focused_view == Some(view_id) {
+            if self.workspace.graph_runtime.focused_view == Some(view_id) {
                 self.set_workspace_focused_view_with_transition(None);
             }
             self.persist_graph_view_layout_manager_state();
@@ -405,6 +417,7 @@ impl GraphBrowserApp {
             };
         if let Some(slot) = self
             .workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .get_mut(&view_id)
@@ -424,6 +437,7 @@ impl GraphBrowserApp {
         self.ensure_graph_view_registered(view_id);
         if self
             .workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .get(&view_id)
@@ -441,21 +455,24 @@ impl GraphBrowserApp {
     ) {
         let registered_views: HashSet<GraphViewId> = self
             .workspace
+            .graph_runtime
             .graph_view_layout_manager
             .slots
             .keys()
             .copied()
             .collect();
-        self.workspace.views.retain(|view_id, _| {
+        self.workspace.graph_runtime.views.retain(|view_id, _| {
             live_graph_views.contains(view_id) || registered_views.contains(view_id)
         });
         self.workspace
+            .graph_runtime
             .graph_view_frames
             .retain(|view_id, _| live_graph_views.contains(view_id));
         self.retain_selection_scopes_for_graph_views(live_graph_views, &registered_views);
 
         if self
             .workspace
+            .graph_runtime
             .focused_view
             .is_some_and(|view_id| !live_graph_views.contains(&view_id))
         {
@@ -494,18 +511,20 @@ impl GraphBrowserApp {
     fn resolve_camera_target_view(&self) -> Option<GraphViewId> {
         let focused = self
             .workspace
+            .graph_runtime
             .focused_view
-            .filter(|id| self.workspace.views.contains_key(id));
+            .filter(|id| self.workspace.graph_runtime.views.contains_key(id));
         if focused.is_some() {
             return focused;
         }
 
         let mut rendered_views = self
             .workspace
+            .graph_runtime
             .graph_view_frames
             .keys()
             .copied()
-            .filter(|id| self.workspace.views.contains_key(id));
+            .filter(|id| self.workspace.graph_runtime.views.contains_key(id));
         let rendered_first = rendered_views.next();
         if let Some(rendered_only) = rendered_first
             && rendered_views.next().is_none()
@@ -513,8 +532,8 @@ impl GraphBrowserApp {
             return Some(rendered_only);
         }
 
-        if self.workspace.views.len() == 1 {
-            return self.workspace.views.keys().next().copied();
+        if self.workspace.graph_runtime.views.len() == 1 {
+            return self.workspace.graph_runtime.views.keys().next().copied();
         }
 
         None
@@ -538,7 +557,7 @@ impl GraphBrowserApp {
         command: CameraCommand,
     ) {
         if let Some(target_view) = target_view
-            && !self.workspace.views.contains_key(&target_view)
+            && !self.workspace.graph_runtime.views.contains_key(&target_view)
         {
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
@@ -605,7 +624,7 @@ impl GraphBrowserApp {
 
     pub fn pending_camera_command_target(&self) -> Option<GraphViewId> {
         self.pending_camera_command_target_raw()
-            .filter(|id| self.workspace.views.contains_key(id))
+            .filter(|id| self.workspace.graph_runtime.views.contains_key(id))
     }
 
     pub fn clear_pending_camera_command(&mut self) {

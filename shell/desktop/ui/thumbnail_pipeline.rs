@@ -35,6 +35,7 @@ fn cached_thumbnail_result_for_request(
     let url_key = thumbnail_url_cache_key(node_key);
     let cached_url_value = graph_app
         .workspace
+        .graph_runtime
         .runtime_caches
         .get_parsed_metadata(&url_key);
     let cached_url = cached_url_value.as_deref().and_then(Value::as_str)?;
@@ -43,6 +44,7 @@ fn cached_thumbnail_result_for_request(
     }
     let png_bytes = graph_app
         .workspace
+        .graph_runtime
         .runtime_caches
         .get_thumbnail(node_key)
         .as_deref()
@@ -171,9 +173,10 @@ pub(crate) fn graph_intent_for_thumbnail_result(
     let png_bytes = result.png_bytes.clone()?;
     graph_app
         .workspace
+        .graph_runtime
         .runtime_caches
         .insert_thumbnail(node_key, png_bytes.clone());
-    graph_app.workspace.runtime_caches.insert_parsed_metadata(
+    graph_app.workspace.graph_runtime.runtime_caches.insert_parsed_metadata(
         thumbnail_url_cache_key(node_key),
         Value::String(result.requested_url.clone()),
     );
@@ -294,15 +297,17 @@ mod tests {
 
         assert_eq!(
             app.workspace
+                .graph_runtime
                 .runtime_caches
                 .get_thumbnail(node_key)
                 .as_deref()
-                .map(|bytes| bytes.as_slice()),
+                .map(|bytes: &Vec<u8>| bytes.as_slice()),
             Some(&[1, 2, 3][..])
         );
         let marker_key = thumbnail_url_cache_key(node_key);
         assert_eq!(
             app.workspace
+                .graph_runtime
                 .runtime_caches
                 .get_parsed_metadata(&marker_key)
                 .as_deref()
@@ -322,9 +327,10 @@ mod tests {
         app.map_webview_to_node(webview_id, node_key);
 
         app.workspace
+            .graph_runtime
             .runtime_caches
             .insert_thumbnail(node_key, vec![9, 9, 9]);
-        app.workspace.runtime_caches.insert_parsed_metadata(
+        app.workspace.graph_runtime.runtime_caches.insert_parsed_metadata(
             thumbnail_url_cache_key(node_key),
             Value::String("https://stale.example".to_string()),
         );
@@ -339,7 +345,7 @@ mod tests {
             .is_none()
         );
 
-        app.workspace.runtime_caches.insert_parsed_metadata(
+        app.workspace.graph_runtime.runtime_caches.insert_parsed_metadata(
             thumbnail_url_cache_key(node_key),
             Value::String("https://current.example".to_string()),
         );

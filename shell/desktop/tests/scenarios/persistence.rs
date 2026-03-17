@@ -327,7 +327,7 @@ fn set_toast_anchor_preference_persists_across_restart() {
 
     let reopened = GraphBrowserApp::new_from_dir(path);
     assert_eq!(
-        reopened.workspace.toast_anchor_preference,
+        reopened.workspace.chrome_ui.toast_anchor_preference,
         ToastAnchorPreference::TopRight
     );
 }
@@ -345,12 +345,12 @@ fn set_shortcut_bindings_persist_across_restart() {
 
     let reopened = GraphBrowserApp::new_from_dir(path);
     assert_eq!(
-        reopened.workspace.command_palette_shortcut,
+        reopened.workspace.chrome_ui.command_palette_shortcut,
         CommandPaletteShortcut::CtrlK
     );
-    assert_eq!(reopened.workspace.help_panel_shortcut, HelpPanelShortcut::H);
+    assert_eq!(reopened.workspace.chrome_ui.help_panel_shortcut, HelpPanelShortcut::H);
     assert_eq!(
-        reopened.workspace.radial_menu_shortcut,
+        reopened.workspace.chrome_ui.radial_menu_shortcut,
         RadialMenuShortcut::R
     );
 }

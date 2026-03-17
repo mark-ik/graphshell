@@ -217,6 +217,9 @@ Actions in the popover are family-appropriate:
 - ContainmentRelation/derived: read-only, no action (label: "Derived from URL")
 - ArrangementRelation: "Remove from frame" (durable) or read-only for
   session-only
+- Any visible edge family: "Dismiss in this view" suppresses only that edge
+  instance in the current `GraphViewId`'s `EdgePolicy`; it does not delete the
+  underlying relation/event truth
 
 ### 5.4 Edge Creation Gesture
 
@@ -239,8 +242,8 @@ Edge creation gestures per family (interaction model authority is
 ## 6. Canvas Visibility Filter Controls
 
 When non-default families are visible (lens active), the Graph Bar chip for
-that lens shows which families are currently rendered. The chip expands to
-reveal per-family toggles:
+that lens shows which families are currently rendered. The chip expands into
+the current graph view's `EdgePolicy`, revealing per-family toggles:
 
 ```
 [Lens: Containment ▾]
@@ -250,8 +253,17 @@ reveal per-family toggles:
   ☑ user-folder edges
 ```
 
-These toggles mutate view-local lens state, not graph state. They allow the
-user to reduce visual noise within a lens without deactivating it entirely.
+These toggles mutate view-local `EdgePolicy` state, not graph state. They allow
+the user to reduce visual noise within a lens without deactivating it entirely.
+
+`EdgePolicy` rules (normative):
+
+- Family/sub-kind toggles are `GraphViewId`-local.
+- Per-edge dismissals are stored alongside the view's `EdgePolicy`.
+- Dismissing one edge must not hide all edges of that family.
+- Copying a graph view clones its `EdgePolicy`, including per-family toggles and
+  per-edge dismissal state, so the copied view preserves the same rendered edge
+  arrangement and derived node layout.
 
 The default canvas (no lens) has no visible filter controls for hidden families
 — the absence of non-semantic edges is the default, not a user-configured state.

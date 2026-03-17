@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn test_toggle_physics_action() {
         let mut app = test_app();
-        let was_running = app.workspace.physics.base.is_running;
+        let was_running = app.workspace.graph_runtime.physics.base.is_running;
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_physics: true,
@@ -460,7 +460,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert_ne!(app.workspace.physics.base.is_running, was_running);
+        assert_ne!(app.workspace.graph_runtime.physics.base.is_running, was_running);
     }
 
     #[test]
@@ -503,11 +503,11 @@ mod tests {
     fn test_fit_to_screen_action() {
         let mut app = test_app();
         let view_id = crate::app::GraphViewId::new();
-        app.workspace.views.insert(
+        app.workspace.graph_runtime.views.insert(
             view_id,
             crate::app::GraphViewState::new_with_id(view_id, "Focused"),
         );
-        app.workspace.focused_view = Some(view_id);
+        app.workspace.graph_runtime.focused_view = Some(view_id);
         assert!(app.pending_camera_command().is_none());
         app.clear_pending_camera_command();
 
@@ -610,7 +610,7 @@ mod tests {
     #[test]
     fn test_toggle_help_panel_action() {
         let mut app = test_app();
-        assert!(!app.workspace.show_help_panel);
+        assert!(!app.workspace.chrome_ui.show_help_panel);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_help_panel: true,
@@ -618,7 +618,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert!(app.workspace.show_help_panel);
+        assert!(app.workspace.chrome_ui.show_help_panel);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_help_panel: true,
@@ -626,13 +626,13 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert!(!app.workspace.show_help_panel);
+        assert!(!app.workspace.chrome_ui.show_help_panel);
     }
 
     #[test]
     fn test_toggle_command_palette_action() {
         let mut app = test_app();
-        assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_command_palette: true,
@@ -640,7 +640,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert!(app.workspace.show_command_palette);
+        assert!(app.workspace.chrome_ui.show_command_palette);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_command_palette: true,
@@ -648,7 +648,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
     }
 
     #[test]
@@ -789,13 +789,13 @@ mod tests {
         app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
 
         let before_count = app.workspace.domain.graph.node_count();
-        let before_physics = app.workspace.physics.base.is_running;
+        let before_physics = app.workspace.graph_runtime.physics.base.is_running;
 
         let intents = intents_from_actions(&KeyboardActions::default());
         app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.domain.graph.node_count(), before_count);
-        assert_eq!(app.workspace.physics.base.is_running, before_physics);
+        assert_eq!(app.workspace.graph_runtime.physics.base.is_running, before_physics);
     }
 
     #[test]

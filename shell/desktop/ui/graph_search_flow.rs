@@ -67,8 +67,8 @@ where
         graph_search_matches.clear();
         *graph_search_active_match_index = None;
         *graph_search_filter_mode = false;
-        graph_app.workspace.search_display_mode = SearchDisplayMode::Highlight;
-        graph_app.workspace.egui_state_dirty = true;
+        graph_app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Highlight;
+        graph_app.workspace.graph_runtime.egui_state_dirty = true;
         emit_navigation_transition_graph_search();
     }
 
@@ -140,7 +140,7 @@ where
                     false,
                 );
                 *graph_search_filter_mode = false;
-                graph_app.workspace.search_display_mode = SearchDisplayMode::Highlight;
+                graph_app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Highlight;
                 closed_search_surface = true;
             } else {
                 graph_search_query.clear();
@@ -151,7 +151,7 @@ where
                 graph_search_matches,
                 graph_search_active_match_index,
             );
-            graph_app.workspace.egui_state_dirty = true;
+            graph_app.workspace.graph_runtime.egui_state_dirty = true;
             if closed_search_surface {
                 emit_navigation_transition_graph_search();
             }

@@ -262,12 +262,12 @@ pub fn render_command_palette_panel(
     focused_pane_node: Option<NodeKey>,
     focused_pane_id: Option<PaneId>,
 ) {
-    let was_open = app.workspace.show_command_palette || app.workspace.show_context_palette;
+    let was_open = app.workspace.chrome_ui.show_command_palette || app.workspace.chrome_ui.show_context_palette;
     if !was_open {
         return;
     }
 
-    let mut open = app.workspace.show_command_palette;
+    let mut open = app.workspace.chrome_ui.show_command_palette;
     let mut intents = Vec::new();
     let mut should_close = false;
     let theme_tokens = active_theme_tokens(app);
@@ -288,6 +288,7 @@ pub fn render_command_palette_panel(
         input_mode: InputMode::MouseKeyboard,
         view_id: app
             .workspace
+            .graph_runtime
             .focused_view
             .unwrap_or_else(crate::app::GraphViewId::new),
         wry_override_allowed: cfg!(feature = "wry")
@@ -305,9 +306,9 @@ pub fn render_command_palette_panel(
         &load_category_recency(ctx),
         &load_pinned_categories(ctx),
     );
-    let contextual_mode = app.workspace.show_context_palette
+    let contextual_mode = app.workspace.chrome_ui.show_context_palette
         || app.pending_node_context_target().is_some();
-    let contextual_anchor = app.workspace.context_palette_anchor;
+    let contextual_anchor = app.workspace.chrome_ui.context_palette_anchor;
     let search_query_id = egui::Id::new("command_palette_search_query");
     let search_scope_id = egui::Id::new("command_palette_search_scope");
 

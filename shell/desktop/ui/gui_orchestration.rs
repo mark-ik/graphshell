@@ -256,7 +256,7 @@ fn extend_matches_with_active_anchor_neighborhood(
     graph_app: &GraphBrowserApp,
     matches: &mut Vec<NodeKey>,
 ) {
-    let Some(anchor) = graph_app.workspace.active_graph_search_neighborhood_anchor else {
+    let Some(anchor) = graph_app.workspace.graph_runtime.active_graph_search_neighborhood_anchor else {
         return;
     };
     if graph_app.domain_graph().get_node(anchor).is_none() {
@@ -266,6 +266,7 @@ fn extend_matches_with_active_anchor_neighborhood(
     let mut seen: HashSet<NodeKey> = matches.iter().copied().collect();
     let neighborhood_depth = graph_app
         .workspace
+        .graph_runtime
         .active_graph_search_neighborhood_depth
         .clamp(1, 2);
     for neighbor in std::iter::once(anchor).chain(
@@ -284,16 +285,17 @@ fn extend_matches_with_active_anchor_neighborhood(
 fn maybe_push_graph_search_history(graph_app: &mut GraphBrowserApp, request: &GraphSearchRequest) {
     let previous_query = graph_app
         .workspace
+        .graph_runtime
         .active_graph_search_query
         .trim()
         .to_string();
     let previous_filter_mode = matches!(
-        graph_app.workspace.search_display_mode,
+        graph_app.workspace.graph_runtime.search_display_mode,
         SearchDisplayMode::Filter
     );
-    let previous_origin = graph_app.workspace.active_graph_search_origin.clone();
-    let previous_neighborhood_anchor = graph_app.workspace.active_graph_search_neighborhood_anchor;
-    let previous_neighborhood_depth = graph_app.workspace.active_graph_search_neighborhood_depth;
+    let previous_origin = graph_app.workspace.graph_runtime.active_graph_search_origin.clone();
+    let previous_neighborhood_anchor = graph_app.workspace.graph_runtime.active_graph_search_neighborhood_anchor;
+    let previous_neighborhood_depth = graph_app.workspace.graph_runtime.active_graph_search_neighborhood_depth;
 
     if previous_query.is_empty() {
         return;
@@ -318,13 +320,14 @@ fn maybe_push_graph_search_history(graph_app: &mut GraphBrowserApp, request: &Gr
 
     graph_app
         .workspace
+        .graph_runtime
         .graph_search_history
         .retain(|existing| existing != &entry);
-    graph_app.workspace.graph_search_history.push(entry);
+    graph_app.workspace.graph_runtime.graph_search_history.push(entry);
     const GRAPH_SEARCH_HISTORY_LIMIT: usize = 5;
-    if graph_app.workspace.graph_search_history.len() > GRAPH_SEARCH_HISTORY_LIMIT {
-        let overflow = graph_app.workspace.graph_search_history.len() - GRAPH_SEARCH_HISTORY_LIMIT;
-        graph_app.workspace.graph_search_history.drain(0..overflow);
+    if graph_app.workspace.graph_runtime.graph_search_history.len() > GRAPH_SEARCH_HISTORY_LIMIT {
+        let overflow = graph_app.workspace.graph_runtime.graph_search_history.len() - GRAPH_SEARCH_HISTORY_LIMIT;
+        graph_app.workspace.graph_runtime.graph_search_history.drain(0..overflow);
     }
 }
 
@@ -1124,8 +1127,8 @@ fn prime_runtime_focus_authority_for_workbench_intent(
             );
         }
         WorkbenchIntent::ToggleCommandPalette
-            if graph_app.workspace.show_command_palette
-                || graph_app.workspace.show_context_palette =>
+            if graph_app.workspace.chrome_ui.show_command_palette
+                || graph_app.workspace.chrome_ui.show_context_palette =>
         {
             crate::shell::desktop::ui::gui::seed_command_surface_return_target_from_authority(
                 focus_authority,
@@ -1158,7 +1161,7 @@ fn prime_runtime_focus_authority_for_workbench_intent(
                 tiles_tree,
             );
         }
-        WorkbenchIntent::ToggleHelpPanel if graph_app.workspace.show_help_panel => {
+        WorkbenchIntent::ToggleHelpPanel if graph_app.workspace.chrome_ui.show_help_panel => {
             crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
                 focus_authority,
                 graph_app,
@@ -1185,7 +1188,7 @@ fn prime_runtime_focus_authority_for_workbench_intent(
                 },
             );
         }
-        WorkbenchIntent::ToggleRadialMenu if graph_app.workspace.show_radial_menu => {
+        WorkbenchIntent::ToggleRadialMenu if graph_app.workspace.chrome_ui.show_radial_menu => {
             crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
                 focus_authority,
                 graph_app,

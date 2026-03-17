@@ -363,9 +363,9 @@ fn append_workbench_semantics_nodes(
         by_node
     }
 
-    for (view_id, view_state) in &graph_app.workspace.views {
+    for (view_id, view_state) in &graph_app.workspace.graph_runtime.views {
         let selection_count = graph_app.selection_for_view(*view_id).len();
-        let focused_view = graph_app.workspace.focused_view == Some(*view_id);
+        let focused_view = graph_app.workspace.graph_runtime.focused_view == Some(*view_id);
         let lens_scope_id = format!("uxnode://workbench/graph/{view_id:?}/lens-scope");
         semantic_nodes.push(UxSemanticNode {
             ux_node_id: lens_scope_id.clone(),
@@ -414,7 +414,7 @@ fn append_workbench_semantics_nodes(
         });
     }
 
-    let navigator_projection = graph_app.file_tree_projection_state();
+    let navigator_projection = graph_app.navigator_projection_state();
     let arrangement_groups = graph_app.arrangement_projection_groups();
     let workbench_group_count = arrangement_groups.len();
     let mut arranged_nodes = HashSet::new();
@@ -1571,12 +1571,12 @@ mod tests {
 
         let view_id = GraphViewId::default();
         harness.app.ensure_graph_view_registered(view_id);
-        if let Some(view) = harness.app.workspace.views.get_mut(&view_id) {
+        if let Some(view) = harness.app.workspace.graph_runtime.views.get_mut(&view_id) {
             view.lens.name = "Research Lens".to_string();
             view.lens.layout = crate::registries::atomic::lens::LayoutMode::Free;
             view.lens.filters = vec!["tag:#clip".to_string()];
         }
-        harness.app.workspace.focused_view = Some(view_id);
+        harness.app.workspace.graph_runtime.focused_view = Some(view_id);
 
         harness.app.set_file_tree_containment_relation_source(
             FileTreeContainmentRelationSource::SavedViewCollections,
