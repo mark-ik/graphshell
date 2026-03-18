@@ -2,20 +2,21 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use egui::{RichText, SidePanel};
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
 use uuid::Uuid;
 
-use crate::app::{GraphBrowserApp, GraphViewId, WorkbenchIntent};
-use crate::graph::{ArrangementSubKind, NodeKey};
+use crate::app::{CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, WorkbenchIntent};
+use crate::graph::{ArrangementSubKind, NodeKey, NodeLifecycle};
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops;
+use crate::util::CoordBridge;
 use crate::util::VersoAddress;
 
 /// Maximum sidebar width as a fraction of screen width. Clamped so the sidebar
@@ -43,7 +44,28 @@ fn compact_sidebar_text(text: &str) -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkbenchLayerState {
     GraphOnly,
+    GraphOverlayActive,
     WorkbenchActive,
+    WorkbenchPinned,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChromeExposurePolicy {
+    GraphOnly,
+    GraphWithOverlay,
+    GraphPlusWorkbenchSidebar,
+    GraphPlusWorkbenchSidebarPinned,
+}
+
+impl WorkbenchLayerState {
+    pub(crate) fn chrome_policy(self) -> ChromeExposurePolicy {
+        match self {
+            Self::GraphOnly => ChromeExposurePolicy::GraphOnly,
+            Self::GraphOverlayActive => ChromeExposurePolicy::GraphWithOverlay,
+            Self::WorkbenchActive => ChromeExposurePolicy::GraphPlusWorkbenchSidebar,
+            Self::WorkbenchPinned => ChromeExposurePolicy::GraphPlusWorkbenchSidebarPinned,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +89,7 @@ pub(crate) struct WorkbenchPaneEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkbenchChromeProjection {
     pub(crate) layer_state: WorkbenchLayerState,
+    pub(crate) chrome_policy: ChromeExposurePolicy,
     pub(crate) active_pane_title: Option<String>,
     pub(crate) saved_frame_names: Vec<String>,
     pub(crate) navigator_groups: Vec<WorkbenchNavigatorGroup>,
@@ -83,9 +106,12 @@ pub(crate) struct WorkbenchNavigatorGroup {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkbenchNavigatorSection {
-    Arrangement(ArrangementSubKind),
+    Workbench,
+    Folders,
+    Domain,
     Recent,
     Unrelated,
+    Imported,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,6 +119,7 @@ pub(crate) struct WorkbenchNavigatorMember {
     pub(crate) node_key: NodeKey,
     pub(crate) title: String,
     pub(crate) is_selected: bool,
+    pub(crate) row_key: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,15 +182,20 @@ impl WorkbenchChromeProjection {
             .iter()
             .filter(|entry| matches!(entry.kind, WorkbenchPaneKind::Graph { .. }))
             .count();
-        let layer_state = if pane_entries
+        let has_hosted_workbench = pane_entries
             .iter()
             .any(|entry| !matches!(entry.kind, WorkbenchPaneKind::Graph { .. }))
-            || graph_pane_count > 1
-        {
+            || graph_pane_count > 1;
+        let layer_state = if graph_app.workbench_sidebar_pinned() {
+            WorkbenchLayerState::WorkbenchPinned
+        } else if has_hosted_workbench {
             WorkbenchLayerState::WorkbenchActive
+        } else if graph_app.chrome_overlay_active() {
+            WorkbenchLayerState::GraphOverlayActive
         } else {
             WorkbenchLayerState::GraphOnly
         };
+        let chrome_policy = layer_state.chrome_policy();
         let active_pane_title = pane_entries
             .iter()
             .find(|entry| entry.is_active)
@@ -182,6 +214,7 @@ impl WorkbenchChromeProjection {
             });
         Self {
             layer_state,
+            chrome_policy,
             active_pane_title,
             saved_frame_names,
             navigator_groups,
@@ -191,7 +224,11 @@ impl WorkbenchChromeProjection {
     }
 
     pub(crate) fn visible(&self) -> bool {
-        matches!(self.layer_state, WorkbenchLayerState::WorkbenchActive)
+        matches!(
+            self.chrome_policy,
+            ChromeExposurePolicy::GraphPlusWorkbenchSidebar
+                | ChromeExposurePolicy::GraphPlusWorkbenchSidebarPinned
+        )
     }
 }
 
@@ -200,16 +237,43 @@ fn navigator_groups(
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
 ) -> Vec<WorkbenchNavigatorGroup> {
     let mut groups = arrangement_navigator_groups(graph_app);
-    let recent_keys = recent_navigator_members(graph_app, arrangement_memberships)
+    let mut assigned_keys = groups
+        .iter()
+        .flat_map(|group| group.members.iter().map(|member| member.node_key))
+        .collect::<HashSet<_>>();
+
+    let folder_groups = containment_navigator_groups(graph_app, &assigned_keys, true);
+    assigned_keys.extend(
+        folder_groups
+            .iter()
+            .flat_map(|group| group.members.iter().map(|member| member.node_key)),
+    );
+    groups.extend(folder_groups);
+
+    let domain_groups = containment_navigator_groups(graph_app, &assigned_keys, false);
+    assigned_keys.extend(
+        domain_groups
+            .iter()
+            .flat_map(|group| group.members.iter().map(|member| member.node_key)),
+    );
+    groups.extend(domain_groups);
+
+    let recent_keys = recent_navigator_members(graph_app, arrangement_memberships, &assigned_keys)
         .iter()
         .map(|member| member.node_key)
         .collect::<HashSet<_>>();
     groups.extend(unrelated_navigator_group(
         graph_app,
         arrangement_memberships,
+        &assigned_keys,
         &recent_keys,
     ));
-    groups.extend(recent_navigator_group(graph_app, arrangement_memberships));
+    groups.extend(recent_navigator_group(
+        graph_app,
+        arrangement_memberships,
+        &assigned_keys,
+    ));
+    groups.extend(imported_navigator_groups(graph_app));
     groups
 }
 
@@ -218,7 +282,7 @@ fn arrangement_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNav
         .arrangement_projection_groups()
         .into_iter()
         .map(|group| WorkbenchNavigatorGroup {
-            section: WorkbenchNavigatorSection::Arrangement(group.sub_kind),
+            section: WorkbenchNavigatorSection::Workbench,
             title: match group.sub_kind {
                 ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
                 ArrangementSubKind::TileGroup => format!("Tile Group: {}", group.title),
@@ -233,11 +297,136 @@ fn arrangement_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNav
         .collect()
 }
 
+fn containment_navigator_groups(
+    graph_app: &GraphBrowserApp,
+    excluded_keys: &HashSet<NodeKey>,
+    folders: bool,
+) -> Vec<WorkbenchNavigatorGroup> {
+    let mut sections: BTreeMap<String, Vec<NodeKey>> = BTreeMap::new();
+    for (node_key, node) in graph_app.domain_graph().nodes() {
+        if excluded_keys.contains(&node_key) || is_internal_surface_node(node) {
+            continue;
+        }
+
+        let Ok(parsed) = url::Url::parse(&node.url) else {
+            continue;
+        };
+
+        let maybe_section_key = if folders {
+            containment_folder_key(&parsed)
+        } else {
+            parsed.host_str().map(|host| host.to_ascii_lowercase())
+        };
+
+        let Some(section_key) = maybe_section_key else {
+            continue;
+        };
+        sections.entry(section_key).or_default().push(node_key);
+    }
+
+    sections
+        .into_iter()
+        .filter_map(|(title, mut node_keys)| {
+            node_keys.sort_by(|left, right| {
+                navigator_member_sort_key(graph_app, *left)
+                    .cmp(&navigator_member_sort_key(graph_app, *right))
+            });
+            node_keys.dedup();
+            let members = node_keys
+                .into_iter()
+                .filter_map(|node_key| navigator_member_for_node(graph_app, node_key, None))
+                .collect::<Vec<_>>();
+            if members.is_empty() {
+                return None;
+            }
+            Some(WorkbenchNavigatorGroup {
+                section: if folders {
+                    WorkbenchNavigatorSection::Folders
+                } else {
+                    WorkbenchNavigatorSection::Domain
+                },
+                title,
+                members,
+            })
+        })
+        .collect()
+}
+
+fn containment_folder_key(parsed: &url::Url) -> Option<String> {
+    if !matches!(parsed.scheme(), "http" | "https" | "file") {
+        return None;
+    }
+
+    let mut parent = parsed.clone();
+    parent.set_query(None);
+    parent.set_fragment(None);
+    let mut segments: Vec<String> = parent
+        .path_segments()
+        .map(|parts| {
+            parts
+                .filter(|segment| !segment.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if segments.is_empty() {
+        return None;
+    }
+    segments.pop();
+    let parent_path = if segments.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}/", segments.join("/"))
+    };
+    parent.set_path(&parent_path);
+    Some(parent.to_string())
+}
+
+fn imported_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNavigatorGroup> {
+    let mut sections: BTreeMap<String, Vec<NodeKey>> = BTreeMap::new();
+    for (node_key, node) in graph_app.domain_graph().nodes() {
+        if is_internal_surface_node(node) {
+            continue;
+        }
+        for provenance in &node.import_provenance {
+            let label = provenance.source_label.trim();
+            if label.is_empty() {
+                continue;
+            }
+            sections.entry(label.to_string()).or_default().push(node_key);
+        }
+    }
+
+    sections
+        .into_iter()
+        .filter_map(|(title, mut node_keys)| {
+            node_keys.sort_by(|left, right| {
+                navigator_member_sort_key(graph_app, *left)
+                    .cmp(&navigator_member_sort_key(graph_app, *right))
+            });
+            node_keys.dedup();
+            let members = node_keys
+                .into_iter()
+                .filter_map(|node_key| navigator_member_for_node(graph_app, node_key, None))
+                .collect::<Vec<_>>();
+            if members.is_empty() {
+                return None;
+            }
+            Some(WorkbenchNavigatorGroup {
+                section: WorkbenchNavigatorSection::Imported,
+                title,
+                members,
+            })
+        })
+        .collect()
+}
+
 fn recent_navigator_group(
     graph_app: &GraphBrowserApp,
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
+    excluded_keys: &HashSet<NodeKey>,
 ) -> Option<WorkbenchNavigatorGroup> {
-    let members = recent_navigator_members(graph_app, arrangement_memberships);
+    let members = recent_navigator_members(graph_app, arrangement_memberships, excluded_keys);
     if members.is_empty() {
         return None;
     }
@@ -251,6 +440,7 @@ fn recent_navigator_group(
 fn recent_navigator_members(
     graph_app: &GraphBrowserApp,
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
+    excluded_keys: &HashSet<NodeKey>,
 ) -> Vec<WorkbenchNavigatorMember> {
     let mut recent: HashMap<NodeKey, (u64, usize)> = HashMap::new();
     for entry in graph_app.history_manager_timeline_entries(NAVIGATOR_RECENT_LIMIT * 4) {
@@ -271,7 +461,10 @@ fn recent_navigator_members(
         let Some(node) = graph_app.domain_graph().get_node(node_key) else {
             continue;
         };
-        if arrangement_memberships.contains_key(&node_key) || is_internal_surface_node(node) {
+        if arrangement_memberships.contains_key(&node_key)
+            || excluded_keys.contains(&node_key)
+            || is_internal_surface_node(node)
+        {
             continue;
         }
         let stats = recent.entry(node_key).or_insert((timestamp_ms, 0));
@@ -299,6 +492,7 @@ fn recent_navigator_members(
 fn unrelated_navigator_group(
     graph_app: &GraphBrowserApp,
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
+    excluded_keys: &HashSet<NodeKey>,
     recent_keys: &HashSet<NodeKey>,
 ) -> Option<WorkbenchNavigatorGroup> {
     let mut members = graph_app
@@ -306,6 +500,7 @@ fn unrelated_navigator_group(
         .nodes()
         .filter(|(node_key, node)| {
             !arrangement_memberships.contains_key(node_key)
+                && !excluded_keys.contains(node_key)
                 && !recent_keys.contains(node_key)
                 && !is_internal_surface_node(node)
         })
@@ -340,7 +535,58 @@ fn navigator_member_for_node(
         node_key,
         title,
         is_selected: graph_app.focused_selection().contains(&node_key),
+        row_key: navigator_row_key_for_node(graph_app, node_key),
     })
+}
+
+fn navigator_row_key_for_node(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Option<String> {
+    graph_app
+        .navigator_projection_state()
+        .row_targets
+        .iter()
+        .filter_map(|(row_key, target)| match target {
+            crate::app::NavigatorProjectionTarget::Node(key) if *key == node_key => {
+                Some(row_key.clone())
+            }
+            _ => None,
+        })
+        .min()
+}
+
+fn node_is_live(graph_app: &GraphBrowserApp, node_key: NodeKey) -> bool {
+    graph_app
+        .domain_graph()
+        .get_node(node_key)
+        .map(|node| matches!(node.lifecycle, NodeLifecycle::Active | NodeLifecycle::Warm))
+        .unwrap_or(false)
+}
+
+fn active_visible_graph_view_id(tiles_tree: &Tree<TileKind>) -> Option<GraphViewId> {
+    tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
+        let tile = tiles_tree.tiles.get(tile_id)?;
+        match tile {
+            Tile::Pane(TileKind::Graph(graph_ref)) => Some(graph_ref.graph_view_id),
+            Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref),
+            )) => Some(graph_ref.graph_view_id),
+            _ => None,
+        }
+    })
+}
+
+fn offscreen_visible_graph_view_for_node(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    node_key: NodeKey,
+) -> Option<GraphViewId> {
+    let view_id = active_visible_graph_view_id(tiles_tree)?;
+    let canvas_rect = graph_app
+        .workspace
+        .graph_runtime
+        .graph_view_canvas_rects
+        .get(&view_id)?;
+    let position = graph_app.domain_graph().node_projected_position(node_key)?;
+    (!canvas_rect.contains(position.to_pos2())).then_some(view_id)
 }
 
 fn navigator_member_sort_key(app: &GraphBrowserApp, key: NodeKey) -> (String, usize) {
@@ -633,6 +879,23 @@ pub(crate) fn render_workbench_sidebar(
                 if let Some(active_title) = &projection.active_pane_title {
                     ui.label(RichText::new(active_title).small().weak());
                 }
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new(layer_state_label(projection.layer_state))
+                                .small()
+                                .weak(),
+                        );
+                        let pin_label = if graph_app.workbench_sidebar_pinned() {
+                            "Unpin Sidebar"
+                        } else {
+                            "Pin Sidebar"
+                        };
+                        if ui.small_button(pin_label).clicked() {
+                            post_panel_action = Some(SidebarAction::SetWorkbenchPinned(
+                                !graph_app.workbench_sidebar_pinned(),
+                            ));
+                        }
+                    });
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
                     render_navigation_buttons(
@@ -701,16 +964,26 @@ pub(crate) fn render_workbench_sidebar(
                             RichText::new(&group.title).small().strong(),
                         )
                         .id_salt(("workbench_sidebar_navigator", &group.title))
-                        .default_open(!matches!(group.section, WorkbenchNavigatorSection::Recent));
+                        .default_open(!matches!(
+                            group.section,
+                            WorkbenchNavigatorSection::Recent | WorkbenchNavigatorSection::Imported
+                        ));
                         header.show(ui, |ui| {
                             for member in &group.members {
                                 let response = ui.selectable_label(
                                     member.is_selected,
                                     RichText::new(&member.title).small(),
                                 );
-                                if response.clicked() {
-                                    post_panel_action =
-                                        Some(SidebarAction::SelectNode(member.node_key));
+                                if response.double_clicked() {
+                                    post_panel_action = Some(SidebarAction::ActivateNode {
+                                        node_key: member.node_key,
+                                        row_key: member.row_key.clone(),
+                                    });
+                                } else if response.clicked() {
+                                    post_panel_action = Some(SidebarAction::SelectNode {
+                                        node_key: member.node_key,
+                                        row_key: member.row_key.clone(),
+                                    });
                                 }
                             }
                         });
@@ -750,13 +1023,30 @@ pub(crate) fn render_workbench_sidebar(
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SidebarAction {
     FocusPane(PaneId),
-    SelectNode(NodeKey),
+    SelectNode {
+        node_key: NodeKey,
+        row_key: Option<String>,
+    },
+    ActivateNode {
+        node_key: NodeKey,
+        row_key: Option<String>,
+    },
     SplitPane(PaneId, SplitDirection),
     ClosePane(PaneId),
     OpenTool(ToolPaneState),
+    SetWorkbenchPinned(bool),
     SaveCurrentFrame,
     PruneEmptyFrames,
     RestoreFrame(String),
+}
+
+fn layer_state_label(layer_state: WorkbenchLayerState) -> &'static str {
+    match layer_state {
+        WorkbenchLayerState::GraphOnly => "Graph only",
+        WorkbenchLayerState::GraphOverlayActive => "Graph overlay active",
+        WorkbenchLayerState::WorkbenchActive => "Workbench active",
+        WorkbenchLayerState::WorkbenchPinned => "Workbench pinned",
+    }
 }
 
 fn render_tree_node(
@@ -915,8 +1205,40 @@ fn apply_sidebar_action(
         SidebarAction::FocusPane(pane_id) => {
             let _ = tile_view_ops::focus_pane(tiles_tree, pane_id);
         }
-        SidebarAction::SelectNode(node_key) => {
-            graph_app.select_node(node_key, false);
+        SidebarAction::SelectNode { node_key, row_key } => {
+            if let Some(row_key) = row_key {
+                graph_app.set_navigator_selected_rows([row_key]);
+            }
+            graph_app.apply_reducer_intents([GraphIntent::SelectNode {
+                key: node_key,
+                multi_select: false,
+            }]);
+            if let Some(view_id) = offscreen_visible_graph_view_for_node(graph_app, tiles_tree, node_key)
+            {
+                graph_app.request_camera_command_for_view(
+                    Some(view_id),
+                    CameraCommand::FitSelection,
+                );
+            }
+        }
+        SidebarAction::ActivateNode { node_key, row_key } => {
+            if let Some(row_key) = row_key {
+                graph_app.set_navigator_selected_rows([row_key]);
+            }
+            if node_is_live(graph_app, node_key) {
+                graph_app.apply_reducer_intents([GraphIntent::OpenNodeWorkspaceRouted {
+                    key: node_key,
+                    prefer_workspace: None,
+                }]);
+            } else {
+                graph_app.apply_reducer_intents([
+                    GraphIntent::SelectNode {
+                        key: node_key,
+                        multi_select: false,
+                    },
+                    GraphIntent::RequestZoomToSelected,
+                ]);
+            }
         }
         SidebarAction::SplitPane(source_pane, direction) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::SplitPane {
@@ -932,6 +1254,9 @@ fn apply_sidebar_action(
         }
         SidebarAction::OpenTool(kind) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane { kind });
+        }
+        SidebarAction::SetWorkbenchPinned(pinned) => {
+            graph_app.set_workbench_sidebar_pinned(pinned);
         }
         SidebarAction::SaveCurrentFrame => {
             let now = std::time::SystemTime::now()
@@ -1105,7 +1430,45 @@ mod tests {
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
         assert_eq!(projection.layer_state, WorkbenchLayerState::GraphOnly);
+        assert_eq!(projection.chrome_policy, ChromeExposurePolicy::GraphOnly);
         assert!(!projection.visible());
+    }
+
+    #[test]
+    fn projection_reports_graph_overlay_without_sidebar() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.workspace.chrome_ui.show_command_palette = true;
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let tree = Tree::new("workbench_sidebar_graph_overlay", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(projection.layer_state, WorkbenchLayerState::GraphOverlayActive);
+        assert_eq!(projection.chrome_policy, ChromeExposurePolicy::GraphWithOverlay);
+        assert!(!projection.visible());
+    }
+
+    #[test]
+    fn projection_stays_visible_when_sidebar_is_pinned() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.set_workbench_sidebar_pinned(true);
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let tree = Tree::new("workbench_sidebar_pinned", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(projection.layer_state, WorkbenchLayerState::WorkbenchPinned);
+        assert_eq!(
+            projection.chrome_policy,
+            ChromeExposurePolicy::GraphPlusWorkbenchSidebarPinned
+        );
+        assert!(projection.visible());
     }
 
     #[cfg(feature = "diagnostics")]
@@ -1212,7 +1575,8 @@ mod tests {
             .navigator_groups
             .iter()
             .find(|group| {
-                group.section == WorkbenchNavigatorSection::Arrangement(ArrangementSubKind::FrameMember)
+                group.section == WorkbenchNavigatorSection::Workbench
+                    && group.title.starts_with("Frame: ")
             })
             .expect("arrangement group");
         assert_eq!(arrangement_group.members.len(), 3);
@@ -1244,6 +1608,104 @@ mod tests {
             .expect("unrelated group");
         assert_eq!(unrelated_group.members.len(), 1);
         assert_eq!(unrelated_group.members[0].node_key, unrelated_key);
+    }
+
+    #[test]
+    fn projection_adds_imported_groups_labeled_by_source() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let imported_key = app.add_node_and_sync(
+            "https://example.com/imported".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        assert!(app.workspace.domain.graph.set_node_import_provenance(
+            imported_key,
+            vec![crate::graph::NodeImportProvenance {
+                source_id: "import:firefox-bookmarks".to_string(),
+                source_label: "Firefox bookmarks".to_string(),
+            }],
+        ));
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let root = tiles.insert_tab_tile(vec![graph]);
+        let tree = Tree::new("workbench_sidebar_imported", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        let imported_group = projection
+            .navigator_groups
+            .iter()
+            .find(|group| group.section == WorkbenchNavigatorSection::Imported)
+            .expect("imported group");
+        assert_eq!(imported_group.title, "Firefox bookmarks");
+        assert_eq!(imported_group.members.len(), 1);
+        assert_eq!(imported_group.members[0].node_key, imported_key);
+    }
+
+    #[test]
+    fn selecting_offscreen_node_requests_fit_selection_for_visible_graph() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let node_key = app.add_node_and_sync(
+            "https://example.com/offscreen".to_string(),
+            euclid::default::Point2D::new(400.0, 400.0),
+        );
+        app.workspace.graph_runtime.graph_view_canvas_rects.insert(
+            graph_view,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+        );
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let mut tree = Tree::new("workbench_sidebar_select_offscreen", root, tiles);
+
+        apply_sidebar_action(
+            SidebarAction::SelectNode {
+                node_key,
+                row_key: Some("node:test".to_string()),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(app.focused_selection().contains(&node_key));
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::FitSelection));
+        assert_eq!(app.pending_camera_command_target(), Some(graph_view));
+    }
+
+    #[test]
+    fn selecting_onscreen_node_keeps_highlight_in_place() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let node_key = app.add_node_and_sync(
+            "https://example.com/onscreen".to_string(),
+            euclid::default::Point2D::new(40.0, 40.0),
+        );
+        app.workspace.graph_runtime.graph_view_canvas_rects.insert(
+            graph_view,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+        );
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let mut tree = Tree::new("workbench_sidebar_select_onscreen", root, tiles);
+
+        apply_sidebar_action(
+            SidebarAction::SelectNode {
+                node_key,
+                row_key: Some("node:test".to_string()),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(app.focused_selection().contains(&node_key));
+        assert!(app.pending_camera_command().is_none());
+        assert!(app.pending_camera_command_target().is_none());
     }
 
     #[test]

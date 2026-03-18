@@ -47,6 +47,44 @@ pub(super) fn parse_provider_search_query(raw: &str) -> Option<(SearchProviderKi
     Some((provider, tail))
 }
 
+fn omnibar_import_search_text(graph_app: &GraphBrowserApp, key: NodeKey) -> String {
+    graph_app
+        .domain_graph()
+        .import_record_summaries_for_node(key)
+        .into_iter()
+        .map(|record| {
+            format!(
+                "{} {} {} {}",
+                record.source_label,
+                record.source_id,
+                record.record_id,
+                crate::graph::format_imported_at_secs(record.imported_at_secs),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn omnibar_import_label_suffix(graph_app: &GraphBrowserApp, key: NodeKey) -> String {
+    let import_records = graph_app.domain_graph().import_record_summaries_for_node(key);
+    let Some(primary_record) = import_records.first() else {
+        return String::new();
+    };
+    let extra_count = import_records.len().saturating_sub(1);
+    let extra_suffix = if extra_count == 0 {
+        String::new()
+    } else {
+        format!(" +{extra_count}")
+    };
+    format!(
+        "  [Imported: {} {} {}{}]",
+        primary_record.source_label,
+        crate::graph::format_imported_at_secs(primary_record.imported_at_secs),
+        primary_record.record_id,
+        extra_suffix,
+    )
+}
+
 pub(super) fn default_search_provider_from_searchpage(
     searchpage: &str,
 ) -> Option<SearchProviderKind> {
@@ -446,24 +484,38 @@ fn edge_candidates_for_graph(
     out
 }
 
-fn node_candidates_for_graph(graph: &crate::graph::Graph) -> Vec<OmnibarSearchCandidate> {
-    graph
+fn node_candidates_for_graph(graph_app: &GraphBrowserApp) -> Vec<OmnibarSearchCandidate> {
+    graph_app
+        .domain_graph()
         .nodes()
         .map(|(key, node)| OmnibarSearchCandidate {
-            text: format!("{} {}", node.title, node.url),
+            text: format!(
+                "{} {} {}",
+                node.title,
+                node.url,
+                omnibar_import_search_text(graph_app, key)
+            ),
             target: OmnibarMatch::Node(key),
         })
         .collect()
 }
 
 fn tab_candidates_for_keys(
-    graph: &crate::graph::Graph,
+    graph_app: &GraphBrowserApp,
     keys: &HashSet<NodeKey>,
 ) -> Vec<OmnibarSearchCandidate> {
     keys.iter()
         .filter_map(|key| {
-            graph.get_node(*key).map(|node| OmnibarSearchCandidate {
-                text: format!("{} {}", node.title, node.url),
+            graph_app
+                .domain_graph()
+                .get_node(*key)
+                .map(|node| OmnibarSearchCandidate {
+                    text: format!(
+                        "{} {} {}",
+                        node.title,
+                        node.url,
+                        omnibar_import_search_text(graph_app, *key)
+                    ),
                 target: OmnibarMatch::Node(*key),
             })
         })
@@ -515,7 +567,14 @@ pub(super) fn omnibar_match_label(graph_app: &GraphBrowserApp, m: &OmnibarMatch)
         OmnibarMatch::Node(key) => graph_app
             .domain_graph()
             .get_node(*key)
-            .map(|node| format!("{}  {}", node.title, node.url))
+            .map(|node| {
+                format!(
+                    "{}  {}{}",
+                    node.title,
+                    node.url,
+                    omnibar_import_label_suffix(graph_app, *key)
+                )
+            })
             .unwrap_or_else(|| format!("node {}", key.index())),
         OmnibarMatch::NodeUrl(url) => url.clone(),
         OmnibarMatch::SearchQuery { query, .. } => query.clone(),
@@ -644,7 +703,7 @@ pub(super) fn omnibar_matches_for_query(
     }
 
     let local_tab_nodes = tab_node_keys_in_tree(tiles_tree);
-    let local_node_candidates = node_candidates_for_graph(graph_app.domain_graph());
+    let local_node_candidates = node_candidates_for_graph(graph_app);
     let local_edge_candidates = edge_candidates_for_graph(graph_app.domain_graph(), None);
 
     let saved_tab_nodes = saved_tab_node_keys(graph_app);
@@ -754,13 +813,13 @@ pub(super) fn omnibar_matches_for_query(
         }
     }
 
-    let local_tab_candidates = tab_candidates_for_keys(graph_app.domain_graph(), &local_tab_nodes);
+    let local_tab_candidates = tab_candidates_for_keys(graph_app, &local_tab_nodes);
     let all_tab_keys: HashSet<NodeKey> = local_tab_nodes
         .iter()
         .copied()
         .chain(saved_tab_nodes.iter().copied())
         .collect();
-    let all_tab_candidates = tab_candidates_for_keys(graph_app.domain_graph(), &all_tab_keys);
+    let all_tab_candidates = tab_candidates_for_keys(graph_app, &all_tab_keys);
 
     match mode {
         OmnibarSearchMode::NodesLocal => ranked_matches(local_node_candidates, query),
@@ -800,7 +859,7 @@ pub(super) fn omnibar_matches_for_query(
                 return dedupe_matches_in_order(out);
             }
             let all_tab_ranked_matches = ranked_matches(
-                tab_candidates_for_keys(graph_app.domain_graph(), &all_tab_keys),
+                tab_candidates_for_keys(graph_app, &all_tab_keys),
                 query,
             );
             let tab_rank: HashMap<NodeKey, usize> = all_tab_ranked_matches
@@ -870,7 +929,7 @@ pub(super) fn omnibar_matches_for_query(
 mod tests {
     use super::*;
     use crate::app::{GraphBrowserApp, GraphViewId};
-    use crate::graph::EdgeType;
+    use crate::graph::{EdgeType, ImportRecord, ImportRecordMembership};
     use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use egui_tiles::Tree;
@@ -967,6 +1026,32 @@ mod tests {
             provider_parsed_metadata_cache_key(SearchProviderKind::Google, "rust"),
             "provider:parsed_suggestions:google:rust"
         );
+    }
+
+    #[test]
+    fn test_omnibar_match_label_includes_import_record_metadata() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.add_node_and_sync("https://imported.example".into(), Point2D::zero());
+        let node_id = app
+            .domain_graph()
+            .get_node(key)
+            .expect("node")
+            .id
+            .to_string();
+        assert!(app.workspace.domain.graph.set_import_records(vec![ImportRecord {
+            record_id: "import-record:firefox-bookmarks-2026-03-17".to_string(),
+            source_id: "import:firefox-bookmarks".to_string(),
+            source_label: "Firefox bookmarks".to_string(),
+            imported_at_secs: 1_763_500_800,
+            memberships: vec![ImportRecordMembership {
+                node_id,
+                suppressed: false,
+            }],
+        }]));
+
+        let label = omnibar_match_label(&app, &OmnibarMatch::Node(key));
+        assert!(label.contains("Imported: Firefox bookmarks"));
+        assert!(label.contains("import-record:firefox-bookmarks-2026-03-17"));
     }
 
     #[test]

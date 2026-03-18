@@ -1,22 +1,15 @@
-# Navigator Interaction Contract — Moved
+# Navigator Interaction Contract
 
-**Moved**: 2026-03-17
-**Canonical location**: [`../navigator/navigator_interaction_contract.md`](../navigator/navigator_interaction_contract.md)
-
-This file is retained as a forwarding stub. Do not edit here — edit the canonical copy in the Navigator domain.
-
----
-
-## Original content (superseded)
-
-**Date**: 2026-03-15
-**Purpose**: Define the canonical interaction grammar for the Sidebar Navigator
-and Toolbar Navigator, including which rows select nodes, which rows expand
-containers, and how node navigation resolves between graph and workbench
-presentations.
+**Date**: 2026-03-17 (moved from `workbench/navigator_graph_isomorphism_spec.md` 2026-03-15)
+**Status**: Design — Pre-Implementation
+**Purpose**: Canonical interaction grammar for the Sidebar Navigator and Toolbar
+Navigator. Defines which rows select nodes, which rows expand containers, and
+how node navigation resolves between graph and workbench presentations.
 
 **Related**:
 
+- [NAVIGATOR.md](NAVIGATOR.md) — Navigator domain spec and authority boundaries
+- [navigator_backlog_pack.md](navigator_backlog_pack.md) — implementation backlog
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../canvas/frame_graph_representation_spec.md`

@@ -22,7 +22,6 @@ use crate::shell::desktop::ui::toolbar::toolbar_ui::{
 use crate::shell::desktop::ui::workbench_sidebar;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::shell::desktop::workbench::tile_runtime;
 
 pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
@@ -102,13 +101,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         focused_toolbar_node_key,
         graph_app.get_single_selected_node(),
     );
-    let has_node_panes = tile_runtime::has_any_node_panes(tiles_tree);
-    let is_graph_view = !has_node_panes;
-    if !is_graph_view {
-        graph_app.workspace.graph_runtime.hovered_graph_node = None;
-    }
-
-    let _workbench_projection = workbench_sidebar::render_workbench_sidebar(
+    let workbench_projection = workbench_sidebar::render_workbench_sidebar(
         ctx,
         graph_app,
         window,
@@ -119,6 +112,14 @@ pub(crate) fn handle_toolbar_dialog_phase(
         can_go_forward,
         location_dirty,
     );
+    let is_graph_view = matches!(
+        workbench_projection.layer_state,
+        workbench_sidebar::WorkbenchLayerState::GraphOnly
+            | workbench_sidebar::WorkbenchLayerState::GraphOverlayActive
+    );
+    if !is_graph_view {
+        graph_app.workspace.graph_runtime.hovered_graph_node = None;
+    }
 
     let toolbar_output = toolbar_ui::render_toolbar_ui(ToolbarUiInput {
         ctx,
@@ -129,8 +130,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
         tiles_tree,
         focused_toolbar_node,
         active_toolbar_pane,
+        workbench_layer_state: workbench_projection.layer_state,
         local_widget_focus,
-        has_node_panes,
         can_go_back,
         can_go_forward,
         location,

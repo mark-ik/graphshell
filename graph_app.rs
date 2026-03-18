@@ -1079,6 +1079,8 @@ impl GraphBrowserApp {
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
         "workspace:settings-omnibar-non-at-order";
     pub const SETTINGS_WRY_ENABLED_NAME: &'static str = "workspace:settings-wry-enabled";
+    pub const SETTINGS_WORKBENCH_SIDEBAR_PINNED_NAME: &'static str =
+        "workspace:settings-workbench-sidebar-pinned";
     pub const SETTINGS_REGISTRY_LENS_ID_NAME: &'static str = "workspace:settings-registry-lens-id";
     pub const SETTINGS_REGISTRY_PHYSICS_ID_NAME: &'static str =
         "workspace:settings-registry-physics-id";
@@ -1160,6 +1162,7 @@ impl GraphBrowserApp {
                     views: HashMap::new(),
                     graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                     graph_view_frames: HashMap::new(),
+                    graph_view_canvas_rects: HashMap::new(),
                     focused_view: None,
                     graph_reader_state: GraphReaderState::default(),
                     camera: Camera::new(),
@@ -1247,6 +1250,7 @@ impl GraphBrowserApp {
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                     wry_enabled: false,
+                    workbench_sidebar_pinned: false,
                     form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
                         .is_some(),
                     default_registry_lens_id: None,
@@ -1290,6 +1294,7 @@ impl GraphBrowserApp {
                     views: HashMap::new(),
                     graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                     graph_view_frames: HashMap::new(),
+                    graph_view_canvas_rects: HashMap::new(),
                     focused_view: None,
                     graph_reader_state: GraphReaderState::default(),
                     camera: Camera::new(),
@@ -1377,6 +1382,7 @@ impl GraphBrowserApp {
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                     wry_enabled: false,
+                    workbench_sidebar_pinned: false,
                     form_draft_capture_enabled: false,
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
@@ -2171,6 +2177,18 @@ impl GraphBrowserApp {
         !self.has_typed_edge(from, to, EdgeType::UserGrouped)
     }
 
+    fn would_promote_import_record_to_user_group(&self, record_id: &str, anchor: NodeKey) -> bool {
+        let member_keys = self.workspace.domain.graph.import_record_member_keys(record_id);
+        if !member_keys.contains(&anchor) {
+            return false;
+        }
+        member_keys.into_iter().any(|member| {
+            member != anchor
+                && (self.would_create_user_grouped_edge(anchor, member)
+                    || self.would_create_user_grouped_edge(member, anchor))
+        })
+    }
+
     fn should_capture_undo_checkpoint_for_intent(&self, intent: &GraphIntent) -> bool {
         if matches!(intent, GraphIntent::AcceptHostOpenRequest { .. }) {
             return true;
@@ -2188,6 +2206,22 @@ impl GraphBrowserApp {
             GraphMutation::ClearGraph => self.workspace.domain.graph.node_count() > 0,
             GraphMutation::CreateUserGroupedEdge { from, to, .. } => {
                 self.would_create_user_grouped_edge(from, to)
+            }
+            GraphMutation::DeleteImportRecord { record_id } => self
+                .workspace
+                .domain
+                .graph
+                .import_records()
+                .iter()
+                .any(|record| record.record_id == record_id),
+            GraphMutation::SuppressImportRecordMembership { record_id, key } => self
+                .workspace
+                .domain
+                .graph
+                .import_record_member_keys(&record_id)
+                .contains(&key),
+            GraphMutation::PromoteImportRecordToUserGroup { record_id, anchor } => {
+                self.would_promote_import_record_to_user_group(&record_id, anchor)
             }
             GraphMutation::CreateUserGroupedEdgeFromPrimarySelection => self
                 .selected_pair_in_order()
@@ -2310,6 +2344,9 @@ impl GraphBrowserApp {
                 | GraphIntent::RemoveSelectedNodes
                 | GraphIntent::ClearGraph
                 | GraphIntent::CreateUserGroupedEdge { .. }
+                | GraphIntent::DeleteImportRecord { .. }
+                | GraphIntent::SuppressImportRecordMembership { .. }
+                | GraphIntent::PromoteImportRecordToUserGroup { .. }
                 | GraphIntent::CreateUserGroupedEdgeFromPrimarySelection
                 | GraphIntent::RemoveEdge { .. }
                 | GraphIntent::SetNodePinned { .. }
@@ -2556,6 +2593,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
             || name == Self::SETTINGS_WRY_ENABLED_NAME
+            || name == Self::SETTINGS_WORKBENCH_SIDEBAR_PINNED_NAME
             || name == Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME
             || name == Self::SETTINGS_CANVAS_PROFILE_ID_NAME
             || name == Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME
@@ -2941,10 +2979,39 @@ impl GraphBrowserApp {
         self.save_wry_enabled();
     }
 
+    pub fn workbench_sidebar_pinned(&self) -> bool {
+        self.workspace.chrome_ui.workbench_sidebar_pinned
+    }
+
+    pub fn set_workbench_sidebar_pinned(&mut self, pinned: bool) {
+        self.workspace.chrome_ui.workbench_sidebar_pinned = pinned;
+        self.save_workbench_sidebar_pinned();
+    }
+
+    pub fn chrome_overlay_active(&self) -> bool {
+        self.workspace.chrome_ui.show_settings_overlay
+            || self.workspace.chrome_ui.show_help_panel
+            || self.workspace.chrome_ui.show_command_palette
+            || self.workspace.chrome_ui.show_context_palette
+            || self.workspace.chrome_ui.show_radial_menu
+            || self.workspace.chrome_ui.show_clip_inspector
+    }
+
     fn save_wry_enabled(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_WRY_ENABLED_NAME,
             if self.workspace.chrome_ui.wry_enabled {
+                "true"
+            } else {
+                "false"
+            },
+        );
+    }
+
+    fn save_workbench_sidebar_pinned(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_WORKBENCH_SIDEBAR_PINNED_NAME,
+            if self.workspace.chrome_ui.workbench_sidebar_pinned {
                 "true"
             } else {
                 "false"
@@ -3147,6 +3214,19 @@ impl GraphBrowserApp {
                 "true" | "1" | "yes" | "on" => self.workspace.chrome_ui.wry_enabled = true,
                 "false" | "0" | "no" | "off" => self.workspace.chrome_ui.wry_enabled = false,
                 _ => warn!("Ignoring invalid persisted wry enabled flag: '{raw}'"),
+            }
+        }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_WORKBENCH_SIDEBAR_PINNED_NAME)
+        {
+            match raw.trim().to_ascii_lowercase().as_str() {
+                "true" | "1" | "yes" | "on" => {
+                    self.workspace.chrome_ui.workbench_sidebar_pinned = true;
+                }
+                "false" | "0" | "no" | "off" => {
+                    self.workspace.chrome_ui.workbench_sidebar_pinned = false;
+                }
+                _ => warn!("Ignoring invalid persisted workbench sidebar pinned flag: '{raw}'"),
             }
         }
         self.workspace.chrome_ui.default_registry_lens_id = self
@@ -3459,6 +3539,7 @@ impl GraphBrowserApp {
         self.workspace.workbench_session.node_workspace_membership.clear();
         self.workspace.graph_runtime.views.clear();
         self.workspace.graph_runtime.graph_view_frames.clear();
+        self.workspace.graph_runtime.graph_view_canvas_rects.clear();
         self.workspace.domain.notes.clear();
         self.set_workspace_focused_view_with_transition(None);
         self.workspace.workbench_session.current_workspace_is_synthesized = false;
@@ -3520,6 +3601,7 @@ impl GraphBrowserApp {
         self.workspace.domain.notes.clear();
         self.workspace.graph_runtime.views.clear();
         self.workspace.graph_runtime.graph_view_frames.clear();
+        self.workspace.graph_runtime.graph_view_canvas_rects.clear();
         self.set_workspace_focused_view_with_transition(None);
         self.workspace.domain.next_placeholder_id = next_placeholder_id;
         self.workspace.graph_runtime.egui_state = None;
@@ -3552,6 +3634,7 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.omnibar_non_at_order =
             OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal;
         self.workspace.chrome_ui.wry_enabled = false;
+        self.workspace.chrome_ui.workbench_sidebar_pinned = false;
         self.workspace.graph_runtime.selected_tab_nodes.clear();
         self.workspace.graph_runtime.tab_selection_anchor = None;
         self.load_persisted_ui_settings();
@@ -7222,6 +7305,166 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_import_record_intent_removes_record_and_provenance() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.add_node_and_sync("https://imported.example".into(), Point2D::new(0.0, 0.0));
+        let node_id = app
+            .workspace
+            .domain
+            .graph
+            .get_node(key)
+            .expect("node")
+            .id
+            .to_string();
+        assert!(app.workspace.domain.graph.set_import_records(vec![crate::graph::ImportRecord {
+            record_id: "import-record:test".to_string(),
+            source_id: "import:test".to_string(),
+            source_label: "Test import".to_string(),
+            imported_at_secs: 1_763_500_800,
+            memberships: vec![crate::graph::ImportRecordMembership {
+                node_id,
+                suppressed: false,
+            }],
+        }]));
+
+        app.apply_reducer_intents([GraphIntent::DeleteImportRecord {
+            record_id: "import-record:test".to_string(),
+        }]);
+
+        assert!(app.workspace.domain.graph.import_records().is_empty());
+        assert!(app
+            .workspace
+            .domain
+            .graph
+            .node_import_provenance(key)
+            .expect("provenance slice")
+            .is_empty());
+    }
+
+    #[test]
+    fn test_suppress_import_record_membership_intent_hides_selected_node_from_imported_group() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let hidden = app.add_node_and_sync("https://hidden.example".into(), Point2D::new(0.0, 0.0));
+        let visible = app.add_node_and_sync("https://visible.example".into(), Point2D::new(10.0, 0.0));
+        let hidden_id = app
+            .workspace
+            .domain
+            .graph
+            .get_node(hidden)
+            .expect("hidden")
+            .id
+            .to_string();
+        let visible_id = app
+            .workspace
+            .domain
+            .graph
+            .get_node(visible)
+            .expect("visible")
+            .id
+            .to_string();
+        assert!(app.workspace.domain.graph.set_import_records(vec![crate::graph::ImportRecord {
+            record_id: "import-record:test".to_string(),
+            source_id: "import:test".to_string(),
+            source_label: "Test import".to_string(),
+            imported_at_secs: 1_763_500_800,
+            memberships: vec![
+                crate::graph::ImportRecordMembership {
+                    node_id: hidden_id,
+                    suppressed: false,
+                },
+                crate::graph::ImportRecordMembership {
+                    node_id: visible_id,
+                    suppressed: false,
+                },
+            ],
+        }]));
+
+        app.apply_reducer_intents([GraphIntent::SuppressImportRecordMembership {
+            record_id: "import-record:test".to_string(),
+            key: hidden,
+        }]);
+
+        assert!(app
+            .workspace
+            .domain
+            .graph
+            .node_import_provenance(hidden)
+            .expect("hidden provenance slice")
+            .is_empty());
+        assert_eq!(
+            app.workspace
+                .domain
+                .graph
+                .import_record_member_keys("import-record:test"),
+            vec![visible]
+        );
+    }
+
+    #[test]
+    fn test_promote_import_record_to_user_group_intent_creates_bidirectional_edges_from_anchor() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let anchor = app.add_node_and_sync("https://anchor.example".into(), Point2D::new(0.0, 0.0));
+        let peer = app.add_node_and_sync("https://peer.example".into(), Point2D::new(10.0, 0.0));
+        let other_peer = app.add_node_and_sync("https://other-peer.example".into(), Point2D::new(20.0, 0.0));
+        let anchor_id = app
+            .workspace
+            .domain
+            .graph
+            .get_node(anchor)
+            .expect("anchor")
+            .id
+            .to_string();
+        let peer_id = app
+            .workspace
+            .domain
+            .graph
+            .get_node(peer)
+            .expect("peer")
+            .id
+            .to_string();
+        let other_peer_id = app
+            .workspace
+            .domain
+            .graph
+            .get_node(other_peer)
+            .expect("other peer")
+            .id
+            .to_string();
+        assert!(app.workspace.domain.graph.set_import_records(vec![crate::graph::ImportRecord {
+            record_id: "import-record:test".to_string(),
+            source_id: "import:test".to_string(),
+            source_label: "Test import".to_string(),
+            imported_at_secs: 1_763_500_800,
+            memberships: vec![
+                crate::graph::ImportRecordMembership {
+                    node_id: anchor_id,
+                    suppressed: false,
+                },
+                crate::graph::ImportRecordMembership {
+                    node_id: peer_id,
+                    suppressed: false,
+                },
+                crate::graph::ImportRecordMembership {
+                    node_id: other_peer_id,
+                    suppressed: false,
+                },
+            ],
+        }]));
+
+        app.apply_reducer_intents([GraphIntent::PromoteImportRecordToUserGroup {
+            record_id: "import-record:test".to_string(),
+            anchor,
+        }]);
+
+        assert!(app.has_typed_edge(anchor, peer, EdgeType::UserGrouped));
+        assert!(app.has_typed_edge(peer, anchor, EdgeType::UserGrouped));
+        assert!(app.has_typed_edge(anchor, other_peer, EdgeType::UserGrouped));
+        assert!(app.has_typed_edge(other_peer, anchor, EdgeType::UserGrouped));
+        assert!(!app.has_typed_edge(peer, other_peer, EdgeType::UserGrouped));
+        assert!(!app.has_typed_edge(other_peer, peer, EdgeType::UserGrouped));
+    }
+
+    #[test]
     fn test_history_changed_is_authoritative_when_url_callback_stays_latest() {
         let mut app = GraphBrowserApp::new_for_testing();
         let step1 = app.add_node_and_sync(
@@ -9068,6 +9311,19 @@ mod tests {
         assert_eq!(reopened.default_registry_lens_id(), Some("lens:default"));
         assert_eq!(reopened.default_registry_physics_id(), Some("physics:gas"));
         assert_eq!(reopened.default_registry_theme_id(), Some("theme:dark"));
+    }
+
+    #[test]
+    fn test_workbench_sidebar_pin_persists_across_restart() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        app.set_workbench_sidebar_pinned(true);
+        drop(app);
+
+        let reopened = GraphBrowserApp::new_from_dir(path);
+        assert!(reopened.workbench_sidebar_pinned());
     }
 
     #[test]

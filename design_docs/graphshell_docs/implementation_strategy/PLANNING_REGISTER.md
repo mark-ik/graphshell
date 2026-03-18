@@ -9,11 +9,12 @@
 - [2026-02-28_ux_contract_register.md](2026-02-28_ux_contract_register.md) - Cross-spec UX ownership map and contract register.
 - [2026-03-03_pre_wgpu_feature_validation_gate_checklist.md](2026-03-03_pre_wgpu_feature_validation_gate_checklist.md) - Feature/validation-gate-only closure checklist for pre-wgpu readiness.
 - [2026-03-03_spec_conflict_resolution_register.md](2026-03-03_spec_conflict_resolution_register.md) - Priority-ordered spec conflict and terminology resolution register for pre-wgpu closure.
-- [system/2026-03-17_matrix_layer_positioning.md](system/2026-03-17_matrix_layer_positioning.md) - Places Matrix as a durable shared-space layer above iroh/libp2p, with Nostr interop via explicit bindings/bridges rather than identity collapse.
+- [system/2026-03-17_matrix_layer_positioning.md](system/2026-03-17_matrix_layer_positioning.md) - Places Matrix as the durable room contextual substrate within the three-context + two-fabric network model; defines room hosting gradient, cross-carrying rules, and concept resurfacing.
 - [system/2026-03-17_multi_identity_binding_rules.md](system/2026-03-17_multi_identity_binding_rules.md) - Defines the three-identity model (`NodeId`, `npub`, Matrix ID) and the explicit binding/verification rules between them.
 - [system/2026-03-17_matrix_core_adoption_plan.md](system/2026-03-17_matrix_core_adoption_plan.md) - Phase-by-phase execution plan for `MatrixCore`: session lifecycle, room projection, allowlisted graph events, and optional Nostr bridge affordances.
 - [system/2026-03-17_matrix_event_schema.md](system/2026-03-17_matrix_event_schema.md) - Concrete `graphshell.room.*` event schema for Matrix-backed rooms: payload families, validation rules, and reducer/workbench routing boundaries.
 - [system/register/2026-03-17_matrix_core_type_sketch.md](system/register/2026-03-17_matrix_core_type_sketch.md) - Rust-facing type sketch for `MatrixCoreRegistry`, supervised worker commands, normalized Matrix events, and bounded proposal routing.
+- [system/2026-03-17_runtime_task_budget.md](system/2026-03-17_runtime_task_budget.md) - Async worker priority tiers, concurrency envelope, suspension/resume policy, and diagnostics channels for the ControlPanel multi-worker runtime (pre-design backlog note).
 
 ## Contents
 

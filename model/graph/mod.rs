@@ -30,7 +30,7 @@ use rkyv::{
     rancor::Fallible,
     with::{ArchiveWith, DeserializeWith, SerializeWith},
 };
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -259,6 +259,155 @@ pub(crate) struct DissolvedTraversalRecord {
     pub(crate) traversals: Vec<Traversal>,
 }
 
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct NodeImportProvenance {
+    pub source_id: String,
+    pub source_label: String,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct ImportRecordMembership {
+    pub node_id: String,
+    pub suppressed: bool,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct ImportRecord {
+    pub record_id: String,
+    pub source_id: String,
+    pub source_label: String,
+    pub imported_at_secs: u64,
+    pub memberships: Vec<ImportRecordMembership>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeImportRecordSummary {
+    pub record_id: String,
+    pub source_id: String,
+    pub source_label: String,
+    pub imported_at_secs: u64,
+}
+
+pub(crate) fn format_imported_at_secs(imported_at_secs: u64) -> String {
+    time::OffsetDateTime::from_unix_timestamp(imported_at_secs as i64)
+        .ok()
+        .and_then(|timestamp| {
+            timestamp
+                .format(&time::format_description::well_known::Rfc3339)
+                .ok()
+        })
+        .unwrap_or_else(|| format!("unix:{imported_at_secs}"))
+}
+
+fn normalize_import_record_memberships(memberships: &mut Vec<ImportRecordMembership>) {
+    memberships.sort_by(|left, right| {
+        left.node_id
+            .cmp(&right.node_id)
+            .then_with(|| left.suppressed.cmp(&right.suppressed))
+    });
+    let mut deduped: Vec<ImportRecordMembership> = Vec::with_capacity(memberships.len());
+    for membership in memberships.drain(..) {
+        if let Some(existing) = deduped.last_mut()
+            && existing.node_id == membership.node_id
+        {
+            existing.suppressed &= membership.suppressed;
+            continue;
+        }
+        deduped.push(membership);
+    }
+    *memberships = deduped;
+}
+
+fn normalize_import_records(import_records: &mut Vec<ImportRecord>) {
+    let mut merged = BTreeMap::<String, ImportRecord>::new();
+    for mut record in import_records.drain(..) {
+        normalize_import_record_memberships(&mut record.memberships);
+        if record.record_id.trim().is_empty() {
+            continue;
+        }
+        let entry = merged
+            .entry(record.record_id.clone())
+            .or_insert_with(|| ImportRecord {
+                record_id: record.record_id.clone(),
+                source_id: record.source_id.clone(),
+                source_label: record.source_label.clone(),
+                imported_at_secs: record.imported_at_secs,
+                memberships: Vec::new(),
+            });
+        if entry.source_id.is_empty() {
+            entry.source_id = record.source_id.clone();
+        }
+        if entry.source_label.is_empty() {
+            entry.source_label = record.source_label.clone();
+        }
+        if entry.imported_at_secs == 0 {
+            entry.imported_at_secs = record.imported_at_secs;
+        } else if record.imported_at_secs != 0 {
+            entry.imported_at_secs = entry.imported_at_secs.min(record.imported_at_secs);
+        }
+        entry.memberships.extend(record.memberships);
+    }
+    *import_records = merged.into_values().collect();
+    for record in import_records.iter_mut() {
+        normalize_import_record_memberships(&mut record.memberships);
+    }
+    import_records.sort_by(|left, right| {
+        left.source_label
+            .cmp(&right.source_label)
+            .then_with(|| left.imported_at_secs.cmp(&right.imported_at_secs))
+            .then_with(|| left.record_id.cmp(&right.record_id))
+    });
+}
+
+fn current_unix_timestamp_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 /// A webpage node in the graph
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub struct Node {
@@ -295,6 +444,9 @@ pub struct Node {
 
     /// Presentation-only metadata for ordering and icon overrides.
     pub tag_presentation: NodeTagPresentationState,
+
+    /// Derived external import provenance for this node.
+    pub import_provenance: Vec<NodeImportProvenance>,
 
     /// Whether this node's position is pinned (doesn't move with physics)
     pub is_pinned: bool,
@@ -387,6 +539,7 @@ impl Node {
             velocity: Vector2D::new(0.0, 0.0),
             tags: HashSet::new(),
             tag_presentation: NodeTagPresentationState::default(),
+            import_provenance: Vec::new(),
             is_pinned: false,
             last_visited: std::time::SystemTime::now(),
             history_entries: Vec::new(),
@@ -925,6 +1078,9 @@ pub struct Graph {
 
     /// Stable UUID to node mapping.
     id_to_node: HashMap<Uuid, NodeKey>,
+
+    /// Durable imported relation truth; node provenance is derived from this.
+    import_records: Vec<ImportRecord>,
 }
 
 impl Graph {
@@ -934,6 +1090,7 @@ impl Graph {
             inner: StableGraph::new(),
             url_to_nodes: HashMap::new(),
             id_to_node: HashMap::new(),
+            import_records: Vec::new(),
         }
     }
 
@@ -965,6 +1122,7 @@ impl Graph {
             velocity: Vector2D::zero(),
             tags: HashSet::new(),
             tag_presentation: NodeTagPresentationState::default(),
+            import_provenance: Vec::new(),
             is_pinned: false,
             last_visited: now,
             history_entries: Vec::new(),
@@ -992,6 +1150,11 @@ impl Graph {
         if let Some(node) = self.inner.remove_node(key) {
             self.id_to_node.remove(&node.id);
             self.remove_url_mapping(&node.url, key);
+            let removed_id = node.id.to_string();
+            for record in &mut self.import_records {
+                record.memberships.retain(|membership| membership.node_id != removed_id);
+            }
+            self.import_records.retain(|record| !record.memberships.is_empty());
             true
         } else {
             false
@@ -1134,6 +1297,219 @@ impl Graph {
 
     pub(crate) fn node_tag_presentation(&self, key: NodeKey) -> Option<&NodeTagPresentationState> {
         self.get_node(key).map(|node| &node.tag_presentation)
+    }
+
+    pub(crate) fn node_import_provenance(&self, key: NodeKey) -> Option<&[NodeImportProvenance]> {
+        self.get_node(key)
+            .map(|node| node.import_provenance.as_slice())
+    }
+
+    pub(crate) fn import_records(&self) -> &[ImportRecord] {
+        &self.import_records
+    }
+
+    pub(crate) fn import_record_summaries_for_node(
+        &self,
+        key: NodeKey,
+    ) -> Vec<NodeImportRecordSummary> {
+        let Some(node) = self.get_node(key) else {
+            return Vec::new();
+        };
+        let node_id = node.id.to_string();
+        let mut summaries = self
+            .import_records
+            .iter()
+            .filter(|record| {
+                record
+                    .memberships
+                    .iter()
+                    .any(|membership| membership.node_id == node_id && !membership.suppressed)
+            })
+            .map(|record| NodeImportRecordSummary {
+                record_id: record.record_id.clone(),
+                source_id: record.source_id.clone(),
+                source_label: record.source_label.clone(),
+                imported_at_secs: record.imported_at_secs,
+            })
+            .collect::<Vec<_>>();
+        summaries.sort_by(|left, right| {
+            right
+                .imported_at_secs
+                .cmp(&left.imported_at_secs)
+                .then_with(|| left.source_label.cmp(&right.source_label))
+                .then_with(|| left.record_id.cmp(&right.record_id))
+        });
+        summaries
+    }
+
+    pub(crate) fn import_record_member_keys(&self, record_id: &str) -> Vec<NodeKey> {
+        let mut member_keys = self
+            .import_records
+            .iter()
+            .find(|record| record.record_id == record_id)
+            .into_iter()
+            .flat_map(|record| record.memberships.iter())
+            .filter(|membership| !membership.suppressed)
+            .filter_map(|membership| Uuid::parse_str(&membership.node_id).ok())
+            .filter_map(|node_id| self.id_to_node.get(&node_id).copied())
+            .collect::<Vec<_>>();
+        member_keys.sort_by_key(|key| key.index());
+        member_keys.dedup();
+        member_keys
+    }
+
+    pub(crate) fn delete_import_record(&mut self, record_id: &str) -> bool {
+        let original_len = self.import_records.len();
+        self.import_records.retain(|record| record.record_id != record_id);
+        if self.import_records.len() == original_len {
+            return false;
+        }
+        self.sync_node_import_provenance_from_records();
+        true
+    }
+
+    pub(crate) fn set_import_record_membership_suppressed(
+        &mut self,
+        record_id: &str,
+        key: NodeKey,
+        suppressed: bool,
+    ) -> bool {
+        let Some(node_id) = self.get_node(key).map(|node| node.id.to_string()) else {
+            return false;
+        };
+        let mut changed = false;
+        for record in &mut self.import_records {
+            if record.record_id != record_id {
+                continue;
+            }
+            for membership in &mut record.memberships {
+                if membership.node_id == node_id {
+                    if membership.suppressed != suppressed {
+                        membership.suppressed = suppressed;
+                        changed = true;
+                    }
+                    break;
+                }
+            }
+        }
+        if changed {
+            self.sync_node_import_provenance_from_records();
+        }
+        changed
+    }
+
+    pub(crate) fn set_import_records(&mut self, mut import_records: Vec<ImportRecord>) -> bool {
+        normalize_import_records(&mut import_records);
+        if self.import_records == import_records {
+            return false;
+        }
+        self.import_records = import_records;
+        self.sync_node_import_provenance_from_records();
+        true
+    }
+
+    fn sync_node_import_provenance_from_records(&mut self) {
+        let mut provenance_by_node = HashMap::<NodeKey, Vec<NodeImportProvenance>>::new();
+        for record in &self.import_records {
+            for membership in record.memberships.iter().filter(|membership| !membership.suppressed) {
+                let Ok(node_id) = Uuid::parse_str(&membership.node_id) else {
+                    continue;
+                };
+                let Some(&node_key) = self.id_to_node.get(&node_id) else {
+                    continue;
+                };
+                provenance_by_node
+                    .entry(node_key)
+                    .or_default()
+                    .push(NodeImportProvenance {
+                        source_id: record.source_id.clone(),
+                        source_label: record.source_label.clone(),
+                    });
+            }
+        }
+
+        let node_keys = self.inner.node_indices().collect::<Vec<_>>();
+        for node_key in node_keys {
+            let Some(node) = self.inner.node_weight_mut(node_key) else {
+                continue;
+            };
+            let mut provenance = provenance_by_node.remove(&node_key).unwrap_or_default();
+            provenance.sort();
+            provenance.dedup();
+            node.import_provenance = provenance;
+        }
+    }
+
+    fn rebuild_import_records_from_node_provenance(&mut self, imported_at_secs: u64) {
+        let existing_record_meta = self
+            .import_records
+            .iter()
+            .map(|record| {
+                (
+                    (record.source_id.clone(), record.source_label.clone()),
+                    (record.record_id.clone(), record.imported_at_secs),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        let mut grouped = BTreeMap::<(String, String), Vec<ImportRecordMembership>>::new();
+        for (_node_key, node) in self.nodes() {
+            let node_id = node.id.to_string();
+            for provenance in &node.import_provenance {
+                grouped
+                    .entry((provenance.source_id.clone(), provenance.source_label.clone()))
+                    .or_default()
+                    .push(ImportRecordMembership {
+                        node_id: node_id.clone(),
+                        suppressed: false,
+                    });
+            }
+        }
+
+        let mut import_records = grouped
+            .into_iter()
+            .map(|((source_id, source_label), memberships)| {
+                let (record_id, imported_at_secs) = existing_record_meta
+                    .get(&(source_id.clone(), source_label.clone()))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        (
+                            format!("import-record:{}", source_id),
+                            imported_at_secs,
+                        )
+                    });
+                ImportRecord {
+                    record_id,
+                    source_id,
+                    source_label,
+                    imported_at_secs,
+                    memberships,
+                }
+            })
+            .collect::<Vec<_>>();
+        normalize_import_records(&mut import_records);
+        self.import_records = import_records;
+        self.sync_node_import_provenance_from_records();
+    }
+
+    pub(crate) fn set_node_import_provenance(
+        &mut self,
+        key: NodeKey,
+        import_provenance: Vec<NodeImportProvenance>,
+    ) -> bool {
+        let node = match self.inner.node_weight_mut(key) {
+            Some(node) => node,
+            None => return false,
+        };
+        let mut normalized = import_provenance;
+        normalized.sort();
+        normalized.dedup();
+        if node.import_provenance == normalized {
+            return false;
+        }
+        node.import_provenance = normalized;
+        self.rebuild_import_records_from_node_provenance(current_unix_timestamp_secs());
+        true
     }
 
     pub(crate) fn set_node_tag_icon_override(
@@ -1972,6 +2348,7 @@ impl Graph {
                     tags
                 },
                 tag_presentation: node.tag_presentation.clone(),
+                import_provenance: node.import_provenance.clone(),
                 is_pinned: node.is_pinned,
                 history_entries: node.history_entries.clone(),
                 history_index: node.history_index,
@@ -2070,6 +2447,7 @@ impl Graph {
         GraphSnapshot {
             nodes,
             edges,
+            import_records: self.import_records.clone(),
             timestamp_secs,
         }
     }
@@ -2096,6 +2474,7 @@ impl Graph {
                     .or_else(|| cached_host_from_url(&node.url));
                 node.tags = pnode.tags.iter().cloned().collect();
                 node.tag_presentation = pnode.tag_presentation.clone();
+                node.import_provenance = pnode.import_provenance.clone();
                 node.is_pinned = pnode.is_pinned;
                 node.history_entries = pnode.history_entries.clone();
                 node.history_index = pnode
@@ -2160,6 +2539,14 @@ impl Graph {
                 };
                 let _ = graph.add_edge(from, to, edge_type, pedge.edge_label.clone());
             }
+        }
+
+        if snapshot.import_records.is_empty() {
+            graph.rebuild_import_records_from_node_provenance(snapshot.timestamp_secs);
+        } else {
+            graph.import_records = snapshot.import_records.clone();
+            normalize_import_records(&mut graph.import_records);
+            graph.sync_node_import_provenance_from_records();
         }
 
         graph.rebuild_derived_containment_relations();
@@ -2726,6 +3113,7 @@ mod tests {
                 position_y: 0.0,
                 tags: vec![],
                 tag_presentation: NodeTagPresentationState::default(),
+                import_provenance: vec![],
                 is_pinned: false,
                 history_entries: vec![],
                 history_index: 0,
@@ -2745,6 +3133,7 @@ mod tests {
                 edge_type: PersistedEdgeType::Hyperlink,
                 edge_label: None,
             }],
+            import_records: vec![],
             timestamp_secs: 0,
         };
 
@@ -2772,6 +3161,7 @@ mod tests {
                     position_y: 0.0,
                     tags: vec![],
                     tag_presentation: NodeTagPresentationState::default(),
+                    import_provenance: vec![],
                     is_pinned: false,
                     history_entries: vec![],
                     history_index: 0,
@@ -2794,6 +3184,7 @@ mod tests {
                     position_y: 100.0,
                     tags: vec![],
                     tag_presentation: NodeTagPresentationState::default(),
+                    import_provenance: vec![],
                     is_pinned: false,
                     history_entries: vec![],
                     history_index: 0,
@@ -2809,6 +3200,7 @@ mod tests {
                 },
             ],
             edges: vec![],
+            import_records: vec![],
             timestamp_secs: 0,
         };
 
@@ -2858,6 +3250,7 @@ mod tests {
                 position_y: 0.0,
                 tags: vec![],
                 tag_presentation: NodeTagPresentationState::default(),
+                import_provenance: vec![],
                 is_pinned: false,
                 history_entries: vec!["https://legacy.example".to_string()],
                 history_index: 0,
@@ -2882,6 +3275,7 @@ mod tests {
                 address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![],
+            import_records: vec![],
             timestamp_secs: 0,
         };
 
@@ -2907,6 +3301,7 @@ mod tests {
                 position_y: 0.0,
                 tags: vec![],
                 tag_presentation: NodeTagPresentationState::default(),
+                import_provenance: vec![],
                 is_pinned: false,
                 history_entries: vec![],
                 history_index: 0,
@@ -2927,6 +3322,7 @@ mod tests {
                 address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![],
+            import_records: vec![],
             timestamp_secs: 0,
         };
 
@@ -2951,6 +3347,7 @@ mod tests {
                 position_y: 0.0,
                 tags: vec![],
                 tag_presentation: NodeTagPresentationState::default(),
+                import_provenance: vec![],
                 is_pinned: false,
                 history_entries: vec!["https://legacy-one.example".to_string()],
                 history_index: 0,
@@ -2965,6 +3362,7 @@ mod tests {
                 address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![],
+            import_records: vec![],
             timestamp_secs: 0,
         };
 
@@ -2978,6 +3376,141 @@ mod tests {
         );
         assert_eq!(node.history_index, 0);
         assert_eq!(node.session_scroll, None);
+    }
+
+    #[test]
+    fn test_snapshot_roundtrip_preserves_import_provenance() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        assert!(graph.set_node_import_provenance(
+            key,
+            vec![NodeImportProvenance {
+                source_id: "import:firefox-bookmarks".to_string(),
+                source_label: "Firefox bookmarks".to_string(),
+            }],
+        ));
+
+        let restored = Graph::from_snapshot(&graph.to_snapshot());
+        let (_, node) = restored.get_node_by_url("https://example.com").unwrap();
+        assert_eq!(
+            node.import_provenance,
+            vec![NodeImportProvenance {
+                source_id: "import:firefox-bookmarks".to_string(),
+                source_label: "Firefox bookmarks".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn test_snapshot_roundtrip_preserves_import_records_and_suppression_state() {
+        let mut graph = Graph::new();
+        let included = graph.add_node("https://included.example".to_string(), Point2D::new(0.0, 0.0));
+        let suppressed = graph.add_node(
+            "https://suppressed.example".to_string(),
+            Point2D::new(10.0, 0.0),
+        );
+        let included_id = graph.get_node(included).expect("included node").id.to_string();
+        let suppressed_id = graph
+            .get_node(suppressed)
+            .expect("suppressed node")
+            .id
+            .to_string();
+        assert!(graph.set_import_records(vec![ImportRecord {
+            record_id: "import-record:firefox-bookmarks-2026-03-17".to_string(),
+            source_id: "import:firefox-bookmarks".to_string(),
+            source_label: "Firefox bookmarks".to_string(),
+            imported_at_secs: 1_763_500_800,
+            memberships: vec![
+                ImportRecordMembership {
+                    node_id: included_id,
+                    suppressed: false,
+                },
+                ImportRecordMembership {
+                    node_id: suppressed_id,
+                    suppressed: true,
+                },
+            ],
+        }]));
+
+        let restored = Graph::from_snapshot(&graph.to_snapshot());
+        let restored_records = restored.import_records();
+        assert_eq!(restored_records.len(), 1);
+        assert_eq!(restored_records[0].record_id, "import-record:firefox-bookmarks-2026-03-17");
+        assert_eq!(restored_records[0].memberships.len(), 2);
+        assert!(restored_records[0].memberships.iter().any(|membership| membership.suppressed));
+        assert_eq!(
+            restored
+                .node_import_provenance(included)
+                .expect("active provenance should exist")
+                .len(),
+            1
+        );
+        assert!(
+            restored
+                .node_import_provenance(suppressed)
+                .expect("suppressed provenance should resolve to empty slice")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_delete_import_record_removes_derived_provenance() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let node_id = graph.get_node(key).expect("node").id.to_string();
+        assert!(graph.set_import_records(vec![ImportRecord {
+            record_id: "import-record:test".to_string(),
+            source_id: "import:test".to_string(),
+            source_label: "Test import".to_string(),
+            imported_at_secs: 1_763_500_800,
+            memberships: vec![ImportRecordMembership {
+                node_id,
+                suppressed: false,
+            }],
+        }]));
+
+        assert!(graph.delete_import_record("import-record:test"));
+        assert!(graph.import_records().is_empty());
+        assert!(graph
+            .node_import_provenance(key)
+            .expect("node provenance slice")
+            .is_empty());
+    }
+
+    #[test]
+    fn test_suppress_import_record_membership_updates_node_projection() {
+        let mut graph = Graph::new();
+        let active = graph.add_node("https://active.example".to_string(), Point2D::new(0.0, 0.0));
+        let peer = graph.add_node("https://peer.example".to_string(), Point2D::new(10.0, 0.0));
+        let active_id = graph.get_node(active).expect("active").id.to_string();
+        let peer_id = graph.get_node(peer).expect("peer").id.to_string();
+        assert!(graph.set_import_records(vec![ImportRecord {
+            record_id: "import-record:test".to_string(),
+            source_id: "import:test".to_string(),
+            source_label: "Test import".to_string(),
+            imported_at_secs: 1_763_500_800,
+            memberships: vec![
+                ImportRecordMembership {
+                    node_id: active_id,
+                    suppressed: false,
+                },
+                ImportRecordMembership {
+                    node_id: peer_id,
+                    suppressed: false,
+                },
+            ],
+        }]));
+
+        assert!(graph.set_import_record_membership_suppressed(
+            "import-record:test",
+            active,
+            true,
+        ));
+        assert!(graph
+            .node_import_provenance(active)
+            .expect("active provenance slice")
+            .is_empty());
+        assert_eq!(graph.import_record_member_keys("import-record:test"), vec![peer]);
     }
 
     // --- MIME / address-kind detection tests ---

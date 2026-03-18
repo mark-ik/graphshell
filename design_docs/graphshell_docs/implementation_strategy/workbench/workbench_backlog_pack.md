@@ -1,0 +1,55 @@
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+     License, v. 2.0. If a copy of the MPL was not distributed with this
+     file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
+
+# Workbench Backlog Pack
+
+**Date**: 2026-03-17
+**Status**: Planning / handoff pack
+**Scope**: Dependency-ordered backlog for the Workbench authority, tile tree,
+pane lifecycle, focus, persistence, and surface routing.
+
+**Related docs**:
+
+- [WORKBENCH.md](WORKBENCH.md) - workbench domain ownership and graph/workbench bridge rules
+- [pane_chrome_and_promotion_spec.md](pane_chrome_and_promotion_spec.md) - pane promotion and chrome rules
+- [pane_presentation_and_locking_spec.md](pane_presentation_and_locking_spec.md) - pane lock and presentation authority
+- [workbench_frame_tile_interaction_spec.md](workbench_frame_tile_interaction_spec.md) - frame/tile interaction semantics
+- [tile_view_ops_spec.md](tile_view_ops_spec.md) - tile/view operation contract
+- [graph_first_frame_semantics_spec.md](graph_first_frame_semantics_spec.md) - graph/workbench first-frame rules
+
+---
+
+## Wave 1
+
+1. `WB01` Workbench Core Boundary. Depends: none. Done gate: one canonical doc distinguishes workbench authority from graph truth and renderer/session caches.
+2. `WB02` Tile Tree Ownership Audit. Depends: `WB01`. Done gate: every tile-tree mutation path is inventoried and tagged workbench-owned, graph-backed, or legacy violation.
+3. `WB03` Pane / Tile / Frame Glossary Lock. Depends: `WB01`. Done gate: `Pane`, `Tile`, `Frame`, `Tab`, `ToolPane`, and `ArrangementObject` each have one canonical definition.
+4. `WB04` Stable `PaneId` Coverage Audit. Depends: `WB02`, `WB03`. Done gate: every pane variant that can be opened, focused, split, or closed has a stable `PaneId`.
+5. `WB05` Workbench Truth vs Session State Contract. Depends: `WB01`, `WB04`. Done gate: durable arrangement truth is separated from session-only focus/open state.
+6. `WB06` Workbench Intent Inventory. Depends: `WB02`. Done gate: every current workbench action is mapped to `WorkbenchIntent`, graph bridge, or legacy helper.
+7. `WB07` Legacy Workbench Mutation Diagnostics. Depends: `WB06`. Done gate: direct tile-tree mutations outside workbench authority emit explicit diagnostics in development paths.
+8. `WB08` Open / Close / Focus Carrier Cleanup Plan. Depends: `WB06`, `WB07`. Done gate: every pane open, close, focus, split, and reorder path has one canonical carrier.
+9. `WB09` Workbench Contract Test Harness. Depends: `WB02`. Done gate: a test seam exists for split, close, focus, promotion, and restore behavior.
+10. `WB10` Single Workbench Mutation Path Closure Slice. Depends: `WB07`, `WB09`. Done gate: at least one major legacy workbench mutation cluster is removed and proven to flow only through workbench authority.
+
+## Wave 2
+
+11. `WB11` Tile Tree Semantic Contract. Depends: `WB03`, `WB05`. Done gate: tiles, tabs, and frames have explicit semantic ownership and lifecycle rules.
+12. `WB12` Tab Semantics Lock. Depends: `WB11`. Done gate: tabs are defined as entries within tiles, not a separate primary ontology.
+13. `WB13` Pane Promotion Contract. Depends: `WB11`, `WB12`. Done gate: promotion and demotion between solo, grouped, and tabbed states are defined with explicit carriers.
+14. `WB14` Split Semantics Contract. Depends: `WB11`. Done gate: horizontal and vertical split behavior, including resulting focus rules, is canonical.
+15. `WB15` Close Pane Contract. Depends: `WB11`, `WB14`. Done gate: close behavior is defined for graph, node, and tool panes with restore and focus fallthrough rules.
+16. `WB16` Restore and Reopen Contract. Depends: `WB13`, `WB15`. Done gate: restore/open previous focus behavior is explicit and testable.
+17. `WB17` Tool Pane Authority Audit. Depends: `WB03`, `WB06`. Done gate: settings, command palette, history, and similar panes all use workbench-owned routes.
+18. `WB18` Locking and Mutability Contract. Depends: `WB11`, `WB17`. Done gate: pane and frame lock states are defined with allowed and blocked operations.
+19. `WB19` Workbench Persistence Schema Audit. Depends: `WB05`, `WB11`. Done gate: durable workbench layout state is separated from ephemeral session state.
+20. `WB20` Workbench WAL Coverage Audit. Depends: `WB19`. Done gate: every durable workbench mutation is either WAL-logged or explicitly marked non-durable.
+
+## Wave 3
+
+21. `WB21` Focus Model Contract. Depends: `WB11`, `WB15`. Done gate: pane focus, tab focus, and frame focus are distinguished and routed consistently.
+22. `WB22` Selection-to-Workbench Targeting Rule. Depends: `WB21`. Done gate: selected objects that map to workbench actions become explicit workbench targets.
+23. `WB23` Workflow Activation Contract. Depends: `WB19`, `WB21`. Done gate: workflow/session-mode activation is explicit about runtime-owned versus persisted-default behavior.
+24. `WB24` Workbench Surface Diagnostics Pack. Depends: `WB18`, `WB21`, `WB23`. Done gate: blocked close, blocked split, focus failure, and restore failure all emit diagnostics.
+25. `WB25` Workbench Milestone Closure Receipt. Depends: `WB01`-`WB24`. Done gate: one closure doc states what workbench authority is canonical, what remains transitional, and what downstream lanes can safely assume.

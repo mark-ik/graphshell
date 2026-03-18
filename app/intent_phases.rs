@@ -518,6 +518,15 @@ impl GraphBrowserApp {
             GraphIntent::CreateUserGroupedEdge { from, to, label } => {
                 self.add_user_grouped_edge_if_missing(from, to, label);
             }
+            GraphIntent::DeleteImportRecord { record_id } => {
+                self.delete_import_record(record_id);
+            }
+            GraphIntent::SuppressImportRecordMembership { record_id, key } => {
+                self.suppress_import_record_membership(record_id, key);
+            }
+            GraphIntent::PromoteImportRecordToUserGroup { record_id, anchor } => {
+                self.promote_import_record_to_user_group(record_id, anchor);
+            }
             GraphIntent::RemoveEdge {
                 from,
                 to,

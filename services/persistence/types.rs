@@ -6,7 +6,9 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::graph::badge::NodeTagPresentationState;
+use crate::graph::{
+    ImportRecord, NodeImportProvenance, badge::NodeTagPresentationState,
+};
 
 /// Address type hint for persistence (mirrors `AddressKind` in the graph model).
 #[derive(
@@ -54,6 +56,8 @@ pub struct PersistedNode {
     pub tags: Vec<String>,
     #[serde(default)]
     pub tag_presentation: NodeTagPresentationState,
+    #[serde(default)]
+    pub import_provenance: Vec<NodeImportProvenance>,
     pub is_pinned: bool,
     pub history_entries: Vec<String>,
     pub history_index: usize,
@@ -129,6 +133,7 @@ pub struct PersistedEdge {
 pub struct GraphSnapshot {
     pub nodes: Vec<PersistedNode>,
     pub edges: Vec<PersistedEdge>,
+    pub import_records: Vec<ImportRecord>,
     pub timestamp_secs: u64,
 }
 
@@ -211,6 +216,10 @@ mod tests {
             position_y: 200.0,
             tags: vec!["udc:51".to_string(), "#pin".to_string()],
             tag_presentation: NodeTagPresentationState::default(),
+            import_provenance: vec![NodeImportProvenance {
+                source_id: "import:firefox-bookmarks".to_string(),
+                source_label: "Firefox bookmarks".to_string(),
+            }],
             is_pinned: true,
             history_entries: vec!["https://example.com".to_string()],
             history_index: 0,
@@ -242,6 +251,7 @@ mod tests {
         assert_eq!(archived.position_x, 100.0);
         assert_eq!(archived.position_y, 200.0);
         assert_eq!(archived.tags.len(), 2);
+        assert_eq!(archived.import_provenance.len(), 1);
         assert!(archived.is_pinned);
         assert_eq!(archived.history_entries.len(), 1);
         assert_eq!(archived.history_index, 0);
@@ -303,6 +313,7 @@ mod tests {
                 position_y: 0.0,
                 tags: vec![],
                 tag_presentation: NodeTagPresentationState::default(),
+                import_provenance: vec![],
                 is_pinned: false,
                 history_entries: vec![],
                 history_index: 0,
@@ -317,6 +328,16 @@ mod tests {
                 address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![],
+            import_records: vec![ImportRecord {
+                record_id: "import-record:firefox-bookmarks".to_string(),
+                source_id: "import:firefox-bookmarks".to_string(),
+                source_label: "Firefox bookmarks".to_string(),
+                imported_at_secs: 1234567000,
+                memberships: vec![crate::graph::ImportRecordMembership {
+                    node_id: Uuid::new_v4().to_string(),
+                    suppressed: false,
+                }],
+            }],
             timestamp_secs: 1234567890,
         };
 
@@ -324,6 +345,7 @@ mod tests {
         let archived = rkyv::access::<ArchivedGraphSnapshot, rkyv::rancor::Error>(&bytes).unwrap();
         assert_eq!(archived.nodes.len(), 1);
         assert_eq!(archived.edges.len(), 0);
+        assert_eq!(archived.import_records.len(), 1);
         assert_eq!(archived.timestamp_secs, 1234567890);
     }
 

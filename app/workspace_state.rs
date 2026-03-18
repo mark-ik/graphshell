@@ -82,6 +82,9 @@ pub struct GraphViewRuntimeState {
     /// Last known camera frame per graph view (updated by graph render pass).
     pub graph_view_frames: HashMap<GraphViewId, GraphViewFrame>,
 
+    /// Last rendered graph-canvas rect per visible graph view, expressed in graph space.
+    pub graph_view_canvas_rects: HashMap<GraphViewId, egui::Rect>,
+
     /// The currently focused graph view (target for keyboard zoom/pan).
     pub focused_view: Option<GraphViewId>,
 
@@ -332,6 +335,9 @@ pub struct ChromeUiState {
 
     /// Global Wry backend enable toggle (disabled by default).
     pub wry_enabled: bool,
+
+    /// Whether the Workbench Sidebar stays visible even without hosted panes.
+    pub workbench_sidebar_pinned: bool,
 
     /// Whether form draft capture/replay metadata is enabled.
     pub(crate) form_draft_capture_enabled: bool,

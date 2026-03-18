@@ -13,7 +13,7 @@ use crate::app::{
     OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference, ViewAction, WorkbenchIntent,
     clip_capture_matches_filter, clip_capture_matches_query,
 };
-use crate::graph::{ArrangementSubKind, EdgeType, NodeKey};
+use crate::graph::{ArrangementSubKind, EdgeType, NodeKey, format_imported_at_secs};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{
@@ -1727,6 +1727,36 @@ pub fn render_navigator_tool_pane_in_ui(
                 });
             }
         });
+        let import_records = app.domain_graph().import_record_summaries_for_node(selected_node);
+        if !import_records.is_empty() {
+            for record in &import_records {
+                ui.horizontal_wrapped(|ui| {
+                    ui.small(format!(
+                        "Imported: {}  {}  {}",
+                        record.source_label,
+                        format_imported_at_secs(record.imported_at_secs),
+                        record.record_id,
+                    ));
+                    if ui.small_button("Promote Group").clicked() {
+                        intents.push(GraphIntent::PromoteImportRecordToUserGroup {
+                            record_id: record.record_id.clone(),
+                            anchor: selected_node,
+                        });
+                    }
+                    if ui.small_button("Hide Here").clicked() {
+                        intents.push(GraphIntent::SuppressImportRecordMembership {
+                            record_id: record.record_id.clone(),
+                            key: selected_node,
+                        });
+                    }
+                    if ui.small_button("Delete Record").clicked() {
+                        intents.push(GraphIntent::DeleteImportRecord {
+                            record_id: record.record_id.clone(),
+                        });
+                    }
+                });
+            }
+        }
     }
 
     intents

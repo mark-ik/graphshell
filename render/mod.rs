@@ -21,7 +21,10 @@ use crate::graph::badge::{Badge, BadgeVisual, badge_visuals, badges_for_node, is
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
 use crate::graph::physics::apply_graph_physics_extensions;
-use crate::graph::{EdgeKind, EdgePayload, NodeKey, NodeLifecycle};
+use crate::graph::{
+    EdgeKind, EdgePayload, NodeImportRecordSummary, NodeKey, NodeLifecycle,
+    format_imported_at_secs,
+};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -634,14 +637,21 @@ pub fn render_graph_in_ui_collect_actions(
         .ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
     {
-        app.workspace.graph_runtime.graph_view_frames.insert(
-            view_id,
-            crate::app::GraphViewFrame {
-                zoom: meta.zoom,
-                pan_x: meta.pan.x,
-                pan_y: meta.pan.y,
-            },
-        );
+        let frame = crate::app::GraphViewFrame {
+            zoom: meta.zoom,
+            pan_x: meta.pan.x,
+            pan_y: meta.pan.y,
+        };
+        app.workspace
+            .graph_runtime
+            .graph_view_frames
+            .insert(view_id, frame);
+        if let Some(canvas_rect) = canvas_rect_from_view_frame(ui.max_rect(), frame) {
+            app.workspace
+                .graph_runtime
+                .graph_view_canvas_rects
+                .insert(view_id, canvas_rect);
+        }
     }
 
     let split_open_modifier = ui.input(|i| i.modifiers.shift);
@@ -2916,6 +2926,46 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp, view_id: crate:
                                     summary.workspace_memberships.join(", ")
                                 ));
                             }
+                            if !summary.import_records.is_empty() {
+                                ui.separator();
+                                ui.small("Imported");
+                                for record in &summary.import_records {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.small(format!(
+                                            "{}  {}  {}",
+                                            record.source_label,
+                                            format_imported_at_secs(record.imported_at_secs),
+                                            record.record_id,
+                                        ));
+                                        if ui.small_button("Promote Group").clicked() {
+                                            apply_ui_intents_with_checkpoint(
+                                                app,
+                                                vec![GraphIntent::PromoteImportRecordToUserGroup {
+                                                    record_id: record.record_id.clone(),
+                                                    anchor: selected_key,
+                                                }],
+                                            );
+                                        }
+                                        if ui.small_button("Hide Here").clicked() {
+                                            apply_ui_intents_with_checkpoint(
+                                                app,
+                                                vec![GraphIntent::SuppressImportRecordMembership {
+                                                    record_id: record.record_id.clone(),
+                                                    key: selected_key,
+                                                }],
+                                            );
+                                        }
+                                        if ui.small_button("Delete Record").clicked() {
+                                            apply_ui_intents_with_checkpoint(
+                                                app,
+                                                vec![GraphIntent::DeleteImportRecord {
+                                                    record_id: record.record_id.clone(),
+                                                }],
+                                            );
+                                        }
+                                    });
+                                }
+                            }
                             ui.separator();
                             ui.small("Semantic tags");
                             if summary.display_tags.is_empty() {
@@ -3015,6 +3065,7 @@ struct SelectedNodeEnrichmentSummary {
     url: String,
     show_url: bool,
     lifecycle: &'static str,
+    import_records: Vec<NodeImportRecordSummary>,
     workspace_memberships: Vec<String>,
     display_tags: Vec<SemanticTagStatusChip>,
     hidden_tag_count: usize,
@@ -3686,6 +3737,7 @@ fn selected_node_enrichment_summary(
             NodeLifecycle::Cold => "Cold",
             NodeLifecycle::Tombstone => "Ghost Node",
         },
+        import_records: app.domain_graph().import_record_summaries_for_node(selected_key),
         workspace_memberships: app.membership_for_node(node.id).iter().cloned().collect(),
         display_tags,
         hidden_tag_count,

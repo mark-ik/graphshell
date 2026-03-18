@@ -16,6 +16,7 @@ use winit::window::Window;
 
 use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
 use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
+use crate::shell::desktop::ui::workbench_sidebar::WorkbenchLayerState;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_grouping;
@@ -47,13 +48,19 @@ use self::toolbar_settings_menu::render_settings_menu;
 use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingTileOpenMode, RadialMenuShortcut,
-    ToastAnchorPreference, WorkbenchIntent,
+    TagPanelState, ToastAnchorPreference, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::search::{fuzzy_match_items, fuzzy_match_node_keys};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::runtime::registries::lens::{
+    LENS_ID_DEFAULT, LENS_ID_SEMANTIC_OVERLAY,
+};
+use crate::shell::desktop::runtime::registries::physics_profile::{
+    PHYSICS_PROFILE_GAS, PHYSICS_PROFILE_LIQUID, PHYSICS_PROFILE_SOLID,
+};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 const WORKSPACE_PIN_NAME: &str = "workspace:pin:space";
@@ -158,8 +165,8 @@ pub(crate) struct Input<'a> {
     pub tiles_tree: &'a Tree<TileKind>,
     pub focused_toolbar_node: Option<NodeKey>,
     pub active_toolbar_pane: Option<PaneId>,
+    pub workbench_layer_state: WorkbenchLayerState,
     pub local_widget_focus: &'a mut Option<LocalFocusTarget>,
-    pub has_node_panes: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub location: &'a mut String,
@@ -324,6 +331,117 @@ fn graph_view_chip_label(graph_app: &GraphBrowserApp) -> String {
         .unwrap_or_else(|| "View: Graph".to_string())
 }
 
+fn graph_bar_lens_label(graph_app: &GraphBrowserApp) -> String {
+    let view_id = active_graph_view_id(graph_app);
+    let lens_id = view_id
+        .and_then(|id| graph_app.workspace.graph_runtime.views.get(&id))
+        .and_then(|view| view.lens.lens_id.clone())
+        .or_else(|| graph_app.default_registry_lens_id().map(str::to_owned))
+        .unwrap_or_else(|| LENS_ID_DEFAULT.to_string());
+    format!("Lens: {}", lens_id.trim_start_matches("lens:"))
+}
+
+fn graph_bar_physics_label(graph_app: &GraphBrowserApp) -> String {
+    let physics_id = graph_app
+        .default_registry_physics_id()
+        .unwrap_or(PHYSICS_PROFILE_LIQUID);
+    format!("Physics: {}", physics_id.trim_start_matches("physics:"))
+}
+
+fn active_graph_view_id(graph_app: &GraphBrowserApp) -> Option<crate::app::GraphViewId> {
+    graph_app
+        .workspace
+        .graph_runtime
+        .focused_view
+        .or_else(|| {
+            (graph_app.workspace.graph_runtime.views.len() == 1)
+                .then(|| graph_app.workspace.graph_runtime.views.keys().next().copied())
+                .flatten()
+        })
+}
+
+fn render_graph_bar_lens_menu(
+    ui: &mut egui::Ui,
+    graph_app: &mut GraphBrowserApp,
+    frame_intents: &mut Vec<GraphIntent>,
+) {
+    ui.menu_button(graph_bar_lens_label(graph_app), |ui| {
+        let Some(view_id) = active_graph_view_id(graph_app) else {
+            ui.label("No active graph view");
+            return;
+        };
+        let Some(base_lens) = graph_app
+            .workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .map(|view| view.lens.clone())
+        else {
+            ui.label("No active graph view");
+            return;
+        };
+
+        for (label, lens_id) in [
+            ("Default", LENS_ID_DEFAULT),
+            ("Semantic Overlay", LENS_ID_SEMANTIC_OVERLAY),
+        ] {
+            if ui.button(label).clicked() {
+                let mut lens = base_lens.clone();
+                lens.lens_id = Some(lens_id.to_string());
+                frame_intents.push(GraphIntent::SetViewLens { view_id, lens });
+                ui.close();
+            }
+        }
+    });
+}
+
+fn render_graph_bar_physics_menu(
+    ui: &mut egui::Ui,
+    graph_app: &mut GraphBrowserApp,
+    frame_intents: &mut Vec<GraphIntent>,
+) {
+    ui.menu_button(graph_bar_physics_label(graph_app), |ui| {
+        for (label, profile_id) in [
+            ("Liquid", PHYSICS_PROFILE_LIQUID),
+            ("Gas", PHYSICS_PROFILE_GAS),
+            ("Solid", PHYSICS_PROFILE_SOLID),
+        ] {
+            if ui.button(label).clicked() {
+                frame_intents.push(GraphIntent::SetPhysicsProfile {
+                    profile_id: profile_id.to_string(),
+                });
+                ui.close();
+            }
+        }
+        ui.separator();
+        let running = graph_app.workspace.graph_runtime.physics.base.is_running;
+        let toggle_label = if running { "Pause Physics" } else { "Resume Physics" };
+        if ui.button(toggle_label).clicked() {
+            graph_app.workspace.graph_runtime.physics.base.is_running = !running;
+            if !running {
+                frame_intents.push(GraphIntent::ReheatPhysics);
+            }
+            ui.close();
+        }
+        if ui.button("Reheat Physics").clicked() {
+            frame_intents.push(GraphIntent::ReheatPhysics);
+            ui.close();
+        }
+    });
+}
+
+fn open_selected_node_tag_panel(graph_app: &mut GraphBrowserApp) {
+    let Some(node_key) = graph_app.focused_selection().primary() else {
+        return;
+    };
+    graph_app.workspace.graph_runtime.tag_panel_state = Some(TagPanelState {
+        node_key,
+        text_input: String::new(),
+        icon_picker_open: false,
+        pending_icon_override: None,
+    });
+}
+
 pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let Input {
         ctx,
@@ -334,8 +452,8 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         tiles_tree,
         focused_toolbar_node,
         active_toolbar_pane,
+        workbench_layer_state,
         local_widget_focus,
-        has_node_panes,
         can_go_back: _,
         can_go_forward: _,
         location,
@@ -360,7 +478,11 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
 
     let toggle_tile_view_requested = false;
     let mut open_selected_mode_after_submit = None;
-    let is_graph_view = !has_node_panes;
+    let is_graph_view = matches!(
+        workbench_layer_state,
+        WorkbenchLayerState::GraphOnly | WorkbenchLayerState::GraphOverlayActive
+    );
+    let has_node_panes = !is_graph_view;
     let frame = egui::Frame::default()
         .fill(ctx.style().visuals.window_fill)
         .inner_margin(4.0);
@@ -385,6 +507,19 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                 if new_edge_button.clicked() {
                     frame_intents.push(GraphIntent::CreateUserGroupedEdgeFromPrimarySelection);
                 }
+
+                let add_tag_button = ui
+                    .add_enabled(
+                        graph_app.focused_selection().primary().is_some(),
+                        toolbar_button("+Tag"),
+                    )
+                    .on_hover_text("Edit tags for the selected node");
+                if add_tag_button.clicked() {
+                    open_selected_node_tag_panel(graph_app);
+                }
+
+                render_graph_bar_lens_menu(ui, graph_app, frame_intents);
+                render_graph_bar_physics_menu(ui, graph_app, frame_intents);
 
                 let command_button = ui
                     .add(toolbar_button("Cmd"))

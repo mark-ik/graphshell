@@ -1,4 +1,4 @@
-use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
+use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use egui::{WidgetInfo, WidgetType};
@@ -25,13 +25,6 @@ pub(super) fn render_toolbar_right_controls(
         frame_intents.push(GraphIntent::RequestFitToScreen);
     }
 
-    let command_button = ui
-        .add(super::toolbar_button("Cmd"))
-        .on_hover_text("Open command palette (F2)");
-    if command_button.clicked() {
-        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
-    }
-
     ui.menu_button("Settings", |ui| {
         super::render_settings_menu(
             ui,
@@ -46,17 +39,18 @@ pub(super) fn render_toolbar_right_controls(
         );
     });
 
-    let clear_data_button = ui
-        .add(super::toolbar_button("Clr"))
-        .on_hover_text("Clear graph and saved data");
-    clear_data_button.widget_info(|| {
-        let mut info = WidgetInfo::new(WidgetType::Button);
-        info.label = Some("Clear graph and saved data".into());
-        info
+    ui.menu_button("More", |ui| {
+        let clear_data_button = ui.button("Clear graph and saved data");
+        clear_data_button.widget_info(|| {
+            let mut info = WidgetInfo::new(WidgetType::Button);
+            info.label = Some("Clear graph and saved data".into());
+            info
+        });
+        if clear_data_button.clicked() {
+            *show_clear_data_confirm = true;
+            ui.close();
+        }
     });
-    if clear_data_button.clicked() {
-        *show_clear_data_confirm = true;
-    }
 }
 
 /// Render a simple sync status indicator showing Verse P2P status

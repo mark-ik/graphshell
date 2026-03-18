@@ -55,7 +55,10 @@ It is a process host, not a hidden second reducer.
 
 ## Planned Extensions
 
-- richer worker classes and resource-budget policies
+- richer worker classes and resource-budget policies — see
+  [`2026-03-17_runtime_task_budget.md`](./2026-03-17_runtime_task_budget.md)
+  for the pre-design policy note (worker tiers, concurrency envelope,
+  suspension/resume semantics, diagnostics channels)
 - stronger lifecycle supervision tooling
 - clearer interaction with typed signal routing
 

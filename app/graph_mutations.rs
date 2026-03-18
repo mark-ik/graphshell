@@ -449,6 +449,41 @@ impl GraphBrowserApp {
         }
     }
 
+    pub(crate) fn delete_import_record(&mut self, record_id: String) {
+        if self.workspace.domain.graph.delete_import_record(&record_id) {
+            self.workspace.graph_runtime.egui_state_dirty = true;
+        }
+    }
+
+    pub(crate) fn suppress_import_record_membership(&mut self, record_id: String, key: NodeKey) {
+        if self
+            .workspace
+            .domain
+            .graph
+            .set_import_record_membership_suppressed(&record_id, key, true)
+        {
+            self.workspace.graph_runtime.egui_state_dirty = true;
+        }
+    }
+
+    pub(crate) fn promote_import_record_to_user_group(
+        &mut self,
+        record_id: String,
+        anchor: NodeKey,
+    ) {
+        let member_keys = self.workspace.domain.graph.import_record_member_keys(&record_id);
+        if !member_keys.contains(&anchor) {
+            return;
+        }
+        for member in member_keys {
+            if member == anchor {
+                continue;
+            }
+            self.add_user_grouped_edge_if_missing(anchor, member, None);
+            self.add_user_grouped_edge_if_missing(member, anchor, None);
+        }
+    }
+
     pub(crate) fn add_arrangement_relation_if_missing(
         &mut self,
         from: NodeKey,
@@ -854,6 +889,7 @@ impl GraphBrowserApp {
         self.workspace.domain.notes.clear();
         self.workspace.graph_runtime.views.clear();
         self.workspace.graph_runtime.graph_view_frames.clear();
+        self.workspace.graph_runtime.graph_view_canvas_rects.clear();
         self.set_workspace_focused_view_with_transition(None);
         self.workspace.graph_runtime.webview_to_node.clear();
         self.workspace.graph_runtime.node_to_webview.clear();
@@ -891,6 +927,7 @@ impl GraphBrowserApp {
         self.clear_pending_wheel_zoom_delta();
         self.workspace.graph_runtime.views.clear();
         self.workspace.graph_runtime.graph_view_frames.clear();
+        self.workspace.graph_runtime.graph_view_canvas_rects.clear();
         self.set_workspace_focused_view_with_transition(None);
         self.workspace.graph_runtime.webview_to_node.clear();
         self.workspace.graph_runtime.node_to_webview.clear();

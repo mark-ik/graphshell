@@ -305,6 +305,17 @@ pub enum GraphMutation {
         to: NodeKey,
         label: Option<String>,
     },
+    DeleteImportRecord {
+        record_id: String,
+    },
+    SuppressImportRecordMembership {
+        record_id: String,
+        key: NodeKey,
+    },
+    PromoteImportRecordToUserGroup {
+        record_id: String,
+        anchor: NodeKey,
+    },
     RemoveEdge {
         from: NodeKey,
         to: NodeKey,
@@ -567,6 +578,17 @@ pub enum GraphIntent {
         from: NodeKey,
         to: NodeKey,
         label: Option<String>,
+    },
+    DeleteImportRecord {
+        record_id: String,
+    },
+    SuppressImportRecordMembership {
+        record_id: String,
+        key: NodeKey,
+    },
+    PromoteImportRecordToUserGroup {
+        record_id: String,
+        anchor: NodeKey,
     },
     RemoveEdge {
         from: NodeKey,
@@ -888,6 +910,15 @@ impl From<GraphMutation> for GraphIntent {
             GraphMutation::CreateUserGroupedEdge { from, to, label } => {
                 Self::CreateUserGroupedEdge { from, to, label }
             }
+            GraphMutation::DeleteImportRecord { record_id } => {
+                Self::DeleteImportRecord { record_id }
+            }
+            GraphMutation::SuppressImportRecordMembership { record_id, key } => {
+                Self::SuppressImportRecordMembership { record_id, key }
+            }
+            GraphMutation::PromoteImportRecordToUserGroup { record_id, anchor } => {
+                Self::PromoteImportRecordToUserGroup { record_id, anchor }
+            }
             GraphMutation::RemoveEdge {
                 from,
                 to,
@@ -1175,6 +1206,23 @@ impl GraphIntent {
                     from: *from,
                     to: *to,
                     label: label.clone(),
+                })
+            }
+            Self::DeleteImportRecord { record_id } => {
+                Some(GraphMutation::DeleteImportRecord {
+                    record_id: record_id.clone(),
+                })
+            }
+            Self::SuppressImportRecordMembership { record_id, key } => {
+                Some(GraphMutation::SuppressImportRecordMembership {
+                    record_id: record_id.clone(),
+                    key: *key,
+                })
+            }
+            Self::PromoteImportRecordToUserGroup { record_id, anchor } => {
+                Some(GraphMutation::PromoteImportRecordToUserGroup {
+                    record_id: record_id.clone(),
+                    anchor: *anchor,
                 })
             }
             Self::RemoveEdge {

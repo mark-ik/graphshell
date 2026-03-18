@@ -135,6 +135,62 @@ impl AsRef<str> for LocalSearchCandidate {
     }
 }
 
+fn import_record_search_text(app: &GraphBrowserApp, key: NodeKey) -> String {
+    app.domain_graph()
+        .import_record_summaries_for_node(key)
+        .into_iter()
+        .map(|record| {
+            format!(
+                "{} {} {} {}",
+                record.source_label,
+                record.source_id,
+                record.record_id,
+                crate::graph::format_imported_at_secs(record.imported_at_secs),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn import_semantic_tags_for_node(app: &GraphBrowserApp, key: NodeKey) -> Vec<String> {
+    let mut tags = app
+        .domain_graph()
+        .import_record_summaries_for_node(key)
+        .into_iter()
+        .flat_map(|record| {
+            [
+                "family:imported".to_string(),
+                format!("import:{}", record.source_id),
+                format!("import-record:{}", record.record_id),
+            ]
+        })
+        .collect::<Vec<_>>();
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+fn local_result_snippet(app: &GraphBrowserApp, key: NodeKey, url: &str) -> String {
+    let import_records = app.domain_graph().import_record_summaries_for_node(key);
+    if import_records.is_empty() {
+        return url.to_string();
+    }
+
+    let import_summary = import_records
+        .into_iter()
+        .map(|record| {
+            format!(
+                "{} ({}, {})",
+                record.source_label,
+                crate::graph::format_imported_at_secs(record.imported_at_secs),
+                record.record_id,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("{url} Imported from {import_summary}")
+}
+
 impl SearchProvider for LocalSearchProvider {
     fn id(&self) -> &'static str {
         INDEX_PROVIDER_LOCAL
@@ -156,28 +212,41 @@ impl SearchProvider for LocalSearchProvider {
             return local_udc_class_matches(app, &udc_query, limit);
         }
 
+        let candidates: Vec<LocalSearchCandidate> = app
+            .domain_graph()
+            .nodes()
+            .map(|(key, node)| {
+                let semantic_tags = app.canonical_tags_for_node_sorted(key).join(" ");
+                let import_search = import_record_search_text(app, key);
+                LocalSearchCandidate {
+                    key,
+                    text: format!(
+                        "{} {} {} {}",
+                        node.title, node.url, semantic_tags, import_search
+                    ),
+                }
+            })
+            .collect();
+
         let matched_keys = if trimmed.starts_with('#')
             || trimmed
                 .chars()
                 .all(|c| c.is_ascii_digit() || c == '.' || c == ':' || c == '/')
         {
-            let candidates: Vec<LocalSearchCandidate> = app
-                .domain_graph()
-                .nodes()
-                .map(|(key, node)| {
-                    let semantic_tags = app.canonical_tags_for_node_sorted(key).join(" ");
-                    LocalSearchCandidate {
-                        key,
-                        text: format!("{} {} {}", node.title, node.url, semantic_tags),
-                    }
-                })
-                .collect();
             fuzzy_match_items(candidates, trimmed)
                 .into_iter()
                 .map(|candidate| candidate.key)
                 .collect::<Vec<_>>()
         } else {
-            fuzzy_match_node_keys(app.domain_graph(), trimmed)
+            let matched_from_candidates = fuzzy_match_items(candidates.clone(), trimmed)
+                .into_iter()
+                .map(|candidate| candidate.key)
+                .collect::<Vec<_>>();
+            if matched_from_candidates.is_empty() {
+                fuzzy_match_node_keys(app.domain_graph(), trimmed)
+            } else {
+                matched_from_candidates
+            }
         };
         matched_keys
             .into_iter()
@@ -185,10 +254,10 @@ impl SearchProvider for LocalSearchProvider {
             .enumerate()
             .filter_map(|(idx, key)| {
                 let node = app.domain_graph().get_node(key)?;
-                let semantic_tags = app
-                    .canonical_tags_for_node_sorted(key)
-                    .into_iter()
-                    .collect();
+                let mut semantic_tags = app.canonical_tags_for_node_sorted(key);
+                semantic_tags.extend(import_semantic_tags_for_node(app, key));
+                semantic_tags.sort();
+                semantic_tags.dedup();
                 Some(SearchResult {
                     title: if node.title.trim().is_empty() {
                         node.url.clone()
@@ -196,7 +265,7 @@ impl SearchProvider for LocalSearchProvider {
                         node.title.clone()
                     },
                     url: Some(node.url.clone()),
-                    snippet: Some(node.url.clone()),
+                    snippet: Some(local_result_snippet(app, key, &node.url)),
                     source: self.id().to_string(),
                     relevance: 1.0 - (idx as f32 * 0.01),
                     semantic_tags,
@@ -263,10 +332,16 @@ fn local_udc_class_matches(
                     title
                 },
                 url: Some(url.clone()),
-                snippet: Some(url),
+                snippet: Some(local_result_snippet(app, key, &url)),
                 source: INDEX_PROVIDER_LOCAL.to_string(),
                 relevance: 1.0 - ((match_rank.min(50) as f32) * 0.01),
-                semantic_tags,
+                semantic_tags: {
+                    let mut semantic_tags = semantic_tags;
+                    semantic_tags.extend(import_semantic_tags_for_node(app, key));
+                    semantic_tags.sort();
+                    semantic_tags.dedup();
+                    semantic_tags
+                },
                 kind: SearchResultKind::Node(key),
             },
         )
@@ -406,6 +481,7 @@ fn text_relevance(query: &str, haystack: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::{ImportRecord, ImportRecordMembership};
     use euclid::default::Point2D;
 
     #[test]
@@ -569,6 +645,61 @@ mod tests {
             results
                 .iter()
                 .any(|result| matches!(result.kind, SearchResultKind::Node(found) if found == key))
+        );
+    }
+
+    #[test]
+    fn local_search_provider_matches_import_record_metadata() {
+        let provider = LocalSearchProvider;
+        let knowledge = KnowledgeRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://example.com/imported".into(), Point2D::new(0.0, 0.0));
+        let node_id = app
+            .workspace
+            .domain
+            .graph
+            .get_node(key)
+            .expect("node")
+            .id
+            .to_string();
+        assert!(app.workspace.domain.graph.set_import_records(vec![ImportRecord {
+            record_id: "import-record:firefox-bookmarks-2026-03-17".to_string(),
+            source_id: "import:firefox-bookmarks".to_string(),
+            source_label: "Firefox bookmarks".to_string(),
+            imported_at_secs: 1_763_500_800,
+            memberships: vec![ImportRecordMembership {
+                node_id,
+                suppressed: false,
+            }],
+        }]));
+
+        let results = provider.search(&app, &knowledge, "firefox bookmarks", 10);
+        let imported = results
+            .into_iter()
+            .find(|result| matches!(result.kind, SearchResultKind::Node(found) if found == key))
+            .expect("imported node result");
+
+        assert!(
+            imported
+                .semantic_tags
+                .iter()
+                .any(|tag| tag == "family:imported")
+        );
+        assert!(
+            imported
+                .snippet
+                .as_deref()
+                .is_some_and(|snippet| snippet.contains("Firefox bookmarks"))
+        );
+        assert!(
+            imported
+                .snippet
+                .as_deref()
+                .is_some_and(|snippet| snippet.contains("import-record:firefox-bookmarks-2026-03-17"))
         );
     }
 }

@@ -12,7 +12,7 @@
 - `../../TERMINOLOGY.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — chrome split authority: WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar
 - `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation as graph-edge backing for frame/tile-group membership
-- `navigator_graph_isomorphism_spec.md` — canonical single-click/double-click isomorphism between Navigator rows and graph canvas nodes
+- `../navigator/NAVIGATOR.md` — Navigator domain spec (sidebar content authority; see §2 boundary note)
 - `../canvas/frame_graph_representation_spec.md` — how Frames render as spatial minimap bounding boxes on the graph canvas
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §3.5)):
@@ -44,7 +44,7 @@ The Workbench owns arrangement interaction/session mutation truth and presentati
 - destination selection after routing is requested
 - visible arrangement context
 - workbench-level focus handoff
-- **Workbench Sidebar** (navigator, viewer controls, pane tree) — see `2026-03-13_chrome_scope_split_plan.md`
+- **Workbench Sidebar chrome** (the layout slot, its resize handle, its show/hide toggle) — the sidebar *content* is owned by the Navigator domain; see `../navigator/NAVIGATOR.md`
 
 The Workbench is the canonical owner of where content is shown and how session
 arrangement is structurally realized.
