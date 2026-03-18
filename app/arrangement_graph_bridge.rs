@@ -395,6 +395,7 @@ impl GraphBrowserApp {
         {
             store.log_mutation(&crate::services::persistence::types::LogEntry::RemoveNode {
                 node_id: node_id.to_string(),
+                timestamp_ms: Self::unix_timestamp_ms_now(),
             });
         }
         self.workspace

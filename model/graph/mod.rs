@@ -42,6 +42,8 @@ use crate::services::persistence::types::{
 pub mod apply;
 pub mod badge;
 pub mod egui_adapter;
+pub mod facet_projection;
+pub mod filter;
 
 use self::badge::NodeTagPresentationState;
 
@@ -560,7 +562,7 @@ impl Node {
 }
 
 /// Type of edge connection
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Archive, Serialize, Deserialize)]
 pub enum EdgeType {
     /// Hyperlink from one page to another
     Hyperlink,
@@ -576,6 +578,14 @@ pub enum EdgeType {
 
     /// URL-derived containment hierarchy relation.
     ContainmentRelation(ContainmentSubKind),
+
+    /// Relation imported from an external system (bookmarks folder, RSS feed, etc.).
+    /// Derived-readonly at import time; promoted to durable only by explicit user action.
+    ImportedRelation,
+
+    /// Agent-inferred relation; provisional until accepted or evicted by decay.
+    /// `decay_progress` is in [0.0, 1.0] — 0.0 = freshly asserted, 1.0 = at eviction threshold.
+    AgentDerived { decay_progress: f32 },
 }
 
 #[derive(
@@ -666,16 +676,18 @@ impl ArrangementSubKind {
     }
 }
 
-/// Canonical edge kind set entry.
+/// Canonical edge kind set entry — internal index tag inside [`EdgePayload`].
+/// Callers outside this module should use [`EdgeType`] with [`EdgePayload::has_edge_type`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Archive, Serialize, Deserialize)]
 #[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
-pub enum EdgeKind {
+pub(crate) enum EdgeKind {
     Hyperlink,
     TraversalDerived,
     UserGrouped,
     AgentDerived,
     ArrangementRelation,
     ContainmentRelation,
+    ImportedRelation,
 }
 
 /// Trigger classification for a traversal event.
@@ -893,6 +905,8 @@ impl EdgePayload {
                     .get_or_insert_with(ContainmentData::default);
                 inserted | data.insert(sub_kind)
             }
+            EdgeType::ImportedRelation => self.kinds.insert(EdgeKind::ImportedRelation),
+            EdgeType::AgentDerived { .. } => self.kinds.insert(EdgeKind::AgentDerived),
         }
     }
 
@@ -923,6 +937,8 @@ impl EdgePayload {
                         .as_ref()
                         .is_some_and(|data| data.contains(sub_kind))
             }
+            EdgeType::ImportedRelation => self.kinds.contains(&EdgeKind::ImportedRelation),
+            EdgeType::AgentDerived { .. } => self.kinds.contains(&EdgeKind::AgentDerived),
         }
     }
 
@@ -930,7 +946,7 @@ impl EdgePayload {
         self.has_edge_kind(edge_type)
     }
 
-    pub fn has_kind(&self, kind: EdgeKind) -> bool {
+    pub(crate) fn has_kind(&self, kind: EdgeKind) -> bool {
         self.kinds.contains(&kind)
     }
 
@@ -969,6 +985,8 @@ impl EdgePayload {
                 }
                 true
             }
+            EdgeType::ImportedRelation if self.kinds.remove(&EdgeKind::ImportedRelation) => true,
+            EdgeType::AgentDerived { .. } if self.kinds.remove(&EdgeKind::AgentDerived) => true,
             _ => false,
         }
     }
@@ -2021,6 +2039,22 @@ impl Graph {
                         edge_type: EdgeType::ContainmentRelation(*sub_kind),
                     });
                 }
+            }
+            if payload.has_kind(EdgeKind::ImportedRelation) {
+                out.push(EdgeView {
+                    from,
+                    to,
+                    edge_type: EdgeType::ImportedRelation,
+                });
+            }
+            if payload.has_kind(EdgeKind::AgentDerived) {
+                out.push(EdgeView {
+                    from,
+                    to,
+                    // decay_progress will be populated from EdgePayload data when AgentDerived
+                    // payload storage is implemented; 0.0 = freshly asserted in the interim.
+                    edge_type: EdgeType::AgentDerived { decay_progress: 0.0 },
+                });
             }
             out.into_iter()
         })

@@ -787,6 +787,11 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
             HistoryManagerTab::Dissolved,
             "Dissolved",
         );
+        ui.selectable_value(
+            &mut app.workspace.chrome_ui.history_manager_tab,
+            HistoryManagerTab::All,
+            "All",
+        );
     });
     ui.add_space(8.0);
 
@@ -886,8 +891,18 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 auto_curate_keep
             ));
             if health.preview_mode_active {
+                ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
-                    ui.small("Replay controls:");
+                    ui.label(
+                        egui::RichText::new("Viewing history")
+                            .color(egui::Color32::from_rgb(255, 200, 80))
+                            .strong(),
+                    );
+                    if ui.button("Return to Present").clicked() {
+                        intents.push(GraphIntent::ExitHistoryTimelinePreview);
+                    }
+                    ui.separator();
+                    ui.small("Replay:");
                     if ui.button("Reset").clicked() {
                         intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
                             total_steps: timeline_total,
@@ -914,6 +929,15 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                             steps: timeline_total.max(1),
                         });
                     }
+                });
+                ui.add_space(4.0);
+            } else if timeline_total > 0 {
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Enter Preview").clicked() {
+                        intents.push(GraphIntent::EnterHistoryTimelinePreview);
+                    }
+                    ui.small("Replay historical graph state without modifying live state.");
                 });
             }
             let entries = app.history_manager_timeline_entries(history_manager_entry_limit());
@@ -942,6 +966,106 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
             ));
             let entries = app.history_manager_dissolved_entries(history_manager_entry_limit());
             render_history_manager_rows(ui, app, &entries, &compositor_activity, &mut intents);
+        }
+        HistoryManagerTab::All => {
+            // Stage M4: preview mode banner
+            if health.preview_mode_active {
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        egui::RichText::new("Viewing history")
+                            .color(egui::Color32::from_rgb(255, 200, 80))
+                            .strong(),
+                    );
+                    if ui.button("Return to Present").clicked() {
+                        intents.push(GraphIntent::ExitHistoryTimelinePreview);
+                    }
+                });
+                ui.add_space(4.0);
+            }
+
+            // Stage M3: Track filter chips
+            {
+                use crate::services::persistence::types::HistoryTrackKind;
+                let filter = &mut app.workspace.chrome_ui.mixed_timeline_filter;
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(filter.tracks.is_none(), "All").clicked() {
+                        filter.tracks = None;
+                    }
+                    for (kind, label) in [
+                        (HistoryTrackKind::Traversal, "Traversal"),
+                        (HistoryTrackKind::NodeNavigation, "Navigation"),
+                        (HistoryTrackKind::NodeAudit, "Audit"),
+                        (HistoryTrackKind::GraphStructure, "Structure"),
+                    ] {
+                        let active = filter
+                            .tracks
+                            .as_ref()
+                            .map(|t| t.contains(&kind))
+                            .unwrap_or(false);
+                        if ui.selectable_label(active, label).clicked() {
+                            if active {
+                                // deselect: remove this kind from the vec
+                                if let Some(ref mut tracks) = filter.tracks {
+                                    tracks.retain(|k| *k != kind);
+                                    if tracks.is_empty() {
+                                        filter.tracks = None;
+                                    }
+                                }
+                            } else {
+                                match filter.tracks {
+                                    None => filter.tracks = Some(vec![kind]),
+                                    Some(ref mut tracks) => {
+                                        if !tracks.contains(&kind) {
+                                            tracks.push(kind);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Stage M3: text search
+                let mut search_text = filter.text_contains.clone().unwrap_or_default();
+                ui.horizontal(|ui| {
+                    ui.label("Search:");
+                    if ui.text_edit_singleline(&mut search_text).changed() {
+                        filter.text_contains = if search_text.is_empty() {
+                            None
+                        } else {
+                            Some(search_text)
+                        };
+                    }
+                });
+
+                // Stage M3: node-scoped filter chip
+                if let Some(ref node_id) = filter.node_id.clone() {
+                    let label = format!("Node: {}", &node_id[..node_id.len().min(12)]);
+                    ui.horizontal(|ui| {
+                        if ui.small_button(format!("x {}", label)).clicked() {
+                            app.workspace.chrome_ui.mixed_timeline_filter.node_id = None;
+                        }
+                    });
+                }
+            }
+
+            ui.add_space(4.0);
+
+            // Build filter, applying preview-mode before_ms if active
+            let query_filter = if health.preview_mode_active {
+                let mut f = app.workspace.chrome_ui.mixed_timeline_filter.clone();
+                if let Some(last_ms) = health.last_event_unix_ms {
+                    // Bound query to preview cursor timestamp
+                    f.before_ms = Some(f.before_ms.map(|b| b.min(last_ms)).unwrap_or(last_ms));
+                }
+                f
+            } else {
+                app.workspace.chrome_ui.mixed_timeline_filter.clone()
+            };
+
+            let events = app.mixed_timeline_entries(&query_filter, history_manager_entry_limit());
+            render_mixed_timeline_rows(ui, &events);
         }
     }
 
@@ -982,6 +1106,121 @@ fn history_manager_auto_curate_keep_latest() -> usize {
             DEFAULT_KEEP_LATEST
         }
     })
+}
+
+fn render_mixed_timeline_rows(
+    ui: &mut Ui,
+    events: &[crate::services::persistence::types::HistoryTimelineEvent],
+) {
+    use crate::services::persistence::types::{HistoryEventKind, NodeAuditEventKind, PersistedNavigationTrigger};
+
+    if events.is_empty() {
+        ui.label(egui::RichText::new("No history events.").weak().small());
+        return;
+    }
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    egui::ScrollArea::vertical()
+        .id_salt("mixed_timeline_scroll")
+        .show(ui, |ui| {
+            for event in events {
+                let elapsed_ms = now_ms.saturating_sub(event.timestamp_ms);
+                let time_label = if elapsed_ms < 1_000 {
+                    "just now".to_string()
+                } else if elapsed_ms < 60_000 {
+                    format!("{}s ago", elapsed_ms / 1_000)
+                } else if elapsed_ms < 3_600_000 {
+                    format!("{}m ago", elapsed_ms / 60_000)
+                } else if elapsed_ms < 86_400_000 {
+                    format!("{}h ago", elapsed_ms / 3_600_000)
+                } else {
+                    format!("{}d ago", elapsed_ms / 86_400_000)
+                };
+
+                let (track_badge, icon, summary) = match &event.kind {
+                    HistoryEventKind::Traversal {
+                        from_node_id,
+                        to_node_id,
+                        ..
+                    } => {
+                        let summary = format!(
+                            "{} \u{2192} {}",
+                            &from_node_id[..from_node_id.len().min(28)],
+                            &to_node_id[..to_node_id.len().min(28)]
+                        );
+                        ("[T]", "\u{2194}", summary)
+                    }
+                    HistoryEventKind::NodeNavigation {
+                        from_url,
+                        to_url,
+                        trigger,
+                        ..
+                    } => {
+                        let trigger_icon = match trigger {
+                            PersistedNavigationTrigger::LinkClick => "\u{1F517}",
+                            PersistedNavigationTrigger::Back => "\u{2B05}",
+                            PersistedNavigationTrigger::Forward => "\u{27A1}",
+                            PersistedNavigationTrigger::AddressBarEntry => "\u{2328}",
+                            PersistedNavigationTrigger::PanePromotion => "\u{2B06}",
+                            PersistedNavigationTrigger::Programmatic => "\u{2699}",
+                            PersistedNavigationTrigger::Unknown => "\u{2753}",
+                        };
+                        let from_short = &from_url[..from_url.len().min(28)];
+                        let to_short = &to_url[..to_url.len().min(28)];
+                        let summary = format!("{} \u{2192} {}", from_short, to_short);
+                        ("[N]", trigger_icon, summary)
+                    }
+                    HistoryEventKind::NodeAudit { event, .. } => {
+                        let (icon, desc) = match event {
+                            NodeAuditEventKind::TitleChanged { new_title } => (
+                                "\u{270F}",
+                                format!("Renamed to \"{}\"", &new_title[..new_title.len().min(32)]),
+                            ),
+                            NodeAuditEventKind::Tagged { tag } => {
+                                ("\u{1F3F7}", format!("Tagged: {}", tag))
+                            }
+                            NodeAuditEventKind::Untagged { tag } => {
+                                ("\u{1F3F7}", format!("Untagged: {}", tag))
+                            }
+                            NodeAuditEventKind::Pinned => ("\u{1F4CC}", "Pinned".to_string()),
+                            NodeAuditEventKind::Unpinned => ("\u{1F4CC}", "Unpinned".to_string()),
+                            NodeAuditEventKind::UrlChanged { new_url } => (
+                                "\u{1F517}",
+                                format!("URL \u{2192} {}", &new_url[..new_url.len().min(32)]),
+                            ),
+                            NodeAuditEventKind::Tombstoned => {
+                                ("\u{1FAA6}", "Tombstoned".to_string())
+                            }
+                            NodeAuditEventKind::Restored => ("\u{267B}", "Restored".to_string()),
+                        };
+                        ("[A]", icon, desc)
+                    }
+                    HistoryEventKind::GraphStructure {
+                        node_id,
+                        is_addition,
+                    } => {
+                        let (badge, icon) = if *is_addition {
+                            ("[+]", "\u{2795}")
+                        } else {
+                            ("[-]", "\u{2796}")
+                        };
+                        let summary = node_id[..node_id.len().min(36)].to_string();
+                        (badge, icon, summary)
+                    }
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&time_label).weak().small());
+                    ui.label(egui::RichText::new(track_badge).small().monospace());
+                    ui.label(icon);
+                    ui.label(&summary);
+                });
+            }
+        });
 }
 
 #[cfg(test)]
@@ -1070,7 +1309,7 @@ fn render_history_manager_rows(
                     ui.label(egui::RichText::new(activity_chip).small().color(egui::Color32::from_rgb(90, 200, 120)));
                 }
                 let response = ui.selectable_label(false, format!("{} → {}", from_label, to_label));
-                if response.clicked() && let Some(key) = from_key {
+                if response.clicked() && let Some(key) = to_key.or(from_key) {
                     intents.push(GraphIntent::SelectNode {
                         key,
                         multi_select: false,
@@ -1350,17 +1589,17 @@ pub fn render_navigator_tool_pane_in_ui(
         ui.label("Containment source:");
         ui.selectable_value(
             &mut relation_source,
-            crate::app::FileTreeContainmentRelationSource::GraphContainment,
+            crate::app::NavigatorContainmentRelationSource::GraphContainment,
             "Graph",
         );
         ui.selectable_value(
             &mut relation_source,
-            crate::app::FileTreeContainmentRelationSource::SavedViewCollections,
+            crate::app::NavigatorContainmentRelationSource::SavedViewCollections,
             "Saved Views",
         );
         ui.selectable_value(
             &mut relation_source,
-            crate::app::FileTreeContainmentRelationSource::ContainmentRelations,
+            crate::app::NavigatorContainmentRelationSource::ContainmentRelations,
             "Containment",
         );
     });
@@ -1379,17 +1618,17 @@ pub fn render_navigator_tool_pane_in_ui(
         ui.label("Sort:");
         ui.selectable_value(
             &mut sort_mode,
-            crate::app::FileTreeSortMode::Manual,
+            crate::app::NavigatorSortMode::Manual,
             "Manual",
         );
         ui.selectable_value(
             &mut sort_mode,
-            crate::app::FileTreeSortMode::NameAscending,
+            crate::app::NavigatorSortMode::NameAscending,
             "Name ↑",
         );
         ui.selectable_value(
             &mut sort_mode,
-            crate::app::FileTreeSortMode::NameDescending,
+            crate::app::NavigatorSortMode::NameDescending,
             "Name ↓",
         );
     });

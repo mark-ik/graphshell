@@ -296,6 +296,7 @@ impl Gui {
         initial_url: Url,
         graph_data_dir: Option<PathBuf>,
         graph_snapshot_interval_secs: Option<u64>,
+        worker_idle_threshold_secs: Option<u64>,
     ) -> Self {
         rendering_context
             .make_current()
@@ -332,7 +333,7 @@ impl Gui {
         // Initialize ControlPanel and spawn workers inside runtime context
         let control_panel = {
             let _guard = tokio_runtime.enter();
-            let mut panel = ControlPanel::new();
+            let mut panel = ControlPanel::new(worker_idle_threshold_secs);
             panel.spawn_memory_monitor();
             panel.spawn_mod_loader();
             panel.spawn_prefetch_scheduler();

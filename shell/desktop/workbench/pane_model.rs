@@ -199,6 +199,12 @@ pub(crate) struct NodePaneState {
     /// Chrome/presentation mode for this pane.
     #[serde(default)]
     pub presentation_mode: PanePresentationMode,
+    /// Whether the node history panel is expanded in this pane.
+    #[serde(default)]
+    pub show_node_history: bool,
+    /// Whether the node audit panel is expanded in this pane.
+    #[serde(default)]
+    pub show_node_audit: bool,
 }
 
 impl NodePaneState {
@@ -209,6 +215,8 @@ impl NodePaneState {
             viewer_id_override: None,
             render_mode: TileRenderMode::Placeholder,
             presentation_mode: PanePresentationMode::Tiled,
+            show_node_history: false,
+            show_node_audit: false,
         }
     }
 
@@ -219,6 +227,8 @@ impl NodePaneState {
             viewer_id_override: Some(viewer_id),
             render_mode: TileRenderMode::Placeholder,
             presentation_mode: PanePresentationMode::Tiled,
+            show_node_history: false,
+            show_node_audit: false,
         }
     }
 }
@@ -258,6 +268,8 @@ impl From<NodePaneStateCompat> for NodePaneState {
                 viewer_id_override: None,
                 render_mode: TileRenderMode::Placeholder,
                 presentation_mode: PanePresentationMode::Tiled,
+                show_node_history: false,
+                show_node_audit: false,
             },
             NodePaneStateCompat::Current {
                 pane_id,
@@ -271,6 +283,8 @@ impl From<NodePaneStateCompat> for NodePaneState {
                 viewer_id_override,
                 render_mode,
                 presentation_mode,
+                show_node_history: false,
+                show_node_audit: false,
             },
         }
     }

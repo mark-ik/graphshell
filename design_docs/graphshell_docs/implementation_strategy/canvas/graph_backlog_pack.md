@@ -1,15 +1,41 @@
+---
+**Reconciliation status** (as of 2026-03-18):
+See status column at the end of each Wave 1 item.
+Codes: ✅ Closed | ⚠️ Partially met — needs explicit doc | 🔲 Open
+
+---
+
 Wave 1
 
 G01 Graph Core Boundary. Depends: none. Done gate: one canonical doc defines graph truth vs graph presentation vs workbench/session state.
+  **Status ⚠️ Effectively met, needs explicit doc.** `model/graph/mod.rs` carries a module-level docblock ("Graph data structures — boundary: direct mutation methods are `pub(crate)` and reserved for trusted writers only") plus "Trusted writers" enumeration. `TERMINOLOGY.md` and `PLANNING_REGISTER.md §1A` reinforce the boundary. No single doc names all three layers (graph truth / graph presentation / workbench-session state) in one place. *Action: add a short `design_docs/graphshell_docs/implementation_strategy/canvas/graph_truth_boundary_note.md` to close the done-gate formally.*
+
 G02 Mutation Entry Audit. Depends: G01. Done gate: every graph mutation callsite is inventoried and tagged reducer-owned, workbench-owned, or legacy violation.
+  **Status 🔲 Open.** The four-phase `apply_reducer_intent_internal` dispatcher (`app/intent_phases.rs`) is in place, tagging phases 1–4 in code comments. However no inventory *document* exists enumerating mutation callsites by tag. `add_node_and_sync` is public (`pub fn`) on `GraphBrowserApp`, bypassing the intent path directly. This is the canonical open item for this gate. *Action: write mutation callsite inventory; audit `pub fn` surface on `GraphBrowserApp` for non-intent mutation entry points.*
+
 G03 Graph Glossary Lock. Depends: G01. Done gate: Node, Edge, Relation, GraphView, Frame, Tile, and ArrangementObject each have one canonical definition.
+  **Status ✅ Closed.** `design_docs/TERMINOLOGY.md` defines all seven canonical terms. `GraphViewId`, `GraphViewState`, `EdgeType` with all five relation families, `NodeKey`, and `ArrangementRelation` sub-kinds are live in code and consistent with the glossary. No deprecated aliases detected in active code.
+
 G04 Graph Truth vs Presentation Contract. Depends: G01. Done gate: one doc lists which fields are durable graph truth and which are per-view/per-session projection only.
+  **Status ⚠️ Partially met.** The distinction is enforced in code structure (graph fields in `Node`/`EdgePayload` vs `GraphViewState`, `NavigatorProjectionState` as projection-only) but no single doc makes the field-level assignment explicit. *Action: one-page doc listing durable fields vs view/session projection fields, linked from G01 note.*
+
 G05 Durable Graph Identity Note. Depends: G01. Done gate: NodeKey today vs future durable NodeId semantics are documented with migration implications.
+  **Status 🔲 Open.** `NodeKey = NodeIndex` (petgraph stable index) exists in code. `Node.id: Uuid` exists as the durable identity carrier. The gap between `NodeKey` (session-stable handle) and `Node.id` (durable UUID) is not documented anywhere with migration implications. *Action: short doc or inline note in `model/graph/mod.rs` explaining NodeKey vs Node.id semantics and the expected migration path to a durable `NodeId` type.*
+
 G06 Intent Carrier Classification. Depends: G02. Done gate: every active GraphIntent variant is marked graph mutation, view action, runtime event, or workbench bridge.
+  **Status ⚠️ Partially met.** `app/intent_phases.rs` enumerates four phases in its module docblock; `app/intents.rs` has a supporting `GraphMutation` sub-enum, a `ViewAction` sub-enum, and a `RuntimeEvent` variant. The phase-4 handler (`handle_domain_graph_intent`) is the fallthrough for graph mutations. However no exhaustive per-variant classification table exists as a doc or as code attributes. *Action: add a classification table to the intent_phases module doc, or emit it as a doc note in the strategy docs.*
+
 G07 Legacy Mutation Diagnostics. Depends: G02, G06. Done gate: reducer/runtime emits explicit warnings when legacy non-reducer graph mutation paths are hit.
+  **Status 🔲 Open.** No evidence of `warn!` or diagnostic emissions at legacy bypass callsites. `add_node_and_sync` is called from multiple non-intent paths without a warning. *Action: instrument known non-intent mutation entry points with `Warn`-severity diagnostics or `tracing::warn!`.*
+
 G08 Reducer-Only Enforcement Plan. Depends: G02, G06. Done gate: one execution note names remaining direct mutations and the carrier each must migrate to.
+  **Status 🔲 Open.** Depends on G02 mutation inventory being completed first. No such execution note exists. *Action: write enforcement note after G02 inventory is complete, naming each remaining `pub fn` graph-mutating method and its target intent carrier.*
+
 G09 Graph Contract Test Harness Scaffold. Depends: G02. Done gate: there is a test seam for reducer-only graph mutation and impossible-state assertions.
+  **Status ✅ Closed.** `shell/desktop/tests/harness.rs` provides `TestRegistry` with `GraphBrowserApp::new_for_testing()`, `add_node()` (routes through `add_node_and_sync`), and a full scenario test suite (`undo_redo.rs`, `grouping.rs`, `navigation.rs`, `graph_parity.rs`). The seam exists. Impossible-state assertion coverage is thin but the scaffold is present and used.
+
 G10 Single-Write-Path Closure Slice. Depends: G07, G09. Done gate: at least one legacy graph mutation cluster is removed and proven to flow only through reducer carriers.
+  **Status 🔲 Open, blocked on G07/G08.** The harness (G09) is in place. G07 and G08 are the blockers — without the mutation inventory and diagnostic instrumentation, we cannot prove a cluster has been fully closed. *Action: unblock by completing G02 → G07/G08 → G10 in order.*
 Wave 2
 11. G11 Canonical Node Shape. Depends: G03, G05. Done gate: node payload contract covers identity, address, title, mime, provenance, and content references.
 12. G12 Canonical Edge Shape. Depends: G03. Done gate: edge payload contract covers endpoints, relation family, label, provenance, and visibility hooks.

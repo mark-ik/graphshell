@@ -43,6 +43,9 @@ impl PhysicsProfile {
             domain_clustering: self.domain_clustering,
             semantic_clustering: self.semantic_clustering,
             semantic_strength: self.semantic_strength,
+            // Frame-affinity force is gated by CanvasRegistry.zones_enabled (§4.3).
+            // Defaulting to false until the registry gate is wired in a follow-on slice.
+            frame_affinity: false,
         }
     }
 

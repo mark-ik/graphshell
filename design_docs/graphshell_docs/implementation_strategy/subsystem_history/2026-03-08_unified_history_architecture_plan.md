@@ -8,6 +8,7 @@
 - `edge_traversal_spec.md`
 - `node_audit_log_spec.md`
 - `../../technical_architecture/2026-02-18_universal_node_content_model.md`
+- `../../../archive_docs/checkpoint_2026-03-18/2026-03-18_event_log_fact_store_query_architecture.md` (archived: implemented 2026-03-18)
 - `../../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md`
 - `../2026-03-01_ux_migration_design_spec.md`
 - `../../../verse_docs/implementation_strategy/lineage_dag_spec.md`
@@ -208,6 +209,27 @@ not flattened into one universal node shared across subsystems.
 This is the missing cross-system boundary event that the future
 `NodeAuditHistory` spec needs to define.
 
+### 3.3 History as a query consumer, not a standalone read architecture
+
+The history subsystem owns history-track semantics, filter contracts, and
+surface behavior. It does **not** need to become Graphshell's only general
+read architecture.
+
+Per `../../../archive_docs/checkpoint_2026-03-18/2026-03-18_event_log_fact_store_query_architecture.md` (archived: implemented 2026-03-18),
+history should be treated as an early high-value consumer of the broader split:
+
+- `event_log` owns durable append-only mutation truth
+- `fact_store` owns normalized projected read facts
+- `query` owns reusable question-answering APIs
+
+This means history-specific helpers may remain during migration, but the target
+state is:
+
+- mixed timelines are answered through query APIs over projected facts
+- node navigation and audit panels are query consumers
+- future provenance / Verse / agent queries compose with history rather than
+  introducing parallel read architectures
+
 ---
 
 ## 4. Current Implementation Map
@@ -229,12 +251,14 @@ This is the missing cross-system boundary event that the future
 
 ### 4.2 Missing
 
-- canonical node navigation history model (`NavigateNode`, per-node address
-  history entries)
-- node audit log model and storage
-- mixed-history query contract
-- canonical temporal-navigation interaction spec
-- timeline scrubber / enter-preview / exit-preview user-facing controls
+- ~~canonical node navigation history model (`NavigateNode`, per-node address
+   history entries)~~ → specified and implemented (archived: `archive_docs/checkpoint_2026-03-18/node_navigation_history_spec.md`)
+- ~~node audit log model and storage~~ → specified and implemented (`node_audit_log_spec.md`)
+- ~~mixed-history query contract~~ → specified in `2026-03-18_mixed_timeline_contract.md`
+- ~~canonical temporal-navigation interaction spec~~ → specified in
+   `history_timeline_and_temporal_navigation_spec.md` (revised 2026-03-18)
+- ~~timeline scrubber / enter-preview / exit-preview user-facing controls~~
+   → landed in History Manager surface
 - preview ghost rendering / explicit preview affordances
 - History Manager filtering/search contract implementation
 
@@ -331,6 +355,20 @@ When a mixed history timeline is eventually introduced, it must:
 - preserve provenance of event kind
 - support filtering by event class
 - avoid degrading traversal queries into generic "everything happened" noise
+
+**Status update (2026-03-18):** These rules are now specified as a concrete
+contract in `2026-03-18_mixed_timeline_contract.md` — typed union
+(`HistoryEventKind`), filter API (`HistoryTimelineFilter`), query shape
+(`mixed_timeline_entries`), and surface behavior (History Manager "All" tab).
+
+**Implementation update (2026-03-18):** Stage M1-M4 are now landed in code:
+- M1 types/projection/query (`HistoryTimelineEvent`, `HistoryTimelineFilter`,
+  `mixed_timeline_entries`)
+- M2 tab and unfiltered rendering (`HistoryManagerTab::All`)
+- M3 filter UI (track chips, text search, node-scoped filter)
+- M4 preview integration (preview banner + `before_ms` bounded query behavior)
+
+M5 (promote `All` as default history tab) remains optional follow-on.
 
 ---
 

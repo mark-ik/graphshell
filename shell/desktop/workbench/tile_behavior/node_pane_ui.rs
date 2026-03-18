@@ -376,6 +376,9 @@ fn render_node_pane_impl(
                 ));
             }
         });
+        ui.add_space(8.0);
+        render_node_history_panel(behavior, ui, state, node_key);
+        render_node_audit_panel(behavior, ui, state, node_key);
     } else {
         let (rect, _response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
         log::debug!(
@@ -383,6 +386,209 @@ fn render_node_pane_impl(
             node_key,
             rect
         );
+    }
+}
+
+fn render_node_history_panel(
+    behavior: &mut GraphshellTileBehavior<'_>,
+    ui: &mut egui::Ui,
+    state: &mut NodePaneState,
+    node_key: NodeKey,
+) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use crate::services::persistence::types::{LogEntry, PersistedNavigationTrigger};
+
+    let node_id = match behavior.graph_app.domain_graph().get_node(node_key) {
+        Some(node) => node.id,
+        None => return,
+    };
+
+    let header_label = if state.show_node_history {
+        "▼ Node History"
+    } else {
+        "▶ Node History"
+    };
+    if ui.small_button(header_label).clicked() {
+        state.show_node_history = !state.show_node_history;
+    }
+
+    if !state.show_node_history {
+        return;
+    }
+
+    const LIMIT: usize = 50;
+    let entries = behavior.graph_app.node_navigation_history_entries(node_id, LIMIT);
+
+    if entries.is_empty() {
+        ui.small("No navigation history for this node.");
+        return;
+    }
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    egui::ScrollArea::vertical()
+        .max_height(200.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            for entry in &entries {
+                let LogEntry::NavigateNode {
+                    to_url,
+                    from_url,
+                    trigger,
+                    timestamp_ms,
+                    ..
+                } = entry
+                else {
+                    continue;
+                };
+
+                let elapsed_ms = now_ms.saturating_sub(*timestamp_ms);
+                let time_label = if elapsed_ms < 1_000 {
+                    "just now".to_string()
+                } else if elapsed_ms < 60_000 {
+                    format!("{}s ago", elapsed_ms / 1_000)
+                } else if elapsed_ms < 3_600_000 {
+                    format!("{}m ago", elapsed_ms / 60_000)
+                } else if elapsed_ms < 86_400_000 {
+                    format!("{}h ago", elapsed_ms / 3_600_000)
+                } else {
+                    format!("{}d ago", elapsed_ms / 86_400_000)
+                };
+
+                let trigger_icon = match trigger {
+                    PersistedNavigationTrigger::LinkClick => "🔗",
+                    PersistedNavigationTrigger::Back => "⬅",
+                    PersistedNavigationTrigger::Forward => "➡",
+                    PersistedNavigationTrigger::AddressBarEntry => "⌨",
+                    PersistedNavigationTrigger::PanePromotion => "⬆",
+                    PersistedNavigationTrigger::Programmatic => "⚙",
+                    PersistedNavigationTrigger::Unknown => "↔",
+                };
+
+                let from_short = truncate_host_or_path(from_url, 28);
+                let to_short = truncate_host_or_path(to_url, 28);
+
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&time_label).weak().small());
+                    ui.label(trigger_icon);
+                    let response = ui.selectable_label(
+                        false,
+                        format!("{} → {}", from_short, to_short),
+                    );
+                    if response.clicked() {
+                        behavior.queue_post_render_intent(GraphIntent::SetNodeUrl {
+                            key: node_key,
+                            new_url: to_url.clone(),
+                        });
+                    }
+                });
+            }
+        });
+}
+
+fn render_node_audit_panel(
+    behavior: &mut GraphshellTileBehavior<'_>,
+    ui: &mut egui::Ui,
+    state: &mut NodePaneState,
+    node_key: NodeKey,
+) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use crate::services::persistence::types::{LogEntry, NodeAuditEventKind};
+
+    let node_id = match behavior.graph_app.domain_graph().get_node(node_key) {
+        Some(node) => node.id,
+        None => return,
+    };
+
+    let header_label = if state.show_node_audit {
+        "▼ Node Audit"
+    } else {
+        "▶ Node Audit"
+    };
+    if ui.small_button(header_label).clicked() {
+        state.show_node_audit = !state.show_node_audit;
+    }
+
+    if !state.show_node_audit {
+        return;
+    }
+
+    const LIMIT: usize = 50;
+    let entries = behavior.graph_app.node_audit_history_entries(node_id, LIMIT);
+
+    if entries.is_empty() {
+        ui.small("No audit events for this node.");
+        return;
+    }
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    egui::ScrollArea::vertical()
+        .max_height(200.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            for entry in &entries {
+                let LogEntry::AppendNodeAuditEvent {
+                    event,
+                    timestamp_ms,
+                    ..
+                } = entry
+                else {
+                    continue;
+                };
+
+                let elapsed_ms = now_ms.saturating_sub(*timestamp_ms);
+                let time_label = if elapsed_ms < 1_000 {
+                    "just now".to_string()
+                } else if elapsed_ms < 60_000 {
+                    format!("{}s ago", elapsed_ms / 1_000)
+                } else if elapsed_ms < 3_600_000 {
+                    format!("{}m ago", elapsed_ms / 60_000)
+                } else if elapsed_ms < 86_400_000 {
+                    format!("{}h ago", elapsed_ms / 3_600_000)
+                } else {
+                    format!("{}d ago", elapsed_ms / 86_400_000)
+                };
+
+                let (icon, description) = match event {
+                    NodeAuditEventKind::TitleChanged { new_title } => {
+                        ("✏", format!("Renamed to \"{}\"", truncate_host_or_path(new_title, 32)))
+                    }
+                    NodeAuditEventKind::Tagged { tag } => ("🏷", format!("Tagged: {}", tag)),
+                    NodeAuditEventKind::Untagged { tag } => ("🏷", format!("Untagged: {}", tag)),
+                    NodeAuditEventKind::Pinned => ("📌", "Pinned".to_string()),
+                    NodeAuditEventKind::Unpinned => ("📌", "Unpinned".to_string()),
+                    NodeAuditEventKind::UrlChanged { new_url } => {
+                        ("🔗", format!("URL → {}", truncate_host_or_path(new_url, 32)))
+                    }
+                    NodeAuditEventKind::Tombstoned => ("🪦", "Tombstoned".to_string()),
+                    NodeAuditEventKind::Restored => ("♻", "Restored".to_string()),
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&time_label).weak().small());
+                    ui.label(icon);
+                    ui.label(egui::RichText::new(&description).small());
+                });
+            }
+        });
+}
+
+/// Shorten a URL to hostname + truncated path for display.
+fn truncate_host_or_path(url: &str, max_len: usize) -> String {
+    let display = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    if display.len() <= max_len {
+        display.to_string()
+    } else {
+        format!("{}…", &display[..max_len.saturating_sub(1)])
     }
 }
 

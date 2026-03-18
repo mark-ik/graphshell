@@ -13,6 +13,9 @@ pub mod types;
 
 use crate::graph::Graph;
 use crate::graph::apply::{GraphDelta, apply_graph_delta};
+use crate::services::facts::FactStore;
+use crate::services::facts::projector::HistoryFactProjector;
+use crate::services::query::GraphQueryEngine;
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use log::warn;
@@ -110,6 +113,15 @@ pub struct GraphStore {
     last_snapshot: Instant,
     snapshot_interval: Duration,
     persistence_key: PersistenceKey,
+    /// Query engine backed by the in-memory fact store.
+    ///
+    /// Rebuilt from the WAL on [`open`] and updated incrementally by
+    /// [`log_mutation`].  Consumers call [`query_engine`] to read history data.
+    ///
+    /// [`open`]: Self::open
+    /// [`log_mutation`]: Self::log_mutation
+    /// [`query_engine`]: Self::query_engine
+    query_engine: GraphQueryEngine,
     #[cfg(test)]
     fail_next_dissolved_archive_write: bool,
 }
@@ -193,6 +205,7 @@ impl GraphStore {
             last_snapshot: Instant::now(),
             snapshot_interval: Duration::from_secs(DEFAULT_SNAPSHOT_INTERVAL_SECS),
             persistence_key,
+            query_engine: GraphQueryEngine::new(FactStore::empty()),
             #[cfg(test)]
             fail_next_dissolved_archive_write: false,
         };
@@ -202,7 +215,52 @@ impl GraphStore {
             store.migrate_legacy_plaintext_data()?;
         }
 
+        // Rebuild the in-memory fact store from WAL entries.
+        store.rebuild_fact_store();
+
         Ok(store)
+    }
+
+    /// Rebuild the in-memory [`FactStore`] by scanning the full WAL.
+    ///
+    /// Called once at startup after `open()`.  Safe to call again to fully
+    /// reset the store (e.g. after a compaction or test reset).
+    fn rebuild_fact_store(&mut self) {
+        use types::ArchivedLogEntry;
+
+        let projector = HistoryFactProjector;
+        let mut store = FactStore::empty();
+
+        for guard in self.log_keyspace.iter() {
+            let (key, value) = match guard.into_inner() {
+                Ok(kv) => kv,
+                Err(_) => continue,
+            };
+            let decoded = match self.decode_persisted_bytes(value.as_ref()) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let archived = match rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&decoded) {
+                Ok(a) => a,
+                Err(_) => continue,
+            };
+            let entry: LogEntry = match rkyv::deserialize::<LogEntry, rkyv::rancor::Error>(archived)
+            {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let log_position = Self::key_to_sequence(key.as_ref()).unwrap_or(0);
+            store.append_projected(&projector, log_position, &entry);
+        }
+
+        self.query_engine = GraphQueryEngine::new(store);
+    }
+
+    /// Read-only access to the [`GraphQueryEngine`].
+    ///
+    /// Use this to execute structured history queries.
+    pub fn query_engine(&self) -> &GraphQueryEngine {
+        &self.query_engine
     }
 
     fn encode_persisted_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, GraphStoreError> {
@@ -372,11 +430,17 @@ impl GraphStore {
             }
         };
 
-        let key = self.log_sequence.to_be_bytes();
+        let current_sequence = self.log_sequence;
+        let key = current_sequence.to_be_bytes();
         if let Err(e) = self.log_keyspace.insert(key, bytes.as_slice()) {
             warn!("Failed to write log entry: {e}");
         }
         self.log_sequence += 1;
+
+        // Incrementally project the entry into the in-memory fact store.
+        self.query_engine
+            .fact_store_mut()
+            .append_projected(&HistoryFactProjector, current_sequence, entry);
     }
 
     /// Stage E kickoff: append traversal history into long-term archive keyspace.
@@ -532,6 +596,71 @@ impl GraphStore {
         self.recent_append_traversal_entries(&self.dissolved_archive_keyspace, limit)
     }
 
+    /// Per-node address navigation history entries, newest-first.
+    /// Returns up to `limit` `LogEntry::NavigateNode` entries for `node_id`.
+    pub fn node_navigation_history(&self, node_id: &str, limit: usize) -> Vec<LogEntry> {
+        use crate::services::query::types::GraphQuery;
+
+        self.query_engine
+            .execute(GraphQuery::NodeNavigationHistory {
+                node_id: node_id.to_string(),
+                limit,
+            })
+            .into_node_navigation_entries()
+    }
+
+    /// Append a timestamped audit event for a node.
+    /// Call this alongside the existing snapshot `log_mutation` calls — not
+    /// instead of them. The snapshot entries remain for WAL replay; this entry
+    /// provides the timestamped audit trail.
+    pub fn log_audit_event(
+        &mut self,
+        node_id: &str,
+        event: types::NodeAuditEventKind,
+        timestamp_ms: u64,
+    ) {
+        self.log_mutation(&LogEntry::AppendNodeAuditEvent {
+            node_id: node_id.to_string(),
+            event,
+            timestamp_ms,
+        });
+    }
+
+    /// Per-node audit history entries, newest-first.
+    /// Returns up to `limit` `LogEntry::AppendNodeAuditEvent` entries for `node_id`.
+    pub fn node_audit_history(&self, node_id: &str, limit: usize) -> Vec<LogEntry> {
+        use crate::services::query::types::GraphQuery;
+
+        self.query_engine
+            .execute(GraphQuery::NodeAuditHistory {
+                node_id: node_id.to_string(),
+                limit,
+            })
+            .into_node_audit_entries()
+    }
+
+    /// Mixed-timeline query: returns all timestamped WAL events across all history tracks,
+    /// filtered and sorted newest-first. `limit` caps the result count after filtering.
+    ///
+    /// **Implementation**: delegates to [`GraphQueryEngine`] over the in-memory
+    /// [`FactStore`].  The WAL scan that previously lived here has been removed;
+    /// `query_engine` is the semantic source of truth for all history reads.
+    pub fn mixed_timeline_entries(
+        &self,
+        filter: &types::HistoryTimelineFilter,
+        limit: usize,
+    ) -> Vec<types::HistoryTimelineEvent> {
+        use crate::services::query::adapters::fact_filter_from_history_filter;
+        use crate::services::query::types::GraphQuery;
+
+        self.query_engine
+            .execute(GraphQuery::MixedTimeline {
+                filter: fact_filter_from_history_filter(filter),
+                limit,
+            })
+            .into_timeline_events()
+    }
+
     /// Stage F groundwork: timeline index entries derived from append-traversal log records.
     /// Returns newest-first `(timestamp_ms -> log_position)` pairs.
     pub fn timeline_index_entries(&self, limit: usize) -> Vec<TimelineIndexEntry> {
@@ -558,8 +687,15 @@ impl GraphStore {
                 Err(_) => continue,
             };
 
-            let ArchivedLogEntry::AppendTraversal { timestamp_ms, .. } = archived else {
-                continue;
+            let timestamp_ms: u64 = match archived {
+                ArchivedLogEntry::AppendTraversal { timestamp_ms, .. } => (*timestamp_ms).into(),
+                ArchivedLogEntry::AddNode { timestamp_ms, .. } => (*timestamp_ms).into(),
+                ArchivedLogEntry::RemoveNode { timestamp_ms, .. } => (*timestamp_ms).into(),
+                ArchivedLogEntry::NavigateNode { timestamp_ms, .. } => (*timestamp_ms).into(),
+                ArchivedLogEntry::AppendNodeAuditEvent { timestamp_ms, .. } => {
+                    (*timestamp_ms).into()
+                }
+                _ => continue,
             };
 
             let mut seq_bytes = [0u8; 8];
@@ -571,7 +707,7 @@ impl GraphStore {
             };
 
             rows.push(TimelineIndexEntry {
-                timestamp_ms: (*timestamp_ms).into(),
+                timestamp_ms,
                 log_position,
             });
         }
@@ -1322,6 +1458,7 @@ impl GraphStore {
                     url,
                     position_x,
                     position_y,
+                    ..
                 } => {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
@@ -1505,7 +1642,7 @@ impl GraphStore {
                         );
                     }
                 }
-                ArchivedLogEntry::RemoveNode { node_id } => {
+                ArchivedLogEntry::RemoveNode { node_id, .. } => {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
                     };
@@ -1568,6 +1705,11 @@ impl GraphStore {
                         );
                     }
                 }
+                // NavigateNode is navigation history metadata; canonical URL state is
+                // derived from UpdateNodeUrl entries — no graph delta needed here.
+                ArchivedLogEntry::NavigateNode { .. } => {}
+                // AppendNodeAuditEvent is audit metadata only; no graph state change.
+                ArchivedLogEntry::AppendNodeAuditEvent { .. } => {}
             }
         }
     }
@@ -1667,12 +1809,14 @@ mod tests {
                 url: "https://a.com".to_string(),
                 position_x: 10.0,
                 position_y: 20.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddNode {
                 node_id: id_b.to_string(),
                 url: "https://b.com".to_string(),
                 position_x: 30.0,
                 position_y: 40.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
@@ -1708,12 +1852,14 @@ mod tests {
                 url: "https://a.com".to_string(),
                 position_x: 10.0,
                 position_y: 20.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddNode {
                 node_id: id_b.to_string(),
                 url: "https://b.com".to_string(),
                 position_x: 30.0,
                 position_y: 40.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
@@ -1745,12 +1891,14 @@ mod tests {
                 url: "https://a.com".to_string(),
                 position_x: 10.0,
                 position_y: 20.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddNode {
                 node_id: id_b.to_string(),
                 url: "https://b.com".to_string(),
                 position_x: 30.0,
                 position_y: 40.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
@@ -1866,12 +2014,14 @@ mod tests {
                 url: "https://a.com".to_string(),
                 position_x: 10.0,
                 position_y: 20.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddNode {
                 node_id: id_b.to_string(),
                 url: "https://b.com".to_string(),
                 position_x: 30.0,
                 position_y: 40.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
@@ -1908,12 +2058,14 @@ mod tests {
                 url: "https://a.com".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddNode {
                 node_id: id_b.to_string(),
                 url: "https://b.com".to_string(),
                 position_x: 1.0,
                 position_y: 1.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
@@ -1990,6 +2142,7 @@ mod tests {
                 url: "https://b.com".to_string(),
                 position_x: 50.0,
                 position_y: 50.0,
+                timestamp_ms: 0,
             });
         }
 
@@ -2013,12 +2166,14 @@ mod tests {
             url: "https://a.com".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::AddNode {
             node_id: id_b.to_string(),
             url: "https://a.com".to_string(),
             position_x: 100.0,
             position_y: 100.0,
+            timestamp_ms: 0,
         });
 
         let graph = store.recover().unwrap();
@@ -2035,6 +2190,7 @@ mod tests {
             url: "https://a.com".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::UpdateNodeTitle {
             node_id: id.to_string(),
@@ -2057,15 +2213,18 @@ mod tests {
             url: "https://a.com".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::AddNode {
             node_id: id_b.to_string(),
             url: "https://b.com".to_string(),
             position_x: 100.0,
             position_y: 100.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::RemoveNode {
             node_id: id_a.to_string(),
+            timestamp_ms: 0,
         });
 
         let graph = store.recover().unwrap();
@@ -2083,12 +2242,14 @@ mod tests {
             url: "https://a.com".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::AddNode {
             node_id: Uuid::new_v4().to_string(),
             url: "https://b.com".to_string(),
             position_x: 100.0,
             position_y: 100.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::ClearGraph);
 
@@ -2105,6 +2266,7 @@ mod tests {
             url: "https://old.com".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::ClearGraph);
         store.log_mutation(&LogEntry::AddNode {
@@ -2112,6 +2274,7 @@ mod tests {
             url: "https://new.com".to_string(),
             position_x: 50.0,
             position_y: 50.0,
+            timestamp_ms: 0,
         });
 
         let graph = store.recover().unwrap();
@@ -2130,6 +2293,7 @@ mod tests {
             url: "https://old.com".to_string(),
             position_x: 10.0,
             position_y: 20.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::UpdateNodeUrl {
             node_id: id.to_string(),
@@ -2155,12 +2319,14 @@ mod tests {
             url: "https://same.com".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::AddNode {
             node_id: id_b.to_string(),
             url: "https://same.com".to_string(),
             position_x: 100.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::UpdateNodeUrl {
             node_id: id_a.to_string(),
@@ -2184,9 +2350,11 @@ mod tests {
             url: "https://a.com".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::RemoveNode {
             node_id: Uuid::new_v4().to_string(),
+            timestamp_ms: 0,
         });
 
         let graph = store.recover().unwrap();
@@ -2208,6 +2376,7 @@ mod tests {
                 url: "https://b.com".to_string(),
                 position_x: 10.0,
                 position_y: 20.0,
+                timestamp_ms: 0,
             });
             store.clear_all().unwrap();
         }
@@ -2390,6 +2559,7 @@ mod tests {
             url: "https://plaintext-check.example".to_string(),
             position_x: 1.0,
             position_y: 2.0,
+            timestamp_ms: 0,
         };
         let plaintext = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
         store.log_mutation(&entry);
@@ -2413,6 +2583,7 @@ mod tests {
             url: "https://valid.com".to_string(),
             position_x: 1.0,
             position_y: 2.0,
+            timestamp_ms: 0,
         });
         // Append an invalid rkyv payload directly to the log.
         let corrupt_key = 99u64.to_be_bytes();
@@ -2431,12 +2602,14 @@ mod tests {
             url: "https://bad.com".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::AddNode {
             node_id: Uuid::new_v4().to_string(),
             url: "https://good.com".to_string(),
             position_x: 3.0,
             position_y: 4.0,
+            timestamp_ms: 0,
         });
 
         let graph = store.recover().unwrap();
@@ -2463,6 +2636,7 @@ mod tests {
             url: "https://from-log.com".to_string(),
             position_x: 9.0,
             position_y: 9.0,
+            timestamp_ms: 0,
         });
 
         let graph = store.recover().unwrap();
@@ -2522,12 +2696,14 @@ mod tests {
                 url: "https://start.com".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddNode {
                 node_id: id_b.to_string(),
                 url: "https://dest.com".to_string(),
                 position_x: 100.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
@@ -2810,12 +2986,14 @@ mod tests {
             url: "https://from.example".to_string(),
             position_x: 0.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::AddNode {
             node_id: to.to_string(),
             url: "https://to.example".to_string(),
             position_x: 32.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
         store.log_mutation(&LogEntry::AppendTraversal {
             from_node_id: from.to_string(),
@@ -2828,6 +3006,7 @@ mod tests {
             url: "https://later.example".to_string(),
             position_x: 64.0,
             position_y: 0.0,
+            timestamp_ms: 0,
         });
 
         let full = store.recover().expect("full recovery");

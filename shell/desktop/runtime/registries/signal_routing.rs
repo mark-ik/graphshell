@@ -75,6 +75,14 @@ pub(crate) enum LifecycleSignal {
         available_mib: u64,
         total_mib: u64,
     },
+    /// Emitted when no user gesture has been produced for longer than the
+    /// configured idle threshold. Tier 1 workers enter low-frequency mode.
+    UserIdle {
+        /// Milliseconds since UNIX epoch of the last observed user gesture.
+        since_ms: u64,
+    },
+    /// Emitted when a user gesture is observed after a `UserIdle` period.
+    UserResumed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -36,6 +36,12 @@ pub(crate) struct GraphPhysicsExtensionConfig {
     pub(crate) domain_clustering: bool,
     pub(crate) semantic_clustering: bool,
     pub(crate) semantic_strength: f32,
+    /// Enable frame-affinity soft-attraction post-physics force.
+    ///
+    /// Derived from `CanvasRegistry.zones_enabled` at call site.  Defaults
+    /// `false`; wired to the registry gate once `lane:layout-semantics` is
+    /// fully executed.
+    pub(crate) frame_affinity: bool,
 }
 
 impl GraphPhysicsExtensionConfig {
@@ -44,7 +50,10 @@ impl GraphPhysicsExtensionConfig {
     }
 
     pub(crate) fn any_enabled(self) -> bool {
-        self.degree_repulsion || self.domain_clustering || self.semantic_clustering
+        self.degree_repulsion
+            || self.domain_clustering
+            || self.semantic_clustering
+            || self.frame_affinity
     }
 }
 
@@ -90,6 +99,13 @@ pub(crate) fn apply_graph_physics_extensions(
     }
 
     apply_semantic_clustering_forces(app, extensions.semantic_clustering_args());
+
+    if extensions.frame_affinity {
+        let regions = crate::graph::frame_affinity::derive_frame_affinity_regions(
+            app.domain_graph(),
+        );
+        crate::graph::frame_affinity::apply_frame_affinity_forces(app, &regions, None);
+    }
 }
 
 pub(crate) fn apply_semantic_clustering_forces(
@@ -201,6 +217,111 @@ fn semantic_pair_similarity(a: &SemanticClassVector, b: &SemanticClassVector) ->
     best
 }
 
+/// Headless physics scenario helpers used by both unit tests and the scenario suite.
+///
+/// These helpers compute computable properties from an [`EguiGraph`] position
+/// snapshot without rendering. They correspond to the properties defined in
+/// `design_docs/graphshell_docs/implementation_strategy/canvas/2026-03-14_canvas_behavior_contract.md §2`.
+#[cfg(test)]
+pub(crate) mod scenario_helpers {
+    use crate::model::graph::egui_adapter::EguiGraph;
+    use egui::Vec2;
+
+    /// Default canvas rect used by headless scenario tests.
+    pub(crate) fn test_canvas() -> egui::Rect {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 600.0))
+    }
+
+    /// Average displacement proxy for kinetic energy.
+    ///
+    /// Maps to `last_avg_displacement` from [`FrBaseState`]. Returns `None`
+    /// when no steps have been taken yet.
+    pub(crate) fn last_avg_displacement(layout_state: &super::GraphPhysicsState) -> Option<f32> {
+        layout_state.base.last_avg_displacement
+    }
+
+    /// Returns true when `last_avg_displacement < threshold` for the given state.
+    ///
+    /// Used as the convergence check per spec §2.1 (KE < convergence_threshold).
+    pub(crate) fn is_converged(layout_state: &super::GraphPhysicsState, threshold: f32) -> bool {
+        layout_state
+            .base
+            .last_avg_displacement
+            .is_some_and(|avg| avg < threshold)
+    }
+
+    /// Count node pairs whose bounding circles overlap (spec §2.2).
+    ///
+    /// `node_radius` is the node display radius; `overlap_margin` is the extra
+    /// clearance (spec default 4.0 px).
+    pub(crate) fn overlap_count(g: &EguiGraph, node_radius: f32, overlap_margin: f32) -> usize {
+        let positions: Vec<_> = g
+            .g()
+            .node_indices()
+            .filter_map(|idx| g.g().node_weight(idx).map(|n| n.location()))
+            .collect();
+        let min_dist = 2.0 * (node_radius + overlap_margin);
+        let mut count = 0;
+        for i in 0..positions.len() {
+            for j in (i + 1)..positions.len() {
+                if (positions[i] - positions[j]).length() < min_dist {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    /// Mean edge length across all edges in the graph (spec §2.4).
+    pub(crate) fn mean_edge_length(g: &EguiGraph) -> f32 {
+        let mut total = 0.0_f32;
+        let mut count = 0_usize;
+        for edge in g.g().edge_indices() {
+            let Some((a, b)) = g.g().edge_endpoints(edge) else {
+                continue;
+            };
+            let pos_a = g.g().node_weight(a).map(|n| n.location());
+            let pos_b = g.g().node_weight(b).map(|n| n.location());
+            if let (Some(pa), Some(pb)) = (pos_a, pos_b) {
+                total += (pa - pb).length();
+                count += 1;
+            }
+        }
+        if count == 0 { 0.0 } else { total / count as f32 }
+    }
+
+    /// Edge length coefficient of variation (spec §2.4).
+    pub(crate) fn edge_len_cv(g: &EguiGraph) -> f32 {
+        let lengths: Vec<f32> = g
+            .g()
+            .edge_indices()
+            .filter_map(|e| {
+                let (a, b) = g.g().edge_endpoints(e)?;
+                let pa = g.g().node_weight(a)?.location();
+                let pb = g.g().node_weight(b)?.location();
+                Some((pa - pb).length())
+            })
+            .collect();
+        if lengths.len() < 2 {
+            return 0.0;
+        }
+        let mean = lengths.iter().sum::<f32>() / lengths.len() as f32;
+        if mean < f32::EPSILON {
+            return 0.0;
+        }
+        let variance = lengths.iter().map(|l| (l - mean).powi(2)).sum::<f32>() / lengths.len() as f32;
+        variance.sqrt() / mean
+    }
+
+    /// Node positions as a flat Vec for post-convergence measurements.
+    pub(crate) fn node_positions(g: &EguiGraph) -> Vec<egui::Pos2> {
+        g.g()
+            .node_indices()
+            .filter_map(|idx| g.g().node_weight(idx).map(|n| n.location()))
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +351,7 @@ mod tests {
             domain_clustering: false,
             semantic_clustering: true,
             semantic_strength: 0.17,
+            frame_affinity: false,
         };
 
         assert_eq!(config.semantic_clustering_args(), Some((true, 0.17)));
@@ -242,12 +364,14 @@ mod tests {
             domain_clustering: false,
             semantic_clustering: false,
             semantic_strength: 0.17,
+            frame_affinity: false,
         };
         let enabled = GraphPhysicsExtensionConfig {
             degree_repulsion: false,
             domain_clustering: true,
             semantic_clustering: false,
             semantic_strength: 0.17,
+            frame_affinity: false,
         };
 
         assert!(!disabled.any_enabled());

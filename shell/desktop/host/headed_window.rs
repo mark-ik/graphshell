@@ -209,6 +209,7 @@ impl HeadedWindow {
             initial_url,
             app_preferences.graph_data_dir.clone(),
             app_preferences.graph_snapshot_interval_secs,
+            app_preferences.worker_idle_threshold_secs,
         ));
 
         debug!("Created window {:?}", winit_window.id());

@@ -1,0 +1,256 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+//! PMEST facet projection — computes a queryable facet map from a node + graph context.
+//!
+//! Spec: `faceted_filter_surface_spec.md §3`
+//!
+//! The projection is **pure** (no mutations). It derives canonical facet values
+//! from durable node data plus graph-structural context (edge degrees, etc.).
+//!
+//! Several facet keys are intentionally derived projections rather than stored
+//! node fields: `domain`, `edge_kinds`, `in_degree`, `out_degree`,
+//! `frame_memberships`, `udc_classes`.
+
+use std::collections::HashSet;
+
+use petgraph::Direction;
+use petgraph::visit::EdgeRef;
+
+use super::filter::{FacetScalar, FacetValue, FacetProjection, facet_keys};
+use super::{ArrangementSubKind, EdgeKind, Graph, NodeKey};
+
+/// Compute the PMEST facet projection for a single node.
+///
+/// Returns a [`FacetProjection`] (`HashMap<String, FacetValue>`) ready for
+/// evaluation by [`FacetExpr::evaluate`].
+///
+/// Graph-structural facets (degrees, edge kinds, frame memberships) are derived
+/// from `graph` at call time. The projection reflects the current graph state
+/// and must be recomputed when graph structure changes.
+pub fn facet_projection_for_node(graph: &Graph, key: NodeKey) -> Option<FacetProjection> {
+    let node = graph.get_node(key)?;
+    let mut proj: FacetProjection = std::collections::HashMap::new();
+
+    // --- Personality ---
+
+    proj.insert(
+        facet_keys::ADDRESS_KIND.to_string(),
+        FacetValue::Scalar(FacetScalar::Text(format!("{:?}", node.address_kind))),
+    );
+
+    if let Ok(url) = url::Url::parse(&node.url) {
+        if let Some(host) = url.host_str() {
+            proj.insert(
+                facet_keys::DOMAIN.to_string(),
+                FacetValue::Scalar(FacetScalar::Text(host.to_string())),
+            );
+        }
+    }
+
+    proj.insert(
+        facet_keys::TITLE.to_string(),
+        FacetValue::Scalar(FacetScalar::Text(node.title.clone())),
+    );
+
+    proj.insert(
+        facet_keys::ADDRESS.to_string(),
+        FacetValue::Scalar(FacetScalar::Text(node.url.clone())),
+    );
+
+    // --- Matter ---
+
+    if let Some(mime) = &node.mime_hint {
+        proj.insert(
+            facet_keys::MIME_HINT.to_string(),
+            FacetValue::Scalar(FacetScalar::Text(mime.clone())),
+        );
+    }
+
+    // --- Energy (edge-derived) ---
+
+    let out_edges: Vec<_> = graph.inner.edges(key).collect();
+    let in_edges: Vec<_> = graph.inner.edges_directed(key, Direction::Incoming).collect();
+
+    let out_degree = out_edges.len();
+    let in_degree = in_edges.len();
+
+    let mut edge_kind_labels: HashSet<&'static str> = HashSet::new();
+    for e in out_edges.iter().chain(in_edges.iter()) {
+        for kind in &e.weight().kinds {
+            edge_kind_labels.insert(edge_kind_label(kind));
+        }
+    }
+
+    proj.insert(
+        facet_keys::IN_DEGREE.to_string(),
+        FacetValue::Scalar(FacetScalar::Number(in_degree as f64)),
+    );
+    proj.insert(
+        facet_keys::OUT_DEGREE.to_string(),
+        FacetValue::Scalar(FacetScalar::Number(out_degree as f64)),
+    );
+
+    if !edge_kind_labels.is_empty() {
+        proj.insert(
+            facet_keys::EDGE_KINDS.to_string(),
+            FacetValue::Collection(
+                edge_kind_labels
+                    .into_iter()
+                    .map(|s| FacetScalar::Text(s.to_string()))
+                    .collect(),
+            ),
+        );
+    }
+
+    // Traversal count from outgoing TraversalDerived edges
+    let traversal_count: usize = graph
+        .inner
+        .edges(key)
+        .filter_map(|e| e.weight().traversal.as_ref())
+        .map(|t| t.metrics.total_navigations as usize)
+        .sum();
+    proj.insert(
+        facet_keys::TRAVERSAL_COUNT.to_string(),
+        FacetValue::Scalar(FacetScalar::Number(traversal_count as f64)),
+    );
+
+    // --- Space ---
+
+    // Frame memberships: nodes that are target of an ArrangementRelation(FrameMember) edge
+    // directed TO this node (i.e., this node is a frame member).
+    // Represented as the source node keys (frame anchors).
+    let frame_memberships: Vec<FacetScalar> = graph
+        .inner
+        .edges_directed(key, Direction::Incoming)
+        .filter(|e| {
+            e.weight()
+                .arrangement
+                .as_ref()
+                .is_some_and(|a| a.sub_kinds.contains(&ArrangementSubKind::FrameMember))
+        })
+        .map(|e| FacetScalar::Text(format!("{:?}", e.source())))
+        .collect();
+
+    if !frame_memberships.is_empty() {
+        proj.insert(
+            facet_keys::FRAME_MEMBERSHIPS.to_string(),
+            FacetValue::Collection(frame_memberships),
+        );
+    }
+
+    // UDC classes via semantic tags
+    if !node.tags.is_empty() {
+        proj.insert(
+            facet_keys::UDC_CLASSES.to_string(),
+            FacetValue::Collection(
+                node.tags.iter().map(|t| FacetScalar::Text(t.clone())).collect(),
+            ),
+        );
+    }
+
+    // --- Time ---
+
+    // last_visited as milliseconds since epoch (best available time source on Node)
+    if let Ok(duration) = node.last_visited.duration_since(std::time::UNIX_EPOCH) {
+        proj.insert(
+            facet_keys::LAST_TRAVERSAL.to_string(),
+            FacetValue::Scalar(FacetScalar::Number(duration.as_millis() as f64)),
+        );
+    }
+
+    proj.insert(
+        facet_keys::LIFECYCLE.to_string(),
+        FacetValue::Scalar(FacetScalar::Text(format!("{:?}", node.lifecycle))),
+    );
+
+    Some(proj)
+}
+
+fn edge_kind_label(kind: &EdgeKind) -> &'static str {
+    match kind {
+        EdgeKind::Hyperlink => "Hyperlink",
+        EdgeKind::UserGrouped => "UserGrouped",
+        EdgeKind::TraversalDerived => "TraversalDerived",
+        EdgeKind::ArrangementRelation => "ArrangementRelation",
+        EdgeKind::ContainmentRelation => "ContainmentRelation",
+        EdgeKind::ImportedRelation => "ImportedRelation",
+        EdgeKind::AgentDerived => "AgentDerived",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use euclid::default::Point2D;
+
+    use super::*;
+    use crate::model::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
+    use crate::model::graph::filter::facet_keys;
+    use crate::model::graph::{EdgeType, Graph};
+
+    fn build_node(graph: &mut Graph, url: &str) -> NodeKey {
+        let GraphDeltaResult::NodeAdded(key) = apply_graph_delta(
+            graph,
+            GraphDelta::AddNode {
+                id: None,
+                url: url.to_string(),
+                position: Point2D::new(0.0, 0.0),
+            },
+        ) else {
+            panic!("expected NodeAdded");
+        };
+        key
+    }
+
+    #[test]
+    fn projection_includes_address_and_domain() {
+        let mut graph = Graph::new();
+        let key = build_node(&mut graph, "https://example.com/page");
+        let proj = facet_projection_for_node(&graph, key).unwrap();
+
+        assert!(proj.contains_key(facet_keys::ADDRESS));
+        assert!(proj.contains_key(facet_keys::DOMAIN));
+        let domain = &proj[facet_keys::DOMAIN];
+        assert_eq!(
+            *domain,
+            FacetValue::Scalar(FacetScalar::Text("example.com".to_string()))
+        );
+    }
+
+    #[test]
+    fn projection_computes_in_out_degree() {
+        let mut graph = Graph::new();
+        let a = build_node(&mut graph, "https://a.test/");
+        let b = build_node(&mut graph, "https://b.test/");
+        apply_graph_delta(
+            &mut graph,
+            GraphDelta::AddEdge {
+                from: a,
+                to: b,
+                edge_type: EdgeType::Hyperlink,
+                edge_label: None,
+            },
+        );
+
+        let proj_a = facet_projection_for_node(&graph, a).unwrap();
+        let proj_b = facet_projection_for_node(&graph, b).unwrap();
+
+        assert_eq!(
+            proj_a[facet_keys::OUT_DEGREE],
+            FacetValue::Scalar(FacetScalar::Number(1.0))
+        );
+        assert_eq!(
+            proj_b[facet_keys::IN_DEGREE],
+            FacetValue::Scalar(FacetScalar::Number(1.0))
+        );
+    }
+
+    #[test]
+    fn projection_includes_lifecycle() {
+        let mut graph = Graph::new();
+        let key = build_node(&mut graph, "https://example.com/");
+        let proj = facet_projection_for_node(&graph, key).unwrap();
+        assert!(proj.contains_key(facet_keys::LIFECYCLE));
+    }
+}

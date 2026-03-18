@@ -63,6 +63,12 @@ impl Gui {
         } = args;
 
         Self::run_update_frame_prelude(ctx, graph_app, pending_webview_a11y_updates, tiles_tree);
+        // Track user gestures for Tier 1 worker idle suspension (§5 of
+        // Runtime Task Budget). Any egui input event counts as a gesture.
+        if ctx.input(|i| !i.events.is_empty()) {
+            control_panel.notify_user_gesture();
+        }
+        control_panel.tick_idle_watchdog(registry_runtime);
         let (pre_frame, mut frame_intents) =
             Self::run_pre_frame_and_initialize_intents(PreFrameAndIntentInitArgs {
                 ctx,

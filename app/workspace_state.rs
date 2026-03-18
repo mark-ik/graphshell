@@ -18,7 +18,7 @@ use crate::shell::desktop::runtime::caches::RuntimeCaches;
 
 use super::{
     Camera, ClipInspectorState, CommandPaletteShortcut, ContextCommandSurfacePreference,
-    FileTreeProjectionState, GraphReaderState, GraphSearchHistoryEntry, GraphSearchOrigin,
+    GraphReaderState, GraphSearchHistoryEntry, GraphSearchOrigin, NavigatorProjectionState,
     GraphViewFrame, GraphViewId, GraphViewLayoutManagerState, GraphViewState, HelpPanelShortcut,
     HistoryManagerTab, HistoryTraversalFailureReason, KeyboardPanInputMode, MemoryPressureLevel,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingCreateToken, RadialMenuShortcut,
@@ -170,7 +170,7 @@ pub struct GraphViewRuntimeState {
     pub highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
 
     /// Graph-owned hierarchical projection runtime state for navigator.
-    pub navigator_projection_state: FileTreeProjectionState,
+    pub navigator_projection_state: NavigatorProjectionState,
 
     /// Independent multi-selection for workspace tabs.
     pub selected_tab_nodes: HashSet<NodeKey>,
@@ -350,4 +350,7 @@ pub struct ChromeUiState {
 
     /// Persisted default theme selection for workspace appearance controls.
     pub(crate) default_registry_theme_id: Option<String>,
+
+    /// Active filter for the mixed history timeline All tab.
+    pub mixed_timeline_filter: crate::services::persistence::types::HistoryTimelineFilter,
 }

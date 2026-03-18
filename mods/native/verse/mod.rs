@@ -653,7 +653,7 @@ impl SyncLog {
                     false
                 }
             }
-            LogEntry::RemoveNode { node_id } => {
+            LogEntry::RemoveNode { node_id, .. } => {
                 let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
                 if intent.authored_at_secs >= tombstone {
                     self.tombstones

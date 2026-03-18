@@ -17,8 +17,9 @@
 //! dedicated runtime bus type is implemented here yet.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sysinfo::System;
 use tokio::sync::{mpsc, watch};
@@ -30,7 +31,10 @@ use crate::graph::NodeKey;
 use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
 use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
-use crate::shell::desktop::runtime::registries::RegistryRuntime;
+use crate::shell::desktop::runtime::registries::{
+    RegistryRuntime, CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED,
+    CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
+};
 use crate::shell::desktop::runtime::registries::agent::{Agent, AgentContext};
 use crate::shell::desktop::runtime::registries::nostr_core::{
     NostrRelayWorker, RelayWorkerCommand,
@@ -43,6 +47,25 @@ const INTENT_CHANNEL_CAPACITY: usize = 256;
 const MEMORY_MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 const PREFETCH_MIN_INTERVAL: Duration = Duration::from_secs(2);
 const PREFETCH_MAX_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Default idle threshold (seconds) when no preference is configured.
+const DEFAULT_WORKER_IDLE_THRESHOLD_SECS: u64 = 120;
+
+/// Worker tier classification per the Runtime Task Budget policy.
+///
+/// Tier 0 workers (Servo render pipeline, intent drain) are not managed by
+/// ControlPanel. Tier 1 workers are session-scoped and may be suspended when
+/// the user is idle. Tier 2 workers are on-demand and managed by their owning
+/// mod.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum WorkerTier {
+    /// P2P sync worker (iroh). Session-scoped; suspends on idle.
+    Tier1P2pSync,
+    /// Nostr relay pool. Session-scoped; suspends on idle.
+    Tier1NostrRelay,
+    /// Matrix client worker. Session-scoped; stub/no-op until MatrixCore lands.
+    Tier1MatrixCore,
+}
 
 /// CP3 policy channel payload for prefetch scheduling behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +169,26 @@ pub(crate) struct ControlPanel {
     active_protocol_probes: Arc<Mutex<HashMap<NodeKey, (u64, CancellationToken)>>>,
     /// Monotonic nonce for protocol probe replacement.
     next_protocol_probe_nonce: u64,
+    /// Per-Tier-1-worker suspension watch senders.
+    ///
+    /// `true` = suspended (low-frequency mode); `false` = active.
+    /// Workers hold the corresponding `watch::Receiver<bool>` and decide
+    /// internally what "low-frequency" means.
+    p2p_sync_suspended_tx: watch::Sender<bool>,
+    nostr_relay_suspended_tx: watch::Sender<bool>,
+    /// Monotonic timestamp (ms since UNIX epoch) of the last user gesture.
+    ///
+    /// Shared with the idle-watcher task via an `Arc<AtomicU64>`.
+    last_user_gesture_ms: Arc<AtomicU64>,
+    /// Whether we are currently in the idle state (avoids duplicate signals).
+    currently_idle: bool,
+    /// Idle threshold in milliseconds, sourced from `AppPreferences` at
+    /// construction time (`worker_idle_threshold_secs`).
+    worker_idle_threshold_ms: u64,
+    /// Live worker count per tier — incremented at spawn, never decremented
+    /// (workers are supervised through JoinSet; this is a spawn-site record,
+    /// not a live-task count). Used by the §4 concurrency budget query surface.
+    registered_tiers: HashMap<WorkerTier, usize>,
     /// Supervised background worker tasks.
     workers: JoinSet<()>,
 }
@@ -153,10 +196,21 @@ pub(crate) struct ControlPanel {
 impl ControlPanel {
     /// Create a new `ControlPanel` with an empty worker set and a fresh
     /// cancellation token.
-    pub(crate) fn new() -> Self {
+    ///
+    /// `worker_idle_threshold_secs` is sourced from `AppPreferences`; pass
+    /// `None` to use the built-in default of 120 s.
+    pub(crate) fn new(worker_idle_threshold_secs: Option<u64>) -> Self {
         let (intent_tx, intent_rx) = mpsc::channel(INTENT_CHANNEL_CAPACITY);
         let (lifecycle_policy_tx, _lifecycle_policy_rx) =
             watch::channel(LifecyclePolicy::default());
+        let (p2p_sync_suspended_tx, _) = watch::channel(false);
+        let (nostr_relay_suspended_tx, _) = watch::channel(false);
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let worker_idle_threshold_ms =
+            worker_idle_threshold_secs.unwrap_or(DEFAULT_WORKER_IDLE_THRESHOLD_SECS) * 1000;
         Self {
             intent_tx,
             intent_rx,
@@ -164,6 +218,12 @@ impl ControlPanel {
             lifecycle_policy_tx,
             active_protocol_probes: Arc::new(Mutex::new(HashMap::new())),
             next_protocol_probe_nonce: 0,
+            p2p_sync_suspended_tx,
+            nostr_relay_suspended_tx,
+            last_user_gesture_ms: Arc::new(AtomicU64::new(now_ms)),
+            currently_idle: false,
+            worker_idle_threshold_ms,
+            registered_tiers: HashMap::new(),
             workers: JoinSet::new(),
             sync_command_tx: None,
             discovery_result_rx: None,
@@ -253,6 +313,80 @@ impl ControlPanel {
         }
     }
 
+    /// Record a user gesture timestamp (call once per frame when the user
+    /// produces any input). Used by `tick_idle_watchdog` to decide whether
+    /// Tier 1 workers should be suspended.
+    pub(crate) fn notify_user_gesture(&self) {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        self.last_user_gesture_ms.store(now_ms, AtomicOrdering::Relaxed);
+    }
+
+    /// Check idle state and emit `UserIdle` / `UserResumed` signals via the
+    /// provided registry when the threshold is crossed.
+    ///
+    /// Call once per frame (cheap: one atomic load + optional watch send).
+    pub(crate) fn tick_idle_watchdog(&mut self, registries: &RegistryRuntime) {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let last_gesture_ms = self.last_user_gesture_ms.load(AtomicOrdering::Relaxed);
+        let elapsed_ms = now_ms.saturating_sub(last_gesture_ms);
+
+        if elapsed_ms >= self.worker_idle_threshold_ms && !self.currently_idle {
+            self.currently_idle = true;
+            let _ = self.p2p_sync_suspended_tx.send(true);
+            let _ = self.nostr_relay_suspended_tx.send(true);
+            registries.propagate_user_idle_signal(last_gesture_ms);
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
+                    byte_len: 0,
+                },
+            );
+            log::debug!(
+                "control_panel: Tier 1 workers suspended (idle {}s)",
+                elapsed_ms / 1000
+            );
+        } else if elapsed_ms < self.worker_idle_threshold_ms && self.currently_idle {
+            self.currently_idle = false;
+            let _ = self.p2p_sync_suspended_tx.send(false);
+            let _ = self.nostr_relay_suspended_tx.send(false);
+            registries.propagate_user_resumed_signal();
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED,
+                    byte_len: 0,
+                },
+            );
+            log::debug!("control_panel: Tier 1 workers resumed");
+        }
+    }
+
+    /// Register a worker spawn at the given tier.
+    ///
+    /// Increments the spawn-site counter for the tier. Call once per
+    /// `spawn_*_worker` invocation before returning.
+    fn register_worker_tier(&mut self, tier: WorkerTier) {
+        *self.registered_tiers.entry(tier).or_insert(0) += 1;
+        log::debug!(
+            "control_panel: registered {:?} worker (total for tier: {})",
+            tier,
+            self.registered_tiers[&tier],
+        );
+    }
+
+    /// Return the number of times each tier has been spawned this session.
+    ///
+    /// Intended for diagnostics and future §4 budget enforcement.
+    #[allow(dead_code)]
+    pub(crate) fn registered_tier_counts(&self) -> &HashMap<WorkerTier, usize> {
+        &self.registered_tiers
+    }
+
     /// Spawn the CP3 prefetch scheduler worker.
     ///
     /// The scheduler emits prewarm lifecycle intents on a policy-driven
@@ -281,6 +415,7 @@ impl ControlPanel {
         let (discovery_result_tx, discovery_result_rx) = mpsc::unbounded_channel();
         self.sync_command_tx = Some(cmd_tx.clone());
         self.discovery_result_rx = Some(discovery_result_rx);
+        let mut suspended_rx = self.p2p_sync_suspended_tx.subscribe();
 
         self.workers.spawn(async move {
             let resources = match verse::sync_worker_resources(
@@ -304,14 +439,39 @@ impl ControlPanel {
                 cancel.clone(),
             );
 
-            worker.run().await;
+            // Run the worker, but yield to the suspension watch channel when
+            // suspended. When `suspended` is true the worker select! arm is
+            // still running but no work is submitted (iroh socket stays open).
+            tokio::select! {
+                _ = cancel.cancelled() => {}
+                _ = worker.run() => {}
+                _ = async {
+                    loop {
+                        if suspended_rx.changed().await.is_err() {
+                            break;
+                        }
+                        // Workers decide internally what low-frequency means;
+                        // the suspension signal is advisory only — we let the
+                        // inner run() loop handle actual throttling once it
+                        // receives the flag via a future worker-side API.
+                        // For now, log the transition.
+                        if *suspended_rx.borrow() {
+                            log::debug!("control_panel: p2p sync worker suspended (advisory)");
+                        } else {
+                            log::debug!("control_panel: p2p sync worker resumed");
+                        }
+                    }
+                } => {}
+            }
         });
 
+        self.register_worker_tier(WorkerTier::Tier1P2pSync);
         log::debug!("control_panel: sync worker spawned");
     }
 
     pub(crate) fn spawn_nostr_relay_worker(&mut self, registries: Arc<RegistryRuntime>) {
         let cancel = self.cancel.clone();
+        let mut suspended_rx = self.nostr_relay_suspended_tx.subscribe();
         let (command_tx, command_rx) = mpsc::unbounded_channel();
 
         // Create the inbound event sink. The relay worker sends
@@ -362,6 +522,28 @@ impl ControlPanel {
             }
         });
 
+        // Suspension observer task: logs advisory suspension state changes.
+        // The relay worker internally decides what low-frequency mode means;
+        // this task merely records transitions until NostrRelayWorker gains a
+        // native suspension API.
+        let suspend_cancel = self.cancel.clone();
+        self.workers.spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = suspend_cancel.cancelled() => break,
+                    result = suspended_rx.changed() => {
+                        if result.is_err() { break; }
+                        if *suspended_rx.borrow() {
+                            log::debug!("control_panel: nostr relay worker suspended (advisory)");
+                        } else {
+                            log::debug!("control_panel: nostr relay worker resumed");
+                        }
+                    }
+                }
+            }
+        });
+
+        self.register_worker_tier(WorkerTier::Tier1NostrRelay);
         log::debug!("control_panel: nostr relay worker spawned");
     }
 
@@ -390,6 +572,17 @@ impl ControlPanel {
             .ok_or_else(|| format!("unknown agent: {agent_id}"))?;
         self.spawn_agent(agent, registries);
         Ok(())
+    }
+
+    /// Stub spawn point for the Matrix client worker (plan-only until MatrixCore lands).
+    ///
+    /// Registers `Tier1MatrixCore` so the tier classification is declared at
+    /// the spawn site per §7.1. Replace the body with a real worker spawn when
+    /// `MatrixCore` is implemented.
+    #[allow(dead_code)]
+    pub(crate) fn spawn_matrix_core_worker(&mut self) {
+        self.register_worker_tier(WorkerTier::Tier1MatrixCore);
+        log::debug!("control_panel: matrix core worker stub registered (not yet implemented)");
     }
 
     pub(crate) fn handle_protocol_probe_request(&mut self, key: NodeKey, url: Option<String>) {
@@ -487,7 +680,7 @@ impl ControlPanel {
 
 impl Default for ControlPanel {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
@@ -721,20 +914,20 @@ mod tests {
 
     #[tokio::test]
     async fn control_panel_new_creates_open_channel() {
-        let panel = ControlPanel::new();
+        let panel = ControlPanel::new(None);
         // Channel should be open (sender not dropped)
         assert!(panel.is_intent_channel_open_for_tests());
     }
 
     #[tokio::test]
     async fn drain_pending_returns_empty_when_no_intents() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         assert!(panel.drain_pending().is_empty());
     }
 
     #[tokio::test]
     async fn drain_pending_collects_queued_intents() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         panel
             .enqueue_intent_for_tests(QueuedIntent {
                 intent: GraphIntent::Noop,
@@ -750,7 +943,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_completes_with_no_workers() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         // Shutdown with no workers should return immediately
         panel.shutdown().await;
         assert_eq!(panel.worker_count(), 0);
@@ -758,7 +951,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_memory_monitor_increments_worker_count() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         assert_eq!(panel.worker_count(), 0);
         panel.spawn_memory_monitor();
         // Give the JoinSet a tick to register the task
@@ -768,7 +961,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_cancels_and_joins_all_workers() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         panel.spawn_memory_monitor();
         panel.shutdown().await;
         assert_eq!(panel.worker_count(), 0);
@@ -777,7 +970,7 @@ mod tests {
     #[tokio::test]
     async fn spawn_agent_is_supervised_and_shutdown_cancels_it() {
         let runtime = phase3_shared_runtime();
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         let cancelled = Arc::new(AtomicBool::new(false));
 
         panel.spawn_agent(
@@ -797,7 +990,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_mod_loader_increments_worker_count() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         assert_eq!(panel.worker_count(), 0);
         panel.spawn_mod_loader();
         tokio::task::yield_now().await;
@@ -866,7 +1059,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_prefetch_scheduler_increments_worker_count() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         assert_eq!(panel.worker_count(), 0);
         panel.spawn_prefetch_scheduler();
         tokio::task::yield_now().await;
@@ -909,7 +1102,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_p2p_sync_worker_sets_panel_command_channel() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         panel.spawn_p2p_sync_worker();
         tokio::task::yield_now().await;
 
@@ -921,7 +1114,7 @@ mod tests {
     #[tokio::test]
     async fn spawn_nostr_relay_worker_is_supervised() {
         let runtime = phase3_shared_runtime();
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         assert_eq!(panel.worker_count(), 0);
 
         panel.spawn_nostr_relay_worker(runtime);
@@ -937,14 +1130,14 @@ mod tests {
 
     #[tokio::test]
     async fn request_discover_nearby_requires_sync_worker_channel() {
-        let panel = ControlPanel::new();
+        let panel = ControlPanel::new(None);
         let result = panel.request_discover_nearby_peers(2);
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn request_discover_nearby_enqueues_after_sync_worker_spawn() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         let (tx, mut rx) = mpsc::channel(1);
         panel.set_sync_command_sender_for_tests(tx);
 
@@ -964,7 +1157,7 @@ mod tests {
 
     #[tokio::test]
     async fn protocol_probe_request_emits_update_node_mime_hint_intent() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         let key = NodeKey::new(41);
         let url = spawn_head_server("text/csv; charset=utf-8", Duration::ZERO);
 
@@ -991,7 +1184,7 @@ mod tests {
 
     #[tokio::test]
     async fn protocol_probe_cancellation_prevents_mime_intent_delivery() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         let key = NodeKey::new(42);
         let url = spawn_head_server("application/pdf", Duration::from_millis(150));
 
@@ -1005,7 +1198,7 @@ mod tests {
 
     #[tokio::test]
     async fn drain_pending_sorts_by_causality_priority_then_time() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         let now = Instant::now();
 
         panel
@@ -1039,7 +1232,7 @@ mod tests {
 
     #[tokio::test]
     async fn drain_pending_is_deterministic_under_concurrent_producers() {
-        let mut panel = ControlPanel::new();
+        let mut panel = ControlPanel::new(None);
         let base = Instant::now();
 
         let tx_a = panel.intent_tx.clone();

@@ -119,6 +119,96 @@ impl Layout<GraphPhysicsState> for BarnesHutForceDirectedLayout {
     }
 }
 
+#[cfg(test)]
+impl BarnesHutForceDirectedLayout {
+    /// Drive one physics step with an explicit canvas rect.
+    ///
+    /// Used by headless scenario tests that have no egui::Ui context.
+    pub(crate) fn step_with_rect<N, E, Ty, Ix, Dn, De>(
+        &mut self,
+        g: &mut egui_graphs::Graph<N, E, Ty, Ix, Dn, De>,
+        rect: Rect,
+    ) where
+        N: Clone,
+        E: Clone,
+        Ty: EdgeType,
+        Ix: IndexType,
+        Dn: egui_graphs::DisplayNode<N, E, Ty, Ix>,
+        De: egui_graphs::DisplayEdge<N, E, Ty, Ix, Dn>,
+    {
+        if !self.state.base.is_running || g.node_count() == 0 {
+            return;
+        }
+
+        let Some(k) = prepare_constants(rect, g.node_count(), self.state.base.k_scale) else {
+            return;
+        };
+
+        let indices: Vec<_> = g.g().node_indices().collect();
+        if self.scratch_disp.len() == indices.len() {
+            self.scratch_disp.fill(Vec2::ZERO);
+        } else {
+            self.scratch_disp.resize(indices.len(), Vec2::ZERO);
+        }
+
+        let positions: Vec<_> = indices
+            .iter()
+            .filter_map(|&idx| g.g().node_weight(idx).map(|node| node.location()))
+            .collect();
+        if positions.len() != indices.len() {
+            return;
+        }
+
+        let bounds = quadtree_bounds(rect, &positions);
+        let mut tree = BarnesHutNode::new(bounds);
+        for body in 0..positions.len() {
+            tree.insert(body, &positions, 0);
+        }
+
+        let repulsion_constant = self.state.base.c_repulse * (k * k);
+        for (body, position) in positions.iter().copied().enumerate() {
+            tree.accumulate_force(
+                body,
+                position,
+                repulsion_constant,
+                self.state.base.epsilon,
+                BARNES_HUT_THETA,
+                &mut self.scratch_disp[body],
+            );
+        }
+
+        compute_attraction(
+            g,
+            &indices,
+            &mut self.scratch_disp,
+            k,
+            self.state.base.epsilon,
+            self.state.base.c_attract,
+        );
+        apply_center_gravity(
+            &positions,
+            &mut self.scratch_disp,
+            rect,
+            self.state.extras.0.enabled,
+            self.state.extras.0.params.c,
+        );
+        let avg = apply_displacements(
+            g,
+            &indices,
+            &self.scratch_disp,
+            self.state.base.dt,
+            self.state.base.damping,
+            self.state.base.max_step,
+        );
+        self.state.base.last_avg_displacement = avg;
+        self.state.base.step_count += 1;
+    }
+
+    pub(crate) fn physics_state(&self) -> &GraphPhysicsState {
+        &self.state
+    }
+}
+
 fn prepare_constants(canvas: Rect, node_count: usize, k_scale: f32) -> Option<f32> {
     if node_count == 0 {
         return None;

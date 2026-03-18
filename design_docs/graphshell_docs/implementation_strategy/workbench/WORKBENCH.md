@@ -7,7 +7,7 @@
 **Related**:
 
 - `workbench_frame_tile_interaction_spec.md`
-- `graph_node_edge_interaction_spec.md`
+- `../canvas/graph_node_edge_interaction_spec.md`
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — chrome split authority: WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar
@@ -29,6 +29,20 @@ It exists to make one boundary explicit:
 - the workbench tile tree is a presentation and arrangement subsystem,
 - not a graph-content subsystem,
 - and not the owner of graph meaning.
+
+### Status update (2026-03-18)
+
+Recent runtime/workbench alignment landed in code:
+
+- Navigator projection carriers now use canonical `Navigator*` naming at the app/runtime boundary.
+	Legacy `FileTree*` intent variants and adapters were removed from active intent paths.
+- Containment projection rows are graph-backed from `ContainmentRelation` edges (not ad hoc URL-only projection).
+	Derived containment relations are refreshed on node-set and URL-change deltas.
+- Node-pane workbench surfaces now expose collapsible per-node `Node History` and `Node Audit`
+	sections, backed by history-query helpers.
+
+These changes tighten the Workbench/Canvas boundary: Workbench hosts and projects,
+while graph/history truth stays in graph + persistence carriers.
 
 ---
 

@@ -203,6 +203,7 @@ mod step_5_2_tests {
                 url: "https://example.com".to_string(),
                 position_x: 10.0,
                 position_y: 20.0,
+                timestamp_ms: 0,
             },
             authored_by: node_id,
             authored_at_secs: 1708732800,
@@ -324,6 +325,7 @@ mod step_5_4_tests {
         let removal = SyncedIntent {
             log_entry: LogEntry::RemoveNode {
                 node_id: node_id.clone(),
+                timestamp_ms: 0,
             },
             authored_by: peer,
             authored_at_secs: 300,
@@ -337,6 +339,7 @@ mod step_5_4_tests {
                 url: "https://example.com".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             },
             authored_by: peer,
             authored_at_secs: 200,

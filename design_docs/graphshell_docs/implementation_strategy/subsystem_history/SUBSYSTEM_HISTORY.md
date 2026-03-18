@@ -290,19 +290,30 @@ History does **not** own `AWAL`, distillation policy, or lineage DAG truth.
 
 **What exists**:
 - Traversal capture and archive-related behaviors exist in the codebase and are referenced by history manager work and persistence archives.
-- Stage F temporal navigation/replay concept and isolation constraints are documented in planning materials.
-- History subsystem contracts (capture/archive/replay isolation) are now explicitly defined in this guide.
+- History subsystem contracts (capture/archive/replay isolation) are explicitly defined in this guide.
+- Unified architecture taxonomy defined in `2026-03-08_unified_history_architecture_plan.md`.
+- Canonical Stage F surface contract defined in `history_timeline_and_temporal_navigation_spec.md`
+  (revised 2026-03-18): enter/exit preview, scrubber cursor, blocked commands, affordances, return-to-present.
+- WAL timeline index now covers traversal, structure, node navigation, and node audit
+  timestamped entries (`AppendTraversal`, `AddNode`, `RemoveNode`, `NavigateNode`,
+  `AppendNodeAuditEvent`) — scrubber replay and mixed timeline queries reflect full
+  timestamped history coverage.
+- History Manager UI: "Enter Preview" button (live mode, when entries exist), "Viewing history"
+  banner + "Return to Present" button (preview mode); row clicks navigate to traversal destination.
+- Node navigation history is implemented end-to-end:
+  `NavigateNode` WAL variant, `node_navigation_history` query, and node-pane history surface.
+- Node audit history is implemented end-to-end:
+  `AppendNodeAuditEvent` WAL variant, `node_audit_history` query, and node-pane audit surface.
+- Mixed timeline surface is implemented in History Manager as tab `All`, backed by
+  `HistoryTimelineEvent`/`HistoryTimelineFilter` and `mixed_timeline_entries`.
 
 **What's missing / open**:
-- Unified architecture closure across traversal history, node navigation history,
-  node audit history, temporal replay, and undo/redo.
-- Canonical temporal-navigation interaction spec
-  (`history_timeline_and_temporal_navigation_spec.md`).
-- Node navigation history and node audit history implementation/spec closure.
-- Final UI closure for Stage F replay controls, preview affordances, and
-  user-facing return-to-present semantics.
 - Canonical history-side boundary-event schema for distillation/promotion links
   into `AWAL` and lineage systems.
+- Preview mode affordances beyond the History Manager pane (e.g., canvas-level
+  preview banner visible outside the tool pane).
+- Cross-track diagnostics and focused tests for mixed timeline filtering/query correctness
+  (`history.*` channels + integration tests over `mixed_timeline_entries`).
 
 ## 10. Dependencies / Blockers
 
@@ -321,15 +332,25 @@ History does **not** own `AWAL`, distillation policy, or lineage DAG truth.
 
 1. **Traversal correctness audit + tests** — especially URL prior/current ordering and edge association.
 2. **History doc taxonomy cleanup** — align subsystem docs with
-   `2026-03-08_unified_history_architecture_plan.md`.
+   `2026-03-08_unified_history_architecture_plan.md`. ✅ Done 2026-03-18.
 3. **Stage F canonical spec** — write
    `history_timeline_and_temporal_navigation_spec.md` from the current runtime
-   preview/replay shape.
-4. **Archive integrity tests** — dissolved/traversal archive completeness + export checks.
-5. **Node navigation history design** — canonical per-node address-history
-   track and WAL shape.
-6. **Node audit history design** — replace deferred stub with a concrete plan.
-7. **Boundary-event schema** — define the history-side audit event that links
+   preview/replay shape. ✅ Done 2026-03-18.
+4. **WAL timeline index coverage** — index timestamped structural and history tracks
+  alongside traversal (`AddNode`, `RemoveNode`, `NavigateNode`, `AppendNodeAuditEvent`).
+  ✅ Done 2026-03-18.
+5. **History Manager parity** — "Enter Preview" / "Return to Present" UI,
+   row click to traversal destination. ✅ Done 2026-03-18.
+6. **Node navigation history** — `NavigateNode` WAL variant, per-node query,
+  node history panel surface. Spec: `archive_docs/checkpoint_2026-03-18/node_navigation_history_spec.md` (archived).
+  ✅ Spec and implementation done 2026-03-18.
+7. **Node audit history** — concrete spec and implementation for timestamped audit events.
+  ✅ Done 2026-03-18 (`node_audit_log_spec.md`, WAL/query emit paths).
+8. **Mixed timeline contract + surface** — typed union, filter API, query shape,
+  History Manager `All` tab.
+  ✅ Done 2026-03-18 (`2026-03-18_mixed_timeline_contract.md`).
+9. **Archive integrity tests** — dissolved/traversal archive completeness + export checks.
+10. **Boundary-event schema** — define the history-side audit event that links
    node activity to distillation/promotion events in `AWAL` and lineage DAGs.
 
 ---

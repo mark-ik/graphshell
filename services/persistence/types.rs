@@ -105,6 +105,7 @@ pub enum PersistedEdgeType {
     Copy,
     Debug,
     PartialEq,
+    Eq,
     serde::Serialize,
     serde::Deserialize,
 )]
@@ -117,6 +118,120 @@ pub enum PersistedNavigationTrigger {
     AddressBarEntry,
     PanePromotion,
     Programmatic,
+}
+
+/// The kind of node metadata or lifecycle event recorded in an audit log entry.
+///
+/// Each variant carries only the new value (not the old one). The sequence of
+/// audit events in the WAL provides the full history; diffing adjacent entries
+/// to recover the "from" value is a query-time operation.
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug))]
+pub enum NodeAuditEventKind {
+    /// Node title was changed. Records the new title.
+    TitleChanged { new_title: String },
+    /// A tag was added to the node.
+    Tagged { tag: String },
+    /// A tag was removed from the node.
+    Untagged { tag: String },
+    /// Node was pinned.
+    Pinned,
+    /// Node was unpinned.
+    Unpinned,
+    /// Node URL was changed out-of-band (not via NavigateNode navigation).
+    /// Used when a node's URL is set directly rather than through navigation.
+    UrlChanged { new_url: String },
+    /// Node was tombstoned (soft-deleted).
+    Tombstoned,
+    /// Node was restored from tombstone state.
+    Restored,
+}
+
+/// Track-kind discriminant for filter predicates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HistoryTrackKind {
+    Traversal,
+    NodeNavigation,
+    NodeAudit,
+    GraphStructure,
+}
+
+/// Typed event union for mixed-timeline queries. Each variant preserves
+/// provenance — no synthetic coercion between tracks.
+#[derive(Debug, Clone)]
+pub enum HistoryEventKind {
+    /// Inter-node traversal (TraversalHistory track).
+    Traversal {
+        from_node_id: String,
+        to_node_id: String,
+        trigger: PersistedNavigationTrigger,
+    },
+    /// Intra-node address evolution (NodeNavigationHistory track).
+    NodeNavigation {
+        node_id: String,
+        from_url: String,
+        to_url: String,
+        trigger: PersistedNavigationTrigger,
+    },
+    /// Node metadata/lifecycle audit (NodeAuditHistory track).
+    NodeAudit {
+        node_id: String,
+        event: NodeAuditEventKind,
+    },
+    /// Graph structural event: node added or removed.
+    GraphStructure {
+        node_id: String,
+        is_addition: bool,
+    },
+}
+
+impl HistoryEventKind {
+    pub fn track_kind(&self) -> HistoryTrackKind {
+        match self {
+            Self::Traversal { .. } => HistoryTrackKind::Traversal,
+            Self::NodeNavigation { .. } => HistoryTrackKind::NodeNavigation,
+            Self::NodeAudit { .. } => HistoryTrackKind::NodeAudit,
+            Self::GraphStructure { .. } => HistoryTrackKind::GraphStructure,
+        }
+    }
+}
+
+/// Shared temporal envelope for every mixed-timeline row.
+#[derive(Debug, Clone)]
+pub struct HistoryTimelineEvent {
+    /// Wall-clock time of the event (ms since UNIX epoch).
+    pub timestamp_ms: u64,
+    /// WAL log position for stable ordering of same-ms events.
+    pub log_position: u64,
+    /// The typed event payload.
+    pub kind: HistoryEventKind,
+}
+
+/// Filter predicate for mixed-timeline queries. All fields are optional;
+/// `None` means "no constraint on this axis." Multiple constraints are
+/// AND-combined.
+#[derive(Debug, Clone, Default)]
+pub struct HistoryTimelineFilter {
+    /// Include only these track kinds. `None` or empty = all tracks.
+    pub tracks: Option<Vec<HistoryTrackKind>>,
+    /// Include only events touching this node (as source, target, or subject).
+    pub node_id: Option<String>,
+    /// Include only events at or after this timestamp.
+    pub after_ms: Option<u64>,
+    /// Include only events at or before this timestamp.
+    pub before_ms: Option<u64>,
+    /// Full-text substring match on the event's display-text projection. Case-insensitive.
+    pub text_contains: Option<String>,
 }
 
 /// Persisted edge.
@@ -145,6 +260,8 @@ pub enum LogEntry {
         url: String,
         position_x: f32,
         position_y: f32,
+        /// Wall-clock time of node creation (ms since UNIX epoch).
+        timestamp_ms: u64,
     },
     AddEdge {
         from_node_id: String,
@@ -173,6 +290,8 @@ pub enum LogEntry {
     },
     RemoveNode {
         node_id: String,
+        /// Wall-clock time of node removal (ms since UNIX epoch).
+        timestamp_ms: u64,
     },
     ClearGraph,
     UpdateNodeUrl {
@@ -197,6 +316,28 @@ pub enum LogEntry {
     UpdateNodeAddressKind {
         node_id: String,
         kind: PersistedAddressKind,
+    },
+    /// Record a within-node URL navigation (same node, new address).
+    /// Emitted alongside `UpdateNodeUrl` to preserve the from→to transition
+    /// in the WAL. Unlike `AppendTraversal` (which records inter-node movement),
+    /// this records intra-node address evolution.
+    NavigateNode {
+        node_id: String,
+        from_url: String,
+        to_url: String,
+        trigger: PersistedNavigationTrigger,
+        /// Wall-clock time of the navigation (ms since UNIX epoch).
+        timestamp_ms: u64,
+    },
+    /// Append a metadata or lifecycle audit event for a node.
+    /// Emitted alongside the existing snapshot entries (`UpdateNodeTitle`,
+    /// `TagNode`, etc.) which remain for WAL replay. This entry provides the
+    /// timestamped audit trail that snapshot entries lack.
+    AppendNodeAuditEvent {
+        node_id: String,
+        event: NodeAuditEventKind,
+        /// Wall-clock time of the event (ms since UNIX epoch).
+        timestamp_ms: u64,
     },
 }
 
@@ -356,6 +497,7 @@ mod tests {
             url: "https://example.com".to_string(),
             position_x: 50.0,
             position_y: 75.0,
+            timestamp_ms: 0,
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
@@ -366,6 +508,7 @@ mod tests {
                 url,
                 position_x,
                 position_y,
+                ..
             } => {
                 assert!(!node_id.as_str().is_empty());
                 assert_eq!(url.as_str(), "https://example.com");

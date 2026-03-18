@@ -49,6 +49,14 @@ Normative workbench contracts use: intent, trigger, preconditions, semantic resu
 - Physics presets are not camera modes.
 - "File tree" is a legacy alias — use **Navigator** in new code and docs.
 
+### Status update (2026-03-18)
+
+- Runtime intent surfaces now use `Navigator*` carriers directly; legacy
+  `FileTree*` intent variants are removed from active reducer/view-action paths.
+- Navigator containment projection resolves from graph `ContainmentRelation`
+  edges and is refreshed from graph deltas (node add/remove and URL updates),
+  preserving the graph-truth-first contract described in this spec.
+
 ---
 
 ## 1. Purpose and Scope

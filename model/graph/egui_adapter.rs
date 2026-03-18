@@ -10,7 +10,8 @@
 use super::apply::{GraphDelta, GraphDeltaResult};
 use super::badge::BadgeVisual;
 use super::{
-    EdgeKey, EdgeKind, EdgePayload, Graph, GraphDirection, GraphIndex, Node, NodeKey, NodeLifecycle,
+    ContainmentSubKind, EdgeKey, EdgePayload, EdgeType, Graph, GraphDirection, GraphIndex, Node,
+    NodeKey, NodeLifecycle,
 };
 use egui::epaint::{CircleShape, CubicBezierShape, TextShape};
 use egui::{
@@ -712,14 +713,24 @@ impl GraphNodeShape {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum GraphEdgeVisualStyle {
     Hidden,
+    // Semantic family
     Hyperlink,
-    History,
     UserGrouped,
-    ArrangementDurable,
-    ArrangementSession,
+    /// Agent-derived; opacity decays as `decay_progress` approaches 1.0.
+    AgentDerived { decay_progress: f32 },
+    // Traversal family
+    TraversalHistory,
+    // Containment family — hidden unless containment lens active
+    ContainmentUrlPath,
+    ContainmentDomain,
+    // Arrangement family — hidden unless arrangement overlay active
+    ArrangementFrameMember,
+    ArrangementTileGroup,
+    // Imported family — hidden unless import review mode active
+    ImportedRelation,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -785,7 +796,11 @@ impl<
         };
         if matches!(
             self.style,
-            GraphEdgeVisualStyle::History | GraphEdgeVisualStyle::ArrangementSession
+            GraphEdgeVisualStyle::TraversalHistory
+                | GraphEdgeVisualStyle::ContainmentUrlPath
+                | GraphEdgeVisualStyle::ContainmentDomain
+                | GraphEdgeVisualStyle::ArrangementTileGroup
+                | GraphEdgeVisualStyle::ImportedRelation
         ) {
             return self.dashed_shapes(start, end, ctx, color, width);
         }
@@ -836,42 +851,87 @@ impl GraphEdgeShape {
         aggregate: LogicalPairTraversalAggregate,
     ) {
         self.style = style;
-        self.hidden = style == GraphEdgeVisualStyle::Hidden;
+        // Non-semantic families are hidden by default; a lens must activate them.
+        self.hidden = matches!(
+            style,
+            GraphEdgeVisualStyle::Hidden
+                | GraphEdgeVisualStyle::TraversalHistory
+                | GraphEdgeVisualStyle::ContainmentUrlPath
+                | GraphEdgeVisualStyle::ContainmentDomain
+                | GraphEdgeVisualStyle::ArrangementFrameMember
+                | GraphEdgeVisualStyle::ArrangementTileGroup
+                | GraphEdgeVisualStyle::ImportedRelation
+        );
         self.traversal_total_count = aggregate.total_count;
         self.dominant_direction_cue = aggregate.dominant_cue;
     }
 
     fn style_stroke(&self) -> (Color32, f32) {
-        let traversal_bonus = if self.style == GraphEdgeVisualStyle::History {
+        let traversal_bonus = if matches!(self.style, GraphEdgeVisualStyle::TraversalHistory) {
             Self::traversal_width_bonus(self.traversal_total_count)
         } else {
             0.0
         };
         match self.style {
             GraphEdgeVisualStyle::Hidden => (Color32::TRANSPARENT, 0.0),
-            GraphEdgeVisualStyle::Hyperlink => (Color32::from_gray(160), 1.4 + traversal_bonus),
-            GraphEdgeVisualStyle::History => {
+            // Semantic family
+            GraphEdgeVisualStyle::Hyperlink => (Color32::from_rgb(150, 150, 155), 1.4),
+            GraphEdgeVisualStyle::UserGrouped => (Color32::from_rgb(236, 171, 64), 3.0),
+            GraphEdgeVisualStyle::AgentDerived { decay_progress } => {
+                let opacity = egui::lerp(0.55..=0.15, decay_progress.clamp(0.0, 1.0));
+                (
+                    Color32::from_rgba_unmultiplied(180, 140, 220, (opacity * 255.0) as u8),
+                    1.2,
+                )
+            }
+            // Traversal family
+            GraphEdgeVisualStyle::TraversalHistory => {
                 (Color32::from_rgb(120, 180, 210), 1.8 + traversal_bonus)
             }
-            GraphEdgeVisualStyle::UserGrouped => (Color32::from_rgb(236, 171, 64), 3.0),
-            GraphEdgeVisualStyle::ArrangementDurable => (Color32::from_rgb(84, 166, 114), 2.6),
-            GraphEdgeVisualStyle::ArrangementSession => (Color32::from_rgb(84, 166, 114), 2.0),
+            // Containment family
+            GraphEdgeVisualStyle::ContainmentUrlPath => {
+                (Color32::from_rgb(80, 190, 170), 1.0)
+            }
+            GraphEdgeVisualStyle::ContainmentDomain => {
+                (Color32::from_rgba_unmultiplied(80, 190, 170, 153), 0.8) // 60% opacity
+            }
+            // Arrangement family
+            GraphEdgeVisualStyle::ArrangementFrameMember => (Color32::from_rgb(130, 110, 220), 2.0),
+            GraphEdgeVisualStyle::ArrangementTileGroup => {
+                (Color32::from_rgba_unmultiplied(130, 110, 220, 153), 0.8) // 60% opacity
+            }
+            // Imported family
+            GraphEdgeVisualStyle::ImportedRelation => {
+                (Color32::from_rgba_unmultiplied(160, 150, 140, 89), 0.8) // 35% opacity
+            }
         }
     }
 
     fn style_from_payload(payload: &EdgePayload) -> GraphEdgeVisualStyle {
-        if payload.has_kind(EdgeKind::UserGrouped) {
+        // Priority order per edge_visual_encoding_spec.md §4:
+        // 1. UserGrouped  2. Hyperlink  3. AgentDerived  4. TraversalHistory
+        // 5. ContainmentUrlPath  6. ContainmentDomain
+        // 7. ArrangementFrameMember  8. ArrangementTileGroup  9. ImportedRelation
+        if payload.has_edge_type(EdgeType::UserGrouped) {
             GraphEdgeVisualStyle::UserGrouped
-        } else if payload.has_kind(EdgeKind::TraversalDerived) {
-            GraphEdgeVisualStyle::History
-        } else if payload.has_kind(EdgeKind::Hyperlink) {
+        } else if payload.has_edge_type(EdgeType::Hyperlink) {
             GraphEdgeVisualStyle::Hyperlink
+        } else if payload.has_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 }) {
+            GraphEdgeVisualStyle::AgentDerived { decay_progress: 0.0 }
+        } else if payload.has_edge_type(EdgeType::History) {
+            GraphEdgeVisualStyle::TraversalHistory
+        } else if payload.has_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath)) {
+            GraphEdgeVisualStyle::ContainmentUrlPath
+        } else if payload.has_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::Domain)) {
+            GraphEdgeVisualStyle::ContainmentDomain
         } else if payload.has_durable_arrangement_relation() {
-            GraphEdgeVisualStyle::ArrangementDurable
+            GraphEdgeVisualStyle::ArrangementFrameMember
         } else if payload.has_session_arrangement_relation() {
-            GraphEdgeVisualStyle::ArrangementSession
+            GraphEdgeVisualStyle::ArrangementTileGroup
+        } else if payload.has_edge_type(EdgeType::ImportedRelation) {
+            GraphEdgeVisualStyle::ImportedRelation
         } else {
-            GraphEdgeVisualStyle::Hyperlink
+            GraphEdgeVisualStyle::Hidden
         }
     }
 
@@ -1031,28 +1091,33 @@ fn aggregate_logical_pair_traversals(
     let backward_count = dominant_source
         .map(|p| p.metrics().backward_navigations as usize)
         .unwrap_or(0);
-    let style = if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::UserGrouped))
-        || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::UserGrouped))
-    {
+    let either = |f: fn(&EdgePayload) -> bool| {
+        ab_payload.is_some_and(f) || ba_payload.is_some_and(f)
+    };
+    let either_type = |et: EdgeType| {
+        ab_payload.is_some_and(|p| p.has_edge_type(et))
+            || ba_payload.is_some_and(|p| p.has_edge_type(et))
+    };
+    let style = if either_type(EdgeType::UserGrouped) {
         GraphEdgeVisualStyle::UserGrouped
-    } else if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::TraversalDerived))
-        || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::TraversalDerived))
-    {
-        GraphEdgeVisualStyle::History
-    } else if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::Hyperlink))
-        || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::Hyperlink))
-    {
+    } else if either_type(EdgeType::Hyperlink) {
         GraphEdgeVisualStyle::Hyperlink
-    } else if ab_payload.is_some_and(EdgePayload::has_durable_arrangement_relation)
-        || ba_payload.is_some_and(EdgePayload::has_durable_arrangement_relation)
-    {
-        GraphEdgeVisualStyle::ArrangementDurable
-    } else if ab_payload.is_some_and(EdgePayload::has_session_arrangement_relation)
-        || ba_payload.is_some_and(EdgePayload::has_session_arrangement_relation)
-    {
-        GraphEdgeVisualStyle::ArrangementSession
+    } else if either_type(EdgeType::AgentDerived { decay_progress: 0.0 }) {
+        GraphEdgeVisualStyle::AgentDerived { decay_progress: 0.0 }
+    } else if either_type(EdgeType::History) {
+        GraphEdgeVisualStyle::TraversalHistory
+    } else if either_type(EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath)) {
+        GraphEdgeVisualStyle::ContainmentUrlPath
+    } else if either_type(EdgeType::ContainmentRelation(ContainmentSubKind::Domain)) {
+        GraphEdgeVisualStyle::ContainmentDomain
+    } else if either(EdgePayload::has_durable_arrangement_relation) {
+        GraphEdgeVisualStyle::ArrangementFrameMember
+    } else if either(EdgePayload::has_session_arrangement_relation) {
+        GraphEdgeVisualStyle::ArrangementTileGroup
+    } else if either_type(EdgeType::ImportedRelation) {
+        GraphEdgeVisualStyle::ImportedRelation
     } else {
-        GraphEdgeVisualStyle::Hyperlink
+        GraphEdgeVisualStyle::Hidden
     };
     let aggregate = LogicalPairTraversalAggregate {
         total_count,
@@ -1481,7 +1546,6 @@ fn refresh_logical_pair_edge_display(graph: &Graph, egui_graph: &mut EguiGraph) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::EdgeType;
     use egui::Color32;
     use euclid::default::Point2D;
 

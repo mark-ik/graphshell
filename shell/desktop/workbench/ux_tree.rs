@@ -390,7 +390,7 @@ fn append_workbench_semantics_nodes(
                     .theme
                     .as_ref()
                     .map(|theme| crate::registries::atomic::lens::theme_data_id(theme).to_string()),
-                filter_count: view_state.lens.filters.len(),
+                filter_count: view_state.lens.filter_expr.is_some() as usize + view_state.lens.filters_legacy.len(),
                 dimension: format!("{:?}", view_state.dimension),
                 position_fit_locked: view_state.position_fit_locked,
                 zoom_fit_locked: view_state.zoom_fit_locked,
@@ -1326,7 +1326,7 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
 mod tests {
     use super::*;
     use crate::app::{
-        FileTreeContainmentRelationSource, PendingConnectedOpenScope, PendingTileOpenMode,
+        NavigatorContainmentRelationSource, PendingConnectedOpenScope, PendingTileOpenMode,
     };
     use crate::render::radial_menu::{
         RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary, RadialSectorSemanticMetadata,
@@ -1574,15 +1574,15 @@ mod tests {
         if let Some(view) = harness.app.workspace.graph_runtime.views.get_mut(&view_id) {
             view.lens.name = "Research Lens".to_string();
             view.lens.layout = crate::registries::atomic::lens::LayoutMode::Free;
-            view.lens.filters = vec!["tag:#clip".to_string()];
+            view.lens.filters_legacy = vec!["tag:#clip".to_string()];
         }
         harness.app.workspace.graph_runtime.focused_view = Some(view_id);
 
-        harness.app.set_file_tree_containment_relation_source(
-            FileTreeContainmentRelationSource::SavedViewCollections,
+        harness.app.set_navigator_containment_relation_source(
+            NavigatorContainmentRelationSource::SavedViewCollections,
         );
         let row_key = format!("view:{}", view_id.as_uuid());
-        harness.app.set_file_tree_selected_rows([row_key]);
+        harness.app.set_navigator_selected_rows([row_key]);
 
         harness.app.set_pending_node_context_target(Some(node));
         harness

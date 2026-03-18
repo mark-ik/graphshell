@@ -251,6 +251,7 @@ fn switch_persistence_dir_reloads_graph_state() {
             url: "https://from-a.com".to_string(),
             position_x: 1.0,
             position_y: 2.0,
+            timestamp_ms: 0,
         });
     }
     {
@@ -260,12 +261,14 @@ fn switch_persistence_dir_reloads_graph_state() {
             url: "https://from-b.com".to_string(),
             position_x: 3.0,
             position_y: 4.0,
+            timestamp_ms: 0,
         });
         store_b.log_mutation(&LogEntry::AddNode {
             node_id: Uuid::new_v4().to_string(),
             url: "about:blank#7".to_string(),
             position_x: 5.0,
             position_y: 6.0,
+            timestamp_ms: 0,
         });
     }
 

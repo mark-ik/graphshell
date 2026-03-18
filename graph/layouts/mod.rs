@@ -3,7 +3,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 mod active;
-mod barnes_hut_force_directed;
+pub(crate) mod barnes_hut_force_directed;
 mod graphshell_force_directed;
+#[cfg(test)]
+mod physics_scenarios;
 
 pub(crate) use active::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};

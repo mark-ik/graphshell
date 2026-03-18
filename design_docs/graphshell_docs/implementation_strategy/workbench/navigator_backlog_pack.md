@@ -18,6 +18,27 @@ graph truth and workbench arrangement state.
 
 ---
 
+## Landed Delta (2026-03-18)
+
+Confirmed slices now landed in code:
+
+- ✅ Navigator intent surface canonicalization:
+     active reducer/view-action paths use `SetNavigator*` and
+     `RebuildNavigatorProjection`; legacy `SetFileTree*` and
+     `RebuildFileTreeProjection` paths are removed.
+     Advances: `NV01`, `NV06`.
+- ✅ Containment projection source is now graph-backed from
+     `ContainmentRelation` edges (rather than URL-only ad hoc reconstruction).
+     Advances: `NV04`, `NV18`.
+- ✅ Projection refresh now triggers from graph deltas affecting containment
+     (node add/remove and URL updates), reducing manual refresh dependence.
+     Advances: `NV10`.
+
+These deltas do not close Wave-level milestones by themselves; they are partial
+closures that should be referenced by future `NV25` receipt work.
+
+---
+
 ## Wave 1
 
 1. `NV01` Navigator Projection Boundary. Depends: none. Done gate: one canonical doc defines Navigator as a projection surface, not its own truth store.

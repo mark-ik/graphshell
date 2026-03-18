@@ -3,6 +3,8 @@ pub enum HistoryManagerTab {
     #[default]
     Timeline,
     Dissolved,
+    /// Mixed multi-track timeline (all history tracks, filtered).
+    All,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

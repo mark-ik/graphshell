@@ -112,6 +112,35 @@ pub(super) fn handle_location_submit(
         }
     }
 
+    // Facet filter dispatch: `facet:key=value` tokens are intercepted here,
+    // parsed into a `FacetExpr`, and dispatched as `SetViewFilter` to the
+    // currently focused graph view.  The location bar is cleared on success.
+    if !handled_omnibar_search && trimmed_location.starts_with("facet:") {
+        match crate::model::graph::filter::parse_omnibar_facet_token(&trimmed_location) {
+            Some(predicate) => {
+                let view_id = graph_app.workspace.graph_runtime.focused_view;
+                if let Some(view_id) = view_id {
+                    frame_intents.push(crate::app::GraphIntent::SetViewFilter {
+                        view_id,
+                        expr: Some(crate::model::graph::filter::FacetExpr::Predicate(predicate)),
+                    });
+                    location.clear();
+                    *location_dirty = false;
+                }
+            }
+            None => {
+                // Malformed facet token — emit warn diagnostic and leave bar dirty so user can fix.
+                crate::shell::desktop::runtime::diagnostics::emit_event(
+                    crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                        channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_INVALID_QUERY,
+                        latency_us: 0,
+                    },
+                );
+            }
+        }
+        handled_omnibar_search = true;
+    }
+
     if !handled_omnibar_search {
         let mut handled_non_at_session = false;
         if let Some(session) = omnibar_search_session.as_ref()

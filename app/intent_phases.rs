@@ -168,6 +168,36 @@ impl GraphBrowserApp {
                 }
                 true
             }
+            GraphIntent::SetViewFilter { view_id, expr } => {
+                if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+                    let is_some = expr.is_some();
+                    view.active_filter = expr;
+                    let channel = if is_some {
+                        crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_APPLIED
+                    } else {
+                        crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_CLEARED
+                    };
+                    crate::shell::desktop::runtime::diagnostics::emit_event(
+                        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                            channel_id: channel,
+                            latency_us: 0,
+                        },
+                    );
+                }
+                true
+            }
+            GraphIntent::ClearViewFilter { view_id } => {
+                if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+                    view.active_filter = None;
+                    crate::shell::desktop::runtime::diagnostics::emit_event(
+                        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                            channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_CLEARED,
+                            latency_us: 0,
+                        },
+                    );
+                }
+                true
+            }
             GraphIntent::SetViewDimension { view_id, dimension } => {
                 if !is_semantic_depth_dimension(&dimension) {
                     self.workspace
@@ -600,6 +630,25 @@ impl GraphBrowserApp {
                             self.workspace.graph_runtime.suggested_semantic_tags.remove(&key);
                         }
                     }
+                    // Emit WAL audit event (snapshot entry TagNode has no timestamp).
+                    if let Some(store) = &mut self.services.persistence {
+                        if let Some(node) = self.workspace.domain.graph.get_node(key) {
+                            let node_id = node.id.to_string();
+                            store.log_mutation(
+                                &crate::services::persistence::types::LogEntry::TagNode {
+                                    node_id: node_id.clone(),
+                                    tag: normalized_tag.clone(),
+                                },
+                            );
+                            store.log_audit_event(
+                                &node_id,
+                                crate::services::persistence::types::NodeAuditEventKind::Tagged {
+                                    tag: normalized_tag,
+                                },
+                                Self::unix_timestamp_ms_now(),
+                            );
+                        }
+                    }
                 }
             }
             GraphIntent::UntagNode { key, tag } => {
@@ -608,6 +657,25 @@ impl GraphBrowserApp {
                 }
                 if self.workspace.domain.graph.remove_node_tag(key, &tag) {
                     self.workspace.graph_runtime.semantic_index_dirty = true;
+                }
+                // Emit WAL audit event (snapshot entry UntagNode has no timestamp).
+                if let Some(store) = &mut self.services.persistence {
+                    if let Some(node) = self.workspace.domain.graph.get_node(key) {
+                        let node_id = node.id.to_string();
+                        store.log_mutation(
+                            &crate::services::persistence::types::LogEntry::UntagNode {
+                                node_id: node_id.clone(),
+                                tag: tag.clone(),
+                            },
+                        );
+                        store.log_audit_event(
+                            &node_id,
+                            crate::services::persistence::types::NodeAuditEventKind::Untagged {
+                                tag,
+                            },
+                            Self::unix_timestamp_ms_now(),
+                        );
+                    }
                 }
             }
             GraphIntent::SuggestNodeTags { key, suggestions } => {
@@ -749,12 +817,6 @@ impl GraphBrowserApp {
             | GraphIntent::SetNodeFormDraft { .. }
             | GraphIntent::SetNodeThumbnail { .. }
             | GraphIntent::SetNodeFavicon { .. }
-            | GraphIntent::SetFileTreeContainmentRelationSource { .. }
-            | GraphIntent::SetFileTreeSortMode { .. }
-            | GraphIntent::SetFileTreeRootFilter { .. }
-            | GraphIntent::SetFileTreeSelectedRows { .. }
-            | GraphIntent::SetFileTreeExpandedRows { .. }
-            | GraphIntent::RebuildFileTreeProjection
             | GraphIntent::SetNavigatorContainmentRelationSource { .. }
             | GraphIntent::SetNavigatorSortMode { .. }
             | GraphIntent::SetNavigatorRootFilter { .. }
@@ -787,6 +849,8 @@ impl GraphBrowserApp {
             | GraphIntent::Undo
             | GraphIntent::Redo
             | GraphIntent::SetViewLens { .. }
+            | GraphIntent::SetViewFilter { .. }
+            | GraphIntent::ClearViewFilter { .. }
             | GraphIntent::SetViewDimension { .. }
             | GraphIntent::ToggleSemanticDepthView { .. }
             | GraphIntent::SetPhysicsProfile { .. }

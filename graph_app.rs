@@ -22,7 +22,7 @@ use crate::graph::apply::{
 };
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::physics::{GraphPhysicsState, default_graph_physics_state};
-use crate::graph::{EdgeKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
+use crate::graph::{ContainmentSubKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
 use crate::registries::atomic::lens::{
     LayoutMode, PhysicsProfile, ThemeData, deserialize_optional_theme_data,
@@ -316,7 +316,16 @@ pub struct LensConfig {
     pub layout_algorithm_id: String,
     #[serde(default, deserialize_with = "deserialize_optional_theme_data")]
     pub theme: Option<ThemeData>,
-    pub filters: Vec<String>,
+    /// Structured faceted filter expression (spec: faceted_filter_surface_spec.md §5.3).
+    ///
+    /// `None` means no active filter (all nodes visible).
+    /// Replaces the legacy `filters: Vec<String>` field.
+    #[serde(default)]
+    pub filter_expr: Option<crate::model::graph::filter::FacetExpr>,
+    /// Legacy flat-string filter list — retained for backward-compatible deserialization only.
+    /// Do not write new code against this field; use `filter_expr` instead.
+    #[serde(default, rename = "filters", skip_serializing_if = "Vec::is_empty")]
+    pub filters_legacy: Vec<String>,
     #[serde(skip, default)]
     pub overlay_descriptor: Option<crate::registries::atomic::lens::LensOverlayDescriptor>,
 }
@@ -330,7 +339,8 @@ impl Default for LensConfig {
             layout: LayoutMode::Free,
             layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
             theme: None,
-            filters: Vec::new(),
+            filter_expr: None,
+            filters_legacy: Vec::new(),
             overlay_descriptor: None,
         }
     }
@@ -412,6 +422,13 @@ pub struct GraphViewState {
     pub last_layout_algorithm_id: Option<String>,
     #[serde(skip)]
     pub egui_state: Option<EguiGraphState>,
+    /// Active PMEST facet filter expression for this view.
+    ///
+    /// When `Some`, the graph render pass filters visible nodes to those whose
+    /// [`facet_projection_for_node`] evaluates the expression to `true`.
+    /// `None` means all nodes are visible (no filter active).
+    #[serde(default)]
+    pub active_filter: Option<crate::model::graph::filter::FacetExpr>,
 }
 
 impl std::fmt::Debug for GraphViewState {
@@ -426,6 +443,7 @@ impl std::fmt::Debug for GraphViewState {
             .field("local_simulation", &self.local_simulation)
             .field("dimension", &self.dimension)
             .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
+            .field("active_filter", &self.active_filter)
             .finish_non_exhaustive()
     }
 }
@@ -443,6 +461,7 @@ impl Clone for GraphViewState {
             dimension: self.dimension.clone(),
             last_layout_algorithm_id: self.last_layout_algorithm_id.clone(),
             egui_state: None,
+            active_filter: self.active_filter.clone(),
         }
     }
 }
@@ -460,6 +479,7 @@ impl GraphViewState {
             dimension: ViewDimension::default(),
             last_layout_algorithm_id: None,
             egui_state: None,
+            active_filter: None,
         }
     }
 
@@ -542,45 +562,37 @@ pub enum ViewRouteTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FileTreeContainmentRelationSource {
-    #[default]
+pub enum NavigatorContainmentRelationSource {
     GraphContainment,
     SavedViewCollections,
+    #[default]
     ContainmentRelations,
 }
 
-pub type NavigatorContainmentRelationSource = FileTreeContainmentRelationSource;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FileTreeSortMode {
+pub enum NavigatorSortMode {
     #[default]
     Manual,
     NameAscending,
     NameDescending,
 }
 
-pub type NavigatorSortMode = FileTreeSortMode;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileTreeProjectionTarget {
+pub enum NavigatorProjectionTarget {
     Node(NodeKey),
     SavedView(GraphViewId),
 }
 
-pub type NavigatorProjectionTarget = FileTreeProjectionTarget;
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NavigatorProjectionState {
-    pub containment_relation_source: FileTreeContainmentRelationSource,
+    pub containment_relation_source: NavigatorContainmentRelationSource,
     pub expanded_rows: HashSet<String>,
     pub collapsed_rows: HashSet<String>,
     pub selected_rows: HashSet<String>,
-    pub sort_mode: FileTreeSortMode,
+    pub sort_mode: NavigatorSortMode,
     pub root_filter: Option<String>,
     pub row_targets: HashMap<String, NavigatorProjectionTarget>,
 }
-
-pub type FileTreeProjectionState = NavigatorProjectionState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeBlockReason {
@@ -1193,7 +1205,7 @@ impl GraphBrowserApp {
                     suggested_semantic_tags: HashMap::new(),
                     hovered_graph_node: None,
                     highlighted_graph_edge: None,
-                    navigator_projection_state: FileTreeProjectionState::default(),
+                    navigator_projection_state: NavigatorProjectionState::default(),
                     selected_tab_nodes: HashSet::new(),
                     tab_selection_anchor: None,
                     search_display_mode: SearchDisplayMode::Highlight,
@@ -1256,6 +1268,7 @@ impl GraphBrowserApp {
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
                     default_registry_theme_id: None,
+                    mixed_timeline_filter: crate::services::persistence::types::HistoryTimelineFilter::default(),
                 },
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
@@ -1325,7 +1338,7 @@ impl GraphBrowserApp {
                     suggested_semantic_tags: HashMap::new(),
                     hovered_graph_node: None,
                     highlighted_graph_edge: None,
-                    navigator_projection_state: FileTreeProjectionState::default(),
+                    navigator_projection_state: NavigatorProjectionState::default(),
                     selected_tab_nodes: HashSet::new(),
                     tab_selection_anchor: None,
                     search_display_mode: SearchDisplayMode::Highlight,
@@ -1387,6 +1400,7 @@ impl GraphBrowserApp {
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
                     default_registry_theme_id: None,
+                    mixed_timeline_filter: crate::services::persistence::types::HistoryTimelineFilter::default(),
                 },
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
@@ -1576,19 +1590,8 @@ impl GraphBrowserApp {
         self.rebuild_navigator_projection_rows();
     }
 
-    pub fn set_file_tree_containment_relation_source(
-        &mut self,
-        source: FileTreeContainmentRelationSource,
-    ) {
-        self.set_navigator_containment_relation_source(source);
-    }
-
     pub fn set_navigator_sort_mode(&mut self, sort_mode: NavigatorSortMode) {
         self.workspace.graph_runtime.navigator_projection_state.sort_mode = sort_mode;
-    }
-
-    pub fn set_file_tree_sort_mode(&mut self, sort_mode: FileTreeSortMode) {
-        self.set_navigator_sort_mode(sort_mode);
     }
 
     pub fn set_navigator_root_filter(&mut self, root_filter: Option<String>) {
@@ -1596,15 +1599,11 @@ impl GraphBrowserApp {
         self.rebuild_navigator_projection_rows();
     }
 
-    pub fn set_file_tree_root_filter(&mut self, root_filter: Option<String>) {
-        self.set_navigator_root_filter(root_filter);
-    }
-
     #[cfg(test)]
-    fn upsert_file_tree_row_target(
+    fn upsert_navigator_row_target(
         &mut self,
         row_key: impl Into<String>,
-        target: FileTreeProjectionTarget,
+        target: NavigatorProjectionTarget,
     ) {
         self.workspace
             .graph_runtime
@@ -1617,10 +1616,6 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.navigator_projection_state.selected_rows = rows.into_iter().collect();
     }
 
-    pub fn set_file_tree_selected_rows(&mut self, rows: impl IntoIterator<Item = String>) {
-        self.set_navigator_selected_rows(rows);
-    }
-
     pub fn set_navigator_expanded_rows(&mut self, rows: impl IntoIterator<Item = String>) {
         let expanded_rows: HashSet<String> = rows.into_iter().collect();
         self.workspace.graph_runtime.navigator_projection_state.expanded_rows = expanded_rows.clone();
@@ -1631,12 +1626,8 @@ impl GraphBrowserApp {
             .retain(|row| !expanded_rows.contains(row));
     }
 
-    pub fn set_file_tree_expanded_rows(&mut self, rows: impl IntoIterator<Item = String>) {
-        self.set_navigator_expanded_rows(rows);
-    }
-
     pub fn rebuild_navigator_projection_rows(&mut self) {
-        use FileTreeContainmentRelationSource as Source;
+        use NavigatorContainmentRelationSource as Source;
 
         let mut row_targets: HashMap<String, NavigatorProjectionTarget> = HashMap::new();
 
@@ -1673,40 +1664,43 @@ impl GraphBrowserApp {
                 }
             }
             Source::ContainmentRelations => {
-                self.workspace
-                    .domain
-                    .graph
-                    .rebuild_derived_containment_relations();
-
+                // ContainmentRelation edges are kept fresh by apply_graph_delta_and_sync.
+                // Read them directly instead of re-parsing URLs.
                 let mut containment_rows: Vec<(String, NodeKey, Uuid)> = self
                     .workspace
                     .domain
                     .graph
-                    .nodes()
-                    .flat_map(|(key, node)| {
-                        let mut rows = Vec::new();
-                        let Ok(parsed) = url::Url::parse(&node.url) else {
-                            return rows;
+                    .edges()
+                    .filter_map(|edge| {
+                        let sub_kind = match edge.edge_type {
+                            EdgeType::ContainmentRelation(sub_kind) => sub_kind,
+                            _ => return None,
                         };
-
-                        if let Some(host) = parsed.host_str() {
-                            rows.push((format!("domain:{}", host.to_ascii_lowercase()), key, node.id));
-                        }
-
-                        if matches!(parsed.scheme(), "http" | "https" | "file") {
-                            let mut parent = parsed.clone();
-                            parent.set_query(None);
-                            parent.set_fragment(None);
-                            let mut segments: Vec<String> = parent
-                                .path_segments()
-                                .map(|parts| {
-                                    parts
-                                        .filter(|segment| !segment.is_empty())
-                                        .map(ToString::to_string)
-                                        .collect::<Vec<_>>()
-                                })
-                                .unwrap_or_default();
-                            if !segments.is_empty() {
+                        let node = self.workspace.domain.graph.get_node(edge.from)?;
+                        let Ok(parsed) = url::Url::parse(&node.url) else {
+                            return None;
+                        };
+                        let row_prefix = match sub_kind {
+                            ContainmentSubKind::Domain => {
+                                let host = parsed.host_str()?.to_ascii_lowercase();
+                                format!("domain:{host}")
+                            }
+                            ContainmentSubKind::UrlPath => {
+                                let mut parent = parsed.clone();
+                                parent.set_query(None);
+                                parent.set_fragment(None);
+                                let mut segments: Vec<String> = parent
+                                    .path_segments()
+                                    .map(|parts| {
+                                        parts
+                                            .filter(|s| !s.is_empty())
+                                            .map(ToString::to_string)
+                                            .collect::<Vec<_>>()
+                                    })
+                                    .unwrap_or_default();
+                                if segments.is_empty() {
+                                    return None;
+                                }
                                 segments.pop();
                                 let parent_path = if segments.is_empty() {
                                     "/".to_string()
@@ -1714,11 +1708,10 @@ impl GraphBrowserApp {
                                     format!("/{}/", segments.join("/"))
                                 };
                                 parent.set_path(&parent_path);
-                                rows.push((format!("folder:{}", parent), key, node.id));
+                                format!("folder:{parent}")
                             }
-                        }
-
-                        rows
+                        };
+                        Some((row_prefix, edge.from, node.id))
                     })
                     .collect();
                 containment_rows.sort_by(|(left_path, _, left_id), (right_path, _, right_id)| {
@@ -1726,6 +1719,7 @@ impl GraphBrowserApp {
                         .cmp(right_path)
                         .then_with(|| left_id.cmp(right_id))
                 });
+                containment_rows.dedup_by_key(|(row_prefix, key, _)| (row_prefix.clone(), *key));
                 for (row_key, key, node_id) in containment_rows {
                     row_targets.insert(
                         format!("{row_key}#{node_id}"),
@@ -2059,49 +2053,6 @@ impl GraphBrowserApp {
                 else {
                     unreachable!("favicon delta must return NodeMetadataUpdated");
                 };
-                true
-            }
-            ViewAction::SetFileTreeContainmentRelationSource { source } => {
-                if self
-                    .workspace
-                    .graph_runtime
-                    .navigator_projection_state
-                    .containment_relation_source
-                    != source
-                {
-                    self.set_navigator_containment_relation_source(source);
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-                        latency_us: 0,
-                    });
-                }
-                true
-            }
-            ViewAction::SetFileTreeSortMode { sort_mode } => {
-                self.set_navigator_sort_mode(sort_mode);
-                true
-            }
-            ViewAction::SetFileTreeRootFilter { root_filter } => {
-                self.set_navigator_root_filter(root_filter);
-                true
-            }
-            ViewAction::SetFileTreeSelectedRows { rows } => {
-                let next_rows: HashSet<String> = rows.iter().cloned().collect();
-                if self.workspace.graph_runtime.navigator_projection_state.selected_rows != next_rows {
-                    self.set_navigator_selected_rows(rows);
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-                        latency_us: 0,
-                    });
-                }
-                true
-            }
-            ViewAction::SetFileTreeExpandedRows { rows } => {
-                self.set_navigator_expanded_rows(rows);
-                true
-            }
-            ViewAction::RebuildFileTreeProjection => {
-                self.rebuild_navigator_projection_rows();
                 true
             }
             ViewAction::SetNavigatorContainmentRelationSource { source } => {
@@ -3688,12 +3639,30 @@ impl GraphBrowserApp {
         if Self::graph_structure_changed(&result) {
             self.clear_hop_distance_cache();
         }
+        // Rebuild derived containment edges whenever the node set or a node's URL changes,
+        // so ContainmentRelation edges stay consistent without requiring an explicit refresh.
+        if Self::containment_affected(&result) {
+            self.workspace
+                .domain
+                .graph
+                .rebuild_derived_containment_relations();
+        }
         if let Some(egui_state) = self.workspace.graph_runtime.egui_state.as_mut()
             && !egui_state.sync_from_delta(&self.workspace.domain.graph, &delta, &result)
         {
             self.workspace.graph_runtime.egui_state_dirty = true;
         }
         result
+    }
+
+    fn containment_affected(result: &GraphDeltaResult) -> bool {
+        matches!(
+            result,
+            GraphDeltaResult::NodeAdded(_)
+                | GraphDeltaResult::NodeMaybeAdded(Some(_))
+                | GraphDeltaResult::NodeRemoved(true)
+                | GraphDeltaResult::NodeUrlUpdated(Some(_))
+        )
     }
 
     fn graph_structure_changed(result: &GraphDeltaResult) -> bool {
@@ -3904,6 +3873,47 @@ impl GraphBrowserApp {
             .as_ref()
             .map(|store| (store.traversal_archive_len(), store.dissolved_archive_len()))
             .unwrap_or((0, 0))
+    }
+
+    /// Return per-node audit history entries (newest first).
+    /// Returns `LogEntry::AppendNodeAuditEvent` records for the given node, up to `limit`.
+    pub fn node_audit_history_entries(
+        &self,
+        node_id: uuid::Uuid,
+        limit: usize,
+    ) -> Vec<LogEntry> {
+        self.services
+            .persistence
+            .as_ref()
+            .map(|store| store.node_audit_history(&node_id.to_string(), limit))
+            .unwrap_or_default()
+    }
+
+    /// Return per-node address navigation history entries (newest first).
+    /// Returns `LogEntry::NavigateNode` records for the given node, up to `limit`.
+    pub fn node_navigation_history_entries(
+        &self,
+        node_id: uuid::Uuid,
+        limit: usize,
+    ) -> Vec<LogEntry> {
+        self.services
+            .persistence
+            .as_ref()
+            .map(|store| store.node_navigation_history(&node_id.to_string(), limit))
+            .unwrap_or_default()
+    }
+
+    /// Return mixed-timeline entries across all history tracks, filtered and sorted newest-first.
+    pub fn mixed_timeline_entries(
+        &self,
+        filter: &crate::services::persistence::types::HistoryTimelineFilter,
+        limit: usize,
+    ) -> Vec<crate::services::persistence::types::HistoryTimelineEvent> {
+        self.services
+            .persistence
+            .as_ref()
+            .map(|store| store.mixed_timeline_entries(filter, limit))
+            .unwrap_or_default()
     }
 
     /// Return timeline index entries for Stage F replay cursors (newest first).
@@ -6840,12 +6850,14 @@ mod tests {
                 url: "https://from.example".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&crate::services::persistence::types::LogEntry::AddNode {
                 node_id: to.to_string(),
                 url: "https://to.example".to_string(),
                 position_x: 32.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(
                 &crate::services::persistence::types::LogEntry::AppendTraversal {
@@ -6861,6 +6873,7 @@ mod tests {
                 url: "https://later.example".to_string(),
                 position_x: 64.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
             app.workspace.domain.graph = store.recover().expect("full graph recovery");
         }
@@ -6911,12 +6924,14 @@ mod tests {
                 url: "https://from.example".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&crate::services::persistence::types::LogEntry::AddNode {
                 node_id: to.to_string(),
                 url: "https://to.example".to_string(),
                 position_x: 32.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(
                 &crate::services::persistence::types::LogEntry::AppendTraversal {
@@ -7923,11 +7938,11 @@ mod tests {
 
         assert_eq!(
             app.navigator_projection_state().containment_relation_source,
-            FileTreeContainmentRelationSource::GraphContainment
+            NavigatorContainmentRelationSource::GraphContainment
         );
         assert_eq!(
             app.navigator_projection_state().sort_mode,
-            FileTreeSortMode::Manual
+            NavigatorSortMode::Manual
         );
         assert!(app.navigator_projection_state().row_targets.is_empty());
         assert!(app.navigator_projection_state().selected_rows.is_empty());
@@ -7948,13 +7963,13 @@ mod tests {
             .map(|node| node.id)
             .expect("node must exist");
 
-        app.apply_reducer_intents([GraphIntent::RebuildFileTreeProjection]);
+        app.apply_reducer_intents([GraphIntent::RebuildNavigatorProjection]);
 
         assert_eq!(
             app.navigator_projection_state()
                 .row_targets
                 .get(&format!("node:{node_id}")),
-            Some(&FileTreeProjectionTarget::Node(node_key))
+            Some(&NavigatorProjectionTarget::Node(node_key))
         );
     }
 
@@ -7968,17 +7983,17 @@ mod tests {
             .insert(view_id, GraphViewState::new_with_id(view_id, "Saved View"));
 
         app.apply_reducer_intents([
-            GraphIntent::SetFileTreeContainmentRelationSource {
-                source: FileTreeContainmentRelationSource::SavedViewCollections,
+            GraphIntent::SetNavigatorContainmentRelationSource {
+                source: NavigatorContainmentRelationSource::SavedViewCollections,
             },
-            GraphIntent::RebuildFileTreeProjection,
+            GraphIntent::RebuildNavigatorProjection,
         ]);
 
         assert_eq!(
             app.navigator_projection_state()
                 .row_targets
                 .get(&format!("view:{}", view_id.as_uuid())),
-            Some(&FileTreeProjectionTarget::SavedView(view_id))
+            Some(&NavigatorProjectionTarget::SavedView(view_id))
         );
     }
 
@@ -7986,10 +8001,10 @@ mod tests {
     fn test_file_tree_projection_rebuild_prunes_stale_selection_and_expansion_rows() {
         let mut app = GraphBrowserApp::new_for_testing();
 
-        app.set_file_tree_selected_rows(["row:stale".to_string()]);
-        app.set_file_tree_expanded_rows(["row:stale".to_string()]);
+        app.set_navigator_selected_rows(["row:stale".to_string()]);
+        app.set_navigator_expanded_rows(["row:stale".to_string()]);
 
-        app.apply_reducer_intents([GraphIntent::RebuildFileTreeProjection]);
+        app.apply_reducer_intents([GraphIntent::RebuildNavigatorProjection]);
 
         assert!(app.navigator_projection_state().selected_rows.is_empty());
         assert!(app.navigator_projection_state().expanded_rows.is_empty());
@@ -8008,10 +8023,10 @@ mod tests {
         );
 
         app.apply_reducer_intents([
-            GraphIntent::SetFileTreeContainmentRelationSource {
-                source: FileTreeContainmentRelationSource::ContainmentRelations,
+            GraphIntent::SetNavigatorContainmentRelationSource {
+                source: NavigatorContainmentRelationSource::ContainmentRelations,
             },
-            GraphIntent::RebuildFileTreeProjection,
+            GraphIntent::RebuildNavigatorProjection,
         ]);
 
         let keys: Vec<&String> = app
@@ -8036,13 +8051,13 @@ mod tests {
             .add_node("file:///tmp/b/b.log".to_string(), Point2D::new(1.0, 0.0));
 
         app.apply_reducer_intents([
-            GraphIntent::SetFileTreeContainmentRelationSource {
-                source: FileTreeContainmentRelationSource::ContainmentRelations,
+            GraphIntent::SetNavigatorContainmentRelationSource {
+                source: NavigatorContainmentRelationSource::ContainmentRelations,
             },
-            GraphIntent::SetFileTreeRootFilter {
+            GraphIntent::SetNavigatorRootFilter {
                 root_filter: Some("/tmp/a/".to_string()),
             },
-            GraphIntent::RebuildFileTreeProjection,
+            GraphIntent::RebuildNavigatorProjection,
         ]);
 
         let keys: Vec<&String> = app
@@ -8059,30 +8074,30 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
 
         app.apply_reducer_intents([
-            GraphIntent::SetFileTreeContainmentRelationSource {
-                source: FileTreeContainmentRelationSource::ContainmentRelations,
+            GraphIntent::SetNavigatorContainmentRelationSource {
+                source: NavigatorContainmentRelationSource::ContainmentRelations,
             },
-            GraphIntent::SetFileTreeSortMode {
-                sort_mode: FileTreeSortMode::NameDescending,
+            GraphIntent::SetNavigatorSortMode {
+                sort_mode: NavigatorSortMode::NameDescending,
             },
-            GraphIntent::SetFileTreeRootFilter {
+            GraphIntent::SetNavigatorRootFilter {
                 root_filter: Some("root:tests".to_string()),
             },
-            GraphIntent::SetFileTreeSelectedRows {
+            GraphIntent::SetNavigatorSelectedRows {
                 rows: vec!["row:selected".to_string()],
             },
-            GraphIntent::SetFileTreeExpandedRows {
+            GraphIntent::SetNavigatorExpandedRows {
                 rows: vec!["row:expanded".to_string()],
             },
         ]);
 
         assert_eq!(
             app.navigator_projection_state().containment_relation_source,
-            FileTreeContainmentRelationSource::ContainmentRelations
+            NavigatorContainmentRelationSource::ContainmentRelations
         );
         assert_eq!(
             app.navigator_projection_state().sort_mode,
-            FileTreeSortMode::NameDescending
+            NavigatorSortMode::NameDescending
         );
         assert_eq!(
             app.navigator_projection_state().root_filter.as_deref(),
@@ -8104,26 +8119,26 @@ mod tests {
     fn test_clear_graph_resets_navigator_projection_state() {
         let mut app = GraphBrowserApp::new_for_testing();
 
-        app.set_file_tree_containment_relation_source(
-            FileTreeContainmentRelationSource::ContainmentRelations,
+        app.set_navigator_containment_relation_source(
+            NavigatorContainmentRelationSource::ContainmentRelations,
         );
-        app.set_file_tree_sort_mode(FileTreeSortMode::NameAscending);
-        app.set_file_tree_root_filter(Some("root:collections".to_string()));
-        app.upsert_file_tree_row_target(
+        app.set_navigator_sort_mode(NavigatorSortMode::NameAscending);
+        app.set_navigator_root_filter(Some("root:collections".to_string()));
+        app.upsert_navigator_row_target(
             "row:stale",
-            FileTreeProjectionTarget::SavedView(GraphViewId::new()),
+            NavigatorProjectionTarget::SavedView(GraphViewId::new()),
         );
-        app.set_file_tree_selected_rows(["row:stale".to_string()]);
+        app.set_navigator_selected_rows(["row:stale".to_string()]);
 
         app.clear_graph();
 
         assert_eq!(
             app.navigator_projection_state().containment_relation_source,
-            FileTreeContainmentRelationSource::GraphContainment
+            NavigatorContainmentRelationSource::GraphContainment
         );
         assert_eq!(
             app.navigator_projection_state().sort_mode,
-            FileTreeSortMode::Manual
+            NavigatorSortMode::Manual
         );
         assert!(app.navigator_projection_state().root_filter.is_none());
         assert!(app.navigator_projection_state().row_targets.is_empty());
@@ -8866,12 +8881,14 @@ mod tests {
                 url: "https://a.com".to_string(),
                 position_x: 10.0,
                 position_y: 20.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddNode {
                 node_id: id_b.to_string(),
                 url: "https://b.com".to_string(),
                 position_x: 30.0,
                 position_y: 40.0,
+                timestamp_ms: 0,
             });
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
@@ -8914,6 +8931,7 @@ mod tests {
                 url: "about:blank#5".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
+                timestamp_ms: 0,
             });
         }
 
@@ -9433,7 +9451,7 @@ mod tests {
                 font_scale: 1.3,
                 stroke_width: 2.0,
             }),
-            filters: Vec::new(),
+            filters_legacy: Vec::new(),
             overlay_descriptor: None,
         };
 
@@ -9467,7 +9485,7 @@ mod tests {
             layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
                 .to_string(),
             theme: None,
-            filters: Vec::new(),
+            filters_legacy: Vec::new(),
             overlay_descriptor: None,
         };
 
@@ -9564,7 +9582,7 @@ mod tests {
             layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
                 .to_string(),
             theme: None,
-            filters: vec!["stale".to_string()],
+            filters_legacy: vec!["stale".to_string()],
             overlay_descriptor: None,
         };
         app.workspace
@@ -9586,7 +9604,7 @@ mod tests {
                 font_scale: 1.1,
                 stroke_width: 3.0,
             }),
-            filters: vec!["custom".to_string()],
+            filters_legacy: vec!["custom".to_string()],
             overlay_descriptor: None,
         };
         app.workspace
@@ -10323,11 +10341,11 @@ mod tests {
 
     #[cfg(feature = "diagnostics")]
     #[test]
-    fn set_file_tree_selected_rows_emits_ux_navigation_transition_channel() {
+    fn set_navigator_selected_rows_emits_ux_navigation_transition_channel() {
         let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
         let mut app = GraphBrowserApp::new_for_testing();
 
-        app.apply_reducer_intents([GraphIntent::SetFileTreeSelectedRows {
+        app.apply_reducer_intents([GraphIntent::SetNavigatorSelectedRows {
             rows: vec!["row:test".to_string()],
         }]);
 

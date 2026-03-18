@@ -25,6 +25,7 @@ fn two_instance_node_sync() {
             url: "https://example.com".to_string(),
             position_x: 10.0,
             position_y: 20.0,
+            timestamp_ms: 0,
         },
         authored_by: peer_a,
         authored_at_secs: 1000,

@@ -7,20 +7,15 @@ use crate::graph::{EdgeType, NodeKey};
 
 use super::{
     CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand,
-    FileTreeContainmentRelationSource, FileTreeSortMode, GraphSearchRequest, GraphViewId,
-    GraphViewLayoutDirection, HostOpenRequest, KeyboardZoomRequest, LensConfig, LifecycleCause,
-    MemoryPressureLevel, NoteId, PendingConnectedOpenScope, PendingNodeOpenRequest,
-    PendingTileOpenMode, RendererId, SelectionUpdateMode, ToolSurfaceReturnTarget,
-    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
+    GraphSearchRequest, GraphViewId, GraphViewLayoutDirection, HostOpenRequest,
+    KeyboardZoomRequest, LensConfig, LifecycleCause, MemoryPressureLevel,
+    NavigatorContainmentRelationSource, NavigatorSortMode, NoteId, PendingConnectedOpenScope,
+    PendingNodeOpenRequest, PendingTileOpenMode, RendererId, SelectionUpdateMode,
+    ToolSurfaceReturnTarget, UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
 };
 use crate::shell::desktop::workbench::pane_model::{
     FloatingPaneTargetTileContext, PaneId, PanePresentationMode,
 };
-
-/// Navigator adapter aliases to preserve behavior while migrating away from
-/// legacy FileTree naming in intent callers.
-pub type NavigatorContainmentRelationSource = FileTreeContainmentRelationSource;
-pub type NavigatorSortMode = FileTreeSortMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserCommand {
@@ -188,22 +183,6 @@ pub enum ViewAction {
         width: u32,
         height: u32,
     },
-    SetFileTreeContainmentRelationSource {
-        source: FileTreeContainmentRelationSource,
-    },
-    SetFileTreeSortMode {
-        sort_mode: FileTreeSortMode,
-    },
-    SetFileTreeRootFilter {
-        root_filter: Option<String>,
-    },
-    SetFileTreeSelectedRows {
-        rows: Vec<String>,
-    },
-    SetFileTreeExpandedRows {
-        rows: Vec<String>,
-    },
-    RebuildFileTreeProjection,
     SetNavigatorContainmentRelationSource {
         source: NavigatorContainmentRelationSource,
     },
@@ -223,7 +202,7 @@ pub enum ViewAction {
 }
 
 /// Navigator-shaped adapter intents that map directly to existing GraphIntent
-/// FileTree projection operations.
+/// Navigator projection operations.
 #[derive(Debug, Clone)]
 pub enum NavigatorProjectionIntent {
     SetContainmentRelationSource {
@@ -529,6 +508,13 @@ pub enum GraphIntent {
         view_id: GraphViewId,
         lens: LensConfig,
     },
+    SetViewFilter {
+        view_id: GraphViewId,
+        expr: Option<crate::model::graph::filter::FacetExpr>,
+    },
+    ClearViewFilter {
+        view_id: GraphViewId,
+    },
     #[allow(dead_code)]
     SetViewDimension {
         view_id: GraphViewId,
@@ -774,22 +760,6 @@ pub enum GraphIntent {
         key: NodeKey,
         kind: crate::graph::AddressKind,
     },
-    SetFileTreeContainmentRelationSource {
-        source: FileTreeContainmentRelationSource,
-    },
-    SetFileTreeSortMode {
-        sort_mode: FileTreeSortMode,
-    },
-    SetFileTreeRootFilter {
-        root_filter: Option<String>,
-    },
-    SetFileTreeSelectedRows {
-        rows: Vec<String>,
-    },
-    SetFileTreeExpandedRows {
-        rows: Vec<String>,
-    },
-    RebuildFileTreeProjection,
     SetNavigatorContainmentRelationSource {
         source: NavigatorContainmentRelationSource,
     },
@@ -852,18 +822,6 @@ impl From<ViewAction> for GraphIntent {
                 width,
                 height,
             },
-            ViewAction::SetFileTreeContainmentRelationSource { source } => {
-                Self::SetFileTreeContainmentRelationSource { source }
-            }
-            ViewAction::SetFileTreeSortMode { sort_mode } => {
-                Self::SetFileTreeSortMode { sort_mode }
-            }
-            ViewAction::SetFileTreeRootFilter { root_filter } => {
-                Self::SetFileTreeRootFilter { root_filter }
-            }
-            ViewAction::SetFileTreeSelectedRows { rows } => Self::SetFileTreeSelectedRows { rows },
-            ViewAction::SetFileTreeExpandedRows { rows } => Self::SetFileTreeExpandedRows { rows },
-            ViewAction::RebuildFileTreeProjection => Self::RebuildFileTreeProjection,
             ViewAction::SetNavigatorContainmentRelationSource { source } => {
                 Self::SetNavigatorContainmentRelationSource { source }
             }
@@ -1121,24 +1079,6 @@ impl GraphIntent {
                 width: *width,
                 height: *height,
             }),
-            Self::SetFileTreeContainmentRelationSource { source } => {
-                Some(ViewAction::SetFileTreeContainmentRelationSource { source: *source })
-            }
-            Self::SetFileTreeSortMode { sort_mode } => Some(ViewAction::SetFileTreeSortMode {
-                sort_mode: *sort_mode,
-            }),
-            Self::SetFileTreeRootFilter { root_filter } => {
-                Some(ViewAction::SetFileTreeRootFilter {
-                    root_filter: root_filter.clone(),
-                })
-            }
-            Self::SetFileTreeSelectedRows { rows } => {
-                Some(ViewAction::SetFileTreeSelectedRows { rows: rows.clone() })
-            }
-            Self::SetFileTreeExpandedRows { rows } => {
-                Some(ViewAction::SetFileTreeExpandedRows { rows: rows.clone() })
-            }
-            Self::RebuildFileTreeProjection => Some(ViewAction::RebuildFileTreeProjection),
             Self::SetNavigatorContainmentRelationSource { source } => {
                 Some(ViewAction::SetNavigatorContainmentRelationSource { source: *source })
             }

@@ -36,6 +36,7 @@ impl GraphBrowserApp {
                 url: url.clone(),
                 position_x: position.x,
                 position_y: position.y,
+                timestamp_ms: Self::unix_timestamp_ms_now(),
             });
         }
         self.workspace.graph_runtime.physics.base.is_running = true;
@@ -186,6 +187,8 @@ impl GraphBrowserApp {
                     crate::graph::ArrangementSubKind::SplitPair,
                 ) => return,
                 crate::graph::EdgeType::ContainmentRelation(_) => return,
+                crate::graph::EdgeType::ImportedRelation => return,
+                crate::graph::EdgeType::AgentDerived { .. } => return,
             };
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id,
@@ -232,6 +235,8 @@ impl GraphBrowserApp {
                     crate::graph::ArrangementSubKind::SplitPair,
                 ) => return,
                 crate::graph::EdgeType::ContainmentRelation(_) => return,
+                crate::graph::EdgeType::ImportedRelation => return,
+                crate::graph::EdgeType::AgentDerived { .. } => return,
             };
             store.log_mutation(&LogEntry::RemoveEdge {
                 from_node_id,
@@ -244,10 +249,19 @@ impl GraphBrowserApp {
     pub fn log_title_mutation(&mut self, node_key: NodeKey) {
         if let Some(store) = &mut self.services.persistence {
             if let Some(node) = self.workspace.domain.graph.get_node(node_key) {
+                let node_id = node.id.to_string();
+                let title = node.title.clone();
                 store.log_mutation(&LogEntry::UpdateNodeTitle {
-                    node_id: node.id.to_string(),
-                    title: node.title.clone(),
+                    node_id: node_id.clone(),
+                    title: title.clone(),
                 });
+                store.log_audit_event(
+                    &node_id,
+                    crate::services::persistence::types::NodeAuditEventKind::TitleChanged {
+                        new_title: title,
+                    },
+                    Self::unix_timestamp_ms_now(),
+                );
             }
         }
     }
@@ -340,7 +354,7 @@ impl GraphBrowserApp {
         let existing_edge_key = self.workspace.domain.graph.find_edge_key(from_key, to_key);
         let history_semantic_existed = existing_edge_key
             .and_then(|edge_key| self.workspace.domain.graph.get_edge(edge_key))
-            .map(|payload| payload.has_kind(EdgeKind::TraversalDerived))
+            .map(|payload| payload.has_edge_type(EdgeType::History))
             .unwrap_or(false);
 
         let traversal = Traversal::now(trigger);
@@ -777,16 +791,23 @@ impl GraphBrowserApp {
         }
 
         if let Some(store) = &mut self.services.persistence {
+            let node_id = self
+                .workspace
+                .domain
+                .graph
+                .get_node(key)
+                .map(|node| node.id.to_string())
+                .unwrap_or_default();
             store.log_mutation(&LogEntry::PinNode {
-                node_id: self
-                    .workspace
-                    .domain
-                    .graph
-                    .get_node(key)
-                    .map(|node| node.id.to_string())
-                    .unwrap_or_default(),
+                node_id: node_id.clone(),
                 is_pinned,
             });
+            let audit_event = if is_pinned {
+                crate::services::persistence::types::NodeAuditEventKind::Pinned
+            } else {
+                crate::services::persistence::types::NodeAuditEventKind::Unpinned
+            };
+            store.log_audit_event(&node_id, audit_event, Self::unix_timestamp_ms_now());
         }
     }
 
@@ -814,6 +835,7 @@ impl GraphBrowserApp {
                 if let Some(node_id) = node_id {
                     store.log_mutation(&LogEntry::RemoveNode {
                         node_id: node_id.to_string(),
+                        timestamp_ms: Self::unix_timestamp_ms_now(),
                     });
                 }
             }
@@ -881,7 +903,7 @@ impl GraphBrowserApp {
         self.workspace.domain.graph = Graph::new();
         self.reset_selection_state();
         self.workspace.graph_runtime.highlighted_graph_edge = None;
-        self.workspace.graph_runtime.navigator_projection_state = FileTreeProjectionState::default();
+        self.workspace.graph_runtime.navigator_projection_state = NavigatorProjectionState::default();
         self.clear_choose_frame_picker();
         self.workspace.workbench_session.pending_app_commands.clear();
         self.clear_pending_camera_command();
@@ -920,7 +942,7 @@ impl GraphBrowserApp {
         self.workspace.domain.graph = Graph::new();
         self.reset_selection_state();
         self.workspace.graph_runtime.highlighted_graph_edge = None;
-        self.workspace.graph_runtime.navigator_projection_state = FileTreeProjectionState::default();
+        self.workspace.graph_runtime.navigator_projection_state = NavigatorProjectionState::default();
         self.clear_choose_frame_picker();
         self.workspace.workbench_session.pending_app_commands.clear();
         self.clear_pending_camera_command();
@@ -974,10 +996,25 @@ impl GraphBrowserApp {
         if let Some(store) = &mut self.services.persistence {
             if let Some(node) = self.workspace.domain.graph.get_node(key) {
                 let node_id = node.id.to_string();
+                let ts = Self::unix_timestamp_ms_now();
+                store.log_mutation(&LogEntry::NavigateNode {
+                    node_id: node_id.clone(),
+                    from_url: old_url.clone(),
+                    to_url: new_url.clone(),
+                    trigger: PersistedNavigationTrigger::Unknown,
+                    timestamp_ms: ts,
+                });
                 store.log_mutation(&LogEntry::UpdateNodeUrl {
                     node_id: node_id.clone(),
                     new_url: new_url.clone(),
                 });
+                store.log_audit_event(
+                    &node_id,
+                    crate::services::persistence::types::NodeAuditEventKind::UrlChanged {
+                        new_url: new_url.clone(),
+                    },
+                    ts,
+                );
                 store.log_mutation(&LogEntry::UpdateNodeMimeHint {
                     node_id: node_id.clone(),
                     mime_hint: new_mime_hint,

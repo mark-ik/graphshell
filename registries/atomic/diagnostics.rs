@@ -73,6 +73,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_FOCUS_CAPTURE_EXIT, CHANNEL_UX_FOCUS_REALIZATION_MISMATCH,
     CHANNEL_UX_FOCUS_RETURN_FALLBACK, CHANNEL_UX_NAVIGATION_TRANSITION,
     CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_PROBE_DISABLED, CHANNEL_UX_PROBE_REGISTERED,
+    CHANNEL_UX_FACET_FILTER_APPLIED, CHANNEL_UX_FACET_FILTER_CLEARED,
+    CHANNEL_UX_FACET_FILTER_EVAL_FAILURE, CHANNEL_UX_FACET_FILTER_INVALID_QUERY,
+    CHANNEL_UX_FACET_FILTER_TYPE_MISMATCH,
     CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT, CHANNEL_UX_RADIAL_MODE_FALLBACK,
     CHANNEL_UX_RADIAL_OVERFLOW, CHANNEL_UX_STRUCTURAL_VIOLATION, CHANNEL_UX_TREE_BUILD,
     CHANNEL_UX_TREE_SNAPSHOT_BUILT, CHANNEL_VERSE_PREINIT_CALL, CHANNEL_VERSE_SYNC_ACCESS_DENIED,
@@ -85,7 +88,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE,
     CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED, CHANNEL_VIEWER_SELECT_STARTED,
     CHANNEL_VIEWER_SELECT_SUCCEEDED, CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED,
-    CHANNEL_WORKFLOW_ACTIVATED,
+    CHANNEL_WORKFLOW_ACTIVATED, CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE,
+    CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH, CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED,
+    CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
 };
 
 /// Severity tier for diagnostic channel prioritization in the diagnostics pane.
@@ -548,7 +553,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 130] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 139] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -940,6 +945,31 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 130] = [
         severity: ChannelSeverity::Warn,
     },
     DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_FACET_FILTER_APPLIED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_FACET_FILTER_CLEARED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_FACET_FILTER_INVALID_QUERY,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_FACET_FILTER_TYPE_MISMATCH,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_FACET_FILTER_EVAL_FAILURE,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UX_RADIAL_OVERFLOW,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
@@ -1198,6 +1228,26 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 130] = [
         channel_id: CHANNEL_UX_RADIAL_MODE_FALLBACK,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
 ];
 

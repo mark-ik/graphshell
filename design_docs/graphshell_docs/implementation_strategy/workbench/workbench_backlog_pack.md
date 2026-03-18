@@ -20,6 +20,26 @@ pane lifecycle, focus, persistence, and surface routing.
 
 ---
 
+## Landed Delta (2026-03-18)
+
+The following slices are now landed in code and should be treated as backlog progress:
+
+- ✅ Intent-carrier cleanup for navigator/workbench routing:
+     legacy `FileTree*` variants were removed from active reducer/view-action paths,
+     with canonical `Navigator*` carriers used at app/runtime boundaries.
+     Advances: `WB06`, `WB08`.
+- ✅ Navigator projection reset and state ownership paths now resolve through
+     `NavigatorProjectionState` naming consistently across runtime/workspace state.
+     Advances: `WB03`, `WB05`.
+- ✅ Node pane now hosts collapsible `Node History` and `Node Audit` sections,
+     backed by history query helpers instead of ad hoc pane-local state.
+     Advances: `WB17`, `WB21`.
+
+Remaining backlog IDs keep their existing done-gates unless explicitly closed by
+a dedicated closure receipt.
+
+---
+
 ## Wave 1
 
 1. `WB01` Workbench Core Boundary. Depends: none. Done gate: one canonical doc distinguishes workbench authority from graph truth and renderer/session caches.

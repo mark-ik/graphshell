@@ -439,6 +439,8 @@ fn edge_type_label(edge_type: crate::graph::EdgeType) -> &'static str {
         crate::graph::EdgeType::UserGrouped => "user_grouped",
         crate::graph::EdgeType::ArrangementRelation(sub_kind) => sub_kind.as_tag(),
         crate::graph::EdgeType::ContainmentRelation(sub_kind) => sub_kind.as_tag(),
+        crate::graph::EdgeType::ImportedRelation => "imported_relation",
+        crate::graph::EdgeType::AgentDerived { .. } => "agent_derived",
     }
 }
 

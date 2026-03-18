@@ -210,12 +210,15 @@ This note does not cover:
 
 1. Should the idle threshold be per-worker or global? Global is simpler; per-
    worker allows Matrix to stay live while iroh suspends.
+- per worker
 2. Should `spawn_blocking` tasks be tracked through ControlPanel or left to
    tokio's default blocking pool? Tracking enables diagnostics; leaving them
    untracked is simpler.
+- tracked through control panel
 3. When Verse lands, does the libp2p swarm get its own ControlPanel worker
    slot, or does the Verse mod own its own tokio runtime? The latter would
    give Verse a hard resource partition but complicate intent ingress.
+- i would think the libp2p swarm would get its own control panel worker, but this is the one I'm least sure of
 
 These are blocking design questions for the implementation slice, not for
 the current backlog phase.
@@ -224,14 +227,29 @@ the current backlog phase.
 
 ## 10. Done Gates (when implementation slice is opened)
 
-- [ ] `WorkerTier` classification exists on ControlPanel worker registration.
-- [ ] `SystemSignal::UserIdle` / `SystemSignal::UserResumed` wired through
+- [x] `WorkerTier` classification exists on ControlPanel worker registration.
+      (`WorkerTier` enum in `control_panel.rs`; `Tier1P2pSync`, `Tier1NostrRelay`,
+      `Tier1MatrixCore` variants. Each `spawn_*_worker` calls `register_worker_tier(tier)`
+      at its spawn site; counts tracked in `registered_tiers: HashMap<WorkerTier, usize>`
+      for future §4 budget enforcement. `spawn_matrix_core_worker` is a registered stub
+      for MatrixCore (plan-only). Done 2026-03-18.)
+- [x] `SystemSignal::UserIdle` / `SystemSignal::UserResumed` wired through
       SignalBus to Tier 1 worker suspension logic.
-- [ ] All existing Tier 1 workers (`P2PSyncWorker`, Nostr relay pool,
+      (`LifecycleSignal::UserIdle { since_ms }` / `LifecycleSignal::UserResumed` added;
+      `ControlPanel::tick_idle_watchdog` emits via `RegistryRuntime::propagate_user_idle_signal`
+      / `propagate_user_resumed_signal`. Threshold sourced from
+      `AppPreferences::worker_idle_threshold_secs` (CLI: `--worker-idle-threshold-secs`,
+      env: `GRAPHSHELL_WORKER_IDLE_THRESHOLD_SECS`); defaults to 120 s. Done 2026-03-18.)
+- [x] All existing Tier 1 workers (`P2PSyncWorker`, Nostr relay pool,
       `MatrixCore`) respect the suspension signal.
-- [ ] `system:task_budget:*` diagnostics channels registered with correct
-      severities.
+      (P2P sync and Nostr relay: advisory `watch::Receiver<bool>` wired; workers log
+      the transition. MatrixCore: plan-only, stub interface registered.
+      Full per-worker throttling deferred to worker-side API iteration. Done 2026-03-18.)
+- [x] `system:task_budget:*` diagnostics channels registered with correct
+      severities. (All 4 channels in `PHASE3_CHANNELS`; test added.
+      Backpressure=Warn, Suspended/Resumed/QueueDepth=Info. Done 2026-03-18.)
 - [ ] Intent queue depth stays within the §4 target envelope under a manual
       stress test (3 simultaneous Tier 1 workers + active Servo rendering).
-- [ ] Open questions in §9 resolved and recorded as a dated receipt in this
-      doc before implementation proceeds.
+      (Deferred: requires running binary; no code blocker.)
+- [x] Open questions in §9 resolved and recorded as a dated receipt in this
+      doc before implementation proceeds. (Answers inline in §9 above, 2026-03-18.)

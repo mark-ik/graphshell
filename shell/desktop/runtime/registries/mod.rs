@@ -321,6 +321,11 @@ pub(crate) const CHANNEL_UX_RADIAL_MODE_FALLBACK: &str = "ux:radial_mode_fallbac
 pub(crate) const CHANNEL_UX_TREE_SNAPSHOT_BUILT: &str = "ux:tree_snapshot_built";
 pub(crate) const CHANNEL_UX_PROBE_REGISTERED: &str = "ux:probe_registered";
 pub(crate) const CHANNEL_UX_PROBE_DISABLED: &str = "ux:probe_disabled";
+pub(crate) const CHANNEL_UX_FACET_FILTER_APPLIED: &str = "ux:facet_filter_applied";
+pub(crate) const CHANNEL_UX_FACET_FILTER_CLEARED: &str = "ux:facet_filter_cleared";
+pub(crate) const CHANNEL_UX_FACET_FILTER_INVALID_QUERY: &str = "ux:facet_filter_invalid_query";
+pub(crate) const CHANNEL_UX_FACET_FILTER_TYPE_MISMATCH: &str = "ux:facet_filter_type_mismatch";
+pub(crate) const CHANNEL_UX_FACET_FILTER_EVAL_FAILURE: &str = "ux:facet_filter_eval_failure";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED: &str =
     "register.signal_routing.published";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED: &str =
@@ -353,6 +358,15 @@ pub(crate) const CHANNEL_KNOWLEDGE_INDEX_UPDATED: &str = "registry.knowledge.ind
 pub(crate) const CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN: &str =
     "registry.knowledge.tag_validation_warn";
 pub(crate) const CHANNEL_INDEX_SEARCH: &str = "registry.index.search";
+
+pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE: &str =
+    "system:task_budget:backpressure";
+pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED: &str =
+    "system:task_budget:worker_suspended";
+pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED: &str =
+    "system:task_budget:worker_resumed";
+pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH: &str =
+    "system:task_budget:queue_depth";
 
 static REGISTRY_RUNTIME: OnceLock<Arc<RegistryRuntime>> = OnceLock::new();
 
@@ -2067,6 +2081,30 @@ impl RegistryRuntime {
         ));
     }
 
+    /// Emit a `LifecycleSignal::UserIdle` signal through the signal bus.
+    ///
+    /// Called by `ControlPanel::tick_idle_watchdog` when the idle threshold
+    /// is crossed.
+    pub(crate) fn propagate_user_idle_signal(&self, since_ms: u64) {
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::Lifecycle(LifecycleSignal::UserIdle { since_ms }),
+            SignalSource::ControlPanel,
+            None,
+        ));
+    }
+
+    /// Emit a `LifecycleSignal::UserResumed` signal through the signal bus.
+    ///
+    /// Called by `ControlPanel::tick_idle_watchdog` when the user returns
+    /// from an idle period.
+    pub(crate) fn propagate_user_resumed_signal(&self) {
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::Lifecycle(LifecycleSignal::UserResumed),
+            SignalSource::ControlPanel,
+            None,
+        ));
+    }
+
     #[cfg(test)]
     pub(crate) fn publish_signal_for_tests(&self, envelope: SignalEnvelope) {
         self.publish_signal(envelope);
@@ -2200,7 +2238,8 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         layout: resolution.definition.layout,
         layout_algorithm_id: resolution.definition.layout_algorithm_id,
         theme: resolution.definition.theme,
-        filters: resolution.definition.filters,
+        filter_expr: None,
+        filters_legacy: resolution.definition.filters,
         overlay_descriptor: resolution.definition.overlay_descriptor,
     }
 }
@@ -2228,7 +2267,8 @@ pub(crate) fn phase2_resolve_lens_for_content(
         layout: composed.layout,
         layout_algorithm_id: composed.layout_algorithm_id,
         theme: composed.theme,
-        filters: composed.filters,
+        filter_expr: None,
+        filters_legacy: composed.filters,
         overlay_descriptor: composed.overlay_descriptor,
     }
 }
@@ -2630,7 +2670,8 @@ pub(crate) fn phase2_resolve_lens_for_tests(
         layout: resolution.definition.layout,
         layout_algorithm_id: resolution.definition.layout_algorithm_id,
         theme: resolution.definition.theme,
-        filters: resolution.definition.filters,
+        filter_expr: None,
+        filters_legacy: resolution.definition.filters,
         overlay_descriptor: resolution.definition.overlay_descriptor,
     }
 }
@@ -4119,6 +4160,40 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_registry_declares_system_task_budget_channels() {
+        let channels = diagnostics::phase3_required_channels();
+        assert!(channels.iter().all(|entry| entry.schema_version > 0));
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH)
+        );
+        // Verify severities per spec §6
+        assert!(
+            channels.iter().any(|entry| {
+                entry.channel_id == CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE
+                    && entry.severity
+                        == crate::registries::atomic::diagnostics::ChannelSeverity::Warn
+            })
+        );
+    }
+
+    #[test]
     fn diagnostics_registry_declares_phase5_verse_channels_with_versions() {
         let channels = diagnostics::phase5_required_channels();
         assert!(channels.len() >= 6);
@@ -4235,7 +4310,7 @@ mod tests {
             Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
         );
         assert!(
-            lens.filters
+            lens.filters_legacy
                 .iter()
                 .any(|filter| filter == "semantic:overlay")
         );
