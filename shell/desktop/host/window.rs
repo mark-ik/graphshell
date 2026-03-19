@@ -129,13 +129,14 @@ pub(crate) struct EmbedderWindow {
     pending_thumbnail_capture_requests: RefCell<Vec<WebViewId>>,
     /// Pending graph semantic events emitted from delegate callbacks.
     pending_graph_events: RefCell<Vec<GraphSemanticEvent>>,
-    /// Explicit focused pane placeholder for servoshell debt-clear.
+    /// The pane that currently holds focus within this window, if any.
     focused_pane: Cell<Option<PaneId>>,
-    /// Explicit input-target placeholder for servoshell debt-clear.
+    /// Tracks whether input is routed to the host chrome or to a specific renderer/pane.
     input_target: Cell<Option<InputTarget>>,
-    /// Explicit chrome-projection placeholder for servoshell debt-clear.
+    /// The current source driving chrome projection (renderer or pane), used for toolbar URL
+    /// display and navigation state.
     chrome_projection_source: Cell<Option<ChromeProjectionSource>>,
-    /// Explicit dialog-owner placeholder for servoshell debt-clear.
+    /// Which renderer or pane owns any currently-open embedder dialog (permission, auth, etc.).
     dialog_owner: Cell<Option<DialogOwner>>,
     /// Pass 1 visibility snapshot for node-hosting panes in this window.
     visible_node_panes: RefCell<Vec<PaneId>>,
