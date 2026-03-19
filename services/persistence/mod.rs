@@ -689,12 +689,6 @@ impl GraphStore {
 
             let timestamp_ms: u64 = match archived {
                 ArchivedLogEntry::AppendTraversal { timestamp_ms, .. } => (*timestamp_ms).into(),
-                ArchivedLogEntry::AddNode { timestamp_ms, .. } => (*timestamp_ms).into(),
-                ArchivedLogEntry::RemoveNode { timestamp_ms, .. } => (*timestamp_ms).into(),
-                ArchivedLogEntry::NavigateNode { timestamp_ms, .. } => (*timestamp_ms).into(),
-                ArchivedLogEntry::AppendNodeAuditEvent { timestamp_ms, .. } => {
-                    (*timestamp_ms).into()
-                }
                 _ => continue,
             };
 
@@ -3006,7 +3000,7 @@ mod tests {
             url: "https://later.example".to_string(),
             position_x: 64.0,
             position_y: 0.0,
-            timestamp_ms: 0,
+            timestamp_ms: 2_000,
         });
 
         let full = store.recover().expect("full recovery");

@@ -1088,7 +1088,7 @@ mod tests {
             crate::shell::desktop::runtime::registries::phase3_resolve_active_workbench_surface_profile().resolved_id,
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
         );
-        assert_eq!(app.default_registry_physics_id(), Some("physics:float"));
+        assert_eq!(app.default_registry_physics_id(), Some("physics:gas"));
         assert!(app.take_pending_workbench_intents().is_empty());
     }
 

@@ -1588,8 +1588,10 @@ mod tests {
         let graph_view = GraphViewId::new();
         let mut app = GraphBrowserApp::new_for_testing();
         app.ensure_graph_view_registered(graph_view);
+        // Use a scheme that has no host and no folder group so the node
+        // lands in the Unrelated bucket instead of Domain or Folders.
         let unrelated_key = app.add_node_and_sync(
-            "https://example.com/unrelated".to_string(),
+            "about:blank".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
 

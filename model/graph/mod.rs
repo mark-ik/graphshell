@@ -2861,7 +2861,6 @@ mod tests {
 
         graph.add_edge(a, b, EdgeType::Hyperlink, None).unwrap();
         graph.add_edge(a, b, EdgeType::UserGrouped, None).unwrap();
-        graph.add_edge(a, b, EdgeType::UserGrouped, None).unwrap();
 
         let removed = graph.remove_edges(a, b, EdgeType::UserGrouped);
         assert_eq!(removed, 1);

@@ -1040,7 +1040,7 @@ mod tests {
             .expect("node")
             .id
             .to_string();
-        assert!(app.workspace.domain.graph.set_import_records(vec![ImportRecord {
+        assert!(app.set_import_records_for_tests(vec![ImportRecord {
             record_id: "import-record:firefox-bookmarks-2026-03-17".to_string(),
             source_id: "import:firefox-bookmarks".to_string(),
             source_label: "Firefox bookmarks".to_string(),

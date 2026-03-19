@@ -329,6 +329,9 @@ impl<'a> FocusRealizer<'a> {
             focus_authority,
             self.graph_app,
         );
+        // Clear the authority's transient target after seeding to the app queue so
+        // the target is consumed exactly once and subsequent frames do not re-restore.
+        focus_authority.transient_surface_return_target = None;
 
         let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
             self.graph_app,

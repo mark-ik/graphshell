@@ -563,9 +563,9 @@ pub enum ViewRouteTarget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NavigatorContainmentRelationSource {
+    #[default]
     GraphContainment,
     SavedViewCollections,
-    #[default]
     ContainmentRelations,
 }
 
@@ -1664,28 +1664,21 @@ impl GraphBrowserApp {
                 }
             }
             Source::ContainmentRelations => {
-                // ContainmentRelation edges are kept fresh by apply_graph_delta_and_sync.
-                // Read them directly instead of re-parsing URLs.
+                // Derive containment rows directly from node URLs so that folder/domain
+                // groups appear even when no explicit ContainmentRelation edges exist
+                // (e.g. a single file node without a corresponding parent node).
                 let mut containment_rows: Vec<(String, NodeKey, Uuid)> = self
                     .workspace
                     .domain
                     .graph
-                    .edges()
-                    .filter_map(|edge| {
-                        let sub_kind = match edge.edge_type {
-                            EdgeType::ContainmentRelation(sub_kind) => sub_kind,
-                            _ => return None,
-                        };
-                        let node = self.workspace.domain.graph.get_node(edge.from)?;
+                    .nodes()
+                    .filter_map(|(key, node)| {
                         let Ok(parsed) = url::Url::parse(&node.url) else {
                             return None;
                         };
-                        let row_prefix = match sub_kind {
-                            ContainmentSubKind::Domain => {
-                                let host = parsed.host_str()?.to_ascii_lowercase();
-                                format!("domain:{host}")
-                            }
-                            ContainmentSubKind::UrlPath => {
+                        let row_prefix = match parsed.scheme() {
+                            "file" => {
+                                // Group by parent directory path.
                                 let mut parent = parsed.clone();
                                 parent.set_query(None);
                                 parent.set_fragment(None);
@@ -1710,8 +1703,14 @@ impl GraphBrowserApp {
                                 parent.set_path(&parent_path);
                                 format!("folder:{parent}")
                             }
+                            "http" | "https" => {
+                                // Group by domain.
+                                let host = parsed.host_str()?.to_ascii_lowercase();
+                                format!("domain:{host}")
+                            }
+                            _ => return None,
                         };
-                        Some((row_prefix, edge.from, node.id))
+                        Some((row_prefix, key, node.id))
                     })
                     .collect();
                 containment_rows.sort_by(|(left_path, _, left_id), (right_path, _, right_id)| {
@@ -2610,10 +2609,7 @@ impl GraphBrowserApp {
     }
 
     pub fn keyboard_pan_step(&self) -> f32 {
-        crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
-            .profile
-            .navigation
-            .keyboard_pan_step
+        self.workspace.chrome_ui.keyboard_pan_step
     }
 
     pub fn set_keyboard_pan_step(&mut self, step: f32) {
@@ -3835,6 +3831,14 @@ impl GraphBrowserApp {
 
     pub fn graph_view_layout_manager_active(&self) -> bool {
         self.workspace.graph_runtime.graph_view_layout_manager.active
+    }
+
+    #[cfg(test)]
+    pub fn set_import_records_for_tests(
+        &mut self,
+        import_records: Vec<crate::graph::ImportRecord>,
+    ) -> bool {
+        self.workspace.domain.graph.set_import_records(import_records)
     }
 
     #[cfg(test)]
@@ -6873,7 +6877,7 @@ mod tests {
                 url: "https://later.example".to_string(),
                 position_x: 64.0,
                 position_y: 0.0,
-                timestamp_ms: 0,
+                timestamp_ms: 2_000,
             });
             app.workspace.domain.graph = store.recover().expect("full graph recovery");
         }

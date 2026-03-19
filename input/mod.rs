@@ -610,7 +610,6 @@ mod tests {
     #[test]
     fn test_toggle_help_panel_action() {
         let mut app = test_app();
-        assert!(!app.workspace.chrome_ui.show_help_panel);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_help_panel: true,
@@ -618,21 +617,17 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert!(app.workspace.chrome_ui.show_help_panel);
-
-        let intents = intents_from_actions(&KeyboardActions {
-            toggle_help_panel: true,
-            ..Default::default()
-        });
-        app.apply_reducer_intents(intents);
-
-        assert!(!app.workspace.chrome_ui.show_help_panel);
+        // ToggleHelpPanel routes through WorkbenchIntent; verify it was enqueued.
+        assert_eq!(app.pending_workbench_intent_count_for_tests(), 1);
+        let pending = app.take_pending_workbench_intents();
+        assert!(pending
+            .iter()
+            .any(|i| matches!(i, WorkbenchIntent::ToggleHelpPanel)));
     }
 
     #[test]
     fn test_toggle_command_palette_action() {
         let mut app = test_app();
-        assert!(!app.workspace.chrome_ui.show_command_palette);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_command_palette: true,
@@ -640,15 +635,12 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert!(app.workspace.chrome_ui.show_command_palette);
-
-        let intents = intents_from_actions(&KeyboardActions {
-            toggle_command_palette: true,
-            ..Default::default()
-        });
-        app.apply_reducer_intents(intents);
-
-        assert!(!app.workspace.chrome_ui.show_command_palette);
+        // ToggleCommandPalette routes through WorkbenchIntent; verify it was enqueued.
+        assert_eq!(app.pending_workbench_intent_count_for_tests(), 1);
+        let pending = app.take_pending_workbench_intents();
+        assert!(pending
+            .iter()
+            .any(|i| matches!(i, WorkbenchIntent::ToggleCommandPalette)));
     }
 
     #[test]

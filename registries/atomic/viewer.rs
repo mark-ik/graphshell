@@ -217,7 +217,18 @@ impl ViewerRegistry {
             return self.selection(viewer_id, false, "extension");
         }
 
-        self.selection(self.fallback_viewer_id, true, "fallback")
+        // For non-HTTP address kinds (local files, custom schemes), avoid falling
+        // back to the web renderer. Use plaintext only if the configured fallback
+        // is the composited viewer; otherwise respect the registry's own fallback.
+        let fallback = match crate::graph::address_kind_from_url(uri) {
+            crate::graph::AddressKind::File | crate::graph::AddressKind::Custom
+                if self.fallback_viewer_id == "viewer:webview" =>
+            {
+                "viewer:plaintext"
+            }
+            _ => self.fallback_viewer_id,
+        };
+        self.selection(fallback, true, "fallback")
     }
 
     /// Select a viewer based on MIME hint and address kind.

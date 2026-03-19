@@ -992,17 +992,22 @@ impl InputRegistry {
         context: InputContext,
     ) -> Option<InputBinding> {
         let normalized = action_id.to_ascii_lowercase();
-        self.bindings
-            .iter()
-            .find_map(|((entry_context, binding), slot)| {
-                if *entry_context != context {
-                    return None;
+        let mut gamepad_binding: Option<InputBinding> = None;
+        for ((entry_context, binding), slot) in &self.bindings {
+            if *entry_context != context {
+                continue;
+            }
+            if let BindingSlot::Routed(routed) = slot {
+                if routed == &normalized {
+                    // Prefer keyboard/key bindings over gamepad for display
+                    if matches!(binding, InputBinding::Key { .. }) {
+                        return Some(binding.clone());
+                    }
+                    gamepad_binding = Some(binding.clone());
                 }
-                match slot {
-                    BindingSlot::Routed(routed) if routed == &normalized => Some(binding.clone()),
-                    _ => None,
-                }
-            })
+            }
+        }
+        gamepad_binding
     }
 
     pub(crate) fn describe_bindable_actions(&self) -> Vec<InputActionBindingDescriptor> {

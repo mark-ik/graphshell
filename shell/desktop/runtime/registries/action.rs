@@ -388,6 +388,21 @@ impl ActionRegistry {
             reason: format!("unknown action: {normalized_action_id}"),
         })
     }
+
+    /// Resolve the handler fn pointer + capability without executing it.
+    /// Returns `None` if the action id is unknown.
+    /// Use this to execute an action without holding any external lock — call
+    /// `resolve`, drop whatever lock gated access to this registry, then call
+    /// the returned fn pointer.
+    pub(crate) fn resolve(
+        &self,
+        action_id: &str,
+    ) -> Option<(ActionHandler, ActionCapability, String)> {
+        let normalized = action_id.to_ascii_lowercase();
+        self.handlers
+            .get(&normalized)
+            .map(|d| (d.handler, d.required_capability, d.id.clone()))
+    }
 }
 
 fn is_namespaced_action_id(action_id: &str) -> bool {
@@ -684,7 +699,7 @@ impl Default for ActionRegistry {
     }
 }
 
-fn capability_available(app: &GraphBrowserApp, capability: ActionCapability) -> bool {
+pub(super) fn capability_available(app: &GraphBrowserApp, capability: ActionCapability) -> bool {
     match capability {
         ActionCapability::AlwaysAvailable => true,
         ActionCapability::RequiresActiveNode => app.get_single_selected_node().is_some(),
@@ -695,7 +710,7 @@ fn capability_available(app: &GraphBrowserApp, capability: ActionCapability) -> 
     }
 }
 
-fn capability_reason(capability: ActionCapability) -> &'static str {
+pub(super) fn capability_reason(capability: ActionCapability) -> &'static str {
     match capability {
         ActionCapability::AlwaysAvailable => "always available",
         ActionCapability::RequiresActiveNode => "requires an active node",
@@ -2342,6 +2357,9 @@ mod tests {
             select.into_intents().first(),
             Some(GraphIntent::SelectNode { key, multi_select }) if *key == node_key && !multi_select
         ));
+
+        // Apply the selection so the deselect capability guard passes.
+        app.select_node(node_key, false);
 
         let deselect = registry.execute(
             ACTION_GRAPH_DESELECT_ALL,

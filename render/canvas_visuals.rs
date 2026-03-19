@@ -189,6 +189,15 @@ pub(super) fn viewport_culling_selection_for_canvas_rect(
 
     let mut extended = visible.clone();
     for edge in graph.edges() {
+        // Skip containment/organizational edges — they don't require both endpoints
+        // to be rendered together and can cause nearly-all-nodes to be extended when
+        // a domain anchor node is in the visible set.
+        if matches!(
+            edge.edge_type,
+            crate::graph::EdgeType::ContainmentRelation(_)
+        ) {
+            continue;
+        }
         if visible.contains(&edge.from) || visible.contains(&edge.to) {
             extended.insert(edge.from);
             extended.insert(edge.to);

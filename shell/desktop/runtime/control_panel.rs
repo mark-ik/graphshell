@@ -1120,9 +1120,10 @@ mod tests {
         panel.spawn_nostr_relay_worker(runtime);
         tokio::task::yield_now().await;
 
-        // spawn_nostr_relay_worker spawns two tasks: the relay worker and the
-        // event dispatch bridge that translates inbound events into intents.
-        assert_eq!(panel.worker_count(), 2);
+        // spawn_nostr_relay_worker spawns three tasks: the relay worker, the
+        // event dispatch bridge that translates inbound events into intents,
+        // and the suspension observer that logs advisory suspension state changes.
+        assert_eq!(panel.worker_count(), 3);
 
         panel.shutdown().await;
         assert_eq!(panel.worker_count(), 0);

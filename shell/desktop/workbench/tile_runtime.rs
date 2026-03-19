@@ -532,8 +532,10 @@ mod tests {
     #[test]
     fn node_pane_using_composited_runtime_uses_registry_selection_for_file_nodes() {
         let mut app = GraphBrowserApp::new_for_testing();
+        // Use a .txt file: extension "txt" maps to viewer:plaintext (EmbeddedEgui),
+        // which is not composited. (PDF maps to viewer:webview via the Verso mod.)
         let node_key =
-            app.add_node_and_sync("file:///tmp/report.pdf".into(), Point2D::new(0.0, 0.0));
+            app.add_node_and_sync("file:///tmp/readme.txt".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
         let hosts = TileCoordinator::all_node_pane_keys_using_composited_runtime(&tree, &app);

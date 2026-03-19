@@ -1065,8 +1065,11 @@ mod tests {
 
         app.apply_reducer_intents([GraphIntent::SetNodeUrl {
             key: node,
-            new_url: "file:///workspace-refresh-projection.md".to_string(),
+            new_url: "file:///docs/workspace-refresh-projection.md".to_string(),
         }]);
+        // Add a parent-path node so a ContainmentRelation(UrlPath) edge is created,
+        // which is what produces "folder:" keys in the navigator projection.
+        app.add_node_and_sync("file:///docs/".to_string(), Point2D::new(10.0, 0.0));
 
         refresh_workbench_projection_from_manifests(&mut app)
             .expect("refresh workbench projection should succeed");

@@ -902,6 +902,45 @@ impl RegistryRuntime {
         self.dynamic().action.describe_action(action_id)
     }
 
+    /// Execute an action without holding the `dynamic` mutex during handler invocation.
+    ///
+    /// Action handlers (e.g. `omnibox:node_search`) may call back into
+    /// `runtime().dynamic()` (e.g. via `phase3_index_search`). Calling
+    /// `dynamic().action.execute(...)` holds the lock for the full duration of
+    /// the handler, causing a deadlock on reentrant access. This method resolves
+    /// the handler fn pointer while briefly holding the lock, drops it, then
+    /// calls the handler lock-free.
+    pub(crate) fn execute_action(
+        &self,
+        action_id: &str,
+        app: &GraphBrowserApp,
+        payload: action::ActionPayload,
+    ) -> action::ActionOutcome {
+        use action::{ActionCapability, ActionFailure, ActionFailureKind, ActionOutcome};
+
+        let resolved = self.dynamic().action.resolve(action_id);
+        // Lock is dropped here before the handler runs.
+        match resolved {
+            None => ActionOutcome::Failure(ActionFailure {
+                kind: ActionFailureKind::UnknownAction,
+                reason: format!("unknown action: {}", action_id.to_ascii_lowercase()),
+            }),
+            Some((handler, capability, id)) => {
+                if !action::capability_available(app, capability) {
+                    return ActionOutcome::Failure(ActionFailure {
+                        kind: ActionFailureKind::Rejected,
+                        reason: format!(
+                            "action '{}' unavailable: {}",
+                            id,
+                            action::capability_reason(capability)
+                        ),
+                    });
+                }
+                handler(app, &payload)
+            }
+        }
+    }
+
     pub(crate) fn describe_viewer(&self, viewer_id: &str) -> Option<ViewerCapability> {
         self.dynamic().viewer.describe_viewer(viewer_id)
     }
@@ -2359,7 +2398,10 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
         byte_len: query.len(),
     });
 
-    let execution = runtime().dynamic().action.execute(
+    // Use execute_action (not dynamic().action.execute) to avoid holding the
+    // dynamic mutex during the handler — the omnibox handler calls back into
+    // runtime().dynamic() via phase3_index_search, which would deadlock.
+    let execution = runtime().execute_action(
         ACTION_OMNIBOX_NODE_SEARCH,
         app,
         ActionPayload::OmniboxNodeSearch {
@@ -4629,6 +4671,10 @@ mod tests {
 
     #[test]
     fn phase3_workbench_surface_resolution_returns_default_profile() {
+        // Reset to default first to avoid contamination from tests that change the active profile.
+        phase3_set_active_workbench_surface_profile(
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_DEFAULT,
+        );
         let resolution = phase3_resolve_active_workbench_surface_profile();
         assert!(resolution.matched);
         assert!(!resolution.fallback_used);
@@ -4762,7 +4808,7 @@ mod tests {
             phase3_resolve_active_workbench_surface_profile().resolved_id,
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
         );
-        assert_eq!(app.default_registry_physics_id(), Some("physics:float"));
+        assert_eq!(app.default_registry_physics_id(), Some("physics:gas"));
     }
 
     #[test]

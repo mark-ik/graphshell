@@ -1,14 +1,13 @@
 ---
 source: shell/desktop/lifecycle/semantic_event_pipeline.rs
-assertion_line: 412
+assertion_line: 367
 expression: trace
 ---
 (
     [
-        "create",
         "url",
+        "host_open",
         "crash",
     ],
     1,
-    3,
 )

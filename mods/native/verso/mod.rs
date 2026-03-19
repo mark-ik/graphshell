@@ -294,7 +294,9 @@ mod tests {
     fn wry_overlay_sync_no_ops_for_missing_slot() {
         reset_wry_manager_for_tests();
         let node_key = NodeKey::new(602);
-        // sync_wry_overlay_for_node silently no-ops when no slot exists.
+        // sync_wry_overlay_for_node is safe to call when no real WebView slot exists —
+        // it skips the actual set_bounds/set_visible calls but records the intent in
+        // test_sync_states for observability.
         sync_wry_overlay_for_node(
             node_key,
             OverlayRect {
@@ -305,7 +307,8 @@ mod tests {
             },
             true,
         );
-        // Still no state because no WebView was created.
-        assert!(last_wry_overlay_sync_for_node_for_tests(node_key).is_none());
+        // hide/destroy still return false because no real slot was ever created.
+        assert!(!hide_wry_overlay_for_node(node_key));
+        assert!(!destroy_wry_overlay_for_node(node_key));
     }
 }

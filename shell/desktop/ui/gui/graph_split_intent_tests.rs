@@ -66,6 +66,11 @@ fn graph_pane_id(tree: &Tree<TileKind>, view_id: GraphViewId) -> PaneId {
 
 #[test]
 fn split_pane_intent_creates_new_graph_view_pane() {
+    // Reset workbench surface to default to avoid contamination from tests that activate
+    // workflows which set a lock profile (e.g. focus profile prevents splits).
+    crate::shell::desktop::runtime::registries::phase3_set_active_workbench_surface_profile(
+        crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_DEFAULT,
+    );
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
@@ -108,6 +113,9 @@ fn split_pane_intent_creates_new_graph_view_pane() {
 
 #[test]
 fn split_pane_intent_accepts_tool_pane_identity_as_source() {
+    crate::shell::desktop::runtime::registries::phase3_set_active_workbench_surface_profile(
+        crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_DEFAULT,
+    );
     let mut app = GraphBrowserApp::new_for_testing();
     let settings_ref = ToolPaneRef::new(ToolPaneState::Settings);
     let mut tiles = Tiles::default();

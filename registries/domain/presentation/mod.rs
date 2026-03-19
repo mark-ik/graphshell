@@ -102,12 +102,15 @@ impl PresentationDomainRegistry {
             profile_id_for_theme(theme.resolved_id.as_str()),
             "presentation profile",
         );
+        let physics = resolve_physics_profile(physics_id);
+        let fallback_profile_used =
+            profile_resolution.fallback_used || physics.fallback_used || theme.fallback_used;
         PresentationDomainProfileResolution {
-            physics: resolve_physics_profile(physics_id),
+            physics,
             theme,
             resolved_profile_id: profile_resolution.resolved_id,
             matched_profile: profile_resolution.matched,
-            fallback_profile_used: profile_resolution.fallback_used,
+            fallback_profile_used,
             profile: profile_resolution.profile,
         }
     }

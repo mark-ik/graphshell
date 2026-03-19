@@ -726,6 +726,10 @@ pub(crate) fn sync_runtime_semantic_region_from_workbench(
     local_widget_focus: Option<LocalFocusTarget>,
     show_clear_data_confirm: bool,
 ) {
+    if let Some(target) = runtime_active_tool_surface_return_target(tiles_tree) {
+        focus_authority.semantic_region =
+            Some(semantic_region_for_tool_surface_target(&target));
+    }
     refresh_realized_runtime_focus_state(
         focus_authority,
         graph_app,
