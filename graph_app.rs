@@ -9452,6 +9452,7 @@ mod tests {
                 stroke_width: 2.0,
             }),
             filters_legacy: Vec::new(),
+            filter_expr: None,
             overlay_descriptor: None,
         };
 
@@ -9486,6 +9487,7 @@ mod tests {
                 .to_string(),
             theme: None,
             filters_legacy: Vec::new(),
+            filter_expr: None,
             overlay_descriptor: None,
         };
 
@@ -9583,6 +9585,7 @@ mod tests {
                 .to_string(),
             theme: None,
             filters_legacy: vec!["stale".to_string()],
+            filter_expr: None,
             overlay_descriptor: None,
         };
         app.workspace
@@ -9605,6 +9608,7 @@ mod tests {
                 stroke_width: 3.0,
             }),
             filters_legacy: vec!["custom".to_string()],
+            filter_expr: None,
             overlay_descriptor: None,
         };
         app.workspace

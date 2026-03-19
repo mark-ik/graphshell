@@ -1924,7 +1924,7 @@ mod tests {
 
         let (history_color, _) = history.style_stroke();
         let (grouped_color, grouped_width) = grouped.style_stroke();
-        assert_eq!(history.style, GraphEdgeVisualStyle::History);
+        assert_eq!(history.style, GraphEdgeVisualStyle::TraversalHistory);
         assert_eq!(grouped.style, GraphEdgeVisualStyle::UserGrouped);
         assert_eq!(history_color, Color32::from_rgb(120, 180, 210));
         assert_eq!(grouped_color, Color32::from_rgb(236, 171, 64));
@@ -1940,7 +1940,7 @@ mod tests {
             label: String::new(),
         });
         edge.configure_logical_pair(
-            GraphEdgeVisualStyle::History,
+            GraphEdgeVisualStyle::TraversalHistory,
             LogicalPairTraversalAggregate {
                 total_count: 1,
                 forward_count: 1,
@@ -1950,7 +1950,7 @@ mod tests {
         );
         let (_, w1) = edge.style_stroke();
         edge.configure_logical_pair(
-            GraphEdgeVisualStyle::History,
+            GraphEdgeVisualStyle::TraversalHistory,
             LogicalPairTraversalAggregate {
                 total_count: 9,
                 forward_count: 9,

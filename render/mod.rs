@@ -8,56 +8,38 @@
 //! which provides built-in navigation (zoom/pan), node dragging, and selection.
 
 use crate::app::{
-    CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry,
-    GraphSearchOrigin, KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode,
-    SelectionUpdateMode, TagPanelState, ThreeDMode, UnsavedFramePromptAction,
-    UnsavedFramePromptRequest, ViewAction, ViewDimension, WorkbenchIntent, ZSource,
+    ChooseFramePickerMode, GraphBrowserApp, GraphIntent, SearchDisplayMode,
+    SelectionUpdateMode, UnsavedFramePromptAction,
+    UnsavedFramePromptRequest, ViewAction, WorkbenchIntent,
     graph_layout::{
         GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT,
-        layout_algorithm_id_for_mode,
     },
 };
-use crate::graph::badge::{Badge, BadgeVisual, badge_visuals, badges_for_node, is_archived_tag};
+use crate::graph::badge::is_archived_tag;
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
 use crate::graph::physics::apply_graph_physics_extensions;
-use crate::graph::{
-    EdgePayload, EdgeType, NodeImportRecordSummary, NodeKey, NodeLifecycle,
-    format_imported_at_secs,
-};
+use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
-use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::input::action_id;
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
-    CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_NO_BOUNDS, CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_ZERO_VIEW,
-    CHANNEL_UI_GRAPH_CAMERA_FIT_DEFERRED_NO_METADATA,
-    CHANNEL_UI_GRAPH_CAMERA_ZOOM_DEFERRED_NO_METADATA, CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE,
-    CHANNEL_UI_GRAPH_FIT_SELECTION_FALLBACK_TO_FIT, CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK,
-    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW,
-    CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED_NO_METADATA, CHANNEL_UI_GRAPH_LASSO_BLOCKED_NO_STATE,
     CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE, CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT,
-    CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
-    CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA, CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
+    CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
     CHANNEL_UX_NAVIGATION_TRANSITION, phase3_apply_layout_algorithm_to_graph,
-    phase3_resolve_active_canvas_profile, phase3_resolve_active_presentation_profile,
-    phase3_resolve_layout_algorithm,
+    phase3_resolve_active_canvas_profile, phase3_resolve_layout_algorithm,
 };
 use crate::util::CoordBridge;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
-use egui::{Color32, Stroke, Ui, Vec2, Window};
+use egui::{Ui, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
     GraphView, MetadataFrame, SettingsInteraction, SettingsNavigation, SettingsStyle,
     get_layout_state, set_layout_state,
 };
 use euclid::default::Point2D;
-use petgraph::stable_graph::NodeIndex;
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 mod canvas_camera;
@@ -76,42 +58,57 @@ pub use panels::{
     render_history_manager_in_ui, render_settings_overlay_panel,
     render_settings_node_viewer_in_ui, render_settings_tool_pane_in_ui_with_control_panel,
 };
-use canvas_camera::{
-    apply_background_pan, apply_background_pan_inertia, apply_pending_camera_command,
-    apply_pending_keyboard_zoom_request, apply_pending_wheel_zoom, emit_keyboard_pan_blocked_if_needed,
-    handle_custom_navigation, keyboard_pan_allowed_for_view, keyboard_pan_delta_from_input,
-    seeded_metadata_frame_for_view, should_auto_fit_locked_camera,
-};
+use canvas_camera::handle_custom_navigation;
 use canvas_input::{
-    LassoGestureResult, collect_graph_actions, collect_graph_keyboard_traversal_action,
-    collect_lasso_action, graph_canvas_accessibility_label, graph_node_accessibility_name,
-    lasso_state_ids, next_keyboard_traversal_node, normalize_lasso_keys,
-    resolve_lasso_selection_mode,
+    collect_graph_actions, collect_graph_keyboard_traversal_action,
+    collect_lasso_action, graph_canvas_accessibility_label,
 };
 use canvas_overlays::{
     draw_frame_affinity_backdrops, draw_highlighted_edge_overlay, draw_hovered_edge_tooltip,
-    draw_hovered_node_tooltip, edge_endpoints_at_pointer, format_last_visited,
+    draw_hovered_node_tooltip, edge_endpoints_at_pointer,
 };
 use canvas_visuals::{
-    ViewportCullingMetrics, ViewportCullingSelection, active_presentation_profile, apply_search_node_visuals,
-    canvas_rect_from_view_frame, estimated_submission_units, filtered_graph_for_search,
-    hovered_adjacency_set, lifecycle_color, node_bounds_for_selection,
-    viewport_culled_graph, viewport_culled_graph_for_canvas_rect,
+    apply_search_node_visuals, canvas_rect_from_view_frame, filtered_graph_for_search,
+    viewport_culled_graph,
+};
+use graph_info::{draw_graph_info, requested_layout_algorithm_id, should_apply_layout_algorithm};
+use semantic_tags::semantic_badges_by_key;
+use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
+
+#[cfg(test)]
+use canvas_camera::{
+    KeyboardPanInputState, KeyboardPanKeys,
+    apply_background_pan, apply_background_pan_inertia, apply_pending_camera_command,
+    emit_keyboard_pan_blocked_if_needed, keyboard_pan_delta_from_keys, keyboard_pan_delta_from_state,
+    pan_inertia_velocity_id, should_auto_fit_locked_camera,
+};
+#[cfg(test)]
+use canvas_input::{lasso_state_ids, next_keyboard_traversal_node, normalize_lasso_keys, resolve_lasso_selection_mode};
+#[cfg(test)]
+use canvas_overlays::{format_elapsed_ago, format_last_visited_with_now};
+#[cfg(test)]
+use canvas_visuals::{
+    hovered_adjacency_set, lifecycle_color, viewport_culled_graph_for_canvas_rect,
     viewport_culling_metrics_for_canvas_rect, viewport_culling_selection_for_canvas_rect,
 };
-use graph_info::{
-    draw_graph_info, graph_view_semantic_depth_status_badge, requested_layout_algorithm_id,
-    selected_node_enrichment_summary, should_apply_layout_algorithm,
+#[cfg(test)]
+use graph_info::{graph_view_semantic_depth_status_badge, selected_node_enrichment_summary};
+#[cfg(test)]
+use semantic_tags::{ranked_tag_suggestions, reserved_tag_warning};
+#[cfg(test)]
+use crate::app::{CameraCommand, KeyboardPanInputMode, ThreeDMode, ViewDimension, ZSource};
+#[cfg(test)]
+use crate::graph::NodeLifecycle;
+#[cfg(test)]
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK, CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW,
 };
-use semantic_tags::{
-    PlacementAnchorSummary, SelectedNodeEnrichmentSummary, SemanticSuggestionChip,
-    SemanticTagChip, SemanticTagStatusChip, graph_search_history_label, graph_search_scope_label,
-    ranked_tag_suggestions, render_graph_search_origin_badge, render_semantic_suggestion_buttons,
-    render_semantic_tag_buttons, render_semantic_tag_status_buttons, render_selected_node_tag_panel,
-    request_graph_search_entry, semantic_badges_by_key, semantic_tag_display_label,
-};
-use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
-use spatial_index::NodeSpatialIndex;
+#[cfg(test)]
+use egui::Vec2;
+#[cfg(test)]
+use petgraph::stable_graph::NodeIndex;
+#[cfg(test)]
+use std::time::{Duration, SystemTime};
 
 pub(crate) mod action_registry;
 mod command_palette;

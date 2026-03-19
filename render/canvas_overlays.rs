@@ -395,7 +395,7 @@ pub(super) fn format_last_visited_with_now(
     format_elapsed_ago(elapsed)
 }
 
-fn format_elapsed_ago(elapsed: Duration) -> String {
+pub(super) fn format_elapsed_ago(elapsed: Duration) -> String {
     let secs = elapsed.as_secs();
     if secs < 5 {
         return "just now".to_string();

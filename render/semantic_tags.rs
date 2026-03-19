@@ -248,7 +248,7 @@ fn is_reserved_system_tag(tag: &str) -> bool {
     )
 }
 
-fn reserved_tag_warning(query: &str) -> Option<String> {
+pub(super) fn reserved_tag_warning(query: &str) -> Option<String> {
     let normalized = normalize_tag_entry_input(query)?;
     if normalized.starts_with('#') && !is_reserved_system_tag(&normalized) {
         return Some("Unknown #tag will be accepted as user-defined.".to_string());

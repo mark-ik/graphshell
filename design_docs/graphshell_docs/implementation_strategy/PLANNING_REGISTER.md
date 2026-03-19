@@ -842,7 +842,7 @@ Issue-ready intake stubs from the latest user report:
 
 - `lane:embedder-debt` (servoshell inheritance retirement)
   - Hub: `#90` (Servoshell inheritance retirement tracker)
-  - Scope: `shell/desktop/ui/gui.rs`/`gui_frame.rs` decomposition ✅ largely complete; `graph_app.rs` god-struct separation ✅ complete (2026-03-17 — see code checkpoint above); next targets are `render/mod.rs` (5.6k lines), `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
+  - Scope: `shell/desktop/ui/gui.rs`/`gui_frame.rs` decomposition ✅ largely complete; `graph_app.rs` god-struct separation ✅ complete (2026-03-17); `render/mod.rs` decomposition ✅ complete (2026-03-18 — 5.6k→2.8k lines, six sub-modules extracted: `canvas_camera`, `canvas_visuals`, `canvas_overlays`, `graph_info`, `semantic_tags`, `canvas_input`); next targets are `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
   - Important child slice: composited webview callback pass contract + GL state isolation (`tile_compositor.rs`) to fix Servo-path overlay affordance failures that are not Wry/native-overlay limitations
   - Primary guide: `design_docs/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md`
   - Coordinator policy: treat `shell/desktop/ui/gui.rs` / `shell/desktop/ui/gui_frame.rs` / `shell/desktop/ui/gui_orchestration.rs` as orchestration façades with explicit authority boundaries; enforce via `CONTRIBUTING.md` coordinator checklist when these files are touched

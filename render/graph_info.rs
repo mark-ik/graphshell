@@ -16,9 +16,9 @@ use egui::Vec2;
 use super::canvas_visuals::active_presentation_profile;
 use super::reducer_bridge::apply_ui_intents_with_checkpoint;
 use super::semantic_tags::{
-    PlacementAnchorSummary, SelectedNodeEnrichmentSummary, SemanticSuggestionChip,
-    SemanticTagStatusChip, graph_search_history_label, graph_search_scope_label,
-    ranked_tag_suggestions, render_graph_search_origin_badge, render_semantic_suggestion_buttons,
+    PlacementAnchorSummary, SelectedNodeEnrichmentSummary,
+    graph_search_history_label, graph_search_scope_label,
+    render_graph_search_origin_badge, render_semantic_suggestion_buttons,
     render_semantic_tag_status_buttons, render_selected_node_tag_panel, request_graph_search_entry,
     semantic_tag_status_chip, semantic_suggestion_chip,
 };

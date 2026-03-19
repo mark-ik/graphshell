@@ -28,20 +28,20 @@ use super::canvas_visuals::node_bounds_for_selection;
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, Default)]
-struct KeyboardPanKeys {
-    up: bool,
-    down: bool,
-    left: bool,
-    right: bool,
+pub(super) struct KeyboardPanKeys {
+    pub(super) up: bool,
+    pub(super) down: bool,
+    pub(super) left: bool,
+    pub(super) right: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct KeyboardPanInputState {
-    wasd: KeyboardPanKeys,
-    arrows: KeyboardPanKeys,
+pub(super) struct KeyboardPanInputState {
+    pub(super) wasd: KeyboardPanKeys,
+    pub(super) arrows: KeyboardPanKeys,
 }
 
-fn keyboard_pan_delta_from_state(
+pub(super) fn keyboard_pan_delta_from_state(
     state: KeyboardPanInputState,
     step: f32,
     mode: KeyboardPanInputMode,
@@ -59,7 +59,7 @@ fn keyboard_pan_delta_from_state(
     keyboard_pan_delta_from_keys(keys, step)
 }
 
-fn keyboard_pan_delta_from_keys(keys: KeyboardPanKeys, step: f32) -> Vec2 {
+pub(super) fn keyboard_pan_delta_from_keys(keys: KeyboardPanKeys, step: f32) -> Vec2 {
     let pan_step = step.max(1.0);
     let mut delta = Vec2::ZERO;
 
@@ -79,7 +79,7 @@ fn keyboard_pan_delta_from_keys(keys: KeyboardPanKeys, step: f32) -> Vec2 {
     delta
 }
 
-fn pan_inertia_velocity_id(metadata_id: egui::Id) -> egui::Id {
+pub(super) fn pan_inertia_velocity_id(metadata_id: egui::Id) -> egui::Id {
     metadata_id.with("pan_inertia_velocity")
 }
 

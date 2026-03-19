@@ -238,7 +238,7 @@ fn sector_a_content_pipeline_runs_end_to_end_for_tagged_markdown_node() {
         Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
     );
     assert!(
-        lens.filters
+        lens.filters_legacy
             .iter()
             .any(|filter| filter == "semantic:overlay")
     );

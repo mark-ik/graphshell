@@ -613,7 +613,7 @@ mod tests {
         let mut state = NodePaneState::for_node(node_key);
         state.viewer_id_override = Some(ViewerId::new("viewer:settings"));
 
-        let mut control_panel = ControlPanel::new();
+        let mut control_panel = ControlPanel::new(None);
         let mut tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)> =
             HashMap::new();
         let search_matches = HashSet::new();
