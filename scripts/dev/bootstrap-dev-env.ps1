@@ -224,7 +224,12 @@ function Print-NextSteps {
   function cc { cargo check -q }
   function ct { cargo test -q }
 
-[bootstrap.ps1] Graphshell lane-safe commands:
+[bootstrap.ps1] default contributor loop (cargo-first):
+    cargo check
+    cargo test
+    cargo run -- https://example.com
+
+[bootstrap.ps1] optional lane/WSL helper commands:
   pwsh -File scripts/dev/smoke-matrix.ps1 status
   pwsh -File scripts/dev/smoke-matrix.ps1 quick
   pwsh -File scripts/dev/smoke-matrix.ps1 cargo build --release

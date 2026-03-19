@@ -207,7 +207,12 @@ print_next_steps() {
   alias gs='git status -sb'
   alias gl='git log --oneline --decorate -20'
 
-[bootstrap] Graphshell lane-safe commands:
+[bootstrap] default contributor loop (cargo-first):
+  cargo check
+  cargo test
+  cargo run -- https://example.com
+
+[bootstrap] optional lane/WSL helper commands:
   scripts/dev/smoke-matrix.sh status
   scripts/dev/smoke-matrix.sh quick
   scripts/dev/smoke-matrix.sh cargo build --release

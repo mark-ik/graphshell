@@ -13,8 +13,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "design_docs/DOC_README.md",
@@ -42,8 +41,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "graph_app.rs",
@@ -70,8 +68,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "shell/desktop/host/headed_window.rs",
@@ -99,8 +96,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "shell/desktop/tests/scenarios/input_routing.rs",
@@ -123,8 +119,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "graph_app.rs",
@@ -176,8 +171,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "tests/scenarios/main.rs",
@@ -198,8 +192,7 @@
         ],
         "platforms": [
           "windows"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "shell/desktop/workbench/interaction_policy.rs",
@@ -227,8 +220,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "shell/desktop/tests/scenarios/",
@@ -249,8 +241,7 @@
         ],
         "platforms": [
           "windows"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "scripts/dev/smoke-matrix.ps1",
@@ -272,8 +263,7 @@
         "platforms": [
           "linux",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "scripts/dev/smoke-matrix.sh",
@@ -297,8 +287,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "shell/desktop/workbench/ux_tree.rs",
@@ -333,8 +322,7 @@
           "linux",
           "windows",
           "macos"
-        ],
-        "alwaysRun": true
+        ]
       },
       "matchPaths": [
         "model/graph/mod.rs",

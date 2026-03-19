@@ -139,9 +139,12 @@ Reliable recovery path:
   - `cargo check -p graphshell --all-targets`
   - `cargo test -p graphshell --lib`
 
+Use `scripts/dev/smoke-matrix.ps1` only when you specifically want lane-isolated target routing, a one-command smoke check, or WSL fallback behavior. The normal contributor path is direct cargo.
+
 Notes:
 
 - Keeping `CARGO_TARGET_DIR` outside OneDrive reduces archive/unpack fragility during Servo static lib extraction.
+- The smoke helper now defaults Windows lane output to `C:\t\graphshell-target\windows_target` when `CARGO_TARGET_DIR` is unset.
 - `bootstrap-dev-env.ps1 --install` now installs real `make.exe` and `mozmake.exe` into `C:\mozilla-build\bin` and removes any stale `~/.cargo/bin/mozmake.cmd` shim.
 - If `where mozmake` resolves to `~/.cargo/bin/mozmake.cmd`, remove it and rerun bootstrap so the MozillaBuild copy wins.
 - The validated Windows verification environment is:
@@ -149,6 +152,8 @@ Notes:
   - `MOZTOOLS_PATH=C:\mozilla-build`
   - `CARGO_TARGET_DIR=C:\t\graphshell-target`
   - `PATH` preferring `C:\mozilla-build\bin`
+
+If you previously used repo-local `target/windows_target`, `target`, or `target-clat` trees, they are disposable build outputs and safe to delete when reclaiming disk.
 
 Camera/navigation semantic guardrails (for incident prevention and regression triage):
 

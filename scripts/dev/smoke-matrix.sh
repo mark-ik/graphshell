@@ -33,6 +33,15 @@ detect_host_lane() {
 resolve_target_dir() {
   local lane
   lane="$(detect_host_lane)"
+  local base_root
+
+  if [[ -n "${GRAPHSHELL_TARGET_ROOT:-}" ]]; then
+    base_root="$GRAPHSHELL_TARGET_ROOT"
+  elif [[ "$lane" == "windows" ]]; then
+    base_root='/c/t/graphshell-target'
+  else
+    base_root="$ROOT_DIR/target"
+  fi
 
   case "$lane" in
     linux)
@@ -42,16 +51,16 @@ resolve_target_dir() {
       elif is_wsl && [[ -n "${GRAPHSHELL_SPLIT_WSL_TARGET:-}" ]]; then
         linux_suffix="-wsl"
       fi
-      echo "$ROOT_DIR/target/linux_target${linux_suffix}"
+      echo "$base_root/linux_target${linux_suffix}"
       ;;
     windows)
-      echo "$ROOT_DIR/target/windows_target"
+      echo "$base_root/windows_target"
       ;;
     macos)
-      echo "$ROOT_DIR/target/macos_target"
+      echo "$base_root/macos_target"
       ;;
     *)
-      echo "$ROOT_DIR/target/host_target"
+      echo "$base_root/host_target"
       ;;
   esac
 }
@@ -91,6 +100,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/dev/smoke-matrix.sh <command>
 
+Cargo is the default contributor path. Use this helper only when you want
+lane-isolated target routing, a one-command smoke check, or WSL runtime fallbacks.
+
 Commands:
   status   Print platform/runtime summary
   quick    Run non-GUI validation: cargo check --locked + one targeted lib test
@@ -100,6 +112,7 @@ Commands:
 Environment knobs:
   TARGET_TEST=<test_name>  Override targeted test for quick mode
   GRAPHSHELL_CARGO_LANE=<linux|windows|macos>  Override host lane detection
+  GRAPHSHELL_TARGET_ROOT=<path>  Override helper-managed target root
   GRAPHSHELL_LINUX_TARGET_FLAVOR=<name>  Optional linux target suffix (e.g. ubuntu, wsl)
   GRAPHSHELL_SPLIT_WSL_TARGET=1  Auto-split WSL into linux_target-wsl
   CARGO_TARGET_DIR=<path>  Fully override target directory selection

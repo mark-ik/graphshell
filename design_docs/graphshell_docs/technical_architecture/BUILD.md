@@ -57,7 +57,7 @@ cargo run --release -- https://example.com
 
 ### Managed target directories (cross-platform)
 
-These scripts are optional. Prefer direct cargo commands first; use scripts when you want lane-safe target directory routing and convenience wrappers.
+These scripts are optional. Prefer direct cargo commands first; use scripts when you want lane-safe target directory routing, a one-command smoke check, or WSL runtime fallbacks.
 
 You can audit/install a recommended CLI baseline with:
 
@@ -89,18 +89,23 @@ pwsh -File scripts/dev/smoke-matrix.ps1 quick
 pwsh -File scripts/dev/smoke-matrix.ps1 cargo build --release
 ```
 
-Default output directories are selected by host lane and created on demand:
+Helper-managed output directories are selected by host lane and created on demand:
 
 - Linux/WSL: `target/linux_target`
-- Windows: `target/windows_target`
+- Windows: `C:\t\graphshell-target\windows_target`
 - macOS: `target/macos_target`
+
+For local Windows development, prefer direct cargo commands with `CARGO_TARGET_DIR` outside the repo/OneDrive. The helper scripts follow that default when `CARGO_TARGET_DIR` is not already set.
 
 Optional lane controls:
 
 - `GRAPHSHELL_CARGO_LANE=linux|windows|macos` force lane selection
+- `GRAPHSHELL_TARGET_ROOT=<path>` override helper-managed target root
 - `GRAPHSHELL_LINUX_TARGET_FLAVOR=<name>` split Linux outputs when needed (for example `linux_target-ubuntu`)
 - `GRAPHSHELL_SPLIT_WSL_TARGET=1` split WSL to `linux_target-wsl`
 - `CARGO_TARGET_DIR=<path>` full manual override
+
+GitHub Actions scenario lanes intentionally use repo-local `target/<lane>` directories because those runners are ephemeral and the outputs are only needed for the lifetime of the job.
 
 ---
 

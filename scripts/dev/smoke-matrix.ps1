@@ -40,6 +40,14 @@ function Get-PlatformLabel {
 
 function Get-ResolvedTargetDir {
     $lane = Get-HostLane
+    $baseTargetRoot = if ($env:GRAPHSHELL_TARGET_ROOT -and -not [string]::IsNullOrWhiteSpace($env:GRAPHSHELL_TARGET_ROOT)) {
+        $env:GRAPHSHELL_TARGET_ROOT
+    } elseif ($lane -eq 'windows') {
+        'C:\t\graphshell-target'
+    } else {
+        Join-Path $RootDir 'target'
+    }
+
     switch ($lane) {
         'linux' {
             $suffix = ''
@@ -48,11 +56,11 @@ function Get-ResolvedTargetDir {
             } elseif ((Test-IsWsl) -and $env:GRAPHSHELL_SPLIT_WSL_TARGET) {
                 $suffix = '-wsl'
             }
-            return (Join-Path $RootDir "target/linux_target$suffix")
+            return (Join-Path $baseTargetRoot "linux_target$suffix")
         }
-        'windows' { return (Join-Path $RootDir 'target/windows_target') }
-        'macos' { return (Join-Path $RootDir 'target/macos_target') }
-        default { return (Join-Path $RootDir 'target/host_target') }
+        'windows' { return (Join-Path $baseTargetRoot 'windows_target') }
+        'macos' { return (Join-Path $baseTargetRoot 'macos_target') }
+        default { return (Join-Path $baseTargetRoot 'host_target') }
     }
 }
 
@@ -83,6 +91,9 @@ function Show-Usage {
 @'
 Usage: scripts/dev/smoke-matrix.ps1 <command> [args...]
 
+Cargo is the default contributor path. Use this helper only when you want
+lane-isolated target routing, a one-command smoke check, or WSL runtime fallbacks.
+
 Commands:
   status   Print platform/runtime summary
     quick    Run non-GUI validation: cargo check --locked + one targeted lib test
@@ -92,6 +103,7 @@ Commands:
 Environment knobs:
   TARGET_TEST=<test_name>                         Override targeted test for quick mode
   GRAPHSHELL_CARGO_LANE=<linux|windows|macos>    Override host lane detection
+    GRAPHSHELL_TARGET_ROOT=<path>                  Override helper-managed target root
   GRAPHSHELL_LINUX_TARGET_FLAVOR=<name>          Optional linux target suffix (e.g. ubuntu, wsl)
   GRAPHSHELL_SPLIT_WSL_TARGET=1                  Auto-split WSL into linux_target-wsl
   CARGO_TARGET_DIR=<path>                        Fully override target directory selection

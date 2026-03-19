@@ -26,6 +26,38 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Graphshell: Policy PR Required",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"scripts/dev/test-select.ps1",
+				"run-policy",
+				"--tier",
+				"pr-required",
+				"--quiet"
+			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Graphshell: Policy Nightly",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"scripts/dev/test-select.ps1",
+				"run-policy",
+				"--tier",
+				"nightly",
+				"--quiet"
+			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Accessibility Scaffold Tests",
 			"type": "shell",
 			"command": "pwsh",
@@ -35,29 +67,6 @@
 				"cargo test -q accessibility_inspector_snapshot_reports_selected_node_profile; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q close_handoff_from_active_tool_tab_prefers_left_when_no_right_successor"
 			],
 			"isBackground": false,
-			"group": "test"
-		},
-		{
-			"label": "Test accessibility_inspector_snapshot",
-			"type": "shell",
-			"command": "cargo",
-			"args": [
-				"test",
-				"-q",
-				"accessibility_inspector_snapshot_reports_selected_node_profile",
-				"--",
-				"--nocapture"
-			]
-		},
-		{
-			"label": "Test tile_behavior module",
-			"type": "shell",
-			"command": "cargo",
-			"args": [
-				"test",
-				"-q",
-				"tile_behavior",
-				"--",
 				"--nocapture"
 			]
 		},
@@ -122,36 +131,13 @@
 			"group": "test"
 		},
 		{
-			"label": "Graph App View Extraction Check 2",
-			"type": "shell",
-			"command": "cargo",
-			"args": [
-				"check",
-				"-q"
-			],
-			"isBackground": false,
-			"group": "test"
-		},
-		{
-			"label": "Graph App View Extraction Tests 2",
+			"label": "Graph App View Extraction Lifecycle Tests",
 			"type": "shell",
 			"command": "pwsh",
 			"args": [
 				"-NoProfile",
 				"-Command",
 				"cargo test -q test_request_camera_command_for_view_rejects_stale_target -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q test_request_camera_command_for_view_accepts_valid_target -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_view_slot_lifecycle_create_rename_move_archive_restore -- --nocapture"
-			],
-			"isBackground": false,
-			"group": "test"
-		},
-		{
-			"label": "Graph App Line Count",
-			"type": "shell",
-			"command": "pwsh",
-			"args": [
-				"-NoProfile",
-				"-Command",
-				"(Get-Content graph_app.rs | Measure-Object -Line).Lines"
 			],
 			"isBackground": false,
 			"group": "test"
@@ -181,31 +167,7 @@
 			"group": "test"
 		},
 		{
-			"label": "Focused Barnes-Hut selector tests 2",
-			"type": "shell",
-			"command": "pwsh",
-			"args": [
-				"-NoProfile",
-				"-Command",
-				"cargo test -q requested_layout_algorithm_prefers_lens_override_when_present -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q requested_layout_algorithm_prefers_free_layout_algorithm_override -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q test_set_view_lens_applies_persisted_lens_default_when_lens_id_missing -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q phase2_lens_registry_resolves_default_lens_id -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q active_layout_constructs_barnes_hut_variant -- --nocapture"
-			],
-			"isBackground": false,
-			"group": "test"
-		},
-		{
 			"label": "Focused UxTree accessibility tests",
-			"type": "shell",
-			"command": "pwsh",
-			"args": [
-				"-NoProfile",
-				"-Command",
-				"cargo test -q uxtree_a11y_graft_plan_projects_canonical_node_state_and_rendered_affordance -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q accessibility_inspector_snapshot_reports_selected_node_profile -- --nocapture"
-			],
-			"isBackground": false,
-			"group": "test"
-		},
-		{
-			"label": "Focused UxTree accessibility tests v2",
 			"type": "shell",
 			"command": "pwsh",
 			"args": [
@@ -229,18 +191,6 @@
 		},
 		{
 			"label": "Graph Reader A11y Focused",
-			"type": "shell",
-			"command": "pwsh",
-			"args": [
-				"-NoProfile",
-				"-Command",
-				"cargo test -q graph_reader_map_click_action_resolves_to_enter_room_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_map_focus_action_resolves_to_map_focus_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_room_root_click_action_resolves_to_return_to_map_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_room_item_click_action_resolves_to_enter_room_dispatch -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_return_to_map_suppresses_room_projection_and_preserves_map_focus -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_reader_snapshot_reports_map_mode_when_override_returns_to_map -- --nocapture"
-			],
-			"isBackground": false,
-			"group": "test"
-		},
-		{
-			"label": "Graph Reader A11y Focused 2",
 			"type": "shell",
 			"command": "pwsh",
 			"args": [

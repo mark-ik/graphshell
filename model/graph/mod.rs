@@ -845,7 +845,7 @@ impl ArrangementData {
 /// Edge semantics payload: structural assertions + temporal traversal events.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct EdgePayload {
-    pub kinds: BTreeSet<EdgeKind>,
+    pub(crate) kinds: BTreeSet<EdgeKind>,
     pub user_grouped: Option<UserGroupedData>,
     pub traversal: Option<TraversalData>,
     pub arrangement: Option<ArrangementData>,
