@@ -11,6 +11,11 @@ use secp256k1::{Keypair, Secp256k1, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
 
 use crate::mods::native::verse::{P2PIdentityExt, TrustedPeer};
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_IDENTITY_KEY_GENERATED, CHANNEL_IDENTITY_KEY_LOADED,
+    CHANNEL_IDENTITY_TRUST_STORE_LOAD_FAILED,
+};
 
 pub(crate) const IDENTITY_ID_DEFAULT: &str = "identity:default";
 pub(crate) const IDENTITY_ID_P2P: &str = "identity:p2p";
@@ -348,6 +353,14 @@ impl IdentityRegistry {
         for identity_id in Self::generated_identities() {
             match IdentityKey::load_or_generate(identity_id, store_root) {
                 Ok((identity_key, generated)) => {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: if generated {
+                            CHANNEL_IDENTITY_KEY_GENERATED
+                        } else {
+                            CHANNEL_IDENTITY_KEY_LOADED
+                        },
+                        latency_us: 1,
+                    });
                     if generated {
                         log::warn!("identity key generated for {identity_id}");
                     }
@@ -367,6 +380,14 @@ impl IdentityRegistry {
         for identity_id in Self::generated_user_identities() {
             match UserIdentityKey::load_or_generate(identity_id, store_root) {
                 Ok((identity_key, generated)) => {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: if generated {
+                            CHANNEL_IDENTITY_KEY_GENERATED
+                        } else {
+                            CHANNEL_IDENTITY_KEY_LOADED
+                        },
+                        latency_us: 1,
+                    });
                     if generated {
                         log::warn!("user identity key generated for {identity_id}");
                     }
@@ -722,6 +743,23 @@ impl Default for IdentityRegistry {
     }
 }
 
+#[cfg(test)]
+impl IdentityRegistry {
+    fn from_store_root_for_tests(store_root: &Path) -> Self {
+        let mut registry = Self {
+            keys: HashMap::new(),
+            user_keys: HashMap::new(),
+            fallback_id: IDENTITY_ID_DEFAULT.to_string(),
+            user_fallback_id: IDENTITY_ID_DEFAULT.to_string(),
+            trust_store: Arc::new(RwLock::new(Vec::new())),
+        };
+        registry.load_persistent_personas(store_root);
+        registry.load_persistent_user_personas(store_root);
+        registry.register_locked_persona(IDENTITY_ID_LOCKED);
+        registry
+    }
+}
+
 impl P2PIdentityExt for IdentityRegistry {
     fn p2p_node_id(&self) -> iroh::NodeId {
         let resolution = self.resolve(IDENTITY_ID_P2P);
@@ -881,18 +919,34 @@ fn load_trust_store() -> Vec<TrustedPeer> {
     let Some(path) = trust_store_path() else {
         return Vec::new();
     };
-    if !path.exists() {
-        return Vec::new();
-    }
-    let Ok(content) = fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    serde_json::from_str(&content).unwrap_or_default()
+    load_trust_store_from_path(&path).unwrap_or_default()
 }
 
 #[cfg(test)]
 fn load_trust_store() -> Vec<TrustedPeer> {
     Vec::new()
+}
+
+fn load_trust_store_from_path(path: &Path) -> Result<Vec<TrustedPeer>, std::io::Error> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(path)?;
+    match serde_json::from_str(&content) {
+        Ok(peers) => Ok(peers),
+        Err(error) => {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_IDENTITY_TRUST_STORE_LOAD_FAILED,
+                latency_us: 1,
+            });
+            log::warn!("trust store load failed: {error}; resetting trust store");
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(path, "[]")?;
+            Ok(Vec::new())
+        }
+    }
 }
 
 #[cfg(not(test))]
@@ -1080,5 +1134,63 @@ mod tests {
             .to_string();
 
         assert!(!registry.verify_presence_binding_assertion(&assertion));
+    }
+
+    #[test]
+    fn identity_registry_persistent_load_emits_generated_then_loaded_channels() {
+        let tempdir = TempDir::new().expect("temp dir should be created");
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        let _generated = IdentityRegistry::from_store_root_for_tests(tempdir.path());
+        diagnostics.force_drain_for_tests();
+        let generated_snapshot = diagnostics.snapshot_json_for_tests();
+        assert!(
+            generated_snapshot["channels"]["message_counts"][CHANNEL_IDENTITY_KEY_GENERATED]
+                .as_u64()
+                .unwrap_or(0)
+                >= 2,
+            "expected generated channels for initial identity and user identity creation"
+        );
+
+        let _loaded = IdentityRegistry::from_store_root_for_tests(tempdir.path());
+        diagnostics.force_drain_for_tests();
+        let loaded_snapshot = diagnostics.snapshot_json_for_tests();
+        assert!(
+            loaded_snapshot["channels"]["message_counts"][CHANNEL_IDENTITY_KEY_LOADED]
+                .as_u64()
+                .unwrap_or(0)
+                >= 2,
+            "expected loaded channels when identity material already exists"
+        );
+    }
+
+    #[test]
+    fn trust_store_corruption_resets_to_empty_and_emits_failure_channel() {
+        let tempdir = TempDir::new().expect("temp dir should be created");
+        let trust_store_path = tempdir.path().join("verse_trusted_peers.json");
+        fs::write(&trust_store_path, "{ not valid json").expect("corrupt trust store should write");
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        let peers = load_trust_store_from_path(&trust_store_path)
+            .expect("corrupt trust store should recover to an empty set");
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert!(
+            peers.is_empty(),
+            "corrupt trust store should recover as empty"
+        );
+        assert_eq!(
+            fs::read_to_string(&trust_store_path)
+                .expect("recovered trust store should be readable"),
+            "[]"
+        );
+        assert!(
+            snapshot["channels"]["message_counts"][CHANNEL_IDENTITY_TRUST_STORE_LOAD_FAILED]
+                .as_u64()
+                .unwrap_or(0)
+                >= 1,
+            "expected trust store load failure channel on corruption recovery"
+        );
     }
 }

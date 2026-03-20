@@ -50,6 +50,21 @@ impl GraphBrowserApp {
         }
     }
 
+    pub fn apply_settings_route_target(
+        &mut self,
+        route: SettingsRouteTarget,
+    ) -> crate::shell::desktop::workbench::pane_model::ToolPaneState {
+        match route {
+            SettingsRouteTarget::History => {
+                crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager
+            }
+            SettingsRouteTarget::Settings(page) => {
+                self.workspace.chrome_ui.settings_tool_page = page;
+                crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings
+            }
+        }
+    }
+
     pub fn resolve_frame_route(url: &str) -> Option<String> {
         match VersoAddress::parse(url)? {
             VersoAddress::Frame(frame_name) => Some(frame_name),
@@ -161,6 +176,40 @@ mod tests {
     fn resolve_settings_route_non_settings_url() {
         let result = GraphBrowserApp::resolve_settings_route("https://example.com");
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn apply_settings_route_target_history_returns_history_manager() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.chrome_ui.settings_tool_page = SettingsToolPage::Advanced;
+
+        let target = app.apply_settings_route_target(SettingsRouteTarget::History);
+
+        assert_eq!(
+            target,
+            crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager
+        );
+        assert_eq!(
+            app.workspace.chrome_ui.settings_tool_page,
+            SettingsToolPage::Advanced
+        );
+    }
+
+    #[test]
+    fn apply_settings_route_target_settings_updates_page_and_returns_settings_pane() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let target = app
+            .apply_settings_route_target(SettingsRouteTarget::Settings(SettingsToolPage::Physics));
+
+        assert_eq!(
+            target,
+            crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings
+        );
+        assert_eq!(
+            app.workspace.chrome_ui.settings_tool_page,
+            SettingsToolPage::Physics
+        );
     }
 
     #[test]

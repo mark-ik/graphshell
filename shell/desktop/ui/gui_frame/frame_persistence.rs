@@ -121,7 +121,7 @@ fn handle_pending_save_frame_snapshot_named(
 ) {
     if let Some(name) = graph_app.take_pending_save_frame_snapshot_named() {
         match persistence_ops::save_named_frame_bundle(graph_app, &name, tiles_tree) {
-            Ok(()) => crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested("frame_snapshot_saved"),
+            Ok(()) => {}
             Err(e) => warn!("Failed to serialize tile layout for frame snapshot '{name}': {e}"),
         }
     }
@@ -312,11 +312,7 @@ fn add_nodes_to_named_frame_snapshot(
         );
     }
     match persistence_ops::save_named_frame_bundle(graph_app, name, &workspace_tree) {
-        Ok(()) => {
-            crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
-                "frame_snapshot_add_nodes",
-            );
-        }
+        Ok(()) => {}
         Err(e) => warn!("Failed to save frame snapshot '{name}' after add-tab operation: {e}"),
     }
 }

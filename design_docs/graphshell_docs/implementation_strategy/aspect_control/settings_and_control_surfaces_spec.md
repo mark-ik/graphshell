@@ -23,6 +23,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
+- Graph Bar = graph-scope chrome naming the active graph target and nearby control launch context.
 - **Navigator** = graph-backed section-structured projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
@@ -133,6 +134,9 @@ Compatibility note:
   the graph without forcing Workbench chrome to appear.
 - In workbench context, or after explicit `Tile This Page` / promote action,
   the page is hosted like any other workbench pane.
+- The Graph Bar may launch these pages while remaining one UI level above their
+  eventual presentation mode; launching from Graph Bar chrome does not make the
+  resulting page graph-owned semantic truth.
 
 **Visual feedback**
 

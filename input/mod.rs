@@ -400,16 +400,6 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
 
 pub fn workbench_intents_from_actions(actions: &KeyboardActions) -> Vec<WorkbenchIntent> {
     let mut intents = Vec::new();
-    if actions.open_physics_settings {
-        intents.push(WorkbenchIntent::OpenSettingsUrl {
-            url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-        });
-    }
-    if actions.open_camera_controls {
-        intents.push(WorkbenchIntent::OpenSettingsUrl {
-            url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-        });
-    }
     if actions.toggle_history_manager {
         intents.push(WorkbenchIntent::OpenToolPane {
             kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager,
@@ -419,6 +409,15 @@ pub fn workbench_intents_from_actions(actions: &KeyboardActions) -> Vec<Workbenc
         intents.push(WorkbenchIntent::CycleFocusRegion);
     }
     intents
+}
+
+pub fn dispatch_runtime_requests_from_actions(actions: &KeyboardActions) {
+    if actions.open_physics_settings || actions.open_camera_controls {
+        crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
+            &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+            true,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -579,35 +578,101 @@ mod tests {
     }
 
     #[test]
-    fn test_open_physics_settings_action() {
-        let intents = workbench_intents_from_actions(&KeyboardActions {
+    fn test_open_physics_settings_action_publishes_settings_route_request() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        let observer_id = crate::shell::desktop::runtime::registries::phase3_subscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            move |signal| {
+                if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
+                        crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
+                            url,
+                            prefer_overlay,
+                        },
+                    ) = &signal.kind
+                    {
+                        seen.lock()
+                            .expect("observer lock poisoned")
+                            .push((url.clone(), *prefer_overlay));
+                    }
+                Ok(())
+            },
+        );
+
+        dispatch_runtime_requests_from_actions(&KeyboardActions {
             open_physics_settings: true,
             ..Default::default()
         });
-        assert!(intents.iter().any(|i| {
-            matches!(
-                i,
-                WorkbenchIntent::OpenSettingsUrl { url }
-                    if url
-                        == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
-            )
-        }));
+
+        assert!(
+            observed
+                .lock()
+                .expect("observer lock poisoned")
+                .iter()
+                .any(|route| {
+                    route
+                        == &(
+                            VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+                            true,
+                        )
+                })
+        );
+        assert!(crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            observer_id,
+        ));
     }
 
     #[test]
-    fn test_open_camera_controls_action_maps_to_settings_url() {
-        let intents = workbench_intents_from_actions(&KeyboardActions {
+    fn test_open_camera_controls_action_publishes_settings_route_request() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        let observer_id = crate::shell::desktop::runtime::registries::phase3_subscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            move |signal| {
+                if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
+                        crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
+                            url,
+                            prefer_overlay,
+                        },
+                    ) = &signal.kind
+                    {
+                        seen.lock()
+                            .expect("observer lock poisoned")
+                            .push((url.clone(), *prefer_overlay));
+                    }
+                Ok(())
+            },
+        );
+
+        dispatch_runtime_requests_from_actions(&KeyboardActions {
             open_camera_controls: true,
             ..Default::default()
         });
-        assert!(intents.iter().any(|i| {
-            matches!(
-                i,
-                WorkbenchIntent::OpenSettingsUrl { url }
-                    if url == &VersoAddress::settings(GraphshellSettingsPath::Physics)
-                            .to_string()
-            )
-        }));
+
+        assert!(
+            observed
+                .lock()
+                .expect("observer lock poisoned")
+                .iter()
+                .any(|route| {
+                    route
+                        == &(
+                            VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+                            true,
+                        )
+                })
+        );
+        assert!(crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            observer_id,
+        ));
     }
 
     #[test]

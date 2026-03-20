@@ -139,8 +139,11 @@ impl DiagnosticsState {
         ui: &mut egui::Ui,
         graph_app: &mut GraphBrowserApp,
         focus_inspector: Option<&RuntimeFocusInspector>,
+        signal_trace: &[crate::shell::desktop::runtime::registries::signal_routing::SignalTraceEntry],
     ) {
+        self.sync_persistence_health_snapshot_from_app(graph_app);
         self.sync_history_health_snapshot_from_app(graph_app);
+        self.sync_security_health_snapshot_from_runtime();
         self.sync_runtime_cache_snapshot_from_app(graph_app);
         self.sync_tracing_perf_snapshot_from_runtime();
         self.tick_drain();
@@ -148,6 +151,7 @@ impl DiagnosticsState {
 
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.active_tab, DiagnosticsTab::Engine, "Engine");
+            ui.selectable_value(&mut self.active_tab, DiagnosticsTab::Analysis, "Analysis");
             ui.selectable_value(
                 &mut self.active_tab,
                 DiagnosticsTab::Compositor,
@@ -242,8 +246,36 @@ impl DiagnosticsState {
                         .as_u64()
                         .unwrap_or(0);
                 ui.small(format!(
+                    "persistence_health: store={} recovery={} layouts={} snapshots={}",
+                    self.persistence_health_snapshot["store_status"]
+                        .as_str()
+                        .unwrap_or("unknown"),
+                    self.persistence_health_snapshot["recovery_status"]
+                        .as_str()
+                        .unwrap_or("unknown"),
+                    self.persistence_health_snapshot["workspace_layout_count"]
+                        .as_u64()
+                        .unwrap_or(0),
+                    self.persistence_health_snapshot["named_graph_snapshot_count"]
+                        .as_u64()
+                        .unwrap_or(0)
+                ));
+                ui.small(format!(
                     "history_health: preview_active={} failures={}",
                     history_preview, history_failures
+                ));
+                let trusted_peer_count = self.security_health_snapshot["trusted_peer_count"]
+                    .as_u64()
+                    .unwrap_or(0);
+                let workspace_grant_count = self.security_health_snapshot["workspace_grant_count"]
+                    .as_u64()
+                    .unwrap_or(0);
+                let access_denied_count = self.security_health_snapshot["access_denied_count"]
+                    .as_u64()
+                    .unwrap_or(0);
+                ui.small(format!(
+                    "security_health: peers={} grants={} access_denied={}",
+                    trusted_peer_count, workspace_grant_count, access_denied_count
                 ));
                 let cache_hits = self.runtime_cache_snapshot["hits"].as_u64().unwrap_or(0);
                 let cache_misses = self.runtime_cache_snapshot["misses"].as_u64().unwrap_or(0);
@@ -290,49 +322,11 @@ impl DiagnosticsState {
                 }
                 if !analyzer_snapshots.is_empty() {
                     egui::CollapsingHeader::new("Active analyzers")
-                        .default_open(true)
+                        .default_open(false)
                         .show(ui, |ui| {
-                            egui::Grid::new("diag_active_analyzers")
-                                .num_columns(4)
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    ui.strong("Analyzer");
-                                    ui.strong("Signal");
-                                    ui.strong("Runs");
-                                    ui.strong("Summary");
-                                    ui.end_row();
-
-                                    for analyzer in analyzer_snapshots {
-                                        ui.monospace(analyzer.id);
-                                        let (signal_label, signal_color) = match analyzer
-                                            .last_result
-                                            .as_ref()
-                                            .map(|result| result.signal)
-                                            .unwrap_or(AnalyzerSignal::Quiet)
-                                        {
-                                            AnalyzerSignal::Quiet => {
-                                                ("quiet", egui::Color32::from_gray(180))
-                                            }
-                                            AnalyzerSignal::Active => {
-                                                ("active", egui::Color32::from_rgb(90, 200, 120))
-                                            }
-                                            AnalyzerSignal::Alert => {
-                                                ("alert", egui::Color32::from_rgb(255, 120, 120))
-                                            }
-                                        };
-                                        ui.colored_label(signal_color, signal_label);
-                                        ui.monospace(analyzer.run_count.to_string());
-                                        if let Some(result) = analyzer.last_result {
-                                            ui.label(result.summary);
-                                        } else {
-                                            ui.label("not yet run");
-                                        }
-                                        ui.end_row();
-                                    }
-                                });
+                            ui.small("Analyzer registry moved to the Analysis tab.");
                         });
                 }
-                self.render_test_harness_scaffold(ui);
                 let active_tile_violations = self.channel_count(CHANNEL_ACTIVE_TILE_VIOLATION);
                 if active_tile_violations > 0 {
                     ui.colored_label(
@@ -569,6 +563,419 @@ impl DiagnosticsState {
                             ui.monospace(format!("{us}"));
                             ui.end_row();
                         }
+                    });
+            }
+            DiagnosticsTab::Analysis => {
+                ui.label("Analyzer and lane-harness inspector");
+                ui.horizontal(|ui| {
+                    ui.label("Filter");
+                    ui.text_edit_singleline(&mut self.analysis_query);
+                    ui.checkbox(&mut self.analysis_only_alerts, "Only alerts");
+                    if ui.button("Clear").clicked() {
+                        self.analysis_query.clear();
+                        self.analysis_only_alerts = false;
+                    }
+                });
+
+                let mut analyzer_snapshots = self
+                    .analyzer_snapshots()
+                    .into_iter()
+                    .filter(|snapshot| {
+                        let signal = snapshot
+                            .last_result
+                            .as_ref()
+                            .map(|result| result.signal)
+                            .unwrap_or(AnalyzerSignal::Quiet);
+                        (!self.analysis_only_alerts || signal == AnalyzerSignal::Alert)
+                            && self.analysis_filter_matches(snapshot.id)
+                    })
+                    .collect::<Vec<_>>();
+                analyzer_snapshots.sort_by_key(|snapshot| {
+                    (
+                        !self.pinned_analyzer_ids.contains(snapshot.id),
+                        snapshot.id.to_string(),
+                    )
+                });
+
+                let lane_summaries = self
+                    .lane_channel_summaries()
+                    .into_iter()
+                    .filter(|lane| {
+                        (!self.analysis_only_alerts || lane.signal == AnalyzerSignal::Alert)
+                            && self.analysis_filter_matches(lane.label)
+                    })
+                    .collect::<Vec<_>>();
+                let mut channel_trends = self
+                    .top_channel_trends(8)
+                    .into_iter()
+                    .filter(|trend| self.analysis_filter_matches(trend.channel_id))
+                    .collect::<Vec<_>>();
+                channel_trends.sort_by_key(|trend| {
+                    (
+                        !self.pinned_channels.contains(trend.channel_id),
+                        std::cmp::Reverse(trend.message_count),
+                    )
+                });
+                let channel_histories = self
+                    .channel_history_summaries(8)
+                    .into_iter()
+                    .filter(|history| self.analysis_filter_matches(history.channel_id))
+                    .collect::<Vec<_>>();
+                let (quiet_count, active_count, alert_count) = self.analyzer_signal_rollup();
+                ui.small(format!(
+                    "analyzers={} quiet={} active={} alert={}",
+                    analyzer_snapshots.len(),
+                    quiet_count,
+                    active_count,
+                    alert_count
+                ));
+                ui.horizontal_wrapped(|ui| {
+                    let draw_chip =
+                        |ui: &mut egui::Ui, label: &str, count: usize, color: egui::Color32| {
+                            egui::Frame::new()
+                                .fill(color.gamma_multiply(0.16))
+                                .stroke(egui::Stroke::new(1.0, color))
+                                .corner_radius(6.0)
+                                .inner_margin(egui::Margin::symmetric(10, 6))
+                                .show(ui, |ui| {
+                                    ui.colored_label(color, format!("{label}: {count}"));
+                                });
+                        };
+                    draw_chip(ui, "quiet", quiet_count, egui::Color32::from_gray(180));
+                    draw_chip(
+                        ui,
+                        "active",
+                        active_count,
+                        egui::Color32::from_rgb(90, 200, 120),
+                    );
+                    draw_chip(
+                        ui,
+                        "alert",
+                        alert_count,
+                        egui::Color32::from_rgb(255, 120, 120),
+                    );
+                });
+                ui.add_space(8.0);
+
+                egui::CollapsingHeader::new("Lane Drilldown")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        for lane in lane_summaries {
+                            let color = match lane.signal {
+                                AnalyzerSignal::Quiet => egui::Color32::from_gray(180),
+                                AnalyzerSignal::Active => egui::Color32::from_rgb(90, 200, 120),
+                                AnalyzerSignal::Alert => egui::Color32::from_rgb(255, 120, 120),
+                            };
+                            let signal_label = match lane.signal {
+                                AnalyzerSignal::Quiet => "quiet",
+                                AnalyzerSignal::Active => "active",
+                                AnalyzerSignal::Alert => "alert",
+                            };
+                            egui::Frame::new()
+                                .fill(color.gamma_multiply(0.08))
+                                .stroke(egui::Stroke::new(1.0, color))
+                                .corner_radius(8.0)
+                                .inner_margin(egui::Margin::symmetric(10, 8))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.strong(lane.label);
+                                        ui.separator();
+                                        ui.monospace(lane.analyzer_id);
+                                        ui.separator();
+                                        ui.colored_label(color, signal_label);
+                                    });
+                                    ui.small(&lane.summary);
+                                    if let Some(remediation) =
+                                        Self::remediation_hint_for_analyzer(lane.analyzer_id)
+                                    {
+                                        ui.small(format!("remediation: {remediation}"));
+                                    }
+                                    egui::Grid::new(format!("diag_lane_drilldown_{}", lane.lane_id))
+                                        .num_columns(2)
+                                        .striped(true)
+                                        .show(ui, |ui| {
+                                            ui.strong("Channel");
+                                            ui.strong("Count");
+                                            ui.end_row();
+                                            for (channel_id, count) in lane.channel_counts {
+                                                ui.monospace(channel_id);
+                                                if count > 0 {
+                                                    ui.colored_label(color, count.to_string());
+                                                } else {
+                                                    ui.monospace("0");
+                                                }
+                                                ui.end_row();
+                                            }
+                                        });
+                                });
+                            ui.add_space(6.0);
+                        }
+                    });
+
+                egui::CollapsingHeader::new("Channel Trends")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if channel_trends.is_empty() {
+                            ui.small("No channel trend samples yet.");
+                        } else {
+                            egui::Grid::new("diag_channel_trends")
+                                .num_columns(6)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.strong("Pin");
+                                    ui.strong("Channel");
+                                    ui.strong("Count");
+                                    ui.strong("Avg");
+                                    ui.strong("Trend");
+                                    ui.strong("Recent samples");
+                                    ui.end_row();
+
+                                    for trend in channel_trends {
+                                        let pin_label = if self.pinned_channels.contains(trend.channel_id)
+                                        {
+                                            "Unpin"
+                                        } else {
+                                            "Pin"
+                                        };
+                                        if ui.small_button(pin_label).clicked() {
+                                            if !self.pinned_channels.insert(trend.channel_id) {
+                                                self.pinned_channels.remove(trend.channel_id);
+                                            }
+                                        }
+                                        if ui
+                                            .selectable_label(
+                                                self.selected_analysis_channel
+                                                    == Some(trend.channel_id),
+                                                trend.channel_id,
+                                            )
+                                            .clicked()
+                                        {
+                                            self.selected_analysis_channel = Some(trend.channel_id);
+                                        }
+                                        ui.monospace(trend.message_count.to_string());
+                                        ui.monospace(format!(
+                                            "{:.1}ms",
+                                            trend.avg_latency_us as f64 / 1000.0
+                                        ));
+                                        let trend_color = match trend.trend {
+                                            "rising" => egui::Color32::from_rgb(255, 120, 120),
+                                            "falling" => egui::Color32::from_rgb(120, 180, 255),
+                                            _ => egui::Color32::from_gray(180),
+                                        };
+                                        ui.colored_label(trend_color, trend.trend);
+                                        let sample_preview = if trend.recent_samples_us.is_empty() {
+                                            "-".to_string()
+                                        } else {
+                                            trend
+                                                .recent_samples_us
+                                                .iter()
+                                                .map(|sample| format!("{:.1}", *sample as f64 / 1000.0))
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
+                                        };
+                                        ui.monospace(sample_preview);
+                                        ui.end_row();
+                                    }
+                                });
+                        }
+                    });
+
+                egui::CollapsingHeader::new("Channel History")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if channel_histories.is_empty() {
+                            ui.small("No bucketed channel history yet.");
+                        } else {
+                            egui::Grid::new("diag_channel_history")
+                                .num_columns(3)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.strong("Channel");
+                                    ui.strong("Count buckets");
+                                    ui.strong("Latency buckets");
+                                    ui.end_row();
+
+                                    for history in channel_histories {
+                                        ui.monospace(history.channel_id);
+                                        ui.monospace(
+                                            history
+                                                .count_buckets
+                                                .iter()
+                                                .map(|count| count.to_string())
+                                                .collect::<Vec<_>>()
+                                                .join(", "),
+                                        );
+                                        ui.monospace(
+                                            history
+                                                .latency_buckets_us
+                                                .iter()
+                                                .map(|sample| format!("{:.1}", *sample as f64 / 1000.0))
+                                                .collect::<Vec<_>>()
+                                                .join(", "),
+                                        );
+                                        ui.end_row();
+                                    }
+                                });
+                        }
+                    });
+
+                egui::CollapsingHeader::new("Channel Receipts")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if let Some(channel_id) = self.selected_analysis_channel {
+                            let receipts = self.recent_channel_receipts(channel_id, 12);
+                            ui.small(format!("Recent receipts for {channel_id}"));
+                            if receipts.is_empty() {
+                                ui.small("No matching send/receive events in the current event ring.");
+                            } else {
+                                egui::Grid::new("diag_channel_receipts")
+                                    .num_columns(3)
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.strong("Channel");
+                                        ui.strong("Direction");
+                                        ui.strong("Detail");
+                                        ui.end_row();
+
+                                        for receipt in receipts {
+                                            ui.monospace(receipt.channel_id);
+                                            ui.monospace(receipt.direction);
+                                            ui.monospace(receipt.detail);
+                                            ui.end_row();
+                                        }
+                                    });
+                            }
+                        } else {
+                            ui.small("Select a channel in Channel Trends to inspect recent receipts.");
+                        }
+                    });
+
+                egui::CollapsingHeader::new("Signal Trace")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.small(format!(
+                            "Last {} signals (ring capacity 128)",
+                            signal_trace.len(),
+                        ));
+                        if signal_trace.is_empty() {
+                            ui.small("No signals recorded yet.");
+                        } else {
+                            egui::ScrollArea::vertical()
+                                .id_salt("diag_signal_trace_scroll")
+                                .max_height(220.0)
+                                .show(ui, |ui| {
+                                    egui::Grid::new("diag_signal_trace")
+                                        .num_columns(5)
+                                        .striped(true)
+                                        .show(ui, |ui| {
+                                            ui.strong("Kind");
+                                            ui.strong("Topic");
+                                            ui.strong("Source");
+                                            ui.strong("Notified");
+                                            ui.strong("Failures");
+                                            ui.end_row();
+
+                                            for entry in signal_trace.iter().rev() {
+                                                let (kind_label, topic_label) =
+                                                    signal_trace_labels(&entry.kind);
+                                                let failure_color =
+                                                    if entry.observer_failures > 0 {
+                                                        egui::Color32::from_rgb(255, 120, 120)
+                                                    } else {
+                                                        ui.visuals().text_color()
+                                                    };
+                                                let unrouted_color =
+                                                    if entry.observers_notified == 0 {
+                                                        egui::Color32::from_rgb(200, 160, 60)
+                                                    } else {
+                                                        ui.visuals().text_color()
+                                                    };
+                                                ui.monospace(kind_label);
+                                                ui.monospace(topic_label);
+                                                ui.monospace(format!("{:?}", entry.source));
+                                                ui.colored_label(
+                                                    unrouted_color,
+                                                    entry.observers_notified.to_string(),
+                                                );
+                                                ui.colored_label(
+                                                    failure_color,
+                                                    entry.observer_failures.to_string(),
+                                                );
+                                                ui.end_row();
+                                            }
+                                        });
+                                });
+                        }
+                    });
+
+                egui::CollapsingHeader::new("Analyzer Registry")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        egui::Grid::new("diag_analysis_analyzers")
+                            .num_columns(6)
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.strong("Label");
+                                ui.strong("Pin");
+                                ui.strong("Analyzer");
+                                ui.strong("Signal");
+                                ui.strong("Runs");
+                                ui.strong("Summary");
+                                ui.end_row();
+
+                                for analyzer in analyzer_snapshots {
+                                    ui.label(analyzer.label);
+                                    let pin_label =
+                                        if self.pinned_analyzer_ids.contains(analyzer.id) {
+                                            "Unpin"
+                                        } else {
+                                            "Pin"
+                                        };
+                                    if ui.small_button(pin_label).clicked() {
+                                        if !self.pinned_analyzer_ids.insert(analyzer.id) {
+                                            self.pinned_analyzer_ids.remove(analyzer.id);
+                                        }
+                                    }
+                                    ui.monospace(analyzer.id);
+                                    let (signal_label, signal_color) = match analyzer
+                                        .last_result
+                                        .as_ref()
+                                        .map(|result| result.signal)
+                                        .unwrap_or(AnalyzerSignal::Quiet)
+                                    {
+                                        AnalyzerSignal::Quiet => {
+                                            ("quiet", egui::Color32::from_gray(180))
+                                        }
+                                        AnalyzerSignal::Active => {
+                                            ("active", egui::Color32::from_rgb(90, 200, 120))
+                                        }
+                                        AnalyzerSignal::Alert => {
+                                            ("alert", egui::Color32::from_rgb(255, 120, 120))
+                                        }
+                                    };
+                                    ui.colored_label(signal_color, signal_label);
+                                    ui.monospace(analyzer.run_count.to_string());
+                                    if let Some(result) = analyzer.last_result {
+                                        let mut summary = result.summary;
+                                        if let Some(remediation) =
+                                            Self::remediation_hint_for_analyzer(analyzer.id)
+                                        {
+                                            summary =
+                                                format!("{summary} | remediation: {remediation}");
+                                        }
+                                        ui.label(summary);
+                                    } else {
+                                        ui.label("not yet run");
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
+
+                egui::CollapsingHeader::new("Lane Harness")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        self.render_test_harness_scaffold(ui);
                     });
             }
             DiagnosticsTab::Compositor => {
@@ -874,6 +1281,70 @@ impl DiagnosticsState {
                     }
                 });
             }
+        }
+    }
+}
+
+fn signal_trace_labels(
+    kind: &crate::shell::desktop::runtime::registries::signal_routing::SignalKind,
+) -> (&'static str, &'static str) {
+    use crate::shell::desktop::runtime::registries::signal_routing::{
+        InputEventSignal, LifecycleSignal, NavigationSignal, RegistryEventSignal, SignalKind,
+        SyncSignal,
+    };
+    match kind {
+        SignalKind::Navigation(nav) => {
+            let label = match nav {
+                NavigationSignal::Resolved { .. } => "Resolved",
+                NavigationSignal::NodeActivated { .. } => "NodeActivated",
+                NavigationSignal::MimeResolved { .. } => "MimeResolved",
+            };
+            (label, "Navigation")
+        }
+        SignalKind::Lifecycle(lc) => {
+            let label = match lc {
+                LifecycleSignal::SemanticIndexUpdated { .. } => "SemanticIndexUpdated",
+                LifecycleSignal::MimeResolved { .. } => "MimeResolved",
+                LifecycleSignal::WorkflowActivated { .. } => "WorkflowActivated",
+                LifecycleSignal::MemoryPressureChanged { .. } => "MemoryPressureChanged",
+                LifecycleSignal::UserIdle { .. } => "UserIdle",
+                LifecycleSignal::UserResumed => "UserResumed",
+            };
+            (label, "Lifecycle")
+        }
+        SignalKind::Sync(sync) => {
+            let label = match sync {
+                SyncSignal::RemoteEntriesQueued => "RemoteEntriesQueued",
+            };
+            (label, "Sync")
+        }
+        SignalKind::RegistryEvent(re) => {
+            let label = match re {
+                RegistryEventSignal::ThemeChanged { .. } => "ThemeChanged",
+                RegistryEventSignal::LensChanged { .. } => "LensChanged",
+                RegistryEventSignal::WorkflowChanged { .. } => "WorkflowChanged",
+                RegistryEventSignal::PhysicsProfileChanged { .. } => "PhysicsProfileChanged",
+                RegistryEventSignal::CanvasProfileChanged { .. } => "CanvasProfileChanged",
+                RegistryEventSignal::WorkbenchSurfaceChanged { .. } => "WorkbenchSurfaceChanged",
+                RegistryEventSignal::SemanticIndexUpdated { .. } => "SemanticIndexUpdated",
+                RegistryEventSignal::SettingsRouteRequested { .. } => "SettingsRouteRequested",
+                RegistryEventSignal::ModLoaded { .. } => "ModLoaded",
+                RegistryEventSignal::ModUnloaded { .. } => "ModUnloaded",
+                RegistryEventSignal::AgentSpawned { .. } => "AgentSpawned",
+                RegistryEventSignal::IdentityRotated { .. } => "IdentityRotated",
+                RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. } => {
+                    "WorkbenchProjectionRefreshRequested"
+                }
+            };
+            (label, "RegistryEvent")
+        }
+        SignalKind::InputEvent(ie) => {
+            let label = match ie {
+                InputEventSignal::ContextChanged { .. } => "ContextChanged",
+                InputEventSignal::BindingRemapped { .. } => "BindingRemapped",
+                InputEventSignal::BindingsReset => "BindingsReset",
+            };
+            (label, "InputEvent")
         }
     }
 }

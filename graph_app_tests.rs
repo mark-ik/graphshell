@@ -2512,6 +2512,124 @@ fn history_archive_auto_curation_keeps_latest_entries() {
 }
 
 #[test]
+fn history_runtime_clear_operations_only_touch_requested_archive() {
+    let dir = TempDir::new().expect("temp dir");
+    let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+    let from = Uuid::new_v4();
+    let to = Uuid::new_v4();
+    let entry = crate::services::persistence::types::LogEntry::AppendTraversal {
+        from_node_id: from.to_string(),
+        to_node_id: to.to_string(),
+        timestamp_ms: 10,
+        trigger: crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
+    };
+
+    {
+        let store = app
+            .services
+            .persistence
+            .as_mut()
+            .expect("persistence store should exist");
+        store
+            .archive_append_traversal(&entry)
+            .expect("timeline archive write should succeed");
+        store
+            .archive_dissolved_traversal(&entry)
+            .expect("dissolved archive write should succeed");
+    }
+
+    assert_eq!(app.history_manager_archive_counts(), (1, 1));
+
+    app.apply_reducer_intents([GraphIntent::ClearHistoryTimeline]);
+    assert_eq!(
+        app.history_manager_archive_counts(),
+        (0, 1),
+        "clearing timeline should preserve dissolved archive entries"
+    );
+
+    app.apply_reducer_intents([GraphIntent::ClearHistoryDissolved]);
+    assert_eq!(
+        app.history_manager_archive_counts(),
+        (0, 0),
+        "clearing dissolved should only clear dissolved archive entries"
+    );
+}
+
+#[test]
+fn history_runtime_auto_curate_preserves_newest_entries_for_each_archive() {
+    let dir = TempDir::new().expect("temp dir");
+    let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+
+    {
+        let store = app
+            .services
+            .persistence
+            .as_mut()
+            .expect("persistence store should exist");
+
+        for timestamp_ms in [10, 20, 30] {
+            let entry = crate::services::persistence::types::LogEntry::AppendTraversal {
+                from_node_id: Uuid::new_v4().to_string(),
+                to_node_id: Uuid::new_v4().to_string(),
+                timestamp_ms,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
+            };
+            store
+                .archive_append_traversal(&entry)
+                .expect("timeline archive write should succeed");
+        }
+
+        for timestamp_ms in [40, 50, 60] {
+            let entry = crate::services::persistence::types::LogEntry::AppendTraversal {
+                from_node_id: Uuid::new_v4().to_string(),
+                to_node_id: Uuid::new_v4().to_string(),
+                timestamp_ms,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
+            };
+            store
+                .archive_dissolved_traversal(&entry)
+                .expect("dissolved archive write should succeed");
+        }
+    }
+
+    app.apply_reducer_intents([GraphIntent::AutoCurateHistoryTimeline { keep_latest: 2 }]);
+    assert_eq!(
+        app.history_manager_archive_counts(),
+        (2, 3),
+        "timeline curation should not change dissolved archive count"
+    );
+    let timeline_timestamps: Vec<u64> = app
+        .history_manager_timeline_entries(usize::MAX)
+        .into_iter()
+        .map(|entry| match entry {
+            crate::services::persistence::types::LogEntry::AppendTraversal {
+                timestamp_ms, ..
+            } => timestamp_ms,
+            other => panic!("expected traversal entry, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(timeline_timestamps, vec![30, 20]);
+
+    app.apply_reducer_intents([GraphIntent::AutoCurateHistoryDissolved { keep_latest: 1 }]);
+    assert_eq!(
+        app.history_manager_archive_counts(),
+        (2, 1),
+        "dissolved curation should not change curated timeline count"
+    );
+    let dissolved_timestamps: Vec<u64> = app
+        .history_manager_dissolved_entries(usize::MAX)
+        .into_iter()
+        .map(|entry| match entry {
+            crate::services::persistence::types::LogEntry::AppendTraversal {
+                timestamp_ms, ..
+            } => timestamp_ms,
+            other => panic!("expected traversal entry, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(dissolved_timestamps, vec![60]);
+}
+
+#[test]
 fn history_timeline_index_entries_are_exposed_from_persistence() {
     let dir = TempDir::new().expect("temp dir");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());

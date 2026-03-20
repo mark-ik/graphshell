@@ -11,10 +11,14 @@ use crate::app::WorkbenchIntent;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::LogEntry;
+use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
 use crate::shell::desktop::runtime::registries::input::{
     GamepadButton, InputBinding, InputBindingRemap, InputContext,
 };
 use crate::shell::desktop::runtime::registries::workbench_surface::WorkbenchSurfaceRegistry;
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
+};
 use crate::shell::desktop::ui::persistence_ops::{
     load_named_workspace_bundle, restore_runtime_tree_from_workspace_bundle,
     save_named_workspace_bundle,
@@ -26,6 +30,66 @@ use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 use tempfile::TempDir;
 use uuid::Uuid;
+
+#[test]
+fn startup_recovery_emits_success_diagnostic_for_logged_graph() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let path = dir.path().to_path_buf();
+
+    {
+        let mut store = GraphStore::open(path.clone()).expect("store should open");
+        store.log_mutation(&LogEntry::AddNode {
+            node_id: Uuid::new_v4().to_string(),
+            url: "https://recovered.example".to_string(),
+            position_x: 1.0,
+            position_y: 2.0,
+            timestamp_ms: 0,
+        });
+    }
+
+    let mut diagnostics = DiagnosticsState::new();
+    let app = GraphBrowserApp::new_from_dir(path);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests();
+
+    assert!(app.has_recovered_graph());
+    assert_eq!(
+        TestRegistry::channel_count(&snapshot, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED),
+        1,
+        "recovered startup should emit persistence.recover.succeeded exactly once"
+    );
+    assert_eq!(
+        TestRegistry::channel_count(&snapshot, CHANNEL_PERSISTENCE_RECOVER_FAILED),
+        0,
+        "recovered startup should not emit persistence.recover.failed"
+    );
+}
+
+#[test]
+fn startup_recovery_emits_failed_diagnostic_for_empty_store() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let path = dir.path().to_path_buf();
+    GraphStore::open(path.clone()).expect("store should open");
+
+    let mut diagnostics = DiagnosticsState::new();
+    let app = GraphBrowserApp::new_from_dir(path);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests();
+
+    assert!(!app.has_recovered_graph());
+    assert_eq!(
+        TestRegistry::channel_count(&snapshot, CHANNEL_PERSISTENCE_RECOVER_FAILED),
+        1,
+        "empty startup should emit persistence.recover.failed exactly once"
+    );
+    assert_eq!(
+        TestRegistry::channel_count(&snapshot, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED),
+        0,
+        "empty startup should not emit persistence.recover.succeeded"
+    );
+}
 
 #[test]
 fn open_node_frame_routed_preserves_unsaved_prompt_state_until_restore() {

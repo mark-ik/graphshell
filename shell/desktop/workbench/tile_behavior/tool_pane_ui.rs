@@ -11,10 +11,13 @@ impl<'a> GraphshellTileBehavior<'a> {
 
         match &tool.kind {
             ToolPaneState::Diagnostics => {
+                let signal_trace =
+                    crate::shell::desktop::runtime::registries::phase3_signal_trace_snapshot();
                 self.diagnostics_state.render_in_pane(
                     ui,
                     self.graph_app,
                     self.runtime_focus_inspector.as_ref(),
+                    &signal_trace,
                 );
             }
             ToolPaneState::HistoryManager => {

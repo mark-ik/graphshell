@@ -1,5 +1,5 @@
 ---
-source: desktop/diagnostics.rs
+source: shell/desktop/runtime/diagnostics.rs
 expression: shape
 ---
 Object {
@@ -15,12 +15,23 @@ Object {
     "generated_at_unix_secs": String("[unix-secs]"),
     "intent_count": Number(1),
     "top_level_keys": Array [
+        String("analysis"),
+        String("backend_telemetry"),
+        String("backend_telemetry_report"),
         String("channels"),
+        String("compositor_differential"),
         String("compositor_frames"),
+        String("compositor_replay"),
+        String("compositor_replay_samples"),
         String("event_ring_len"),
         String("generated_at_unix_secs"),
+        String("history_health"),
+        String("persistence_health"),
         String("recent_intents"),
+        String("runtime_cache"),
+        String("security_health"),
         String("spans"),
+        String("tracing_perf"),
         String("version"),
     ],
 }

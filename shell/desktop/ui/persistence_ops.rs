@@ -288,6 +288,9 @@ pub(crate) fn save_named_frame_bundle(
     graph_app.sync_named_workbench_frame_graph_representation(name, tree);
     let membership_index = build_membership_index_from_layouts(graph_app);
     graph_app.init_membership_index(membership_index);
+    crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+        "frame_snapshot_saved",
+    );
     Ok(())
 }
 
@@ -1033,6 +1036,58 @@ mod tests {
     }
 
     #[test]
+    fn save_named_frame_bundle_publishes_projection_refresh_signal() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        let observer_id = crate::shell::desktop::runtime::registries::phase3_subscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            move |signal| {
+                if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
+                        crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::WorkbenchProjectionRefreshRequested {
+                            reason,
+                        },
+                    ) = &signal.kind
+                    {
+                        seen.lock()
+                            .expect("observer lock poisoned")
+                            .push(reason.clone());
+                    }
+                Ok(())
+            },
+        );
+
+        let node = app.add_node_and_sync(
+            "https://frame-refresh.example".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let node_pane = tiles.insert_pane(TileKind::Node(node.into()));
+        let root = tiles.insert_tab_tile(vec![graph, node_pane]);
+        let tree = Tree::new("workspace-frame-refresh", root, tiles);
+
+        save_named_frame_bundle(&mut app, "workspace-frame-refresh", &tree)
+            .expect("save frame bundle");
+
+        assert!(
+            observed
+                .lock()
+                .expect("observer lock poisoned")
+                .iter()
+                .any(|reason| reason == "frame_snapshot_saved")
+        );
+        assert!(crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            observer_id,
+        ));
+    }
+
+    #[test]
     fn refresh_workbench_projection_from_manifests_updates_navigator_rows_and_arrangement_projection()
      {
         let dir = TempDir::new().unwrap();
@@ -1116,6 +1171,62 @@ mod tests {
 
         let frame_url = VersoAddress::frame("workspace-frame-delete").to_string();
         assert!(app.domain_graph().get_node_by_url(&frame_url).is_none());
+    }
+
+    #[test]
+    fn delete_workspace_layout_publishes_projection_refresh_signal() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        let observer_id = crate::shell::desktop::runtime::registries::phase3_subscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            move |signal| {
+                if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
+                        crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::WorkbenchProjectionRefreshRequested {
+                            reason,
+                        },
+                    ) = &signal.kind
+                    {
+                        seen.lock()
+                            .expect("observer lock poisoned")
+                            .push(reason.clone());
+                    }
+                Ok(())
+            },
+        );
+
+        let node = app.add_node_and_sync(
+            "https://frame-delete-signal.example".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let node_pane = tiles.insert_pane(TileKind::Node(node.into()));
+        let root = tiles.insert_tab_tile(vec![graph, node_pane]);
+        let tree = Tree::new("workspace-frame-delete-signal", root, tiles);
+
+        save_named_frame_bundle(&mut app, "workspace-frame-delete-signal", &tree)
+            .expect("save frame");
+        observed.lock().expect("observer lock poisoned").clear();
+
+        app.delete_workspace_layout("workspace-frame-delete-signal")
+            .expect("delete frame snapshot");
+
+        assert!(
+            observed
+                .lock()
+                .expect("observer lock poisoned")
+                .iter()
+                .any(|reason| reason == "frame_snapshot_deleted")
+        );
+        assert!(crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            observer_id,
+        ));
     }
 
     #[test]

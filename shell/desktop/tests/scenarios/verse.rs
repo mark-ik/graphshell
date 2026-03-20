@@ -126,6 +126,80 @@ fn verse_access_control_ungranted_peer_emits_access_denied() {
 }
 
 #[test]
+fn verse_access_control_wrong_workspace_grant_emits_access_denied() {
+    let mut harness = TestRegistry::new();
+    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peers = vec![make_peer(
+        peer_id,
+        "workspace-other",
+        AccessLevel::ReadWrite,
+    )];
+
+    let allowed = registries::phase5_check_verse_workspace_sync_access_for_tests(
+        &harness.diagnostics,
+        &peers,
+        peer_id,
+        "workspace-w",
+        true,
+    );
+
+    assert!(
+        !allowed,
+        "Peer granted on another workspace should be denied for workspace-w"
+    );
+
+    let snapshot = harness.snapshot();
+    assert_eq!(
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED),
+        1,
+        "Wrong-workspace grant should emit one access_denied event"
+    );
+}
+
+#[test]
+fn verse_access_control_target_workspace_ro_denies_mutations_even_with_rw_elsewhere() {
+    let mut harness = TestRegistry::new();
+    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peers = vec![TrustedPeer {
+        node_id: peer_id,
+        display_name: "mixed-grant-peer".to_string(),
+        role: PeerRole::Friend,
+        added_at: std::time::SystemTime::UNIX_EPOCH,
+        last_seen: None,
+        workspace_grants: vec![
+            WorkspaceGrant {
+                workspace_id: "workspace-other".to_string(),
+                access: AccessLevel::ReadWrite,
+            },
+            WorkspaceGrant {
+                workspace_id: "workspace-w".to_string(),
+                access: AccessLevel::ReadOnly,
+            },
+        ],
+    }];
+
+    let allowed = registries::phase5_check_verse_workspace_sync_access_for_tests(
+        &harness.diagnostics,
+        &peers,
+        peer_id,
+        "workspace-w",
+        true,
+    );
+
+    assert!(
+        !allowed,
+        "Target-workspace ReadOnly grant should deny mutating syncs even if another workspace is ReadWrite"
+    );
+
+    let snapshot = harness.snapshot();
+    assert_eq!(
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED),
+        1,
+        "Target-workspace ReadOnly grant should emit one access_denied event"
+    );
+}
+
+#[test]
 fn verse_access_control_unknown_peer_emits_access_denied() {
     let mut harness = TestRegistry::new();
     let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();

@@ -135,6 +135,12 @@ This section defines the canonical decision rule for choosing between routing
 mechanisms. Every cross-module interaction in the codebase should map cleanly to
 one of these four rows.
 
+Graph/workbench hierarchy note:
+
+- `GraphViewId` is graph-owned scoped view identity
+- Graph Bar names and switches graph-owned targets one UI level above workbench hosting
+- workbench authority may host or route a `GraphViewId` without becoming its semantic owner
+
 ### Decision table
 
 | Mechanism | When to use | Authority boundary |
@@ -165,6 +171,7 @@ Authoritative for:
 
 - Tile-tree shape mutations (splits, tabs, pane open/close/focus)
 - `TileKind` pane insertion, removal, and focus changes
+- hosted presentation of graph-owned `GraphViewId` surfaces once routing has been resolved
 
 The tile tree is an `egui_tiles` construct, not graph state. Tile mutations do
 not need the WAL, the graph reducer, or `ControlPanel` involvement.

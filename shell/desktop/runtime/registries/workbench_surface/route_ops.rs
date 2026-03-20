@@ -274,18 +274,11 @@ fn open_settings_route_target(
     tiles_tree: &mut Tree<TileKind>,
     route: crate::app::SettingsRouteTarget,
 ) {
-    match route {
-        crate::app::SettingsRouteTarget::History => {
-            open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::HistoryManager);
-        }
-        crate::app::SettingsRouteTarget::Settings(page) => {
-            graph_app.workspace.chrome_ui.settings_tool_page = page;
-            if settings_tool_pane_exists(tiles_tree) {
-                open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::Settings);
-            } else {
-                graph_app.open_settings_overlay(page);
-            }
-        }
+    let kind = graph_app.apply_settings_route_target(route);
+    if matches!(kind, ToolPaneState::Settings) && !settings_tool_pane_exists(tiles_tree) {
+        graph_app.open_settings_overlay(graph_app.workspace.chrome_ui.settings_tool_page);
+    } else {
+        open_or_focus_tool_pane_if_available(tiles_tree, kind);
     }
 }
 

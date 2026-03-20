@@ -520,6 +520,73 @@ fn phase3_identity_registry_key_unavailable_emits_failure_channels() {
 }
 
 #[test]
+fn phase3_identity_registry_verify_success_emits_verify_channels() {
+    let mut harness = TestRegistry::new();
+    let signature = registries::phase3_sign_identity_payload_for_tests(
+        &harness.diagnostics,
+        "identity:default",
+        b"payload",
+    )
+    .expect("signature should be produced");
+
+    let verified = registries::phase3_verify_identity_payload_for_tests(
+        &harness.diagnostics,
+        "identity:default",
+        b"payload",
+        &signature,
+    );
+    assert!(verified);
+
+    let snapshot = harness.snapshot();
+    assert!(
+        TestRegistry::channel_count(&snapshot, "registry.identity.verify_started") > 0,
+        "identity verify started channel should be emitted"
+    );
+    assert!(
+        TestRegistry::channel_count(&snapshot, "registry.identity.verify_succeeded") > 0,
+        "identity verify succeeded channel should be emitted"
+    );
+    assert_eq!(
+        TestRegistry::channel_count(&snapshot, "registry.identity.verify_failed"),
+        0,
+        "identity verify failed channel should not be emitted on success"
+    );
+}
+
+#[test]
+fn phase3_identity_registry_verify_failure_emits_failure_channels() {
+    let mut harness = TestRegistry::new();
+    let signature = registries::phase3_sign_identity_payload_for_tests(
+        &harness.diagnostics,
+        "identity:default",
+        b"payload",
+    )
+    .expect("signature should be produced");
+
+    let verified = registries::phase3_verify_identity_payload_for_tests(
+        &harness.diagnostics,
+        "identity:locked",
+        b"payload",
+        &signature,
+    );
+    assert!(!verified);
+
+    let snapshot = harness.snapshot();
+    assert!(
+        TestRegistry::channel_count(&snapshot, "registry.identity.verify_started") > 0,
+        "identity verify started channel should be emitted"
+    );
+    assert!(
+        TestRegistry::channel_count(&snapshot, "registry.identity.verify_failed") > 0,
+        "identity verify failed channel should be emitted"
+    );
+    assert!(
+        TestRegistry::channel_count(&snapshot, "registry.identity.key_unavailable") > 0,
+        "identity key unavailable channel should be emitted for locked persona verification"
+    );
+}
+
+#[test]
 fn diagnostics_channel_config_update_emits_config_changed_channel() {
     let mut harness = TestRegistry::new();
     let config = crate::registries::atomic::diagnostics::ChannelConfig {

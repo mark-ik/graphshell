@@ -111,6 +111,20 @@ pub use history::{
     HistoryCaptureStatus, HistoryHealthSummary, HistoryManagerTab, HistoryTraversalFailureReason,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistenceHealthSummary {
+    pub store_status: &'static str,
+    pub recovered_graph: bool,
+    pub snapshot_interval_secs: Option<u64>,
+    pub last_snapshot_age_secs: Option<u64>,
+    pub named_graph_snapshot_count: usize,
+    pub workspace_layout_count: usize,
+    pub traversal_archive_count: usize,
+    pub dissolved_archive_count: usize,
+    pub workspace_autosave_interval_secs: u64,
+    pub workspace_autosave_retention: u8,
+}
+
 #[path = "app/history_runtime.rs"]
 mod history_runtime;
 

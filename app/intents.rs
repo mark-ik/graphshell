@@ -781,6 +781,195 @@ pub enum GraphIntent {
     RebuildNavigatorProjection,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceGrantRequirement {
+    None,
+    ReadWrite,
+}
+
+impl GraphIntent {
+    pub(crate) fn workspace_grant_requirement(&self) -> WorkspaceGrantRequirement {
+        match self {
+            Self::CreateNoteForNode { .. }
+            | Self::CreateNodeNearCenter
+            | Self::CreateNodeNearCenterAndOpen { .. }
+            | Self::CreateNodeAtUrl { .. }
+            | Self::CreateNodeAtUrlAndOpen { .. }
+            | Self::RemoveSelectedNodes
+            | Self::ClearGraph
+            | Self::SetNodeUrl { .. }
+            | Self::TagNode { .. }
+            | Self::UntagNode { .. }
+            | Self::CreateUserGroupedEdge { .. }
+            | Self::DeleteImportRecord { .. }
+            | Self::SuppressImportRecordMembership { .. }
+            | Self::PromoteImportRecordToUserGroup { .. }
+            | Self::RemoveEdge { .. }
+            | Self::CreateUserGroupedEdgeFromPrimarySelection
+            | Self::SetNodePinned { .. }
+            | Self::ForgetDevice { .. }
+            | Self::RevokeWorkspaceAccess { .. }
+            | Self::ApplyRemoteDelta { .. }
+            | Self::TrustPeer { .. }
+            | Self::GrantWorkspaceAccess { .. }
+            | Self::UpdateNodeMimeHint { .. }
+            | Self::UpdateNodeAddressKind { .. } => WorkspaceGrantRequirement::ReadWrite,
+            Self::TogglePhysics
+            | Self::ToggleCameraPositionFitLock
+            | Self::ToggleCameraZoomFitLock
+            | Self::RequestFitToScreen
+            | Self::RequestZoomIn
+            | Self::RequestZoomOut
+            | Self::RequestZoomReset
+            | Self::RequestZoomToSelected
+            | Self::ReheatPhysics
+            | Self::ToggleHelpPanel
+            | Self::ToggleCommandPalette
+            | Self::ToggleRadialMenu
+            | Self::TraverseBack
+            | Self::TraverseForward
+            | Self::EnterGraphViewLayoutManager
+            | Self::ExitGraphViewLayoutManager
+            | Self::ToggleGraphViewLayoutManager
+            | Self::CreateGraphViewSlot { .. }
+            | Self::RenameGraphViewSlot { .. }
+            | Self::MoveGraphViewSlot { .. }
+            | Self::ArchiveGraphViewSlot { .. }
+            | Self::RestoreGraphViewSlot { .. }
+            | Self::RouteGraphViewToWorkbench { .. }
+            | Self::FocusGraphView { .. }
+            | Self::Undo
+            | Self::Redo
+            | Self::AcceptHostOpenRequest { .. }
+            | Self::SelectNode { .. }
+            | Self::UpdateSelection { .. }
+            | Self::SelectAll
+            | Self::SetInteracting { .. }
+            | Self::SetNodePosition { .. }
+            | Self::SetZoom { .. }
+            | Self::SetViewLens { .. }
+            | Self::SetViewFilter { .. }
+            | Self::ClearViewFilter { .. }
+            | Self::SetViewDimension { .. }
+            | Self::ToggleSemanticDepthView { .. }
+            | Self::SetPhysicsProfile { .. }
+            | Self::SetTheme { .. }
+            | Self::SuggestNodeTags { .. }
+            | Self::OpenNodeFrameRouted { .. }
+            | Self::SetPanePresentationMode { .. }
+            | Self::PromoteEphemeralPane { .. }
+            | Self::OpenNodeWorkspaceRouted { .. }
+            | Self::GroupNodesBySemanticTags
+            | Self::ExecuteEdgeCommand { .. }
+            | Self::SetHighlightedEdge { .. }
+            | Self::ClearHighlightedEdge
+            | Self::TogglePrimaryNodePin
+            | Self::PromoteNodeToActive { .. }
+            | Self::DemoteNodeToCold { .. }
+            | Self::DemoteNodeToWarm { .. }
+            | Self::MarkRuntimeBlocked { .. }
+            | Self::ClearRuntimeBlocked { .. }
+            | Self::MapWebviewToNode { .. }
+            | Self::UnmapWebview { .. }
+            | Self::WebViewCreated { .. }
+            | Self::WebViewUrlChanged { .. }
+            | Self::WebViewHistoryChanged { .. }
+            | Self::WebViewScrollChanged { .. }
+            | Self::SetNodeFormDraft { .. }
+            | Self::WebViewTitleChanged { .. }
+            | Self::WebViewCrashed { .. }
+            | Self::SetNodeThumbnail { .. }
+            | Self::SetNodeFavicon { .. }
+            | Self::ClearHistoryTimeline
+            | Self::ClearHistoryDissolved
+            | Self::AutoCurateHistoryTimeline { .. }
+            | Self::AutoCurateHistoryDissolved { .. }
+            | Self::ExportHistoryTimeline
+            | Self::ExportHistoryDissolved
+            | Self::EnterHistoryTimelinePreview
+            | Self::ExitHistoryTimelinePreview
+            | Self::HistoryTimelinePreviewIsolationViolation { .. }
+            | Self::HistoryTimelineReplayStarted
+            | Self::HistoryTimelineReplaySetTotal { .. }
+            | Self::HistoryTimelineReplayAdvance { .. }
+            | Self::HistoryTimelineReplayReset
+            | Self::HistoryTimelineReplayProgress { .. }
+            | Self::HistoryTimelineReplayFinished { .. }
+            | Self::HistoryTimelineReturnToPresentFailed { .. }
+            | Self::WorkflowActivated { .. }
+            | Self::PersistNostrSubscriptions
+            | Self::NostrEventReceived { .. }
+            | Self::Noop
+            | Self::SetMemoryPressureStatus { .. }
+            | Self::ModActivated { .. }
+            | Self::ModLoadFailed { .. }
+            | Self::SyncNow
+            | Self::SetNavigatorContainmentRelationSource { .. }
+            | Self::SetNavigatorSortMode { .. }
+            | Self::SetNavigatorRootFilter { .. }
+            | Self::SetNavigatorSelectedRows { .. }
+            | Self::SetNavigatorExpandedRows { .. }
+            | Self::RebuildNavigatorProjection => WorkspaceGrantRequirement::None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_grant_requirement_marks_graph_and_trust_mutations_as_readwrite() {
+        assert_eq!(
+            GraphIntent::CreateNodeNearCenter.workspace_grant_requirement(),
+            WorkspaceGrantRequirement::ReadWrite
+        );
+        assert_eq!(
+            GraphIntent::TrustPeer {
+                peer_id: "peer-a".to_string(),
+                display_name: "Peer A".to_string(),
+            }
+            .workspace_grant_requirement(),
+            WorkspaceGrantRequirement::ReadWrite
+        );
+        assert_eq!(
+            GraphIntent::GrantWorkspaceAccess {
+                peer_id: "peer-a".to_string(),
+                workspace_id: "workspace-a".to_string(),
+            }
+            .workspace_grant_requirement(),
+            WorkspaceGrantRequirement::ReadWrite
+        );
+        assert_eq!(
+            GraphIntent::ApplyRemoteDelta {
+                entries: vec![1, 2, 3],
+            }
+            .workspace_grant_requirement(),
+            WorkspaceGrantRequirement::ReadWrite
+        );
+    }
+
+    #[test]
+    fn workspace_grant_requirement_leaves_local_only_navigation_and_ui_intents_unclassified() {
+        assert_eq!(
+            GraphIntent::ToggleHelpPanel.workspace_grant_requirement(),
+            WorkspaceGrantRequirement::None
+        );
+        assert_eq!(
+            GraphIntent::SetViewFilter {
+                view_id: GraphViewId::new(),
+                expr: None,
+            }
+            .workspace_grant_requirement(),
+            WorkspaceGrantRequirement::None
+        );
+        assert_eq!(
+            GraphIntent::HistoryTimelineReplayStarted.workspace_grant_requirement(),
+            WorkspaceGrantRequirement::None
+        );
+    }
+}
+
 impl From<ViewAction> for GraphIntent {
     fn from(value: ViewAction) -> Self {
         match value {

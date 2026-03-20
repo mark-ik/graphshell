@@ -1,6 +1,43 @@
 use super::*;
 
 impl GraphBrowserApp {
+    pub fn persistence_health_summary(&self) -> PersistenceHealthSummary {
+        let (
+            store_status,
+            snapshot_interval_secs,
+            last_snapshot_age_secs,
+            named_graph_snapshot_count,
+            workspace_layout_count,
+            traversal_archive_count,
+            dissolved_archive_count,
+        ) = if let Some(store) = self.services.persistence.as_ref() {
+            (
+                "active",
+                Some(store.snapshot_interval_secs()),
+                Some(store.last_snapshot_age_secs()),
+                store.list_named_graph_snapshot_names().len(),
+                store.list_workspace_layout_names().len(),
+                store.traversal_archive_len(),
+                store.dissolved_archive_len(),
+            )
+        } else {
+            ("failed", None, None, 0, 0, 0, 0)
+        };
+
+        PersistenceHealthSummary {
+            store_status,
+            recovered_graph: self.has_recovered_graph(),
+            snapshot_interval_secs,
+            last_snapshot_age_secs,
+            named_graph_snapshot_count,
+            workspace_layout_count,
+            traversal_archive_count,
+            dissolved_archive_count,
+            workspace_autosave_interval_secs: self.workspace_autosave_interval_secs(),
+            workspace_autosave_retention: self.workspace_autosave_retention(),
+        }
+    }
+
     /// Check if it's time for a periodic snapshot
     pub fn check_periodic_snapshot(&mut self) {
         if let Some(store) = &mut self.services.persistence {
@@ -253,6 +290,9 @@ impl GraphBrowserApp {
             .node_workspace_membership
             .retain(|_, memberships| !memberships.is_empty());
         self.workspace.graph_runtime.egui_state_dirty = true;
+        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+            "frame_snapshot_deleted",
+        );
         Ok(())
     }
 

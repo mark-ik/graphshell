@@ -3,8 +3,8 @@
 **Date**: 2026-03-01  
 **Status**: Draft — design target and research synthesis  
 **Scope**: Full UX control scheme, event architecture, layout strategy, and
-interaction model for Graphshell's two-surface paradigm (Graph Canvas +
-Workbench Tile Tree).
+interaction model for Graphshell's split chrome and hosting paradigm
+(Graph Bar + graph surfaces + contextual Workbench tile tree).
 
 **Related**:
 - `TERMINOLOGY.md` — canonical vocabulary
@@ -44,6 +44,12 @@ architecture to define a coherent UX target that:
    overwhelming new users.
 4. Is **machine-testable** via the UxTree / UxContract system.
 5. Is **user-configurable** and shareable as `WorkbenchProfile` presets.
+
+Hierarchy note:
+
+- the Graph Bar names and steers graph-owned targets (`GraphId`, `GraphViewId`)
+- the graph/workbench surfaces below it render or host contextual leaves for that target
+- the workbench tile tree is therefore a contextual presentation structure, not a peer semantic owner beside the graph
 
 ---
 
@@ -303,6 +309,10 @@ width. UI implications for Graphshell:
 
 Graphshell has three distinct tree structures that the UX layer must relate:
 
+The Graph Bar sits one UI level above this section's tile-tree discussion: it
+names the active graph target and view scope, while the structures below describe
+how that target is presented, hosted, and probed at runtime.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                      UxTree                              │
@@ -349,8 +359,8 @@ Graphshell has three distinct tree structures that the UX layer must relate:
 |------|----|-------------|-----------|
 | UxTree | Tile Tree | Read-only projection (C1). Each visible `TileKind` pane → at least one `UxNode` (C3). | UxTreeBuilder |
 | UxTree | Graph Data | Graph nodes at LOD ≥ Compact are emitted as `UxNode` children of their `GraphView` parent (C5). | UxTreeBuilder |
-| Tile Tree | Graph Data | `TileKind::Graph(GraphViewId)` → renders a view of the graph. `TileKind::Pane(PaneState)` → no graph node yet. `TileKind::Node(NodePaneState)` → renders a specific `NodeKey`. | Workbench Authority |
-| Graph Data | Tile Tree | `GraphIntent::OpenNode` → Workbench Authority creates new `TileKind::Node` pane. `Pane` promotion creates the `Node`, then upgrades `TileKind::Pane` to `TileKind::Node`. | Two-authority routing |
+| Tile Tree | Graph Data | `TileKind::Graph(GraphViewId)` → hosts a presentation of a graph-owned scoped view already named by Graph Bar chrome. `TileKind::Pane(PaneState)` → no graph node yet. `TileKind::Node(NodePaneState)` → renders a specific `NodeKey`. | Workbench Authority |
+| Graph Data | Tile Tree | `GraphIntent::OpenNode` → Workbench Authority creates new `TileKind::Node` pane. `GraphIntent::RouteGraphViewToWorkbench` hosts an existing graph-owned `GraphViewId` in workbench context. `Pane` promotion creates the `Node`, then upgrades `TileKind::Pane` to `TileKind::Node`. | Two-authority routing |
 | Tile Tree | UxTree | No direct dependency. Tile Tree does not read UxTree. | — |
 | Graph Data | UxTree | No direct dependency. Graph does not read UxTree. | — |
 

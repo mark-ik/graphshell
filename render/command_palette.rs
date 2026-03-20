@@ -1165,9 +1165,31 @@ mod tests {
     }
 
     #[test]
-    fn execute_action_settings_overlay_routes_through_runtime_dispatch() {
+    fn execute_action_settings_overlay_publishes_settings_route_signal() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
         let mut app = GraphBrowserApp::new_for_testing();
         let mut intents = Vec::new();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        let observer_id = registries::phase3_subscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            move |signal| {
+                if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
+                    crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
+                        url,
+                        prefer_overlay,
+                    },
+                ) = &signal.kind
+                {
+                    seen.lock()
+                        .expect("observer lock poisoned")
+                        .push((url.clone(), *prefer_overlay));
+                }
+                Ok(())
+            },
+        );
 
         execute_action(
             &mut app,
@@ -1180,11 +1202,23 @@ mod tests {
         );
 
         assert!(intents.is_empty());
-        assert!(matches!(
-            app.take_pending_workbench_intents().as_slice(),
-            [WorkbenchIntent::OpenSettingsUrl { url }]
-                if url
-                    == &VersoAddress::settings(GraphshellSettingsPath::General).to_string()
+        assert!(app.take_pending_workbench_intents().is_empty());
+        assert!(
+            observed
+                .lock()
+                .expect("observer lock poisoned")
+                .iter()
+                .any(|route| {
+                    route
+                        == &(
+                            VersoAddress::settings(GraphshellSettingsPath::General).to_string(),
+                            true,
+                        )
+                })
+        );
+        assert!(registries::phase3_unsubscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            observer_id,
         ));
     }
 

@@ -10,6 +10,7 @@
 
 - `GraphId` = durable graph/content truth boundary.
 - `GraphViewId` = scoped view-state boundary (camera/lens/selection/filter memory).
+- Graph Bar = graph-scope chrome that names and switches graph-owned targets above workbench hosting.
 - file tree = graph-backed hierarchical projection (navigation surface only).
 - workbench = arrangement boundary (pane/tile/frame hosting only).
 
@@ -25,7 +26,7 @@
 | Focus (`subsystem_focus/focus_and_region_navigation_spec.md`) | Focus router | Region focus ownership and deterministic return-path semantics | Reassignment of graph/workbench semantic ownership | Focus-cycle + no-trap diagnostics tests |
 | Command (`aspect_command/command_surface_interaction_spec.md`) | Action/dispatch authority | Command semantics, target resolution, disabled-state policy | Independent semantic models per command UI surface | Action parity and dispatch diagnostics tests |
 | Settings (`aspect_control/settings_and_control_surfaces_spec.md`) | Settings/control subsystem | Route/apply/persist/return-path control semantics | Becoming owner of graph/workbench identity models | Settings persistence + return-path scenario tests |
-| Multi-view (`canvas/multi_view_pane_spec.md`) | Graph + workbench bridge | Per-`GraphViewId` isolation semantics and pane-host contract | Treating tile structure as graph truth | Multi-pane isolation and routing tests |
+| Multi-view (`canvas/multi_view_pane_spec.md`) | Graph + workbench bridge | Per-`GraphViewId` isolation semantics and hosted-surface contract for graph-owned views | Treating tile structure as graph truth or as owner of `GraphViewId` identity | Multi-pane isolation and routing tests |
 | Lens (`system/register/lens_compositor_spec.md`) | Lens compositor registry | Graph-view lens composition (view scope) | Workbench layout/session authority | Lens resolution + fallback contract tests |
 | Workbench surface registry (`system/register/workbench_surface_registry_spec.md`) | Workbench surface registry | Arrangement policy and tile-tree interaction policy | Graph truth and projection semantics | Registry contract tests + workbench scenario coverage |
 

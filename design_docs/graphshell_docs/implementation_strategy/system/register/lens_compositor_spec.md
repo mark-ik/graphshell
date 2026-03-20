@@ -14,10 +14,13 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
+- Graph Bar = graph-scope chrome that names the active graph target and commonly surfaces lens controls.
 - `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
 Lens composition is GraphView-scoped and must not assume workbench arrangement ownership.
+Graph Bar may expose lens switching, but lens ownership remains graph-view scoped rather
+than workbench scoped.
 
 ## Contract template (inherits UX Contract Register §2A)
 
@@ -62,6 +65,8 @@ Canonical interfaces:
 ## Normative Core
 
 - A Lens is a graph view configuration, not a full session mode.
+- A Lens applies to a graph-owned `GraphViewId` whether that view is currently
+  hosted in a workbench pane or selected only in Graph Bar chrome.
 - Lens resolution composes registry outputs; it does not replace them.
 - Workbench layout stays outside the Lens boundary.
 

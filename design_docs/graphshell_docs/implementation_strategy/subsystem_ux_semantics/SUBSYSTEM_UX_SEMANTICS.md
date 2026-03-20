@@ -20,6 +20,12 @@
 Supporting UX-semantics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+Hierarchy note:
+
+- the Graph Bar names graph-owned targets (`GraphId`, `GraphViewId`) one UI level above workbench hosting
+- the workbench tile tree is a contextual hosting structure for the active branch's leaves
+- `UxTree` must preserve that distinction in its semantic projection instead of making tile hosting look like semantic ownership
+
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6):
 - **WCAG 2.2 Level AA** — S9 (32 dp minimum hit targets → SC 2.5.8), N2 (dismiss reachability → SC 2.4.11), AccessKit mapping invariants; UxTree structural invariants are behavioral implementations of WCAG requirements
 - **OpenTelemetry Semantic Conventions** — `ux:*` diagnostic channel naming and severity
@@ -206,7 +212,9 @@ Build order:
    Workbench chrome/sidebar (`WorkbenchChrome`) when present, status bar
    (`StatusBar`) when present.
 3. Walk `Gui::tiles_tree`.
-4. For each `TileKind::Graph(GraphViewId)`: emit a `GraphView` region. For each
+4. For each `TileKind::Graph(GraphViewId)`: emit a `GraphView` region representing
+   a hosted presentation of a graph-owned scoped view already named by Graph Bar
+   chrome. For each
    graph node at LOD ≥ Compact, emit a `GraphNode` child.
 5. For each `TileKind::Node(NodePaneState)`: emit a `NodePane` region with:
    - Navigation bar sub-region (back/forward buttons, location field).

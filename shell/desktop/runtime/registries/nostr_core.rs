@@ -3206,6 +3206,63 @@ mod tests {
     }
 
     #[test]
+    fn nostr_core_nip07_deny_path_emits_denial_diagnostics() {
+        let mut diagnostics = DiagnosticsState::new();
+        let registry = NostrCoreRegistry::default();
+        let identity = IdentityRegistry::default();
+        registry
+            .set_nip07_permission(
+                "https://example.com",
+                "signEvent",
+                Nip07PermissionDecision::Deny,
+            )
+            .expect("nip07 permission should be stored");
+
+        let result = registry.nip07_request(
+            &identity,
+            "https://example.com/thread",
+            "signEvent",
+            &serde_json::json!({
+                "kind": 1u16,
+                "created_at": 1_710_000_111u64,
+                "content": "denied",
+                "tags": []
+            }),
+        );
+        assert!(matches!(
+            result,
+            Err(NostrCoreError::ValidationFailed(message))
+                if message.contains("permission denied")
+        ));
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert!(
+            channel_message_count(&snapshot, CHANNEL_NOSTR_SIGN_REQUEST_DENIED) >= 1,
+            "expected sign request denied channel on nip07 deny"
+        );
+        assert!(
+            channel_message_count(&snapshot, CHANNEL_NOSTR_SECURITY_VIOLATION) >= 1,
+            "expected security violation channel on nip07 deny"
+        );
+    }
+
+    #[test]
+    fn nostr_core_report_intent_rejected_emits_diagnostic_channel() {
+        let mut diagnostics = DiagnosticsState::new();
+        let registry = NostrCoreRegistry::default();
+
+        registry.report_intent_rejected(17);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert!(
+            channel_message_count(&snapshot, CHANNEL_NOSTR_INTENT_REJECTED) >= 1,
+            "expected intent rejected channel to be emitted"
+        );
+    }
+
+    #[test]
     fn nostr_core_subscribe_unsubscribe_roundtrip() {
         let registry = NostrCoreRegistry::default();
         let filters = NostrFilterSet {

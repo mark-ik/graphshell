@@ -1147,6 +1147,10 @@ impl GraphStore {
         }
     }
 
+    pub fn last_snapshot_age_secs(&self) -> u64 {
+        self.last_snapshot.elapsed().as_secs()
+    }
+
     /// Configure periodic snapshot interval (seconds).
     pub fn set_snapshot_interval_secs(&mut self, secs: u64) -> Result<(), GraphStoreError> {
         if secs == 0 {

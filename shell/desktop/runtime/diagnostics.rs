@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -37,15 +37,19 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
-    CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
-    CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED, CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED,
-    CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED, CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH,
-    CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
+    CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_IDENTITY_SIGN_FAILED,
+    CHANNEL_IDENTITY_TRUST_STORE_LOAD_FAILED, CHANNEL_IDENTITY_VERIFY_FAILED,
+    CHANNEL_INVARIANT_TIMEOUT, CHANNEL_PERSISTENCE_RECOVER_FAILED,
+    CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED, CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED, CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH, CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
     CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
     CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION, CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
     CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH, CHANNEL_UX_NAVIGATION_TRANSITION,
-    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED,
-    CHANNEL_VIEWER_SELECT_SUCCEEDED,
+    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_VERSE_SYNC_ACCESS_DENIED,
+    CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
 };
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
@@ -200,6 +204,7 @@ pub(crate) fn apply_channel_config_update_with_diagnostics(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DiagnosticsTab {
     Engine,
+    Analysis,
     Compositor,
     Intents,
 }
@@ -308,6 +313,39 @@ pub(crate) struct AnalyzerSnapshot {
     pub(crate) label: &'static str,
     pub(crate) run_count: u64,
     pub(crate) last_result: Option<AnalyzerResult>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct LaneChannelSummary {
+    pub(crate) lane_id: &'static str,
+    pub(crate) analyzer_id: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) signal: AnalyzerSignal,
+    pub(crate) summary: String,
+    pub(crate) channel_counts: Vec<(&'static str, u64)>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ChannelTrendSummary {
+    pub(crate) channel_id: &'static str,
+    pub(crate) message_count: u64,
+    pub(crate) avg_latency_us: u64,
+    pub(crate) trend: &'static str,
+    pub(crate) recent_samples_us: Vec<u64>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ChannelEventReceipt {
+    pub(crate) channel_id: &'static str,
+    pub(crate) direction: &'static str,
+    pub(crate) detail: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ChannelHistorySummary {
+    pub(crate) channel_id: &'static str,
+    pub(crate) count_buckets: Vec<u64>,
+    pub(crate) latency_buckets_us: Vec<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -658,6 +696,125 @@ fn analyze_navigator_projection_health(
     }
 }
 
+fn analyze_persistence_health(
+    graph: &DiagnosticGraph,
+    _event_ring: &VecDeque<DiagnosticEvent>,
+    _tracing_perf_snapshot: &Value,
+) -> AnalyzerResult {
+    let open_failed = graph
+        .message_counts
+        .get(CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED)
+        .copied()
+        .unwrap_or(0);
+    let open_timeout = graph
+        .message_counts
+        .get(CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT)
+        .copied()
+        .unwrap_or(0);
+    let recover_failed = graph
+        .message_counts
+        .get(CHANNEL_PERSISTENCE_RECOVER_FAILED)
+        .copied()
+        .unwrap_or(0);
+    let recover_succeeded = graph
+        .message_counts
+        .get(CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED)
+        .copied()
+        .unwrap_or(0);
+
+    if open_failed > 0 || open_timeout > 0 || recover_failed > 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Alert,
+            summary: format!(
+                "persistence degraded (open_failed={open_failed}, open_timeout={open_timeout}, recover_failed={recover_failed}, recover_succeeded={recover_succeeded})"
+            ),
+        };
+    }
+
+    if recover_succeeded > 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Active,
+            summary: format!(
+                "persistence healthy (recover_succeeded={recover_succeeded})"
+            ),
+        };
+    }
+
+    AnalyzerResult {
+        signal: AnalyzerSignal::Quiet,
+        summary: "persistence health pending startup receipts".to_string(),
+    }
+}
+
+fn analyze_security_identity_health(
+    graph: &DiagnosticGraph,
+    _event_ring: &VecDeque<DiagnosticEvent>,
+    _tracing_perf_snapshot: &Value,
+) -> AnalyzerResult {
+    let access_denied = graph
+        .message_counts
+        .get(CHANNEL_VERSE_SYNC_ACCESS_DENIED)
+        .copied()
+        .unwrap_or(0);
+    let sign_failed = graph
+        .message_counts
+        .get(CHANNEL_IDENTITY_SIGN_FAILED)
+        .copied()
+        .unwrap_or(0);
+    let verify_failed = graph
+        .message_counts
+        .get(CHANNEL_IDENTITY_VERIFY_FAILED)
+        .copied()
+        .unwrap_or(0);
+    let trust_store_failed = graph
+        .message_counts
+        .get(CHANNEL_IDENTITY_TRUST_STORE_LOAD_FAILED)
+        .copied()
+        .unwrap_or(0);
+
+    if access_denied > 0 || sign_failed > 0 || verify_failed > 0 || trust_store_failed > 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Alert,
+            summary: format!(
+                "security/identity issues observed (access_denied={access_denied}, sign_failed={sign_failed}, verify_failed={verify_failed}, trust_store_failed={trust_store_failed})"
+            ),
+        };
+    }
+
+    AnalyzerResult {
+        signal: AnalyzerSignal::Quiet,
+        summary: "security/identity health quiet".to_string(),
+    }
+}
+
+fn analyze_diagnostics_registry_health(
+    graph: &DiagnosticGraph,
+    _event_ring: &VecDeque<DiagnosticEvent>,
+    _tracing_perf_snapshot: &Value,
+) -> AnalyzerResult {
+    let orphan_channels = diagnostics_registry::list_orphan_channels_snapshot();
+    let orphan_count = orphan_channels.len();
+    let incomplete = graph
+        .message_counts
+        .get(CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE)
+        .copied()
+        .unwrap_or(0);
+
+    if incomplete > 0 || orphan_count > 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Alert,
+            summary: format!(
+                "diagnostics registry drift detected (incomplete={incomplete}, orphan_channels={orphan_count})"
+            ),
+        };
+    }
+
+    AnalyzerResult {
+        signal: AnalyzerSignal::Active,
+        summary: "diagnostics registry health nominal".to_string(),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct EdgeMetric {
     count: u64,
@@ -790,6 +947,9 @@ enum DiagnosticsHarnessScenario {
     RenderModeHealth,
     SignalRoutingHealth,
     NavigatorProjectionHealth,
+    BroadSubsystemSweep,
+    PersistenceHealth,
+    SecurityIdentityHealth,
 }
 
 impl DiagnosticsHarnessScenario {
@@ -799,6 +959,9 @@ impl DiagnosticsHarnessScenario {
             Self::RenderModeHealth => "render_mode_health",
             Self::SignalRoutingHealth => "signal_routing_health",
             Self::NavigatorProjectionHealth => "navigator_projection_health",
+            Self::BroadSubsystemSweep => "broad_subsystem_sweep",
+            Self::PersistenceHealth => "persistence_health",
+            Self::SecurityIdentityHealth => "security_identity_health",
         }
     }
 
@@ -808,6 +971,9 @@ impl DiagnosticsHarnessScenario {
             Self::RenderModeHealth => "Render-Mode Health",
             Self::SignalRoutingHealth => "Signal-Routing Health",
             Self::NavigatorProjectionHealth => "Navigator Projection Health",
+            Self::BroadSubsystemSweep => "Broad Subsystem Sweep",
+            Self::PersistenceHealth => "Persistence Health",
+            Self::SecurityIdentityHealth => "Security / Identity Health",
         }
     }
 }
@@ -824,6 +990,7 @@ struct DiagnosticsHarnessReceipt {
 struct DiagnosticsTestHarnessState {
     run_count: u64,
     last_run: Option<DiagnosticsHarnessRunResult>,
+    recent_runs: VecDeque<DiagnosticsHarnessRunResult>,
     selected_scenario: Option<DiagnosticsHarnessScenario>,
 }
 
@@ -832,6 +999,7 @@ pub(crate) struct DiagnosticsState {
     event_tx: Sender<DiagnosticEvent>,
     event_rx: Receiver<DiagnosticEvent>,
     event_ring: VecDeque<DiagnosticEvent>,
+    channel_count_history: HashMap<&'static str, VecDeque<u64>>,
     last_drain_at: Instant,
     drain_interval: Duration,
     compositor_state: CompositorState,
@@ -842,10 +1010,17 @@ pub(crate) struct DiagnosticsState {
     hovered_node_key: Option<NodeKey>,
     pinned_node_key: Option<NodeKey>,
     pending_focus_node: Option<NodeKey>,
+    selected_analysis_channel: Option<&'static str>,
+    analysis_query: String,
+    analysis_only_alerts: bool,
+    pinned_analyzer_ids: HashSet<&'static str>,
+    pinned_channels: HashSet<&'static str>,
     latency_percentile: LatencyPercentile,
     bottleneck_latency_us: u64,
     export_feedback: Option<String>,
+    persistence_health_snapshot: Value,
     history_health_snapshot: Value,
+    security_health_snapshot: Value,
     runtime_cache_snapshot: Value,
     tracing_perf_snapshot: Value,
     analyzer_registry: AnalyzerRegistry,
@@ -884,6 +1059,21 @@ impl DiagnosticsState {
             "lane.navigator_projection.health",
             "Lane Receipt: Navigator Projection Health",
             analyze_navigator_projection_health,
+        );
+        let _ = self.register_analyzer(
+            "storage.persistence.health",
+            "Subsystem: Persistence Health",
+            analyze_persistence_health,
+        );
+        let _ = self.register_analyzer(
+            "security.identity.health",
+            "Subsystem: Security/Identity Health",
+            analyze_security_identity_health,
+        );
+        let _ = self.register_analyzer(
+            "diagnostics.registry.health",
+            "Diagnostics Registry Health",
+            analyze_diagnostics_registry_health,
         );
     }
 
@@ -1001,6 +1191,47 @@ impl DiagnosticsState {
                     summary: result.summary,
                 });
             }
+            DiagnosticsHarnessScenario::BroadSubsystemSweep => {
+                for (analyzer_id, result) in [
+                    (
+                        "storage.persistence.health",
+                        analyze_persistence_health(graph, events, perf),
+                    ),
+                    (
+                        "security.identity.health",
+                        analyze_security_identity_health(graph, events, perf),
+                    ),
+                    (
+                        "diagnostics.registry.health",
+                        analyze_diagnostics_registry_health(graph, events, perf),
+                    ),
+                ] {
+                    receipts.push(DiagnosticsHarnessReceipt {
+                        scenario_id: scenario.id(),
+                        analyzer_id,
+                        signal: result.signal,
+                        summary: result.summary,
+                    });
+                }
+            }
+            DiagnosticsHarnessScenario::PersistenceHealth => {
+                let result = analyze_persistence_health(graph, events, perf);
+                receipts.push(DiagnosticsHarnessReceipt {
+                    scenario_id: scenario.id(),
+                    analyzer_id: "storage.persistence.health",
+                    signal: result.signal,
+                    summary: result.summary,
+                });
+            }
+            DiagnosticsHarnessScenario::SecurityIdentityHealth => {
+                let result = analyze_security_identity_health(graph, events, perf);
+                receipts.push(DiagnosticsHarnessReceipt {
+                    scenario_id: scenario.id(),
+                    analyzer_id: "security.identity.health",
+                    signal: result.signal,
+                    summary: result.summary,
+                });
+            }
         }
 
         let alert_count = receipts
@@ -1014,6 +1245,432 @@ impl DiagnosticsState {
             summary,
             receipts,
         }
+    }
+
+    fn record_harness_run(&mut self, run: DiagnosticsHarnessRunResult) {
+        self.test_harness_state.run_count = self.test_harness_state.run_count.saturating_add(1);
+        self.test_harness_state.last_run = Some(run.clone());
+        self.test_harness_state.recent_runs.push_front(run);
+        while self.test_harness_state.recent_runs.len() > 8 {
+            self.test_harness_state.recent_runs.pop_back();
+        }
+    }
+
+    fn analyzer_signal_rollup(&self) -> (usize, usize, usize) {
+        let mut quiet = 0usize;
+        let mut active = 0usize;
+        let mut alert = 0usize;
+        for snapshot in self.analyzer_snapshots() {
+            match snapshot
+                .last_result
+                .as_ref()
+                .map(|result| result.signal)
+                .unwrap_or(AnalyzerSignal::Quiet)
+            {
+                AnalyzerSignal::Quiet => quiet += 1,
+                AnalyzerSignal::Active => active += 1,
+                AnalyzerSignal::Alert => alert += 1,
+            }
+        }
+        (quiet, active, alert)
+    }
+
+    fn lane_channel_summaries(&self) -> Vec<LaneChannelSummary> {
+        let analyzer_signal = |analyzer_id: &'static str| {
+            self.analyzer_snapshots()
+                .into_iter()
+                .find(|snapshot| snapshot.id == analyzer_id)
+                .and_then(|snapshot| snapshot.last_result)
+                .unwrap_or(AnalyzerResult {
+                    signal: AnalyzerSignal::Quiet,
+                    summary: "not yet run".to_string(),
+                })
+        };
+
+        let render_mode_result = analyzer_signal("lane.render_mode.health");
+        let signal_routing_result = analyzer_signal("lane.signal_routing.health");
+        let navigator_result = analyzer_signal("lane.navigator_projection.health");
+
+        vec![
+            LaneChannelSummary {
+                lane_id: "render_mode",
+                analyzer_id: "lane.render_mode.health",
+                label: "Render-Mode Health",
+                signal: render_mode_result.signal,
+                summary: render_mode_result.summary,
+                channel_counts: vec![
+                    (
+                        CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+                        self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE),
+                    ),
+                    (
+                        CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+                        self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY),
+                    ),
+                    (
+                        CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
+                        self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI),
+                    ),
+                    (
+                        CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
+                        self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER),
+                    ),
+                    (
+                        CHANNEL_VIEWER_FALLBACK_USED,
+                        self.channel_count(CHANNEL_VIEWER_FALLBACK_USED),
+                    ),
+                    (
+                        CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
+                        self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE),
+                    ),
+                ],
+            },
+            LaneChannelSummary {
+                lane_id: "signal_routing",
+                analyzer_id: "lane.signal_routing.health",
+                label: "Signal-Routing Health",
+                signal: signal_routing_result.signal,
+                summary: signal_routing_result.summary,
+                channel_counts: vec![
+                    (
+                        CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,
+                        self.channel_count(CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED),
+                    ),
+                    (
+                        CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED,
+                        self.channel_count(CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED),
+                    ),
+                    (
+                        CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED,
+                        self.channel_count(CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED),
+                    ),
+                    (
+                        CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED,
+                        self.channel_count(CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED),
+                    ),
+                    (
+                        CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH,
+                        self.channel_count(CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH),
+                    ),
+                ],
+            },
+            LaneChannelSummary {
+                lane_id: "navigator_projection",
+                analyzer_id: "lane.navigator_projection.health",
+                label: "Navigator Projection Health",
+                signal: navigator_result.signal,
+                summary: navigator_result.summary,
+                channel_counts: vec![
+                    (
+                        CHANNEL_UX_NAVIGATION_TRANSITION,
+                        self.channel_count(CHANNEL_UX_NAVIGATION_TRANSITION),
+                    ),
+                    (
+                        CHANNEL_UX_NAVIGATION_VIOLATION,
+                        self.channel_count(CHANNEL_UX_NAVIGATION_VIOLATION),
+                    ),
+                    (
+                        CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH,
+                        self.channel_count(CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH),
+                    ),
+                    (
+                        CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
+                        self.channel_count(CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK),
+                    ),
+                    (
+                        CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION,
+                        self.channel_count(CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION),
+                    ),
+                ],
+            },
+        ]
+    }
+
+    fn top_channel_trends(&self, limit: usize) -> Vec<ChannelTrendSummary> {
+        let trend_label = |samples: &[u64]| -> &'static str {
+            if samples.len() < 2 {
+                return "steady";
+            }
+            let first = samples.first().copied().unwrap_or(0);
+            let last = samples.last().copied().unwrap_or(0);
+            if last > first.saturating_add(1_000) && last > ((first as f64) * 1.2) as u64 {
+                "rising"
+            } else if first > last.saturating_add(1_000) && first > ((last as f64) * 1.2) as u64 {
+                "falling"
+            } else {
+                "steady"
+            }
+        };
+
+        let mut rows = self
+            .diagnostic_graph
+            .message_counts
+            .iter()
+            .map(|(channel_id, count)| {
+                let samples = self
+                    .diagnostic_graph
+                    .message_latency_recent_us
+                    .get(channel_id)
+                    .map(|values| values.iter().copied().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let sample_count = self
+                    .diagnostic_graph
+                    .message_latency_samples
+                    .get(channel_id)
+                    .copied()
+                    .unwrap_or(0);
+                let avg_latency_us = if sample_count == 0 {
+                    0
+                } else {
+                    self.diagnostic_graph
+                        .message_latency_us
+                        .get(channel_id)
+                        .copied()
+                        .unwrap_or(0)
+                        / sample_count
+                };
+                ChannelTrendSummary {
+                    channel_id,
+                    message_count: *count,
+                    avg_latency_us,
+                    trend: trend_label(&samples),
+                    recent_samples_us: samples,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        rows.sort_by(|left, right| {
+            right
+                .message_count
+                .cmp(&left.message_count)
+                .then_with(|| right.avg_latency_us.cmp(&left.avg_latency_us))
+        });
+        rows.truncate(limit);
+        rows
+    }
+
+    fn recent_channel_receipts(
+        &self,
+        channel_id: &'static str,
+        limit: usize,
+    ) -> Vec<ChannelEventReceipt> {
+        let mut receipts = self
+            .event_ring
+            .iter()
+            .rev()
+            .filter_map(|event| match event {
+                DiagnosticEvent::MessageSent {
+                    channel_id: event_channel,
+                    byte_len,
+                } if *event_channel == channel_id => Some(ChannelEventReceipt {
+                    channel_id,
+                    direction: "sent",
+                    detail: format!("{} bytes", byte_len),
+                }),
+                DiagnosticEvent::MessageReceived {
+                    channel_id: event_channel,
+                    latency_us,
+                } if *event_channel == channel_id => Some(ChannelEventReceipt {
+                    channel_id,
+                    direction: "recv",
+                    detail: format!("{:.1}ms", *latency_us as f64 / 1000.0),
+                }),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        receipts.truncate(limit);
+        receipts
+    }
+
+    fn channel_history_summaries(&self, limit: usize) -> Vec<ChannelHistorySummary> {
+        let mut rows = self
+            .channel_count_history
+            .iter()
+            .map(|(channel_id, counts)| ChannelHistorySummary {
+                channel_id,
+                count_buckets: counts.iter().copied().collect(),
+                latency_buckets_us: self
+                    .diagnostic_graph
+                    .message_latency_recent_us
+                    .get(channel_id)
+                    .map(|samples| samples.iter().copied().collect())
+                    .unwrap_or_default(),
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| {
+            right
+                .count_buckets
+                .last()
+                .copied()
+                .unwrap_or(0)
+                .cmp(&left.count_buckets.last().copied().unwrap_or(0))
+        });
+        rows.truncate(limit);
+        rows
+    }
+
+    fn remediation_hint_for_analyzer(analyzer_id: &str) -> Option<&'static str> {
+        match analyzer_id {
+            "lane.render_mode.health" => {
+                Some("Inspect Compositor and viewer fallback surfaces; verify render-mode receipts and placeholder/fallback reasons.")
+            }
+            "lane.signal_routing.health" => {
+                Some("Inspect routed signal producers/consumers and queue-depth receipts; unresolved failures usually point to missing consumer adoption.")
+            }
+            "lane.navigator_projection.health" => {
+                Some("Check Navigator projection refresh, arrangement-family mapping, and UX navigation violation receipts.")
+            }
+            "storage.persistence.health" => {
+                Some("Inspect persistence startup/open/recover receipts and storage health summaries; failures usually need store/open recovery follow-up.")
+            }
+            "security.identity.health" => {
+                Some("Inspect trust-store, sign/verify, and access-denied receipts; mismatches usually indicate grant or identity authority drift.")
+            }
+            "diagnostics.registry.health" => {
+                Some("Inspect orphan channels and startup self-check output; register missing channels or align owners/contracts.")
+            }
+            "tracing.hotpath.latency" => {
+                Some("Inspect hot channels and recent tracing samples; elevated p95 often indicates a blocked edge between ingress and compositor.")
+            }
+            "diagnostics.event_ring_pressure" => {
+                Some("Reduce noisy channel volume or increase sampling/retention controls before the event ring saturates.")
+            }
+            _ => None,
+        }
+    }
+
+    fn analysis_filter_matches(&self, haystack: &str) -> bool {
+        let query = self.analysis_query.trim();
+        if query.is_empty() {
+            return true;
+        }
+        haystack.to_ascii_lowercase().contains(&query.to_ascii_lowercase())
+    }
+
+    fn analysis_snapshot_value(&self) -> Value {
+        let analyzers = self
+            .analyzer_snapshots()
+            .into_iter()
+            .map(|snapshot| {
+                json!({
+                    "id": snapshot.id,
+                    "label": snapshot.label,
+                    "run_count": snapshot.run_count,
+                    "last_result": snapshot.last_result.as_ref().map(|result| json!({
+                            "signal": format!("{:?}", result.signal).to_lowercase(),
+                            "summary": result.summary,
+                        })),
+                        "remediation": Self::remediation_hint_for_analyzer(snapshot.id),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let lane_summaries = self
+            .lane_channel_summaries()
+            .into_iter()
+            .map(|lane| {
+                json!({
+                    "lane_id": lane.lane_id,
+                    "analyzer_id": lane.analyzer_id,
+                    "label": lane.label,
+                    "signal": format!("{:?}", lane.signal).to_lowercase(),
+                    "summary": lane.summary,
+                    "channel_counts": lane.channel_counts.into_iter().map(|(channel_id, count)| {
+                        json!({
+                            "channel_id": channel_id,
+                            "count": count,
+                        })
+                    }).collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let channel_trends = self
+            .top_channel_trends(8)
+            .into_iter()
+            .map(|trend| {
+                json!({
+                    "channel_id": trend.channel_id,
+                    "message_count": trend.message_count,
+                    "avg_latency_us": trend.avg_latency_us,
+                    "trend": trend.trend,
+                    "recent_samples_us": trend.recent_samples_us,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let channel_history = self
+            .channel_history_summaries(16)
+            .into_iter()
+            .map(|history| {
+                let sample_values = history.latency_buckets_us.clone();
+                let sample_count = sample_values.len() as u64;
+                let latest_us = sample_values.last().copied().unwrap_or(0);
+                let min_us = sample_values.iter().copied().min().unwrap_or(0);
+                let max_us = sample_values.iter().copied().max().unwrap_or(0);
+                let avg_us = if sample_count == 0 {
+                    0
+                } else {
+                    sample_values.iter().copied().sum::<u64>() / sample_count
+                };
+                json!({
+                    "channel_id": history.channel_id,
+                    "sample_count": sample_count,
+                    "latest_us": latest_us,
+                    "min_us": min_us,
+                    "max_us": max_us,
+                    "avg_us": avg_us,
+                    "count_buckets": history.count_buckets,
+                    "latency_buckets_us": history.latency_buckets_us,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let harness_recent_runs = self
+            .test_harness_state
+            .recent_runs
+            .iter()
+            .map(|run| {
+                json!({
+                    "passed": run.passed,
+                    "summary": run.summary,
+                    "receipts": run.receipts.iter().map(|receipt| {
+                        json!({
+                            "scenario_id": receipt.scenario_id,
+                            "analyzer_id": receipt.analyzer_id,
+                            "signal": format!("{:?}", receipt.signal).to_lowercase(),
+                            "summary": receipt.summary,
+                        })
+                    }).collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let selected_channel_receipts = self
+            .selected_analysis_channel
+            .map(|channel_id| {
+                self.recent_channel_receipts(channel_id, 12)
+                    .into_iter()
+                    .map(|receipt| {
+                        json!({
+                            "channel_id": receipt.channel_id,
+                            "direction": receipt.direction,
+                            "detail": receipt.detail,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        json!({
+            "analyzers": analyzers,
+            "lane_summaries": lane_summaries,
+            "channel_trends": channel_trends,
+            "channel_history": channel_history,
+            "harness_recent_runs": harness_recent_runs,
+            "selected_channel": self.selected_analysis_channel,
+            "selected_channel_receipts": selected_channel_receipts,
+        })
     }
 
     fn render_test_harness_scaffold(&mut self, ui: &mut egui::Ui) {
@@ -1050,15 +1707,27 @@ impl DiagnosticsState {
                             DiagnosticsHarnessScenario::NavigatorProjectionHealth,
                             DiagnosticsHarnessScenario::NavigatorProjectionHealth.label(),
                         );
+                        ui.selectable_value(
+                            &mut selected_next,
+                            DiagnosticsHarnessScenario::BroadSubsystemSweep,
+                            DiagnosticsHarnessScenario::BroadSubsystemSweep.label(),
+                        );
+                        ui.selectable_value(
+                            &mut selected_next,
+                            DiagnosticsHarnessScenario::PersistenceHealth,
+                            DiagnosticsHarnessScenario::PersistenceHealth.label(),
+                        );
+                        ui.selectable_value(
+                            &mut selected_next,
+                            DiagnosticsHarnessScenario::SecurityIdentityHealth,
+                            DiagnosticsHarnessScenario::SecurityIdentityHealth.label(),
+                        );
                     });
                 self.test_harness_state.selected_scenario = Some(selected_next);
 
                 if ui.button("Run Lane Harness").clicked() {
-                    self.test_harness_state.run_count =
-                        self.test_harness_state.run_count.saturating_add(1);
-
-                    self.test_harness_state.last_run =
-                        Some(self.run_harness_scenario(selected_next));
+                    let run = self.run_harness_scenario(selected_next);
+                    self.record_harness_run(run);
                 }
 
                 ui.small(format!("Runs: {}", self.test_harness_state.run_count));
@@ -1102,6 +1771,45 @@ impl DiagnosticsState {
                         });
                 } else {
                     ui.small("Last run: not executed");
+                }
+
+                if !self.test_harness_state.recent_runs.is_empty() {
+                    ui.add_space(6.0);
+                    ui.small("Recent runs");
+                    egui::Grid::new("diag_harness_recent_runs")
+                        .num_columns(4)
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.strong("Scenario");
+                            ui.strong("Result");
+                            ui.strong("Alerts");
+                            ui.strong("Summary");
+                            ui.end_row();
+
+                            for run in &self.test_harness_state.recent_runs {
+                                let scenario_id = run
+                                    .receipts
+                                    .first()
+                                    .map(|receipt| receipt.scenario_id)
+                                    .unwrap_or("unknown");
+                                ui.monospace(scenario_id);
+                                let (label, color) = if run.passed {
+                                    ("PASS", egui::Color32::from_rgb(90, 200, 120))
+                                } else {
+                                    ("FAIL", egui::Color32::from_rgb(255, 120, 120))
+                                };
+                                ui.colored_label(color, label);
+                                ui.monospace(
+                                    run.receipts
+                                        .iter()
+                                        .filter(|receipt| receipt.signal == AnalyzerSignal::Alert)
+                                        .count()
+                                        .to_string(),
+                                );
+                                ui.label(&run.summary);
+                                ui.end_row();
+                            }
+                        });
                 }
             });
     }
@@ -1572,6 +2280,7 @@ impl DiagnosticsState {
             event_tx,
             event_rx,
             event_ring: VecDeque::new(),
+            channel_count_history: HashMap::new(),
             last_drain_at: Instant::now(),
             drain_interval: Duration::from_millis(100),
             compositor_state: CompositorState::default(),
@@ -1582,10 +2291,17 @@ impl DiagnosticsState {
             hovered_node_key: None,
             pinned_node_key: None,
             pending_focus_node: None,
+            selected_analysis_channel: None,
+            analysis_query: String::new(),
+            analysis_only_alerts: false,
+            pinned_analyzer_ids: HashSet::new(),
+            pinned_channels: HashSet::new(),
             latency_percentile: LatencyPercentile::P95,
             bottleneck_latency_us: DEFAULT_BOTTLENECK_LATENCY_US,
             export_feedback: None,
+            persistence_health_snapshot: json!({}),
             history_health_snapshot: json!({}),
+            security_health_snapshot: json!({}),
             runtime_cache_snapshot: json!({}),
             tracing_perf_snapshot: json!({}),
             analyzer_registry: AnalyzerRegistry::default(),
@@ -1632,6 +2348,8 @@ impl DiagnosticsState {
                 self.event_ring.pop_front();
             }
         }
+
+        self.snapshot_channel_history_bucket();
 
         self.analyzer_registry.run_all(
             &self.diagnostic_graph,
@@ -1757,6 +2475,25 @@ impl DiagnosticsState {
         }
     }
 
+    fn snapshot_channel_history_bucket(&mut self) {
+        const HISTORY_BUCKET_LIMIT: usize = 32;
+        let channels = self
+            .diagnostic_graph
+            .message_counts
+            .iter()
+            .map(|(channel_id, count)| (*channel_id, *count))
+            .collect::<Vec<_>>();
+        for (channel_id, count) in channels {
+            let history = self.channel_count_history.entry(channel_id).or_default();
+            if history.back().copied() != Some(count) {
+                history.push_back(count);
+                while history.len() > HISTORY_BUCKET_LIMIT {
+                    history.pop_front();
+                }
+            }
+        }
+    }
+
     fn percentile(values: &mut [u64], fraction: f64) -> u64 {
         if values.is_empty() {
             return 0;
@@ -1802,6 +2539,7 @@ impl DiagnosticsState {
 
     fn clear_aggregates(&mut self) {
         self.event_ring.clear();
+        self.channel_count_history.clear();
         self.compositor_state.frames.clear();
         self.diagnostic_graph = DiagnosticGraph::default();
         self.intents.clear();
@@ -1932,11 +2670,28 @@ impl DiagnosticsState {
             })
             .collect();
 
+        let signal_trace_entries: Vec<Value> =
+            crate::shell::desktop::runtime::registries::phase3_signal_trace_snapshot()
+                .iter()
+                .map(|entry| {
+                    json!({
+                        "kind": format!("{:?}", entry.kind),
+                        "source": format!("{:?}", entry.source),
+                        "causality_stamp": entry.causality_stamp,
+                        "observers_notified": entry.observers_notified,
+                        "observer_failures": entry.observer_failures,
+                    })
+                })
+                .collect();
+
         json!({
             "version": 1,
             "generated_at_unix_secs": Self::export_timestamp_secs(),
             "event_ring_len": self.event_ring.len(),
+            "analysis": self.analysis_snapshot_value(),
+            "persistence_health": self.persistence_health_snapshot.clone(),
             "history_health": self.history_health_snapshot.clone(),
+            "security_health": self.security_health_snapshot.clone(),
             "runtime_cache": self.runtime_cache_snapshot.clone(),
             "tracing_perf": self.tracing_perf_snapshot.clone(),
             "channels": {
@@ -1968,6 +2723,7 @@ impl DiagnosticsState {
                     "cause": intent.cause.map(|c| format!("{:?}", c)),
                 })
             }).collect::<Vec<_>>(),
+            "signal_trace": signal_trace_entries,
         })
     }
 
@@ -1987,6 +2743,129 @@ impl DiagnosticsState {
             "replay_total_steps": health.replay_total_steps,
             "last_return_to_present_result": health.last_return_to_present_result,
             "last_event_unix_ms": health.last_event_unix_ms,
+        });
+    }
+
+    pub(crate) fn sync_persistence_health_snapshot_from_app(
+        &mut self,
+        graph_app: &GraphBrowserApp,
+    ) {
+        let health = graph_app.persistence_health_summary();
+        let startup_open_succeeded = self
+            .diagnostic_graph
+            .message_counts
+            .get(CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED)
+            .copied()
+            .unwrap_or(0);
+        let startup_open_failed = self
+            .diagnostic_graph
+            .message_counts
+            .get(CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED)
+            .copied()
+            .unwrap_or(0);
+        let startup_open_timeout = self
+            .diagnostic_graph
+            .message_counts
+            .get(CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT)
+            .copied()
+            .unwrap_or(0);
+        let recovery_succeeded = self
+            .diagnostic_graph
+            .message_counts
+            .get(CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED)
+            .copied()
+            .unwrap_or(0);
+        let recovery_failed = self
+            .diagnostic_graph
+            .message_counts
+            .get(CHANNEL_PERSISTENCE_RECOVER_FAILED)
+            .copied()
+            .unwrap_or(0);
+
+        let store_status = if startup_open_timeout > 0 {
+            "timeout"
+        } else if startup_open_failed > 0 {
+            "failed"
+        } else {
+            health.store_status
+        };
+        let recovery_status = if recovery_succeeded > 0 {
+            "succeeded"
+        } else if recovery_failed > 0 {
+            "failed"
+        } else {
+            "not_run"
+        };
+
+        self.persistence_health_snapshot = json!({
+            "store_status": store_status,
+            "recovery_status": recovery_status,
+            "recovered_graph": health.recovered_graph,
+            "startup_open_succeeded_count": startup_open_succeeded,
+            "startup_open_failed_count": startup_open_failed,
+            "startup_open_timeout_count": startup_open_timeout,
+            "recovery_succeeded_count": recovery_succeeded,
+            "recovery_failed_count": recovery_failed,
+            "snapshot_interval_secs": health.snapshot_interval_secs,
+            "last_snapshot_age_secs": health.last_snapshot_age_secs,
+            "named_graph_snapshot_count": health.named_graph_snapshot_count,
+            "workspace_layout_count": health.workspace_layout_count,
+            "traversal_archive_count": health.traversal_archive_count,
+            "dissolved_archive_count": health.dissolved_archive_count,
+            "workspace_autosave_interval_secs": health.workspace_autosave_interval_secs,
+            "workspace_autosave_retention": health.workspace_autosave_retention,
+        });
+    }
+
+    pub(crate) fn sync_security_health_snapshot_from_runtime(&mut self) {
+        let trusted_peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
+        let workspace_grant_count = trusted_peers
+            .iter()
+            .map(|peer| peer.workspace_grants.len() as u64)
+            .sum::<u64>();
+        let signer_backend =
+            match crate::shell::desktop::runtime::registries::phase3_nostr_signer_backend_snapshot()
+            {
+                crate::shell::desktop::runtime::registries::NostrSignerBackendSnapshot::LocalHostKey => {
+                    "local_host_key".to_string()
+                }
+                crate::shell::desktop::runtime::registries::NostrSignerBackendSnapshot::Nip46Delegated {
+                    relay_urls,
+                    signer_pubkey,
+                    connected,
+                    ..
+                } => format!(
+                    "nip46:{}:{}:{}",
+                    if connected { "connected" } else { "disconnected" },
+                    signer_pubkey,
+                    relay_urls.join(",")
+                ),
+            };
+
+        self.security_health_snapshot = json!({
+            "trusted_peer_count": trusted_peers.len(),
+            "workspace_grant_count": workspace_grant_count,
+            "access_denied_count": self
+                .diagnostic_graph
+                .message_counts
+                .get(CHANNEL_VERSE_SYNC_ACCESS_DENIED)
+                .copied()
+                .unwrap_or(0),
+            "identity_sign_failures": self
+                .diagnostic_graph
+                .message_counts
+                .get(CHANNEL_IDENTITY_SIGN_FAILED)
+                .copied()
+                .unwrap_or(0),
+            "identity_verify_failures": self
+                .diagnostic_graph
+                .message_counts
+                .get(CHANNEL_IDENTITY_VERIFY_FAILED)
+                .copied()
+                .unwrap_or(0),
+            "nostr_signer_backend": signer_backend,
+            "nip07_permission_count": crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants().len(),
+            "nostr_subscription_count": crate::shell::desktop::runtime::registries::phase3_nostr_persisted_subscriptions().len(),
         });
     }
 
@@ -2374,6 +3253,26 @@ mod tests {
     }
 
     #[test]
+    fn subsystem_health_analyzers_are_registered_and_run() {
+        let mut state = DiagnosticsState::new();
+        state.force_drain_for_tests();
+
+        let snapshots = state.analyzer_snapshots_for_tests();
+        for analyzer_id in [
+            "storage.persistence.health",
+            "security.identity.health",
+            "diagnostics.registry.health",
+        ] {
+            let snapshot = snapshots
+                .iter()
+                .find(|entry| entry.id == analyzer_id)
+                .expect("subsystem analyzer should be registered");
+            assert!(snapshot.run_count >= 1);
+            assert!(snapshot.last_result.is_some());
+        }
+    }
+
+    #[test]
     fn harness_shared_lane_pack_emits_three_receipts() {
         let mut state = DiagnosticsState::new();
         state.force_drain_for_tests();
@@ -2395,6 +3294,207 @@ mod tests {
                 .iter()
                 .any(|receipt| receipt.analyzer_id == "lane.navigator_projection.health")
         );
+    }
+
+    #[test]
+    fn harness_recent_runs_are_retained_with_cap() {
+        let mut state = DiagnosticsState::new();
+        state.force_drain_for_tests();
+
+        for _ in 0..10 {
+            let run = state.run_harness_scenario(DiagnosticsHarnessScenario::SharedLanePack);
+            state.record_harness_run(run);
+        }
+
+        assert_eq!(state.test_harness_state.run_count, 10);
+        assert_eq!(state.test_harness_state.recent_runs.len(), 8);
+        assert!(state.test_harness_state.last_run.is_some());
+    }
+
+    #[test]
+    fn harness_broad_subsystem_sweep_emits_three_receipts() {
+        let mut state = DiagnosticsState::new();
+        state.force_drain_for_tests();
+
+        let run = state.run_harness_scenario(DiagnosticsHarnessScenario::BroadSubsystemSweep);
+        assert_eq!(run.receipts.len(), 3);
+        assert!(
+            run.receipts
+                .iter()
+                .any(|receipt| receipt.analyzer_id == "storage.persistence.health")
+        );
+        assert!(
+            run.receipts
+                .iter()
+                .any(|receipt| receipt.analyzer_id == "security.identity.health")
+        );
+        assert!(
+            run.receipts
+                .iter()
+                .any(|receipt| receipt.analyzer_id == "diagnostics.registry.health")
+        );
+    }
+
+    #[test]
+    fn lane_channel_summaries_report_underlying_channel_counts() {
+        let mut state = DiagnosticsState::new();
+        state
+            .diagnostic_graph
+            .message_counts
+            .insert(CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED, 2);
+        state
+            .diagnostic_graph
+            .message_counts
+            .insert(CHANNEL_UX_NAVIGATION_VIOLATION, 1);
+        state.force_drain_for_tests();
+
+        let summaries = state.lane_channel_summaries();
+        let routing = summaries
+            .iter()
+            .find(|summary| summary.lane_id == "signal_routing")
+            .expect("signal routing lane summary should exist");
+        assert_eq!(routing.signal, AnalyzerSignal::Alert);
+        assert!(
+            routing
+                .channel_counts
+                .iter()
+                .any(|(channel, count)| *channel == CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED
+                    && *count == 2)
+        );
+
+        let navigator = summaries
+            .iter()
+            .find(|summary| summary.lane_id == "navigator_projection")
+            .expect("navigator lane summary should exist");
+        assert_eq!(navigator.signal, AnalyzerSignal::Alert);
+        assert!(
+            navigator
+                .channel_counts
+                .iter()
+                .any(|(channel, count)| *channel == CHANNEL_UX_NAVIGATION_VIOLATION && *count == 1)
+        );
+    }
+
+    #[test]
+    fn top_channel_trends_identify_rising_latency() {
+        let mut state = DiagnosticsState::new();
+        state
+            .diagnostic_graph
+            .message_counts
+            .insert("trend.rising", 4);
+        state
+            .diagnostic_graph
+            .message_latency_samples
+            .insert("trend.rising", 4);
+        state
+            .diagnostic_graph
+            .message_latency_us
+            .insert("trend.rising", 18_000);
+        state.diagnostic_graph.message_latency_recent_us.insert(
+            "trend.rising",
+            VecDeque::from(vec![2_000_u64, 3_000, 5_000, 8_000]),
+        );
+
+        let trends = state.top_channel_trends(4);
+        let rising = trends
+            .iter()
+            .find(|trend| trend.channel_id == "trend.rising")
+            .expect("rising channel should be present");
+        assert_eq!(rising.trend, "rising");
+        assert_eq!(rising.avg_latency_us, 4_500);
+        assert_eq!(rising.recent_samples_us.len(), 4);
+    }
+
+    #[test]
+    fn recent_channel_receipts_return_latest_sent_and_received_events() {
+        let mut state = DiagnosticsState::new();
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: "diag.channel",
+            byte_len: 7,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageReceived {
+            channel_id: "diag.channel",
+            latency_us: 2_500,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: "other.channel",
+            byte_len: 9,
+        });
+        state.force_drain_for_tests();
+
+        let receipts = state.recent_channel_receipts("diag.channel", 8);
+        assert_eq!(receipts.len(), 2);
+        assert_eq!(receipts[0].direction, "recv");
+        assert!(receipts[0].detail.contains("2.5ms"));
+        assert_eq!(receipts[1].direction, "sent");
+        assert_eq!(receipts[1].detail, "7 bytes");
+    }
+
+    #[test]
+    fn channel_count_history_records_bucketed_progression() {
+        let mut state = DiagnosticsState::new();
+        let channel = "history.channel";
+
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: channel,
+            byte_len: 1,
+        });
+        state.force_drain_for_tests();
+
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: channel,
+            byte_len: 1,
+        });
+        state.force_drain_for_tests();
+
+        let history = state
+            .channel_history_summaries(8)
+            .into_iter()
+            .find(|entry| entry.channel_id == channel)
+            .expect("channel history should exist");
+        assert_eq!(history.count_buckets, vec![1, 2]);
+    }
+
+    #[test]
+    fn analysis_snapshot_exports_analyzers_harness_and_channel_history() {
+        let mut state = DiagnosticsState::new();
+        state
+            .diagnostic_graph
+            .message_counts
+            .insert("analysis.channel", 2);
+        state.diagnostic_graph.message_latency_recent_us.insert(
+            "analysis.channel",
+            VecDeque::from(vec![1_000_u64, 4_000]),
+        );
+        state
+            .diagnostic_graph
+            .message_latency_samples
+            .insert("analysis.channel", 2);
+        state
+            .diagnostic_graph
+            .message_latency_us
+            .insert("analysis.channel", 5_000);
+        state.selected_analysis_channel = Some("analysis.channel");
+
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: "analysis.channel",
+            byte_len: 5,
+        });
+        let run = state.run_harness_scenario(DiagnosticsHarnessScenario::SharedLanePack);
+        state.record_harness_run(run);
+        state.force_drain_for_tests();
+
+        let snapshot = state.snapshot_json_value();
+        assert!(snapshot["analysis"]["analyzers"].is_array());
+        assert!(snapshot["analysis"]["lane_summaries"].is_array());
+        assert!(snapshot["analysis"]["channel_trends"].is_array());
+        assert!(snapshot["analysis"]["channel_history"].is_array());
+        assert!(snapshot["analysis"]["harness_recent_runs"].is_array());
+        assert_eq!(
+            snapshot["analysis"]["selected_channel"].as_str(),
+            Some("analysis.channel")
+        );
+        assert!(snapshot["analysis"]["selected_channel_receipts"].is_array());
     }
 
     #[test]
@@ -2503,6 +3603,8 @@ mod tests {
 
         let snapshot = state.snapshot_json_value();
         assert_eq!(snapshot["version"].as_u64(), Some(1));
+        assert!(snapshot["analysis"].is_object());
+        assert!(snapshot["persistence_health"].is_object());
         assert!(snapshot["history_health"].is_object());
         assert!(snapshot["runtime_cache"].is_object());
         assert!(snapshot["tracing_perf"].is_object());
@@ -2666,6 +3768,7 @@ Object {
     "generated_at_unix_secs": String("[unix-secs]"),
     "intent_count": Number(1),
     "top_level_keys": Array [
+        String("analysis"),
         String("backend_telemetry"),
         String("backend_telemetry_report"),
         String("channels"),
@@ -2676,8 +3779,10 @@ Object {
         String("event_ring_len"),
         String("generated_at_unix_secs"),
         String("history_health"),
+        String("persistence_health"),
         String("recent_intents"),
         String("runtime_cache"),
+        String("security_health"),
         String("spans"),
         String("tracing_perf"),
         String("version"),
@@ -3305,6 +4410,130 @@ Object {
         assert_eq!(snapshot["runtime_cache"]["hits"].as_u64(), Some(1));
         assert_eq!(snapshot["runtime_cache"]["misses"].as_u64(), Some(1));
         assert_eq!(snapshot["runtime_cache"]["evictions"].as_u64(), Some(0));
+    }
+
+    #[test]
+    fn security_health_snapshot_reports_trust_and_nostr_runtime_state() {
+        let mut state = DiagnosticsState::new();
+        let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        crate::shell::desktop::runtime::registries::phase3_trust_peer(
+            crate::mods::native::verse::TrustedPeer {
+                node_id: peer_id,
+                display_name: "diag-peer".to_string(),
+                role: crate::mods::native::verse::PeerRole::Friend,
+                added_at: std::time::SystemTime::UNIX_EPOCH,
+                last_seen: None,
+                workspace_grants: vec![crate::mods::native::verse::WorkspaceGrant {
+                    workspace_id: "workspace-diag".to_string(),
+                    access: crate::mods::native::verse::AccessLevel::ReadWrite,
+                }],
+            },
+        );
+        crate::shell::desktop::runtime::registries::phase3_nostr_use_local_signer();
+        crate::shell::desktop::runtime::registries::phase3_nostr_set_nip07_permission(
+            "https://example.com",
+            "getPublicKey",
+            crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow,
+        )
+        .expect("nip07 permission should be stored");
+        let _ = crate::shell::desktop::runtime::registries::phase3_nostr_relay_subscribe_for_caller(
+            "diag:c1",
+            Some("diag-sub"),
+            crate::shell::desktop::runtime::registries::nostr_core::NostrFilterSet {
+                kinds: vec![1],
+                authors: vec![],
+                hashtags: vec![],
+                relay_urls: vec![],
+            },
+        );
+        state
+            .diagnostic_graph
+            .message_counts
+            .insert(CHANNEL_VERSE_SYNC_ACCESS_DENIED, 3);
+
+        state.sync_security_health_snapshot_from_runtime();
+        let snapshot = state.snapshot_json_value();
+
+        assert_eq!(
+            snapshot["security_health"]["trusted_peer_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["security_health"]["workspace_grant_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["security_health"]["access_denied_count"].as_u64(),
+            Some(3)
+        );
+        assert_eq!(
+            snapshot["security_health"]["nip07_permission_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["security_health"]["nostr_subscription_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["security_health"]["nostr_signer_backend"].as_str(),
+            Some("local_host_key")
+        );
+
+        crate::shell::desktop::runtime::registries::phase3_revoke_peer(peer_id);
+        let _ = crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(&[]);
+        crate::shell::desktop::runtime::registries::phase3_nostr_apply_persisted_nip07_permissions(
+            &[],
+        )
+        .expect("nip07 permissions should clear");
+    }
+
+    #[test]
+    fn persistence_health_snapshot_reports_store_and_recovery_state() {
+        let dir = tempfile::TempDir::new().expect("temp dir should be created");
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        app.set_workspace_autosave_retention(2)
+            .expect("autosave retention should update");
+        app.save_workspace_layout_json("workspace:diag-layout", "{\"root\":null}");
+        app.save_named_graph_snapshot("diag-graph")
+            .expect("named graph snapshot should save");
+
+        let mut state = DiagnosticsState::new();
+        state
+            .diagnostic_graph
+            .message_counts
+            .insert(CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED, 1);
+        state
+            .diagnostic_graph
+            .message_counts
+            .insert(CHANNEL_PERSISTENCE_RECOVER_FAILED, 1);
+
+        state.sync_persistence_health_snapshot_from_app(&app);
+        let snapshot = state.snapshot_json_value();
+
+        assert_eq!(
+            snapshot["persistence_health"]["store_status"].as_str(),
+            Some("active")
+        );
+        assert_eq!(
+            snapshot["persistence_health"]["recovery_status"].as_str(),
+            Some("failed")
+        );
+        assert_eq!(
+            snapshot["persistence_health"]["workspace_layout_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["persistence_health"]["named_graph_snapshot_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["persistence_health"]["workspace_autosave_retention"].as_u64(),
+            Some(2)
+        );
+        assert_eq!(
+            snapshot["persistence_health"]["snapshot_interval_secs"].as_u64(),
+            Some(crate::services::persistence::DEFAULT_SNAPSHOT_INTERVAL_SECS)
+        );
     }
 
     #[test]

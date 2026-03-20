@@ -22,6 +22,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
+- Graph Bar = graph-scope chrome that may host command entry points while remaining above workbench arrangement semantics.
 - `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
@@ -42,6 +43,10 @@ Normative command contracts use: intent, trigger, preconditions, semantic result
 ## 1. Purpose and Scope
 
 This spec defines the interaction contract for Graphshell's command surfaces.
+
+Command surfaces may be launched from Graph Bar chrome, workbench/sidebar context,
+or direct pointer/keyboard invocation, but those launch locations do not become
+semantic owners of the graph/workbench targets they address.
 
 It explains:
 

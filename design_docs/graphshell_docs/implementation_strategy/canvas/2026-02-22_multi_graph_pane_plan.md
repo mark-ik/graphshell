@@ -1,6 +1,6 @@
 # Pane-Hosted Multi-View Plan (formerly "Multi-Graph Pane Plan") (2026-02-22)
 
-**Status**: Active — Scope expanded and aligned with registry/viewer architecture (revised 2026-02-25)
+**Status**: Active historical planning slice — implementation/planning evidence retained, but canonical surface hierarchy now lives in `multi_view_pane_spec.md`, `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`, and `../core-interaction-model-plan.md` (reframed 2026-03-20)
 **Supersedes**: "Layout: Advanced Physics and Algorithms Plan" (integrated here) and the earlier graph-only framing of this document
 **See also**:
 - `2026-02-22_registry_layer_plan.md` (registry authority and terminology)
@@ -9,7 +9,15 @@
 - `2026-02-24_performance_tuning_plan.md` (culling / LOD / frame budgets)
 - `2026-02-18_graph_ux_research_report.md` (layout quality and interaction research)
 
-**Goal**: Treat the workbench pane as a universal host for view surfaces (graph views, Servo/Wry webviews, native content viewers, and tool panes), while preserving graph-specific multi-view features (independent cameras, per-pane Lens, Canonical/Divergent layouts).
+**Goal**: Record the migration from graph-only panes toward pane-hosted multi-view dispatch, while preserving graph-specific multi-view features (`GraphViewId`, independent cameras, per-view Lens, Canonical/Divergent layouts). This document is no longer the canonical top-level UI model for graph/workbench parity.
+
+> **Canonical framing update (2026-03-20)**:
+> Treat this document as an implementation/migration plan, not as the authority on product hierarchy.
+> The current canonical model is:
+> - `GraphId` / `GraphViewId` are graph-owned targets named by the **Graph Bar**
+> - the workbench is the contextual presentation layer showing the leaves of the active branch
+> - frames, tile groups, graphlets, graph-view panes, documents/media, and tool panes are contextual hosted leaves
+> - a graph view may be hosted in the workbench without becoming workbench-owned semantic truth
 
 ---
 
@@ -26,8 +34,13 @@ Graphshell now has converging plans for:
 - diagnostic/history/accessibility tool surfaces in panes
 
 All of these are pane-hosted views with shared workbench behavior (splitting, tabs, focus, resize,
-visibility, persistence). The pane system should therefore own a **generic pane-view model**, with
-graph views modeled as one specific pane view kind.
+visibility, persistence). The pane system should therefore own a **generic pane-view model**.
+
+However, the newer canonical hierarchy is one UI level higher than this plan's original framing:
+
+- graph views are graph-scoped targets first, named and switched at Graph Bar level
+- workbench hosting is a contextual presentation decision
+- documents/media/tool surfaces and routed graph-view panes are all leaves within that contextual layer
 
 ---
 
@@ -36,7 +49,14 @@ graph views modeled as one specific pane view kind.
 The workbench should not special-case "graph pane" vs "webview pane" at the layout layer.
 It should host a pane whose payload determines rendering and input behavior.
 
-### Pane Categories (authoritative conceptual model)
+This is an implementation-layer rule, not the top-level product hierarchy. The top-level hierarchy is:
+
+1. graph-owned target identity (`GraphId`, `GraphViewId`)
+2. Graph Bar chrome that names and switches those targets
+3. workbench/contextual hosting of leaves for the active branch
+4. hosted leaf surfaces (graph-view panes, node viewers, tools)
+
+### Pane Categories (implementation-facing conceptual model)
 
 1. **Graph Pane**
    - Renders a graph viewport.
@@ -102,6 +122,13 @@ showing the same graph node. The backend and render mode changed; the pane kind 
 
 The underlying graph content remains shared (`GraphWorkspace.graph`). Panes provide different
 projections and interaction surfaces over that shared data.
+
+Under the newer chrome split, these projections are not all peers in the same semantic sense:
+
+- `GraphViewId` remains graph-owned scoped identity
+- the Graph Bar is where graph-view scope is named, switched, and configured
+- the workbench may host a pane that presents that `GraphViewId`
+- documents/media/tool panes remain contextual leaves under the active branch rather than peers of graph truth
 
 Examples:
 

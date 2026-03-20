@@ -23,10 +23,12 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
+- Graph Bar = graph-scope chrome naming the active `GraphViewId` / graph target.
 - `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
 This spec governs view/pane interaction contracts without collapsing graph truth into workbench structure.
+Graph views are graph-owned targets first and hosted pane payloads second.
 
 ## Contract template (inherits UX Contract Register §2A)
 
@@ -51,11 +53,22 @@ This spec defines the canonical contracts for:
 5. **Scope isolation** — interaction independence between sibling panes.
 6. **Semantic tab overlay** — `FrameTabSemantics`, structural hoist/unhoist, simplification repair.
 
+Reading order note:
+
+- Graph Bar owns graph-target naming and graph-view switching.
+- This spec starts one level lower: how those graph-owned targets are hosted, routed, and isolated when they appear in panes.
+
 ---
 
-## 2. Pane as Universal Host Contract
+## 2. Hosted Surface Contract
 
 The workbench does not special-case graph panes vs. viewer panes vs. tool panes at the layout layer. A pane is a host; its **payload** (`TileKind`) determines rendering and input behavior.
+
+But pane-hosting is not the semantic root:
+
+- a `GraphViewId` exists as graph-scoped identity whether or not it is currently hosted in a pane
+- the Graph Bar names the active graph target and remains the top-level graph chrome
+- the workbench hosts contextual leaves for the active branch, which may include graph-view panes, node/document/media panes, and tool panes
 
 ```
 TileKind =
@@ -66,13 +79,15 @@ TileKind =
 
 **Invariant**: Workbench layout operations (split, move, close, reorder) apply uniformly across all `TileKind` variants. The workbench must not branch on payload type for structural operations.
 
+**Hierarchy guardrail**: `TileKind::Graph(GraphViewId)` means "this pane presents a graph-owned scoped view." It must not be read as "the workbench owns graph-view identity."
+
 ---
 
 ## 3. Graph View Identity Contract
 
 ### 3.1 GraphViewId
 
-Each graph view pane has a stable `GraphViewId`. `GraphViewId` is the canonical identity for:
+Each hosted graph view pane presents a stable `GraphViewId`. `GraphViewId` is the canonical identity for:
 
 - Per-view camera state (pan offset, zoom level).
 - Per-view `ViewDimension` (TwoD / ThreeD).
@@ -159,6 +174,8 @@ Routing from manager to pane hosting is explicit:
 - Routed panes become visible in the Workbench Sidebar/tree projection, but the
   Graph Bar continues to name the active graph target independently.
 - Reducer never mutates tile tree directly.
+
+This is the key separation: routing a graph view into the workbench changes contextual presentation, not graph-view semantic ownership.
 
 ### 5.4 Persistence shape
 

@@ -268,6 +268,7 @@ impl ActionDispatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RuntimeAction {
     ActivateWorkflow { workflow_id: String },
+    PublishSettingsRouteRequested { url: String, prefer_overlay: bool },
 }
 
 #[derive(Debug, Clone)]
@@ -1465,9 +1466,10 @@ fn execute_workbench_settings_overlay_open_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
-        WorkbenchIntent::OpenSettingsUrl {
+    ActionOutcome::Dispatch(ActionDispatch::runtime_action(
+        RuntimeAction::PublishSettingsRouteRequested {
             url: VersoAddress::settings(GraphshellSettingsPath::General).to_string(),
+            prefer_overlay: true,
         },
     ))
 }
@@ -1605,9 +1607,10 @@ fn execute_workbench_open_persistence_hub_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
-        WorkbenchIntent::OpenSettingsUrl {
+    ActionOutcome::Dispatch(ActionDispatch::runtime_action(
+        RuntimeAction::PublishSettingsRouteRequested {
             url: VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+            prefer_overlay: true,
         },
     ))
 }
@@ -2441,9 +2444,10 @@ mod tests {
             ActionPayload::WorkbenchSettingsOverlayOpen,
         );
         assert!(matches!(
-            settings_overlay.into_workbench_intent(),
-            Some(WorkbenchIntent::OpenSettingsUrl { url })
-                if url == VersoAddress::settings(GraphshellSettingsPath::General).to_string()
+            settings_overlay.into_runtime_actions().as_slice(),
+            [RuntimeAction::PublishSettingsRouteRequested { url, prefer_overlay }]
+                if url == &VersoAddress::settings(GraphshellSettingsPath::General).to_string()
+                    && *prefer_overlay
         ));
 
         let settings_legacy = registry.execute(
@@ -2497,9 +2501,10 @@ mod tests {
             ActionPayload::WorkbenchOpenPersistenceHub,
         );
         assert!(matches!(
-            open_persistence_hub.into_workbench_intent(),
-            Some(WorkbenchIntent::OpenSettingsUrl { url })
-                if url == VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string()
+            open_persistence_hub.into_runtime_actions().as_slice(),
+            [RuntimeAction::PublishSettingsRouteRequested { url, prefer_overlay }]
+                if url == &VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string()
+                    && *prefer_overlay
         ));
 
         let open_history_manager = registry.execute(

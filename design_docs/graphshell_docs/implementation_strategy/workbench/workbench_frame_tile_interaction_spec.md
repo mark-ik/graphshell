@@ -33,6 +33,7 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
+- Graph Bar = graph-scope chrome that names the active graph target and graph-view scope.
 - **Navigator** (Workbench Sidebar projection) = graph-backed hierarchical projection over relation families (replaces "file tree" — see `canvas/2026-03-14_graph_relation_families.md §5`).
 - workbench = arrangement boundary.
 
@@ -65,6 +66,9 @@ This spec defines the interaction contract for the **workbench layer** of Graphs
 
 Within the architecture, this surface is the user-facing interaction layer of the
 **Workbench subsystem**.
+
+The workbench is not a peer semantic owner beside the graph. It is the contextual
+presentation layer under the currently active graph target named by the Graph Bar.
 
 It explains:
 
@@ -104,23 +108,22 @@ For cross-app focus rules, viewer-state clarity, and app-owned tool surfaces, se
 
 ### 2.1 Canonical hierarchy
 
-1. One `GraphId` maps to one workbench context.
-2. Workbench is the persistent host for that graph context.
-3. Workbench tracks an ordered set of Frames in workbench chrome.
-4. A Frame is a persisted branch/subtree of the workbench tile tree.
-5. A Frame contains arranged Tiles.
-6. A Tile is the primary arrangeable unit (tab-like affordance; canonical term: tile).
-7. A Tile contains one or more node entries and owns any tab chrome used to
-   switch among them.
-8. A Pane is the active content presentation surface rendered for the Tile's
-   currently active node entry.
-9. A Pane may host a `GraphViewId`, viewer surface, or tool surface.
-10. A `GraphViewId` is a Graph-owned scoped view instance within the current `GraphId`.
-11. A Node is canonical graph content identity/state.
+1. `GraphId` is graph truth boundary.
+2. `GraphViewId` is graph-owned scoped view identity within that graph truth.
+3. The Graph Bar names the active graph target (`GraphId` / `GraphViewId`) one UI level above workbench hosting.
+4. The workbench is the contextual arrangement layer for the leaves of the active branch.
+5. A Frame is a persisted arrangement context within that workbench layer.
+6. A Tile Group / Tile is a structural hosting unit inside the frame.
+7. A Pane is the active presentation surface rendered for the selected hosted leaf.
+8. A hosted leaf may be:
+   - a graph-view pane presenting a `GraphViewId`
+   - a node/document/media viewer pane
+   - a tool surface
+9. A Node remains canonical graph content identity/state regardless of how many hosted leaves present it.
 
-Hierarchy:
+UI-level ordering:
 
-`Node -> GraphViewId -> Pane -> Tile -> Frame -> Workbench`
+`Graph target (GraphId / GraphViewId) -> Workbench contextual arrangement -> Frame -> Tile/Group -> Pane -> Hosted leaf`
 
 Additional structure rules:
 
@@ -130,16 +133,18 @@ Additional structure rules:
 - Tabs belong to the `Tile` and enumerate node entries within that tile.
 - A `Pane` is not the primary navigator/workbench container identity; it is the
   live rendered surface for the Tile's currently active node entry.
+- A hosted graph view remains graph-owned semantic scope even while presented inside a pane.
 
 ### 2.2 What each layer is for
 
-- **Workbench**: persistent context host for one graph.
+- **Graph Bar target**: the graph-scoped thing currently being named, steered, and configured.
+- **Workbench**: contextual presentation layer for the current branch's leaves.
 - **Frame**: named and persisted arrangement context inside the workbench.
 - **Tile**: primary arrangeable workspace container users move, split, focus,
   and populate with one or more node entries.
 - **Pane**: rendered presentation surface hosted by a tile for its currently
   active node entry.
-- **GraphViewId**: Graph-owned scoped view and lens-state target that may be presented in a pane.
+- **GraphViewId**: graph-owned scoped view and lens-state target that may be presented in a pane or selected in the Graph Bar without changing ownership.
 - **Node**: graph identity; never reduced to a tile instance.
 
 ### 2.3 Ownership model
@@ -163,6 +168,8 @@ Additional structure rules:
   - tile activation,
   - pane hosting.
 - The Graph subsystem does not own arrangement truth.
+- The Graph Bar and graph-view manager may name/select graph targets above the
+  workbench layer without thereby creating or mutating workbench structure.
 - The Graph subsystem may request routing into the workbench, but it does not define the
   workbench tree structure.
 - Durable arrangement carriers (for example saved frame membership) may be

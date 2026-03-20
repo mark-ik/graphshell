@@ -114,7 +114,14 @@ pub(crate) const CHANNEL_LENS_FALLBACK_USED: &str = "registry.lens.fallback_used
 pub(crate) const CHANNEL_IDENTITY_SIGN_STARTED: &str = "registry.identity.sign_started";
 pub(crate) const CHANNEL_IDENTITY_SIGN_SUCCEEDED: &str = "registry.identity.sign_succeeded";
 pub(crate) const CHANNEL_IDENTITY_SIGN_FAILED: &str = "registry.identity.sign_failed";
+pub(crate) const CHANNEL_IDENTITY_VERIFY_STARTED: &str = "registry.identity.verify_started";
+pub(crate) const CHANNEL_IDENTITY_VERIFY_SUCCEEDED: &str = "registry.identity.verify_succeeded";
+pub(crate) const CHANNEL_IDENTITY_VERIFY_FAILED: &str = "registry.identity.verify_failed";
 pub(crate) const CHANNEL_IDENTITY_KEY_UNAVAILABLE: &str = "registry.identity.key_unavailable";
+pub(crate) const CHANNEL_IDENTITY_KEY_LOADED: &str = "registry.identity.key_loaded";
+pub(crate) const CHANNEL_IDENTITY_KEY_GENERATED: &str = "registry.identity.key_generated";
+pub(crate) const CHANNEL_IDENTITY_TRUST_STORE_LOAD_FAILED: &str =
+    "registry.identity.trust_store_load_failed";
 pub(crate) const CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED: &str =
     "registry.diagnostics.channel_registered";
 pub(crate) const CHANNEL_DIAGNOSTICS_CONFIG_CHANGED: &str = "registry.diagnostics.config_changed";
@@ -1897,11 +1904,37 @@ impl RegistryRuntime {
         payload: &[u8],
         signature: &str,
     ) -> bool {
-        self.identity
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_IDENTITY_VERIFY_STARTED,
+            byte_len: identity_id
+                .len()
+                .saturating_add(payload.len())
+                .saturating_add(signature.len()),
+        });
+
+        let result = self
+            .identity
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .verify(identity_id, payload, signature)
-            .verified
+            .verify(identity_id, payload, signature);
+
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: if result.verified {
+                CHANNEL_IDENTITY_VERIFY_SUCCEEDED
+            } else {
+                CHANNEL_IDENTITY_VERIFY_FAILED
+            },
+            latency_us: 1,
+        });
+
+        if !result.resolution.key_available {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_IDENTITY_KEY_UNAVAILABLE,
+                byte_len: result.resolution.resolved_id.len(),
+            });
+        }
+
+        result.verified
     }
 
     pub(crate) fn trusted_peers(&self) -> Vec<crate::mods::native::verse::TrustedPeer> {
@@ -1992,6 +2025,10 @@ impl RegistryRuntime {
 
     pub(crate) fn subscribe_all_signals_async(&self) -> AsyncSignalSubscription {
         self.signal_bus.subscribe_all()
+    }
+
+    pub(crate) fn signal_trace_snapshot(&self) -> Vec<signal_routing::SignalTraceEntry> {
+        self.signal_bus.signal_trace()
     }
 
     #[cfg(test)]
@@ -2664,7 +2701,7 @@ pub(crate) fn phase3_sign_identity_payload_for_tests(
         identity_id.len().saturating_add(payload.len()),
     );
 
-    let result = RegistryRuntime::default()
+    let result = runtime()
         .identity
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -2686,6 +2723,45 @@ pub(crate) fn phase3_sign_identity_payload_for_tests(
     }
 
     result.signature
+}
+
+#[cfg(test)]
+pub(crate) fn phase3_verify_identity_payload_for_tests(
+    diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+    identity_id: &str,
+    payload: &[u8],
+    signature: &str,
+) -> bool {
+    diagnostics_state.emit_message_sent_for_tests(
+        CHANNEL_IDENTITY_VERIFY_STARTED,
+        identity_id
+            .len()
+            .saturating_add(payload.len())
+            .saturating_add(signature.len()),
+    );
+
+    let result = runtime()
+        .identity
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .verify(identity_id, payload, signature);
+
+    diagnostics_state.emit_message_received_for_tests(
+        if result.verified {
+            CHANNEL_IDENTITY_VERIFY_SUCCEEDED
+        } else {
+            CHANNEL_IDENTITY_VERIFY_FAILED
+        },
+        1,
+    );
+    if !result.resolution.key_available {
+        diagnostics_state.emit_message_sent_for_tests(
+            CHANNEL_IDENTITY_KEY_UNAVAILABLE,
+            result.resolution.resolved_id.len(),
+        );
+    }
+
+    result.verified
 }
 
 #[cfg(test)]
@@ -3028,6 +3104,12 @@ pub(crate) fn phase3_apply_runtime_action_dispatch(
                         },
                     })?;
             }
+            RuntimeAction::PublishSettingsRouteRequested {
+                url,
+                prefer_overlay,
+            } => {
+                runtime().publish_settings_route_requested(url, *prefer_overlay);
+            }
         }
     }
 
@@ -3121,6 +3203,10 @@ pub(crate) fn phase3_subscribe_signal_async(topic: SignalTopic) -> AsyncSignalSu
 
 pub(crate) fn phase3_subscribe_all_signals_async() -> AsyncSignalSubscription {
     runtime().subscribe_all_signals_async()
+}
+
+pub(crate) fn phase3_signal_trace_snapshot() -> Vec<signal_routing::SignalTraceEntry> {
+    runtime().signal_trace_snapshot()
 }
 
 pub(crate) fn phase3_shared_runtime() -> Arc<RegistryRuntime> {
@@ -4908,6 +4994,63 @@ mod tests {
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
         );
         assert_eq!(app.default_registry_physics_id(), Some("physics:gas"));
+    }
+
+    #[test]
+    fn phase3_apply_runtime_action_dispatch_publishes_settings_route_signal() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        let observer_id = phase3_subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
+            if let SignalKind::RegistryEvent(RegistryEventSignal::SettingsRouteRequested {
+                url,
+                prefer_overlay,
+            }) = &signal.kind
+            {
+                seen.lock()
+                    .expect("observer lock poisoned")
+                    .push((url.clone(), *prefer_overlay));
+            }
+            Ok(())
+        });
+
+        let dispatch = ActionDispatch {
+            intents: Vec::new(),
+            workbench_intents: Vec::new(),
+            app_commands: Vec::new(),
+            runtime_actions: vec![RuntimeAction::PublishSettingsRouteRequested {
+                url: crate::util::VersoAddress::settings(
+                    crate::util::GraphshellSettingsPath::Persistence,
+                )
+                .to_string(),
+                prefer_overlay: true,
+            }],
+        };
+
+        let applied =
+            phase3_apply_runtime_action_dispatch(&mut app, dispatch).expect("dispatch applies");
+
+        assert_eq!(applied.runtime_actions.len(), 1);
+        assert!(
+            observed
+                .lock()
+                .expect("observer lock poisoned")
+                .iter()
+                .any(|route| {
+                    route
+                        == &(
+                            crate::util::VersoAddress::settings(
+                                crate::util::GraphshellSettingsPath::Persistence,
+                            )
+                            .to_string(),
+                            true,
+                        )
+                })
+        );
+        assert!(phase3_unsubscribe_signal(
+            SignalTopic::RegistryEvent,
+            observer_id,
+        ));
     }
 
     #[test]

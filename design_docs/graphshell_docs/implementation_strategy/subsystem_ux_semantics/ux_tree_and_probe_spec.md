@@ -32,6 +32,12 @@ It does **not** govern:
 - UxBridge transport (see `SUBSYSTEM_UX_SEMANTICS.md §7`)
 - AccessKit bridge mapping (see `SUBSYSTEM_ACCESSIBILITY.md`)
 
+Hierarchy note:
+
+- Graph Bar chrome names graph-owned targets (`GraphId`, `GraphViewId`)
+- the tile tree hosts contextual leaves for those targets
+- UxTree must therefore project `TileKind::Graph(GraphViewId)` as a hosted graph-view surface, not as the owner of graph-view identity
+
 ---
 
 ## 2. Canonical Model
@@ -94,7 +100,9 @@ updated data structure. Caching is permitted within one frame only.
 When `ux-semantics` is active, every visible pane (`TileKind::Graph`, `TileKind::Pane`,
 `TileKind::Node`, `TileKind::Tool`) must produce at least one `UxNode` in the tree.
 `TileKind::Pane` payloads are pane-only semantic surfaces; they must not be treated as
-graph-enrolled node panes. Invisible or hidden tiles (outside the viewport, collapsed
+graph-enrolled node panes. `TileKind::Graph(GraphViewId)` payloads are hosted
+presentations of graph-owned scoped views already named by Graph Bar chrome; they must
+not be treated as owning the `GraphViewId`. Invisible or hidden tiles (outside the viewport, collapsed
 by egui_tiles simplification) may be omitted.
 
 **C4 — No partial-construction panics**
@@ -127,7 +135,7 @@ Mismatch between active canvas LOD tier and UxTree emission mode must emit
 - `NodeKey` (u32, stable for the lifetime of the node)
 - `TileId` (u64, stable within one tile tree session)
 - Named dialog identifiers (string constants, not frame-local handles)
-- Semantic string constants for fixed UI elements (omnibar, workbar, status bar)
+- Semantic string constants for fixed UI elements (omnibar, Graph Bar controls, Workbench Sidebar controls, status bar)
 
 `UxNodeId`s must never be derived from:
 - Raw pointer values
@@ -160,7 +168,8 @@ Path segment rules:
 Examples:
 ```
 uxnode://workbench/omnibar/location-field
-uxnode://workbench/workbar/tab[frame-0]
+uxnode://workbench/graph-bar/view-target-chip
+uxnode://workbench/workbench-sidebar/frame-chip[frame-0]
 uxnode://workbench/tile[pane:a1b2c3d4-e5f6-...]/viewer-content
 uxnode://workbench/tile[graph:a1b2c3d4-e5f6-...]/graph-canvas
 uxnode://workbench/tile[graph:a1b2c3d4-e5f6-...]/graph-node[42]
@@ -333,7 +342,9 @@ the URL string as a fallback. An empty label is never acceptable for interactive
 target. If the Focus subsystem reports no focus holder, all `focused` fields are
 `false`. If it reports a focus holder not present in the tile tree (e.g., focus is
 inside a web page), `focused` is `false` on all native UI nodes — the web content's
-focus is handled by the Accessibility bridge, not the UxTree.
+focus is handled by the Accessibility bridge, not the UxTree. Top-level native
+chrome such as the Graph Bar may still hold focus while the active graph target is
+named above the tile tree.
 
 ### 6.3 S7 — ID uniqueness
 

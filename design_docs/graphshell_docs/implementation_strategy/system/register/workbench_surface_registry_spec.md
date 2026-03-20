@@ -14,6 +14,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
+- Graph Bar = graph-scope chrome that names active graph targets above workbench hosting.
 - `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
@@ -21,6 +22,8 @@ This registry owns arrangement policy and must not redefine graph truth or Navig
 Arrangement policy may still be graph-rooted: frames, tile groups, and other
 arrangement carriers can project `ArrangementRelation` family data without
 making the workbench a second graph authority.
+Hosted graph-view surfaces remain graph-owned `GraphViewId` presentations even when
+this registry decides where and how they appear in the workbench.
 
 ## Contract template (inherits UX Contract Register §2A)
 
@@ -74,6 +77,9 @@ Canonical interfaces:
 - Durable arrangement may be projected from graph-rooted `ArrangementRelation`
   carriers (frames, tile groups) without turning the workbench into a separate
   content ontology.
+- Opening or routing a `GraphViewId` into the workbench changes hosted
+  presentation only; it does not transfer graph-view semantic ownership to
+  workbench policy.
 - Pane host behavior is distinct from pane payload behavior.
 - Tile-tree mutations are workbench authority, not graph reducer authority.
 

@@ -763,15 +763,8 @@ fn open_settings_route_target(
     tiles_tree: &mut Tree<TileKind>,
     route: crate::app::SettingsRouteTarget,
 ) {
-    match route {
-        crate::app::SettingsRouteTarget::History => {
-            open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::HistoryManager);
-        }
-        crate::app::SettingsRouteTarget::Settings(page) => {
-            graph_app.workspace.chrome_ui.settings_tool_page = page;
-            open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::Settings);
-        }
-    }
+    let kind = graph_app.apply_settings_route_target(route);
+    open_or_focus_tool_pane_if_available(tiles_tree, kind);
 }
 
 #[cfg(feature = "diagnostics")]

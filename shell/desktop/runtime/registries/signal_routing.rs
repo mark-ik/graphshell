@@ -182,9 +182,11 @@ pub(crate) trait SignalBus: Send + Sync {
     fn subscribe_all(&self) -> AsyncSignalSubscription;
     fn diagnostics(&self) -> SignalRoutingDiagnostics;
     fn dead_letters(&self) -> Vec<SignalDeadLetter>;
+    fn signal_trace(&self) -> Vec<SignalTraceEntry>;
 }
 
 const DEAD_LETTER_LIMIT: usize = 64;
+const SIGNAL_TRACE_LIMIT: usize = 128;
 const ASYNC_SIGNAL_BUFFER: usize = 64;
 
 #[derive(Clone)]
@@ -226,12 +228,24 @@ pub(crate) struct SignalDeadLetter {
     pub(crate) detail: String,
 }
 
+/// A single entry in the signal trace ring, recording what was published and how it was routed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SignalTraceEntry {
+    pub(crate) kind: SignalKind,
+    pub(crate) source: SignalSource,
+    pub(crate) emitted_at: Instant,
+    pub(crate) causality_stamp: Option<u64>,
+    pub(crate) observers_notified: usize,
+    pub(crate) observer_failures: usize,
+}
+
 #[derive(Default)]
 struct SignalRoutingState {
     next_observer_id: u64,
     observers: HashMap<SignalTopic, Vec<SignalObserver>>,
     diagnostics: SignalRoutingDiagnostics,
     dead_letters: VecDeque<SignalDeadLetter>,
+    signal_trace: VecDeque<SignalTraceEntry>,
 }
 
 pub(crate) struct AsyncSignalSubscription {
@@ -365,6 +379,12 @@ impl SignalRoutingLayer {
                         .routed_deliveries
                         .saturating_add(async_deliveries as u64);
                     guard.diagnostics.queue_depth = self.max_queue_depth();
+                    push_signal_trace(
+                        &mut guard.signal_trace,
+                        &envelope,
+                        async_deliveries,
+                        0,
+                    );
                     return SignalPublishReport {
                         observers_notified: async_deliveries,
                         observer_failures: 0,
@@ -383,6 +403,7 @@ impl SignalRoutingLayer {
                         detail: "no observers registered for topic".to_string(),
                     },
                 );
+                push_signal_trace(&mut guard.signal_trace, &envelope, 0, 0);
                 log::warn!(
                     "signal_routing: signal {:?} has no observers (source: {:?})",
                     envelope.kind,
@@ -403,6 +424,12 @@ impl SignalRoutingLayer {
                         .routed_deliveries
                         .saturating_add(async_deliveries as u64);
                     guard.diagnostics.queue_depth = self.max_queue_depth();
+                    push_signal_trace(
+                        &mut guard.signal_trace,
+                        &envelope,
+                        async_deliveries,
+                        0,
+                    );
                     return SignalPublishReport {
                         observers_notified: async_deliveries,
                         observer_failures: 0,
@@ -421,6 +448,7 @@ impl SignalRoutingLayer {
                         detail: "observer list empty for topic".to_string(),
                     },
                 );
+                push_signal_trace(&mut guard.signal_trace, &envelope, 0, 0);
                 log::warn!(
                     "signal_routing: signal {:?} has no observers (source: {:?})",
                     envelope.kind,
@@ -476,11 +504,12 @@ impl SignalRoutingLayer {
         }
 
         let async_deliveries = self.publish_async(&envelope, topic);
+        let total_notified = observers.len() + async_deliveries;
         let mut guard = self.state.lock().expect("signal routing lock poisoned");
         guard.diagnostics.routed_deliveries = guard
             .diagnostics
             .routed_deliveries
-            .saturating_add((observers.len() + async_deliveries) as u64);
+            .saturating_add(total_notified as u64);
         guard.diagnostics.observer_failures = guard
             .diagnostics
             .observer_failures
@@ -489,9 +518,10 @@ impl SignalRoutingLayer {
         for dead_letter in &dead_letters {
             push_dead_letter(&mut guard.dead_letters, dead_letter.clone());
         }
+        push_signal_trace(&mut guard.signal_trace, &envelope, total_notified, failures);
 
         SignalPublishReport {
-            observers_notified: observers.len() + async_deliveries,
+            observers_notified: total_notified,
             observer_failures: failures,
             dead_letters_added: dead_letters.len(),
             queue_depth: guard.diagnostics.queue_depth,
@@ -510,6 +540,16 @@ impl SignalRoutingLayer {
             .lock()
             .expect("signal routing lock poisoned")
             .dead_letters
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn signal_trace_snapshot(&self) -> Vec<SignalTraceEntry> {
+        self.state
+            .lock()
+            .expect("signal routing lock poisoned")
+            .signal_trace
             .iter()
             .cloned()
             .collect()
@@ -572,6 +612,10 @@ impl SignalBus for SignalRoutingLayer {
     fn dead_letters(&self) -> Vec<SignalDeadLetter> {
         SignalRoutingLayer::dead_letters_snapshot(self)
     }
+
+    fn signal_trace(&self) -> Vec<SignalTraceEntry> {
+        SignalRoutingLayer::signal_trace_snapshot(self)
+    }
 }
 
 fn push_dead_letter(dead_letters: &mut VecDeque<SignalDeadLetter>, dead_letter: SignalDeadLetter) {
@@ -579,6 +623,25 @@ fn push_dead_letter(dead_letters: &mut VecDeque<SignalDeadLetter>, dead_letter: 
         dead_letters.pop_front();
     }
     dead_letters.push_back(dead_letter);
+}
+
+fn push_signal_trace(
+    trace: &mut VecDeque<SignalTraceEntry>,
+    envelope: &SignalEnvelope,
+    observers_notified: usize,
+    observer_failures: usize,
+) {
+    if trace.len() >= SIGNAL_TRACE_LIMIT {
+        trace.pop_front();
+    }
+    trace.push_back(SignalTraceEntry {
+        kind: envelope.kind.clone(),
+        source: envelope.source,
+        emitted_at: envelope.emitted_at,
+        causality_stamp: envelope.causality_stamp,
+        observers_notified,
+        observer_failures,
+    });
 }
 
 fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {

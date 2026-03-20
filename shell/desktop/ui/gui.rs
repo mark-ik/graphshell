@@ -35,7 +35,7 @@ use super::persistence_ops;
 use super::thumbnail_pipeline;
 use crate::app::{
     BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
-    SettingsRouteTarget, ToastAnchorPreference, WorkbenchIntent,
+    ToastAnchorPreference, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::event_loop::AppEvent;
@@ -67,7 +67,6 @@ use crate::shell::desktop::ui::thumbnail_pipeline::{
 };
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::pane_model::PaneId;
-use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
@@ -596,12 +595,10 @@ impl Gui {
             }
 
             match GraphBrowserApp::resolve_settings_route(&url) {
-                Some(SettingsRouteTarget::Settings(page)) => {
-                    self.graph_app.workspace.chrome_ui.settings_tool_page = page;
+                Some(route) => {
+                    let kind = self.graph_app.apply_settings_route_target(route);
                     self.graph_app
-                        .enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
-                            kind: ToolPaneState::Settings,
-                        });
+                        .enqueue_workbench_intent(WorkbenchIntent::OpenToolPane { kind });
                 }
                 _ => {
                     self.graph_app
