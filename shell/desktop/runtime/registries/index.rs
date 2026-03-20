@@ -653,11 +653,10 @@ mod tests {
         let provider = LocalSearchProvider;
         let knowledge = KnowledgeRegistry::default();
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .workspace
-            .domain
-            .graph
-            .add_node("https://example.com/imported".into(), Point2D::new(0.0, 0.0));
+        let key = app.workspace.domain.graph.add_node(
+            "https://example.com/imported".into(),
+            Point2D::new(0.0, 0.0),
+        );
         let node_id = app
             .workspace
             .domain
@@ -666,16 +665,21 @@ mod tests {
             .expect("node")
             .id
             .to_string();
-        assert!(app.workspace.domain.graph.set_import_records(vec![ImportRecord {
-            record_id: "import-record:firefox-bookmarks-2026-03-17".to_string(),
-            source_id: "import:firefox-bookmarks".to_string(),
-            source_label: "Firefox bookmarks".to_string(),
-            imported_at_secs: 1_763_500_800,
-            memberships: vec![ImportRecordMembership {
-                node_id,
-                suppressed: false,
-            }],
-        }]));
+        assert!(
+            app.workspace
+                .domain
+                .graph
+                .set_import_records(vec![ImportRecord {
+                    record_id: "import-record:firefox-bookmarks-2026-03-17".to_string(),
+                    source_id: "import:firefox-bookmarks".to_string(),
+                    source_label: "Firefox bookmarks".to_string(),
+                    imported_at_secs: 1_763_500_800,
+                    memberships: vec![ImportRecordMembership {
+                        node_id,
+                        suppressed: false,
+                    }],
+                }])
+        );
 
         let results = provider.search(&app, &knowledge, "firefox bookmarks", 10);
         let imported = results
@@ -696,10 +700,9 @@ mod tests {
                 .is_some_and(|snippet| snippet.contains("Firefox bookmarks"))
         );
         assert!(
-            imported
-                .snippet
-                .as_deref()
-                .is_some_and(|snippet| snippet.contains("import-record:firefox-bookmarks-2026-03-17"))
+            imported.snippet.as_deref().is_some_and(
+                |snippet| snippet.contains("import-record:firefox-bookmarks-2026-03-17")
+            )
         );
     }
 }

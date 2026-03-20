@@ -2,7 +2,10 @@ use super::*;
 
 impl GraphBrowserApp {
     pub(crate) fn enqueue_app_command(&mut self, command: AppCommand) {
-        self.workspace.workbench_session.pending_app_commands.push_back(command);
+        self.workspace
+            .workbench_session
+            .pending_app_commands
+            .push_back(command);
     }
 
     pub(crate) fn request_browser_command(
@@ -170,7 +173,12 @@ impl GraphBrowserApp {
         let mut retained_commands =
             VecDeque::with_capacity(self.workspace.workbench_session.pending_app_commands.len());
 
-        while let Some(command) = self.workspace.workbench_session.pending_app_commands.pop_front() {
+        while let Some(command) = self
+            .workspace
+            .workbench_session
+            .pending_app_commands
+            .pop_front()
+        {
             let retained = match command {
                 AppCommand::AddNodeToWorkspace {
                     node,
@@ -256,7 +264,10 @@ impl GraphBrowserApp {
             .pending_app_commands
             .iter()
             .position(predicate)?;
-        self.workspace.workbench_session.pending_app_commands.remove(index)
+        self.workspace
+            .workbench_session
+            .pending_app_commands
+            .remove(index)
     }
 
     /// Request saving current frame (tile layout) snapshot.

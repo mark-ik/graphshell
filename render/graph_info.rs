@@ -9,18 +9,19 @@ use crate::app::{
     GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry, GraphSearchOrigin, SearchDisplayMode,
     TagPanelState, ThreeDMode, ViewAction, ViewDimension, ZSource,
 };
-use crate::graph::format_imported_at_secs;
 use crate::graph::NodeKey;
+use crate::graph::format_imported_at_secs;
 use egui::Vec2;
 
-use super::canvas_visuals::active_presentation_profile;
+use super::canvas_visuals::{
+    active_presentation_profile, active_view_filter_expr, evaluate_active_view_filter,
+};
 use super::reducer_bridge::apply_ui_intents_with_checkpoint;
 use super::semantic_tags::{
-    PlacementAnchorSummary, SelectedNodeEnrichmentSummary,
-    graph_search_history_label, graph_search_scope_label,
-    render_graph_search_origin_badge, render_semantic_suggestion_buttons,
-    render_semantic_tag_status_buttons, render_selected_node_tag_panel, request_graph_search_entry,
-    semantic_tag_status_chip, semantic_suggestion_chip,
+    PlacementAnchorSummary, SelectedNodeEnrichmentSummary, graph_search_history_label,
+    graph_search_scope_label, render_graph_search_origin_badge, render_selected_node_tag_panel,
+    render_semantic_suggestion_buttons, render_semantic_tag_status_buttons,
+    request_graph_search_entry, semantic_suggestion_chip, semantic_tag_status_chip,
 };
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -52,8 +53,17 @@ pub(super) fn draw_graph_info(
     );
 
     let mut top_left_overlay_y = 28.0;
-    if !app.workspace.graph_runtime.active_graph_search_query.is_empty() {
-        let query = app.workspace.graph_runtime.active_graph_search_query.clone();
+    if !app
+        .workspace
+        .graph_runtime
+        .active_graph_search_query
+        .is_empty()
+    {
+        let query = app
+            .workspace
+            .graph_runtime
+            .active_graph_search_query
+            .clone();
         let filter_mode = matches!(
             app.workspace.graph_runtime.search_display_mode,
             SearchDisplayMode::Filter
@@ -62,7 +72,11 @@ pub(super) fn draw_graph_info(
         let current_entry = GraphSearchHistoryEntry {
             query: query.clone(),
             filter_mode,
-            origin: app.workspace.graph_runtime.active_graph_search_origin.clone(),
+            origin: app
+                .workspace
+                .graph_runtime
+                .active_graph_search_origin
+                .clone(),
             neighborhood_anchor: app
                 .workspace
                 .graph_runtime
@@ -123,7 +137,10 @@ pub(super) fn draw_graph_info(
                                 app.request_graph_search_with_options(
                                     query.clone(),
                                     false,
-                                    app.workspace.graph_runtime.active_graph_search_origin.clone(),
+                                    app.workspace
+                                        .graph_runtime
+                                        .active_graph_search_origin
+                                        .clone(),
                                     app.workspace
                                         .graph_runtime
                                         .active_graph_search_neighborhood_anchor,
@@ -138,7 +155,10 @@ pub(super) fn draw_graph_info(
                                 app.request_graph_search_with_options(
                                     query.clone(),
                                     true,
-                                    app.workspace.graph_runtime.active_graph_search_origin.clone(),
+                                    app.workspace
+                                        .graph_runtime
+                                        .active_graph_search_origin
+                                        .clone(),
                                     app.workspace
                                         .graph_runtime
                                         .active_graph_search_neighborhood_anchor,
@@ -196,9 +216,7 @@ pub(super) fn draw_graph_info(
                                 app.request_graph_search(String::new(), false);
                             }
                         });
-                        if let Some(entry) =
-                            pinned_entry.filter(|entry| entry != &current_entry)
-                        {
+                        if let Some(entry) = pinned_entry.filter(|entry| entry != &current_entry) {
                             ui.separator();
                             ui.horizontal_wrapped(|ui| {
                                 ui.small("Pinned:");
@@ -260,6 +278,46 @@ pub(super) fn draw_graph_info(
         top_left_overlay_y = 54.0;
     }
 
+    if let Some(expr) = active_view_filter_expr(app, view_id).cloned() {
+        let summary = evaluate_active_view_filter(app, view_id);
+        let match_count = summary
+            .as_ref()
+            .map(|summary| summary.result.matched_nodes.len())
+            .unwrap_or(0);
+        let warning_count = summary
+            .as_ref()
+            .map(|summary| summary.warnings.len())
+            .unwrap_or(0);
+        let area_rect = ui.available_rect_before_wrap();
+        egui::Area::new(egui::Id::new(("graph_active_facet_filter", view_id)))
+            .order(egui::Order::Foreground)
+            .fixed_pos(area_rect.left_top() + Vec2::new(10.0, top_left_overlay_y))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::window(ui.style())
+                    .inner_margin(egui::Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(egui::RichText::new("Facet Filter").small().strong());
+                            ui.small(format!(
+                                "{} | {} visible",
+                                expr.display_label(),
+                                match_count
+                            ));
+                            if warning_count > 0 {
+                                ui.small(format!("{warning_count} warning(s)"));
+                            }
+                            if ui.small_button("Clear").clicked() {
+                                apply_ui_intents_with_checkpoint(
+                                    app,
+                                    vec![GraphIntent::ClearViewFilter { view_id }],
+                                );
+                            }
+                        });
+                    });
+            });
+        top_left_overlay_y += 30.0;
+    }
+
     if let Some((label, tooltip)) = graph_view_semantic_depth_status_badge(app, view_id) {
         let area_rect = ui.available_rect_before_wrap();
         egui::Area::new(egui::Id::new(("graph_semantic_depth_status", view_id)))
@@ -280,8 +338,7 @@ pub(super) fn draw_graph_info(
         let suggestions = app.suggested_semantic_tags_for_node(selected_key);
         if !suggestions.is_empty() {
             ui.painter().text(
-                ui.available_rect_before_wrap().left_top()
-                    + Vec2::new(10.0, top_left_overlay_y),
+                ui.available_rect_before_wrap().left_top() + Vec2::new(10.0, top_left_overlay_y),
                 egui::Align2::LEFT_TOP,
                 format!("Suggested tags: {}", suggestions.join(", ")),
                 egui::FontId::proportional(11.0),
@@ -635,7 +692,9 @@ pub(super) fn selected_node_enrichment_summary(
             NodeLifecycle::Cold => "Cold",
             NodeLifecycle::Tombstone => "Ghost Node",
         },
-        import_records: app.domain_graph().import_record_summaries_for_node(selected_key),
+        import_records: app
+            .domain_graph()
+            .import_record_summaries_for_node(selected_key),
         workspace_memberships: app.membership_for_node(node.id).iter().cloned().collect(),
         display_tags,
         hidden_tag_count,

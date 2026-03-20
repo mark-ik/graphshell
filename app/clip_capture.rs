@@ -105,7 +105,9 @@ impl GraphBrowserApp {
         let Some(first) = captures.first() else {
             return Err("no clip captures were returned".to_string());
         };
-        self.workspace.graph_runtime.pending_clip_inspector_highlight_clear = None;
+        self.workspace
+            .graph_runtime
+            .pending_clip_inspector_highlight_clear = None;
         self.workspace.chrome_ui.show_clip_inspector = true;
         self.workspace.chrome_ui.show_command_palette = false;
         self.workspace.chrome_ui.show_context_palette = false;
@@ -127,7 +129,9 @@ impl GraphBrowserApp {
     }
 
     pub fn close_clip_inspector(&mut self) {
-        self.workspace.graph_runtime.pending_clip_inspector_highlight_clear = self
+        self.workspace
+            .graph_runtime
+            .pending_clip_inspector_highlight_clear = self
             .workspace
             .graph_runtime
             .clip_inspector_state

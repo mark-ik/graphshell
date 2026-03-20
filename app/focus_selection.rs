@@ -12,7 +12,8 @@ impl GraphBrowserApp {
         if self.workspace.domain.graph.get_node(context).is_none() {
             return HashMap::new();
         }
-        if let Some((cached_context, cached)) = self.workspace.graph_runtime.hop_distance_cache.as_ref()
+        if let Some((cached_context, cached)) =
+            self.workspace.graph_runtime.hop_distance_cache.as_ref()
             && *cached_context == context
         {
             return cached.clone();
@@ -190,8 +191,7 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.focused_view = focused_view;
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.graph_runtime.egui_state_dirty = true;
-        if self.workspace.graph_runtime.focused_view != previous_focused_view
-        {
+        if self.workspace.graph_runtime.focused_view != previous_focused_view {
             self.emit_ux_navigation_transition();
         }
     }

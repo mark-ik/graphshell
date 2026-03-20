@@ -62,9 +62,16 @@ pub(crate) fn render_graph_search_window<F>(
                     *local_widget_focus = None;
                 }
                 if search_field.changed() {
-                    graph_app.workspace.graph_runtime.active_graph_search_origin = GraphSearchOrigin::Manual;
-                    graph_app.workspace.graph_runtime.active_graph_search_neighborhood_anchor = None;
-                    graph_app.workspace.graph_runtime.active_graph_search_neighborhood_depth = 1;
+                    graph_app.workspace.graph_runtime.active_graph_search_origin =
+                        GraphSearchOrigin::Manual;
+                    graph_app
+                        .workspace
+                        .graph_runtime
+                        .active_graph_search_neighborhood_anchor = None;
+                    graph_app
+                        .workspace
+                        .graph_runtime
+                        .active_graph_search_neighborhood_depth = 1;
                     refresh_graph_search_matches(
                         graph_app,
                         graph_search_query,
@@ -80,7 +87,8 @@ pub(crate) fn render_graph_search_window<F>(
                         .clicked()
                     {
                         *graph_search_filter_mode = false;
-                        graph_app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Highlight;
+                        graph_app.workspace.graph_runtime.search_display_mode =
+                            SearchDisplayMode::Highlight;
                         mode_changed = true;
                     }
                     if ui
@@ -88,7 +96,8 @@ pub(crate) fn render_graph_search_window<F>(
                         .clicked()
                     {
                         *graph_search_filter_mode = true;
-                        graph_app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Filter;
+                        graph_app.workspace.graph_runtime.search_display_mode =
+                            SearchDisplayMode::Filter;
                         mode_changed = true;
                     }
                 });
@@ -96,9 +105,16 @@ pub(crate) fn render_graph_search_window<F>(
                     graph_app.workspace.graph_runtime.egui_state_dirty = true;
                 }
                 if ui.button("Clear").clicked() {
-                    graph_app.workspace.graph_runtime.active_graph_search_origin = GraphSearchOrigin::Manual;
-                    graph_app.workspace.graph_runtime.active_graph_search_neighborhood_anchor = None;
-                    graph_app.workspace.graph_runtime.active_graph_search_neighborhood_depth = 1;
+                    graph_app.workspace.graph_runtime.active_graph_search_origin =
+                        GraphSearchOrigin::Manual;
+                    graph_app
+                        .workspace
+                        .graph_runtime
+                        .active_graph_search_neighborhood_anchor = None;
+                    graph_app
+                        .workspace
+                        .graph_runtime
+                        .active_graph_search_neighborhood_depth = 1;
                     graph_search_query.clear();
                     refresh_graph_search_matches(
                         graph_app,

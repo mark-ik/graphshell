@@ -73,7 +73,10 @@ pub(crate) fn derive_frame_affinity_regions(graph: &Graph) -> Vec<FrameAffinityR
                     .as_ref()
                     .is_some_and(|a| a.sub_kinds.contains(&ArrangementSubKind::FrameMember))
             {
-                anchor_to_members.entry(key).or_default().push(edge.target());
+                anchor_to_members
+                    .entry(key)
+                    .or_default()
+                    .push(edge.target());
             }
         }
     }
@@ -97,8 +100,13 @@ pub(crate) fn derive_frame_affinity_regions(graph: &Graph) -> Vec<FrameAffinityR
             }
 
             let centroid = {
-                let sum = positions.iter().fold(Vec2::ZERO, |acc, &p| acc + p.to_vec2());
-                Pos2::new(sum.x / positions.len() as f32, sum.y / positions.len() as f32)
+                let sum = positions
+                    .iter()
+                    .fold(Vec2::ZERO, |acc, &p| acc + p.to_vec2());
+                Pos2::new(
+                    sum.x / positions.len() as f32,
+                    sum.y / positions.len() as f32,
+                )
             };
 
             Some(FrameAffinityRegion {
@@ -163,7 +171,9 @@ pub(crate) fn apply_frame_affinity_forces(
         .collect();
 
     for (key, next_pos) in &projected_positions {
-        let _ = app.domain_graph_mut().set_node_projected_position(*key, *next_pos);
+        let _ = app
+            .domain_graph_mut()
+            .set_node_projected_position(*key, *next_pos);
     }
 
     // Sync egui_graphs node locations to match
@@ -184,10 +194,10 @@ fn stable_frame_color(index: usize) -> Color32 {
     // Distinct, muted hues suitable for semi-transparent backdrops
     const PALETTE: &[Color32] = &[
         Color32::from_rgb(100, 150, 240), // muted blue
-        Color32::from_rgb(240, 140,  80), // muted orange
+        Color32::from_rgb(240, 140, 80),  // muted orange
         Color32::from_rgb(100, 200, 130), // muted green
         Color32::from_rgb(200, 100, 200), // muted purple
-        Color32::from_rgb(200, 190,  80), // muted yellow
+        Color32::from_rgb(200, 190, 80),  // muted yellow
         Color32::from_rgb(100, 200, 210), // muted teal
         Color32::from_rgb(210, 100, 120), // muted red
         Color32::from_rgb(180, 150, 100), // muted brown
@@ -262,7 +272,11 @@ mod tests {
         assert_eq!(region.frame_anchor, anchor);
         assert_eq!(region.members.len(), 2);
         // Centroid should be near (0, 0)
-        assert!(region.centroid.x.abs() < 1.0, "centroid x should be ~0, got {}", region.centroid.x);
+        assert!(
+            region.centroid.x.abs() < 1.0,
+            "centroid x should be ~0, got {}",
+            region.centroid.x
+        );
     }
 
     #[test]

@@ -48,11 +48,7 @@ impl GraphBrowserApp {
         self.update_workbench_tile_selection(tile_id, SelectionUpdateMode::Replace);
     }
 
-    pub fn update_workbench_tile_selection(
-        &mut self,
-        tile_id: TileId,
-        mode: SelectionUpdateMode,
-    ) {
+    pub fn update_workbench_tile_selection(&mut self, tile_id: TileId, mode: SelectionUpdateMode) {
         match mode {
             SelectionUpdateMode::Replace => {
                 self.workbench_tile_selection.selected_tile_ids.clear();
@@ -160,7 +156,9 @@ impl GraphBrowserApp {
         };
         let delta = self.apply_arrangement_snapshot(&snapshot);
         // Frame snapshots always produce a container node.
-        delta.container_node.expect("frame snapshot must produce a container node")
+        delta
+            .container_node
+            .expect("frame snapshot must produce a container node")
     }
 
     /// Remove the graph representation of a named workbench frame.

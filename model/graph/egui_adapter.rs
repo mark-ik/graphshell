@@ -720,7 +720,9 @@ enum GraphEdgeVisualStyle {
     Hyperlink,
     UserGrouped,
     /// Agent-derived; opacity decays as `decay_progress` approaches 1.0.
-    AgentDerived { decay_progress: f32 },
+    AgentDerived {
+        decay_progress: f32,
+    },
     // Traversal family
     TraversalHistory,
     // Containment family — hidden unless containment lens active
@@ -889,9 +891,7 @@ impl GraphEdgeShape {
                 (Color32::from_rgb(120, 180, 210), 1.8 + traversal_bonus)
             }
             // Containment family
-            GraphEdgeVisualStyle::ContainmentUrlPath => {
-                (Color32::from_rgb(80, 190, 170), 1.0)
-            }
+            GraphEdgeVisualStyle::ContainmentUrlPath => (Color32::from_rgb(80, 190, 170), 1.0),
             GraphEdgeVisualStyle::ContainmentDomain => {
                 (Color32::from_rgba_unmultiplied(80, 190, 170, 153), 0.8) // 60% opacity
             }
@@ -916,11 +916,16 @@ impl GraphEdgeShape {
             GraphEdgeVisualStyle::UserGrouped
         } else if payload.has_edge_type(EdgeType::Hyperlink) {
             GraphEdgeVisualStyle::Hyperlink
-        } else if payload.has_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 }) {
-            GraphEdgeVisualStyle::AgentDerived { decay_progress: 0.0 }
+        } else if payload.has_edge_type(EdgeType::AgentDerived {
+            decay_progress: 0.0,
+        }) {
+            GraphEdgeVisualStyle::AgentDerived {
+                decay_progress: 0.0,
+            }
         } else if payload.has_edge_type(EdgeType::History) {
             GraphEdgeVisualStyle::TraversalHistory
-        } else if payload.has_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath)) {
+        } else if payload.has_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath))
+        {
             GraphEdgeVisualStyle::ContainmentUrlPath
         } else if payload.has_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::Domain)) {
             GraphEdgeVisualStyle::ContainmentDomain
@@ -1091,9 +1096,8 @@ fn aggregate_logical_pair_traversals(
     let backward_count = dominant_source
         .map(|p| p.metrics().backward_navigations as usize)
         .unwrap_or(0);
-    let either = |f: fn(&EdgePayload) -> bool| {
-        ab_payload.is_some_and(f) || ba_payload.is_some_and(f)
-    };
+    let either =
+        |f: fn(&EdgePayload) -> bool| ab_payload.is_some_and(f) || ba_payload.is_some_and(f);
     let either_type = |et: EdgeType| {
         ab_payload.is_some_and(|p| p.has_edge_type(et))
             || ba_payload.is_some_and(|p| p.has_edge_type(et))
@@ -1102,8 +1106,12 @@ fn aggregate_logical_pair_traversals(
         GraphEdgeVisualStyle::UserGrouped
     } else if either_type(EdgeType::Hyperlink) {
         GraphEdgeVisualStyle::Hyperlink
-    } else if either_type(EdgeType::AgentDerived { decay_progress: 0.0 }) {
-        GraphEdgeVisualStyle::AgentDerived { decay_progress: 0.0 }
+    } else if either_type(EdgeType::AgentDerived {
+        decay_progress: 0.0,
+    }) {
+        GraphEdgeVisualStyle::AgentDerived {
+            decay_progress: 0.0,
+        }
     } else if either_type(EdgeType::History) {
         GraphEdgeVisualStyle::TraversalHistory
     } else if either_type(EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath)) {

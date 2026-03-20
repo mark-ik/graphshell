@@ -39,6 +39,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
+    CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_TILE_DRAG,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
     CHANNEL_COMPOSITOR_TILE_ACTIVITY, phase3_resolve_active_presentation_profile,
 };
@@ -535,6 +536,9 @@ fn suppression_reason_channel(reason: OverlaySuppressionReason) -> &'static str 
         OverlaySuppressionReason::RadialMenu => {
             CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU
         }
+        OverlaySuppressionReason::TileDrag => {
+            CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_TILE_DRAG
+        }
     }
 }
 
@@ -912,11 +916,13 @@ pub(crate) fn composite_active_node_pane_webviews(
         focus_ring_alpha,
         hovered_node_key,
     );
+    let tile_drag_active = ctx.dragged_id().is_some();
     let interaction_ui = InteractionUiState::new(
         graph_app.workspace.chrome_ui.show_command_palette,
         graph_app.workspace.chrome_ui.show_help_panel,
         graph_app.workspace.chrome_ui.show_radial_menu,
-    );
+    )
+    .with_tile_drag_active(tile_drag_active);
     let mut active_composited_nodes = HashSet::new();
     let mut composited_counters = CompositedPassCounters::default();
     let viewport_rect = ctx.viewport_rect();
@@ -1885,6 +1891,10 @@ mod tests {
         assert_eq!(
             suppression_reason_channel(OverlaySuppressionReason::RadialMenu),
             CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU
+        );
+        assert_eq!(
+            suppression_reason_channel(OverlaySuppressionReason::TileDrag),
+            CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_TILE_DRAG
         );
     }
 

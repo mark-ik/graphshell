@@ -18,6 +18,7 @@ fn graph_surface_focus_state_emits_ux_navigation_transition_on_change() {
         ),
         toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
+        pending_webview_context_surface_requests: Vec::new(),
         deferred_open_child_webviews: Vec::new(),
     };
     let mut app = GraphBrowserApp::new_for_testing();
@@ -52,6 +53,7 @@ fn node_focus_state_emits_ux_navigation_transition_on_change() {
         ),
         toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
+        pending_webview_context_surface_requests: Vec::new(),
         deferred_open_child_webviews: Vec::new(),
     };
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
@@ -85,6 +87,7 @@ fn node_focus_state_noop_does_not_emit_ux_navigation_transition() {
         ),
         toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
+        pending_webview_context_surface_requests: Vec::new(),
         deferred_open_child_webviews: Vec::new(),
     };
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
@@ -118,6 +121,7 @@ fn graph_surface_focus_state_noop_does_not_emit_ux_navigation_transition() {
         ),
         toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
+        pending_webview_context_surface_requests: Vec::new(),
         deferred_open_child_webviews: Vec::new(),
     };
     let mut app = GraphBrowserApp::new_for_testing();

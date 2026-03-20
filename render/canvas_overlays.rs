@@ -72,8 +72,7 @@ pub(super) fn draw_frame_affinity_backdrops(
     app: &GraphBrowserApp,
     metadata_id: egui::Id,
 ) {
-    let regions =
-        crate::graph::frame_affinity::derive_frame_affinity_regions(app.domain_graph());
+    let regions = crate::graph::frame_affinity::derive_frame_affinity_regions(app.domain_graph());
     if regions.is_empty() {
         return;
     }
@@ -113,7 +112,12 @@ pub(super) fn draw_frame_affinity_backdrops(
         let (min_x, min_y, max_x, max_y) = positions.iter().fold(
             (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
             |(min_x, min_y, max_x, max_y), p| {
-                (min_x.min(p.x), min_y.min(p.y), max_x.max(p.x), max_y.max(p.y))
+                (
+                    min_x.min(p.x),
+                    min_y.min(p.y),
+                    max_x.max(p.x),
+                    max_y.max(p.y),
+                )
             },
         );
 
@@ -342,18 +346,22 @@ pub(super) fn draw_hovered_node_tooltip(
         app.membership_for_node(node.id).iter().cloned().collect();
     let anchor = pointer_pos
         .or_else(|| {
-            app.workspace.graph_runtime.egui_state.as_ref().and_then(|state| {
-                state.graph.node(key).map(|n| {
-                    if let Some(meta) = ui
-                        .ctx()
-                        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
-                    {
-                        meta.canvas_to_screen_pos(n.location())
-                    } else {
-                        n.location()
-                    }
+            app.workspace
+                .graph_runtime
+                .egui_state
+                .as_ref()
+                .and_then(|state| {
+                    state.graph.node(key).map(|n| {
+                        if let Some(meta) = ui
+                            .ctx()
+                            .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
+                        {
+                            meta.canvas_to_screen_pos(n.location())
+                        } else {
+                            n.location()
+                        }
+                    })
                 })
-            })
         })
         .unwrap_or_else(|| ui.max_rect().center());
 

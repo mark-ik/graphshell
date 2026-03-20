@@ -80,7 +80,14 @@ pub(super) struct GuiRuntimeState {
     pub(super) focus_authority: RuntimeFocusAuthorityState,
     pub(super) toolbar_drafts: HashMap<PaneId, ToolbarDraft>,
     pub(super) command_palette_toggle_requested: bool,
+    pub(super) pending_webview_context_surface_requests: Vec<PendingWebviewContextSurfaceRequest>,
     pub(super) deferred_open_child_webviews: Vec<WebViewId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PendingWebviewContextSurfaceRequest {
+    pub(crate) webview_id: WebViewId,
+    pub(crate) anchor: [f32; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

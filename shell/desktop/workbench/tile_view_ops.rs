@@ -213,34 +213,26 @@ fn make_focus_cycle_region_active(
     region: FocusCycleRegion,
 ) -> bool {
     match region {
-        FocusCycleRegion::Graph => {
-            tiles_tree.make_active(|_, tile| {
-                matches!(
-                    tile,
-                    Tile::Pane(TileKind::Graph(_))
-                        | Tile::Pane(TileKind::Pane(PaneViewState::Graph(_)))
-                )
-            })
-        }
-        FocusCycleRegion::Node => {
-            tiles_tree.make_active(|_, tile| {
-                matches!(
-                    tile,
-                    Tile::Pane(TileKind::Node(_))
-                        | Tile::Pane(TileKind::Pane(PaneViewState::Node(_)))
-                )
-            })
-        }
+        FocusCycleRegion::Graph => tiles_tree.make_active(|_, tile| {
+            matches!(
+                tile,
+                Tile::Pane(TileKind::Graph(_))
+                    | Tile::Pane(TileKind::Pane(PaneViewState::Graph(_)))
+            )
+        }),
+        FocusCycleRegion::Node => tiles_tree.make_active(|_, tile| {
+            matches!(
+                tile,
+                Tile::Pane(TileKind::Node(_)) | Tile::Pane(TileKind::Pane(PaneViewState::Node(_)))
+            )
+        }),
         #[cfg(feature = "diagnostics")]
-        FocusCycleRegion::Tool => {
-            tiles_tree.make_active(|_, tile| {
-                matches!(
-                    tile,
-                    Tile::Pane(TileKind::Tool(_))
-                        | Tile::Pane(TileKind::Pane(PaneViewState::Tool(_)))
-                )
-            })
-        }
+        FocusCycleRegion::Tool => tiles_tree.make_active(|_, tile| {
+            matches!(
+                tile,
+                Tile::Pane(TileKind::Tool(_)) | Tile::Pane(TileKind::Pane(PaneViewState::Tool(_)))
+            )
+        }),
     }
 }
 
@@ -918,14 +910,17 @@ pub(crate) fn promote_floating_node_pane(
     graph_app: &GraphBrowserApp,
     mode: TileOpenMode,
 ) -> Option<NodeKey> {
-    let floating = tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
-        Tile::Pane(TileKind::Pane(PaneViewState::Node(state)))
-            if state.presentation_mode == PanePresentationMode::Floating =>
-        {
-            Some((*tile_id, state.clone()))
-        }
-        _ => None,
-    })?;
+    let floating = tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(tile_id, tile)| match tile {
+            Tile::Pane(TileKind::Pane(PaneViewState::Node(state)))
+                if state.presentation_mode == PanePresentationMode::Floating =>
+            {
+                Some((*tile_id, state.clone()))
+            }
+            _ => None,
+        })?;
 
     let (floating_tile_id, mut state) = floating;
     remove_unattached_tile(tiles_tree, floating_tile_id);
@@ -1297,10 +1292,9 @@ mod tests {
         let promoted = promote_floating_node_pane(&mut tree, &app, TileOpenMode::Tab);
         assert_eq!(promoted, Some(node_key));
         assert_eq!(count_floating_node_panes(&tree), 0);
-        assert!(tree
-            .tiles
-            .iter()
-            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)));
+        assert!(tree.tiles.iter().any(
+            |(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
+        ));
     }
 
     #[test]

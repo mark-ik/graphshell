@@ -6,9 +6,9 @@
 //! event → GraphAction conversion.
 
 use crate::app::{GraphBrowserApp, SelectionUpdateMode};
-use crate::render::GraphAction;
 use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
+use crate::render::GraphAction;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE;
 use crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_LASSO_BLOCKED_NO_STATE;

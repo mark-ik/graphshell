@@ -40,6 +40,22 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 
+fn palette_window_title(contextual_mode: bool) -> &'static str {
+    if contextual_mode {
+        "Context Palette"
+    } else {
+        "Command Palette"
+    }
+}
+
+fn palette_intro_label(contextual_mode: bool) -> &'static str {
+    if contextual_mode {
+        "Targeted commands"
+    } else {
+        "Workbench commands"
+    }
+}
+
 fn active_theme_tokens(
     app: &GraphBrowserApp,
 ) -> crate::shell::desktop::runtime::registries::theme::ThemeTokenSet {
@@ -262,7 +278,8 @@ pub fn render_command_palette_panel(
     focused_pane_node: Option<NodeKey>,
     focused_pane_id: Option<PaneId>,
 ) {
-    let was_open = app.workspace.chrome_ui.show_command_palette || app.workspace.chrome_ui.show_context_palette;
+    let was_open = app.workspace.chrome_ui.show_command_palette
+        || app.workspace.chrome_ui.show_context_palette;
     if !was_open {
         return;
     }
@@ -306,8 +323,8 @@ pub fn render_command_palette_panel(
         &load_category_recency(ctx),
         &load_pinned_categories(ctx),
     );
-    let contextual_mode = app.workspace.chrome_ui.show_context_palette
-        || app.pending_node_context_target().is_some();
+    let contextual_mode =
+        app.workspace.chrome_ui.show_context_palette || app.pending_node_context_target().is_some();
     let contextual_anchor = app.workspace.chrome_ui.context_palette_anchor;
     let search_query_id = egui::Id::new("command_palette_search_query");
     let search_scope_id = egui::Id::new("command_palette_search_scope");
@@ -316,11 +333,7 @@ pub fn render_command_palette_panel(
         should_close = true;
     }
 
-    let window_title = if contextual_mode {
-        "Context Palette"
-    } else {
-        "Command Palette"
-    };
+    let window_title = palette_window_title(contextual_mode);
 
     let mut render_palette_contents = |ui: &mut egui::Ui| {
         egui::ScrollArea::vertical()
@@ -338,7 +351,7 @@ pub fn render_command_palette_panel(
                         ctx.data_mut(|d| d.remove::<bool>(fallback_notice_id));
                     }
                     if contextual_mode {
-                        ui.label("Context actions");
+                        ui.label(palette_intro_label(true));
                         if let Some(target) = source_context.or(hovered_node) {
                             if let Some(node) = app.domain_graph().get_node(target) {
                                 let label = if node.title.trim().is_empty() {
@@ -349,8 +362,10 @@ pub fn render_command_palette_panel(
                                 ui.small(format!("Target: {label}"));
                             }
                         }
+                        ui.small("Same command model as F2, scoped to the current target.");
                     } else {
-                        ui.label("Node, tile, edge, graph, and persistence commands");
+                        ui.label(palette_intro_label(false));
+                        ui.small("Node, edge, graph, pane, and persistence actions in one surface.");
                         ui.small("Delete Node(s) is graph content mutation; tile close remains a tile-tree operation.");
                         ui.small("Mode: Search Interaction (global grouped list)");
                     }
@@ -753,9 +768,10 @@ pub(crate) fn execute_action(
         }
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
         ActionId::GraphPhysicsConfig => {
-            app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-            });
+            registries::phase3_publish_settings_route_requested(
+                &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+                true,
+            );
         }
         ActionId::GraphCommandPalette => {
             app.enqueue_workbench_intent(WorkbenchIntent::OpenCommandPalette);
@@ -780,11 +796,10 @@ pub(crate) fn execute_action(
             app.request_save_graph_snapshot_named(format!("radial-graph-{now}"));
         }
         ActionId::PersistRestoreLatestGraph => app.request_restore_graph_snapshot_latest(),
-        ActionId::PersistOpenHub => {
-            app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                url: VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
-            })
-        }
+        ActionId::PersistOpenHub => registries::phase3_publish_settings_route_requested(
+            &VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+            true,
+        ),
         ActionId::WorkbenchOpenSettingsPane => {
             let runtime_intents = registries::phase3_execute_registry_action(
                 app,
@@ -910,6 +925,19 @@ mod tests {
     }
 
     #[test]
+    fn palette_titles_use_unified_command_surface_naming() {
+        assert_eq!(palette_window_title(false), "Command Palette");
+        assert_eq!(palette_window_title(true), "Context Palette");
+        assert_ne!(palette_window_title(false), "Edge Commands");
+    }
+
+    #[test]
+    fn palette_intro_copy_distinguishes_global_and_contextual_modes() {
+        assert_eq!(palette_intro_label(false), "Workbench commands");
+        assert_eq!(palette_intro_label(true), "Targeted commands");
+    }
+
+    #[test]
     fn disabled_node_delete_exposes_precondition_reason() {
         let reason = disabled_action_reason(ActionId::NodeDelete, &default_action_context());
         assert_eq!(
@@ -997,9 +1025,31 @@ mod tests {
     }
 
     #[test]
-    fn execute_action_persistence_hub_routes_to_settings_overlay_url() {
+    fn execute_action_persistence_hub_publishes_settings_route_signal() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
         let mut app = GraphBrowserApp::new_for_testing();
         let mut intents = Vec::new();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        let observer_id = registries::phase3_subscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            move |signal| {
+                if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
+                    crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
+                        url,
+                        prefer_overlay,
+                    },
+                ) = &signal.kind
+                {
+                    seen.lock()
+                        .expect("observer lock poisoned")
+                        .push((url.clone(), *prefer_overlay));
+                }
+                Ok(())
+            },
+        );
 
         execute_action(
             &mut app,
@@ -1012,11 +1062,81 @@ mod tests {
         );
 
         assert!(intents.is_empty());
-        assert!(matches!(
-            app.take_pending_workbench_intents().as_slice(),
-            [WorkbenchIntent::OpenSettingsUrl { url }]
-                if url
-                    == &VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string()
+        assert!(app.take_pending_workbench_intents().is_empty());
+        assert!(
+            observed
+                .lock()
+                .expect("observer lock poisoned")
+                .iter()
+                .any(|route| {
+                    route
+                        == &(
+                            VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+                            true,
+                        )
+                })
+        );
+        assert!(registries::phase3_unsubscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            observer_id,
+        ));
+    }
+
+    #[test]
+    fn execute_action_graph_physics_config_publishes_settings_route_signal() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        let observer_id = registries::phase3_subscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            move |signal| {
+                if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
+                    crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
+                        url,
+                        prefer_overlay,
+                    },
+                ) = &signal.kind
+                {
+                    seen.lock()
+                        .expect("observer lock poisoned")
+                        .push((url.clone(), *prefer_overlay));
+                }
+                Ok(())
+            },
+        );
+
+        execute_action(
+            &mut app,
+            ActionId::GraphPhysicsConfig,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(app.take_pending_workbench_intents().is_empty());
+        assert!(
+            observed
+                .lock()
+                .expect("observer lock poisoned")
+                .iter()
+                .any(|route| {
+                    route
+                        == &(
+                            VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+                            true,
+                        )
+                })
+        );
+        assert!(registries::phase3_unsubscribe_signal(
+            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+            observer_id,
         ));
     }
 

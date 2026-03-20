@@ -51,7 +51,10 @@ pub(crate) fn workspace_runtime_focus_state(
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
         show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
         show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
-        command_palette_contextual_mode: graph_app.workspace.chrome_ui.command_palette_contextual_mode,
+        command_palette_contextual_mode: graph_app
+            .workspace
+            .chrome_ui
+            .command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
         show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
         show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
@@ -97,7 +100,12 @@ pub(crate) fn workbench_runtime_focus_state(
                 None,
                 false,
             ),
-            None => (None, graph_app.workspace.graph_runtime.focused_view, None, false),
+            None => (
+                None,
+                graph_app.workspace.graph_runtime.focused_view,
+                None,
+                false,
+            ),
         };
 
     build_runtime_focus_state(RuntimeFocusInputs {
@@ -115,7 +123,10 @@ pub(crate) fn workbench_runtime_focus_state(
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
         show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
         show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
-        command_palette_contextual_mode: graph_app.workspace.chrome_ui.command_palette_contextual_mode,
+        command_palette_contextual_mode: graph_app
+            .workspace
+            .chrome_ui
+            .command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
         show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
         show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
@@ -198,7 +209,12 @@ pub(crate) fn refresh_realized_runtime_focus_state(
                 None,
                 false,
             ),
-            None => (None, graph_app.workspace.graph_runtime.focused_view, None, false),
+            None => (
+                None,
+                graph_app.workspace.graph_runtime.focused_view,
+                None,
+                false,
+            ),
         };
     focus_authority.realized_focus_state = Some(build_runtime_focus_state(RuntimeFocusInputs {
         semantic_region_override: None,
@@ -214,7 +230,10 @@ pub(crate) fn refresh_realized_runtime_focus_state(
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
         show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
         show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
-        command_palette_contextual_mode: graph_app.workspace.chrome_ui.command_palette_contextual_mode,
+        command_palette_contextual_mode: graph_app
+            .workspace
+            .chrome_ui
+            .command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
         show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
         show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
@@ -727,8 +746,7 @@ pub(crate) fn sync_runtime_semantic_region_from_workbench(
     show_clear_data_confirm: bool,
 ) {
     if let Some(target) = runtime_active_tool_surface_return_target(tiles_tree) {
-        focus_authority.semantic_region =
-            Some(semantic_region_for_tool_surface_target(&target));
+        focus_authority.semantic_region = Some(semantic_region_for_tool_surface_target(&target));
     }
     refresh_realized_runtime_focus_state(
         focus_authority,
@@ -1062,6 +1080,7 @@ mod tests {
                 crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(),
             toolbar_drafts: std::collections::HashMap::new(),
             command_palette_toggle_requested: false,
+            pending_webview_context_surface_requests: Vec::new(),
             deferred_open_child_webviews: Vec::new(),
         };
         let pane_id = PaneId::new();
@@ -1092,6 +1111,7 @@ mod tests {
             },
             toolbar_drafts: std::collections::HashMap::new(),
             command_palette_toggle_requested: false,
+            pending_webview_context_surface_requests: Vec::new(),
             deferred_open_child_webviews: Vec::new(),
         };
 
@@ -1125,6 +1145,7 @@ mod tests {
                 crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(),
             toolbar_drafts: std::collections::HashMap::new(),
             command_palette_toggle_requested: false,
+            pending_webview_context_surface_requests: Vec::new(),
             deferred_open_child_webviews: Vec::new(),
         };
         let mut app = GraphBrowserApp::new_for_testing();

@@ -1938,11 +1938,23 @@ impl PlatformWindow for HeadedWindow {
                 other => self.add_dialog(webview_id, Dialog::new_simple_dialog(other)),
             },
             EmbedderControl::ContextMenu(prompt) => {
-                let offset = self.gui.borrow().toolbar_height();
-                self.add_dialog(
-                    webview_id,
-                    Dialog::new_context_menu(webview_id, prompt, offset),
-                );
+                let mut gui = self.gui.borrow_mut();
+                let offset = gui.toolbar_height();
+                let graphshell_anchor = [
+                    prompt.position().min.x as f32,
+                    (prompt.position().min.y + offset.0 as i32) as f32,
+                ];
+                if gui.node_key_for_webview_id(webview_id).is_some() {
+                    gui.request_context_command_surface_for_webview(webview_id, graphshell_anchor);
+                    drop(gui);
+                    self.winit_window.request_redraw();
+                } else {
+                    drop(gui);
+                    self.add_dialog(
+                        webview_id,
+                        Dialog::new_context_menu(webview_id, prompt, offset),
+                    );
+                }
             }
         }
     }

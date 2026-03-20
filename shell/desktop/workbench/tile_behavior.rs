@@ -859,10 +859,16 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn is_tab_closable(&self, tiles: &Tiles<TileKind>, tile_id: TileId) -> bool {
         match tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(_)))) => false,
-            Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(_)))) => true,
+            Some(Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(_),
+            ))) => false,
+            Some(Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Node(_),
+            ))) => true,
             #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(_)))) => true,
+            Some(Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(_),
+            ))) => true,
             Some(Tile::Pane(TileKind::Node(_))) => true,
             Some(Tile::Pane(TileKind::Graph(_))) => false,
             #[cfg(feature = "diagnostics")]
@@ -874,7 +880,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     fn on_tab_close(&mut self, tiles: &mut Tiles<TileKind>, tile_id: TileId) -> bool {
         Self::activate_successor_tab_in_parent_before_close(tiles, tile_id);
 
-        if let Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)))) = tiles.get(tile_id) {
+        if let Some(Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+        ))) = tiles.get(tile_id)
+        {
             let node_key = state.node;
             self.pending_closed_nodes.push(node_key);
             self.graph_app

@@ -25,7 +25,12 @@ impl GraphBrowserApp {
         }
 
         if cursor == 0 {
-            if let Some(snapshot) = self.workspace.graph_runtime.history_preview_live_graph_snapshot.as_ref() {
+            if let Some(snapshot) = self
+                .workspace
+                .graph_runtime
+                .history_preview_live_graph_snapshot
+                .as_ref()
+            {
                 self.workspace.graph_runtime.history_preview_graph = Some(snapshot.clone());
                 return Ok(());
             }
@@ -65,14 +70,20 @@ impl GraphBrowserApp {
         detail: impl Into<String>,
     ) {
         let detail = detail.into();
-        self.workspace.graph_runtime.history_recent_traversal_append_failures = self
+        self.workspace
+            .graph_runtime
+            .history_recent_traversal_append_failures = self
             .workspace
             .graph_runtime
             .history_recent_traversal_append_failures
             .saturating_add(1);
-        self.workspace.graph_runtime.history_recent_failure_reason_bucket = Some(reason);
-        self.workspace.graph_runtime.history_last_error = Some(format!("{}: {}", reason.as_str(), detail));
-        self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+        self.workspace
+            .graph_runtime
+            .history_recent_failure_reason_bucket = Some(reason);
+        self.workspace.graph_runtime.history_last_error =
+            Some(format!("{}: {}", reason.as_str(), detail));
+        self.workspace.graph_runtime.history_last_event_unix_ms =
+            Some(Self::unix_timestamp_ms_now());
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED,
             latency_us: 0,
@@ -162,44 +173,62 @@ impl GraphBrowserApp {
             }
             GraphIntent::EnterHistoryTimelinePreview => {
                 self.workspace.graph_runtime.history_preview_mode_active = true;
-                self.workspace.graph_runtime.history_last_preview_isolation_violation = false;
+                self.workspace
+                    .graph_runtime
+                    .history_last_preview_isolation_violation = false;
                 self.workspace.graph_runtime.history_replay_in_progress = false;
                 self.workspace.graph_runtime.history_replay_cursor = None;
                 self.workspace.graph_runtime.history_replay_total_steps = None;
-                self.workspace.graph_runtime.history_preview_live_graph_snapshot =
+                self.workspace
+                    .graph_runtime
+                    .history_preview_live_graph_snapshot =
                     Some(self.workspace.domain.graph.clone());
-                self.workspace.graph_runtime.history_preview_graph = Some(self.workspace.domain.graph.clone());
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_preview_graph =
+                    Some(self.workspace.domain.graph.clone());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
                     latency_us: 0,
                 });
             }
             GraphIntent::ExitHistoryTimelinePreview => {
-                if let Some(snapshot) = self.workspace.graph_runtime.history_preview_live_graph_snapshot.take() {
+                if let Some(snapshot) = self
+                    .workspace
+                    .graph_runtime
+                    .history_preview_live_graph_snapshot
+                    .take()
+                {
                     self.workspace.domain.graph = snapshot;
-                    self.workspace.graph_runtime.history_last_return_to_present_result =
-                        Some("restored".to_string());
+                    self.workspace
+                        .graph_runtime
+                        .history_last_return_to_present_result = Some("restored".to_string());
                 }
                 self.workspace.graph_runtime.history_preview_mode_active = false;
                 self.workspace.graph_runtime.history_replay_in_progress = false;
                 self.workspace.graph_runtime.history_preview_graph = None;
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED,
                     latency_us: 0,
                 });
             }
             GraphIntent::HistoryTimelinePreviewIsolationViolation { detail } => {
-                self.workspace.graph_runtime.history_last_preview_isolation_violation = true;
+                self.workspace
+                    .graph_runtime
+                    .history_last_preview_isolation_violation = true;
                 self.workspace.graph_runtime.history_last_error = Some(format!(
                     "{}: {}",
                     HistoryTraversalFailureReason::PreviewIsolationViolation.as_str(),
                     detail
                 ));
-                self.workspace.graph_runtime.history_recent_failure_reason_bucket =
+                self.workspace
+                    .graph_runtime
+                    .history_recent_failure_reason_bucket =
                     Some(HistoryTraversalFailureReason::PreviewIsolationViolation);
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION,
                     latency_us: 0,
@@ -209,7 +238,8 @@ impl GraphBrowserApp {
                 self.workspace.graph_runtime.history_replay_in_progress = true;
                 self.workspace.graph_runtime.history_replay_cursor = Some(0);
                 self.workspace.graph_runtime.history_replay_total_steps = None;
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
                     latency_us: 0,
@@ -224,10 +254,15 @@ impl GraphBrowserApp {
                     .unwrap_or(0)
                     .min(total_steps);
                 self.workspace.graph_runtime.history_replay_cursor = Some(next_cursor);
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
             }
             GraphIntent::HistoryTimelineReplayAdvance { steps } => {
-                let total_steps = self.workspace.graph_runtime.history_replay_total_steps.unwrap_or(0);
+                let total_steps = self
+                    .workspace
+                    .graph_runtime
+                    .history_replay_total_steps
+                    .unwrap_or(0);
                 if total_steps == 0 {
                     self.record_history_failure(
                         HistoryTraversalFailureReason::ReplayFailed,
@@ -249,7 +284,11 @@ impl GraphBrowserApp {
                     });
                 }
 
-                let current_cursor = self.workspace.graph_runtime.history_replay_cursor.unwrap_or(0);
+                let current_cursor = self
+                    .workspace
+                    .graph_runtime
+                    .history_replay_cursor
+                    .unwrap_or(0);
                 let next_cursor = current_cursor.saturating_add(steps).min(total_steps);
 
                 if let Err(err) = self.replay_history_preview_cursor(next_cursor, total_steps) {
@@ -266,7 +305,8 @@ impl GraphBrowserApp {
                 }
 
                 self.workspace.graph_runtime.history_replay_cursor = Some(next_cursor);
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
 
                 if next_cursor >= total_steps {
                     self.workspace.graph_runtime.history_replay_in_progress = false;
@@ -278,16 +318,26 @@ impl GraphBrowserApp {
             }
             GraphIntent::HistoryTimelineReplayReset => {
                 self.workspace.graph_runtime.history_replay_in_progress = false;
-                if self.workspace.graph_runtime.history_replay_total_steps.is_some() {
+                if self
+                    .workspace
+                    .graph_runtime
+                    .history_replay_total_steps
+                    .is_some()
+                {
                     self.workspace.graph_runtime.history_replay_cursor = Some(0);
                 } else {
                     self.workspace.graph_runtime.history_replay_cursor = None;
                 }
-                if let Some(snapshot) = self.workspace.graph_runtime.history_preview_live_graph_snapshot.as_ref()
+                if let Some(snapshot) = self
+                    .workspace
+                    .graph_runtime
+                    .history_preview_live_graph_snapshot
+                    .as_ref()
                 {
                     self.workspace.graph_runtime.history_preview_graph = Some(snapshot.clone());
                 }
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
             }
             GraphIntent::HistoryTimelineReplayProgress {
                 cursor,
@@ -296,16 +346,20 @@ impl GraphBrowserApp {
                 self.workspace.graph_runtime.history_replay_in_progress = true;
                 self.workspace.graph_runtime.history_replay_total_steps = Some(total_steps);
                 self.workspace.graph_runtime.history_replay_cursor = Some(cursor.min(total_steps));
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
             }
             GraphIntent::HistoryTimelineReplayFinished { succeeded, error } => {
                 self.workspace.graph_runtime.history_replay_in_progress = false;
                 if succeeded {
-                    if let Some(total_steps) = self.workspace.graph_runtime.history_replay_total_steps {
+                    if let Some(total_steps) =
+                        self.workspace.graph_runtime.history_replay_total_steps
+                    {
                         self.workspace.graph_runtime.history_replay_cursor = Some(total_steps);
                     }
                 }
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
                 if succeeded {
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
@@ -318,7 +372,9 @@ impl GraphBrowserApp {
                         HistoryTraversalFailureReason::ReplayFailed.as_str(),
                         detail
                     ));
-                    self.workspace.graph_runtime.history_recent_failure_reason_bucket =
+                    self.workspace
+                        .graph_runtime
+                        .history_recent_failure_reason_bucket =
                         Some(HistoryTraversalFailureReason::ReplayFailed);
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
@@ -327,16 +383,20 @@ impl GraphBrowserApp {
                 }
             }
             GraphIntent::HistoryTimelineReturnToPresentFailed { detail } => {
-                self.workspace.graph_runtime.history_last_return_to_present_result =
-                    Some(format!("failed: {detail}"));
+                self.workspace
+                    .graph_runtime
+                    .history_last_return_to_present_result = Some(format!("failed: {detail}"));
                 self.workspace.graph_runtime.history_last_error = Some(format!(
                     "{}: {}",
                     HistoryTraversalFailureReason::ReturnToPresentFailed.as_str(),
                     detail
                 ));
-                self.workspace.graph_runtime.history_recent_failure_reason_bucket =
+                self.workspace
+                    .graph_runtime
+                    .history_recent_failure_reason_bucket =
                     Some(HistoryTraversalFailureReason::ReturnToPresentFailed);
-                self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
                     latency_us: 0,

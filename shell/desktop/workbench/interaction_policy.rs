@@ -9,6 +9,10 @@ pub(crate) struct InteractionUiState {
     pub(crate) interaction_menu_open: bool,
     pub(crate) help_panel_open: bool,
     pub(crate) radial_menu_open: bool,
+    /// True while egui has an active drag in progress (e.g. tile-splitter resize).
+    /// Native overlays are suppressed during drags to avoid Z-order occlusion of
+    /// drag handles drawn by egui over the overlay area.
+    pub(crate) tile_drag_active: bool,
 }
 
 impl InteractionUiState {
@@ -21,7 +25,13 @@ impl InteractionUiState {
             interaction_menu_open,
             help_panel_open,
             radial_menu_open,
+            tile_drag_active: false,
         }
+    }
+
+    pub(crate) fn with_tile_drag_active(mut self, active: bool) -> Self {
+        self.tile_drag_active = active;
+        self
     }
 
     pub(crate) fn overlay_suppression_reason(self) -> Option<OverlaySuppressionReason> {
@@ -31,6 +41,8 @@ impl InteractionUiState {
             Some(OverlaySuppressionReason::HelpPanel)
         } else if self.radial_menu_open {
             Some(OverlaySuppressionReason::RadialMenu)
+        } else if self.tile_drag_active {
+            Some(OverlaySuppressionReason::TileDrag)
         } else {
             None
         }
@@ -57,6 +69,8 @@ pub(crate) enum OverlaySuppressionReason {
     InteractionMenu,
     HelpPanel,
     RadialMenu,
+    /// A tile splitter (or other egui-managed drag) is in progress.
+    TileDrag,
 }
 
 #[cfg(test)]
@@ -81,6 +95,12 @@ mod tests {
         assert_eq!(
             state.overlay_suppression_reason(),
             Some(OverlaySuppressionReason::RadialMenu)
+        );
+
+        let state = InteractionUiState::new(false, false, false).with_tile_drag_active(true);
+        assert_eq!(
+            state.overlay_suppression_reason(),
+            Some(OverlaySuppressionReason::TileDrag)
         );
     }
 

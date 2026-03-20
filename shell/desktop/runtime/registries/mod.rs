@@ -262,6 +262,8 @@ pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL: &str =
     "compositor.overlay.native.suppressed.help_panel";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU: &str =
     "compositor.overlay.native.suppressed.radial_menu";
+pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_TILE_DRAG: &str =
+    "compositor.overlay.native.suppressed.tile_drag";
 pub(crate) const CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED: &str =
     "compositor.replay.sample_recorded";
 pub(crate) const CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED: &str =
@@ -359,14 +361,12 @@ pub(crate) const CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN: &str =
     "registry.knowledge.tag_validation_warn";
 pub(crate) const CHANNEL_INDEX_SEARCH: &str = "registry.index.search";
 
-pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE: &str =
-    "system:task_budget:backpressure";
+pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE: &str = "system:task_budget:backpressure";
 pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED: &str =
     "system:task_budget:worker_suspended";
 pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED: &str =
     "system:task_budget:worker_resumed";
-pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH: &str =
-    "system:task_budget:queue_depth";
+pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH: &str = "system:task_budget:queue_depth";
 
 static REGISTRY_RUNTIME: OnceLock<Arc<RegistryRuntime>> = OnceLock::new();
 
@@ -608,6 +608,30 @@ fn register_verso_mod_extensions(dynamic: &mut DynamicRegistrySurfaces) -> Vec<M
         records.push(ModExtensionRecord::ViewerMime {
             mime: "application/x-graphshell-wry".to_string(),
             previous_viewer_id: previous.map(str::to_string),
+        });
+
+        // Register viewer:wry capabilities so describe_viewer("viewer:wry") returns
+        // ViewerRenderMode::NativeOverlay, which is required for refresh_node_pane_render_modes
+        // to set TileRenderMode::NativeOverlay and for lifecycle_reconcile to create the
+        // wry overlay window.
+        let previous_capabilities = dynamic.viewer.register_capabilities(
+            "viewer:wry",
+            crate::registries::atomic::viewer::ViewerSubsystemCapabilities {
+                accessibility: crate::registries::domain::layout::CapabilityDeclaration::none(
+                    "Wry accessibility bridge not yet implemented",
+                ),
+                security: crate::registries::domain::layout::CapabilityDeclaration::full(),
+                storage: crate::registries::domain::layout::CapabilityDeclaration::none(
+                    "Wry storage isolation not yet implemented",
+                ),
+                history: crate::registries::domain::layout::CapabilityDeclaration::none(
+                    "Wry history integration not yet implemented",
+                ),
+            },
+        );
+        records.push(ModExtensionRecord::ViewerCapabilities {
+            viewer_id: "viewer:wry".to_string(),
+            previous_capabilities,
         });
     }
 
@@ -2120,6 +2144,21 @@ impl RegistryRuntime {
         ));
     }
 
+    pub(crate) fn publish_lens_changed(&self, lens_id: Option<&str>) -> String {
+        let requested = lens_id
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(lens::LENS_ID_DEFAULT);
+        let resolved_id = self.dynamic().lens.resolve(requested).resolved_id;
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::LensChanged {
+                new_lens_id: resolved_id.clone(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+        resolved_id
+    }
+
     /// Emit a `LifecycleSignal::UserIdle` signal through the signal bus.
     ///
     /// Called by `ControlPanel::tick_idle_watchdog` when the idle threshold
@@ -2201,6 +2240,11 @@ pub(crate) fn phase3_publish_workbench_projection_refresh_requested(reason: &str
 pub(crate) fn phase3_publish_settings_route_requested(url: &str, prefer_overlay: bool) {
     debug_assert!(!diagnostics::phase3_required_channels().is_empty());
     runtime().publish_settings_route_requested(url, prefer_overlay);
+}
+
+pub(crate) fn phase3_publish_lens_changed(lens_id: Option<&str>) -> String {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+    runtime().publish_lens_changed(lens_id)
 }
 
 pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
@@ -3627,6 +3671,18 @@ mod tests {
         assert_ne!(viewer.matched_by, "fallback");
     }
 
+    #[cfg(feature = "wry")]
+    #[test]
+    fn new_with_mods_registers_wry_viewer_capability_as_native_overlay() {
+        use crate::registries::atomic::viewer::ViewerRenderMode;
+        let runtime = RegistryRuntime::new_with_mods();
+        let capability = runtime
+            .describe_viewer("viewer:wry")
+            .expect("viewer:wry should be described after verso mod activation");
+        assert_eq!(capability.render_mode, ViewerRenderMode::NativeOverlay);
+        assert_eq!(capability.viewer_id, "viewer:wry");
+    }
+
     #[test]
     fn runtime_owned_mod_registry_can_unload_verso_and_restore_pdf_viewer_mapping() {
         let runtime = RegistryRuntime::new_with_mods();
@@ -3840,6 +3896,52 @@ mod tests {
         runtime.publish_settings_route_requested("verso://settings/general", true);
 
         assert_eq!(observer_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn publish_lens_changed_routes_registry_event_signal_with_resolved_lens_id() {
+        let runtime = RegistryRuntime::default();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        runtime.subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
+            seen.lock()
+                .expect("observer lock poisoned")
+                .push(signal.kind.clone());
+            Ok(())
+        });
+
+        let resolved_id = runtime.publish_lens_changed(Some("lens:unknown"));
+
+        assert_eq!(resolved_id, lens::LENS_ID_DEFAULT);
+        let observed = observed.lock().expect("observer lock poisoned");
+        assert!(observed.iter().any(|signal| matches!(
+            signal,
+            SignalKind::RegistryEvent(RegistryEventSignal::LensChanged { new_lens_id })
+                if new_lens_id == lens::LENS_ID_DEFAULT
+        )));
+    }
+
+    #[test]
+    fn publish_lens_changed_uses_default_lens_when_preference_is_cleared() {
+        let runtime = RegistryRuntime::default();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        runtime.subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
+            seen.lock()
+                .expect("observer lock poisoned")
+                .push(signal.kind.clone());
+            Ok(())
+        });
+
+        let resolved_id = runtime.publish_lens_changed(None);
+
+        assert_eq!(resolved_id, lens::LENS_ID_DEFAULT);
+        let observed = observed.lock().expect("observer lock poisoned");
+        assert!(observed.iter().any(|signal| matches!(
+            signal,
+            SignalKind::RegistryEvent(RegistryEventSignal::LensChanged { new_lens_id })
+                if new_lens_id == lens::LENS_ID_DEFAULT
+        )));
     }
 
     #[test]
@@ -4226,13 +4328,10 @@ mod tests {
                 .any(|entry| entry.channel_id == CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH)
         );
         // Verify severities per spec §6
-        assert!(
-            channels.iter().any(|entry| {
-                entry.channel_id == CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE
-                    && entry.severity
-                        == crate::registries::atomic::diagnostics::ChannelSeverity::Warn
-            })
-        );
+        assert!(channels.iter().any(|entry| {
+            entry.channel_id == CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE
+                && entry.severity == crate::registries::atomic::diagnostics::ChannelSeverity::Warn
+        }));
     }
 
     #[test]

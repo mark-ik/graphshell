@@ -331,7 +331,13 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
         });
     });
 
-    if let Some(last_avg) = app.workspace.graph_runtime.physics.base.last_avg_displacement {
+    if let Some(last_avg) = app
+        .workspace
+        .graph_runtime
+        .physics
+        .base
+        .last_avg_displacement
+    {
         ui.small(format!("Last avg displacement: {:.4}", last_avg));
     }
     ui.small(format!(
@@ -763,9 +769,10 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
 
     ui.horizontal(|ui| {
         if ui.button("Settings").clicked() {
-            app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                url: VersoAddress::settings(GraphshellSettingsPath::General).to_string(),
-            });
+            crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
+                &VersoAddress::settings(GraphshellSettingsPath::General).to_string(),
+                true,
+            );
         }
         if ui.button("Done").clicked() {
             app.enqueue_workbench_intent(WorkbenchIntent::CloseToolPane {
@@ -989,7 +996,10 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 use crate::services::persistence::types::HistoryTrackKind;
                 let filter = &mut app.workspace.chrome_ui.mixed_timeline_filter;
                 ui.horizontal(|ui| {
-                    if ui.selectable_label(filter.tracks.is_none(), "All").clicked() {
+                    if ui
+                        .selectable_label(filter.tracks.is_none(), "All")
+                        .clicked()
+                    {
                         filter.tracks = None;
                     }
                     for (kind, label) in [
@@ -1112,7 +1122,9 @@ fn render_mixed_timeline_rows(
     ui: &mut Ui,
     events: &[crate::services::persistence::types::HistoryTimelineEvent],
 ) {
-    use crate::services::persistence::types::{HistoryEventKind, NodeAuditEventKind, PersistedNavigationTrigger};
+    use crate::services::persistence::types::{
+        HistoryEventKind, NodeAuditEventKind, PersistedNavigationTrigger,
+    };
 
     if events.is_empty() {
         ui.label(egui::RichText::new("No history events.").weak().small());
@@ -1509,7 +1521,12 @@ mod tests {
             Some("UDC Depth View")
         );
         assert!(matches!(
-            app.workspace.graph_runtime.views.get(&view_id).unwrap().dimension,
+            app.workspace
+                .graph_runtime
+                .views
+                .get(&view_id)
+                .unwrap()
+                .dimension,
             crate::app::ViewDimension::ThreeD {
                 mode: crate::app::ThreeDMode::Isometric,
                 z_source: crate::app::ZSource::BfsDepth { scale: 7.0 }
@@ -1547,7 +1564,10 @@ pub fn render_navigator_tool_pane_in_ui(
         }
 
         if let Some(folder) = containment_folder_from_row_key(row_key) {
-            let name = folder.rsplit('/').find(|segment| !segment.is_empty()).unwrap_or(folder);
+            let name = folder
+                .rsplit('/')
+                .find(|segment| !segment.is_empty())
+                .unwrap_or(folder);
             if !name.is_empty() && name != folder {
                 return format!("Folder: {name} ({folder})");
             }
@@ -1721,7 +1741,12 @@ pub fn render_navigator_tool_pane_in_ui(
             (!grouped_nodes.contains(node_key)).then_some((*node_key, *timestamp))
         })
         .collect();
-    recent_nodes.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.index().cmp(&right.0.index())));
+    recent_nodes.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| left.0.index().cmp(&right.0.index()))
+    });
     let recent_set: HashSet<NodeKey> = recent_nodes.iter().map(|(key, _)| *key).collect();
 
     let mut unrelated_nodes: Vec<NodeKey> = app
@@ -1811,8 +1836,10 @@ pub fn render_navigator_tool_pane_in_ui(
                                 if response.clicked() {
                                     if let Some(row) = row_key {
                                         intents.push(
-                                            ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
-                                                .into(),
+                                            ViewAction::SetNavigatorSelectedRows {
+                                                rows: vec![row],
+                                            }
+                                            .into(),
                                         );
                                     }
                                     intents.push(GraphIntent::OpenNodeFrameRouted {
@@ -1846,8 +1873,10 @@ pub fn render_navigator_tool_pane_in_ui(
                                 if response.clicked() {
                                     if let Some(row) = row_key {
                                         intents.push(
-                                            ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
-                                                .into(),
+                                            ViewAction::SetNavigatorSelectedRows {
+                                                rows: vec![row],
+                                            }
+                                            .into(),
                                         );
                                     }
                                     intents.push(GraphIntent::OpenNodeFrameRouted {
@@ -1881,8 +1910,10 @@ pub fn render_navigator_tool_pane_in_ui(
                                 if response.clicked() {
                                     if let Some(row) = row_key {
                                         intents.push(
-                                            ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
-                                                .into(),
+                                            ViewAction::SetNavigatorSelectedRows {
+                                                rows: vec![row],
+                                            }
+                                            .into(),
                                         );
                                     }
                                     intents.push(GraphIntent::OpenNodeFrameRouted {
@@ -1912,8 +1943,7 @@ pub fn render_navigator_tool_pane_in_ui(
                         if response.clicked() {
                             if let Some(row) = row_key {
                                 intents.push(
-                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
-                                        .into(),
+                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }.into(),
                                 );
                             }
                             intents.push(GraphIntent::OpenNodeFrameRouted {
@@ -1936,14 +1966,16 @@ pub fn render_navigator_tool_pane_in_ui(
                         let is_selected = row_key
                             .as_ref()
                             .is_some_and(|row| selected_rows_current.contains(row));
-                        let label =
-                            format!("{}  [{}]", navigator_node_title(app, *node_key), timestamp_ms);
+                        let label = format!(
+                            "{}  [{}]",
+                            navigator_node_title(app, *node_key),
+                            timestamp_ms
+                        );
                         let response = ui.selectable_label(is_selected, label);
                         if response.clicked() {
                             if let Some(row) = row_key {
                                 intents.push(
-                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }
-                                        .into(),
+                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }.into(),
                                 );
                             }
                             intents.push(GraphIntent::OpenNodeFrameRouted {
@@ -1958,7 +1990,10 @@ pub fn render_navigator_tool_pane_in_ui(
 
     if let Some(selected_node) = selected_node_from_row {
         ui.horizontal(|ui| {
-            ui.label(format!("Selected node: {}", navigator_node_title(app, selected_node)));
+            ui.label(format!(
+                "Selected node: {}",
+                navigator_node_title(app, selected_node)
+            ));
             if ui.button("Open Selected").clicked() {
                 intents.push(GraphIntent::OpenNodeFrameRouted {
                     key: selected_node,
@@ -1966,7 +2001,9 @@ pub fn render_navigator_tool_pane_in_ui(
                 });
             }
         });
-        let import_records = app.domain_graph().import_record_summaries_for_node(selected_node);
+        let import_records = app
+            .domain_graph()
+            .import_record_summaries_for_node(selected_node);
         if !import_records.is_empty() {
             for record in &import_records {
                 ui.horizontal_wrapped(|ui| {
@@ -2608,12 +2645,7 @@ pub fn render_settings_node_viewer_in_ui(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
 ) -> Vec<GraphIntent> {
-    render_settings_surface_in_ui_with_control_panel(
-        ui,
-        app,
-        None,
-        SettingsSurfaceMode::NodeViewer,
-    )
+    render_settings_surface_in_ui_with_control_panel(ui, app, None, SettingsSurfaceMode::NodeViewer)
 }
 
 pub fn render_settings_overlay_panel(

@@ -759,6 +759,7 @@ impl Dialog {
                                     .auto_shrink([false, false])
                                     .max_height(max_menu_height)
                                     .show(ui, |ui| {
+                                        ui.label(RichText::new("Page").strong());
                                         for item in context_menu.items() {
                                             match item {
                                                 ContextMenuItem::Item {

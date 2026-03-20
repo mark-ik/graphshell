@@ -4,7 +4,9 @@ use crate::graph::badge::{Badge, badges_for_node, tab_badge_token};
 impl<'a> GraphshellTileBehavior<'a> {
     pub(super) fn tab_title_for_tile(&mut self, pane: &TileKind) -> WidgetText {
         match pane {
-            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref)) => self
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(
+                view_ref,
+            )) => self
                 .graph_app
                 .workspace
                 .graph_runtime
@@ -12,14 +14,18 @@ impl<'a> GraphshellTileBehavior<'a> {
                 .get(&view_ref.graph_view_id)
                 .map(|v| v.name.clone().into())
                 .unwrap_or_else(|| "Graph".into()),
-            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)) => self
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(
+                state,
+            )) => self
                 .graph_app
                 .domain_graph()
                 .get_node(state.node)
                 .map(|n| n.title.clone().into())
                 .unwrap_or_else(|| format!("Node {:?}", state.node).into()),
             #[cfg(feature = "diagnostics")]
-            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool)) => tool.title().into(),
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(
+                tool,
+            )) => tool.title().into(),
             TileKind::Graph(view_ref) => self
                 .graph_app
                 .workspace
@@ -67,7 +73,9 @@ fn render_tab_ui_impl(
     let workbench_surface = registries::phase3_resolve_active_workbench_surface_profile();
 
     let (title_text, favicon_texture) = match tiles.get(tile_id) {
-        Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref)))) => {
+        Some(Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref),
+        ))) => {
             let name = behavior
                 .graph_app
                 .workspace
@@ -78,7 +86,9 @@ fn render_tab_ui_impl(
                 .unwrap_or_else(|| "Graph".to_string());
             (name, None)
         }
-        Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)))) => {
+        Some(Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+        ))) => {
             let title = behavior
                 .graph_app
                 .domain_graph()
@@ -93,7 +103,9 @@ fn render_tab_ui_impl(
             (title, favicon)
         }
         #[cfg(feature = "diagnostics")]
-        Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool)))) => (tool.title().to_string(), None),
+        Some(Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool),
+        ))) => (tool.title().to_string(), None),
         Some(Tile::Pane(TileKind::Graph(view_ref))) => {
             let name = behavior
                 .graph_app
@@ -203,7 +215,10 @@ fn render_tab_ui_impl(
                 mode: tile_selection_mode,
             });
 
-        if let Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)))) = tiles.get(tile_id) {
+        if let Some(Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+        ))) = tiles.get(tile_id)
+        {
             let node_key = state.node;
             if modifiers.shift {
                 let ordered_nodes =
@@ -224,7 +239,12 @@ fn render_tab_ui_impl(
                     .position(|key| *key == anchor_key)
                     .unwrap_or(target_index);
                 if !modifiers.ctrl {
-                    behavior.graph_app.workspace.graph_runtime.selected_tab_nodes.clear();
+                    behavior
+                        .graph_app
+                        .workspace
+                        .graph_runtime
+                        .selected_tab_nodes
+                        .clear();
                 }
                 if let Some(range) =
                     inclusive_index_range(anchor_index, target_index, ordered_nodes.len())
@@ -265,7 +285,12 @@ fn render_tab_ui_impl(
                     .position(|key| *key == anchor_key)
                     .unwrap_or(target_index);
                 if !modifiers.ctrl {
-                    behavior.graph_app.workspace.graph_runtime.selected_tab_nodes.clear();
+                    behavior
+                        .graph_app
+                        .workspace
+                        .graph_runtime
+                        .selected_tab_nodes
+                        .clear();
                 }
                 if let Some(range) =
                     inclusive_index_range(anchor_index, target_index, ordered_nodes.len())
@@ -288,7 +313,9 @@ fn render_tab_ui_impl(
 
     if tab_response.drag_stopped()
         && let Some(node_key) = match tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)))) => Some(state.node),
+            Some(Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+            ))) => Some(state.node),
             Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
             _ => None,
         }

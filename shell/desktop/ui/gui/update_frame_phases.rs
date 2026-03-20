@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
+use crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest;
 
 pub(super) struct GraphSearchAndKeyboardPhaseArgs<'a> {
     pub(super) ctx: &'a egui::Context,
@@ -108,6 +109,8 @@ pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     pub(super) focus_ring_node_key: &'a mut Option<NodeKey>,
     pub(super) focus_ring_started_at: &'a mut Option<std::time::Instant>,
     pub(super) focus_ring_duration: &'a mut Duration,
+    pub(super) pending_webview_context_surface_requests:
+        &'a mut Vec<PendingWebviewContextSurfaceRequest>,
     pub(super) graph_search_query: &'a mut String,
     pub(super) graph_search_matches: &'a mut Vec<NodeKey>,
     pub(super) graph_search_active_match_index: &'a mut Option<usize>,
@@ -172,6 +175,8 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
     pub(super) focus_ring_duration: &'a mut Duration,
     pub(super) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
     pub(super) command_palette_toggle_requested: &'a mut bool,
+    pub(super) pending_webview_context_surface_requests:
+        &'a mut Vec<PendingWebviewContextSurfaceRequest>,
     pub(super) deferred_open_child_webviews: &'a mut Vec<WebViewId>,
     pub(super) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,

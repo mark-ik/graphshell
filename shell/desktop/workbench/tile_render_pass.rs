@@ -6,9 +6,9 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use egui_tiles::{Container, Tile, Tree};
 #[cfg(feature = "diagnostics")]
 use egui_tiles::TileId;
+use egui_tiles::{Container, Tile, Tree};
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
 use super::tile_behavior::PendingOpenMode;
@@ -94,7 +94,10 @@ enum FloatingOverlayAction {
 fn infer_floating_target_context(
     tiles_tree: &Tree<TileKind>,
 ) -> crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext {
-    match tiles_tree.root().and_then(|root_id| tiles_tree.tiles.get(root_id)) {
+    match tiles_tree
+        .root()
+        .and_then(|root_id| tiles_tree.tiles.get(root_id))
+    {
         Some(Tile::Container(Container::Tabs(_))) => {
             crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::TabGroup
         }
@@ -140,63 +143,70 @@ fn render_floating_pane_overlays(
         .unwrap_or_else(|| "Floating pane".to_string());
 
     let mut action = None;
-    egui::Area::new(egui::Id::new(("graphshell_floating_overlay", floating_state.pane_id)))
-        .order(egui::Order::Foreground)
-        .fixed_pos(rect.min)
-        .show(ctx, |ui| {
-            ui.set_min_size(rect.size());
-            let frame_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, rect.size());
-            let response = ui.allocate_rect(frame_rect, egui::Sense::hover());
-            let hovered = response.hovered();
-            ui.painter().rect(
-                frame_rect,
+    egui::Area::new(egui::Id::new((
+        "graphshell_floating_overlay",
+        floating_state.pane_id,
+    )))
+    .order(egui::Order::Foreground)
+    .fixed_pos(rect.min)
+    .show(ctx, |ui| {
+        ui.set_min_size(rect.size());
+        let frame_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, rect.size());
+        let response = ui.allocate_rect(frame_rect, egui::Sense::hover());
+        let hovered = response.hovered();
+        ui.painter().rect(
+            frame_rect,
+            12.0,
+            egui::Color32::from_rgba_unmultiplied(22, 24, 30, 244),
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 104, 126)),
+            egui::StrokeKind::Inside,
+        );
+
+        let band_rect =
+            egui::Rect::from_min_size(frame_rect.min, egui::vec2(frame_rect.width(), 30.0));
+        if hovered {
+            ui.painter().rect_filled(
+                band_rect,
                 12.0,
-                egui::Color32::from_rgba_unmultiplied(22, 24, 30, 244),
-                egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 104, 126)),
-                egui::StrokeKind::Inside,
+                egui::Color32::from_rgba_unmultiplied(44, 49, 60, 220),
             );
+        }
 
-            let band_rect = egui::Rect::from_min_size(frame_rect.min, egui::vec2(frame_rect.width(), 30.0));
-            if hovered {
-                ui.painter().rect_filled(
-                    band_rect,
-                    12.0,
-                    egui::Color32::from_rgba_unmultiplied(44, 49, 60, 220),
-                );
-            }
-
-            let content_rect = frame_rect.shrink2(egui::vec2(16.0, 16.0));
-            ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
-                ui.add_space(18.0);
-                ui.label(egui::RichText::new(title).size(20.0).strong());
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(subtitle).color(egui::Color32::from_rgb(170, 176, 190)));
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("Floating pane skeleton").color(egui::Color32::from_rgb(215, 220, 230)));
-                ui.add_space(6.0);
-                ui.small("This overlay remains ephemeral until promoted into the workbench tile tree.");
-            });
-
-            if hovered {
-                ui.scope_builder(
-                    egui::UiBuilder::new().max_rect(band_rect.shrink2(egui::vec2(8.0, 4.0))),
-                    |ui| {
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            if ui.small_button("▣").clicked() {
-                                action = Some(FloatingOverlayAction::Promote);
-                            }
-                            ui.add_space(4.0);
-                            ui.small("Promote");
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button("✕").clicked() {
-                                    action = Some(FloatingOverlayAction::Dismiss);
-                                }
-                            });
-                        });
-                    },
-                );
-            }
+        let content_rect = frame_rect.shrink2(egui::vec2(16.0, 16.0));
+        ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
+            ui.add_space(18.0);
+            ui.label(egui::RichText::new(title).size(20.0).strong());
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(subtitle).color(egui::Color32::from_rgb(170, 176, 190)));
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new("Floating pane skeleton")
+                    .color(egui::Color32::from_rgb(215, 220, 230)),
+            );
+            ui.add_space(6.0);
+            ui.small("This overlay remains ephemeral until promoted into the workbench tile tree.");
         });
+
+        if hovered {
+            ui.scope_builder(
+                egui::UiBuilder::new().max_rect(band_rect.shrink2(egui::vec2(8.0, 4.0))),
+                |ui| {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        if ui.small_button("▣").clicked() {
+                            action = Some(FloatingOverlayAction::Promote);
+                        }
+                        ui.add_space(4.0);
+                        ui.small("Promote");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✕").clicked() {
+                                action = Some(FloatingOverlayAction::Dismiss);
+                            }
+                        });
+                    });
+                },
+            );
+        }
+    });
 
     action
 }
@@ -244,20 +254,22 @@ fn draw_diagnostics_hover_overlay_for_mode(
         }
         crate::shell::desktop::workbench::pane_model::TileRenderMode::EmbeddedEgui
         | crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder => {
-            egui::Area::new(egui::Id::new(("graphshell_diag_hover_overlay_area", node_key)))
-                .order(egui::Order::Tooltip)
-                .fixed_pos(hovered_rect.min)
-                .interactable(false)
-                .show(ctx, |ui| {
-                    ui.set_min_size(hovered_rect.size());
-                    ui.painter().rect_stroke(
-                        egui::Rect::from_min_size(egui::Pos2::ZERO, hovered_rect.size())
-                            .shrink(1.0),
-                        4.0,
-                        stroke,
-                        egui::StrokeKind::Inside,
-                    );
-                });
+            egui::Area::new(egui::Id::new((
+                "graphshell_diag_hover_overlay_area",
+                node_key,
+            )))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(hovered_rect.min)
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.set_min_size(hovered_rect.size());
+                ui.painter().rect_stroke(
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, hovered_rect.size()).shrink(1.0),
+                    4.0,
+                    stroke,
+                    egui::StrokeKind::Inside,
+                );
+            });
         }
     }
 }

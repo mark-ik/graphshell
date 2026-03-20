@@ -4,8 +4,52 @@
 
 use super::*;
 use crate::shell::desktop::ui::dialog::DialogCommand;
+use crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
+
+fn open_preferred_context_command_surface_for_webview_target(
+    ctx: &egui::Context,
+    graph_app: &mut GraphBrowserApp,
+    webview_id: WebViewId,
+    anchor: [f32; 2],
+) -> bool {
+    let Some(node_key) = graph_app.get_node_for_webview(webview_id) else {
+        return false;
+    };
+
+    match graph_app.context_command_surface_preference() {
+        crate::app::ContextCommandSurfacePreference::RadialPalette => {
+            graph_app.set_pending_node_context_target(Some(node_key));
+            if graph_app
+                .pending_transient_surface_return_target()
+                .is_none()
+            {
+                graph_app.set_pending_transient_surface_return_target(Some(
+                    crate::app::ToolSurfaceReturnTarget::Node(node_key),
+                ));
+            }
+            ctx.data_mut(|d| {
+                d.insert_persisted(
+                    egui::Id::new("radial_menu_center"),
+                    egui::pos2(anchor[0], anchor[1]),
+                );
+            });
+            graph_app.open_radial_menu();
+        }
+        crate::app::ContextCommandSurfacePreference::ContextPalette => {
+            graph_app.set_pending_node_context_target(Some(node_key));
+            if graph_app.pending_command_surface_return_target().is_none() {
+                graph_app.set_pending_command_surface_return_target(Some(
+                    crate::app::ToolSurfaceReturnTarget::Node(node_key),
+                ));
+            }
+            graph_app.set_context_palette_anchor(Some(anchor));
+            graph_app.open_context_palette();
+        }
+    }
+    true
+}
 
 pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
@@ -33,6 +77,8 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) focus_ring_node_key: &'a mut Option<NodeKey>,
     pub(crate) focus_ring_started_at: &'a mut Option<Instant>,
     pub(crate) focus_ring_duration: Duration,
+    pub(crate) pending_webview_context_surface_requests:
+        &'a mut Vec<PendingWebviewContextSurfaceRequest>,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
     pub(crate) control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     #[cfg(feature = "diagnostics")]
@@ -71,6 +117,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         focus_ring_node_key,
         focus_ring_started_at,
         focus_ring_duration,
+        pending_webview_context_surface_requests,
         toasts,
         control_panel,
         #[cfg(feature = "diagnostics")]
@@ -99,11 +146,20 @@ pub(crate) fn run_post_render_phase<FActive>(
         graph_app.check_periodic_snapshot();
     }
 
+    for PendingWebviewContextSurfaceRequest { webview_id, anchor } in
+        pending_webview_context_surface_requests.drain(..)
+    {
+        let _ = open_preferred_context_command_surface_for_webview_target(
+            ctx, graph_app, webview_id, anchor,
+        );
+    }
+
     let focused_dialog_webview = if graph_surface_focused {
         None
     } else {
         window.explicit_dialog_webview_id()
     };
+    let dialog_commands = std::cell::RefCell::new(Vec::new());
     headed_window.for_each_active_dialog(
         window,
         focused_dialog_webview,
@@ -111,19 +167,22 @@ pub(crate) fn run_post_render_phase<FActive>(
         |dialog| {
             let result = dialog.update(ctx);
             if let Some(command) = result.command {
-                match command {
-                    DialogCommand::ClipElement {
-                        webview_id,
-                        element_rect,
-                    } => headed_window.request_clip_element(window, webview_id, element_rect),
-                    DialogCommand::InspectPageElements { webview_id } => {
-                        headed_window.request_page_inspector_candidates(window, webview_id)
-                    }
-                }
+                dialog_commands.borrow_mut().push(command);
             }
             result.keep_open
         },
     );
+    for command in dialog_commands.into_inner() {
+        match command {
+            DialogCommand::ClipElement {
+                webview_id,
+                element_rect,
+            } => headed_window.request_clip_element(window, webview_id, element_rect),
+            DialogCommand::InspectPageElements { webview_id } => {
+                headed_window.request_page_inspector_candidates(window, webview_id)
+            }
+        }
+    }
 
     let mut post_render_intents = Vec::new();
     if is_graph_view || has_node_panes {
@@ -172,7 +231,11 @@ pub(crate) fn run_post_render_phase<FActive>(
     {
         headed_window.sync_clip_inspector_highlight(window, webview_id, None);
     }
-    if let Some(state) = graph_app.workspace.graph_runtime.clip_inspector_state.as_ref()
+    if let Some(state) = graph_app
+        .workspace
+        .graph_runtime
+        .clip_inspector_state
+        .as_ref()
         && state.highlight_dirty
     {
         headed_window.sync_clip_inspector_highlight(
@@ -246,5 +309,107 @@ pub(crate) fn run_post_render_phase<FActive>(
 
     while let Some((key, url)) = graph_app.take_pending_protocol_probe() {
         control_panel.handle_protocol_probe_request(key, url);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_preferred_context_command_surface_for_webview_target;
+    use crate::app::{ContextCommandSurfacePreference, GraphBrowserApp, ToolSurfaceReturnTarget};
+    use servo::WebViewId;
+
+    fn test_webview_id() -> WebViewId {
+        thread_local! {
+            static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        }
+        NS_INSTALLED.with(|cell| {
+            if !cell.get() {
+                base::id::PipelineNamespace::install(base::id::PipelineNamespaceId(91));
+                cell.set(true);
+            }
+        });
+        WebViewId::new(base::id::PainterId::next())
+    }
+
+    #[test]
+    fn mapped_webview_target_opens_context_palette_when_preferred() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://context.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, node);
+
+        app.set_context_command_surface_preference(ContextCommandSurfacePreference::ContextPalette);
+        let ctx = egui::Context::default();
+
+        assert!(open_preferred_context_command_surface_for_webview_target(
+            &ctx,
+            &mut app,
+            webview_id,
+            [12.0, 24.0]
+        ));
+        assert_eq!(app.pending_node_context_target(), Some(node));
+        assert_eq!(
+            app.pending_command_surface_return_target(),
+            Some(ToolSurfaceReturnTarget::Node(node))
+        );
+        assert_eq!(
+            app.workspace.chrome_ui.context_palette_anchor,
+            Some([12.0, 24.0])
+        );
+        assert!(app.workspace.chrome_ui.show_context_palette);
+        assert!(!app.workspace.chrome_ui.show_command_palette);
+        assert!(!app.workspace.chrome_ui.show_radial_menu);
+    }
+
+    #[test]
+    fn mapped_webview_target_opens_radial_menu_when_preferred() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://context.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, node);
+        app.set_context_command_surface_preference(ContextCommandSurfacePreference::RadialPalette);
+        let ctx = egui::Context::default();
+
+        assert!(open_preferred_context_command_surface_for_webview_target(
+            &ctx,
+            &mut app,
+            webview_id,
+            [20.0, 36.0]
+        ));
+        assert_eq!(app.pending_node_context_target(), Some(node));
+        assert_eq!(
+            app.pending_transient_surface_return_target(),
+            Some(ToolSurfaceReturnTarget::Node(node))
+        );
+        assert!(app.workspace.chrome_ui.show_radial_menu);
+        assert!(!app.workspace.chrome_ui.show_context_palette);
+        let center =
+            ctx.data_mut(|d| d.get_persisted::<egui::Pos2>(egui::Id::new("radial_menu_center")));
+        assert_eq!(center, Some(egui::pos2(20.0, 36.0)));
+    }
+
+    #[test]
+    fn webview_context_command_surface_ignores_unmapped_webview() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let webview_id = test_webview_id();
+        let ctx = egui::Context::default();
+
+        assert!(!open_preferred_context_command_surface_for_webview_target(
+            &ctx,
+            &mut app,
+            webview_id,
+            [4.0, 8.0]
+        ));
+        assert_eq!(app.pending_node_context_target(), None);
+        assert_eq!(app.pending_command_surface_return_target(), None);
+        assert_eq!(app.pending_transient_surface_return_target(), None);
+        assert!(!app.workspace.chrome_ui.show_context_palette);
+        assert!(!app.workspace.chrome_ui.show_radial_menu);
     }
 }

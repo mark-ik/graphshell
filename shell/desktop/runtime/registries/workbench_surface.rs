@@ -541,7 +541,9 @@ fn handle_open_command_palette_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) {
-    if !graph_app.workspace.chrome_ui.show_command_palette && !graph_app.workspace.chrome_ui.show_context_palette {
+    if !graph_app.workspace.chrome_ui.show_command_palette
+        && !graph_app.workspace.chrome_ui.show_context_palette
+    {
         maybe_capture_command_surface_return_target(graph_app, tiles_tree);
     }
     graph_app.open_command_palette();
@@ -552,7 +554,9 @@ fn handle_toggle_command_palette_intent(
     tiles_tree: &mut Tree<TileKind>,
     focus_handoff: &FocusHandoffPolicy,
 ) {
-    if graph_app.workspace.chrome_ui.show_command_palette || graph_app.workspace.chrome_ui.show_context_palette {
+    if graph_app.workspace.chrome_ui.show_command_palette
+        || graph_app.workspace.chrome_ui.show_context_palette
+    {
         graph_app.toggle_command_palette();
         let _ = restore_command_surface_return_target_or_ensure_active_tile(
             graph_app,
@@ -578,10 +582,14 @@ fn handle_set_pane_presentation_mode_intent(
     pane: PaneId,
     mode: PanePresentationMode,
 ) {
-    for tile in tiles_tree.tiles.iter_mut().filter_map(|(_, tile)| match tile {
-        Tile::Pane(kind) => Some(kind),
-        _ => None,
-    }) {
+    for tile in tiles_tree
+        .tiles
+        .iter_mut()
+        .filter_map(|(_, tile)| match tile {
+            Tile::Pane(kind) => Some(kind),
+            _ => None,
+        })
+    {
         if tile.pane_id() == pane {
             match tile {
                 TileKind::Pane(view) => view.set_presentation_mode(mode),
@@ -1103,15 +1111,15 @@ mod tests {
         let group_node = tile_group_nodes[0].1;
         assert_eq!(group_node.title, "Tile Group");
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::ArrangementRelation(
-                crate::graph::ArrangementSubKind::TileGroup,
-            ) && edge.from == group_key
+            edge.edge_type
+                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup)
+                && edge.from == group_key
                 && edge.to == left
         }));
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::ArrangementRelation(
-                crate::graph::ArrangementSubKind::TileGroup,
-            ) && edge.from == group_key
+            edge.edge_type
+                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup)
+                && edge.from == group_key
                 && edge.to == right
         }));
     }
@@ -1154,9 +1162,9 @@ mod tests {
             })
             .expect("tile group node should be created");
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::ArrangementRelation(
-                crate::graph::ArrangementSubKind::TileGroup,
-            ) && edge.from == group_key
+            edge.edge_type
+                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup)
+                && edge.from == group_key
                 && edge.to == view_member_key
         }));
     }

@@ -390,7 +390,8 @@ fn append_workbench_semantics_nodes(
                     .theme
                     .as_ref()
                     .map(|theme| crate::registries::atomic::lens::theme_data_id(theme).to_string()),
-                filter_count: view_state.lens.filter_expr.is_some() as usize + view_state.lens.filters_legacy.len(),
+                filter_count: view_state.lens.filter_expr.is_some() as usize
+                    + view_state.lens.filters_legacy.len(),
                 dimension: format!("{:?}", view_state.dimension),
                 position_fit_locked: view_state.position_fit_locked,
                 zoom_fit_locked: view_state.zoom_fit_locked,
@@ -451,7 +452,10 @@ fn append_workbench_semantics_nodes(
         },
         allowed_actions: vec![UxAction::Navigate],
         domain: UxDomainIdentity::NavigatorProjection {
-            containment_relation_source: format!("{:?}", navigator_projection.containment_relation_source),
+            containment_relation_source: format!(
+                "{:?}",
+                navigator_projection.containment_relation_source
+            ),
             sort_mode: format!("{:?}", navigator_projection.sort_mode),
             root_filter: navigator_projection.root_filter.clone(),
             row_count: navigator_projection.row_targets.len(),
@@ -779,7 +783,9 @@ fn push_nodes(
         .contains(&tile_id);
 
     match tile {
-        Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref))) => {
+        Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref),
+        )) => {
             let focused_selection = graph_app.focused_selection();
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
@@ -1216,17 +1222,23 @@ fn push_nodes(
 
 fn ux_node_id_for_tile(tile_id: TileId, tile: &Tile<TileKind>) -> String {
     match tile {
-        Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref))) => {
+        Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref),
+        )) => {
             format!(
                 "uxnode://workbench/tile/{tile_id:?}/graph/{:?}",
                 view_ref.graph_view_id
             )
         }
-        Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state))) => {
+        Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+        )) => {
             format!("uxnode://workbench/tile/{tile_id:?}/node/{:?}", state.node)
         }
         #[cfg(feature = "diagnostics")]
-        Tile::Pane(TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool))) => {
+        Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool),
+        )) => {
             format!("uxnode://workbench/tile/{tile_id:?}/tool/{}", tool.title())
         }
         Tile::Pane(TileKind::Graph(view_ref)) => {

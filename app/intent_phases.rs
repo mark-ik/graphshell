@@ -99,18 +99,30 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::EnterGraphViewLayoutManager => {
-                self.workspace.graph_runtime.graph_view_layout_manager.active = true;
+                self.workspace
+                    .graph_runtime
+                    .graph_view_layout_manager
+                    .active = true;
                 self.persist_graph_view_layout_manager_state();
                 true
             }
             GraphIntent::ExitGraphViewLayoutManager => {
-                self.workspace.graph_runtime.graph_view_layout_manager.active = false;
+                self.workspace
+                    .graph_runtime
+                    .graph_view_layout_manager
+                    .active = false;
                 self.persist_graph_view_layout_manager_state();
                 true
             }
             GraphIntent::ToggleGraphViewLayoutManager => {
-                self.workspace.graph_runtime.graph_view_layout_manager.active =
-                    !self.workspace.graph_runtime.graph_view_layout_manager.active;
+                self.workspace
+                    .graph_runtime
+                    .graph_view_layout_manager
+                    .active = !self
+                    .workspace
+                    .graph_runtime
+                    .graph_view_layout_manager
+                    .active;
                 self.persist_graph_view_layout_manager_state();
                 true
             }
@@ -142,6 +154,10 @@ impl GraphBrowserApp {
                 self.route_graph_view_to_workbench(view_id, mode);
                 true
             }
+            GraphIntent::FocusGraphView { view_id } => {
+                self.set_workspace_focused_view_with_transition(Some(view_id));
+                true
+            }
             GraphIntent::Undo => {
                 let current_layout = self.current_undo_checkpoint_layout_json();
                 let _ = self.perform_undo(current_layout);
@@ -164,14 +180,23 @@ impl GraphBrowserApp {
                 };
                 lens.layout_algorithm_id = requested_layout_algorithm_id;
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+                    view.active_filter = lens.filter_expr.clone();
                     view.lens = lens;
                 }
+                self.workspace.graph_runtime.egui_state_dirty = true;
                 true
             }
             GraphIntent::SetViewFilter { view_id, expr } => {
+                let filter_summary = expr.as_ref().map(|expr| {
+                    crate::model::graph::filter::evaluate_filter_result(
+                        &self.workspace.domain.graph,
+                        expr,
+                    )
+                });
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                     let is_some = expr.is_some();
-                    view.active_filter = expr;
+                    view.active_filter = expr.clone();
+                    view.lens.filter_expr = expr.clone();
                     let channel = if is_some {
                         crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_APPLIED
                     } else {
@@ -183,12 +208,35 @@ impl GraphBrowserApp {
                             latency_us: 0,
                         },
                     );
+                    if let Some(summary) = filter_summary {
+                        for warning in summary.warnings {
+                            let channel_id = match warning {
+                                crate::model::graph::filter::FilterEvalError::TypeMismatch {
+                                    ..
+                                } => crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_TYPE_MISMATCH,
+                                crate::model::graph::filter::FilterEvalError::InvalidExtensionKey {
+                                    ..
+                                }
+                                | crate::model::graph::filter::FilterEvalError::KeyAbsent {
+                                    ..
+                                } => crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_EVAL_FAILURE,
+                            };
+                            crate::shell::desktop::runtime::diagnostics::emit_event(
+                                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                                    channel_id,
+                                    latency_us: 0,
+                                },
+                            );
+                        }
+                    }
                 }
+                self.workspace.graph_runtime.egui_state_dirty = true;
                 true
             }
             GraphIntent::ClearViewFilter { view_id } => {
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                     view.active_filter = None;
+                    view.lens.filter_expr = None;
                     crate::shell::desktop::runtime::diagnostics::emit_event(
                         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
                             channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_CLEARED,
@@ -196,6 +244,7 @@ impl GraphBrowserApp {
                         },
                     );
                 }
+                self.workspace.graph_runtime.egui_state_dirty = true;
                 true
             }
             GraphIntent::SetViewDimension { view_id, dimension } => {
@@ -622,12 +671,18 @@ impl GraphBrowserApp {
                     {
                         self.workspace.graph_runtime.semantic_index_dirty = true;
                     }
-                    if let Some(suggestions) =
-                        self.workspace.graph_runtime.suggested_semantic_tags.get_mut(&key)
+                    if let Some(suggestions) = self
+                        .workspace
+                        .graph_runtime
+                        .suggested_semantic_tags
+                        .get_mut(&key)
                     {
                         suggestions.retain(|s| s != &normalized_tag);
                         if suggestions.is_empty() {
-                            self.workspace.graph_runtime.suggested_semantic_tags.remove(&key);
+                            self.workspace
+                                .graph_runtime
+                                .suggested_semantic_tags
+                                .remove(&key);
                         }
                     }
                     // Emit WAL audit event (snapshot entry TagNode has no timestamp).
@@ -707,7 +762,10 @@ impl GraphBrowserApp {
                     }
                 }
                 if normalized.is_empty() {
-                    self.workspace.graph_runtime.suggested_semantic_tags.remove(&key);
+                    self.workspace
+                        .graph_runtime
+                        .suggested_semantic_tags
+                        .remove(&key);
                 } else {
                     self.workspace
                         .graph_runtime
@@ -883,7 +941,8 @@ impl GraphBrowserApp {
             | GraphIntent::NostrEventReceived { .. }
             | GraphIntent::Noop
             | GraphIntent::OpenNodeFrameRouted { .. }
-            | GraphIntent::OpenNodeWorkspaceRouted { .. } => {
+            | GraphIntent::OpenNodeWorkspaceRouted { .. }
+            | GraphIntent::FocusGraphView { .. } => {
                 unreachable!("runtime lifecycle intents are handled in phase 3")
             }
         }

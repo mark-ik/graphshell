@@ -682,6 +682,14 @@ _Source file before consolidation: `2026-02-24_immediate_priorities.md`_
 
 ## 0. Latest Checkpoint Delta (Code + Doc Audit)
 
+### Code checkpoint (2026-03-19)
+
+- **`lane:graph-app-decomp` closed**: `graph_app.rs` decomposed from 10,812 → **1,910 non-test lines** across six stages. Extracted modules: `graph_app_tests.rs` (test block), `app/settings_persistence.rs` (UI prefs + `SettingsToolPage`), `app/persistence_facade.rs` (runtime persistence facade), `app/history.rs` (history queries + undo/redo), `app/routing.rs` (route resolvers + `SettingsRouteTarget`/`ToolSurfaceReturnTarget`), `app/runtime_lifecycle.rs` (lifecycle accessors + open-surface types), `app/graph_mutations.rs` (graph delta helpers + `NoteId`/`NoteRecord`), `app/graph_views.rs` (view types including `GraphViewId`, `GraphViewState`, layout manager types). All public `crate::graph_app::*` paths preserved via `pub use` re-exports. `cargo test`: 1622 passed, 0 failed. Done gate met; lane closed.
+
+### Doc checkpoint (2026-03-19)
+
+- **`lane:graph-app-decomp` plan written**: `graph_app.rs` decomposition plan (`2026-03-19_graph_app_decomposition_plan.md`) written. Five stages A–E defined; Stage A (test module extraction, 6,631 lines) is the first executable slice. Lane registered in §1A Debt-Retirement Lanes and §1D §A. No hub issue yet; plan is the authoritative guide.
+
 ### Code checkpoint (2026-03-17)
 
 - **`GraphWorkspace` god-struct separation** (`lane:embedder-debt`): `GraphWorkspace` (~62 fields) split into four typed sub-states — `DomainState` (unchanged), `GraphViewRuntimeState`, `WorkbenchSessionState`, `ChromeUiState` — defined in new `app/workspace_state.rs`. All field paths updated across ~35 files. Field renamed: `file_tree_projection_state` → `navigator_projection_state` (type rename deferred).
@@ -853,6 +861,12 @@ Issue-ready intake stubs from the latest user report:
   - Coordinator policy: treat `shell/desktop/ui/gui.rs` / `shell/desktop/ui/gui_frame.rs` / `shell/desktop/ui/gui_orchestration.rs` as orchestration façades with explicit authority boundaries; enforce via `CONTRIBUTING.md` coordinator checklist when these files are touched
   - Rule: pair mechanical moves with invariants/tests; avoid mixing with feature work in the same PR
 
+- `lane:graph-app-decomp` (graph_app.rs god-object decomposition — follow-on to `lane:embedder-debt`)
+  - **Closed (2026-03-19)** — all stages A–F complete; done gate met
+  - Scope: `graph_app.rs` (10,812 → **1,910 non-test lines**) — test block extracted to `graph_app_tests.rs`; UI settings persistence to `app/settings_persistence.rs`; runtime persistence facade to `app/persistence_facade.rs`; history queries + undo/redo to `app/history.rs`; route resolvers + `SettingsRouteTarget`/`ToolSurfaceReturnTarget` to `app/routing.rs`; lifecycle accessors + open-surface types to `app/runtime_lifecycle.rs`; graph delta helpers + `NoteId`/`NoteRecord` to `app/graph_mutations.rs`; view types (`GraphViewId`, `GraphViewState`, layout manager types) to `app/graph_views.rs`
+  - Primary guide: `design_docs/archive_docs/checkpoint_2026-03-19/graphshell_docs/implementation_strategy/2026-03-19_graph_app_decomposition_plan.md` (archived)
+  - Done gate: `cargo test` 1622 passed, 0 failed; `graph_app.rs` 1,910 lines (< 2,000); all `crate::graph_app::*` public paths preserved via `pub use` re-exports
+
 ### Incubation Lanes (Parallel / Non-blocking)
 
 - `lane:verse-intelligence`
@@ -935,6 +949,7 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 | `lane:roadmap` | Merge-safe docs/planning follow-on: `#19` (`TwoD↔ThreeD` `ViewDimension` hotswitch, blocked) plus pre-wgpu spec conflict closure slices | Active merge-safe default (docs-only execution) | `PLANNING_REGISTER.md`, `2026-03-03_spec_conflict_resolution_register.md`, `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` | Use this lane for merge-safe canonical doc work, including P1–P4 spec conflict closure, without touching runtime hotspots. |
 | `lane:control-ui-settings` (`#89`) | Command surfaces + settings IA/surface execution | Active planning / queued (high priority) | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs` | User report now provides concrete issue-ready slices (palette/context unification, theme toggle, omnibar/radial polish). |
 | `lane:embedder-debt` (`#90`) | Servoshell inheritance retirement / host-UI decomposition | **Closed (2026-03-19)** — all stages complete; child slices #163 and #171 closed; final servoshell-era naming retired from `window.rs`; context-menu boundary documented as explicit Servo-protocol deferred boundary (not a bypass). | `aspect_render/aspect_render/2026-02-20_embedder_decomposition_plan.md` | Done gate met: decomposition stages 1–6 landed with tests; legacy webview bypasses retired or explicitly bounded; hotspot surface area reduced (`gui.rs` < 600 lines, `gui_frame.rs` < 400 lines); render/focus fixes route through compositor and workbench authority contracts. |
+| `lane:graph-app-decomp` | `graph_app.rs` god-object decomposition (follow-on to embedder-debt; different stripe — domain/app layer, not servoshell inheritance) | **Closed (2026-03-19)** — all stages A–F complete; 10,812 → 1,910 non-test lines; 1622 tests green | `2026-03-19_graph_app_decomposition_plan.md` | Done gate met: `graph_app.rs` < 2,000 lines, `cargo test` green, all public paths preserved via `pub use` re-exports. |
 | `lane:runtime-followon` (`#91`) | SignalBus consumer adoption + follow-on signal policy cleanup | Active follow-on (core infrastructure landed) | `SYSTEM_REGISTER.md`, `2026-03-08_sector_h_signal_infrastructure_plan.md` | Sector H is implemented; remaining work is downstream consumption, not missing bus infrastructure. |
 
 ### B. Core Platform / Architecture Completion Lanes

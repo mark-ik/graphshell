@@ -321,10 +321,14 @@ pub(super) fn render_location_search_panel(
                     .collect();
                 if !suggestions.is_empty() {
                     let provider_query = provider_query_for_session(session);
-                    graph_app.workspace.graph_runtime.runtime_caches.insert_suggestions(
-                        provider_cache_key(provider, &provider_query),
-                        suggestions,
-                    );
+                    graph_app
+                        .workspace
+                        .graph_runtime
+                        .runtime_caches
+                        .insert_suggestions(
+                            provider_cache_key(provider, &provider_query),
+                            suggestions,
+                        );
                 }
             }
             session.provider_status = outcome.status;
@@ -380,7 +384,7 @@ pub(super) fn render_location_search_panel(
     }
 
     // Delegate dropdown rendering to focused helper module
-    toolbar_location_dropdown::render_omnibar_dropdown(
+    let mut retain_omnibar_focus = toolbar_location_dropdown::render_omnibar_dropdown(
         ctx,
         ui,
         &location_field,
@@ -408,7 +412,7 @@ pub(super) fn render_location_search_panel(
         *location_submitted,
         enter_after_focus_loss,
     ) {
-        super::toolbar_location_submit::handle_location_submit(
+        retain_omnibar_focus |= super::toolbar_location_submit::handle_location_submit(
             ui,
             state,
             graph_app,
@@ -424,6 +428,13 @@ pub(super) fn render_location_search_panel(
             frame_intents,
             open_selected_mode_after_submit,
         );
+    }
+
+    if retain_omnibar_focus {
+        ctx.memory_mut(|memory| memory.request_focus(location_id));
+        *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
+            pane_id: active_toolbar_pane,
+        });
     }
 }
 

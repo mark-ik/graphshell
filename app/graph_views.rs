@@ -1,5 +1,65 @@
 use super::*;
 
+/// Camera state for zoom bounds enforcement
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Camera {
+    pub zoom_min: f32,
+    pub zoom_max: f32,
+    pub current_zoom: f32,
+}
+
+impl Camera {
+    pub fn new() -> Self {
+        Self {
+            zoom_min: 0.1,
+            zoom_max: 10.0,
+            current_zoom: 0.8,
+        }
+    }
+
+    /// Clamp a zoom value to the allowed range
+    pub fn clamp(&self, zoom: f32) -> f32 {
+        zoom.clamp(self.zoom_min, self.zoom_max)
+    }
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GraphViewFrame {
+    pub zoom: f32,
+    pub pan_x: f32,
+    pub pan_y: f32,
+}
+
+/// Unique identifier for a graph view pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct GraphViewId(uuid::Uuid);
+
+impl GraphViewId {
+    pub fn new() -> Self {
+        Self(uuid::Uuid::new_v4())
+    }
+
+    pub(crate) fn from_uuid(id: uuid::Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn as_uuid(self) -> uuid::Uuid {
+        self.0
+    }
+}
+
+impl Default for GraphViewId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GraphBrowserApp {
     /// Request camera fit on next render frame.
     pub fn request_fit_to_screen(&mut self) {
@@ -105,7 +165,13 @@ impl GraphBrowserApp {
     }
 
     fn next_graph_view_slot_name(&self) -> String {
-        let count = self.workspace.graph_runtime.graph_view_layout_manager.slots.len() + 1;
+        let count = self
+            .workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .slots
+            .len()
+            + 1;
         format!("Graph View {count}")
     }
 
@@ -159,16 +225,20 @@ impl GraphBrowserApp {
             .filter(|name| !name.trim().is_empty())
             .unwrap_or_else(|| self.next_graph_view_slot_name());
         let (row, col) = self.next_free_graph_view_slot_position();
-        self.workspace.graph_runtime.graph_view_layout_manager.slots.insert(
-            view_id,
-            GraphViewSlot {
+        self.workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .slots
+            .insert(
                 view_id,
-                name,
-                row,
-                col,
-                archived: false,
-            },
-        );
+                GraphViewSlot {
+                    view_id,
+                    name,
+                    row,
+                    col,
+                    archived: false,
+                },
+            );
     }
 
     pub fn ensure_graph_view_registered(&mut self, view_id: GraphViewId) {
@@ -192,7 +262,10 @@ impl GraphBrowserApp {
                     .collect(),
             });
             self.workspace.graph_runtime.views.insert(view_id, state);
-        } else if self.workspace.graph_runtime.views[&view_id].local_simulation.is_none() {
+        } else if self.workspace.graph_runtime.views[&view_id]
+            .local_simulation
+            .is_none()
+        {
             let positions = self
                 .workspace
                 .domain
@@ -214,7 +287,11 @@ impl GraphBrowserApp {
     pub(crate) fn persist_graph_view_layout_manager_state(&mut self) {
         let persisted = PersistedGraphViewLayoutManager {
             version: PersistedGraphViewLayoutManager::VERSION,
-            active: self.workspace.graph_runtime.graph_view_layout_manager.active,
+            active: self
+                .workspace
+                .graph_runtime
+                .graph_view_layout_manager
+                .active,
             slots: self
                 .workspace
                 .graph_runtime
@@ -251,7 +328,10 @@ impl GraphBrowserApp {
         for slot in persisted.slots {
             slots.insert(slot.view_id, slot);
         }
-        self.workspace.graph_runtime.graph_view_layout_manager.active = persisted.active;
+        self.workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .active = persisted.active;
         self.workspace.graph_runtime.graph_view_layout_manager.slots = slots;
     }
 
@@ -272,7 +352,10 @@ impl GraphBrowserApp {
                 .map(|(key, node)| (key, node.projected_position()))
                 .collect(),
         });
-        self.workspace.graph_runtime.views.insert(view_id, state.clone());
+        self.workspace
+            .graph_runtime
+            .views
+            .insert(view_id, state.clone());
 
         let (row, col) = if let Some(anchor_id) = anchor_view {
             if let Some(anchor_slot) = self
@@ -300,16 +383,20 @@ impl GraphBrowserApp {
             self.next_free_graph_view_slot_position()
         };
 
-        self.workspace.graph_runtime.graph_view_layout_manager.slots.insert(
-            view_id,
-            GraphViewSlot {
+        self.workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .slots
+            .insert(
                 view_id,
-                name: state.name,
-                row,
-                col,
-                archived: false,
-            },
-        );
+                GraphViewSlot {
+                    view_id,
+                    name: state.name,
+                    row,
+                    col,
+                    archived: false,
+                },
+            );
 
         if let Some(mode) = open_mode {
             self.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane { view_id, mode });
@@ -557,7 +644,11 @@ impl GraphBrowserApp {
         command: CameraCommand,
     ) {
         if let Some(target_view) = target_view
-            && !self.workspace.graph_runtime.views.contains_key(&target_view)
+            && !self
+                .workspace
+                .graph_runtime
+                .views
+                .contains_key(&target_view)
         {
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
@@ -663,4 +754,251 @@ impl GraphBrowserApp {
     pub fn clear_pending_wheel_zoom_delta(&mut self) {
         self.set_pending_wheel_zoom_delta(None, None, None);
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LocalSimulation {
+    pub positions: HashMap<NodeKey, Point2D<f32>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LensConfig {
+    pub name: String,
+    pub lens_id: Option<String>,
+    pub physics: PhysicsProfile,
+    pub layout: LayoutMode,
+    #[serde(default = "crate::app::graph_layout::default_free_layout_algorithm_id")]
+    pub layout_algorithm_id: String,
+    #[serde(default, deserialize_with = "deserialize_optional_theme_data")]
+    pub theme: Option<ThemeData>,
+    /// Structured faceted filter expression (spec: faceted_filter_surface_spec.md §5.3).
+    ///
+    /// `None` means no active filter (all nodes visible).
+    /// Replaces the legacy `filters: Vec<String>` field.
+    #[serde(default)]
+    pub filter_expr: Option<crate::model::graph::filter::FacetExpr>,
+    /// Legacy flat-string filter list — retained for backward-compatible deserialization only.
+    /// Do not write new code against this field; use `filter_expr` instead.
+    #[serde(default, rename = "filters", skip_serializing_if = "Vec::is_empty")]
+    pub filters_legacy: Vec<String>,
+    #[serde(skip, default)]
+    pub overlay_descriptor: Option<crate::registries::atomic::lens::LensOverlayDescriptor>,
+}
+
+impl Default for LensConfig {
+    fn default() -> Self {
+        Self {
+            name: "Default".to_string(),
+            lens_id: None,
+            physics: PhysicsProfile::default(),
+            layout: LayoutMode::Free,
+            layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
+            theme: None,
+            filter_expr: None,
+            filters_legacy: Vec::new(),
+            overlay_descriptor: None,
+        }
+    }
+}
+
+/// How z-coordinates are assigned to nodes when a graph view is in a 3D mode.
+///
+/// `ZSource` is part of `GraphViewState` — it is a per-view configuration.
+/// z-positions are ephemeral: they are recomputed from this source + node metadata on
+/// every 2D→3D switch and are never persisted independently.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ZSource {
+    /// All nodes coplanar — soft 3D visual effect only.
+    #[default]
+    Zero,
+    /// Recent nodes float to front; `max_depth` controls the maximum z offset.
+    Recency { max_depth: f32 },
+    /// Root nodes at z=0; deeper BFS nodes further back; `scale` controls layer spacing.
+    BfsDepth { scale: f32 },
+    /// UDC main class determines z layer; `scale` controls layer spacing.
+    UdcLevel { scale: f32 },
+    /// Per-node z override sourced from node metadata.
+    Manual,
+}
+
+/// Sub-mode for a 3D graph view.
+///
+/// Ordered by implementation complexity — `TwoPointFive` is purely visual and the
+/// lowest-cost starting point; `Standard` is the highest-fidelity, highest-complexity mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ThreeDMode {
+    /// 2.5D: fixed top-down perspective; z is visual-only depth offset.
+    /// Navigation remains 2D (pan/zoom). No camera tilt. Mobile-compatible.
+    TwoPointFive,
+    /// Isometric: quantized z layers, fixed-angle projection.
+    /// Layer separation reveals hierarchical/temporal structure.
+    Isometric,
+    /// Standard 3D: reorientable arcball camera, arbitrary z.
+    /// Highest fidelity; most complex interaction model.
+    Standard,
+}
+
+/// Dimension mode for a graph view pane.
+///
+/// Owned by `GraphViewState` and persisted with the view snapshot.
+/// The z-positions cache (`z_positions: HashMap<NodeKey, f32>`) derived from
+/// `ThreeD { z_source }` is ephemeral — recomputed on each 2D→3D switch and
+/// never stored separately.  Snapshot degradation rule: if a persisted snapshot
+/// contains `ThreeD` but 3D rendering is unavailable (e.g., unsupported platform),
+/// the view falls back to `TwoD`; (x, y) positions are preserved unchanged.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ViewDimension {
+    /// Standard 2D planar graph (default).
+    #[default]
+    TwoD,
+    /// 3D graph with the given sub-mode and z-source.
+    ThreeD { mode: ThreeDMode, z_source: ZSource },
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct GraphViewState {
+    pub id: GraphViewId,
+    pub name: String,
+    pub camera: Camera,
+    #[serde(default)]
+    pub position_fit_locked: bool,
+    #[serde(default)]
+    pub zoom_fit_locked: bool,
+    pub lens: LensConfig,
+    pub local_simulation: Option<LocalSimulation>,
+    /// The rendering dimension for this view (2D or 3D sub-mode).
+    ///
+    /// Persisted with the view state so that reopening a frame restores the
+    /// user's last dimension choice.  Snapshot degradation: falls back to `TwoD`
+    /// if 3D rendering is unavailable on the target platform.
+    #[serde(default)]
+    pub dimension: ViewDimension,
+    #[serde(skip)]
+    pub last_layout_algorithm_id: Option<String>,
+    #[serde(skip)]
+    pub egui_state: Option<EguiGraphState>,
+    /// Active PMEST facet filter expression for this view.
+    ///
+    /// When `Some`, the graph render pass filters visible nodes to those whose
+    /// [`facet_projection_for_node`] evaluates the expression to `true`.
+    /// `None` means all nodes are visible (no filter active).
+    #[serde(default)]
+    pub active_filter: Option<crate::model::graph::filter::FacetExpr>,
+}
+
+impl std::fmt::Debug for GraphViewState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GraphViewState")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("camera", &self.camera)
+            .field("position_fit_locked", &self.position_fit_locked)
+            .field("zoom_fit_locked", &self.zoom_fit_locked)
+            .field("lens", &self.lens)
+            .field("local_simulation", &self.local_simulation)
+            .field("dimension", &self.dimension)
+            .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
+            .field("active_filter", &self.active_filter)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Clone for GraphViewState {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            camera: self.camera.clone(),
+            position_fit_locked: self.position_fit_locked,
+            zoom_fit_locked: self.zoom_fit_locked,
+            lens: self.lens.clone(),
+            local_simulation: self.local_simulation.clone(),
+            dimension: self.dimension.clone(),
+            last_layout_algorithm_id: self.last_layout_algorithm_id.clone(),
+            egui_state: None,
+            active_filter: self.active_filter.clone(),
+        }
+    }
+}
+
+impl GraphViewState {
+    pub fn effective_filter_expr(&self) -> Option<&crate::model::graph::filter::FacetExpr> {
+        self.active_filter
+            .as_ref()
+            .or(self.lens.filter_expr.as_ref())
+    }
+
+    pub fn new_with_id(id: GraphViewId, name: impl Into<String>) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            camera: Camera::new(),
+            position_fit_locked: false,
+            zoom_fit_locked: false,
+            lens: LensConfig::default(),
+            local_simulation: None,
+            dimension: ViewDimension::default(),
+            last_layout_algorithm_id: None,
+            egui_state: None,
+            active_filter: None,
+        }
+    }
+
+    pub fn new(name: impl Into<String>) -> Self {
+        Self::new_with_id(GraphViewId::new(), name)
+    }
+}
+
+pub(crate) fn default_semantic_depth_dimension() -> ViewDimension {
+    ViewDimension::ThreeD {
+        mode: ThreeDMode::TwoPointFive,
+        z_source: ZSource::UdcLevel { scale: 48.0 },
+    }
+}
+
+pub(crate) fn is_semantic_depth_dimension(dimension: &ViewDimension) -> bool {
+    matches!(
+        dimension,
+        ViewDimension::ThreeD {
+            mode: ThreeDMode::TwoPointFive,
+            z_source: ZSource::UdcLevel { .. },
+        }
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum GraphViewLayoutDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GraphViewSlot {
+    pub view_id: GraphViewId,
+    pub name: String,
+    pub row: i32,
+    pub col: i32,
+    #[serde(default)]
+    pub archived: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub struct GraphViewLayoutManagerState {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub slots: HashMap<GraphViewId, GraphViewSlot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PersistedGraphViewLayoutManager {
+    pub(crate) version: u32,
+    pub(crate) active: bool,
+    pub(crate) slots: Vec<GraphViewSlot>,
+}
+
+impl PersistedGraphViewLayoutManager {
+    pub(crate) const VERSION: u32 = 1;
 }

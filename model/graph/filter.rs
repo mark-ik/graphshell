@@ -22,6 +22,9 @@
 
 use std::collections::HashMap;
 
+use super::Graph;
+use super::facet_projection::facet_projection_for_node;
+
 // ---------------------------------------------------------------------------
 // Facet value — the runtime type that a facet key resolves to
 // ---------------------------------------------------------------------------
@@ -165,10 +168,7 @@ pub enum FacetOperator {
 pub enum FacetOperand {
     Scalar(FacetScalar),
     Set(Vec<FacetScalar>),
-    Range {
-        lo: FacetScalar,
-        hi: FacetScalar,
-    },
+    Range { lo: FacetScalar, hi: FacetScalar },
     None,
 }
 
@@ -194,7 +194,7 @@ pub struct FilterResult {
 // ---------------------------------------------------------------------------
 
 /// Error produced when a predicate cannot be evaluated.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FilterEvalError {
     /// Operator applied to an incompatible facet value type.
     TypeMismatch {
@@ -206,6 +206,14 @@ pub enum FilterEvalError {
     InvalidExtensionKey { key: String },
     /// Facet key not found in projection (used with `Exists`/`NotExists`).
     KeyAbsent { key: String },
+}
+
+/// Aggregated filter evaluation result plus non-fatal warnings encountered
+/// while evaluating individual node projections.
+#[derive(Debug, Clone)]
+pub struct FilterEvaluationSummary {
+    pub result: FilterResult,
+    pub warnings: Vec<FilterEvalError>,
 }
 
 impl FacetExpr {
@@ -221,10 +229,7 @@ impl FacetExpr {
     /// Returns `Ok(true/false)` for normal match/no-match, or
     /// `Err(FilterEvalError)` for structural problems (invalid key, type mismatch)
     /// that the caller must log as a diagnostic.
-    pub fn evaluate(
-        &self,
-        projection: &FacetProjection,
-    ) -> Result<bool, FilterEvalError> {
+    pub fn evaluate(&self, projection: &FacetProjection) -> Result<bool, FilterEvalError> {
         match self {
             FacetExpr::Predicate(pred) => pred.evaluate(projection),
             FacetExpr::And(exprs) => {
@@ -249,10 +254,7 @@ impl FacetExpr {
 }
 
 impl FacetPredicate {
-    pub fn evaluate(
-        &self,
-        projection: &FacetProjection,
-    ) -> Result<bool, FilterEvalError> {
+    pub fn evaluate(&self, projection: &FacetProjection) -> Result<bool, FilterEvalError> {
         // Validate key before evaluation
         if !facet_keys::is_valid(&self.facet_key) {
             return Err(FilterEvalError::InvalidExtensionKey {
@@ -282,13 +284,17 @@ impl FacetPredicate {
                 Ok(set.contains(scalar))
             }
             (FacetOperator::ContainsAny, FacetValue::Collection(coll), FacetOperand::Set(set)) => {
-                Ok(set.iter().any(|s| coll.contains(s)))
+                Ok(set.iter().any(|operand| {
+                    coll.iter()
+                        .any(|value| collection_value_matches(&self.facet_key, value, operand))
+                }))
             }
-            (
-                FacetOperator::ContainsAll,
-                FacetValue::Collection(coll),
-                FacetOperand::Set(set),
-            ) => Ok(set.iter().all(|s| coll.contains(s))),
+            (FacetOperator::ContainsAll, FacetValue::Collection(coll), FacetOperand::Set(set)) => {
+                Ok(set.iter().all(|operand| {
+                    coll.iter()
+                        .any(|value| collection_value_matches(&self.facet_key, value, operand))
+                }))
+            }
             (
                 FacetOperator::Range,
                 FacetValue::Scalar(FacetScalar::Number(n)),
@@ -307,12 +313,137 @@ impl FacetPredicate {
     }
 }
 
+impl FacetExpr {
+    pub fn display_label(&self) -> String {
+        match self {
+            FacetExpr::Predicate(predicate) => predicate.display_label(),
+            FacetExpr::And(exprs) => exprs
+                .iter()
+                .map(FacetExpr::display_label)
+                .collect::<Vec<_>>()
+                .join(" AND "),
+            FacetExpr::Or(exprs) => exprs
+                .iter()
+                .map(FacetExpr::display_label)
+                .collect::<Vec<_>>()
+                .join(" OR "),
+            FacetExpr::Not(inner) => format!("NOT ({})", inner.display_label()),
+        }
+    }
+}
+
+impl FacetPredicate {
+    pub fn display_label(&self) -> String {
+        match (&self.operator, &self.operand) {
+            (FacetOperator::Exists, _) => self.facet_key.clone(),
+            (FacetOperator::NotExists, _) => format!("!{}", self.facet_key),
+            (FacetOperator::Eq, FacetOperand::Scalar(value)) => {
+                format!("{}={}", self.facet_key, facet_scalar_label(value))
+            }
+            (FacetOperator::NotEq, FacetOperand::Scalar(value)) => {
+                format!("{}!={}", self.facet_key, facet_scalar_label(value))
+            }
+            (FacetOperator::In, FacetOperand::Set(values)) => {
+                format!("{} in {}", self.facet_key, facet_set_label(values))
+            }
+            (FacetOperator::ContainsAny, FacetOperand::Set(values)) => {
+                format!("{} has any {}", self.facet_key, facet_set_label(values))
+            }
+            (FacetOperator::ContainsAll, FacetOperand::Set(values)) => {
+                format!("{} has all {}", self.facet_key, facet_set_label(values))
+            }
+            (FacetOperator::Range, FacetOperand::Range { lo, hi }) => format!(
+                "{} in [{}..{}]",
+                self.facet_key,
+                facet_scalar_label(lo),
+                facet_scalar_label(hi)
+            ),
+            _ => self.facet_key.clone(),
+        }
+    }
+}
+
 fn value_type_name(value: &FacetValue) -> &'static str {
     match value {
         FacetValue::Scalar(FacetScalar::Text(_)) => "text",
         FacetValue::Scalar(FacetScalar::Number(_)) => "number",
         FacetValue::Scalar(FacetScalar::Bool(_)) => "bool",
         FacetValue::Collection(_) => "collection",
+    }
+}
+
+fn facet_scalar_label(value: &FacetScalar) -> String {
+    match value {
+        FacetScalar::Text(text) => text.clone(),
+        FacetScalar::Number(number) => number.to_string(),
+        FacetScalar::Bool(flag) => flag.to_string(),
+    }
+}
+
+fn facet_set_label(values: &[FacetScalar]) -> String {
+    values
+        .iter()
+        .map(facet_scalar_label)
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn is_collection_facet_key(key: &str) -> bool {
+    matches!(
+        key,
+        facet_keys::EDGE_KINDS | facet_keys::FRAME_MEMBERSHIPS | facet_keys::UDC_CLASSES
+    )
+}
+
+fn collection_value_matches(facet_key: &str, value: &FacetScalar, operand: &FacetScalar) -> bool {
+    match (facet_key, value, operand) {
+        (facet_keys::UDC_CLASSES, FacetScalar::Text(actual), FacetScalar::Text(expected)) => {
+            udc_operand_matches(actual, expected)
+        }
+        _ => value == operand,
+    }
+}
+
+fn udc_operand_matches(actual: &str, expected: &str) -> bool {
+    let actual = actual.trim().to_ascii_lowercase();
+    let expected = expected.trim().to_ascii_lowercase();
+    actual == expected || actual.starts_with(&expected)
+}
+
+pub fn evaluate_filter_result(graph: &Graph, expr: &FacetExpr) -> FilterEvaluationSummary {
+    let mut matched_nodes = Vec::new();
+    let mut filtered_out_nodes = Vec::new();
+    let mut facet_counts = HashMap::new();
+    let mut warnings = Vec::new();
+
+    for (key, _) in graph.nodes() {
+        let Some(projection) = facet_projection_for_node(graph, key) else {
+            filtered_out_nodes.push(key);
+            continue;
+        };
+
+        match expr.evaluate(&projection) {
+            Ok(true) => {
+                matched_nodes.push(key);
+                for facet_key in projection.keys() {
+                    *facet_counts.entry(facet_key.clone()).or_insert(0) += 1;
+                }
+            }
+            Ok(false) => filtered_out_nodes.push(key),
+            Err(error) => {
+                warnings.push(error);
+                filtered_out_nodes.push(key);
+            }
+        }
+    }
+
+    FilterEvaluationSummary {
+        result: FilterResult {
+            matched_nodes,
+            filtered_out_nodes,
+            facet_counts,
+        },
+        warnings,
     }
 }
 
@@ -327,16 +458,16 @@ fn value_type_name(value: &FacetValue) -> &'static str {
 /// responsible for emitting `ux:facet_filter_invalid_query` (Warn).
 ///
 /// Supported syntax:
-/// - `facet:key=value`  → `Eq` predicate
-/// - `facet:!key=value` → `NotEq` predicate
+/// - `facet:key=value`  → `Eq` or `ContainsAny` depending on facet kind
+/// - `facet:!key=value` → `NotEq` or negated `ContainsAny` depending on facet kind
 /// - `facet:key`        → `Exists` predicate
-pub fn parse_omnibar_facet_token(token: &str) -> Option<FacetPredicate> {
+pub fn parse_omnibar_facet_token(token: &str) -> Option<FacetExpr> {
     let body = token.strip_prefix("facet:")?;
     if body.is_empty() {
         return None;
     }
 
-    // `facet:!key=value` → NotEq
+    // `facet:!key=value` → NotEq / Not(ContainsAny)
     if let Some(rest) = body.strip_prefix('!') {
         if let Some((key, value)) = rest.split_once('=') {
             let key = key.trim().to_string();
@@ -344,27 +475,50 @@ pub fn parse_omnibar_facet_token(token: &str) -> Option<FacetPredicate> {
             if !facet_keys::is_valid(&key) || key.is_empty() || value.is_empty() {
                 return None;
             }
-            return Some(FacetPredicate {
+            let collection_facet = is_collection_facet_key(&key);
+            let predicate = FacetPredicate {
                 facet_key: key,
-                operator: FacetOperator::NotEq,
-                operand: FacetOperand::Scalar(FacetScalar::Text(value)),
-            });
+                operator: if collection_facet {
+                    FacetOperator::ContainsAny
+                } else {
+                    FacetOperator::NotEq
+                },
+                operand: if collection_facet {
+                    FacetOperand::Set(vec![FacetScalar::Text(value)])
+                } else {
+                    FacetOperand::Scalar(FacetScalar::Text(value))
+                },
+            };
+            return if collection_facet {
+                Some(FacetExpr::Not(Box::new(FacetExpr::Predicate(predicate))))
+            } else {
+                Some(FacetExpr::Predicate(predicate))
+            };
         }
         return None;
     }
 
-    // `facet:key=value` → Eq
+    // `facet:key=value` → Eq / ContainsAny
     if let Some((key, value)) = body.split_once('=') {
         let key = key.trim().to_string();
         let value = value.trim().to_string();
         if !facet_keys::is_valid(&key) || key.is_empty() || value.is_empty() {
             return None;
         }
-        return Some(FacetPredicate {
+        let collection_facet = is_collection_facet_key(&key);
+        return Some(FacetExpr::Predicate(FacetPredicate {
             facet_key: key,
-            operator: FacetOperator::Eq,
-            operand: FacetOperand::Scalar(FacetScalar::Text(value)),
-        });
+            operator: if collection_facet {
+                FacetOperator::ContainsAny
+            } else {
+                FacetOperator::Eq
+            },
+            operand: if collection_facet {
+                FacetOperand::Set(vec![FacetScalar::Text(value)])
+            } else {
+                FacetOperand::Scalar(FacetScalar::Text(value))
+            },
+        }));
     }
 
     // `facet:key` → Exists
@@ -372,11 +526,11 @@ pub fn parse_omnibar_facet_token(token: &str) -> Option<FacetPredicate> {
     if !facet_keys::is_valid(&key) || key.is_empty() {
         return None;
     }
-    Some(FacetPredicate {
+    Some(FacetExpr::Predicate(FacetPredicate {
         facet_key: key,
         operator: FacetOperator::Exists,
         operand: FacetOperand::None,
-    })
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -488,14 +642,8 @@ mod tests {
                 hi: num(5.0),
             },
         };
-        let p_in = proj(&[(
-            facet_keys::IN_DEGREE,
-            FacetValue::Scalar(num(3.0)),
-        )]);
-        let p_out = proj(&[(
-            facet_keys::IN_DEGREE,
-            FacetValue::Scalar(num(0.0)),
-        )]);
+        let p_in = proj(&[(facet_keys::IN_DEGREE, FacetValue::Scalar(num(3.0)))]);
+        let p_out = proj(&[(facet_keys::IN_DEGREE, FacetValue::Scalar(num(0.0)))]);
         assert_eq!(pred.evaluate(&p_in).unwrap(), true);
         assert_eq!(pred.evaluate(&p_out).unwrap(), false);
     }
@@ -556,7 +704,10 @@ mod tests {
     // Omnibar token parser tests
     #[test]
     fn omnibar_facet_token_parses_eq() {
-        let pred = parse_omnibar_facet_token("facet:lifecycle=Active").unwrap();
+        let expr = parse_omnibar_facet_token("facet:lifecycle=Active").unwrap();
+        let FacetExpr::Predicate(pred) = expr else {
+            panic!("expected predicate expr");
+        };
         assert_eq!(pred.facet_key, "lifecycle");
         assert_eq!(pred.operator, FacetOperator::Eq);
         assert_eq!(pred.operand, FacetOperand::Scalar(text("Active")));
@@ -564,14 +715,20 @@ mod tests {
 
     #[test]
     fn omnibar_facet_token_parses_not_eq() {
-        let pred = parse_omnibar_facet_token("facet:!lifecycle=Cold").unwrap();
+        let expr = parse_omnibar_facet_token("facet:!lifecycle=Cold").unwrap();
+        let FacetExpr::Predicate(pred) = expr else {
+            panic!("expected predicate expr");
+        };
         assert_eq!(pred.operator, FacetOperator::NotEq);
         assert_eq!(pred.operand, FacetOperand::Scalar(text("Cold")));
     }
 
     #[test]
     fn omnibar_facet_token_parses_exists() {
-        let pred = parse_omnibar_facet_token("facet:mime_hint").unwrap();
+        let expr = parse_omnibar_facet_token("facet:mime_hint").unwrap();
+        let FacetExpr::Predicate(pred) = expr else {
+            panic!("expected predicate expr");
+        };
         assert_eq!(pred.facet_key, "mime_hint");
         assert_eq!(pred.operator, FacetOperator::Exists);
     }
@@ -584,7 +741,10 @@ mod tests {
 
     #[test]
     fn omnibar_facet_token_accepts_namespaced_extension() {
-        let pred = parse_omnibar_facet_token("facet:myns:custom=foo").unwrap();
+        let expr = parse_omnibar_facet_token("facet:myns:custom=foo").unwrap();
+        let FacetExpr::Predicate(pred) = expr else {
+            panic!("expected predicate expr");
+        };
         assert_eq!(pred.facet_key, "myns:custom");
         assert_eq!(pred.operator, FacetOperator::Eq);
     }
@@ -593,5 +753,31 @@ mod tests {
     fn omnibar_token_without_prefix_returns_none() {
         assert!(parse_omnibar_facet_token("lifecycle=Active").is_none());
         assert!(parse_omnibar_facet_token("facet:").is_none());
+    }
+
+    #[test]
+    fn omnibar_udc_token_uses_collection_operator() {
+        let expr = parse_omnibar_facet_token("facet:udc_classes=udc:51").unwrap();
+        let FacetExpr::Predicate(pred) = expr else {
+            panic!("expected predicate expr");
+        };
+        assert_eq!(pred.facet_key, facet_keys::UDC_CLASSES);
+        assert_eq!(pred.operator, FacetOperator::ContainsAny);
+        assert_eq!(pred.operand, FacetOperand::Set(vec![text("udc:51")]));
+    }
+
+    #[test]
+    fn udc_contains_any_supports_parent_prefix_match() {
+        let expr = FacetExpr::Predicate(FacetPredicate {
+            facet_key: facet_keys::UDC_CLASSES.to_string(),
+            operator: FacetOperator::ContainsAny,
+            operand: FacetOperand::Set(vec![text("udc:51")]),
+        });
+        let projection = proj(&[(
+            facet_keys::UDC_CLASSES,
+            FacetValue::Collection(vec![text("udc:519.6")]),
+        )]);
+
+        assert!(expr.evaluate(&projection).unwrap());
     }
 }

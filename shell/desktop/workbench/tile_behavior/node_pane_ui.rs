@@ -88,8 +88,15 @@ fn render_node_pane_impl(
         ui.label("Missing node for this tile.");
         return;
     };
-    render_node_viewer_backend_selector(ui, behavior.graph_app, state);
-    ui.add_space(4.0);
+    // Suppress the in-pane viewer backend selector when a native overlay (e.g. wry) is active:
+    // the overlay covers this area so egui controls would be unreachable. The graph bar's
+    // "Compat"/"Servo" button is the accessible control path for native overlay panes.
+    if state.render_mode
+        != crate::shell::desktop::workbench::pane_model::TileRenderMode::NativeOverlay
+    {
+        render_node_viewer_backend_selector(ui, behavior.graph_app, state);
+        ui.add_space(4.0);
+    }
 
     let effective_viewer_id = state
         .viewer_id_override
@@ -120,7 +127,10 @@ fn render_node_pane_impl(
                     egui::Color32::from_rgb(220, 180, 60),
                     "Settings route unresolved",
                 );
-                ui.label(format!("No settings page mapping exists for '{}'.", node_url));
+                ui.label(format!(
+                    "No settings page mapping exists for '{}'.",
+                    node_url
+                ));
                 ui.horizontal(|ui| {
                     if ui.button("Open Settings Pane").clicked() {
                         behavior
@@ -395,8 +405,8 @@ fn render_node_history_panel(
     state: &mut NodePaneState,
     node_key: NodeKey,
 ) {
-    use std::time::{SystemTime, UNIX_EPOCH};
     use crate::services::persistence::types::{LogEntry, PersistedNavigationTrigger};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     let node_id = match behavior.graph_app.domain_graph().get_node(node_key) {
         Some(node) => node.id,
@@ -417,7 +427,9 @@ fn render_node_history_panel(
     }
 
     const LIMIT: usize = 50;
-    let entries = behavior.graph_app.node_navigation_history_entries(node_id, LIMIT);
+    let entries = behavior
+        .graph_app
+        .node_navigation_history_entries(node_id, LIMIT);
 
     if entries.is_empty() {
         ui.small("No navigation history for this node.");
@@ -474,10 +486,8 @@ fn render_node_history_panel(
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&time_label).weak().small());
                     ui.label(trigger_icon);
-                    let response = ui.selectable_label(
-                        false,
-                        format!("{} → {}", from_short, to_short),
-                    );
+                    let response =
+                        ui.selectable_label(false, format!("{} → {}", from_short, to_short));
                     if response.clicked() {
                         behavior.queue_post_render_intent(GraphIntent::SetNodeUrl {
                             key: node_key,
@@ -495,8 +505,8 @@ fn render_node_audit_panel(
     state: &mut NodePaneState,
     node_key: NodeKey,
 ) {
-    use std::time::{SystemTime, UNIX_EPOCH};
     use crate::services::persistence::types::{LogEntry, NodeAuditEventKind};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     let node_id = match behavior.graph_app.domain_graph().get_node(node_key) {
         Some(node) => node.id,
@@ -517,7 +527,9 @@ fn render_node_audit_panel(
     }
 
     const LIMIT: usize = 50;
-    let entries = behavior.graph_app.node_audit_history_entries(node_id, LIMIT);
+    let entries = behavior
+        .graph_app
+        .node_audit_history_entries(node_id, LIMIT);
 
     if entries.is_empty() {
         ui.small("No audit events for this node.");
@@ -557,16 +569,18 @@ fn render_node_audit_panel(
                 };
 
                 let (icon, description) = match event {
-                    NodeAuditEventKind::TitleChanged { new_title } => {
-                        ("✏", format!("Renamed to \"{}\"", truncate_host_or_path(new_title, 32)))
-                    }
+                    NodeAuditEventKind::TitleChanged { new_title } => (
+                        "✏",
+                        format!("Renamed to \"{}\"", truncate_host_or_path(new_title, 32)),
+                    ),
                     NodeAuditEventKind::Tagged { tag } => ("🏷", format!("Tagged: {}", tag)),
                     NodeAuditEventKind::Untagged { tag } => ("🏷", format!("Untagged: {}", tag)),
                     NodeAuditEventKind::Pinned => ("📌", "Pinned".to_string()),
                     NodeAuditEventKind::Unpinned => ("📌", "Unpinned".to_string()),
-                    NodeAuditEventKind::UrlChanged { new_url } => {
-                        ("🔗", format!("URL → {}", truncate_host_or_path(new_url, 32)))
-                    }
+                    NodeAuditEventKind::UrlChanged { new_url } => (
+                        "🔗",
+                        format!("URL → {}", truncate_host_or_path(new_url, 32)),
+                    ),
                     NodeAuditEventKind::Tombstoned => ("🪦", "Tombstoned".to_string()),
                     NodeAuditEventKind::Restored => ("♻", "Restored".to_string()),
                 };
@@ -619,8 +633,7 @@ mod tests {
         let search_matches = HashSet::new();
 
         #[cfg(feature = "diagnostics")]
-        let mut diagnostics =
-            crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
 
         let ctx = egui::Context::default();
         let _ = ctx.run(egui::RawInput::default(), |_ctx| {
@@ -642,6 +655,9 @@ mod tests {
             });
         });
 
-        assert_eq!(app.workspace.chrome_ui.settings_tool_page, SettingsToolPage::Physics);
+        assert_eq!(
+            app.workspace.chrome_ui.settings_tool_page,
+            SettingsToolPage::Physics
+        );
     }
 }

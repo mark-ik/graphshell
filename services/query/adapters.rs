@@ -79,12 +79,13 @@ pub fn fact_to_timeline_event(fact: &ProjectedFact) -> Option<HistoryTimelineEve
             node_id: node_id.clone(),
             event: event.clone(),
         },
-        ProjectedFactKind::GraphStructure { node_id, is_addition } => {
-            HistoryEventKind::GraphStructure {
-                node_id: node_id.clone(),
-                is_addition: *is_addition,
-            }
-        }
+        ProjectedFactKind::GraphStructure {
+            node_id,
+            is_addition,
+        } => HistoryEventKind::GraphStructure {
+            node_id: node_id.clone(),
+            is_addition: *is_addition,
+        },
     };
 
     Some(HistoryTimelineEvent {
@@ -181,7 +182,10 @@ mod tests {
     #[test]
     fn filter_adapter_preserves_all_fields() {
         let filter = HistoryTimelineFilter {
-            tracks: Some(vec![HistoryTrackKind::Traversal, HistoryTrackKind::NodeAudit]),
+            tracks: Some(vec![
+                HistoryTrackKind::Traversal,
+                HistoryTrackKind::NodeAudit,
+            ]),
             node_id: Some("n1".to_string()),
             after_ms: Some(100),
             before_ms: Some(200),

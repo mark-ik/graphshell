@@ -174,8 +174,10 @@ mod tests {
         };
         let facts = projector().project(5, &entry);
         assert_eq!(facts.len(), 1);
-        assert!(matches!(&facts[0].kind, ProjectedFactKind::NodeAudit { node_id, .. }
-            if node_id == "n2"));
+        assert!(
+            matches!(&facts[0].kind, ProjectedFactKind::NodeAudit { node_id, .. }
+            if node_id == "n2")
+        );
     }
 
     #[test]
@@ -189,7 +191,13 @@ mod tests {
         };
         let facts = projector().project(1, &entry);
         assert_eq!(facts.len(), 1);
-        assert!(matches!(&facts[0].kind, ProjectedFactKind::GraphStructure { is_addition: true, .. }));
+        assert!(matches!(
+            &facts[0].kind,
+            ProjectedFactKind::GraphStructure {
+                is_addition: true,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -200,7 +208,13 @@ mod tests {
         };
         let facts = projector().project(2, &entry);
         assert_eq!(facts.len(), 1);
-        assert!(matches!(&facts[0].kind, ProjectedFactKind::GraphStructure { is_addition: false, .. }));
+        assert!(matches!(
+            &facts[0].kind,
+            ProjectedFactKind::GraphStructure {
+                is_addition: false,
+                ..
+            }
+        ));
     }
 
     #[test]

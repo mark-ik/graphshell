@@ -160,7 +160,11 @@ pub(crate) fn create_runtime_for_active_prewarm_nodes(
 
 pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     if args.graph_app.domain_graph().node_count() == 0 {
-        args.graph_app.workspace.graph_runtime.active_webview_nodes.clear();
+        args.graph_app
+            .workspace
+            .graph_runtime
+            .active_webview_nodes
+            .clear();
         args.webview_creation_backpressure.clear();
         tile_runtime::reset_runtime_webview_state(
             args.tiles_tree,
@@ -241,6 +245,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
 
     // Ensure wry child WebViews exist for all active NativeOverlay panes.
     // Creation is idempotent: `ensure_wry_overlay_for_node` no-ops if the WebView exists.
+    // After creation, `navigate_wry_overlay_for_node` keeps the live overlay URL in sync with
+    // the graph node URL (no-ops if the URL has not changed since last navigation).
     #[cfg(feature = "wry")]
     if let Some(parent_handle) = args.window.raw_window_handle_for_child() {
         for node_key in active_native_overlay_nodes.iter().copied() {
@@ -251,6 +257,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 .map(|node| node.url.as_str())
                 .unwrap_or("about:blank");
             verso::ensure_wry_overlay_for_node(node_key, url, parent_handle);
+            verso::navigate_wry_overlay_for_node(node_key, url);
         }
     }
 
@@ -543,6 +550,10 @@ mod tests {
         assert!(
             production_source.contains("ensure_wry_overlay_for_node"),
             "reconcile should create Wry overlays for active NativeOverlay nodes"
+        );
+        assert!(
+            production_source.contains("navigate_wry_overlay_for_node"),
+            "reconcile should navigate Wry overlays when the node URL changes"
         );
     }
 }

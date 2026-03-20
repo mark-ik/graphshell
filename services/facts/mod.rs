@@ -104,7 +104,10 @@ impl FactStore {
     ///
     /// Returns an empty slice when `node_id` has no associated facts.
     pub(crate) fn positions_for_node(&self, node_id: &str) -> &[usize] {
-        self.by_node_id.get(node_id).map(Vec::as_slice).unwrap_or(&[])
+        self.by_node_id
+            .get(node_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     /// Facts indexed by discriminant kind (positions in `facts()`).
@@ -232,11 +235,15 @@ mod tests {
         ];
         let store = FactStore::rebuild_from_log(&projector(), entries.into_iter());
         assert_eq!(
-            store.positions_for_kind(ProjectedFactDiscriminant::Traversal).len(),
+            store
+                .positions_for_kind(ProjectedFactDiscriminant::Traversal)
+                .len(),
             2
         );
         assert_eq!(
-            store.positions_for_kind(ProjectedFactDiscriminant::GraphStructure).len(),
+            store
+                .positions_for_kind(ProjectedFactDiscriminant::GraphStructure)
+                .len(),
             1
         );
     }

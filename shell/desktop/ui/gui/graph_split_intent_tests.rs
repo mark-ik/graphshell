@@ -271,7 +271,10 @@ fn settings_root_url_opens_transient_settings_overlay_by_default() {
     assert!(intents.is_empty());
     assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 0);
     assert!(app.workspace.chrome_ui.show_settings_overlay);
-    assert_eq!(app.workspace.chrome_ui.settings_tool_page, SettingsToolPage::General);
+    assert_eq!(
+        app.workspace.chrome_ui.settings_tool_page,
+        SettingsToolPage::General
+    );
 }
 
 #[test]
@@ -385,6 +388,7 @@ fn node_focus_state_clears_graph_surface_focus() {
         ),
         toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
+        pending_webview_context_surface_requests: Vec::new(),
         deferred_open_child_webviews: Vec::new(),
     };
 
@@ -413,6 +417,7 @@ fn graph_surface_focus_state_clears_node_hint_and_syncs_focused_view() {
         ),
         toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
+        pending_webview_context_surface_requests: Vec::new(),
         deferred_open_child_webviews: Vec::new(),
     };
     let mut app = GraphBrowserApp::new_for_testing();
@@ -464,7 +469,12 @@ fn reconcile_workspace_graph_views_prunes_stale_state_and_preserves_active_focus
 
     assert!(app.workspace.graph_runtime.views.contains_key(&live_view));
     assert!(!app.workspace.graph_runtime.views.contains_key(&stale_view));
-    assert!(!app.workspace.graph_runtime.graph_view_frames.contains_key(&stale_view));
+    assert!(
+        !app.workspace
+            .graph_runtime
+            .graph_view_frames
+            .contains_key(&stale_view)
+    );
     assert_eq!(app.workspace.graph_runtime.focused_view, Some(live_view));
     assert!(app.pending_camera_command().is_none());
     assert!(app.take_pending_keyboard_zoom_request(stale_view).is_none());

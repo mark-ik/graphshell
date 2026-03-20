@@ -1,6 +1,10 @@
-use crate::app::{GraphBrowserApp, GraphIntent, SettingsToolPage, WorkbenchIntent};
+use crate::app::{
+    ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent, SettingsToolPage,
+    WorkbenchIntent,
+};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::runtime::registries::theme::{THEME_ID_DARK, THEME_ID_LIGHT};
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
@@ -23,6 +27,21 @@ fn open_settings_page(
         &VersoAddress::settings(path).to_string(),
         prefer_overlay,
     );
+}
+
+fn theme_toggle_details(current_theme_id: Option<&str>) -> (&'static str, &'static str) {
+    if current_theme_id == Some(THEME_ID_DARK) {
+        ("Switch to Light Theme", THEME_ID_LIGHT)
+    } else {
+        ("Switch to Dark Theme", THEME_ID_DARK)
+    }
+}
+
+fn context_command_surface_label(preference: ContextCommandSurfacePreference) -> &'static str {
+    match preference {
+        ContextCommandSurfacePreference::RadialPalette => "Radial Palette",
+        ContextCommandSurfacePreference::ContextPalette => "Context Palette",
+    }
 }
 
 pub(super) fn render_settings_menu(
@@ -80,6 +99,42 @@ pub(super) fn render_settings_menu(
             if ui.button("Open Advanced").clicked() {
                 open_settings_page(graph_app, SettingsToolPage::Advanced, prefer_overlay);
                 ui.close();
+            }
+
+            ui.separator();
+            ui.label("Appearance");
+            let active_theme = crate::shell::desktop::runtime::registries::phase3_describe_theme(
+                graph_app.default_registry_theme_id(),
+            );
+            ui.small(format!("Active theme: {}", active_theme.display_name));
+            let (toggle_label, toggle_theme_id) =
+                theme_toggle_details(Some(active_theme.resolved_id.as_str()));
+            if ui.button(toggle_label).clicked() {
+                frame_intents.push(GraphIntent::SetTheme {
+                    theme_id: toggle_theme_id.to_string(),
+                });
+                ui.close();
+            }
+
+            ui.separator();
+            ui.label("Command Surfaces");
+            ui.small(format!(
+                "Right-click surface: {}",
+                context_command_surface_label(graph_app.context_command_surface_preference())
+            ));
+            for preference in [
+                ContextCommandSurfacePreference::RadialPalette,
+                ContextCommandSurfacePreference::ContextPalette,
+            ] {
+                if ui
+                    .selectable_label(
+                        graph_app.context_command_surface_preference() == preference,
+                        context_command_surface_label(preference),
+                    )
+                    .clicked()
+                {
+                    graph_app.set_context_command_surface_preference(preference);
+                }
             }
 
             ui.separator();
@@ -156,4 +211,37 @@ pub(super) fn render_settings_menu(
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{context_command_surface_label, theme_toggle_details};
+    use crate::app::ContextCommandSurfacePreference;
+    use crate::shell::desktop::runtime::registries::theme::{THEME_ID_DARK, THEME_ID_LIGHT};
+
+    #[test]
+    fn theme_toggle_switches_dark_theme_to_light() {
+        let (label, target) = theme_toggle_details(Some(THEME_ID_DARK));
+        assert_eq!(label, "Switch to Light Theme");
+        assert_eq!(target, THEME_ID_LIGHT);
+    }
+
+    #[test]
+    fn theme_toggle_switches_non_dark_theme_to_dark() {
+        let (label, target) = theme_toggle_details(Some(THEME_ID_LIGHT));
+        assert_eq!(label, "Switch to Dark Theme");
+        assert_eq!(target, THEME_ID_DARK);
+    }
+
+    #[test]
+    fn context_command_surface_labels_match_palette_names() {
+        assert_eq!(
+            context_command_surface_label(ContextCommandSurfacePreference::RadialPalette),
+            "Radial Palette"
+        );
+        assert_eq!(
+            context_command_surface_label(ContextCommandSurfacePreference::ContextPalette),
+            "Context Palette"
+        );
+    }
 }

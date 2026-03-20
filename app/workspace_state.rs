@@ -16,17 +16,17 @@ use crate::registries::atomic::knowledge::SemanticClassVector;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::caches::RuntimeCaches;
 
+use super::AppCommand;
 use super::{
     Camera, ClipInspectorState, CommandPaletteShortcut, ContextCommandSurfacePreference,
-    GraphReaderState, GraphSearchHistoryEntry, GraphSearchOrigin, NavigatorProjectionState,
-    GraphViewFrame, GraphViewId, GraphViewLayoutManagerState, GraphViewState, HelpPanelShortcut,
-    HistoryManagerTab, HistoryTraversalFailureReason, KeyboardPanInputMode, MemoryPressureLevel,
-    OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingCreateToken, RadialMenuShortcut,
-    RendererId, RuntimeBlockState, SearchDisplayMode, SelectionScope, SelectionState,
-    SettingsToolPage, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, ViewDimension,
-    WorkbenchIntent,
+    GraphReaderState, GraphSearchHistoryEntry, GraphSearchOrigin, GraphViewFrame, GraphViewId,
+    GraphViewLayoutManagerState, GraphViewState, HelpPanelShortcut, HistoryManagerTab,
+    HistoryTraversalFailureReason, KeyboardPanInputMode, MemoryPressureLevel,
+    NavigatorProjectionState, OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingCreateToken,
+    RadialMenuShortcut, RendererId, RuntimeBlockState, SearchDisplayMode, SelectionScope,
+    SelectionState, SettingsToolPage, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot,
+    ViewDimension, WorkbenchIntent,
 };
-use super::AppCommand;
 
 /// View-layer runtime state: physics, selection, views, search, history, rendering.
 pub struct GraphViewRuntimeState {

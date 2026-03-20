@@ -101,9 +101,8 @@ pub(crate) fn apply_graph_physics_extensions(
     apply_semantic_clustering_forces(app, extensions.semantic_clustering_args());
 
     if extensions.frame_affinity {
-        let regions = crate::graph::frame_affinity::derive_frame_affinity_regions(
-            app.domain_graph(),
-        );
+        let regions =
+            crate::graph::frame_affinity::derive_frame_affinity_regions(app.domain_graph());
         crate::graph::frame_affinity::apply_frame_affinity_forces(app, &regions, None);
     }
 }
@@ -287,7 +286,11 @@ pub(crate) mod scenario_helpers {
                 count += 1;
             }
         }
-        if count == 0 { 0.0 } else { total / count as f32 }
+        if count == 0 {
+            0.0
+        } else {
+            total / count as f32
+        }
     }
 
     /// Edge length coefficient of variation (spec §2.4).
@@ -309,7 +312,8 @@ pub(crate) mod scenario_helpers {
         if mean < f32::EPSILON {
             return 0.0;
         }
-        let variance = lengths.iter().map(|l| (l - mean).powi(2)).sum::<f32>() / lengths.len() as f32;
+        let variance =
+            lengths.iter().map(|l| (l - mean).powi(2)).sum::<f32>() / lengths.len() as f32;
         variance.sqrt() / mean
     }
 

@@ -176,10 +176,14 @@ pub(crate) fn graph_intent_for_thumbnail_result(
         .graph_runtime
         .runtime_caches
         .insert_thumbnail(node_key, png_bytes.clone());
-    graph_app.workspace.graph_runtime.runtime_caches.insert_parsed_metadata(
-        thumbnail_url_cache_key(node_key),
-        Value::String(result.requested_url.clone()),
-    );
+    graph_app
+        .workspace
+        .graph_runtime
+        .runtime_caches
+        .insert_parsed_metadata(
+            thumbnail_url_cache_key(node_key),
+            Value::String(result.requested_url.clone()),
+        );
     Some(GraphIntent::SetNodeThumbnail {
         key: node_key,
         png_bytes,
@@ -330,10 +334,13 @@ mod tests {
             .graph_runtime
             .runtime_caches
             .insert_thumbnail(node_key, vec![9, 9, 9]);
-        app.workspace.graph_runtime.runtime_caches.insert_parsed_metadata(
-            thumbnail_url_cache_key(node_key),
-            Value::String("https://stale.example".to_string()),
-        );
+        app.workspace
+            .graph_runtime
+            .runtime_caches
+            .insert_parsed_metadata(
+                thumbnail_url_cache_key(node_key),
+                Value::String("https://stale.example".to_string()),
+            );
 
         assert!(
             cached_thumbnail_result_for_request(
@@ -345,10 +352,13 @@ mod tests {
             .is_none()
         );
 
-        app.workspace.graph_runtime.runtime_caches.insert_parsed_metadata(
-            thumbnail_url_cache_key(node_key),
-            Value::String("https://current.example".to_string()),
-        );
+        app.workspace
+            .graph_runtime
+            .runtime_caches
+            .insert_parsed_metadata(
+                thumbnail_url_cache_key(node_key),
+                Value::String("https://current.example".to_string()),
+            );
         let cached = cached_thumbnail_result_for_request(
             &app,
             webview_id,

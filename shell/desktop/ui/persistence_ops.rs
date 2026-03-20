@@ -1019,22 +1019,22 @@ mod tests {
             .get_node_by_url(&view_url)
             .expect("graph view member node should be created");
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::ArrangementRelation(
-                crate::graph::ArrangementSubKind::FrameMember,
-            ) && edge.from == frame_key
+            edge.edge_type
+                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::FrameMember)
+                && edge.from == frame_key
                 && edge.to == view_key
         }));
         assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type == EdgeType::ArrangementRelation(
-                crate::graph::ArrangementSubKind::FrameMember,
-            ) && edge.from == frame_key
+            edge.edge_type
+                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::FrameMember)
+                && edge.from == frame_key
                 && edge.to == node
         }));
     }
 
     #[test]
-    fn refresh_workbench_projection_from_manifests_updates_navigator_rows_and_arrangement_projection(
-    ) {
+    fn refresh_workbench_projection_from_manifests_updates_navigator_rows_and_arrangement_projection()
+     {
         let dir = TempDir::new().unwrap();
         let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
         let node = app.add_node_and_sync(
@@ -1054,10 +1054,14 @@ mod tests {
             .expect("save frame bundle");
         app.remove_named_workbench_frame_graph_representation("workspace-refresh-projection");
 
-        assert!(app.arrangement_projection_groups().into_iter().all(|group| {
-            group.sub_kind != crate::graph::ArrangementSubKind::FrameMember
-                || group.title != "workspace-refresh-projection"
-        }));
+        assert!(
+            app.arrangement_projection_groups()
+                .into_iter()
+                .all(|group| {
+                    group.sub_kind != crate::graph::ArrangementSubKind::FrameMember
+                        || group.title != "workspace-refresh-projection"
+                })
+        );
 
         app.set_navigator_containment_relation_source(
             crate::app::NavigatorContainmentRelationSource::ContainmentRelations,

@@ -6,9 +6,7 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::graph::{
-    ImportRecord, NodeImportProvenance, badge::NodeTagPresentationState,
-};
+use crate::graph::{ImportRecord, NodeImportProvenance, badge::NodeTagPresentationState};
 
 /// Address type hint for persistence (mirrors `AddressKind` in the graph model).
 #[derive(
@@ -189,10 +187,7 @@ pub enum HistoryEventKind {
         event: NodeAuditEventKind,
     },
     /// Graph structural event: node added or removed.
-    GraphStructure {
-        node_id: String,
-        is_addition: bool,
-    },
+    GraphStructure { node_id: String, is_addition: bool },
 }
 
 impl HistoryEventKind {

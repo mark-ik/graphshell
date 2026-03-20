@@ -6,8 +6,8 @@
 //! tag panel window, and graph search scope/history helpers.
 
 use crate::app::{GraphBrowserApp, GraphSearchHistoryEntry, GraphSearchOrigin};
-use crate::graph::badge::{BadgeVisual, badge_visuals, badges_for_node};
 use crate::graph::NodeKey;
+use crate::graph::badge::{BadgeVisual, badge_visuals, badges_for_node};
 use egui::Window;
 use std::collections::{HashMap, HashSet};
 
@@ -443,7 +443,8 @@ pub(super) fn render_selected_node_tag_panel(
                     for icon in icon_picker_presets() {
                         let label = badge_icon_label(&icon);
                         if ui.small_button(label).clicked()
-                            && let Some(panel_state) = app.workspace.graph_runtime.tag_panel_state.as_mut()
+                            && let Some(panel_state) =
+                                app.workspace.graph_runtime.tag_panel_state.as_mut()
                         {
                             panel_state.pending_icon_override =
                                 (!matches!(icon, crate::graph::badge::BadgeIcon::None))

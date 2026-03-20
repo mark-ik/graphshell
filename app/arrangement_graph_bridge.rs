@@ -88,15 +88,14 @@ impl GraphBrowserApp {
         snapshot: &ArrangementSnapshot,
     ) -> ArrangementGraphDelta {
         match snapshot {
-            ArrangementSnapshot::Frame { name, pane_tile_kinds } => {
-                self.reconcile_frame_snapshot(name, pane_tile_kinds)
-            }
+            ArrangementSnapshot::Frame {
+                name,
+                pane_tile_kinds,
+            } => self.reconcile_frame_snapshot(name, pane_tile_kinds),
             ArrangementSnapshot::TileGroup { pane_tile_kinds } => {
                 self.reconcile_tile_group_snapshot(pane_tile_kinds)
             }
-            ArrangementSnapshot::RemoveFrame { name } => {
-                self.reconcile_remove_frame(name)
-            }
+            ArrangementSnapshot::RemoveFrame { name } => self.reconcile_remove_frame(name),
         }
     }
 }
@@ -109,28 +108,26 @@ impl GraphBrowserApp {
         name: &str,
         pane_tile_kinds: &[TileKind],
     ) -> ArrangementGraphDelta {
-        let member_node_keys =
-            self.resolve_arrangement_tile_member_nodes(pane_tile_kinds.to_vec());
+        let member_node_keys = self.resolve_arrangement_tile_member_nodes(pane_tile_kinds.to_vec());
 
         // Capture existing members before mutation for delta reporting.
         let frame_url = VersoAddress::frame(name.to_string()).to_string();
-        let existing_members: Vec<NodeKey> = if let Some((frame_key, _)) =
-            self.domain_graph().get_node_by_url(&frame_url)
-        {
-            self.domain_graph()
-                .edges()
-                .filter(|e| {
-                    e.from == frame_key
-                        && matches!(
-                            e.edge_type,
-                            EdgeType::UserGrouped | EdgeType::ArrangementRelation(_)
-                        )
-                })
-                .map(|e| e.to)
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let existing_members: Vec<NodeKey> =
+            if let Some((frame_key, _)) = self.domain_graph().get_node_by_url(&frame_url) {
+                self.domain_graph()
+                    .edges()
+                    .filter(|e| {
+                        e.from == frame_key
+                            && matches!(
+                                e.edge_type,
+                                EdgeType::UserGrouped | EdgeType::ArrangementRelation(_)
+                            )
+                    })
+                    .map(|e| e.to)
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
         let frame_key = self.ensure_internal_surface_node(
             frame_url,
@@ -164,8 +161,7 @@ impl GraphBrowserApp {
         &mut self,
         pane_tile_kinds: &[TileKind],
     ) -> ArrangementGraphDelta {
-        let member_node_keys =
-            self.resolve_arrangement_tile_member_nodes(pane_tile_kinds.to_vec());
+        let member_node_keys = self.resolve_arrangement_tile_member_nodes(pane_tile_kinds.to_vec());
         if member_node_keys.is_empty() {
             return ArrangementGraphDelta {
                 container_node: None,
@@ -234,10 +230,7 @@ impl GraphBrowserApp {
 // ── Private helpers (not callable outside this module) ────────────────────────
 
 impl GraphBrowserApp {
-    fn resolve_arrangement_tile_member_nodes(
-        &mut self,
-        tile_kinds: Vec<TileKind>,
-    ) -> Vec<NodeKey> {
+    fn resolve_arrangement_tile_member_nodes(&mut self, tile_kinds: Vec<TileKind>) -> Vec<NodeKey> {
         let mut member_node_keys = Vec::new();
         for tile_kind in tile_kinds {
             let Some(member_key) = self.arrangement_tile_graph_identity(&tile_kind) else {
@@ -252,31 +245,33 @@ impl GraphBrowserApp {
 
     fn arrangement_tile_graph_identity(&mut self, tile_kind: &TileKind) -> Option<NodeKey> {
         match tile_kind {
-            TileKind::Pane(
-                crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
-            ) => Some(state.node),
-            TileKind::Pane(
-                crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref),
-            ) => Some(self.ensure_internal_surface_node(
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(
+                state,
+            )) => Some(state.node),
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(
+                graph_ref,
+            )) => Some(self.ensure_internal_surface_node(
                 VersoAddress::view(graph_ref.graph_view_id.as_uuid().to_string()).to_string(),
                 "Graph View".to_string(),
                 self.suggested_new_node_position(None),
             )),
             #[cfg(feature = "diagnostics")]
-            TileKind::Pane(
-                crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool_ref),
-            ) => Some(self.ensure_internal_surface_node(
-                VersoAddress::Other {
-                    category: "tool-pane".to_string(),
-                    segments: vec![
-                        arrangement_tool_pane_segment(&tool_ref.kind).to_string(),
-                        tool_ref.pane_id.to_string(),
-                    ],
-                }
-                .to_string(),
-                tool_ref.title().to_string(),
-                self.suggested_new_node_position(None),
-            )),
+            TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(
+                tool_ref,
+            )) => Some(
+                self.ensure_internal_surface_node(
+                    VersoAddress::Other {
+                        category: "tool-pane".to_string(),
+                        segments: vec![
+                            arrangement_tool_pane_segment(&tool_ref.kind).to_string(),
+                            tool_ref.pane_id.to_string(),
+                        ],
+                    }
+                    .to_string(),
+                    tool_ref.title().to_string(),
+                    self.suggested_new_node_position(None),
+                ),
+            ),
             TileKind::Node(state) => Some(state.node),
             TileKind::Graph(graph_ref) => Some(self.ensure_internal_surface_node(
                 VersoAddress::view(graph_ref.graph_view_id.as_uuid().to_string()).to_string(),
@@ -284,18 +279,20 @@ impl GraphBrowserApp {
                 self.suggested_new_node_position(None),
             )),
             #[cfg(feature = "diagnostics")]
-            TileKind::Tool(tool_ref) => Some(self.ensure_internal_surface_node(
-                VersoAddress::Other {
-                    category: "tool-pane".to_string(),
-                    segments: vec![
-                        arrangement_tool_pane_segment(&tool_ref.kind).to_string(),
-                        tool_ref.pane_id.to_string(),
-                    ],
-                }
-                .to_string(),
-                tool_ref.title().to_string(),
-                self.suggested_new_node_position(None),
-            )),
+            TileKind::Tool(tool_ref) => Some(
+                self.ensure_internal_surface_node(
+                    VersoAddress::Other {
+                        category: "tool-pane".to_string(),
+                        segments: vec![
+                            arrangement_tool_pane_segment(&tool_ref.kind).to_string(),
+                            tool_ref.pane_id.to_string(),
+                        ],
+                    }
+                    .to_string(),
+                    tool_ref.title().to_string(),
+                    self.suggested_new_node_position(None),
+                ),
+            ),
         }
     }
 

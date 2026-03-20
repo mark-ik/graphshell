@@ -439,6 +439,7 @@ impl Gui {
                 focus_authority: RuntimeFocusAuthorityState::default(),
                 toolbar_drafts: HashMap::new(),
                 command_palette_toggle_requested: false,
+                pending_webview_context_surface_requests: Vec::new(),
                 deferred_open_child_webviews: Vec::new(),
             },
             #[cfg(feature = "diagnostics")]
@@ -568,11 +569,16 @@ impl Gui {
 
     fn apply_pending_workbench_projection_refresh_updates(&mut self) {
         let mut saw_update = false;
-        while self.workbench_projection_refresh_signal_rx.try_recv().is_ok() {
+        while self
+            .workbench_projection_refresh_signal_rx
+            .try_recv()
+            .is_ok()
+        {
             saw_update = true;
         }
         if saw_update {
-            let _ = persistence_ops::refresh_workbench_projection_from_manifests(&mut self.graph_app);
+            let _ =
+                persistence_ops::refresh_workbench_projection_from_manifests(&mut self.graph_app);
         }
     }
 
@@ -699,6 +705,21 @@ impl Gui {
 
     pub(crate) fn request_location_submit(&mut self) {
         interaction_queries::request_location_submit(self)
+    }
+
+    pub(crate) fn request_context_command_surface_for_webview(
+        &mut self,
+        webview_id: WebViewId,
+        anchor: [f32; 2],
+    ) {
+        self.runtime_state
+            .pending_webview_context_surface_requests
+            .push(
+                crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest {
+                    webview_id,
+                    anchor,
+                },
+            );
     }
 
     fn persist_active_toolbar_draft(&mut self) {
@@ -863,11 +884,15 @@ impl Gui {
             omnibar_search_session,
             toolbar_drafts: _,
             command_palette_toggle_requested,
+            pending_webview_context_surface_requests,
             deferred_open_child_webviews,
         } = runtime_state;
 
         let winit_window = headed_window.winit_window();
-        Self::configure_frame_toasts(toasts, graph_app.workspace.chrome_ui.toast_anchor_preference);
+        Self::configure_frame_toasts(
+            toasts,
+            graph_app.workspace.chrome_ui.toast_anchor_preference,
+        );
         context.run_ui_frame(winit_window, |ctx| {
             Self::execute_update_frame(ExecuteUpdateFrameArgs {
                 ctx,
@@ -903,6 +928,7 @@ impl Gui {
                 focus_ring_duration,
                 omnibar_search_session,
                 command_palette_toggle_requested,
+                pending_webview_context_surface_requests,
                 deferred_open_child_webviews,
                 rendering_context,
                 window_rendering_context,

@@ -17,16 +17,18 @@ pub(super) fn handle_location_submit(
     omnibar_search_session: &mut Option<OmnibarSearchSession>,
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
-) {
+) -> bool {
     let should_submit_now = *location_submitted;
     if !should_submit_now {
-        return;
+        return false;
     }
 
     *location_submitted = false;
     let mut handled_omnibar_search = false;
+    let mut retain_omnibar_focus = false;
     let trimmed_location = location.trim().to_string();
     if let Some(query) = trimmed_location.strip_prefix('@') {
+        retain_omnibar_focus = true;
         if let Some((provider, provider_query)) = parse_provider_search_query(query) {
             let query = provider_query.trim();
             if query.is_empty() {
@@ -116,27 +118,37 @@ pub(super) fn handle_location_submit(
     // parsed into a `FacetExpr`, and dispatched as `SetViewFilter` to the
     // currently focused graph view.  The location bar is cleared on success.
     if !handled_omnibar_search && trimmed_location.starts_with("facet:") {
-        match crate::model::graph::filter::parse_omnibar_facet_token(&trimmed_location) {
-            Some(predicate) => {
-                let view_id = graph_app.workspace.graph_runtime.focused_view;
+        retain_omnibar_focus = true;
+        let view_id = graph_app.workspace.graph_runtime.focused_view;
+        match trimmed_location.as_str() {
+            "facet:clear" | "facet:none" | "facet:off" => {
                 if let Some(view_id) = view_id {
-                    frame_intents.push(crate::app::GraphIntent::SetViewFilter {
-                        view_id,
-                        expr: Some(crate::model::graph::filter::FacetExpr::Predicate(predicate)),
-                    });
+                    frame_intents.push(crate::app::GraphIntent::ClearViewFilter { view_id });
                     location.clear();
                     *location_dirty = false;
                 }
             }
-            None => {
-                // Malformed facet token — emit warn diagnostic and leave bar dirty so user can fix.
-                crate::shell::desktop::runtime::diagnostics::emit_event(
-                    crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
-                        channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_INVALID_QUERY,
-                        latency_us: 0,
-                    },
-                );
-            }
+            _ => match crate::model::graph::filter::parse_omnibar_facet_token(&trimmed_location) {
+                Some(expr) => {
+                    if let Some(view_id) = view_id {
+                        frame_intents.push(crate::app::GraphIntent::SetViewFilter {
+                            view_id,
+                            expr: Some(expr),
+                        });
+                        location.clear();
+                        *location_dirty = false;
+                    }
+                }
+                None => {
+                    // Malformed facet token — emit warn diagnostic and leave bar dirty so user can fix.
+                    crate::shell::desktop::runtime::diagnostics::emit_event(
+                        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                            channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_INVALID_QUERY,
+                            latency_us: 0,
+                        },
+                    );
+                }
+            },
         }
         handled_omnibar_search = true;
     }
@@ -149,6 +161,7 @@ pub(super) fn handle_location_submit(
             && !session.matches.is_empty()
             && let Some(active_match) = session.matches.get(session.active_index).cloned()
         {
+            retain_omnibar_focus = true;
             match active_match {
                 OmnibarMatch::SearchQuery { query, provider } => {
                     *location = query;
@@ -205,4 +218,6 @@ pub(super) fn handle_location_submit(
             }
         }
     }
+
+    retain_omnibar_focus
 }

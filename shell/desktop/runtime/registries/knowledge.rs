@@ -163,7 +163,12 @@ mod tests {
         assert!(report.changed);
         assert_eq!(report.indexed_nodes, 1);
         assert!(!app.workspace.graph_runtime.semantic_index_dirty);
-        let index = app.workspace.graph_runtime.semantic_index.get(&key).unwrap();
+        let index = app
+            .workspace
+            .graph_runtime
+            .semantic_index
+            .get(&key)
+            .unwrap();
         assert_eq!(index.primary_code, Some(CompactCode(vec![5, 1])));
         assert_eq!(index.classes, vec![CompactCode(vec![5, 1])]);
 

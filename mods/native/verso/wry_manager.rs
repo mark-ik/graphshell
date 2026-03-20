@@ -27,6 +27,8 @@ pub(crate) struct OverlaySyncState {
 struct WebviewSlot {
     webview: wry::WebView,
     last_sync: Option<OverlaySyncState>,
+    /// The URL most recently sent to the webview (initial or via navigate).
+    last_url: String,
 }
 
 pub(crate) struct WryManager {
@@ -90,6 +92,7 @@ impl WryManager {
                     WebviewSlot {
                         webview,
                         last_sync: None,
+                        last_url: url.to_string(),
                     },
                 );
             }
@@ -105,6 +108,32 @@ impl WryManager {
 
     pub(crate) fn has_webview(&self, node_id: u64) -> bool {
         self.webviews.contains_key(&node_id)
+    }
+
+    /// Returns the URL most recently loaded (or navigated to) in the webview,
+    /// or `None` if no webview exists for this node.
+    pub(crate) fn last_url(&self, node_id: u64) -> Option<&str> {
+        self.webviews
+            .get(&node_id)
+            .map(|slot| slot.last_url.as_str())
+    }
+
+    /// Navigate an existing wry WebView to a new URL.
+    ///
+    /// No-ops if no webview exists for `node_id` (caller should call
+    /// `ensure_wry_overlay_for_node` first).
+    pub(crate) fn navigate_webview(&mut self, node_id: u64, url: &str) {
+        let Some(slot) = self.webviews.get_mut(&node_id) else {
+            return;
+        };
+        if slot.last_url == url {
+            return;
+        }
+        if let Err(e) = slot.webview.load_url(url) {
+            log::warn!("wry: navigate failed for node {node_id}: {e}");
+            return;
+        }
+        slot.last_url = url.to_string();
     }
 
     pub(crate) fn sync_overlay(&mut self, node_id: u64, rect: OverlayRect, visible: bool) {

@@ -5,8 +5,9 @@
 //! Canvas visual helpers: presentation profiles, lifecycle colours, viewport
 //! culling, search-hit colouring, and adjacency-set computation.
 
-use crate::app::{GraphBrowserApp, SearchDisplayMode};
+use crate::app::{GraphBrowserApp, GraphViewId, SearchDisplayMode};
 use crate::graph::{NodeKey, NodeLifecycle};
+use crate::model::graph::filter::{FacetExpr, FilterEvaluationSummary, evaluate_filter_result};
 use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_presentation_profile;
 use egui::Color32;
@@ -266,7 +267,11 @@ pub(super) fn viewport_culled_graph(
     app: &GraphBrowserApp,
     view_id: crate::app::GraphViewId,
 ) -> Option<crate::graph::Graph> {
-    let frame = app.workspace.graph_runtime.graph_view_frames.get(&view_id)?;
+    let frame = app
+        .workspace
+        .graph_runtime
+        .graph_view_frames
+        .get(&view_id)?;
     let canvas_rect = canvas_rect_from_view_frame(ui.max_rect(), *frame)?;
 
     viewport_culled_graph_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
@@ -320,14 +325,193 @@ pub(super) fn filtered_graph_for_search(
     app: &GraphBrowserApp,
     search_matches: &HashSet<NodeKey>,
 ) -> crate::graph::Graph {
+    filtered_graph_for_visible_nodes(app, search_matches)
+}
+
+pub(super) fn active_view_filter_expr(
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+) -> Option<&FacetExpr> {
+    app.workspace
+        .graph_runtime
+        .views
+        .get(&view_id)
+        .and_then(|view| view.effective_filter_expr())
+}
+
+pub(super) fn evaluate_active_view_filter(
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+) -> Option<FilterEvaluationSummary> {
+    active_view_filter_expr(app, view_id)
+        .map(|expr| evaluate_filter_result(app.domain_graph(), expr))
+}
+
+pub(super) fn filtered_graph_for_visible_nodes(
+    app: &GraphBrowserApp,
+    visible_nodes: &HashSet<NodeKey>,
+) -> crate::graph::Graph {
     let mut filtered = app.domain_graph().clone();
     let to_remove: Vec<NodeKey> = filtered
         .nodes()
         .map(|(key, _)| key)
-        .filter(|key| !search_matches.contains(key))
+        .filter(|key| !visible_nodes.contains(key))
         .collect();
     for key in to_remove {
         filtered.remove_node(key);
     }
     filtered
+}
+
+pub(super) fn visible_nodes_for_view_filters(
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+    search_matches: &HashSet<NodeKey>,
+    search_display_mode: SearchDisplayMode,
+    search_query_active: bool,
+) -> Option<HashSet<NodeKey>> {
+    let facet_summary = evaluate_active_view_filter(app, view_id);
+    let facet_matches = facet_summary.as_ref().map(|summary| {
+        summary
+            .result
+            .matched_nodes
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>()
+    });
+    let search_filter_matches = (matches!(search_display_mode, SearchDisplayMode::Filter)
+        && search_query_active)
+        .then(|| search_matches.clone());
+
+    match (facet_matches, search_filter_matches) {
+        (Some(facet), Some(search)) => Some(facet.intersection(&search).copied().collect()),
+        (Some(facet), None) => Some(facet),
+        (None, Some(search)) => Some(search),
+        (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use euclid::default::Point2D;
+
+    use super::*;
+    use crate::app::GraphViewState;
+    use crate::graph::egui_adapter::EguiGraphState;
+
+    fn test_app() -> GraphBrowserApp {
+        GraphBrowserApp::new_for_testing()
+    }
+
+    #[test]
+    fn test_search_highlight_mode_dims_not_hides() {
+        let mut app = test_app();
+        let a = app.add_node_and_sync("alpha".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("beta".into(), Point2D::new(10.0, 0.0));
+        app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Highlight;
+        app.workspace.graph_runtime.egui_state =
+            Some(EguiGraphState::from_graph_with_visual_state(
+                &app.workspace.domain.graph,
+                app.focused_selection(),
+                app.focused_selection().primary(),
+                &HashSet::new(),
+            ));
+        let matches = HashSet::from([a]);
+        let selection = app.focused_selection().clone();
+        apply_search_node_visuals(&mut app, &selection, &matches, Some(a), true);
+
+        let state = app.workspace.graph_runtime.egui_state.as_ref().unwrap();
+        assert!(state.graph.node(a).is_some());
+        assert!(state.graph.node(b).is_some());
+        let b_color = state.graph.node(b).unwrap().color().unwrap();
+        let presentation =
+            crate::registries::domain::presentation::PresentationDomainRegistry::default()
+                .resolve_profile("physics:default", "theme:default")
+                .profile;
+        assert!(b_color != lifecycle_color(&presentation, NodeLifecycle::Cold));
+    }
+
+    #[test]
+    fn test_search_filter_mode_hides_nodes() {
+        let mut app = test_app();
+        let a = app.add_node_and_sync("alpha".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("beta".into(), Point2D::new(10.0, 0.0));
+        app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Filter;
+        let matches = HashSet::from([a]);
+        let filtered = filtered_graph_for_search(&app, &matches);
+        assert!(filtered.get_node(a).is_some());
+        assert!(filtered.get_node(b).is_none());
+    }
+
+    #[test]
+    fn active_view_filter_matches_udc_descendants() {
+        let mut app = test_app();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .graph_runtime
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Facet"));
+        let descendant = app.add_node_and_sync(
+            "https://example.com/numerical".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let other =
+            app.add_node_and_sync("https://example.com/music".into(), Point2D::new(10.0, 0.0));
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(descendant, "udc:519.6".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(other, "udc:78".to_string());
+        if let Some(view) = app.workspace.graph_runtime.views.get_mut(&view_id) {
+            view.active_filter =
+                crate::model::graph::filter::parse_omnibar_facet_token("facet:udc_classes=udc:51");
+        }
+
+        let summary = evaluate_active_view_filter(&app, view_id).expect("filter summary");
+        let matches: HashSet<_> = summary.result.matched_nodes.iter().copied().collect();
+
+        assert!(matches.contains(&descendant));
+        assert!(!matches.contains(&other));
+    }
+
+    #[test]
+    fn visible_nodes_for_view_filters_intersects_search_and_facet_sets() {
+        let mut app = test_app();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .graph_runtime
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Facet"));
+        let alpha = app.add_node_and_sync("alpha".into(), Point2D::new(0.0, 0.0));
+        let beta = app.add_node_and_sync("beta".into(), Point2D::new(10.0, 0.0));
+        if let Some(view) = app.workspace.graph_runtime.views.get_mut(&view_id) {
+            view.active_filter = Some(crate::model::graph::filter::FacetExpr::Predicate(
+                crate::model::graph::filter::FacetPredicate {
+                    facet_key: crate::model::graph::filter::facet_keys::TITLE.to_string(),
+                    operator: crate::model::graph::filter::FacetOperator::Eq,
+                    operand: crate::model::graph::filter::FacetOperand::Scalar(
+                        crate::model::graph::filter::FacetScalar::Text("alpha".to_string()),
+                    ),
+                },
+            ));
+        }
+
+        let visible = visible_nodes_for_view_filters(
+            &app,
+            view_id,
+            &HashSet::from([alpha, beta]),
+            SearchDisplayMode::Filter,
+            true,
+        )
+        .expect("visible set");
+
+        assert_eq!(visible, HashSet::from([alpha]));
+    }
 }

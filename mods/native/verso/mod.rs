@@ -74,6 +74,24 @@ pub(crate) fn sync_wry_overlay_for_node(node_key: NodeKey, rect: OverlayRect, vi
     with_wry_manager(|manager| manager.sync_overlay(node_id, rect, visible));
 }
 
+/// Navigate an existing wry overlay for `node_key` to `url`.
+///
+/// No-ops if no overlay exists yet (caller should ensure `ensure_wry_overlay_for_node` was called
+/// first) or if the URL has not changed since the last navigation.
+#[cfg(feature = "wry")]
+pub(crate) fn navigate_wry_overlay_for_node(node_key: NodeKey, url: &str) {
+    let node_id = node_key.index() as u64;
+    with_wry_manager(|manager| manager.navigate_webview(node_id, url));
+}
+
+/// Returns the URL most recently loaded by the wry overlay for `node_key`, or `None` if no
+/// overlay exists.
+#[cfg(feature = "wry")]
+pub(crate) fn last_wry_overlay_url_for_node(node_key: NodeKey) -> Option<String> {
+    let node_id = node_key.index() as u64;
+    with_wry_manager(|manager| manager.last_url(node_id).map(str::to_string))
+}
+
 #[cfg(feature = "wry")]
 pub(crate) fn hide_wry_overlay_for_node(node_key: NodeKey) -> bool {
     let node_id = node_key.index() as u64;

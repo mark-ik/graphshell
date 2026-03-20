@@ -1,5 +1,40 @@
 use super::*;
 
+/// Durable identifier for a rich note document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct NoteId(uuid::Uuid);
+
+impl NoteId {
+    pub fn new() -> Self {
+        Self(uuid::Uuid::new_v4())
+    }
+
+    pub(crate) fn from_uuid(id: uuid::Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn as_uuid(self) -> uuid::Uuid {
+        self.0
+    }
+}
+
+impl Default for NoteId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NoteRecord {
+    pub id: NoteId,
+    pub title: String,
+    pub linked_node: Option<NodeKey>,
+    pub source_url: Option<String>,
+    pub body: String,
+    pub created_at: std::time::SystemTime,
+    pub updated_at: std::time::SystemTime,
+}
+
 impl GraphBrowserApp {
     fn refresh_protocol_probe_for_node(&mut self, key: NodeKey, url: &str, enqueue_cancel: bool) {
         let protocol_resolution =
@@ -134,7 +169,8 @@ impl GraphBrowserApp {
         };
 
         if emitted_dissolved_append {
-            self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+            self.workspace.graph_runtime.history_last_event_unix_ms =
+                Some(Self::unix_timestamp_ms_now());
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
                 latency_us: 0,
@@ -375,7 +411,8 @@ impl GraphBrowserApp {
             return false;
         }
 
-        self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+        self.workspace.graph_runtime.history_last_event_unix_ms =
+            Some(Self::unix_timestamp_ms_now());
 
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORDED,
@@ -485,7 +522,11 @@ impl GraphBrowserApp {
         record_id: String,
         anchor: NodeKey,
     ) {
-        let member_keys = self.workspace.domain.graph.import_record_member_keys(&record_id);
+        let member_keys = self
+            .workspace
+            .domain
+            .graph
+            .import_record_member_keys(&record_id);
         if !member_keys.contains(&anchor) {
             return;
         }
@@ -840,14 +881,29 @@ impl GraphBrowserApp {
                 }
             }
 
-            if let Some(webview_id) = self.workspace.graph_runtime.node_to_webview.get(&node_key).copied() {
+            if let Some(webview_id) = self
+                .workspace
+                .graph_runtime
+                .node_to_webview
+                .get(&node_key)
+                .copied()
+            {
                 let _ = self.unmap_webview(webview_id);
             }
             self.remove_active_node(node_key);
             self.remove_warm_cache_node(node_key);
-            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
-            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
-            self.workspace.graph_runtime.suggested_semantic_tags.remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .runtime_block_state
+                .remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .runtime_block_state
+                .remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .suggested_semantic_tags
+                .remove(&node_key);
             if let Some(node_id) = node_id {
                 self.workspace.workbench_session.on_node_deleted(node_id);
             }
@@ -857,7 +913,8 @@ impl GraphBrowserApp {
                 let _ = store.dissolve_and_remove_node(&mut self.workspace.domain.graph, node_key);
                 let dissolved_after = store.dissolved_archive_len();
                 if dissolved_after > dissolved_before {
-                    self.workspace.graph_runtime.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                    self.workspace.graph_runtime.history_last_event_unix_ms =
+                        Some(Self::unix_timestamp_ms_now());
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
                         latency_us: 0,
@@ -903,9 +960,13 @@ impl GraphBrowserApp {
         self.workspace.domain.graph = Graph::new();
         self.reset_selection_state();
         self.workspace.graph_runtime.highlighted_graph_edge = None;
-        self.workspace.graph_runtime.navigator_projection_state = NavigatorProjectionState::default();
+        self.workspace.graph_runtime.navigator_projection_state =
+            NavigatorProjectionState::default();
         self.clear_choose_frame_picker();
-        self.workspace.workbench_session.pending_app_commands.clear();
+        self.workspace
+            .workbench_session
+            .pending_app_commands
+            .clear();
         self.clear_pending_camera_command();
         self.clear_pending_wheel_zoom_delta();
         self.workspace.domain.notes.clear();
@@ -922,14 +983,30 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.suggested_semantic_tags.clear();
         self.workspace.graph_runtime.semantic_index.clear();
         self.workspace.graph_runtime.semantic_index_dirty = true;
-        self.workspace.workbench_session.node_last_active_workspace.clear();
-        self.workspace.workbench_session.node_workspace_membership.clear();
-        self.workspace.workbench_session.last_session_workspace_layout_hash = None;
-        self.workspace.workbench_session.last_session_workspace_layout_json = None;
+        self.workspace
+            .workbench_session
+            .node_last_active_workspace
+            .clear();
+        self.workspace
+            .workbench_session
+            .node_workspace_membership
+            .clear();
+        self.workspace
+            .workbench_session
+            .last_session_workspace_layout_hash = None;
+        self.workspace
+            .workbench_session
+            .last_session_workspace_layout_json = None;
         self.workspace.workbench_session.last_workspace_autosave_at = None;
-        self.workspace.workbench_session.current_workspace_is_synthesized = false;
-        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
-        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+        self.workspace
+            .workbench_session
+            .current_workspace_is_synthesized = false;
+        self.workspace
+            .workbench_session
+            .workspace_has_unsaved_changes = false;
+        self.workspace
+            .workbench_session
+            .unsaved_workspace_prompt_warned = false;
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
@@ -942,9 +1019,13 @@ impl GraphBrowserApp {
         self.workspace.domain.graph = Graph::new();
         self.reset_selection_state();
         self.workspace.graph_runtime.highlighted_graph_edge = None;
-        self.workspace.graph_runtime.navigator_projection_state = NavigatorProjectionState::default();
+        self.workspace.graph_runtime.navigator_projection_state =
+            NavigatorProjectionState::default();
         self.clear_choose_frame_picker();
-        self.workspace.workbench_session.pending_app_commands.clear();
+        self.workspace
+            .workbench_session
+            .pending_app_commands
+            .clear();
         self.clear_pending_camera_command();
         self.clear_pending_wheel_zoom_delta();
         self.workspace.graph_runtime.views.clear();
@@ -958,11 +1039,23 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.runtime_block_state.clear();
         self.workspace.graph_runtime.runtime_block_state.clear();
         self.workspace.graph_runtime.suggested_semantic_tags.clear();
-        self.workspace.workbench_session.node_last_active_workspace.clear();
-        self.workspace.workbench_session.node_workspace_membership.clear();
-        self.workspace.workbench_session.current_workspace_is_synthesized = false;
-        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
-        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+        self.workspace
+            .workbench_session
+            .node_last_active_workspace
+            .clear();
+        self.workspace
+            .workbench_session
+            .node_workspace_membership
+            .clear();
+        self.workspace
+            .workbench_session
+            .current_workspace_is_synthesized = false;
+        self.workspace
+            .workbench_session
+            .workspace_has_unsaved_changes = false;
+        self.workspace
+            .workbench_session
+            .unsaved_workspace_prompt_warned = false;
         self.workspace.graph_runtime.active_webview_nodes.clear();
         self.workspace.domain.next_placeholder_id = 0;
         self.workspace.graph_runtime.egui_state_dirty = true;
@@ -1039,5 +1132,81 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.egui_state_dirty = true;
         self.refresh_protocol_probe_for_node(key, &new_url, true);
         Some(old_url)
+    }
+
+    pub fn create_note_for_node(&mut self, key: NodeKey, title: Option<String>) -> Option<NoteId> {
+        let node = self.workspace.domain.graph.get_node(key)?;
+        let now = SystemTime::now();
+        let note_id = NoteId::new();
+        let resolved_title = title.unwrap_or_else(|| {
+            let base = node.title.trim();
+            if base.is_empty() {
+                format!("Note for {}", node.url)
+            } else {
+                format!("Note for {base}")
+            }
+        });
+        let note = NoteRecord {
+            id: note_id,
+            title: resolved_title,
+            linked_node: Some(key),
+            source_url: Some(node.url.clone()),
+            body: String::new(),
+            created_at: now,
+            updated_at: now,
+        };
+
+        self.workspace.domain.notes.insert(note_id, note);
+        self.enqueue_app_command(AppCommand::OpenNote { note_id });
+        self.request_open_node_tile_mode(key, PendingTileOpenMode::SplitHorizontal);
+        Some(note_id)
+    }
+
+    pub fn note_record(&self, note_id: NoteId) -> Option<&NoteRecord> {
+        self.workspace.domain.notes.get(&note_id)
+    }
+
+    pub(crate) fn apply_graph_delta_and_sync(&mut self, delta: GraphDelta) -> GraphDeltaResult {
+        let result = apply_domain_graph_delta(&mut self.workspace.domain.graph, delta.clone());
+        if Self::graph_structure_changed(&result) {
+            self.clear_hop_distance_cache();
+        }
+        // Rebuild derived containment edges whenever the node set or a node's URL changes,
+        // so ContainmentRelation edges stay consistent without requiring an explicit refresh.
+        if Self::containment_affected(&result) {
+            self.workspace
+                .domain
+                .graph
+                .rebuild_derived_containment_relations();
+        }
+        if let Some(egui_state) = self.workspace.graph_runtime.egui_state.as_mut()
+            && !egui_state.sync_from_delta(&self.workspace.domain.graph, &delta, &result)
+        {
+            self.workspace.graph_runtime.egui_state_dirty = true;
+        }
+        result
+    }
+
+    pub(crate) fn containment_affected(result: &GraphDeltaResult) -> bool {
+        matches!(
+            result,
+            GraphDeltaResult::NodeAdded(_)
+                | GraphDeltaResult::NodeMaybeAdded(Some(_))
+                | GraphDeltaResult::NodeRemoved(true)
+                | GraphDeltaResult::NodeUrlUpdated(Some(_))
+        )
+    }
+
+    pub(crate) fn graph_structure_changed(result: &GraphDeltaResult) -> bool {
+        match result {
+            GraphDeltaResult::NodeAdded(_) => true,
+            GraphDeltaResult::NodeMaybeAdded(maybe) => maybe.is_some(),
+            GraphDeltaResult::EdgeAdded(maybe) => maybe.is_some(),
+            GraphDeltaResult::NodeRemoved(changed) => *changed,
+            GraphDeltaResult::EdgesRemoved(count) => *count > 0,
+            GraphDeltaResult::TraversalAppended(_) => false,
+            GraphDeltaResult::NodeMetadataUpdated(_) => false,
+            GraphDeltaResult::NodeUrlUpdated(_) => false,
+        }
     }
 }

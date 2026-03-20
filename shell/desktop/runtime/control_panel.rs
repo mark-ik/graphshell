@@ -31,13 +31,13 @@ use crate::graph::NodeKey;
 use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
 use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
-use crate::shell::desktop::runtime::registries::{
-    RegistryRuntime, CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED,
-    CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
-};
 use crate::shell::desktop::runtime::registries::agent::{Agent, AgentContext};
 use crate::shell::desktop::runtime::registries::nostr_core::{
     NostrRelayWorker, RelayWorkerCommand,
+};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED, CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
+    RegistryRuntime,
 };
 
 /// Capacity of the intent channel — limits flooding from async producers.
@@ -321,7 +321,8 @@ impl ControlPanel {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        self.last_user_gesture_ms.store(now_ms, AtomicOrdering::Relaxed);
+        self.last_user_gesture_ms
+            .store(now_ms, AtomicOrdering::Relaxed);
     }
 
     /// Check idle state and emit `UserIdle` / `UserResumed` signals via the

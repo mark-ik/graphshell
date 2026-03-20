@@ -20,7 +20,9 @@ pub fn render_omnibar_dropdown(
     has_node_panes: bool,
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
-) {
+) -> bool {
+    let mut retain_omnibar_focus = false;
+
     // Keyboard navigation within dropdown
     if let Some(session) = omnibar_search_session.as_mut()
         && location_field.has_focus()
@@ -164,6 +166,7 @@ pub fn render_omnibar_dropdown(
     if let Some((idx, modifiers)) = clicked_omnibar_index_with_modifiers
         && let Some(session) = omnibar_search_session.as_mut()
     {
+        retain_omnibar_focus = true;
         if modifiers.shift {
             let anchor = session.anchor_index.unwrap_or(idx);
             if !modifiers.ctrl {
@@ -186,6 +189,7 @@ pub fn render_omnibar_dropdown(
 
     // Bulk open selected matches
     if bulk_open_selected && let Some(session) = omnibar_search_session.as_ref() {
+        retain_omnibar_focus = true;
         let mut ordered: Vec<usize> = session.selected_indices.iter().copied().collect();
         ordered.sort_unstable();
         for idx in ordered {
@@ -205,6 +209,7 @@ pub fn render_omnibar_dropdown(
 
     // Bulk add selected node matches to frame picker
     if bulk_add_selected_to_frame && let Some(session) = omnibar_search_session.as_ref() {
+        retain_omnibar_focus = true;
         let mut node_keys = Vec::new();
         let mut ordered: Vec<usize> = session.selected_indices.iter().copied().collect();
         ordered.sort_unstable();
@@ -222,6 +227,7 @@ pub fn render_omnibar_dropdown(
 
     // Handle scope prefix shortcut clicks
     if let Some(prefix) = clicked_scope_prefix {
+        retain_omnibar_focus = true;
         *location = prefix.to_string();
         *location_dirty = true;
         *omnibar_search_session = None;
@@ -229,6 +235,7 @@ pub fn render_omnibar_dropdown(
 
     // Handle clicked match (either SearchQuery or direct match)
     if let Some(active_match) = clicked_omnibar_match {
+        retain_omnibar_focus = true;
         match active_match {
             OmnibarMatch::SearchQuery { query, provider } => {
                 *location = query;
@@ -264,6 +271,8 @@ pub fn render_omnibar_dropdown(
             }
         }
     }
+
+    retain_omnibar_focus
 }
 
 /// Calculate inclusive range between two indices within array bounds.

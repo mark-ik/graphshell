@@ -66,7 +66,9 @@ fn omnibar_import_search_text(graph_app: &GraphBrowserApp, key: NodeKey) -> Stri
 }
 
 fn omnibar_import_label_suffix(graph_app: &GraphBrowserApp, key: NodeKey) -> String {
-    let import_records = graph_app.domain_graph().import_record_summaries_for_node(key);
+    let import_records = graph_app
+        .domain_graph()
+        .import_record_summaries_for_node(key);
     let Some(primary_record) = import_records.first() else {
         return String::new();
     };
@@ -518,8 +520,8 @@ fn tab_candidates_for_keys(
                         node.url,
                         omnibar_import_search_text(graph_app, *key)
                     ),
-                target: OmnibarMatch::Node(*key),
-            })
+                    target: OmnibarMatch::Node(*key),
+                })
         })
         .collect()
 }
@@ -860,10 +862,8 @@ pub(super) fn omnibar_matches_for_query(
                 out.extend(ranked_matches(all_graph_node_candidates, query));
                 return dedupe_matches_in_order(out);
             }
-            let all_tab_ranked_matches = ranked_matches(
-                tab_candidates_for_keys(graph_app, &all_tab_keys),
-                query,
-            );
+            let all_tab_ranked_matches =
+                ranked_matches(tab_candidates_for_keys(graph_app, &all_tab_keys), query);
             let tab_rank: HashMap<NodeKey, usize> = all_tab_ranked_matches
                 .iter()
                 .enumerate()
@@ -1421,7 +1421,10 @@ mod tests {
         );
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.workspace.graph_runtime.highlighted_graph_edge, Some((from, to)));
+        assert_eq!(
+            app.workspace.graph_runtime.highlighted_graph_edge,
+            Some((from, to))
+        );
         assert!(app.focused_selection().contains(&from));
         assert!(app.focused_selection().contains(&to));
     }

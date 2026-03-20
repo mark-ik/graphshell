@@ -8,25 +8,22 @@
 //! which provides built-in navigation (zoom/pan), node dragging, and selection.
 
 use crate::app::{
-    ChooseFramePickerMode, GraphBrowserApp, GraphIntent, SearchDisplayMode,
-    SelectionUpdateMode, UnsavedFramePromptAction,
-    UnsavedFramePromptRequest, ViewAction, WorkbenchIntent,
-    graph_layout::{
-        GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT,
-    },
+    ChooseFramePickerMode, GraphBrowserApp, GraphIntent, SearchDisplayMode, SelectionUpdateMode,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewAction, WorkbenchIntent,
+    graph_layout::{GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT},
 };
+use crate::graph::NodeKey;
 use crate::graph::badge::is_archived_tag;
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
 use crate::graph::physics::apply_graph_physics_extensions;
-use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE, CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT,
-    CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
-    CHANNEL_UX_NAVIGATION_TRANSITION, phase3_apply_layout_algorithm_to_graph,
-    phase3_resolve_active_canvas_profile, phase3_resolve_layout_algorithm,
+    CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED, CHANNEL_UX_NAVIGATION_TRANSITION,
+    phase3_apply_layout_algorithm_to_graph, phase3_resolve_active_canvas_profile,
+    phase3_resolve_layout_algorithm,
 };
 use crate::util::CoordBridge;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
@@ -51,17 +48,10 @@ mod panels;
 mod reducer_bridge;
 mod semantic_tags;
 mod spatial_index;
-#[cfg(test)]
-pub(crate) use panels::history_manager_entry_limit_for_tests;
-pub use panels::{
-    render_clip_inspector_panel, render_navigator_tool_pane_in_ui, render_help_panel,
-    render_history_manager_in_ui, render_settings_overlay_panel,
-    render_settings_node_viewer_in_ui, render_settings_tool_pane_in_ui_with_control_panel,
-};
 use canvas_camera::handle_custom_navigation;
 use canvas_input::{
-    collect_graph_actions, collect_graph_keyboard_traversal_action,
-    collect_lasso_action, graph_canvas_accessibility_label,
+    collect_graph_actions, collect_graph_keyboard_traversal_action, collect_lasso_action,
+    graph_canvas_accessibility_label,
 };
 use canvas_overlays::{
     draw_frame_affinity_backdrops, draw_highlighted_edge_overlay, draw_hovered_edge_tooltip,
@@ -69,21 +59,40 @@ use canvas_overlays::{
 };
 use canvas_visuals::{
     apply_search_node_visuals, canvas_rect_from_view_frame, filtered_graph_for_search,
-    viewport_culled_graph,
+    filtered_graph_for_visible_nodes, viewport_culled_graph, visible_nodes_for_view_filters,
 };
 use graph_info::{draw_graph_info, requested_layout_algorithm_id, should_apply_layout_algorithm};
-use semantic_tags::semantic_badges_by_key;
+#[cfg(test)]
+pub(crate) use panels::history_manager_entry_limit_for_tests;
+pub use panels::{
+    render_clip_inspector_panel, render_help_panel, render_history_manager_in_ui,
+    render_navigator_tool_pane_in_ui, render_settings_node_viewer_in_ui,
+    render_settings_overlay_panel, render_settings_tool_pane_in_ui_with_control_panel,
+};
 use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
+use semantic_tags::semantic_badges_by_key;
 
 #[cfg(test)]
-use canvas_camera::{
-    KeyboardPanInputState, KeyboardPanKeys,
-    apply_background_pan, apply_background_pan_inertia, apply_pending_camera_command,
-    emit_keyboard_pan_blocked_if_needed, keyboard_pan_delta_from_keys, keyboard_pan_delta_from_state,
-    pan_inertia_velocity_id, should_auto_fit_locked_camera,
+use crate::app::{CameraCommand, KeyboardPanInputMode, ThreeDMode, ViewDimension, ZSource};
+#[cfg(test)]
+use crate::graph::NodeLifecycle;
+#[cfg(test)]
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK,
+    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW,
 };
 #[cfg(test)]
-use canvas_input::{lasso_state_ids, next_keyboard_traversal_node, normalize_lasso_keys, resolve_lasso_selection_mode};
+use canvas_camera::{
+    KeyboardPanInputState, KeyboardPanKeys, apply_background_pan, apply_background_pan_inertia,
+    apply_pending_camera_command, emit_keyboard_pan_blocked_if_needed,
+    keyboard_pan_delta_from_keys, keyboard_pan_delta_from_state, pan_inertia_velocity_id,
+    should_auto_fit_locked_camera,
+};
+#[cfg(test)]
+use canvas_input::{
+    lasso_state_ids, next_keyboard_traversal_node, normalize_lasso_keys,
+    resolve_lasso_selection_mode,
+};
 #[cfg(test)]
 use canvas_overlays::{format_elapsed_ago, format_last_visited_with_now};
 #[cfg(test)]
@@ -92,21 +101,13 @@ use canvas_visuals::{
     viewport_culling_metrics_for_canvas_rect, viewport_culling_selection_for_canvas_rect,
 };
 #[cfg(test)]
-use graph_info::{graph_view_semantic_depth_status_badge, selected_node_enrichment_summary};
-#[cfg(test)]
-use semantic_tags::{ranked_tag_suggestions, reserved_tag_warning};
-#[cfg(test)]
-use crate::app::{CameraCommand, KeyboardPanInputMode, ThreeDMode, ViewDimension, ZSource};
-#[cfg(test)]
-use crate::graph::NodeLifecycle;
-#[cfg(test)]
-use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK, CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW,
-};
-#[cfg(test)]
 use egui::Vec2;
 #[cfg(test)]
+use graph_info::{graph_view_semantic_depth_status_badge, selected_node_enrichment_summary};
+#[cfg(test)]
 use petgraph::stable_graph::NodeIndex;
+#[cfg(test)]
+use semantic_tags::{ranked_tag_suggestions, reserved_tag_warning};
 #[cfg(test)]
 use std::time::{Duration, SystemTime};
 
@@ -353,12 +354,16 @@ pub fn render_graph_in_ui_collect_actions(
     let ctrl_pressed = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
     let right_button_down = ui.input(|i| i.pointer.secondary_down());
     let radial_open = app.workspace.chrome_ui.show_radial_menu;
-    let filtered_graph =
-        if matches!(search_display_mode, SearchDisplayMode::Filter) && search_query_active {
-            Some(filtered_graph_for_search(app, search_matches))
-        } else {
-            None
-        };
+    let filtered_visible_nodes = visible_nodes_for_view_filters(
+        app,
+        view_id,
+        search_matches,
+        search_display_mode,
+        search_query_active,
+    );
+    let filtered_graph = filtered_visible_nodes
+        .as_ref()
+        .map(|visible_nodes| filtered_graph_for_visible_nodes(app, visible_nodes));
 
     let active_canvas = phase3_resolve_active_canvas_profile();
     let canvas_profile = &active_canvas.profile;
@@ -438,16 +443,17 @@ pub fn render_graph_in_ui_collect_actions(
                     .then_some(key)
             })
             .collect();
-        app.workspace.graph_runtime.egui_state = Some(EguiGraphState::from_graph_with_memberships_projection(
-            graph_for_render,
-            &view_selection,
-            view_selection.primary(),
-            &crashed_nodes,
-            &memberships_by_uuid,
-            &semantic_badges_by_key(app, graph_for_render),
-            &archived_nodes,
-            filtered_graph.is_none() && culled_graph.is_none(),
-        ));
+        app.workspace.graph_runtime.egui_state =
+            Some(EguiGraphState::from_graph_with_memberships_projection(
+                graph_for_render,
+                &view_selection,
+                view_selection.primary(),
+                &crashed_nodes,
+                &memberships_by_uuid,
+                &semantic_badges_by_key(app, graph_for_render),
+                &archived_nodes,
+                filtered_graph.is_none() && culled_graph.is_none(),
+            ));
         app.workspace.graph_runtime.egui_state_dirty = false;
         app.workspace.graph_runtime.last_culled_node_keys = culled_node_keys;
     }
@@ -473,11 +479,15 @@ pub fn render_graph_in_ui_collect_actions(
     // transient copy each frame via `set_layout_state`, then we write back the
     // updated state after render. Per-view local simulation stores positions
     // only; it does not own a second physics state.
-    let (mut physics_state, lens_config) = if let Some(view) = app.workspace.graph_runtime.views.get(&view_id) {
-        (app.workspace.graph_runtime.physics.clone(), Some(&view.lens))
-    } else {
-        (app.workspace.graph_runtime.physics.clone(), None)
-    };
+    let (mut physics_state, lens_config) =
+        if let Some(view) = app.workspace.graph_runtime.views.get(&view_id) {
+            (
+                app.workspace.graph_runtime.physics.clone(),
+                Some(&view.lens),
+            )
+        } else {
+            (app.workspace.graph_runtime.physics.clone(), None)
+        };
 
     if dynamic_layout && let Some(lens) = lens_config {
         lens.physics.apply_to_state(&mut physics_state);
@@ -594,12 +604,17 @@ pub fn render_graph_in_ui_collect_actions(
         .map(|v| v.lens.physics.graph_physics_extensions());
     apply_graph_physics_extensions(app, physics_extensions);
 
-    app.workspace.graph_runtime.hovered_graph_node = app.workspace.graph_runtime.egui_state.as_ref().and_then(|state| {
-        state
-            .graph
-            .hovered_node()
-            .and_then(|idx| state.get_key(idx))
-    });
+    app.workspace.graph_runtime.hovered_graph_node = app
+        .workspace
+        .graph_runtime
+        .egui_state
+        .as_ref()
+        .and_then(|state| {
+            state
+                .graph
+                .hovered_node()
+                .and_then(|idx| state.get_key(idx))
+        });
     // Match egui_graphs' internal MetadataFrame storage key exactly.
     // egui_graphs calls data.insert_persisted(Id::new(frame.get_id()), frame) where
     // get_id() returns Id::new("egui_graphs_metadata_") — so the stored key is
@@ -1008,10 +1023,11 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
                     ui.separator();
                     ui.horizontal(|ui| {
                         if ui.button("Open Persistence Overlay").clicked() {
-                            app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                                url: VersoAddress::settings(GraphshellSettingsPath::Persistence)
+                            crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
+                                &VersoAddress::settings(GraphshellSettingsPath::Persistence)
                                     .to_string(),
-                            });
+                                true,
+                            );
                         }
                         if ui.button("Close").clicked() {
                             close = true;
@@ -1086,9 +1102,10 @@ pub fn render_unsaved_frame_prompt(ctx: &egui::Context, app: &mut GraphBrowserAp
             }
             ui.separator();
             if ui.button("Open Persistence Overlay").clicked() {
-                app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                    url: VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
-                });
+                crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
+                    &VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+                    true,
+                );
             }
             ui.horizontal(|ui| {
                 if ui.button("Proceed Without Saving").clicked() {
@@ -1346,12 +1363,13 @@ mod tests {
 
         app.add_node_and_sync("https://a.example".into(), Point2D::new(-120.0, -80.0));
         app.add_node_and_sync("https://b.example".into(), Point2D::new(180.0, 140.0));
-        app.workspace.graph_runtime.egui_state = Some(EguiGraphState::from_graph_with_visual_state(
-            &app.workspace.domain.graph,
-            app.focused_selection(),
-            app.focused_selection().primary(),
-            &HashSet::new(),
-        ));
+        app.workspace.graph_runtime.egui_state =
+            Some(EguiGraphState::from_graph_with_visual_state(
+                &app.workspace.domain.graph,
+                app.focused_selection(),
+                app.focused_selection().primary(),
+                &HashSet::new(),
+            ));
 
         let mut zoom_without_fit = None;
         let mut zoom_with_fit = None;
@@ -1678,7 +1696,10 @@ mod tests {
             intents_from_graph_actions(vec![GraphAction::SetHighlightedEdge { from, to }]);
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.workspace.graph_runtime.highlighted_graph_edge, Some((from, to)));
+        assert_eq!(
+            app.workspace.graph_runtime.highlighted_graph_edge,
+            Some((from, to))
+        );
     }
 
     #[test]
@@ -1789,7 +1810,10 @@ mod tests {
         app.apply_reducer_intents(intents);
 
         // Should be clamped to min zoom
-        assert!(app.workspace.graph_runtime.camera.current_zoom >= app.workspace.graph_runtime.camera.zoom_min);
+        assert!(
+            app.workspace.graph_runtime.camera.current_zoom
+                >= app.workspace.graph_runtime.camera.zoom_min
+        );
     }
 
     #[test]
@@ -1960,7 +1984,14 @@ mod tests {
                 .projected_position(),
             Point2D::new(200.0, 300.0)
         );
-        assert!((app.workspace.graph_runtime.views[&view_id].camera.current_zoom - 1.5).abs() < 0.01);
+        assert!(
+            (app.workspace.graph_runtime.views[&view_id]
+                .camera
+                .current_zoom
+                - 1.5)
+                .abs()
+                < 0.01
+        );
     }
 
     #[test]
@@ -2162,12 +2193,13 @@ mod tests {
         let a = app.add_node_and_sync("alpha".into(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("beta".into(), Point2D::new(10.0, 0.0));
         app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Highlight;
-        app.workspace.graph_runtime.egui_state = Some(EguiGraphState::from_graph_with_visual_state(
-            &app.workspace.domain.graph,
-            app.focused_selection(),
-            app.focused_selection().primary(),
-            &HashSet::new(),
-        ));
+        app.workspace.graph_runtime.egui_state =
+            Some(EguiGraphState::from_graph_with_visual_state(
+                &app.workspace.domain.graph,
+                app.focused_selection(),
+                app.focused_selection().primary(),
+                &HashSet::new(),
+            ));
         let matches = HashSet::from([a]);
         let selection = app.focused_selection().clone();
         apply_search_node_visuals(&mut app, &selection, &matches, Some(a), true);

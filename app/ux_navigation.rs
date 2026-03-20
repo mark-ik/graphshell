@@ -1,9 +1,8 @@
 use super::*;
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION,
-    CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
-    CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH,
-    CHANNEL_UX_FOCUS_CAPTURE_ENTER, CHANNEL_UX_FOCUS_CAPTURE_EXIT,
+    CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION, CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
+    CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH, CHANNEL_UX_FOCUS_CAPTURE_ENTER,
+    CHANNEL_UX_FOCUS_CAPTURE_EXIT,
 };
 
 impl GraphBrowserApp {
@@ -211,7 +210,11 @@ impl GraphBrowserApp {
         self.emit_ux_navigation_transition();
     }
 
-    fn set_command_surface_visibility(&mut self, show_command_palette: bool, show_context_palette: bool) {
+    fn set_command_surface_visibility(
+        &mut self,
+        show_command_palette: bool,
+        show_context_palette: bool,
+    ) {
         if self.workspace.chrome_ui.show_command_palette == show_command_palette
             && self.workspace.chrome_ui.show_context_palette == show_context_palette
         {

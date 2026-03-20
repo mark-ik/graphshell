@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 
-use super::filter::{FacetScalar, FacetValue, FacetProjection, facet_keys};
+use super::filter::{FacetProjection, FacetScalar, FacetValue, facet_keys};
 use super::{ArrangementSubKind, EdgeKind, Graph, NodeKey};
 
 /// Compute the PMEST facet projection for a single node.
@@ -71,7 +71,10 @@ pub fn facet_projection_for_node(graph: &Graph, key: NodeKey) -> Option<FacetPro
     // --- Energy (edge-derived) ---
 
     let out_edges: Vec<_> = graph.inner.edges(key).collect();
-    let in_edges: Vec<_> = graph.inner.edges_directed(key, Direction::Incoming).collect();
+    let in_edges: Vec<_> = graph
+        .inner
+        .edges_directed(key, Direction::Incoming)
+        .collect();
 
     let out_degree = out_edges.len();
     let in_degree = in_edges.len();
@@ -145,7 +148,10 @@ pub fn facet_projection_for_node(graph: &Graph, key: NodeKey) -> Option<FacetPro
         proj.insert(
             facet_keys::UDC_CLASSES.to_string(),
             FacetValue::Collection(
-                node.tags.iter().map(|t| FacetScalar::Text(t.clone())).collect(),
+                node.tags
+                    .iter()
+                    .map(|t| FacetScalar::Text(t.clone()))
+                    .collect(),
             ),
         );
     }

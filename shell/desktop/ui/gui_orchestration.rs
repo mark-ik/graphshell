@@ -256,7 +256,11 @@ fn extend_matches_with_active_anchor_neighborhood(
     graph_app: &GraphBrowserApp,
     matches: &mut Vec<NodeKey>,
 ) {
-    let Some(anchor) = graph_app.workspace.graph_runtime.active_graph_search_neighborhood_anchor else {
+    let Some(anchor) = graph_app
+        .workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_anchor
+    else {
         return;
     };
     if graph_app.domain_graph().get_node(anchor).is_none() {
@@ -293,9 +297,19 @@ fn maybe_push_graph_search_history(graph_app: &mut GraphBrowserApp, request: &Gr
         graph_app.workspace.graph_runtime.search_display_mode,
         SearchDisplayMode::Filter
     );
-    let previous_origin = graph_app.workspace.graph_runtime.active_graph_search_origin.clone();
-    let previous_neighborhood_anchor = graph_app.workspace.graph_runtime.active_graph_search_neighborhood_anchor;
-    let previous_neighborhood_depth = graph_app.workspace.graph_runtime.active_graph_search_neighborhood_depth;
+    let previous_origin = graph_app
+        .workspace
+        .graph_runtime
+        .active_graph_search_origin
+        .clone();
+    let previous_neighborhood_anchor = graph_app
+        .workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_anchor;
+    let previous_neighborhood_depth = graph_app
+        .workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_depth;
 
     if previous_query.is_empty() {
         return;
@@ -323,11 +337,20 @@ fn maybe_push_graph_search_history(graph_app: &mut GraphBrowserApp, request: &Gr
         .graph_runtime
         .graph_search_history
         .retain(|existing| existing != &entry);
-    graph_app.workspace.graph_runtime.graph_search_history.push(entry);
+    graph_app
+        .workspace
+        .graph_runtime
+        .graph_search_history
+        .push(entry);
     const GRAPH_SEARCH_HISTORY_LIMIT: usize = 5;
     if graph_app.workspace.graph_runtime.graph_search_history.len() > GRAPH_SEARCH_HISTORY_LIMIT {
-        let overflow = graph_app.workspace.graph_runtime.graph_search_history.len() - GRAPH_SEARCH_HISTORY_LIMIT;
-        graph_app.workspace.graph_runtime.graph_search_history.drain(0..overflow);
+        let overflow = graph_app.workspace.graph_runtime.graph_search_history.len()
+            - GRAPH_SEARCH_HISTORY_LIMIT;
+        graph_app
+            .workspace
+            .graph_runtime
+            .graph_search_history
+            .drain(0..overflow);
     }
 }
 

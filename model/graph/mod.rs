@@ -589,17 +589,7 @@ pub enum EdgeType {
 }
 
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    Archive,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Archive, Serialize, Deserialize,
 )]
 #[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
 pub enum ArrangementSubKind {
@@ -609,17 +599,7 @@ pub enum ArrangementSubKind {
 }
 
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    Archive,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Archive, Serialize, Deserialize,
 )]
 #[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
 pub enum ContainmentSubKind {
@@ -967,7 +947,11 @@ impl EdgePayload {
                     .as_mut()
                     .is_some_and(|data| data.remove(sub_kind)) =>
             {
-                if self.arrangement.as_ref().is_some_and(ArrangementData::is_empty) {
+                if self
+                    .arrangement
+                    .as_ref()
+                    .is_some_and(ArrangementData::is_empty)
+                {
                     self.arrangement = None;
                     self.kinds.remove(&EdgeKind::ArrangementRelation);
                 }
@@ -979,7 +963,11 @@ impl EdgePayload {
                     .as_mut()
                     .is_some_and(|data| data.remove(sub_kind)) =>
             {
-                if self.containment.as_ref().is_some_and(ContainmentData::is_empty) {
+                if self
+                    .containment
+                    .as_ref()
+                    .is_some_and(ContainmentData::is_empty)
+                {
                     self.containment = None;
                     self.kinds.remove(&EdgeKind::ContainmentRelation);
                 }
@@ -1170,9 +1158,12 @@ impl Graph {
             self.remove_url_mapping(&node.url, key);
             let removed_id = node.id.to_string();
             for record in &mut self.import_records {
-                record.memberships.retain(|membership| membership.node_id != removed_id);
+                record
+                    .memberships
+                    .retain(|membership| membership.node_id != removed_id);
             }
-            self.import_records.retain(|record| !record.memberships.is_empty());
+            self.import_records
+                .retain(|record| !record.memberships.is_empty());
             true
         } else {
             false
@@ -1378,7 +1369,8 @@ impl Graph {
 
     pub(crate) fn delete_import_record(&mut self, record_id: &str) -> bool {
         let original_len = self.import_records.len();
-        self.import_records.retain(|record| record.record_id != record_id);
+        self.import_records
+            .retain(|record| record.record_id != record_id);
         if self.import_records.len() == original_len {
             return false;
         }
@@ -1429,7 +1421,11 @@ impl Graph {
     fn sync_node_import_provenance_from_records(&mut self) {
         let mut provenance_by_node = HashMap::<NodeKey, Vec<NodeImportProvenance>>::new();
         for record in &self.import_records {
-            for membership in record.memberships.iter().filter(|membership| !membership.suppressed) {
+            for membership in record
+                .memberships
+                .iter()
+                .filter(|membership| !membership.suppressed)
+            {
                 let Ok(node_id) = Uuid::parse_str(&membership.node_id) else {
                     continue;
                 };
@@ -1475,7 +1471,10 @@ impl Graph {
             let node_id = node.id.to_string();
             for provenance in &node.import_provenance {
                 grouped
-                    .entry((provenance.source_id.clone(), provenance.source_label.clone()))
+                    .entry((
+                        provenance.source_id.clone(),
+                        provenance.source_label.clone(),
+                    ))
                     .or_default()
                     .push(ImportRecordMembership {
                         node_id: node_id.clone(),
@@ -1490,12 +1489,7 @@ impl Graph {
                 let (record_id, imported_at_secs) = existing_record_meta
                     .get(&(source_id.clone(), source_label.clone()))
                     .cloned()
-                    .unwrap_or_else(|| {
-                        (
-                            format!("import-record:{}", source_id),
-                            imported_at_secs,
-                        )
-                    });
+                    .unwrap_or_else(|| (format!("import-record:{}", source_id), imported_at_secs));
                 ImportRecord {
                     record_id,
                     source_id,
@@ -2053,7 +2047,9 @@ impl Graph {
                     to,
                     // decay_progress will be populated from EdgePayload data when AgentDerived
                     // payload storage is implemented; 0.0 = freshly asserted in the interim.
-                    edge_type: EdgeType::AgentDerived { decay_progress: 0.0 },
+                    edge_type: EdgeType::AgentDerived {
+                        decay_progress: 0.0,
+                    },
                 });
             }
             out.into_iter()
@@ -2103,12 +2099,10 @@ impl Graph {
         for edge_id in edge_ids {
             if let Some(payload) = self.inner.edge_weight_mut(edge_id) {
                 let mut removed_any = false;
-                removed_any |= payload.remove_edge_type(EdgeType::ContainmentRelation(
-                    ContainmentSubKind::UrlPath,
-                ));
-                removed_any |= payload.remove_edge_type(EdgeType::ContainmentRelation(
-                    ContainmentSubKind::Domain,
-                ));
+                removed_any |= payload
+                    .remove_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath));
+                removed_any |= payload
+                    .remove_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::Domain));
                 if removed_any && payload.is_empty() {
                     empty_edges.push(edge_id);
                 }
@@ -2123,9 +2117,9 @@ impl Graph {
             let Ok(parsed) = url::Url::parse(&node.url) else {
                 continue;
             };
-            let depth = parsed
-                .path_segments()
-                .map_or(0, |segments| segments.filter(|segment| !segment.is_empty()).count());
+            let depth = parsed.path_segments().map_or(0, |segments| {
+                segments.filter(|segment| !segment.is_empty()).count()
+            });
 
             let Some(host) = parsed.host_str() else {
                 continue;
@@ -2135,7 +2129,8 @@ impl Graph {
             domain_anchor
                 .entry(host)
                 .and_modify(|current| {
-                    if candidate.1 < current.1 || (candidate.1 == current.1 && candidate.2 < current.2)
+                    if candidate.1 < current.1
+                        || (candidate.1 == current.1 && candidate.2 < current.2)
                     {
                         *current = candidate;
                     }
@@ -3437,12 +3432,19 @@ mod tests {
     #[test]
     fn test_snapshot_roundtrip_preserves_import_records_and_suppression_state() {
         let mut graph = Graph::new();
-        let included = graph.add_node("https://included.example".to_string(), Point2D::new(0.0, 0.0));
+        let included = graph.add_node(
+            "https://included.example".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
         let suppressed = graph.add_node(
             "https://suppressed.example".to_string(),
             Point2D::new(10.0, 0.0),
         );
-        let included_id = graph.get_node(included).expect("included node").id.to_string();
+        let included_id = graph
+            .get_node(included)
+            .expect("included node")
+            .id
+            .to_string();
         let suppressed_id = graph
             .get_node(suppressed)
             .expect("suppressed node")
@@ -3468,9 +3470,17 @@ mod tests {
         let restored = Graph::from_snapshot(&graph.to_snapshot());
         let restored_records = restored.import_records();
         assert_eq!(restored_records.len(), 1);
-        assert_eq!(restored_records[0].record_id, "import-record:firefox-bookmarks-2026-03-17");
+        assert_eq!(
+            restored_records[0].record_id,
+            "import-record:firefox-bookmarks-2026-03-17"
+        );
         assert_eq!(restored_records[0].memberships.len(), 2);
-        assert!(restored_records[0].memberships.iter().any(|membership| membership.suppressed));
+        assert!(
+            restored_records[0]
+                .memberships
+                .iter()
+                .any(|membership| membership.suppressed)
+        );
         assert_eq!(
             restored
                 .node_import_provenance(included)
@@ -3504,10 +3514,12 @@ mod tests {
 
         assert!(graph.delete_import_record("import-record:test"));
         assert!(graph.import_records().is_empty());
-        assert!(graph
-            .node_import_provenance(key)
-            .expect("node provenance slice")
-            .is_empty());
+        assert!(
+            graph
+                .node_import_provenance(key)
+                .expect("node provenance slice")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -3534,16 +3546,17 @@ mod tests {
             ],
         }]));
 
-        assert!(graph.set_import_record_membership_suppressed(
-            "import-record:test",
-            active,
-            true,
-        ));
-        assert!(graph
-            .node_import_provenance(active)
-            .expect("active provenance slice")
-            .is_empty());
-        assert_eq!(graph.import_record_member_keys("import-record:test"), vec![peer]);
+        assert!(graph.set_import_record_membership_suppressed("import-record:test", active, true,));
+        assert!(
+            graph
+                .node_import_provenance(active)
+                .expect("active provenance slice")
+                .is_empty()
+        );
+        assert_eq!(
+            graph.import_record_member_keys("import-record:test"),
+            vec![peer]
+        );
     }
 
     // --- MIME / address-kind detection tests ---

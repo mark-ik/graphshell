@@ -1,5 +1,29 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenSurfaceSource {
+    KeyboardShortcut,
+    ChildWebview,
+    WindowBootstrap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PendingCreateToken(u64);
+
+impl PendingCreateToken {
+    pub fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostOpenRequest {
+    pub url: String,
+    pub source: OpenSurfaceSource,
+    pub parent_webview_id: Option<RendererId>,
+    pub pending_create_token: Option<PendingCreateToken>,
+}
+
 impl GraphBrowserApp {
     pub(crate) fn handle_host_open_request(&mut self, request: HostOpenRequest) {
         let parent_node = request
@@ -233,23 +257,53 @@ impl GraphBrowserApp {
     }
 
     pub fn map_webview_to_node(&mut self, webview_id: RendererId, node_key: NodeKey) {
-        if let Some(previous_node) = self.workspace.graph_runtime.webview_to_node.remove(&webview_id) {
-            self.workspace.graph_runtime.node_to_webview.remove(&previous_node);
+        if let Some(previous_node) = self
+            .workspace
+            .graph_runtime
+            .webview_to_node
+            .remove(&webview_id)
+        {
+            self.workspace
+                .graph_runtime
+                .node_to_webview
+                .remove(&previous_node);
             self.remove_active_node(previous_node);
             self.remove_warm_cache_node(previous_node);
         }
-        if let Some(previous_webview_id) = self.workspace.graph_runtime.node_to_webview.remove(&node_key) {
-            self.workspace.graph_runtime.webview_to_node.remove(&previous_webview_id);
+        if let Some(previous_webview_id) = self
+            .workspace
+            .graph_runtime
+            .node_to_webview
+            .remove(&node_key)
+        {
+            self.workspace
+                .graph_runtime
+                .webview_to_node
+                .remove(&previous_webview_id);
         }
-        self.workspace.graph_runtime.webview_to_node.insert(webview_id, node_key);
-        self.workspace.graph_runtime.node_to_webview.insert(node_key, webview_id);
+        self.workspace
+            .graph_runtime
+            .webview_to_node
+            .insert(webview_id, node_key);
+        self.workspace
+            .graph_runtime
+            .node_to_webview
+            .insert(node_key, webview_id);
         self.touch_active_node(node_key);
         self.remove_warm_cache_node(node_key);
     }
 
     pub fn unmap_webview(&mut self, webview_id: RendererId) -> Option<NodeKey> {
-        if let Some(node_key) = self.workspace.graph_runtime.webview_to_node.remove(&webview_id) {
-            self.workspace.graph_runtime.node_to_webview.remove(&node_key);
+        if let Some(node_key) = self
+            .workspace
+            .graph_runtime
+            .webview_to_node
+            .remove(&webview_id)
+        {
+            self.workspace
+                .graph_runtime
+                .node_to_webview
+                .remove(&node_key);
             if self.workspace.graph_runtime.embedded_content_focus_webview == Some(webview_id) {
                 self.workspace.graph_runtime.embedded_content_focus_webview = None;
             }
@@ -262,7 +316,11 @@ impl GraphBrowserApp {
     }
 
     pub fn get_node_for_webview(&self, webview_id: RendererId) -> Option<NodeKey> {
-        self.workspace.graph_runtime.webview_to_node.get(&webview_id).copied()
+        self.workspace
+            .graph_runtime
+            .webview_to_node
+            .get(&webview_id)
+            .copied()
     }
 
     pub fn embedded_content_focus_webview(&self) -> Option<RendererId> {
@@ -277,7 +335,10 @@ impl GraphBrowserApp {
         &mut self,
         node_key: NodeKey,
     ) -> Option<PendingCreateToken> {
-        self.workspace.workbench_session.pending_host_create_tokens.remove(&node_key)
+        self.workspace
+            .workbench_session
+            .pending_host_create_tokens
+            .remove(&node_key)
     }
 
     pub(crate) fn pending_host_create_token(
@@ -292,7 +353,10 @@ impl GraphBrowserApp {
     }
 
     pub fn runtime_block_state_for_node(&self, node_key: NodeKey) -> Option<&RuntimeBlockState> {
-        self.workspace.graph_runtime.runtime_block_state.get(&node_key)
+        self.workspace
+            .graph_runtime
+            .runtime_block_state
+            .get(&node_key)
     }
 
     pub fn mark_runtime_blocked(
@@ -302,7 +366,10 @@ impl GraphBrowserApp {
         retry_at: Option<Instant>,
     ) {
         if self.workspace.domain.graph.get_node(node_key).is_none() {
-            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .runtime_block_state
+                .remove(&node_key);
             return;
         }
         self.workspace.graph_runtime.runtime_block_state.insert(
@@ -318,7 +385,10 @@ impl GraphBrowserApp {
     }
 
     pub fn clear_runtime_blocked(&mut self, node_key: NodeKey) {
-        self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+        self.workspace
+            .graph_runtime
+            .runtime_block_state
+            .remove(&node_key);
     }
 
     pub fn mark_runtime_crash_blocked(
@@ -328,7 +398,10 @@ impl GraphBrowserApp {
         has_backtrace: bool,
     ) {
         if self.workspace.domain.graph.get_node(node_key).is_none() {
-            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .runtime_block_state
+                .remove(&node_key);
             return;
         }
         self.workspace.graph_runtime.runtime_block_state.insert(
@@ -364,20 +437,32 @@ impl GraphBrowserApp {
     }
 
     pub fn is_runtime_blocked(&mut self, node_key: NodeKey, now: Instant) -> bool {
-        let Some(state) = self.workspace.graph_runtime.runtime_block_state.get(&node_key) else {
+        let Some(state) = self
+            .workspace
+            .graph_runtime
+            .runtime_block_state
+            .get(&node_key)
+        else {
             return false;
         };
         if let Some(retry_at) = state.retry_at
             && retry_at <= now
         {
-            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .runtime_block_state
+                .remove(&node_key);
             return false;
         }
         true
     }
 
     pub fn get_webview_for_node(&self, node_key: NodeKey) -> Option<RendererId> {
-        self.workspace.graph_runtime.node_to_webview.get(&node_key).copied()
+        self.workspace
+            .graph_runtime
+            .node_to_webview
+            .get(&node_key)
+            .copied()
     }
 
     pub fn webview_node_mappings(&self) -> impl Iterator<Item = (RendererId, NodeKey)> + '_ {
@@ -418,9 +503,15 @@ impl GraphBrowserApp {
             .set_node_lifecycle(node_key, NodeLifecycle::Active);
         self.touch_active_node(node_key);
         self.remove_warm_cache_node(node_key);
-        self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+        self.workspace
+            .graph_runtime
+            .runtime_block_state
+            .remove(&node_key);
         if matches!(cause, LifecycleCause::UserSelect | LifecycleCause::Restore) {
-            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .runtime_block_state
+                .remove(&node_key);
         }
         if previous_lifecycle != Some(NodeLifecycle::Active)
             && let Some(node) = self.workspace.domain.graph.get_node(node_key)
@@ -456,7 +547,11 @@ impl GraphBrowserApp {
             return;
         }
 
-        let has_mapped_webview = self.workspace.graph_runtime.node_to_webview.contains_key(&node_key);
+        let has_mapped_webview = self
+            .workspace
+            .graph_runtime
+            .node_to_webview
+            .contains_key(&node_key);
         let _ = self
             .workspace
             .domain
@@ -489,14 +584,32 @@ impl GraphBrowserApp {
         self.remove_active_node(node_key);
         self.remove_warm_cache_node(node_key);
         if !matches!(cause, LifecycleCause::Crash) {
-            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .runtime_block_state
+                .remove(&node_key);
         }
-        if let Some(webview_id) = self.workspace.graph_runtime.node_to_webview.get(&node_key).copied() {
-            self.workspace.graph_runtime.webview_to_node.remove(&webview_id);
-            self.workspace.graph_runtime.node_to_webview.remove(&node_key);
+        if let Some(webview_id) = self
+            .workspace
+            .graph_runtime
+            .node_to_webview
+            .get(&node_key)
+            .copied()
+        {
+            self.workspace
+                .graph_runtime
+                .webview_to_node
+                .remove(&webview_id);
+            self.workspace
+                .graph_runtime
+                .node_to_webview
+                .remove(&node_key);
         }
         if !matches!(cause, LifecycleCause::Crash) {
-            self.workspace.graph_runtime.runtime_block_state.remove(&node_key);
+            self.workspace
+                .graph_runtime
+                .runtime_block_state
+                .remove(&node_key);
         }
     }
 
@@ -506,7 +619,10 @@ impl GraphBrowserApp {
     }
 
     pub(crate) fn remove_active_node(&mut self, node_key: NodeKey) {
-        self.workspace.graph_runtime.active_lru.retain(|key| *key != node_key);
+        self.workspace
+            .graph_runtime
+            .active_lru
+            .retain(|key| *key != node_key);
     }
 
     fn touch_warm_cache_node(&mut self, node_key: NodeKey) {
@@ -515,12 +631,20 @@ impl GraphBrowserApp {
     }
 
     pub(crate) fn remove_warm_cache_node(&mut self, node_key: NodeKey) {
-        self.workspace.graph_runtime.warm_cache_lru.retain(|key| *key != node_key);
+        self.workspace
+            .graph_runtime
+            .warm_cache_lru
+            .retain(|key| *key != node_key);
     }
 
     pub(crate) fn take_warm_cache_evictions(&mut self) -> Vec<NodeKey> {
         let mut normalized = Vec::with_capacity(self.workspace.graph_runtime.warm_cache_lru.len());
-        let drained: Vec<_> = self.workspace.graph_runtime.warm_cache_lru.drain(..).collect();
+        let drained: Vec<_> = self
+            .workspace
+            .graph_runtime
+            .warm_cache_lru
+            .drain(..)
+            .collect();
         for key in drained {
             let keep = self
                 .workspace
@@ -529,7 +653,11 @@ impl GraphBrowserApp {
                 .get_node(key)
                 .map(|node| node.lifecycle == crate::graph::NodeLifecycle::Warm)
                 .unwrap_or(false)
-                && self.workspace.graph_runtime.node_to_webview.contains_key(&key)
+                && self
+                    .workspace
+                    .graph_runtime
+                    .node_to_webview
+                    .contains_key(&key)
                 && !normalized.contains(&key);
             if keep {
                 normalized.push(key);
@@ -538,7 +666,9 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.warm_cache_lru = normalized;
 
         let mut evicted = Vec::new();
-        while self.workspace.graph_runtime.warm_cache_lru.len() > self.workspace.graph_runtime.warm_cache_limit {
+        while self.workspace.graph_runtime.warm_cache_lru.len()
+            > self.workspace.graph_runtime.warm_cache_limit
+        {
             evicted.push(self.workspace.graph_runtime.warm_cache_lru.remove(0));
         }
         evicted
@@ -569,7 +699,11 @@ impl GraphBrowserApp {
                 .get_node(key)
                 .map(|node| node.lifecycle == crate::graph::NodeLifecycle::Active)
                 .unwrap_or(false)
-                && self.workspace.graph_runtime.node_to_webview.contains_key(&key)
+                && self
+                    .workspace
+                    .graph_runtime
+                    .node_to_webview
+                    .contains_key(&key)
                 && !normalized.contains(&key);
             if keep {
                 normalized.push(key);
@@ -601,7 +735,11 @@ impl GraphBrowserApp {
             let Some(candidate_idx) = candidate_idx else {
                 break;
             };
-            let key = self.workspace.graph_runtime.active_lru.remove(candidate_idx);
+            let key = self
+                .workspace
+                .graph_runtime
+                .active_lru
+                .remove(candidate_idx);
             evicted.push(key);
         }
         evicted
@@ -685,5 +823,58 @@ mod tests {
 
         assert_eq!(unmapped, Some(node));
         assert!(app.embedded_content_focus_webview().is_none());
+    }
+}
+
+impl GraphBrowserApp {
+    pub fn active_webview_limit(&self) -> usize {
+        self.workspace.graph_runtime.active_webview_limit
+    }
+
+    pub fn warm_cache_limit(&self) -> usize {
+        self.workspace.graph_runtime.warm_cache_limit
+    }
+
+    pub fn lifecycle_counts(&self) -> (usize, usize, usize, usize) {
+        let mut active = 0usize;
+        let mut warm = 0usize;
+        let mut cold = 0usize;
+        let mut tombstone = 0usize;
+        for (_, node) in self.workspace.domain.graph.nodes() {
+            match node.lifecycle {
+                crate::graph::NodeLifecycle::Active => active += 1,
+                crate::graph::NodeLifecycle::Warm => warm += 1,
+                crate::graph::NodeLifecycle::Cold => cold += 1,
+                crate::graph::NodeLifecycle::Tombstone => tombstone += 1,
+            }
+        }
+        (active, warm, cold, tombstone)
+    }
+
+    pub fn mapped_webview_count(&self) -> usize {
+        self.workspace.graph_runtime.node_to_webview.len()
+    }
+
+    pub fn memory_pressure_level(&self) -> MemoryPressureLevel {
+        self.workspace.graph_runtime.memory_pressure_level
+    }
+
+    pub fn memory_available_mib(&self) -> u64 {
+        self.workspace.graph_runtime.memory_available_mib
+    }
+
+    pub fn memory_total_mib(&self) -> u64 {
+        self.workspace.graph_runtime.memory_total_mib
+    }
+
+    pub(crate) fn set_memory_pressure_status(
+        &mut self,
+        level: MemoryPressureLevel,
+        available_mib: u64,
+        total_mib: u64,
+    ) {
+        self.workspace.graph_runtime.memory_pressure_level = level;
+        self.workspace.graph_runtime.memory_available_mib = available_mib;
+        self.workspace.graph_runtime.memory_total_mib = total_mib;
     }
 }

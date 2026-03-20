@@ -168,9 +168,7 @@ impl GraphQueryEngine {
         });
 
         rows.truncate(limit);
-        rows.iter()
-            .filter_map(|f| fact_to_audit_entry(f))
-            .collect()
+        rows.iter().filter_map(|f| fact_to_audit_entry(f)).collect()
     }
 
     // ──────────────────────────────────────────────────────────────────────

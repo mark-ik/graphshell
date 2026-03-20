@@ -6,12 +6,12 @@ use euclid::default::Point2D;
 use crate::graph::{EdgeType, NodeKey};
 
 use super::{
-    CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand,
-    GraphSearchRequest, GraphViewId, GraphViewLayoutDirection, HostOpenRequest,
-    KeyboardZoomRequest, LensConfig, LifecycleCause, MemoryPressureLevel,
-    NavigatorContainmentRelationSource, NavigatorSortMode, NoteId, PendingConnectedOpenScope,
-    PendingNodeOpenRequest, PendingTileOpenMode, RendererId, SelectionUpdateMode,
-    ToolSurfaceReturnTarget, UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
+    CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand, GraphSearchRequest,
+    GraphViewId, GraphViewLayoutDirection, HostOpenRequest, KeyboardZoomRequest, LensConfig,
+    LifecycleCause, MemoryPressureLevel, NavigatorContainmentRelationSource, NavigatorSortMode,
+    NoteId, PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode, RendererId,
+    SelectionUpdateMode, ToolSurfaceReturnTarget, UnsavedFramePromptAction,
+    UnsavedFramePromptRequest, ViewDimension,
 };
 use crate::shell::desktop::workbench::pane_model::{
     FloatingPaneTargetTileContext, PaneId, PanePresentationMode,
@@ -461,6 +461,9 @@ pub enum GraphIntent {
         view_id: GraphViewId,
         mode: PendingTileOpenMode,
     },
+    FocusGraphView {
+        view_id: GraphViewId,
+    },
     CreateNoteForNode {
         key: NodeKey,
         title: Option<String>,
@@ -831,8 +834,12 @@ impl From<ViewAction> for GraphIntent {
             ViewAction::SetNavigatorRootFilter { root_filter } => {
                 Self::SetNavigatorRootFilter { root_filter }
             }
-            ViewAction::SetNavigatorSelectedRows { rows } => Self::SetNavigatorSelectedRows { rows },
-            ViewAction::SetNavigatorExpandedRows { rows } => Self::SetNavigatorExpandedRows { rows },
+            ViewAction::SetNavigatorSelectedRows { rows } => {
+                Self::SetNavigatorSelectedRows { rows }
+            }
+            ViewAction::SetNavigatorExpandedRows { rows } => {
+                Self::SetNavigatorExpandedRows { rows }
+            }
             ViewAction::RebuildNavigatorProjection => Self::RebuildNavigatorProjection,
         }
     }
@@ -1082,11 +1089,9 @@ impl GraphIntent {
             Self::SetNavigatorContainmentRelationSource { source } => {
                 Some(ViewAction::SetNavigatorContainmentRelationSource { source: *source })
             }
-            Self::SetNavigatorSortMode { sort_mode } => {
-                Some(ViewAction::SetNavigatorSortMode {
-                    sort_mode: *sort_mode,
-                })
-            }
+            Self::SetNavigatorSortMode { sort_mode } => Some(ViewAction::SetNavigatorSortMode {
+                sort_mode: *sort_mode,
+            }),
             Self::SetNavigatorRootFilter { root_filter } => {
                 Some(ViewAction::SetNavigatorRootFilter {
                     root_filter: root_filter.clone(),
@@ -1148,11 +1153,9 @@ impl GraphIntent {
                     label: label.clone(),
                 })
             }
-            Self::DeleteImportRecord { record_id } => {
-                Some(GraphMutation::DeleteImportRecord {
-                    record_id: record_id.clone(),
-                })
-            }
+            Self::DeleteImportRecord { record_id } => Some(GraphMutation::DeleteImportRecord {
+                record_id: record_id.clone(),
+            }),
             Self::SuppressImportRecordMembership { record_id, key } => {
                 Some(GraphMutation::SuppressImportRecordMembership {
                     record_id: record_id.clone(),

@@ -216,7 +216,10 @@ fn open_settings_url_history_does_not_use_legacy_history_flag() {
             url: VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
         });
 
-    assert_eq!(harness.app.workspace.graph_runtime.physics.base.is_running, was_running);
+    assert_eq!(
+        harness.app.workspace.graph_runtime.physics.base.is_running,
+        was_running
+    );
 }
 
 #[test]
@@ -236,7 +239,10 @@ fn open_settings_url_physics_is_not_reducer_owned() {
             url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
         });
 
-    assert_eq!(harness.app.workspace.graph_runtime.physics.base.is_running, was_running);
+    assert_eq!(
+        harness.app.workspace.graph_runtime.physics.base.is_running,
+        was_running
+    );
 }
 
 #[test]
@@ -256,7 +262,10 @@ fn open_settings_url_persistence_does_not_use_legacy_persistence_flag() {
             url: VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
         });
 
-    assert_eq!(harness.app.workspace.graph_runtime.physics.base.is_running, was_running);
+    assert_eq!(
+        harness.app.workspace.graph_runtime.physics.base.is_running,
+        was_running
+    );
 }
 
 #[test]

@@ -38,15 +38,9 @@ pub enum GraphQuery {
         limit: usize,
     },
     /// Per-node intra-node navigation history (NavigateNode entries).
-    NodeNavigationHistory {
-        node_id: String,
-        limit: usize,
-    },
+    NodeNavigationHistory { node_id: String, limit: usize },
     /// Per-node metadata/lifecycle audit history.
-    NodeAuditHistory {
-        node_id: String,
-        limit: usize,
-    },
+    NodeAuditHistory { node_id: String, limit: usize },
 }
 
 /// Result type returned from [`GraphQueryEngine::execute`].

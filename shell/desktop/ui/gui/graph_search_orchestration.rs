@@ -29,15 +29,22 @@ pub(super) fn run_graph_search_phase(
             !graph_search_query.trim().is_empty(),
         );
         graph_app.workspace.graph_runtime.active_graph_search_origin = request.origin;
-        graph_app.workspace.graph_runtime.active_graph_search_neighborhood_anchor = request.neighborhood_anchor;
-        graph_app.workspace.graph_runtime.active_graph_search_neighborhood_depth = request.neighborhood_depth;
+        graph_app
+            .workspace
+            .graph_runtime
+            .active_graph_search_neighborhood_anchor = request.neighborhood_anchor;
+        graph_app
+            .workspace
+            .graph_runtime
+            .active_graph_search_neighborhood_depth = request.neighborhood_depth;
         if let Some(message) = request.toast_message {
             toasts.success(message);
         }
         graph_app.workspace.graph_runtime.egui_state_dirty = true;
     }
 
-    graph_app.workspace.graph_runtime.active_graph_search_query = graph_search_query.trim().to_string();
+    graph_app.workspace.graph_runtime.active_graph_search_query =
+        graph_search_query.trim().to_string();
     graph_app.workspace.graph_runtime.search_display_mode = if *graph_search_filter_mode {
         SearchDisplayMode::Filter
     } else {
@@ -71,7 +78,10 @@ pub(super) fn run_graph_search_phase(
     if !*graph_search_open && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         graph_app.enqueue_workbench_intent(WorkbenchIntent::ClearTileSelection);
     }
-    graph_app.workspace.graph_runtime.active_graph_search_match_count = graph_search_matches.len();
+    graph_app
+        .workspace
+        .graph_runtime
+        .active_graph_search_match_count = graph_search_matches.len();
     output
 }
 

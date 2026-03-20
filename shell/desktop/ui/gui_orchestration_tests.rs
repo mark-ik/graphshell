@@ -162,7 +162,8 @@ fn graph_search_history_pushes_previous_search_when_request_changes() {
     let mut app = GraphBrowserApp::new_for_testing();
     app.workspace.graph_runtime.active_graph_search_query = "udc:51".to_string();
     app.workspace.graph_runtime.search_display_mode = crate::app::SearchDisplayMode::Filter;
-    app.workspace.graph_runtime.active_graph_search_origin = crate::app::GraphSearchOrigin::SemanticTag;
+    app.workspace.graph_runtime.active_graph_search_origin =
+        crate::app::GraphSearchOrigin::SemanticTag;
 
     super::maybe_push_graph_search_history(
         &mut app,
@@ -216,8 +217,12 @@ fn refresh_graph_search_matches_includes_anchor_neighborhood_context() {
         &mut app,
         &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
     );
-    app.workspace.graph_runtime.active_graph_search_neighborhood_anchor = Some(anchor);
-    app.workspace.graph_runtime.active_graph_search_neighborhood_depth = 1;
+    app.workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_anchor = Some(anchor);
+    app.workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_depth = 1;
 
     let mut matches = Vec::new();
     let mut active_index = None;
@@ -260,8 +265,12 @@ fn refresh_graph_search_matches_supports_two_hop_anchor_neighborhood_context() {
         &mut app,
         &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
     );
-    app.workspace.graph_runtime.active_graph_search_neighborhood_anchor = Some(anchor);
-    app.workspace.graph_runtime.active_graph_search_neighborhood_depth = 2;
+    app.workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_anchor = Some(anchor);
+    app.workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_depth = 2;
 
     let mut matches = Vec::new();
     let mut active_index = None;
@@ -346,7 +355,10 @@ fn run_graph_search_phase_applies_filter_mode_for_udc_descendant_query_end_to_en
 
     assert_eq!(graph_search_query, "facet:udc_classes=udc:51");
     assert!(graph_search_filter_mode);
-    assert_eq!(app.workspace.graph_runtime.search_display_mode, SearchDisplayMode::Filter);
+    assert_eq!(
+        app.workspace.graph_runtime.search_display_mode,
+        SearchDisplayMode::Filter
+    );
     assert!(graph_search_matches.contains(&descendant));
     assert!(!graph_search_matches.contains(&ancestor_only));
 }

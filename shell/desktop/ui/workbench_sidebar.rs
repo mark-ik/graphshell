@@ -9,7 +9,7 @@ use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
 use uuid::Uuid;
 
 use crate::app::{CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, WorkbenchIntent};
-use crate::graph::{ArrangementSubKind, NodeKey, NodeLifecycle};
+use crate::graph::{ArrangementSubKind, NodeKey};
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
@@ -159,7 +159,10 @@ impl WorkbenchChromeProjection {
             .flatten()
             .filter_map(|membership| membership.strip_prefix("Frame: "))
         {
-            if !saved_frame_names.iter().any(|existing| existing == frame_name) {
+            if !saved_frame_names
+                .iter()
+                .any(|existing| existing == frame_name)
+            {
                 saved_frame_names.push(frame_name.to_string());
             }
         }
@@ -201,17 +204,15 @@ impl WorkbenchChromeProjection {
             .find(|entry| entry.is_active)
             .map(|entry| entry.title.clone());
         let navigator_groups = navigator_groups(graph_app, &arrangement_memberships);
-        let tree_root = tiles_tree
-            .root()
-            .and_then(|root| {
-                build_tree_node(
-                    graph_app,
-                    tiles_tree,
-                    root,
-                    active_pane,
-                    &arrangement_memberships,
-                )
-            });
+        let tree_root = tiles_tree.root().and_then(|root| {
+            build_tree_node(
+                graph_app,
+                tiles_tree,
+                root,
+                active_pane,
+                &arrangement_memberships,
+            )
+        });
         Self {
             layer_state,
             chrome_policy,
@@ -393,7 +394,10 @@ fn imported_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNaviga
             if label.is_empty() {
                 continue;
             }
-            sections.entry(label.to_string()).or_default().push(node_key);
+            sections
+                .entry(label.to_string())
+                .or_default()
+                .push(node_key);
         }
     }
 
@@ -478,12 +482,18 @@ fn recent_navigator_members(
             .0
             .cmp(&left_stats.0)
             .then_with(|| right_stats.1.cmp(&left_stats.1))
-            .then_with(|| navigator_member_sort_key(graph_app, *left_key).cmp(&navigator_member_sort_key(graph_app, *right_key)))
+            .then_with(|| {
+                navigator_member_sort_key(graph_app, *left_key)
+                    .cmp(&navigator_member_sort_key(graph_app, *right_key))
+            })
     });
     rows.truncate(NAVIGATOR_RECENT_LIMIT);
     rows.into_iter()
         .filter_map(|(node_key, (_timestamp_ms, visit_count))| {
-            let suffix = format!("({visit_count} visit{})", if visit_count == 1 { "" } else { "s" });
+            let suffix = format!(
+                "({visit_count} visit{})",
+                if visit_count == 1 { "" } else { "s" }
+            );
             navigator_member_for_node(graph_app, node_key, Some(suffix))
         })
         .collect()
@@ -506,7 +516,10 @@ fn unrelated_navigator_group(
         })
         .map(|(node_key, _)| node_key)
         .collect::<Vec<_>>();
-    members.sort_by(|left, right| navigator_member_sort_key(graph_app, *left).cmp(&navigator_member_sort_key(graph_app, *right)));
+    members.sort_by(|left, right| {
+        navigator_member_sort_key(graph_app, *left)
+            .cmp(&navigator_member_sort_key(graph_app, *right))
+    });
     if members.is_empty() {
         return None;
     }
@@ -553,12 +566,54 @@ fn navigator_row_key_for_node(graph_app: &GraphBrowserApp, node_key: NodeKey) ->
         .min()
 }
 
-fn node_is_live(graph_app: &GraphBrowserApp, node_key: NodeKey) -> bool {
-    graph_app
-        .domain_graph()
-        .get_node(node_key)
-        .map(|node| matches!(node.lifecycle, NodeLifecycle::Active | NodeLifecycle::Warm))
-        .unwrap_or(false)
+fn node_has_workbench_presentation(tiles_tree: &Tree<TileKind>, node_key: NodeKey) -> bool {
+    tiles_tree.tiles.iter().any(|(_, tile)| {
+        matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
+            || matches!(
+                tile,
+                Tile::Pane(TileKind::Pane(
+                    crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+                )) if state.node == node_key
+            )
+    })
+}
+
+fn focus_node_presentation(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) -> bool {
+    tiles_tree.make_active(|_, tile| {
+        matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
+            || matches!(
+                tile,
+                Tile::Pane(TileKind::Pane(
+                    crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+                )) if state.node == node_key
+            )
+    })
+}
+
+fn graph_view_id_for_navigation(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<GraphViewId> {
+    active_visible_graph_view_id(tiles_tree)
+        .or_else(|| {
+            tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+                Tile::Pane(TileKind::Graph(graph_ref)) => Some(graph_ref.graph_view_id),
+                Tile::Pane(TileKind::Pane(
+                    crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref),
+                )) => Some(graph_ref.graph_view_id),
+                _ => None,
+            })
+        })
+        .or(graph_app.workspace.graph_runtime.focused_view)
+        .or_else(|| {
+            graph_app
+                .workspace
+                .graph_runtime
+                .views
+                .keys()
+                .next()
+                .copied()
+        })
 }
 
 fn active_visible_graph_view_id(tiles_tree: &Tree<TileKind>) -> Option<GraphViewId> {
@@ -629,7 +684,9 @@ fn pane_entry_for_tile(
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
 ) -> WorkbenchPaneEntry {
     match kind {
-        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref)) => WorkbenchPaneEntry {
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(
+            graph_ref,
+        )) => WorkbenchPaneEntry {
             pane_id: graph_ref.pane_id,
             kind: WorkbenchPaneKind::Graph {
                 view_id: graph_ref.graph_view_id,
@@ -640,7 +697,9 @@ fn pane_entry_for_tile(
             is_active: active_pane == Some(graph_ref.pane_id),
             closable: false,
         },
-        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state)) => {
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(
+            state,
+        )) => {
             let title = graph_app
                 .domain_graph()
                 .get_node(state.node)
@@ -670,17 +729,19 @@ fn pane_entry_for_tile(
             }
         }
         #[cfg(feature = "diagnostics")]
-        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool)) => WorkbenchPaneEntry {
-            pane_id: tool.pane_id,
-            kind: WorkbenchPaneKind::Tool {
-                kind: tool.kind.clone(),
-            },
-            title: tool.title().to_string(),
-            subtitle: Some("Tool".to_string()),
-            arrangement_memberships: Vec::new(),
-            is_active: active_pane == Some(tool.pane_id),
-            closable: true,
-        },
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool)) => {
+            WorkbenchPaneEntry {
+                pane_id: tool.pane_id,
+                kind: WorkbenchPaneKind::Tool {
+                    kind: tool.kind.clone(),
+                },
+                title: tool.title().to_string(),
+                subtitle: Some("Tool".to_string()),
+                arrangement_memberships: Vec::new(),
+                is_active: active_pane == Some(tool.pane_id),
+                closable: true,
+            }
+        }
         TileKind::Graph(graph_ref) => WorkbenchPaneEntry {
             pane_id: graph_ref.pane_id,
             kind: WorkbenchPaneKind::Graph {
@@ -865,10 +926,12 @@ pub(crate) fn render_workbench_sidebar(
     let focused_pane_pin_name =
         focused_toolbar_node.and_then(|node| frame_pin_name_for_node(node, graph_app));
     let mut post_panel_action = None;
-    let sidebar_max_width = (ctx.content_rect().width() * SIDEBAR_MAX_FRACTION).max(SIDEBAR_MAX_FLOOR);
-    let sidebar_default_width = (sidebar_max_width * 0.75).clamp(SIDEBAR_MAX_FLOOR, sidebar_max_width);
+    let sidebar_max_width =
+        (ctx.content_rect().width() * SIDEBAR_MAX_FRACTION).max(SIDEBAR_MAX_FLOOR);
+    let sidebar_default_width =
+        (sidebar_max_width * 0.75).clamp(SIDEBAR_MAX_FLOOR, sidebar_max_width);
 
-    SidePanel::right("workbench_sidebar")
+    SidePanel::left("workbench_sidebar")
         .resizable(true)
         .default_width(sidebar_default_width)
         .min_width(SIDEBAR_MAX_FLOOR)
@@ -879,23 +942,23 @@ pub(crate) fn render_workbench_sidebar(
                 if let Some(active_title) = &projection.active_pane_title {
                     ui.label(RichText::new(active_title).small().weak());
                 }
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            RichText::new(layer_state_label(projection.layer_state))
-                                .small()
-                                .weak(),
-                        );
-                        let pin_label = if graph_app.workbench_sidebar_pinned() {
-                            "Unpin Sidebar"
-                        } else {
-                            "Pin Sidebar"
-                        };
-                        if ui.small_button(pin_label).clicked() {
-                            post_panel_action = Some(SidebarAction::SetWorkbenchPinned(
-                                !graph_app.workbench_sidebar_pinned(),
-                            ));
-                        }
-                    });
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new(layer_state_label(projection.layer_state))
+                            .small()
+                            .weak(),
+                    );
+                    let pin_label = if graph_app.workbench_sidebar_pinned() {
+                        "Unpin Sidebar"
+                    } else {
+                        "Pin Sidebar"
+                    };
+                    if ui.small_button(pin_label).clicked() {
+                        post_panel_action = Some(SidebarAction::SetWorkbenchPinned(
+                            !graph_app.workbench_sidebar_pinned(),
+                        ));
+                    }
+                });
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
                     render_navigation_buttons(
@@ -999,16 +1062,14 @@ pub(crate) fn render_workbench_sidebar(
                             render_pane_row(ui, entry, &mut post_panel_action);
                         }
                         ui.add_space(4.0);
-                        egui::CollapsingHeader::new(
-                            RichText::new("Tile Structure").small().weak(),
-                        )
-                        .id_salt("workbench_sidebar_tile_structure")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if let Some(root) = projection.tree_root.as_ref() {
-                                render_tree_node(ui, root, 0, &mut post_panel_action);
-                            }
-                        });
+                        egui::CollapsingHeader::new(RichText::new("Tile Structure").small().weak())
+                            .id_salt("workbench_sidebar_tile_structure")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                if let Some(root) = projection.tree_root.as_ref() {
+                                    render_tree_node(ui, root, 0, &mut post_panel_action);
+                                }
+                            });
                     });
             });
         });
@@ -1132,8 +1193,7 @@ fn render_tree_node(
             children,
         } => {
             let compact_label = compact_sidebar_text(label);
-            let header =
-                egui::CollapsingHeader::new(RichText::new(compact_label).small().strong())
+            let header = egui::CollapsingHeader::new(RichText::new(compact_label).small().strong())
                 .id_salt(("workbench_sidebar_container", tile_id))
                 .default_open(true);
             header.show(ui, |ui| {
@@ -1213,31 +1273,46 @@ fn apply_sidebar_action(
                 key: node_key,
                 multi_select: false,
             }]);
-            if let Some(view_id) = offscreen_visible_graph_view_for_node(graph_app, tiles_tree, node_key)
+            if let Some(view_id) =
+                offscreen_visible_graph_view_for_node(graph_app, tiles_tree, node_key)
             {
-                graph_app.request_camera_command_for_view(
-                    Some(view_id),
-                    CameraCommand::FitSelection,
-                );
+                graph_app
+                    .request_camera_command_for_view(Some(view_id), CameraCommand::FitSelection);
             }
         }
         SidebarAction::ActivateNode { node_key, row_key } => {
             if let Some(row_key) = row_key {
                 graph_app.set_navigator_selected_rows([row_key]);
             }
-            if node_is_live(graph_app, node_key) {
-                graph_app.apply_reducer_intents([GraphIntent::OpenNodeWorkspaceRouted {
+            if node_has_workbench_presentation(tiles_tree, node_key) {
+                graph_app.apply_reducer_intents([GraphIntent::SelectNode {
                     key: node_key,
-                    prefer_workspace: None,
+                    multi_select: false,
                 }]);
+                let _ = focus_node_presentation(tiles_tree, node_key);
             } else {
-                graph_app.apply_reducer_intents([
-                    GraphIntent::SelectNode {
-                        key: node_key,
-                        multi_select: false,
-                    },
-                    GraphIntent::RequestZoomToSelected,
-                ]);
+                if let Some(view_id) = graph_view_id_for_navigation(graph_app, tiles_tree) {
+                    tile_view_ops::open_or_focus_graph_pane(tiles_tree, view_id);
+                    graph_app.apply_reducer_intents([
+                        GraphIntent::FocusGraphView { view_id },
+                        GraphIntent::SelectNode {
+                            key: node_key,
+                            multi_select: false,
+                        },
+                    ]);
+                    graph_app.request_camera_command_for_view(
+                        Some(view_id),
+                        CameraCommand::FitSelection,
+                    );
+                } else {
+                    graph_app.apply_reducer_intents([
+                        GraphIntent::SelectNode {
+                            key: node_key,
+                            multi_select: false,
+                        },
+                        GraphIntent::RequestZoomToSelected,
+                    ]);
+                }
             }
         }
         SidebarAction::SplitPane(source_pane, direction) => {
@@ -1446,8 +1521,14 @@ mod tests {
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
-        assert_eq!(projection.layer_state, WorkbenchLayerState::GraphOverlayActive);
-        assert_eq!(projection.chrome_policy, ChromeExposurePolicy::GraphWithOverlay);
+        assert_eq!(
+            projection.layer_state,
+            WorkbenchLayerState::GraphOverlayActive
+        );
+        assert_eq!(
+            projection.chrome_policy,
+            ChromeExposurePolicy::GraphWithOverlay
+        );
         assert!(!projection.visible());
     }
 
@@ -1674,7 +1755,10 @@ mod tests {
         );
 
         assert!(app.focused_selection().contains(&node_key));
-        assert_eq!(app.pending_camera_command(), Some(CameraCommand::FitSelection));
+        assert_eq!(
+            app.pending_camera_command(),
+            Some(CameraCommand::FitSelection)
+        );
         assert_eq!(app.pending_camera_command_target(), Some(graph_view));
     }
 
@@ -1711,6 +1795,117 @@ mod tests {
     }
 
     #[test]
+    fn activating_workbench_resident_node_focuses_its_pane() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let live_node = app.add_node_and_sync(
+            "https://example.com/live".to_string(),
+            euclid::default::Point2D::new(40.0, 40.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(live_node)));
+        let root = tiles.insert_tab_tile(vec![graph, node]);
+        let mut tree = Tree::new("workbench_sidebar_activate_live", root, tiles);
+        let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+
+        apply_sidebar_action(
+            SidebarAction::ActivateNode {
+                node_key: live_node,
+                row_key: Some("node:live".to_string()),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(app.focused_selection().contains(&live_node));
+        assert_eq!(
+            tree.active_tiles()
+                .into_iter()
+                .filter_map(|tile_id| tree.tiles.get(tile_id))
+                .find_map(|tile| match tile {
+                    Tile::Pane(TileKind::Node(state)) => Some(state.node),
+                    _ => None,
+                }),
+            Some(live_node)
+        );
+        assert!(app.pending_camera_command().is_none());
+        assert!(app.pending_open_node_request().is_none());
+    }
+
+    #[test]
+    fn activating_prewarmed_cold_node_focuses_graph_instead_of_workbench() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let cold_node = app.add_node_and_sync(
+            "https://example.com/cold".to_string(),
+            euclid::default::Point2D::new(400.0, 400.0),
+        );
+        app.workspace.graph_runtime.graph_view_canvas_rects.insert(
+            graph_view,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let other_node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(
+            app.add_node_and_sync(
+                "https://example.com/other".to_string(),
+                euclid::default::Point2D::new(0.0, 0.0),
+            ),
+        )));
+        let root = tiles.insert_tab_tile(vec![graph, other_node]);
+        let mut tree = Tree::new("workbench_sidebar_activate_cold", root, tiles);
+        let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_))));
+
+        apply_sidebar_action(
+            SidebarAction::SelectNode {
+                node_key: cold_node,
+                row_key: Some("node:cold".to_string()),
+            },
+            &mut app,
+            &mut tree,
+        );
+        assert!(
+            app.domain_graph()
+                .get_node(cold_node)
+                .is_some_and(|node| node.lifecycle != crate::graph::NodeLifecycle::Cold)
+        );
+
+        app.clear_pending_camera_command();
+
+        apply_sidebar_action(
+            SidebarAction::ActivateNode {
+                node_key: cold_node,
+                row_key: Some("node:cold".to_string()),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(app.focused_selection().contains(&cold_node));
+        assert_eq!(
+            tree.active_tiles()
+                .into_iter()
+                .filter_map(|tile_id| tree.tiles.get(tile_id))
+                .find_map(|tile| match tile {
+                    Tile::Pane(TileKind::Graph(graph_ref)) => Some(graph_ref.graph_view_id),
+                    _ => None,
+                }),
+            Some(graph_view)
+        );
+        assert_eq!(
+            app.pending_camera_command(),
+            Some(CameraCommand::FitSelection)
+        );
+        assert_eq!(app.pending_camera_command_target(), Some(graph_view));
+        assert!(app.pending_open_node_request().is_none());
+    }
+
+    #[test]
     fn recent_navigator_members_count_visits_and_skip_arranged_nodes() {
         let graph_view = GraphViewId::new();
         let mut app = GraphBrowserApp::new_for_testing();
@@ -1723,10 +1918,19 @@ mod tests {
             "https://example.com/arranged".to_string(),
             euclid::default::Point2D::new(1.0, 0.0),
         );
-        let recent_id = app.domain_graph().get_node(recent_key).expect("recent node").id;
-        let arranged_id = app.domain_graph().get_node(arranged_key).expect("arranged node").id;
+        let recent_id = app
+            .domain_graph()
+            .get_node(recent_key)
+            .expect("recent node")
+            .id;
+        let arranged_id = app
+            .domain_graph()
+            .get_node(arranged_key)
+            .expect("arranged node")
+            .id;
 
-        let arrangement_memberships = HashMap::from([(arranged_key, vec!["Frame: alpha".to_string()])]);
+        let arrangement_memberships =
+            HashMap::from([(arranged_key, vec!["Frame: alpha".to_string()])]);
         let entries = vec![
             LogEntry::AppendTraversal {
                 from_node_id: Uuid::new_v4().to_string(),
@@ -1754,7 +1958,8 @@ mod tests {
                 to_node_id,
                 timestamp_ms,
                 ..
-            } = entry else {
+            } = entry
+            else {
                 continue;
             };
             let node_id = Uuid::parse_str(&to_node_id).expect("valid node uuid");
@@ -1777,7 +1982,10 @@ mod tests {
                 .0
                 .cmp(&left_stats.0)
                 .then_with(|| right_stats.1.cmp(&left_stats.1))
-                .then_with(|| navigator_member_sort_key(&app, *left_key).cmp(&navigator_member_sort_key(&app, *right_key)))
+                .then_with(|| {
+                    navigator_member_sort_key(&app, *left_key)
+                        .cmp(&navigator_member_sort_key(&app, *right_key))
+                })
         });
         let members = rows
             .into_iter()

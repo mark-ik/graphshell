@@ -121,6 +121,7 @@ mod tests {
             focus_authority: RuntimeFocusAuthorityState::default(),
             toolbar_drafts: std::collections::HashMap::new(),
             command_palette_toggle_requested: false,
+            pending_webview_context_surface_requests: Vec::new(),
             deferred_open_child_webviews: Vec::new(),
         };
         let node_key = app.add_node_and_sync(
@@ -156,6 +157,7 @@ mod tests {
             focus_authority: RuntimeFocusAuthorityState::default(),
             toolbar_drafts: std::collections::HashMap::new(),
             command_palette_toggle_requested: false,
+            pending_webview_context_surface_requests: Vec::new(),
             deferred_open_child_webviews: Vec::new(),
         };
         let node_key = app.add_node_and_sync(

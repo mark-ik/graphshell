@@ -206,7 +206,10 @@ fn p3_liquid_ring_is_intermediate_between_solid_and_gas() {
     let (liquid_graph, liquid_converged) = run_scenario(&graph, &liquid_profile, 1000);
     let (gas_graph, gas_converged) = run_scenario(&graph, &gas_profile, 1200);
 
-    assert!(solid_converged.is_some(), "P3: Solid baseline must converge");
+    assert!(
+        solid_converged.is_some(),
+        "P3: Solid baseline must converge"
+    );
     assert!(
         liquid_converged.is_some(),
         "P3: Liquid ring must converge within 1000 steps"

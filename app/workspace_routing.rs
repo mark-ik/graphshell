@@ -31,7 +31,10 @@ impl GraphBrowserApp {
             .filter_map(|((container_key, sub_kind), mut member_keys)| {
                 let container = self.domain_graph().get_node(container_key)?;
                 let (id, title) = arrangement_group_identity(container, sub_kind)?;
-                member_keys.sort_by(|left, right| arrangement_member_sort_key(self, *left).cmp(&arrangement_member_sort_key(self, *right)));
+                member_keys.sort_by(|left, right| {
+                    arrangement_member_sort_key(self, *left)
+                        .cmp(&arrangement_member_sort_key(self, *right))
+                });
                 member_keys.dedup();
                 Some(ArrangementProjectionGroup {
                     container_key,
@@ -172,9 +175,15 @@ impl GraphBrowserApp {
 
     /// Mark the current frame context as synthesized from runtime actions.
     pub fn mark_current_workspace_synthesized(&mut self) {
-        self.workspace.workbench_session.current_workspace_is_synthesized = true;
-        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
-        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+        self.workspace
+            .workbench_session
+            .current_workspace_is_synthesized = true;
+        self.workspace
+            .workbench_session
+            .workspace_has_unsaved_changes = false;
+        self.workspace
+            .workbench_session
+            .unsaved_workspace_prompt_warned = false;
     }
 
     /// Mark the current frame context as synthesized from runtime actions.
@@ -206,7 +215,11 @@ impl GraphBrowserApp {
         let Some(node) = self.workspace.domain.graph.get_node(key) else {
             return names;
         };
-        if let Some((_, recent)) = self.workspace.workbench_session.node_last_active_workspace.get(&node.id)
+        if let Some((_, recent)) = self
+            .workspace
+            .workbench_session
+            .node_last_active_workspace
+            .get(&node.id)
             && let Some(idx) = names.iter().position(|name| name == recent)
         {
             let recent = names.remove(idx);
@@ -241,8 +254,11 @@ impl GraphBrowserApp {
         workspace_name: &str,
         nodes: impl IntoIterator<Item = NodeKey>,
     ) {
-        self.workspace.workbench_session.workspace_activation_seq =
-            self.workspace.workbench_session.workspace_activation_seq.saturating_add(1);
+        self.workspace.workbench_session.workspace_activation_seq = self
+            .workspace
+            .workbench_session
+            .workspace_activation_seq
+            .saturating_add(1);
         let seq = self.workspace.workbench_session.workspace_activation_seq;
         let workspace_name = workspace_name.to_string();
         for key in nodes {
@@ -260,9 +276,15 @@ impl GraphBrowserApp {
                 .or_default()
                 .insert(workspace_name.clone());
         }
-        self.workspace.workbench_session.current_workspace_is_synthesized = false;
-        self.workspace.workbench_session.workspace_has_unsaved_changes = false;
-        self.workspace.workbench_session.unsaved_workspace_prompt_warned = false;
+        self.workspace
+            .workbench_session
+            .current_workspace_is_synthesized = false;
+        self.workspace
+            .workbench_session
+            .workspace_has_unsaved_changes = false;
+        self.workspace
+            .workbench_session
+            .unsaved_workspace_prompt_warned = false;
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
@@ -355,9 +377,12 @@ impl GraphBrowserApp {
         }
 
         if !memberships.is_empty() {
-            if let Some((_, recent_workspace)) =
-                node_uuid.and_then(|uuid| self.workspace.workbench_session.node_last_active_workspace.get(&uuid))
-                && memberships.contains(recent_workspace)
+            if let Some((_, recent_workspace)) = node_uuid.and_then(|uuid| {
+                self.workspace
+                    .workbench_session
+                    .node_last_active_workspace
+                    .get(&uuid)
+            }) && memberships.contains(recent_workspace)
             {
                 return (
                     FrameOpenAction::RestoreFrame {
@@ -863,7 +888,11 @@ mod tests {
             })
         );
         assert_eq!(app.pending_open_node_request(), None);
-        assert!(!app.workspace.workbench_session.current_workspace_is_synthesized);
+        assert!(
+            !app.workspace
+                .workbench_session
+                .current_workspace_is_synthesized
+        );
     }
 
     #[test]
@@ -894,6 +923,10 @@ mod tests {
                 mode: PendingTileOpenMode::Tab,
             })
         );
-        assert!(app.workspace.workbench_session.current_workspace_is_synthesized);
+        assert!(
+            app.workspace
+                .workbench_session
+                .current_workspace_is_synthesized
+        );
     }
 }

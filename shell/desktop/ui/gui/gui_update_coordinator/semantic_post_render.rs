@@ -32,6 +32,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         focus_ring_node_key,
         focus_ring_started_at,
         focus_ring_duration,
+        pending_webview_context_surface_requests,
         graph_search_query,
         graph_search_matches,
         graph_search_active_match_index,
@@ -99,6 +100,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
             focus_ring_node_key,
             focus_ring_started_at,
             focus_ring_duration: *focus_ring_duration,
+            pending_webview_context_surface_requests,
             toasts,
             control_panel,
             #[cfg(feature = "diagnostics")]

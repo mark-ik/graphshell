@@ -438,9 +438,11 @@ impl GraphStore {
         self.log_sequence += 1;
 
         // Incrementally project the entry into the in-memory fact store.
-        self.query_engine
-            .fact_store_mut()
-            .append_projected(&HistoryFactProjector, current_sequence, entry);
+        self.query_engine.fact_store_mut().append_projected(
+            &HistoryFactProjector,
+            current_sequence,
+            entry,
+        );
     }
 
     /// Stage E kickoff: append traversal history into long-term archive keyspace.

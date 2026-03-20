@@ -140,7 +140,8 @@ where
                     false,
                 );
                 *graph_search_filter_mode = false;
-                graph_app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Highlight;
+                graph_app.workspace.graph_runtime.search_display_mode =
+                    SearchDisplayMode::Highlight;
                 closed_search_surface = true;
             } else {
                 graph_search_query.clear();

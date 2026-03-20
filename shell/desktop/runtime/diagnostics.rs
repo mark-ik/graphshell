@@ -40,13 +40,12 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
     CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED, CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED,
     CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED, CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH,
-    CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED,
-    CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE, CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE,
-    CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED, CHANNEL_VIEWER_FALLBACK_USED,
-    CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
+    CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
     CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION, CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
     CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH, CHANNEL_UX_NAVIGATION_TRANSITION,
-    CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED,
+    CHANNEL_VIEWER_SELECT_SUCCEEDED,
 };
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
@@ -516,7 +515,10 @@ fn analyze_render_mode_health(
     let (signal, status) = if degraded_placeholder > 0 {
         (AnalyzerSignal::Alert, "placeholder degradation observed")
     } else if fallback_used > 0 || placeholder_mode > 0 {
-        (AnalyzerSignal::Active, "fallback or placeholder mode observed")
+        (
+            AnalyzerSignal::Active,
+            "fallback or placeholder mode observed",
+        )
     } else {
         (AnalyzerSignal::Active, "render-mode mix healthy")
     };
@@ -580,7 +582,10 @@ fn analyze_signal_routing_health(
     let (signal, status) = if failed > 0 || unrouted > 0 {
         (AnalyzerSignal::Alert, "signal-routing failures detected")
     } else if lagged > 0 || avg_queue_depth > 0 {
-        (AnalyzerSignal::Active, "signal-routing active with backpressure")
+        (
+            AnalyzerSignal::Active,
+            "signal-routing active with backpressure",
+        )
     } else {
         (AnalyzerSignal::Active, "signal-routing healthy")
     };
@@ -629,13 +634,15 @@ fn analyze_navigator_projection_health(
     if observed == 0 {
         return AnalyzerResult {
             signal: AnalyzerSignal::Quiet,
-            summary: "navigator projection health pending first UX navigation signals"
-                .to_string(),
+            summary: "navigator projection health pending first UX navigation signals".to_string(),
         };
     }
 
     let (signal, status) = if nav_violation > 0 || missing_family > 0 {
-        (AnalyzerSignal::Alert, "navigator/arrangement contract violations detected")
+        (
+            AnalyzerSignal::Alert,
+            "navigator/arrangement contract violations detected",
+        )
     } else {
         (
             AnalyzerSignal::Active,
@@ -1000,10 +1007,7 @@ impl DiagnosticsState {
             .iter()
             .filter(|receipt| receipt.signal == AnalyzerSignal::Alert)
             .count();
-        let summary = format!(
-            "{} receipt(s), alert_count={alert_count}",
-            receipts.len(),
-        );
+        let summary = format!("{} receipt(s), alert_count={alert_count}", receipts.len(),);
 
         DiagnosticsHarnessRunResult {
             passed: alert_count == 0,
@@ -1987,7 +1991,11 @@ impl DiagnosticsState {
     }
 
     pub(crate) fn sync_runtime_cache_snapshot_from_app(&mut self, graph_app: &GraphBrowserApp) {
-        let metrics = graph_app.workspace.graph_runtime.runtime_caches.metrics_snapshot();
+        let metrics = graph_app
+            .workspace
+            .graph_runtime
+            .runtime_caches
+            .metrics_snapshot();
         self.runtime_cache_snapshot = json!({
             "hits": metrics.hits,
             "misses": metrics.misses,
@@ -2372,18 +2380,21 @@ mod tests {
 
         let run = state.run_harness_scenario(DiagnosticsHarnessScenario::SharedLanePack);
         assert_eq!(run.receipts.len(), 3);
-        assert!(run
-            .receipts
-            .iter()
-            .any(|receipt| receipt.analyzer_id == "lane.render_mode.health"));
-        assert!(run
-            .receipts
-            .iter()
-            .any(|receipt| receipt.analyzer_id == "lane.signal_routing.health"));
-        assert!(run
-            .receipts
-            .iter()
-            .any(|receipt| receipt.analyzer_id == "lane.navigator_projection.health"));
+        assert!(
+            run.receipts
+                .iter()
+                .any(|receipt| receipt.analyzer_id == "lane.render_mode.health")
+        );
+        assert!(
+            run.receipts
+                .iter()
+                .any(|receipt| receipt.analyzer_id == "lane.signal_routing.health")
+        );
+        assert!(
+            run.receipts
+                .iter()
+                .any(|receipt| receipt.analyzer_id == "lane.navigator_projection.health")
+        );
     }
 
     #[test]
@@ -3276,8 +3287,16 @@ Object {
             .graph_runtime
             .runtime_caches
             .insert_suggestions("diag:key".to_string(), vec!["rust".to_string()]);
-        let _ = app.workspace.graph_runtime.runtime_caches.get_suggestions("diag:key");
-        let _ = app.workspace.graph_runtime.runtime_caches.get_suggestions("diag:missing");
+        let _ = app
+            .workspace
+            .graph_runtime
+            .runtime_caches
+            .get_suggestions("diag:key");
+        let _ = app
+            .workspace
+            .graph_runtime
+            .runtime_caches
+            .get_suggestions("diag:missing");
 
         state.sync_runtime_cache_snapshot_from_app(&app);
         let snapshot = state.snapshot_json_value();

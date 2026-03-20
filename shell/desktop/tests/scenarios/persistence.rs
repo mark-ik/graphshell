@@ -348,7 +348,10 @@ fn set_shortcut_bindings_persist_across_restart() {
         reopened.workspace.chrome_ui.command_palette_shortcut,
         CommandPaletteShortcut::CtrlK
     );
-    assert_eq!(reopened.workspace.chrome_ui.help_panel_shortcut, HelpPanelShortcut::H);
+    assert_eq!(
+        reopened.workspace.chrome_ui.help_panel_shortcut,
+        HelpPanelShortcut::H
+    );
     assert_eq!(
         reopened.workspace.chrome_ui.radial_menu_shortcut,
         RadialMenuShortcut::R
@@ -396,7 +399,11 @@ fn set_input_binding_remaps_persist_across_restart() {
     // (avoids racing against other tests that share the global input registry).
     let reopened = GraphBrowserApp::new_from_dir(path);
     let loaded_remaps = reopened.input_binding_remaps();
-    assert_eq!(loaded_remaps.len(), 1, "reopened app should have one persisted remap");
+    assert_eq!(
+        loaded_remaps.len(),
+        1,
+        "reopened app should have one persisted remap"
+    );
     assert_eq!(loaded_remaps[0].old, remaps[0].old);
     assert_eq!(loaded_remaps[0].new, remaps[0].new);
     assert_eq!(loaded_remaps[0].context, remaps[0].context);
