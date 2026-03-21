@@ -4,5 +4,6 @@
 
 pub(crate) use crate::model::graph::*;
 pub(crate) mod frame_affinity;
+pub(crate) mod graphlet;
 pub(crate) mod layouts;
 pub(crate) mod physics;

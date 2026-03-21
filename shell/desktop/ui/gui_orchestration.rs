@@ -1418,6 +1418,7 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::ToggleRadialMenu => UX_DISPATCH_NODE_COMMAND_SURFACE,
         WorkbenchIntent::OpenToolPane { .. }
         | WorkbenchIntent::ClosePane { .. }
+        | WorkbenchIntent::DismissTile { .. }
         | WorkbenchIntent::CloseToolPane { .. }
         | WorkbenchIntent::OpenSettingsUrl { .. }
         | WorkbenchIntent::OpenFrameUrl { .. }
@@ -1435,6 +1436,7 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::SplitPane { .. }
         | WorkbenchIntent::DetachNodeToSplit { .. }
         | WorkbenchIntent::OpenNodeInPane { .. }
+        | WorkbenchIntent::ReconcileGraphletTiles { .. }
         | WorkbenchIntent::SelectTile { .. }
         | WorkbenchIntent::UpdateTileSelection { .. }
         | WorkbenchIntent::ClearTileSelection

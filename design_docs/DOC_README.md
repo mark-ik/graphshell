@@ -41,7 +41,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 18, 2026
+Last updated: March 20, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -102,6 +102,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_event_dispatch_spec.md](graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_event_dispatch_spec.md) - Canonical UxTree event dispatch contract (capture/target/bubble/default, modal isolation, authority routing, diagnostics/test gates).
 - [graphshell_docs/implementation_strategy/aspect_command/radial_menu_geometry_and_overflow_spec.md](graphshell_docs/implementation_strategy/aspect_command/radial_menu_geometry_and_overflow_spec.md) - Canonical radial geometry/overflow/readability contract with deterministic ring assignment and CI test expectations.
 - [graphshell_docs/implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md](graphshell_docs/implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md) - Canonical interaction contract for the workbench/frame/tile model.
+- [graphshell_docs/implementation_strategy/workbench/2026-03-20_arrangement_graph_projection_plan.md](graphshell_docs/implementation_strategy/workbench/2026-03-20_arrangement_graph_projection_plan.md) - Plan to make tile tree a projection of arrangement graph truth: HostedSurface bridge object, ArrangementRelation sub-kinds (tab-order-next, group-member, split-child, etc.), Navigator faithfulness contract, workbench invocation via arrangement mutations, and 5-phase migration plan.
 - [graphshell_docs/implementation_strategy/workbench/pane_presentation_and_locking_spec.md](graphshell_docs/implementation_strategy/workbench/pane_presentation_and_locking_spec.md) - Canonical contract for tiled/docked presentation and `PaneLock` behavior.
 - [graphshell_docs/implementation_strategy/canvas/graph_node_edge_interaction_spec.md](graphshell_docs/implementation_strategy/canvas/graph_node_edge_interaction_spec.md) - Canonical interaction contract for graph, node, edge, and camera semantics.
 - [graphshell_docs/implementation_strategy/canvas/2026-03-11_graph_enrichment_plan.md](graphshell_docs/implementation_strategy/canvas/2026-03-11_graph_enrichment_plan.md) - Umbrella graph-enrichment plan unifying tags, badges, UDC classification, import/clip enrichment, provenance, and visible graph effects under the knowledge-capture lane.

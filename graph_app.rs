@@ -554,6 +554,27 @@ pub enum WorkbenchIntent {
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
         restore_previous_focus: bool,
     },
+    /// Close a node tile and demote its node to `NodeLifecycle::Cold`.
+    ///
+    /// Unlike `ClosePane`, this preserves all graph edges so the node remains
+    /// part of its durable graphlet.  The tile is removed from the tree; the
+    /// node's webview is released; the node lifecycle transitions to `Cold`.
+    DismissTile {
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+    },
+    /// Merge warm tiles of a durable graphlet into a single `Container::Tabs`.
+    ///
+    /// Triggered after a durable edge (`UserGrouped` or `FrameMember`) is created
+    /// between two nodes that already have warm tiles in different containers.
+    /// The reconciler computes the full durable graphlet for `node`, finds all
+    /// warm members, and moves any tiles that are outside the graphlet's primary
+    /// tab container into it.
+    ///
+    /// This is a no-op if all warm tiles are already in the same container, or if
+    /// fewer than two graphlet members have warm tiles.
+    ReconcileGraphletTiles {
+        node: NodeKey,
+    },
     CloseToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
         restore_previous_focus: bool,

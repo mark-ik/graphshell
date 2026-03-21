@@ -86,6 +86,15 @@ pub(crate) struct WorkbenchPaneEntry {
     pub(crate) closable: bool,
 }
 
+/// A single entry in the active tile group's graphlet roster shown by the omnibar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GraphletRosterEntry {
+    pub(crate) node_key: NodeKey,
+    pub(crate) title: String,
+    /// True when `NodeLifecycle::Cold` — shown with ○ badge; activating opens a tile.
+    pub(crate) is_cold: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkbenchChromeProjection {
     pub(crate) layer_state: WorkbenchLayerState,
@@ -95,6 +104,9 @@ pub(crate) struct WorkbenchChromeProjection {
     pub(crate) navigator_groups: Vec<WorkbenchNavigatorGroup>,
     pub(crate) pane_entries: Vec<WorkbenchPaneEntry>,
     pub(crate) tree_root: Option<WorkbenchChromeNode>,
+    /// Full graphlet roster (warm ● + cold ○) for the active node pane's graphlet.
+    /// Empty when the active pane is not a node pane or when the node has no graphlet peers.
+    pub(crate) active_graphlet_roster: Vec<GraphletRosterEntry>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,6 +132,9 @@ pub(crate) struct WorkbenchNavigatorMember {
     pub(crate) title: String,
     pub(crate) is_selected: bool,
     pub(crate) row_key: Option<String>,
+    /// True when the node's lifecycle is `Cold` — has graph edges but no live tile.
+    /// Rendered with a ○ badge in the Navigator; double-click activates.
+    pub(crate) is_cold: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -213,6 +228,8 @@ impl WorkbenchChromeProjection {
                 &arrangement_memberships,
             )
         });
+        let active_graphlet_roster =
+            build_active_graphlet_roster(graph_app, tiles_tree, active_pane);
         Self {
             layer_state,
             chrome_policy,
@@ -221,6 +238,7 @@ impl WorkbenchChromeProjection {
             navigator_groups,
             pane_entries,
             tree_root,
+            active_graphlet_roster,
         }
     }
 
@@ -282,20 +300,109 @@ fn arrangement_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNav
     graph_app
         .arrangement_projection_groups()
         .into_iter()
-        .map(|group| WorkbenchNavigatorGroup {
-            section: WorkbenchNavigatorSection::Workbench,
-            title: match group.sub_kind {
-                ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
-                ArrangementSubKind::TileGroup => format!("Tile Group: {}", group.title),
-                ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
-            },
-            members: group
-                .member_keys
-                .into_iter()
-                .filter_map(|node_key| navigator_member_for_node(graph_app, node_key, None))
-                .collect(),
+        .map(|group| {
+            // Start with the directly-connected members (via ArrangementRelation edges).
+            let mut member_keys: Vec<NodeKey> = group.member_keys.clone();
+
+            // Extend with cold peers reachable via UserGrouped edges that are not
+            // already represented by an ArrangementRelation edge. These are nodes
+            // that were added to the graphlet by tile-opening (Phase 5) and later
+            // dismissed (DismissTile → Cold). Their edges survive dismiss, so they
+            // remain durable graphlet members but are not FrameMember-connected.
+            let existing: std::collections::HashSet<NodeKey> =
+                member_keys.iter().copied().collect();
+            for &seed in &group.member_keys {
+                for peer in graph_app.durable_graphlet_peers(seed) {
+                    if !existing.contains(&peer) && !member_keys.contains(&peer) {
+                        // Skip internal surface nodes (frame anchors, tool panes, etc.)
+                        // that are reachable via FrameMember edges but are not user-visible
+                        // content nodes.
+                        if let Some(node) = graph_app.domain_graph().get_node(peer) {
+                            if !is_internal_surface_node(node) {
+                                member_keys.push(peer);
+                            }
+                        }
+                    }
+                }
+            }
+
+            WorkbenchNavigatorGroup {
+                section: WorkbenchNavigatorSection::Workbench,
+                title: match group.sub_kind {
+                    ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
+                    ArrangementSubKind::TileGroup => format!("Tile Group: {}", group.title),
+                    ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
+                },
+                members: member_keys
+                    .into_iter()
+                    .filter_map(|node_key| navigator_member_for_node(graph_app, node_key, None))
+                    .collect(),
+            }
         })
         .collect()
+}
+
+/// Build the graphlet roster for the active node pane (Phase 3 — omnibar).
+///
+/// Returns all durable graphlet peers of the active pane's node, plus the node
+/// itself, sorted: warm/active members first (by title), then cold members.
+/// Returns an empty `Vec` if the active pane is not a node pane or the node
+/// has no graphlet peers.
+fn build_active_graphlet_roster(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    active_pane: Option<PaneId>,
+) -> Vec<GraphletRosterEntry> {
+    let active_pane = match active_pane {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+
+    // Find the node key for the active pane.
+    let seed_node = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+        Tile::Pane(kind) if kind.pane_id() == active_pane => {
+            kind.node_state().map(|s| s.node)
+        }
+        _ => None,
+    });
+    let seed_node = match seed_node {
+        Some(k) => k,
+        None => return Vec::new(),
+    };
+
+    // Collect the seed + all durable graphlet peers.
+    let mut all_nodes = vec![seed_node];
+    all_nodes.extend(graph_app.durable_graphlet_peers(seed_node));
+    all_nodes.sort_by_key(|k| k.index());
+    all_nodes.dedup();
+
+    if all_nodes.len() <= 1 {
+        // Singleton — no roster to show.
+        return Vec::new();
+    }
+
+    let mut entries: Vec<GraphletRosterEntry> = all_nodes
+        .into_iter()
+        .filter_map(|node_key| {
+            let node = graph_app.domain_graph().get_node(node_key)?;
+            let title = node_primary_label(node);
+            let is_cold = node.lifecycle == crate::graph::NodeLifecycle::Cold;
+            Some(GraphletRosterEntry {
+                node_key,
+                title,
+                is_cold,
+            })
+        })
+        .collect();
+
+    // Sort: warm/active first (by title), then cold (by title).
+    entries.sort_by(|a, b| {
+        a.is_cold
+            .cmp(&b.is_cold)
+            .then_with(|| a.title.cmp(&b.title))
+            .then_with(|| a.node_key.index().cmp(&b.node_key.index()))
+    });
+    entries
 }
 
 fn containment_navigator_groups(
@@ -544,11 +651,13 @@ fn navigator_member_for_node(
         title.push(' ');
         title.push_str(&suffix);
     }
+    let is_cold = node.lifecycle == crate::graph::NodeLifecycle::Cold;
     Some(WorkbenchNavigatorMember {
         node_key,
         title,
         is_selected: graph_app.focused_selection().contains(&node_key),
         row_key: navigator_row_key_for_node(graph_app, node_key),
+        is_cold,
     })
 }
 
@@ -942,6 +1051,37 @@ pub(crate) fn render_workbench_sidebar(
                 if let Some(active_title) = &projection.active_pane_title {
                     ui.label(RichText::new(active_title).small().weak());
                 }
+                // Graphlet roster: ● warm peers already visible as tabs;
+                // ○ cold peers shown here for discovery / one-click activation.
+                if !projection.active_graphlet_roster.is_empty() {
+                    ui.horizontal_wrapped(|ui| {
+                        for entry in &projection.active_graphlet_roster {
+                            let label = if entry.is_cold {
+                                format!("○ {}", entry.title)
+                            } else {
+                                format!("● {}", entry.title)
+                            };
+                            let btn = egui::Button::new(RichText::new(&label).small())
+                                .frame(entry.is_cold); // framed = clickable cold peer
+                            if ui
+                                .add(btn)
+                                .on_hover_text(if entry.is_cold {
+                                    "Cold — click to open a tile"
+                                } else {
+                                    "Warm — already open"
+                                })
+                                .clicked()
+                                && entry.is_cold
+                            {
+                                post_panel_action = Some(SidebarAction::ActivateNode {
+                                    node_key: entry.node_key,
+                                    row_key: None,
+                                });
+                            }
+                        }
+                    });
+                    ui.add_space(2.0);
+                }
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         RichText::new(layer_state_label(projection.layer_state))
@@ -1033,9 +1173,14 @@ pub(crate) fn render_workbench_sidebar(
                         ));
                         header.show(ui, |ui| {
                             for member in &group.members {
+                                let label = if member.is_cold {
+                                    format!("○ {}", member.title)
+                                } else {
+                                    member.title.clone()
+                                };
                                 let response = ui.selectable_label(
                                     member.is_selected,
-                                    RichText::new(&member.title).small(),
+                                    RichText::new(label).small(),
                                 );
                                 if response.double_clicked() {
                                     post_panel_action = Some(SidebarAction::ActivateNode {
@@ -1093,7 +1238,10 @@ enum SidebarAction {
         row_key: Option<String>,
     },
     SplitPane(PaneId, SplitDirection),
+    /// Close a non-node pane (graph view, tool). Preserves webview.
     ClosePane(PaneId),
+    /// Dismiss a node pane: demotes to Cold but keeps graph edges intact.
+    DismissNodePane(PaneId),
     OpenTool(ToolPaneState),
     SetWorkbenchPinned(bool),
     SaveCurrentFrame,
@@ -1134,7 +1282,12 @@ fn render_tree_node(
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
-                        *action = Some(SidebarAction::ClosePane(entry.pane_id));
+                        *action = Some(match entry.kind {
+                            WorkbenchPaneKind::Node { .. } => {
+                                SidebarAction::DismissNodePane(entry.pane_id)
+                            }
+                            _ => SidebarAction::ClosePane(entry.pane_id),
+                        });
                     }
                     if ui
                         .small_button("V")
@@ -1229,7 +1382,12 @@ fn render_pane_row(
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
-                *action = Some(SidebarAction::ClosePane(entry.pane_id));
+                *action = Some(match entry.kind {
+                    WorkbenchPaneKind::Node { .. } => {
+                        SidebarAction::DismissNodePane(entry.pane_id)
+                    }
+                    _ => SidebarAction::ClosePane(entry.pane_id),
+                });
             }
             if ui
                 .small_button("V")
@@ -1284,34 +1442,44 @@ fn apply_sidebar_action(
             if let Some(row_key) = row_key {
                 graph_app.set_navigator_selected_rows([row_key]);
             }
-            if node_has_workbench_presentation(tiles_tree, node_key) {
+            // Ensure the node is selected — ActivateNode is not a toggle.
+            if !graph_app.focused_selection().contains(&node_key) {
                 graph_app.apply_reducer_intents([GraphIntent::SelectNode {
                     key: node_key,
                     multi_select: false,
                 }]);
+            }
+            if node_has_workbench_presentation(tiles_tree, node_key) {
                 let _ = focus_node_presentation(tiles_tree, node_key);
             } else {
-                if let Some(view_id) = graph_view_id_for_navigation(graph_app, tiles_tree) {
-                    tile_view_ops::open_or_focus_graph_pane(tiles_tree, view_id);
-                    graph_app.apply_reducer_intents([
-                        GraphIntent::FocusGraphView { view_id },
-                        GraphIntent::SelectNode {
-                            key: node_key,
-                            multi_select: false,
-                        },
-                    ]);
-                    graph_app.request_camera_command_for_view(
-                        Some(view_id),
-                        CameraCommand::FitSelection,
-                    );
+                let lifecycle = graph_app
+                    .domain_graph()
+                    .get_node(node_key)
+                    .map(|n| n.lifecycle);
+                if lifecycle == Some(crate::graph::NodeLifecycle::Cold) {
+                    // Cold node: open a tile in the graphlet's tab group (Phase 4).
+                    // If the node belongs to a durable graphlet with a warm member,
+                    // graphlet routing joins that group. Otherwise a new tile is created.
+                    tile_view_ops::open_node_with_graphlet_routing(tiles_tree, graph_app, node_key);
                 } else {
-                    graph_app.apply_reducer_intents([
-                        GraphIntent::SelectNode {
-                            key: node_key,
-                            multi_select: false,
-                        },
-                        GraphIntent::RequestZoomToSelected,
-                    ]);
+                    // Pre-warmed node (lifecycle Active/Warm but no tile present):
+                    // focus the graph canvas and fit the selection rather than opening a tile.
+                    let graph_view_id = tiles_tree
+                        .tiles
+                        .iter()
+                        .find_map(|(_, tile)| match tile {
+                            Tile::Pane(TileKind::Graph(r)) => Some(r.graph_view_id),
+                            _ => None,
+                        });
+                    if let Some(view_id) = graph_view_id {
+                        tiles_tree.make_active(|_, tile| {
+                            matches!(tile, Tile::Pane(TileKind::Graph(r)) if r.graph_view_id == view_id)
+                        });
+                        graph_app.request_camera_command_for_view(
+                            Some(view_id),
+                            CameraCommand::FitSelection,
+                        );
+                    }
                 }
             }
         }
@@ -1326,6 +1494,9 @@ fn apply_sidebar_action(
                 pane,
                 restore_previous_focus: true,
             });
+        }
+        SidebarAction::DismissNodePane(pane) => {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::DismissTile { pane });
         }
         SidebarAction::OpenTool(kind) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane { kind });
@@ -2004,5 +2175,135 @@ mod tests {
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].node_key, recent_key);
         assert!(members[0].title.contains("2 visits"));
+    }
+
+    /// `build_active_graphlet_roster` includes cold durable peers with `is_cold = true`
+    /// alongside the warm seed node (Phase 3, §12).
+    #[test]
+    fn active_graphlet_roster_marks_cold_peers_as_cold() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+
+        let warm_node = app.add_node_and_sync(
+            "https://example.com/warm".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let cold_node = app.add_node_and_sync(
+            "https://example.com/cold".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+
+        // Create a durable edge — cold_node stays Cold (no tile opened).
+        app.apply_reducer_intents([crate::app::GraphIntent::CreateUserGroupedEdge {
+            from: warm_node,
+            to: cold_node,
+            label: None,
+        }]);
+
+        // Promote warm_node to Active (selecting it advances its lifecycle from Cold).
+        app.apply_reducer_intents([crate::app::GraphIntent::SelectNode {
+            key: warm_node,
+            multi_select: false,
+        }]);
+
+        // Build a tree with a tile for warm_node only.
+        let mut tiles = Tiles::default();
+        let warm_pane_tile =
+            tiles.insert_pane(TileKind::Node(NodePaneState::for_node(warm_node)));
+        let root = tiles.insert_tab_tile(vec![warm_pane_tile]);
+        let tree = Tree::new("roster_cold_peer", root, tiles);
+
+        // Determine the pane id for the warm node tile.
+        let active_pane = tree.tiles.iter().find_map(|(_, tile)| match tile {
+            egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == warm_node => {
+                Some(state.pane_id)
+            }
+            _ => None,
+        });
+
+        let roster = build_active_graphlet_roster(&app, &tree, active_pane);
+
+        assert_eq!(roster.len(), 2, "roster should include warm_node and cold_node");
+
+        let cold_entry = roster
+            .iter()
+            .find(|e| e.node_key == cold_node)
+            .expect("cold_node must appear in roster");
+        assert!(cold_entry.is_cold, "cold_node entry must have is_cold = true");
+
+        let warm_entry = roster
+            .iter()
+            .find(|e| e.node_key == warm_node)
+            .expect("warm_node must appear in roster");
+        assert!(!warm_entry.is_cold, "warm_node entry must have is_cold = false");
+    }
+
+    /// After a DismissTile, the cold node's `WorkbenchNavigatorMember` inside an
+    /// arrangement group carries `is_cold = true` (Phase 4, §12).
+    #[test]
+    fn arrangement_navigator_member_marks_dismissed_cold_peer_as_cold() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+
+        let warm_node = app.add_node_and_sync(
+            "https://example.com/warm2".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let peer_node = app.add_node_and_sync(
+            "https://example.com/peer".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+
+        // Open both nodes into a tile tree so sync_named_workbench_frame sets up
+        // ArrangementRelation edges for the arrangement navigator group.
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let warm_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(warm_node)));
+        let peer_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(peer_node)));
+        let root = tiles.insert_tab_tile(vec![graph, warm_tile, peer_tile]);
+        let tree = Tree::new("nav_cold_peer", root, tiles);
+        app.sync_named_workbench_frame_graph_representation("alpha-frame", &tree);
+
+        // Promote warm_node to Active; peer_node will be explicitly demoted below.
+        app.apply_reducer_intents([crate::app::GraphIntent::SelectNode {
+            key: warm_node,
+            multi_select: false,
+        }]);
+
+        // Demote peer_node to Cold (simulates DismissTile lifecycle change).
+        app.demote_node_to_cold(peer_node);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        let group = projection
+            .navigator_groups
+            .iter()
+            .find(|g| {
+                g.section == WorkbenchNavigatorSection::Workbench
+                    && g.title.contains("alpha-frame")
+            })
+            .expect("arrangement navigator group for alpha-frame");
+
+        let cold_member = group
+            .members
+            .iter()
+            .find(|m| m.node_key == peer_node)
+            .expect("peer_node must appear in arrangement group");
+        assert!(
+            cold_member.is_cold,
+            "dismissed peer_node must have is_cold = true in navigator group"
+        );
+
+        let warm_member = group
+            .members
+            .iter()
+            .find(|m| m.node_key == warm_node)
+            .expect("warm_node must appear in arrangement group");
+        assert!(
+            !warm_member.is_cold,
+            "warm_node must have is_cold = false in navigator group"
+        );
     }
 }

@@ -3,7 +3,7 @@ use egui_tiles::{Tile, TileId, Tree};
 
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
-use super::arrangement_graph_bridge::{ArrangementGraphDelta, ArrangementSnapshot};
+use super::arrangement_graph_bridge::ArrangementSnapshot;
 
 impl GraphBrowserApp {
     pub fn enqueue_workbench_intent(&mut self, intent: WorkbenchIntent) {

@@ -40,7 +40,7 @@ pub(crate) fn resolve_theme_data(theme_id: &str) -> ThemeResolution {
 
     let theme = match requested.as_str() {
         THEME_ID_DEFAULT => Some(default_theme()),
-        THEME_ID_LIGHT => Some(default_theme()),
+        THEME_ID_LIGHT => Some(light_theme()),
         THEME_ID_DARK => Some(dark_theme()),
         THEME_ID_HIGH_CONTRAST => Some(high_contrast_theme()),
         _ => None,
@@ -70,6 +70,10 @@ pub(crate) fn resolve_theme_data(theme_id: &str) -> ThemeResolution {
 pub(crate) fn theme_data_id(theme: &ThemeData) -> &'static str {
     if *theme == dark_theme() {
         THEME_ID_DARK
+    } else if *theme == light_theme() {
+        THEME_ID_LIGHT
+    } else if *theme == high_contrast_theme() {
+        THEME_ID_HIGH_CONTRAST
     } else {
         THEME_ID_DEFAULT
     }
@@ -88,6 +92,15 @@ fn dark_theme() -> ThemeData {
     ThemeData {
         background_rgb: (14, 14, 18),
         accent_rgb: (110, 170, 255),
+        font_scale: 1.0,
+        stroke_width: 1.0,
+    }
+}
+
+fn light_theme() -> ThemeData {
+    ThemeData {
+        background_rgb: (244, 246, 249),
+        accent_rgb: (54, 120, 212),
         font_scale: 1.0,
         stroke_width: 1.0,
     }
@@ -135,5 +148,14 @@ mod tests {
         assert_eq!(resolution.resolved_id, THEME_ID_DEFAULT);
         assert_eq!(resolution.theme_id, THEME_ID_DEFAULT);
         assert_eq!(resolution.theme.background_rgb, (20, 20, 25));
+    }
+
+    #[test]
+    fn light_theme_resolves_to_light_background() {
+        let resolution = resolve_theme_data(THEME_ID_LIGHT);
+
+        assert!(resolution.matched);
+        assert_eq!(resolution.resolved_id, THEME_ID_LIGHT);
+        assert_eq!(resolution.theme.background_rgb, (244, 246, 249));
     }
 }

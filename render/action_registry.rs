@@ -179,6 +179,8 @@ pub enum ActionId {
     NodeOpenSplit,
     NodeDetachToSplit,
     NodeMoveToActivePane,
+    NodeWarmSelect,
+    NodeRemoveFromGraphlet,
     NodeCopyUrl,
     NodeCopyTitle,
     NodeRenderAuto,
@@ -261,6 +263,8 @@ impl ActionId {
             Self::NodeOpenSplit => "node:open_split",
             Self::NodeDetachToSplit => "node:detach_to_split",
             Self::NodeMoveToActivePane => "node:move_to_active_pane",
+            Self::NodeWarmSelect => "node:warm_select",
+            Self::NodeRemoveFromGraphlet => "node:remove_from_graphlet",
             Self::NodeCopyUrl => "node:copy_url",
             Self::NodeCopyTitle => "node:copy_title",
             Self::NodeRenderAuto => "node:render_auto",
@@ -310,6 +314,8 @@ impl ActionId {
             Self::NodeOpenSplit => "Split",
             Self::NodeDetachToSplit => "Detach",
             Self::NodeMoveToActivePane => "Move",
+            Self::NodeWarmSelect => "Open Cold",
+            Self::NodeRemoveFromGraphlet => "Leave Group",
             Self::NodeCopyUrl => "Copy URL",
             Self::NodeCopyTitle => "Copy Title",
             Self::NodeRenderAuto => "Auto",
@@ -359,6 +365,8 @@ impl ActionId {
             Self::NodeOpenSplit => "Open Node in Split",
             Self::NodeDetachToSplit => "Detach Focused to Split",
             Self::NodeMoveToActivePane => "Move Node to Active Pane",
+            Self::NodeWarmSelect => "Open Cold Selection as Tiles",
+            Self::NodeRemoveFromGraphlet => "Remove from Graphlet",
             Self::NodeCopyUrl => "Copy Node URL",
             Self::NodeCopyTitle => "Copy Node Title",
             Self::NodeRenderAuto => "Render With Auto",
@@ -412,7 +420,9 @@ impl ActionId {
             | Self::NodeCopyTitle
             | Self::NodeRenderAuto
             | Self::NodeRenderWebView
-            | Self::NodeRenderWry => ActionCategory::Node,
+            | Self::NodeRenderWry
+            | Self::NodeWarmSelect
+            | Self::NodeRemoveFromGraphlet => ActionCategory::Node,
             Self::EdgeConnectPair | Self::EdgeConnectBoth | Self::EdgeRemoveUser => {
                 ActionCategory::Edge
             }
@@ -481,6 +491,8 @@ fn all_action_ids() -> &'static [ActionId] {
         NodeRenderAuto,
         NodeRenderWebView,
         NodeRenderWry,
+        NodeWarmSelect,
+        NodeRemoveFromGraphlet,
         EdgeConnectPair,
         EdgeConnectBoth,
         EdgeRemoveUser,
@@ -592,6 +604,8 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
             NodeRenderWry,
             node_ops_enabled && context.wry_override_allowed,
         ),
+        (NodeWarmSelect, node_ops_enabled),
+        (NodeRemoveFromGraphlet, node_ops_enabled),
         // Edge
         (EdgeConnectPair, pair_enabled),
         (EdgeConnectBoth, pair_enabled),

@@ -49,6 +49,8 @@ Normative workbench contracts use: intent, trigger, preconditions, semantic resu
 - Navigator (Workbench Sidebar projection) is not content truth authority — it is a read-only projection.
 - Physics presets are not camera modes.
 - "File tree" is a legacy alias — use **Navigator** in new code and docs.
+- Node and Tile are not synonyms: a node is graph identity; a tile is its workbench presentation/container.
+- Graphlet and Tile Group are not synonyms: a graphlet is grouped graph arrangement; a tile group is its workbench presentation/container.
 
 ### Status update (2026-03-18)
 
@@ -134,6 +136,8 @@ Additional structure rules:
 - A `Pane` is not the primary navigator/workbench container identity; it is the
   live rendered surface for the Tile's currently active node entry.
 - A hosted graph view remains graph-owned semantic scope even while presented inside a pane.
+- Nodes project as tiles in workbench chrome; graphlets project as tile groups.
+- These are presentation correspondences, not term collapses.
 
 ### 2.2 What each layer is for
 

@@ -312,6 +312,10 @@ fn render_node_pane_impl(
                 ));
             }
             if ui.button("Close Tile").clicked() {
+                behavior.graph_app.demote_node_to_cold_with_cause(
+                    node_key,
+                    LifecycleCause::ExplicitClose,
+                );
                 behavior.pending_closed_nodes.push(node_key);
             }
         });

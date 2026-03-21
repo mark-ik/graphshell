@@ -552,7 +552,25 @@ impl GraphBrowserApp {
                 self.create_new_node_near_center();
             }
             GraphIntent::CreateNodeNearCenterAndOpen { mode } => {
+                // Phase 5: capture the active graphlet context before create_new_node_near_center
+                // overwrites the selection with the new node's key.
+                let graphlet_peer = if mode == PendingTileOpenMode::Tab {
+                    self.focused_selection()
+                        .primary()
+                        .filter(|&peer| !self.durable_graphlet_peers(peer).is_empty())
+                } else {
+                    None
+                };
                 let key = self.create_new_node_near_center();
+                // Phase 5: when the new tile is opened as a tab into an existing graphlet
+                // context, create a durable UserGrouped edge so the new node becomes a
+                // permanent graphlet member (survives filter changes).
+                if let Some(peer) = graphlet_peer {
+                    self.add_user_grouped_edge_if_missing(key, peer, None);
+                    self.enqueue_workbench_intent(
+                        WorkbenchIntent::ReconcileGraphletTiles { node: key },
+                    );
+                }
                 self.request_open_node_tile_mode(key, mode);
             }
             GraphIntent::CreateNodeAtUrl { url, position } => {
@@ -596,6 +614,11 @@ impl GraphBrowserApp {
             }
             GraphIntent::CreateUserGroupedEdge { from, to, label } => {
                 self.add_user_grouped_edge_if_missing(from, to, label);
+                // Queue a one-frame-deferred tile merge: if both nodes already have warm
+                // tiles in different containers, ReconcileGraphletTiles consolidates them.
+                self.enqueue_workbench_intent(WorkbenchIntent::ReconcileGraphletTiles {
+                    node: from,
+                });
             }
             GraphIntent::DeleteImportRecord { record_id } => {
                 self.delete_import_record(record_id);
@@ -614,7 +637,13 @@ impl GraphBrowserApp {
                 let _ = self.remove_edges_and_log(from, to, edge_type);
             }
             GraphIntent::CreateUserGroupedEdgeFromPrimarySelection => {
+                let primary = self.focused_selection().primary();
                 self.create_user_grouped_edge_from_primary_selection();
+                if let Some(from) = primary {
+                    self.enqueue_workbench_intent(WorkbenchIntent::ReconcileGraphletTiles {
+                        node: from,
+                    });
+                }
             }
             GraphIntent::GroupNodesBySemanticTags => {
                 self.group_nodes_by_semantic_tags();

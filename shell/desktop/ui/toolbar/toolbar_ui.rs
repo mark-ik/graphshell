@@ -108,6 +108,10 @@ pub(crate) enum OmnibarMatch {
         from: NodeKey,
         to: NodeKey,
     },
+    /// A durable graphlet peer of a warm node that is currently `Cold` (no live tile).
+    /// Shown with ○ in the `TabsLocal` empty-query roster; activating opens a tile via
+    /// graphlet routing.
+    ColdGraphletMember(NodeKey),
 }
 
 #[derive(Clone)]

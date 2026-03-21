@@ -236,7 +236,7 @@ pub(super) fn handle_open_node_url_intent(
         return Some(WorkbenchIntent::OpenNodeUrl { url });
     };
 
-    tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node_key);
+    tile_view_ops::open_node_with_graphlet_routing(tiles_tree, graph_app, node_key);
     emit_event(DiagnosticEvent::MessageReceived {
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,

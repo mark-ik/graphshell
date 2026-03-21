@@ -1,10 +1,11 @@
 use crate::registries::atomic::lens::{
-    PhysicsProfileResolution, THEME_ID_DARK, ThemeResolution, resolve_physics_profile,
-    resolve_theme_data,
+    PhysicsProfileResolution, THEME_ID_DARK, THEME_ID_LIGHT, ThemeResolution,
+    resolve_physics_profile, resolve_theme_data,
 };
 use crate::registries::domain::layout::profile_registry::ProfileRegistry;
 
 pub(crate) const PRESENTATION_PROFILE_DEFAULT: &str = "presentation:default";
+pub(crate) const PRESENTATION_PROFILE_LIGHT: &str = "presentation:light";
 pub(crate) const PRESENTATION_PROFILE_DARK: &str = "presentation:dark";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -82,6 +83,7 @@ impl Default for PresentationDomainRegistry {
             profiles: ProfileRegistry::new(PRESENTATION_PROFILE_DEFAULT),
         };
         registry.register(PRESENTATION_PROFILE_DEFAULT, default_profile());
+        registry.register(PRESENTATION_PROFILE_LIGHT, light_profile());
         registry.register(PRESENTATION_PROFILE_DARK, dark_profile());
         registry
     }
@@ -118,6 +120,7 @@ impl PresentationDomainRegistry {
 
 fn profile_id_for_theme(theme_id: &str) -> &'static str {
     match theme_id {
+        THEME_ID_LIGHT => PRESENTATION_PROFILE_LIGHT,
         THEME_ID_DARK => PRESENTATION_PROFILE_DARK,
         _ => PRESENTATION_PROFILE_DEFAULT,
     }
@@ -173,6 +176,31 @@ fn dark_profile() -> PresentationProfile {
     }
 }
 
+fn light_profile() -> PresentationProfile {
+    PresentationProfile {
+        profile_id: PRESENTATION_PROFILE_LIGHT.to_string(),
+        edge_highlight_backdrop: PresentationColor::rgba(208, 224, 246, 170),
+        edge_highlight_foreground: PresentationColor::rgb(54, 120, 212),
+        lifecycle_active: PresentationColor::rgb(54, 120, 212),
+        lifecycle_warm: PresentationColor::rgb(94, 136, 184),
+        lifecycle_cold: PresentationColor::rgb(130, 136, 148),
+        lifecycle_tombstone: PresentationColor::rgb(154, 156, 164),
+        crash_blocked: PresentationColor::rgb(184, 92, 60),
+        search_match: PresentationColor::rgb(50, 170, 94),
+        search_match_active: PresentationColor::rgb(38, 146, 80),
+        hover_target: PresentationColor::rgb(214, 120, 52),
+        selection_primary: PresentationColor::rgb(214, 160, 56),
+        lasso_stroke: PresentationColor::rgb(50, 176, 150),
+        lasso_fill: PresentationColor::rgba(50, 176, 150, 28),
+        info_text: PresentationColor::rgb(76, 82, 92),
+        controls_text: PresentationColor::rgb(108, 112, 120),
+        degraded_receipt_background: PresentationColor::rgba(246, 238, 224, 232),
+        degraded_receipt_text: PresentationColor::rgb(138, 90, 18),
+        focus_ring: PresentationColor::rgb(54, 120, 212),
+        hover_ring: PresentationColor::rgba(152, 160, 172, 164),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,6 +247,22 @@ mod tests {
         assert_eq!(
             resolution.profile.focus_ring,
             PresentationColor::rgb(140, 182, 255)
+        );
+    }
+
+    #[test]
+    fn presentation_domain_uses_light_profile_for_light_theme() {
+        let domain = PresentationDomainRegistry::default();
+        let resolution = domain.resolve_profile(
+            crate::registries::atomic::lens::PHYSICS_ID_DEFAULT,
+            THEME_ID_LIGHT,
+        );
+
+        assert_eq!(resolution.theme.resolved_id, THEME_ID_LIGHT);
+        assert_eq!(resolution.resolved_profile_id, PRESENTATION_PROFILE_LIGHT);
+        assert_eq!(
+            resolution.profile.edge_highlight_foreground,
+            PresentationColor::rgb(54, 120, 212)
         );
     }
 }

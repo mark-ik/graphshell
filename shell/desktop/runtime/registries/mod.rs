@@ -947,7 +947,7 @@ impl RegistryRuntime {
         app: &GraphBrowserApp,
         payload: action::ActionPayload,
     ) -> action::ActionOutcome {
-        use action::{ActionCapability, ActionFailure, ActionFailureKind, ActionOutcome};
+        use action::{ActionFailure, ActionFailureKind, ActionOutcome};
 
         let resolved = self.dynamic().action.resolve(action_id);
         // Lock is dropped here before the handler runs.

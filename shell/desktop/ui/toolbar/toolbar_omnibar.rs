@@ -563,6 +563,7 @@ pub(super) fn omnibar_match_signifier(
             SearchProviderKind::Google => "google suggestion",
         },
         OmnibarMatch::Edge { .. } => "edge",
+        OmnibarMatch::ColdGraphletMember(_) => "cold graphlet peer",
     }
 }
 
@@ -595,6 +596,11 @@ pub(super) fn omnibar_match_label(graph_app: &GraphBrowserApp, m: &OmnibarMatch)
                 .unwrap_or_else(|| to.index().to_string());
             format!("{from_label} -> {to_label}")
         }
+        OmnibarMatch::ColdGraphletMember(key) => graph_app
+            .domain_graph()
+            .get_node(*key)
+            .map(|node| format!("○ {}  {}", node.title, node.url))
+            .unwrap_or_else(|| format!("○ node {}", key.index())),
     }
 }
 
@@ -685,6 +691,15 @@ pub(super) fn apply_omnibar_match(
                 multi_select: true,
             });
         }
+        OmnibarMatch::ColdGraphletMember(key) => {
+            // Select the node and open it as a tab; graphlet routing in handle_open_node_in_pane
+            // will route the new tile into the graphlet's existing tab container.
+            frame_intents.push(GraphIntent::SelectNode {
+                key,
+                multi_select: false,
+            });
+            *open_selected_mode_after_submit = Some(ToolbarOpenMode::Tab);
+        }
     }
 }
 
@@ -698,10 +713,27 @@ pub(super) fn omnibar_matches_for_query(
     let query = query.trim();
     if query.is_empty() {
         if matches!(mode, OmnibarSearchMode::TabsLocal) {
-            let mut local_tabs: Vec<NodeKey> =
-                tab_node_keys_in_tree(tiles_tree).into_iter().collect();
+            let warm_set = tab_node_keys_in_tree(tiles_tree);
+            let mut local_tabs: Vec<NodeKey> = warm_set.iter().copied().collect();
             local_tabs.sort_by_key(|key| key.index());
-            return local_tabs.into_iter().map(OmnibarMatch::Node).collect();
+            let mut out: Vec<OmnibarMatch> =
+                local_tabs.into_iter().map(OmnibarMatch::Node).collect();
+            // Append cold durable graphlet peers — nodes with edges but no live tile.
+            let mut cold_seen: HashSet<NodeKey> = warm_set.clone();
+            for &warm_node in &warm_set {
+                let mut peers = graph_app.durable_graphlet_peers(warm_node);
+                peers.sort_by_key(|k| k.index());
+                for peer in peers {
+                    if cold_seen.insert(peer) {
+                        if let Some(node) = graph_app.domain_graph().get_node(peer) {
+                            if node.lifecycle == crate::graph::NodeLifecycle::Cold {
+                                out.push(OmnibarMatch::ColdGraphletMember(peer));
+                            }
+                        }
+                    }
+                }
+            }
+            return out;
         }
         return Vec::new();
     }
@@ -920,6 +952,7 @@ pub(super) fn omnibar_matches_for_query(
                 OmnibarMatch::NodeUrl(_) => usize::MAX,
                 OmnibarMatch::SearchQuery { .. } => usize::MAX,
                 OmnibarMatch::Edge { .. } => usize::MAX,
+                OmnibarMatch::ColdGraphletMember(_) => usize::MAX,
             });
             out.extend(remaining_nodes);
             dedupe_matches_in_order(out)

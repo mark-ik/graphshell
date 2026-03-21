@@ -31,6 +31,14 @@ pub(crate) const ACTION_GRAPH_NODE_OPEN_FRAME: &str = "graph:node_open_frame";
 pub(crate) const ACTION_GRAPH_NODE_OPEN_NEIGHBORS: &str = "graph:node_open_neighbors";
 pub(crate) const ACTION_GRAPH_NODE_OPEN_CONNECTED: &str = "graph:node_open_connected";
 pub(crate) const ACTION_GRAPH_NODE_OPEN_SPLIT: &str = "graph:node_open_split";
+/// Open a tile for every cold node in the current selection, routing each into
+/// its graphlet's existing tab group (Phase 6 — canvas warm-select).
+pub(crate) const ACTION_GRAPH_SELECTION_WARM_SELECT: &str = "graph:selection_warm_select";
+/// Retract all durable graphlet edges (`UserGrouped` and `FrameMember`) between
+/// the selected node and its graphlet peers, removing it from the graphlet.
+/// Lifecycle is unchanged; semantic history edges (Hyperlink, History) are not touched.
+pub(crate) const ACTION_GRAPH_NODE_REMOVE_FROM_GRAPHLET: &str =
+    "graph:node_remove_from_graphlet";
 pub(crate) const ACTION_GRAPH_NODE_COPY_URL: &str = "graph:node_copy_url";
 pub(crate) const ACTION_GRAPH_NODE_COPY_TITLE: &str = "graph:node_copy_title";
 pub(crate) const ACTION_GRAPH_EDGE_CREATE: &str = "graph:edge_create";
@@ -234,6 +242,15 @@ impl ActionDispatch {
         Self {
             intents: Vec::new(),
             workbench_intents: vec![intent],
+            app_commands: Vec::new(),
+            runtime_actions: Vec::new(),
+        }
+    }
+
+    fn workbench_intents(intents: Vec<WorkbenchIntent>) -> Self {
+        Self {
+            intents: Vec::new(),
+            workbench_intents: intents,
             app_commands: Vec::new(),
             runtime_actions: Vec::new(),
         }
@@ -695,6 +712,16 @@ impl Default for ActionRegistry {
             ActionCapability::AlwaysAvailable,
             execute_verse_forget_device_action,
         );
+        registry.register(
+            ACTION_GRAPH_SELECTION_WARM_SELECT,
+            ActionCapability::RequiresSelection,
+            execute_graph_selection_warm_select_action,
+        );
+        registry.register(
+            ACTION_GRAPH_NODE_REMOVE_FROM_GRAPHLET,
+            ActionCapability::RequiresSelection,
+            execute_graph_node_remove_from_graphlet_action,
+        );
 
         registry
     }
@@ -766,6 +793,97 @@ fn execute_graph_node_close_action(
         }
         .into(),
     ]))
+}
+
+fn execute_graph_selection_warm_select_action(
+    app: &GraphBrowserApp,
+    _payload: &ActionPayload,
+) -> ActionOutcome {
+    use crate::graph::NodeLifecycle;
+    use crate::shell::desktop::workbench::pane_model::PaneId;
+
+    // Collect cold nodes from the current graph selection.
+    let cold_nodes: Vec<NodeKey> = app
+        .focused_selection()
+        .iter()
+        .copied()
+        .filter(|&key| {
+            app.domain_graph()
+                .get_node(key)
+                .is_some_and(|n| n.lifecycle == NodeLifecycle::Cold)
+        })
+        .collect();
+
+    if cold_nodes.is_empty() {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "graph:selection_warm_select requires at least one cold node in the selection"
+                .to_string(),
+        });
+    }
+
+    // For each cold node, dispatch OpenNodeInPane with a fresh (non-existent) pane ID so
+    // that the graphlet-aware handler routes the node into its warm peer's tab group
+    // (step 2 of handle_open_node_in_pane_intent), or creates a standalone tile as fallback.
+    let workbench_intents = cold_nodes
+        .into_iter()
+        .map(|node| WorkbenchIntent::OpenNodeInPane {
+            node,
+            pane: PaneId::new(),
+        })
+        .collect();
+
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intents(workbench_intents))
+}
+
+/// Retract all durable edges (`UserGrouped` + `FrameMember`) that connect the
+/// selected node to its graphlet.  Emits one `GraphIntent::RemoveEdge` per edge.
+/// Lifecycle is not changed; circumstantial edges (Hyperlink, History) are left intact.
+fn execute_graph_node_remove_from_graphlet_action(
+    app: &GraphBrowserApp,
+    _payload: &ActionPayload,
+) -> ActionOutcome {
+    use crate::graph::{ArrangementSubKind, EdgeType};
+
+    let Some(&node_key) = app.focused_selection().iter().next() else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "graph:node_remove_from_graphlet requires a selected node".to_string(),
+        });
+    };
+
+    let edges_to_retract: Vec<(NodeKey, NodeKey, EdgeType)> = app
+        .domain_graph()
+        .edges()
+        .filter(|e| {
+            (e.from == node_key || e.to == node_key)
+                && match e.edge_type {
+                    EdgeType::UserGrouped => true,
+                    EdgeType::ArrangementRelation(sub) => sub == ArrangementSubKind::FrameMember,
+                    _ => false,
+                }
+        })
+        .map(|e| (e.from, e.to, e.edge_type))
+        .collect();
+
+    if edges_to_retract.is_empty() {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "node has no durable graphlet edges to retract".to_string(),
+        });
+    }
+
+    let intents = edges_to_retract
+        .into_iter()
+        .map(|(from, to, edge_type)| GraphIntent::RemoveEdge { from, to, edge_type })
+        .collect();
+
+    ActionOutcome::Dispatch(ActionDispatch {
+        intents,
+        workbench_intents: Vec::new(),
+        app_commands: Vec::new(),
+        runtime_actions: Vec::new(),
+    })
 }
 
 fn require_active_node(app: &GraphBrowserApp, action_id: &str) -> Result<NodeKey, ActionOutcome> {

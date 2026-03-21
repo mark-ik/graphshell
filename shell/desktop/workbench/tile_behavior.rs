@@ -885,6 +885,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         ))) = tiles.get(tile_id)
         {
             let node_key = state.node;
+            self.graph_app.demote_node_to_cold_with_cause(
+                node_key,
+                crate::app::LifecycleCause::ExplicitClose,
+            );
             self.pending_closed_nodes.push(node_key);
             self.graph_app
                 .workspace
@@ -897,6 +901,14 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         }
         if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id) {
             let node_key = state.node;
+            // DismissTile semantics: demote to Cold so the node keeps its edges
+            // but loses its live tile. The webview runtime teardown still happens
+            // via pending_closed_nodes → release_node_runtime_for_pane, which
+            // respects Cold lifecycle and does not re-promote to Warm.
+            self.graph_app.demote_node_to_cold_with_cause(
+                node_key,
+                crate::app::LifecycleCause::ExplicitClose,
+            );
             self.pending_closed_nodes.push(node_key);
             self.graph_app
                 .workspace

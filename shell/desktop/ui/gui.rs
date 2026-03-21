@@ -60,7 +60,7 @@ use crate::shell::desktop::runtime::registries::signal_routing::{
 };
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime,
-    phase3_shared_runtime, phase3_subscribe_signal_async,
+    phase3_resolve_active_theme, phase3_shared_runtime, phase3_subscribe_signal_async,
 };
 use crate::shell::desktop::ui::thumbnail_pipeline::{
     RendererFaviconTextureCache, ThumbnailCaptureResult,
@@ -391,7 +391,7 @@ impl Gui {
             }
         });
 
-        Self {
+        let mut gui = Self {
             rendering_context,
             window_rendering_context,
             context,
@@ -450,7 +450,9 @@ impl Gui {
             profile_invalidation_signal_rx,
             tokio_runtime,
             control_panel,
-        }
+        };
+        gui.apply_runtime_theme_visuals();
+        gui
     }
 
     pub(crate) fn try_handle_nip07_prompt(
@@ -615,7 +617,26 @@ impl Gui {
         }
         if saw_update {
             self.graph_app.refresh_registry_backed_view_lenses();
+            self.apply_runtime_theme_visuals();
         }
+    }
+
+    fn apply_runtime_theme_visuals(&mut self) {
+        let resolution = phase3_resolve_active_theme(self.graph_app.default_registry_theme_id());
+        let visuals = match resolution.resolved_id.as_str() {
+            crate::shell::desktop::runtime::registries::theme::THEME_ID_LIGHT => {
+                egui::Visuals::light()
+            }
+            crate::shell::desktop::runtime::registries::theme::THEME_ID_HIGH_CONTRAST => {
+                let mut visuals = egui::Visuals::dark();
+                visuals.override_text_color = Some(egui::Color32::WHITE);
+                visuals.selection.bg_fill = egui::Color32::from_rgb(255, 230, 0);
+                visuals.selection.stroke = egui::Stroke::new(1.5, egui::Color32::BLACK);
+                visuals
+            }
+            _ => egui::Visuals::dark(),
+        };
+        self.context.egui_context_mut().set_visuals(visuals);
     }
 
     pub(crate) fn webview_id_for_node_key(&self, node_key: NodeKey) -> Option<WebViewId> {

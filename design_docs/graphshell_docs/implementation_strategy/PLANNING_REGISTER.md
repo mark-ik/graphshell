@@ -15,6 +15,7 @@
 - [system/2026-03-17_matrix_event_schema.md](system/2026-03-17_matrix_event_schema.md) - Concrete `graphshell.room.*` event schema for Matrix-backed rooms: payload families, validation rules, and reducer/workbench routing boundaries.
 - [system/register/2026-03-17_matrix_core_type_sketch.md](system/register/2026-03-17_matrix_core_type_sketch.md) - Rust-facing type sketch for `MatrixCoreRegistry`, supervised worker commands, normalized Matrix events, and bounded proposal routing.
 - [system/2026-03-17_runtime_task_budget.md](system/2026-03-17_runtime_task_budget.md) - Async worker priority tiers, concurrency envelope, suspension/resume policy, and diagnostics channels for the ControlPanel multi-worker runtime (pre-design backlog note).
+- [../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md](../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md) - Archived completion plan: tile tree as projection of arrangement graph truth (all phases shipped 2026-03-21).
 
 ## Contents
 

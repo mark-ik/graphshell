@@ -17,9 +17,26 @@
 
 The layout system is built on `egui_tiles`. Every visible surface is a node in a recursive **Tile Tree**.
 
+### Projection Rule
+
+Graphshell intentionally keeps **graph identity terms** separate from **workbench presentation terms**.
+
+- A **Node** is graph-semantic identity/state.
+- A **Tile** is the workbench presentation/container that hosts a node-bearing or graph-view-bearing leaf.
+- A **Graphlet** is a graph-semantic grouped arrangement object.
+- A **Tile Group** is the workbench presentation of that grouped arrangement.
+
+Canonical projection law:
+
+- nodes **project as tiles** in workbench chrome
+- graphlets **project as tile groups** in workbench chrome
+- frames **project as frames** across graph, navigator, and workbench presentations
+
+This is a presentation correspondence, not a term collapse. A node can exist without a tile; a tile is not the canonical owner of node identity.
+
 ### Primitives
 
-* **Tile**: The fundamental node in the layout tree. Either a **Pane** (leaf) or a **Container** (branch). Identified by a `TileId` (opaque `u64`, unique within one tree). Code: `egui_tiles::Tile<TileKind>`.
+* **Tile**: The fundamental node in the layout tree. Either a **Pane** (leaf) or a **Container** (branch). Identified by a `TileId` (opaque `u64`, unique within one tree). Code: `egui_tiles::Tile<TileKind>`. A Tile is a workbench presentation/container term, not the canonical semantic identity of a graph node.
 * **Pane**: A leaf Tile that renders content. The payload is a `TileKind` enum:
     * `TileKind::Graph(GraphViewId)` — a force-directed graph canvas.
     * `TileKind::Pane(PaneState)` — an unenrolled content pane with no `NodeKey` yet. This is the canonical representation for ephemeral pane-opening modes before promotion.
@@ -35,6 +52,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
     | **Grid** | `Container::Grid` | All simultaneously | Yes, rows & columns | 2D, auto or fixed column count |
 
 * **Tab Group**: A container that renders a tab bar; only the **active** child Tile is visible. Promoted tiles (`TileKind::Node`, `TileKind::Graph`, `TileKind::Tool`) are always wrapped in a Tab Group (enforced by `all_panes_must_have_tabs: true`), so each split region always has its own tab strip that can accept additional tabs. Ephemeral panes (`TileKind::Pane`) are exempt from this invariant — they are placed directly in a split region without a Tab Group wrapper, so no tab selector appears for them.
+    Canonical projection note: when a graph-rooted grouped arrangement is rendered in workbench chrome, the Tab Group / Tile Group is its workbench presentation rather than a separate semantic owner.
 * **Split**: A container that arranges children in either top/bottom regions (`Horizontal`, horizontal divider) or left/right regions (`Vertical`, vertical divider) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal arrangement label) or `Split ↕` (vertical arrangement label) in tile selector strips.
 * **Grid**: A container that arranges children in a 2D matrix. Layout is either `Auto` (dynamic column count) or `Columns(n)`.
 * **Shares**: Per-child `f32` weights within a Split that determine proportional space allocation. Default share is `1.0`.
@@ -51,7 +69,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 * **Tile Tree**: The complete recursive structure of Tiles forming the layout. Backed by a flat `Tiles<TileKind>` hashmap keyed by `TileId`, plus a root `TileId`. Code: `egui_tiles::Tree<TileKind>`, stored as `Gui::tiles_tree`.
 * **App Scope**: The top-most global scope for a running Graphshell process. App Scope owns workbench switching/navigation.
-* **Workbench**: A global container within App Scope paired to one complete graph dataset (`GraphId`). It owns the Tile Tree (`Tree<TileKind>`), tracks frame ordering, and drives frame switching/render. Graph Bar state remains graph-scope app chrome; workbench-hosted chrome state is projected through the Workbench Sidebar.
+* **Workbench**: A global container within App Scope paired to one complete graph dataset (`GraphId`). It hosts the Tile Tree (`Tree<TileKind>`), tracks frame ordering, and drives frame switching/render. Graph Bar state remains graph-scope app chrome; workbench-hosted chrome state is projected through the Workbench Sidebar. The workbench is a contextual presentation layer, not the semantic owner of nodes, graphlets, or `GraphViewId`.
 * **Workbench Scope**: The full, unscoped graph domain of one Workbench (`GraphId`-bound).
 * **Frame**: A persisted branch/subtree of the Workbench Tile Tree that groups tiles and preserves their arrangement/focus as a unit. Frame is the canonical runtime/UI term for top-level working contexts within one Workbench.
 * **Frame Snapshot** (**Persistence Snapshot**, canonical storage term): A persistable snapshot of a Workbench/Frame layout plus its content manifest. Serialized as `PersistedFrame`, which contains:
@@ -64,6 +82,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 * **Graph View**: A Pane (`TileKind::Graph`) containing a force-directed canvas visualization powered by `egui_graphs`. Renders the `Graph` data model with physics simulation, node selection, and camera controls.
 * **GraphViewId**: A stable identifier for a specific Graph View pane instance. `GraphViewId` is the canonical identity for per-view camera state, `ViewDimension`, Lens assignment, and `LocalSimulation` (for Divergent layout views). Generated at pane creation; persists across reorder, split, and move operations.
+    A `GraphViewId` may be hosted in a tile tree surface, but tile hosting does not become the owner of that graph-view identity.
 * **GraphLayoutMode**: The layout participation mode for a Graph View pane. `Canonical` — participates in the shared workspace graph layout (shared node positions, one physics simulation). `Divergent` — has its own `LocalSimulation` with independent node positions; activated explicitly by the user.
 * **LocalSimulation**: An independent physics simulation instance owned by a `Divergent` Graph View. Does not affect Canonical pane node positions.
 * **Pane Opening Mode**: The four canonical ways a Pane can be summoned into the Workbench, controlling both size and graph citizenship:
@@ -75,6 +94,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 * **Address-as-Identity principle**: A tile's graph citizenship is determined solely by whether its address resolves to a live (non-tombstone) node in the graph. No separate mapping structure exists. The canonical check is: *does a node with this address exist in the graph?* `TileKind::Pane(PaneState)` carries no address yet (or an address not yet written to the graph); `TileKind::Node(NodePaneState)`, `TileKind::Graph`, and `TileKind::Tool` all carry addresses in the canonical `verso://` internal-address scheme that resolve to graph nodes. Legacy `graphshell://` forms are compatibility aliases only. The graph's node set is itself the authoritative membership list — querying it is querying graph citizenship.
 * **Pane** (graph-citizenship clarification): A Pane in any ephemeral opening mode has **no graph presence** — it carries no address yet written to the graph, does not participate in edge events, and is not tracked in the graph data model. It lives in the tile tree only as `TileKind::Pane(PaneState)`.
 * **Tile** (graph-citizenship): A Pane whose address has been written to the graph as a `Node` — i.e., a promoted pane. The tab bar materializes as the visual symptom of that address being in the graph. `TileKind::Node(NodePaneState)` is the promoted content tile. `TileKind::Graph` and `TileKind::Tool` are also tiles in this sense: their canonical `verso://` addresses resolve to graph nodes and they carry tab bars. A collection of Tiles grouped into a Frame corresponds to a bounded region of nodes in the graph canvas, visually represented by a titled, colored frame backdrop on the canvas (bound by `ArrangementRelation` / `frame-member` edges).
+    Projection reminder: a tile is how node-bearing or graph-view-bearing content appears in the workbench. It is not a synonym for `Node`.
 * **Verso internal address scheme**: Internal tile types use a `verso://` address namespace so that their graph presence follows the same address-as-identity rule as web content tiles. Canonical forms:
     * `verso://view/<GraphViewId>` — a Graph View pane node.
     * `verso://tool/<name>` — a tool/subsystem pane node. If multiple instances of the same tool are open simultaneously, a numeric discriminator is appended: `verso://tool/<name>/<n>` (starting at 2; the discriminator is recycled upon pane closure).

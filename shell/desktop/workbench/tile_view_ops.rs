@@ -403,6 +403,82 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
     }
 }
 
+/// Return the `TileId` of a `Container::Tabs` that contains at least one
+/// warm, non-floating tile for a durable graphlet peer of `node_key`.
+///
+/// This is the routing oracle for graphlet-aware tile opening: if the caller
+/// places a new tile into the returned container, the node joins the correct
+/// durable graphlet group without any additional graph mutations.
+pub(crate) fn warm_peer_tab_container(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    node_key: NodeKey,
+) -> Option<TileId> {
+    let peers = graph_app.durable_graphlet_peers(node_key);
+    for peer in peers {
+        let Some(peer_tile_id) =
+            tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
+                Tile::Pane(kind)
+                    if tile_matches_node(kind, peer) && !kind.is_floating() =>
+                {
+                    Some(*tile_id)
+                }
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        if let Some(parent_id) = tiles_tree.tiles.parent_of(peer_tile_id) {
+            if matches!(
+                tiles_tree.tiles.get(parent_id),
+                Some(Tile::Container(Container::Tabs(_)))
+            ) {
+                return Some(parent_id);
+            }
+        }
+    }
+    None
+}
+
+/// Open a node pane using graphlet-aware routing.
+///
+/// 1. If the node already has a non-floating tile, focus it.
+/// 2. If any durable graphlet peer has a warm tile in a tab container,
+///    add the new tile to that same container.
+/// 3. Otherwise fall back to [`open_or_focus_node_pane`].
+///
+/// This function does **not** create new graph edges; use
+/// `handle_open_node_in_pane_intent` when edge creation is needed (Phase 5).
+pub(crate) fn open_node_with_graphlet_routing(
+    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+) {
+    if tiles_tree.make_active(|_, tile| match tile {
+        Tile::Pane(kind) => tile_matches_node(kind, node_key) && !kind.is_floating(),
+        _ => false,
+    }) {
+        tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+        return;
+    }
+
+    if let Some(container_id) = warm_peer_tab_container(graph_app, tiles_tree, node_key) {
+        let node_pane_tile_id = tiles_tree
+            .tiles
+            .insert_pane(TileKind::Node(node_key.into()));
+        if let Some(Tile::Container(Container::Tabs(tabs))) =
+            tiles_tree.tiles.get_mut(container_id)
+        {
+            tabs.add_child(node_pane_tile_id);
+            tabs.set_active(node_pane_tile_id);
+        }
+        tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+        return;
+    }
+
+    open_or_focus_node_pane_with_mode(tiles_tree, graph_app, node_key, TileOpenMode::Tab);
+}
+
 pub(crate) fn open_or_focus_node_pane(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,

@@ -902,6 +902,38 @@ pub(crate) fn execute_action(
             });
             intents.extend(runtime_intents);
         }
+        ActionId::NodeWarmSelect => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_GRAPH_SELECTION_WARM_SELECT,
+                runtime_action::ActionPayload::GraphDeselectAll,
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute '{}': {}",
+                    runtime_action::ACTION_GRAPH_SELECTION_WARM_SELECT,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
+        ActionId::NodeRemoveFromGraphlet => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_GRAPH_NODE_REMOVE_FROM_GRAPHLET,
+                runtime_action::ActionPayload::GraphDeselectAll,
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute '{}': {}",
+                    runtime_action::ACTION_GRAPH_NODE_REMOVE_FROM_GRAPHLET,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
     }
 }
 

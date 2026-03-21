@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use crate::graph::edge_style_registry::{
+    EdgeAccessibilityMode, ThemeAccessibilitySupport, ThemeContract, ThemeEdgeTokens,
+    validate_theme_edge_tokens,
+};
 use crate::registries::atomic::lens::{
     THEME_ID_DARK as LEGACY_THEME_ID_DARK, THEME_ID_DEFAULT as LEGACY_THEME_ID_DEFAULT, ThemeData,
 };
@@ -14,6 +18,9 @@ pub(crate) struct ThemeTokenSet {
     pub(crate) theme_id: String,
     pub(crate) display_name: String,
     pub(crate) theme_data: ThemeData,
+    pub(crate) accessibility: ThemeAccessibilitySupport,
+    pub(crate) theme_contract: ThemeContract,
+    pub(crate) edge_tokens: ThemeEdgeTokens,
     pub(crate) command_notice: egui::Color32,
     pub(crate) radial_disabled_text: egui::Color32,
     pub(crate) radial_hub_fill: egui::Color32,
@@ -194,6 +201,18 @@ fn validate_theme_tokens(tokens: &ThemeTokenSet) -> Result<(), String> {
         }
     }
 
+    validate_theme_edge_tokens(&tokens.edge_tokens, &tokens.theme_contract)?;
+
+    if matches!(
+        tokens.accessibility.default_edge_mode,
+        EdgeAccessibilityMode::Monochrome
+    ) && !tokens.accessibility.supports_monochrome
+    {
+        return Err(
+            "default edge mode cannot be monochrome when monochrome support is false".into(),
+        );
+    }
+
     Ok(())
 }
 
@@ -231,6 +250,9 @@ fn default_theme_tokens() -> ThemeTokenSet {
             font_scale: 1.0,
             stroke_width: 1.0,
         },
+        accessibility: default_theme_accessibility(),
+        theme_contract: default_theme_contract(),
+        edge_tokens: ThemeEdgeTokens::default_theme(),
         command_notice: egui::Color32::from_rgb(234, 200, 145),
         radial_disabled_text: egui::Color32::from_rgb(165, 172, 178),
         radial_hub_fill: egui::Color32::from_rgb(28, 32, 36),
@@ -255,12 +277,30 @@ fn light_theme_tokens() -> ThemeTokenSet {
         theme_id: THEME_ID_LIGHT.to_string(),
         display_name: "Light".to_string(),
         theme_data: ThemeData {
-            background_rgb: (20, 20, 25),
-            accent_rgb: (80, 220, 255),
+            background_rgb: (244, 246, 249),
+            accent_rgb: (54, 120, 212),
             font_scale: 1.0,
             stroke_width: 1.0,
         },
-        ..default_theme_tokens()
+        accessibility: default_theme_accessibility(),
+        theme_contract: default_theme_contract(),
+        edge_tokens: ThemeEdgeTokens::light_theme(),
+        command_notice: egui::Color32::from_rgb(144, 96, 22),
+        radial_disabled_text: egui::Color32::from_rgb(92, 98, 108),
+        radial_hub_fill: egui::Color32::from_rgb(248, 250, 252),
+        radial_hub_stroke: egui::Color32::from_rgb(176, 186, 198),
+        radial_hub_text: egui::Color32::from_rgb(26, 36, 48),
+        radial_domain_active_fill: egui::Color32::from_rgb(98, 152, 226),
+        radial_domain_idle_fill: egui::Color32::from_rgb(226, 232, 239),
+        radial_command_active_fill: egui::Color32::from_rgb(90, 150, 220),
+        radial_command_hover_fill: egui::Color32::from_rgb(214, 222, 232),
+        radial_command_disabled_fill: egui::Color32::from_rgb(236, 240, 244),
+        radial_command_text: egui::Color32::from_rgb(28, 36, 48),
+        radial_chrome_text: egui::Color32::from_rgb(92, 102, 118),
+        radial_warning_text: egui::Color32::from_rgb(144, 96, 22),
+        hover_label_background: egui::Color32::from_rgba_unmultiplied(250, 252, 255, 244),
+        hover_label_stroke: egui::Color32::from_rgb(178, 188, 202),
+        hover_label_text: egui::Color32::from_rgb(28, 36, 46),
     }
 }
 
@@ -274,6 +314,9 @@ fn dark_theme_tokens() -> ThemeTokenSet {
             font_scale: 1.0,
             stroke_width: 1.0,
         },
+        accessibility: default_theme_accessibility(),
+        theme_contract: default_theme_contract(),
+        edge_tokens: ThemeEdgeTokens::dark_theme(),
         command_notice: egui::Color32::from_rgb(240, 214, 164),
         radial_disabled_text: egui::Color32::from_rgb(176, 182, 190),
         radial_hub_fill: egui::Color32::from_rgb(20, 24, 30),
@@ -303,6 +346,17 @@ fn high_contrast_theme_tokens() -> ThemeTokenSet {
             font_scale: 1.1,
             stroke_width: 1.5,
         },
+        accessibility: ThemeAccessibilitySupport {
+            supports_monochrome: true,
+            supports_high_contrast: true,
+            default_edge_mode: EdgeAccessibilityMode::ColorAndPattern,
+        },
+        theme_contract: ThemeContract {
+            min_family_luminance_delta: 4.0,
+            require_non_color_family_distinction: true,
+            require_monochrome_preservation: true,
+        },
+        edge_tokens: ThemeEdgeTokens::high_contrast_theme(),
         command_notice: egui::Color32::from_rgb(255, 230, 0),
         radial_disabled_text: egui::Color32::from_rgb(255, 255, 255),
         radial_hub_fill: egui::Color32::from_rgb(0, 0, 0),
@@ -319,6 +373,22 @@ fn high_contrast_theme_tokens() -> ThemeTokenSet {
         hover_label_background: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 255),
         hover_label_stroke: egui::Color32::from_rgb(255, 255, 255),
         hover_label_text: egui::Color32::from_rgb(255, 255, 255),
+    }
+}
+
+fn default_theme_accessibility() -> ThemeAccessibilitySupport {
+    ThemeAccessibilitySupport {
+        supports_monochrome: true,
+        supports_high_contrast: true,
+        default_edge_mode: EdgeAccessibilityMode::ColorAndPattern,
+    }
+}
+
+fn default_theme_contract() -> ThemeContract {
+    ThemeContract {
+        min_family_luminance_delta: 4.0,
+        require_non_color_family_distinction: true,
+        require_monochrome_preservation: true,
     }
 }
 
@@ -342,5 +412,14 @@ mod tests {
     fn high_contrast_theme_passes_wcag_validation() {
         validate_theme_tokens(&high_contrast_theme_tokens())
             .expect("high contrast theme should satisfy validation");
+    }
+
+    #[test]
+    fn builtin_themes_include_edge_tokens() {
+        let default = default_theme_tokens();
+        let dark = dark_theme_tokens();
+
+        assert!(default.edge_tokens.family_tokens.len() >= 5);
+        assert!(dark.edge_tokens.kind_tokens.len() >= 5);
     }
 }

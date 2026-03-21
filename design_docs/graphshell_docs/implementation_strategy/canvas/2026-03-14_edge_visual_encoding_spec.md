@@ -78,6 +78,109 @@ strokes.
 `Color32` values. The tokens map to theme palette roles so dark/light mode and
 custom themes all produce coherent, distinguishable encodings.
 
+**P6 — Accessibility is multi-channel.** No rendered edge type may rely on hue
+alone for recognition. Family identity must survive grayscale viewing and common
+color-vision-deficiency conditions. Pattern is the primary family carrier;
+width, opacity, endpoint marker, and halo are supporting carriers.
+
+---
+
+## 2.1 Accessible Automatic Style Assignment
+
+Edge styling must be assigned by a deterministic registry rather than ad hoc
+per-callsite colors. The registry owns the family-safe base tokens and produces
+the concrete render token for each edge kind.
+
+### 2.1.1 Registry contract
+
+The canonical assignment flow is:
+
+1. Resolve `EdgePayload` into a primary visible family/sub-kind per §4 priority.
+2. Convert that family/sub-kind into a stable `EdgeStyleKey`.
+3. Look up the `EdgeStyleKey` in `EdgeStyleRegistry`.
+4. Render only the returned `EdgeStyleToken`; the canvas renderer must not
+   invent per-edge colors or dash styles on its own.
+
+Illustrative shape:
+
+```rust
+struct EdgeStyleRegistry {
+    accessibility_mode: EdgeAccessibilityMode,
+}
+
+enum EdgeAccessibilityMode {
+    ColorAndPattern,
+    Monochrome,
+}
+
+struct EdgeStyleToken {
+    color: ThemeColorToken,
+    width: f32,
+    pattern: StrokePattern,
+    opacity: f32,
+    end_marker: EndpointMarker,
+    halo: Option<HaloStyle>,
+}
+```
+
+Normative rule:
+
+- family chooses the primary visual identity,
+- sub-kind chooses only constrained variants within that family,
+- the renderer consumes `EdgeStyleToken` only.
+
+### 2.1.2 Family-safe channels
+
+Automatic style assignment must use channels in this order of importance:
+
+1. stroke pattern
+2. endpoint marker
+3. width
+4. color
+5. halo / emphasis treatment
+
+This ordering is deliberate: if a theme, projector, screenshot, or user vision
+condition weakens color discrimination, family identity remains readable.
+
+### 2.1.3 Collision resolution
+
+If two simultaneously visible edge styles are too similar, the registry must
+resolve the collision in this order:
+
+1. change dash rhythm
+2. change endpoint marker
+3. increase width delta
+4. add halo or outline treatment
+5. adjust hue/lightness within the same family token range
+
+The registry should preserve learned family color whenever a non-color fix is
+available.
+
+### 2.1.4 Minimum distinguishability rules
+
+Two simultaneously rendered edge styles must not collide under:
+
+- normal theme rendering,
+- grayscale conversion,
+- approximate deuteranopia simulation,
+- approximate protanopia simulation,
+- approximate tritanopia simulation.
+
+The starter implementation may use heuristic checks (luminance distance plus
+non-color signature comparison) rather than a full medical-grade simulation, but
+it must still enforce the principle that family identity is not hue-only.
+
+### 2.1.5 Accessibility mode
+
+The registry must support at least two modes:
+
+- `ColorAndPattern` — default; uses family color plus pattern/width/marker.
+- `Monochrome` — ignores hue differences and preserves only pattern, width,
+  marker, and halo.
+
+`Monochrome` is not a separate styling system. It is the same registry under a
+different accessibility projection.
+
 ---
 
 ## 3. Family Encoding Table
@@ -313,6 +416,9 @@ lens state passed into the draw context, not hardcoded.
 ## 8. Acceptance Criteria
 
 - [ ] All five families have distinct, named visual encodings per §3.2
+- [ ] Family identity remains distinguishable in grayscale without relying on hue alone
+- [ ] Automatic style assignment is driven by a deterministic registry, not per-callsite colors
+- [ ] `Monochrome` accessibility mode preserves family discrimination via pattern/width/marker
 - [ ] Default canvas renders only Semantic family edges; all other families
   hidden unless a lens is active
 - [ ] `AgentDerived` edges fade from opacity 0.55 → 0.15 as decay progresses

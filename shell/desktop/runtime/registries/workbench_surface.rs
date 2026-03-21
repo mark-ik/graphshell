@@ -1,12 +1,12 @@
-use egui_tiles::{Tile, Tree};
+use egui_tiles::{Container, Tile, TileId, Tree};
 
 use super::{
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::app::{
-    GraphBrowserApp, PendingTileOpenMode, SelectionUpdateMode, ToolSurfaceReturnTarget,
-    UndoBoundaryReason, WorkbenchIntent,
+    GraphBrowserApp, GraphIntent, LifecycleCause, PendingTileOpenMode, SelectionUpdateMode,
+    ToolSurfaceReturnTarget, UndoBoundaryReason, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 pub(crate) use crate::registries::domain::layout::workbench_surface::WorkbenchSurfaceResolution;
@@ -429,6 +429,14 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::DetachNodeToSplit { key } => {
                 handle_detach_node_to_split_intent(graph_app, tiles_tree, key);
+                None
+            }
+            WorkbenchIntent::DismissTile { pane } => {
+                pane_ops::handle_dismiss_tile_intent(graph_app, tiles_tree, pane);
+                None
+            }
+            WorkbenchIntent::ReconcileGraphletTiles { node } => {
+                pane_ops::handle_reconcile_graphlet_tiles_intent(graph_app, tiles_tree, node);
                 None
             }
         }

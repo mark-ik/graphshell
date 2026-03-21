@@ -41,6 +41,7 @@ use crate::services::persistence::types::{
 
 pub mod apply;
 pub mod badge;
+pub mod edge_style_registry;
 pub mod egui_adapter;
 pub mod facet_projection;
 pub mod filter;

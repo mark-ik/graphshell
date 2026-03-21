@@ -9,6 +9,10 @@
 
 use super::apply::{GraphDelta, GraphDeltaResult};
 use super::badge::BadgeVisual;
+use super::edge_style_registry::{
+    EdgeAccessibilityMode, EdgeEndpointMarker, EdgeStrokePattern, EdgeStyleKey, EdgeStyleRegistry,
+    EdgeStyleToken, ThemeEdgeTokens,
+};
 use super::{
     ContainmentSubKind, EdgeKey, EdgePayload, EdgeType, Graph, GraphDirection, GraphIndex, Node,
     NodeKey, NodeLifecycle,
@@ -731,6 +735,7 @@ enum GraphEdgeVisualStyle {
     // Arrangement family — hidden unless arrangement overlay active
     ArrangementFrameMember,
     ArrangementTileGroup,
+    ArrangementSplitPair,
     // Imported family — hidden unless import review mode active
     ImportedRelation,
 }
@@ -758,6 +763,7 @@ pub struct GraphEdgeShape {
     hidden: bool,
     traversal_total_count: usize,
     dominant_direction_cue: DominantDirectionCue,
+    edge_theme_tokens: ThemeEdgeTokens,
 }
 
 impl From<EdgeProps<EdgePayload>> for GraphEdgeShape {
@@ -770,6 +776,7 @@ impl From<EdgeProps<EdgePayload>> for GraphEdgeShape {
             hidden: false,
             traversal_total_count: 0,
             dominant_direction_cue: DominantDirectionCue::None,
+            edge_theme_tokens: ThemeEdgeTokens::default(),
         }
     }
 }
@@ -790,30 +797,34 @@ impl<
         if self.hidden {
             return Vec::new();
         }
-        let (base_color, width) = self.style_stroke();
+        let token = self.style_token();
+        let base_color = token.resolved_color();
         let color = if self.dimmed {
             base_color.gamma_multiply(0.35)
         } else {
             base_color
         };
-        if matches!(
-            self.style,
-            GraphEdgeVisualStyle::TraversalHistory
-                | GraphEdgeVisualStyle::ContainmentUrlPath
-                | GraphEdgeVisualStyle::ContainmentDomain
-                | GraphEdgeVisualStyle::ArrangementTileGroup
-                | GraphEdgeVisualStyle::ImportedRelation
-        ) {
-            return self.dashed_shapes(start, end, ctx, color, width);
-        }
-
-        let mut shapes = self
-            .default_impl
-            .shapes(start, end, ctx)
-            .into_iter()
-            .map(|shape| restyle_edge_shape(shape, color, width))
-            .collect::<Vec<_>>();
-        self.append_direction_cue(&mut shapes, start, end, color, width);
+        let mut shapes = match token.pattern {
+            EdgeStrokePattern::Solid => self
+                .default_impl
+                .shapes(start, end, ctx)
+                .into_iter()
+                .map(|shape| restyle_edge_shape(shape, color, token.width))
+                .collect::<Vec<_>>(),
+            EdgeStrokePattern::DoubleStroke => {
+                self.double_stroke_shapes(start, end, ctx, color, token.width)
+            }
+            pattern => self.patterned_shapes(start, end, ctx, color, token.width, pattern),
+        };
+        self.append_endpoint_marker(
+            &mut shapes,
+            start,
+            end,
+            color,
+            token.width,
+            token.end_marker,
+        );
+        self.append_direction_cue(&mut shapes, start, end, color, token.width);
         shapes
     }
 
@@ -843,6 +854,10 @@ impl GraphEdgeShape {
         self.dimmed = dimmed;
     }
 
+    pub(crate) fn set_theme_tokens(&mut self, edge_theme_tokens: ThemeEdgeTokens) {
+        self.edge_theme_tokens = edge_theme_tokens;
+    }
+
     fn set_hidden(&mut self, hidden: bool) {
         self.hidden = hidden;
     }
@@ -862,56 +877,54 @@ impl GraphEdgeShape {
                 | GraphEdgeVisualStyle::ContainmentDomain
                 | GraphEdgeVisualStyle::ArrangementFrameMember
                 | GraphEdgeVisualStyle::ArrangementTileGroup
+                | GraphEdgeVisualStyle::ArrangementSplitPair
                 | GraphEdgeVisualStyle::ImportedRelation
         );
         self.traversal_total_count = aggregate.total_count;
         self.dominant_direction_cue = aggregate.dominant_cue;
     }
 
-    fn style_stroke(&self) -> (Color32, f32) {
+    fn style_key(&self) -> EdgeStyleKey {
+        match self.style {
+            GraphEdgeVisualStyle::Hidden => EdgeStyleKey::Hidden,
+            GraphEdgeVisualStyle::Hyperlink => EdgeStyleKey::Hyperlink,
+            GraphEdgeVisualStyle::UserGrouped => EdgeStyleKey::UserGrouped,
+            GraphEdgeVisualStyle::AgentDerived { .. } => EdgeStyleKey::AgentDerived,
+            GraphEdgeVisualStyle::TraversalHistory => EdgeStyleKey::TraversalHistory,
+            GraphEdgeVisualStyle::ContainmentUrlPath => EdgeStyleKey::ContainmentUrlPath,
+            GraphEdgeVisualStyle::ContainmentDomain => EdgeStyleKey::ContainmentDomain,
+            GraphEdgeVisualStyle::ArrangementFrameMember => EdgeStyleKey::ArrangementFrameMember,
+            GraphEdgeVisualStyle::ArrangementTileGroup => EdgeStyleKey::ArrangementTileGroup,
+            GraphEdgeVisualStyle::ArrangementSplitPair => EdgeStyleKey::ArrangementSplitPair,
+            GraphEdgeVisualStyle::ImportedRelation => EdgeStyleKey::ImportedRelation,
+        }
+    }
+
+    fn style_token(&self) -> EdgeStyleToken {
         let traversal_bonus = if matches!(self.style, GraphEdgeVisualStyle::TraversalHistory) {
             Self::traversal_width_bonus(self.traversal_total_count)
         } else {
             0.0
         };
-        match self.style {
-            GraphEdgeVisualStyle::Hidden => (Color32::TRANSPARENT, 0.0),
-            // Semantic family
-            GraphEdgeVisualStyle::Hyperlink => (Color32::from_rgb(150, 150, 155), 1.4),
-            GraphEdgeVisualStyle::UserGrouped => (Color32::from_rgb(236, 171, 64), 3.0),
-            GraphEdgeVisualStyle::AgentDerived { decay_progress } => {
-                let opacity = egui::lerp(0.55..=0.15, decay_progress.clamp(0.0, 1.0));
-                (
-                    Color32::from_rgba_unmultiplied(180, 140, 220, (opacity * 255.0) as u8),
-                    1.2,
-                )
-            }
-            // Traversal family
-            GraphEdgeVisualStyle::TraversalHistory => {
-                (Color32::from_rgb(120, 180, 210), 1.8 + traversal_bonus)
-            }
-            // Containment family
-            GraphEdgeVisualStyle::ContainmentUrlPath => (Color32::from_rgb(80, 190, 170), 1.0),
-            GraphEdgeVisualStyle::ContainmentDomain => {
-                (Color32::from_rgba_unmultiplied(80, 190, 170, 153), 0.8) // 60% opacity
-            }
-            // Arrangement family
-            GraphEdgeVisualStyle::ArrangementFrameMember => (Color32::from_rgb(130, 110, 220), 2.0),
-            GraphEdgeVisualStyle::ArrangementTileGroup => {
-                (Color32::from_rgba_unmultiplied(130, 110, 220, 153), 0.8) // 60% opacity
-            }
-            // Imported family
-            GraphEdgeVisualStyle::ImportedRelation => {
-                (Color32::from_rgba_unmultiplied(160, 150, 140, 89), 0.8) // 35% opacity
-            }
-        }
+        let decay_progress = match self.style {
+            GraphEdgeVisualStyle::AgentDerived { decay_progress } => decay_progress,
+            _ => 0.0,
+        };
+        let registry = EdgeStyleRegistry::from_theme_tokens(
+            self.edge_theme_tokens.clone(),
+            EdgeAccessibilityMode::ColorAndPattern,
+        );
+        let mut token = registry.token_for(self.style_key(), decay_progress);
+        token.width += traversal_bonus;
+        token
     }
 
     fn style_from_payload(payload: &EdgePayload) -> GraphEdgeVisualStyle {
         // Priority order per edge_visual_encoding_spec.md §4:
         // 1. UserGrouped  2. Hyperlink  3. AgentDerived  4. TraversalHistory
         // 5. ContainmentUrlPath  6. ContainmentDomain
-        // 7. ArrangementFrameMember  8. ArrangementTileGroup  9. ImportedRelation
+        // 7. ArrangementFrameMember  8. ArrangementTileGroup
+        // 9. ArrangementSplitPair  10. ImportedRelation
         if payload.has_edge_type(EdgeType::UserGrouped) {
             GraphEdgeVisualStyle::UserGrouped
         } else if payload.has_edge_type(EdgeType::Hyperlink) {
@@ -929,10 +942,18 @@ impl GraphEdgeShape {
             GraphEdgeVisualStyle::ContainmentUrlPath
         } else if payload.has_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::Domain)) {
             GraphEdgeVisualStyle::ContainmentDomain
-        } else if payload.has_durable_arrangement_relation() {
+        } else if payload.has_edge_type(EdgeType::ArrangementRelation(
+            crate::model::graph::ArrangementSubKind::FrameMember,
+        )) {
             GraphEdgeVisualStyle::ArrangementFrameMember
-        } else if payload.has_session_arrangement_relation() {
+        } else if payload.has_edge_type(EdgeType::ArrangementRelation(
+            crate::model::graph::ArrangementSubKind::TileGroup,
+        )) {
             GraphEdgeVisualStyle::ArrangementTileGroup
+        } else if payload.has_edge_type(EdgeType::ArrangementRelation(
+            crate::model::graph::ArrangementSubKind::SplitPair,
+        )) {
+            GraphEdgeVisualStyle::ArrangementSplitPair
         } else if payload.has_edge_type(EdgeType::ImportedRelation) {
             GraphEdgeVisualStyle::ImportedRelation
         } else {
@@ -1009,7 +1030,98 @@ impl GraphEdgeShape {
         shapes.push(Shape::line_segment([tip, right], stroke));
     }
 
-    fn dashed_shapes<
+    fn patterned_shapes<
+        N: Clone,
+        Ty: petgraph::EdgeType,
+        Ix: petgraph::stable_graph::IndexType,
+        D: DisplayNode<N, EdgePayload, Ty, Ix>,
+    >(
+        &self,
+        start: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        end: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        ctx: &DrawContext,
+        color: Color32,
+        width: f32,
+        pattern: EdgeStrokePattern,
+    ) -> Vec<Shape> {
+        if start.id() == end.id() {
+            return self
+                .default_impl
+                .clone()
+                .shapes(start, end, ctx)
+                .into_iter()
+                .map(|shape| restyle_edge_shape(shape, color, width))
+                .collect();
+        }
+        let dir = (end.location() - start.location()).normalized();
+        let start_connector = start.display().closest_boundary_point(dir);
+        let end_connector = end.display().closest_boundary_point(-dir);
+        let screen_start = ctx.meta.canvas_to_screen_pos(start_connector);
+        let screen_end = ctx.meta.canvas_to_screen_pos(end_connector);
+        let vec = screen_end - screen_start;
+        let total = vec.length();
+        if total <= f32::EPSILON {
+            return Vec::new();
+        }
+        let unit = vec / total;
+        let mut shapes = Vec::new();
+        let mut traveled = 0.0_f32;
+        match pattern {
+            EdgeStrokePattern::Dotted => {
+                let spacing = (width * 3.5).max(5.0);
+                let radius = (width * 0.7).max(1.0);
+                while traveled <= total {
+                    let center = screen_start + unit * traveled;
+                    shapes.push(Shape::Circle(CircleShape {
+                        center,
+                        radius,
+                        fill: color,
+                        stroke: Stroke::NONE,
+                    }));
+                    traveled += spacing;
+                }
+            }
+            EdgeStrokePattern::DashedShort
+            | EdgeStrokePattern::DashedLong
+            | EdgeStrokePattern::DashDot => {
+                let (dash, gap) = match pattern {
+                    EdgeStrokePattern::DashedShort => (6.0_f32, 4.0_f32),
+                    EdgeStrokePattern::DashedLong => (10.0_f32, 6.0_f32),
+                    EdgeStrokePattern::DashDot => (10.0_f32, 4.0_f32),
+                    _ => unreachable!(),
+                };
+                let stroke = Stroke::new(width, color);
+                while traveled < total {
+                    let seg_start = screen_start + unit * traveled;
+                    let seg_end = screen_start + unit * (traveled + dash).min(total);
+                    shapes.push(Shape::line_segment([seg_start, seg_end], stroke));
+                    traveled += dash;
+                    if pattern == EdgeStrokePattern::DashDot && traveled < total {
+                        let dot_center = screen_start + unit * (traveled + gap * 0.5).min(total);
+                        shapes.push(Shape::Circle(CircleShape {
+                            center: dot_center,
+                            radius: (width * 0.65).max(1.0),
+                            fill: color,
+                            stroke: Stroke::NONE,
+                        }));
+                    }
+                    traveled += gap
+                        * if pattern == EdgeStrokePattern::DashDot {
+                            2.0
+                        } else {
+                            1.0
+                        };
+                }
+            }
+            EdgeStrokePattern::Solid | EdgeStrokePattern::DoubleStroke => {
+                let stroke = Stroke::new(width, color);
+                shapes.push(Shape::line_segment([screen_start, screen_end], stroke));
+            }
+        }
+        shapes
+    }
+
+    fn double_stroke_shapes<
         N: Clone,
         Ty: petgraph::EdgeType,
         Ix: petgraph::stable_graph::IndexType,
@@ -1042,18 +1154,91 @@ impl GraphEdgeShape {
             return Vec::new();
         }
         let unit = vec / total;
-        let dash = 8.0_f32;
-        let gap = 6.0_f32;
-        let mut shapes = Vec::new();
-        let mut traveled = 0.0_f32;
-        let stroke = Stroke::new(width, color);
-        while traveled < total {
-            let seg_start = screen_start + unit * traveled;
-            let seg_end = screen_start + unit * (traveled + dash).min(total);
-            shapes.push(Shape::line_segment([seg_start, seg_end], stroke));
-            traveled += dash + gap;
+        let perp = egui::vec2(-unit.y, unit.x);
+        let offset = perp * (width.max(1.0) * 0.9);
+        let stroke = Stroke::new((width * 0.55).max(0.9), color);
+        vec![
+            Shape::line_segment([screen_start + offset, screen_end + offset], stroke),
+            Shape::line_segment([screen_start - offset, screen_end - offset], stroke),
+        ]
+    }
+
+    fn append_endpoint_marker<
+        N: Clone,
+        Ty: petgraph::EdgeType,
+        Ix: petgraph::stable_graph::IndexType,
+        D: DisplayNode<N, EdgePayload, Ty, Ix>,
+    >(
+        &self,
+        shapes: &mut Vec<Shape>,
+        start: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        end: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        color: Color32,
+        width: f32,
+        marker: EdgeEndpointMarker,
+    ) {
+        if marker == EdgeEndpointMarker::None || start.id() == end.id() {
+            return;
         }
-        shapes
+        let vec = end.location() - start.location();
+        let len = vec.length();
+        if len <= f32::EPSILON {
+            return;
+        }
+        let dir = vec / len;
+        let tip = end.location() - dir * (8.0 + width * 1.4);
+        let perp = egui::vec2(-dir.y, dir.x);
+        let stroke = Stroke::new(width.max(1.0), color);
+        match marker {
+            EdgeEndpointMarker::None => {}
+            EdgeEndpointMarker::Arrow => {
+                let head_len = 6.5 + width;
+                let head_half = 3.5 + width * 0.35;
+                let left = tip - dir * head_len + perp * head_half;
+                let right = tip - dir * head_len - perp * head_half;
+                shapes.push(Shape::line_segment([tip, left], stroke));
+                shapes.push(Shape::line_segment([tip, right], stroke));
+            }
+            EdgeEndpointMarker::Bracket => {
+                let stem = tip - dir * (5.0 + width * 0.5);
+                let bracket_half = 4.0 + width * 0.4;
+                shapes.push(Shape::line_segment(
+                    [stem + perp * bracket_half, stem - perp * bracket_half],
+                    stroke,
+                ));
+                shapes.push(Shape::line_segment(
+                    [stem + perp * bracket_half, tip + perp * bracket_half],
+                    stroke,
+                ));
+                shapes.push(Shape::line_segment(
+                    [stem - perp * bracket_half, tip - perp * bracket_half],
+                    stroke,
+                ));
+            }
+            EdgeEndpointMarker::Square => {
+                let half = 3.2 + width * 0.3;
+                let back = tip - dir * (half * 2.0);
+                let p1 = tip + perp * half;
+                let p2 = tip - perp * half;
+                let p3 = back - perp * half;
+                let p4 = back + perp * half;
+                shapes.push(Shape::line_segment([p1, p2], stroke));
+                shapes.push(Shape::line_segment([p2, p3], stroke));
+                shapes.push(Shape::line_segment([p3, p4], stroke));
+                shapes.push(Shape::line_segment([p4, p1], stroke));
+            }
+            EdgeEndpointMarker::Diamond => {
+                let half = 3.0 + width * 0.25;
+                let back = tip - dir * (half * 2.0);
+                let mid = tip - dir * half;
+                let left = mid + perp * half;
+                let right = mid - perp * half;
+                shapes.push(Shape::line_segment([tip, left], stroke));
+                shapes.push(Shape::line_segment([left, back], stroke));
+                shapes.push(Shape::line_segment([back, right], stroke));
+                shapes.push(Shape::line_segment([right, tip], stroke));
+            }
+        }
     }
 }
 
@@ -1096,8 +1281,6 @@ fn aggregate_logical_pair_traversals(
     let backward_count = dominant_source
         .map(|p| p.metrics().backward_navigations as usize)
         .unwrap_or(0);
-    let either =
-        |f: fn(&EdgePayload) -> bool| ab_payload.is_some_and(f) || ba_payload.is_some_and(f);
     let either_type = |et: EdgeType| {
         ab_payload.is_some_and(|p| p.has_edge_type(et))
             || ba_payload.is_some_and(|p| p.has_edge_type(et))
@@ -1118,10 +1301,18 @@ fn aggregate_logical_pair_traversals(
         GraphEdgeVisualStyle::ContainmentUrlPath
     } else if either_type(EdgeType::ContainmentRelation(ContainmentSubKind::Domain)) {
         GraphEdgeVisualStyle::ContainmentDomain
-    } else if either(EdgePayload::has_durable_arrangement_relation) {
+    } else if either_type(EdgeType::ArrangementRelation(
+        crate::model::graph::ArrangementSubKind::FrameMember,
+    )) {
         GraphEdgeVisualStyle::ArrangementFrameMember
-    } else if either(EdgePayload::has_session_arrangement_relation) {
+    } else if either_type(EdgeType::ArrangementRelation(
+        crate::model::graph::ArrangementSubKind::TileGroup,
+    )) {
         GraphEdgeVisualStyle::ArrangementTileGroup
+    } else if either_type(EdgeType::ArrangementRelation(
+        crate::model::graph::ArrangementSubKind::SplitPair,
+    )) {
+        GraphEdgeVisualStyle::ArrangementSplitPair
     } else if either_type(EdgeType::ImportedRelation) {
         GraphEdgeVisualStyle::ImportedRelation
     } else {
@@ -1165,6 +1356,7 @@ pub struct EguiGraphState {
     /// True when this retained graph mirrors the full domain graph rather than
     /// a filtered or culled projection.
     pub represents_full_graph: bool,
+    edge_theme_tokens: ThemeEdgeTokens,
 }
 
 impl EguiGraphState {
@@ -1276,6 +1468,7 @@ impl EguiGraphState {
         Self {
             graph: egui_graph,
             represents_full_graph,
+            edge_theme_tokens: ThemeEdgeTokens::default(),
         }
     }
 
@@ -1343,6 +1536,17 @@ impl EguiGraphState {
             }
         }
         state
+    }
+
+    pub fn apply_edge_theme_tokens(&mut self, edge_theme_tokens: ThemeEdgeTokens) {
+        self.edge_theme_tokens = edge_theme_tokens.clone();
+        let edge_keys: Vec<_> = self.graph.edges_iter().map(|(key, _)| key).collect();
+        for edge_key in edge_keys {
+            if let Some(edge) = self.graph.edge_mut(edge_key) {
+                edge.display_mut()
+                    .set_theme_tokens(edge_theme_tokens.clone());
+            }
+        }
     }
 
     pub fn sync_from_delta(
@@ -1426,6 +1630,7 @@ impl EguiGraphState {
         }
 
         refresh_logical_pair_edge_display(graph, &mut self.graph);
+        self.apply_edge_theme_tokens(self.edge_theme_tokens.clone());
     }
 
     /// Validate that a graph key exists in the retained egui graph.
@@ -1930,13 +2135,19 @@ mod tests {
             label: String::new(),
         });
 
-        let (history_color, _) = history.style_stroke();
-        let (grouped_color, grouped_width) = grouped.style_stroke();
+        let history_token = history.style_token();
+        let grouped_token = grouped.style_token();
         assert_eq!(history.style, GraphEdgeVisualStyle::TraversalHistory);
         assert_eq!(grouped.style, GraphEdgeVisualStyle::UserGrouped);
-        assert_eq!(history_color, Color32::from_rgb(120, 180, 210));
-        assert_eq!(grouped_color, Color32::from_rgb(236, 171, 64));
-        assert!(grouped_width > 2.0);
+        assert_eq!(
+            history_token.resolved_color(),
+            Color32::from_rgba_unmultiplied(120, 180, 210, 179)
+        );
+        assert_eq!(
+            grouped_token.resolved_color(),
+            Color32::from_rgb(236, 171, 64)
+        );
+        assert!(grouped_token.width > 2.0);
     }
 
     #[test]
@@ -1956,7 +2167,7 @@ mod tests {
                 dominant_cue: DominantDirectionCue::None,
             },
         );
-        let (_, w1) = edge.style_stroke();
+        let w1 = edge.style_token().width;
         edge.configure_logical_pair(
             GraphEdgeVisualStyle::TraversalHistory,
             LogicalPairTraversalAggregate {
@@ -1966,8 +2177,25 @@ mod tests {
                 dominant_cue: DominantDirectionCue::None,
             },
         );
-        let (_, w9) = edge.style_stroke();
+        let w9 = edge.style_token().width;
         assert!(w9 > w1);
+    }
+
+    #[test]
+    fn arrangement_split_pair_has_distinct_accessible_pattern() {
+        let edge = GraphEdgeShape::from(EdgeProps {
+            payload: EdgePayload::from_edge_type(
+                EdgeType::ArrangementRelation(crate::model::graph::ArrangementSubKind::SplitPair),
+                None,
+            ),
+            order: 0,
+            selected: false,
+            label: String::new(),
+        });
+
+        let token = edge.style_token();
+        assert_eq!(edge.style, GraphEdgeVisualStyle::ArrangementSplitPair);
+        assert_eq!(token.pattern, EdgeStrokePattern::DashedShort);
     }
 
     #[test]

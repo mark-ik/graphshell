@@ -307,16 +307,20 @@ impl TileCoordinator {
                 .get_node(node_key)
                 .map(|node| node.lifecycle)
                 .unwrap_or(NodeLifecycle::Cold);
-            if lifecycle != NodeLifecycle::Warm {
-                lifecycle_intents.push(
-                    lifecycle_intents::demote_node_to_warm(
-                        node_key,
-                        LifecycleCause::WorkspaceRetention,
-                    )
-                    .into(),
-                );
+            // If the node was explicitly dismissed (lifecycle already Cold), fall
+            // through to the teardown path — do not re-promote to Warm.
+            if lifecycle != NodeLifecycle::Cold {
+                if lifecycle != NodeLifecycle::Warm {
+                    lifecycle_intents.push(
+                        lifecycle_intents::demote_node_to_warm(
+                            node_key,
+                            LifecycleCause::WorkspaceRetention,
+                        )
+                        .into(),
+                    );
+                }
+                return;
             }
-            return;
         }
 
         tile_rendering_contexts.remove(&node_key);

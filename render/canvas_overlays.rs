@@ -7,12 +7,11 @@
 
 use crate::app::GraphBrowserApp;
 use crate::graph::{EdgePayload, EdgeType, NodeLifecycle};
+use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use egui::{Stroke, Ui, Vec2};
 use egui_graphs::MetadataFrame;
 use std::collections::BTreeSet;
 use std::time::{Duration, UNIX_EPOCH};
-
-use super::canvas_visuals::active_presentation_profile;
 
 // ── Edge helpers ──────────────────────────────────────────────────────────────
 
@@ -160,7 +159,8 @@ pub(super) fn draw_highlighted_edge_overlay(
     _widget_id: egui::Id,
     metadata_id: egui::Id,
 ) {
-    let presentation = active_presentation_profile(app);
+    let theme_resolution = phase3_resolve_active_theme(app.default_registry_theme_id());
+    let selection = theme_resolution.tokens.edge_tokens.selection;
     let Some((from, to)) = app.workspace.graph_runtime.highlighted_graph_edge else {
         return;
     };
@@ -186,21 +186,21 @@ pub(super) fn draw_highlighted_edge_overlay(
     };
     ui.painter().line_segment(
         [from_screen, to_screen],
-        Stroke::new(6.0, presentation.edge_highlight_backdrop.to_color32()),
+        Stroke::new(6.0, selection.halo_color),
     );
     ui.painter().line_segment(
         [from_screen, to_screen],
-        Stroke::new(5.0, presentation.edge_highlight_foreground.to_color32()),
+        Stroke::new(5.0 + selection.width_delta, selection.foreground_color),
     );
     ui.painter().circle_filled(
         from_screen,
-        6.0,
-        presentation.edge_highlight_foreground.to_color32(),
+        6.0 + selection.width_delta,
+        selection.foreground_color,
     );
     ui.painter().circle_filled(
         to_screen,
-        6.0,
-        presentation.edge_highlight_foreground.to_color32(),
+        6.0 + selection.width_delta,
+        selection.foreground_color,
     );
 }
 

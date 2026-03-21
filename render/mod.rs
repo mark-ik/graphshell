@@ -23,7 +23,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE, CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED, CHANNEL_UX_NAVIGATION_TRANSITION,
     phase3_apply_layout_algorithm_to_graph, phase3_resolve_active_canvas_profile,
-    phase3_resolve_layout_algorithm,
+    phase3_resolve_active_theme, phase3_resolve_layout_algorithm,
 };
 use crate::util::CoordBridge;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
@@ -57,9 +57,11 @@ use canvas_overlays::{
     draw_frame_affinity_backdrops, draw_highlighted_edge_overlay, draw_hovered_edge_tooltip,
     draw_hovered_node_tooltip, edge_endpoints_at_pointer,
 };
+#[cfg(test)]
+use canvas_visuals::filtered_graph_for_search;
 use canvas_visuals::{
-    apply_search_node_visuals, canvas_rect_from_view_frame, filtered_graph_for_search,
-    filtered_graph_for_visible_nodes, viewport_culled_graph, visible_nodes_for_view_filters,
+    apply_search_node_visuals, canvas_rect_from_view_frame, filtered_graph_for_visible_nodes,
+    viewport_culled_graph, visible_nodes_for_view_filters,
 };
 use graph_info::{draw_graph_info, requested_layout_algorithm_id, should_apply_layout_algorithm};
 #[cfg(test)]
@@ -443,17 +445,19 @@ pub fn render_graph_in_ui_collect_actions(
                     .then_some(key)
             })
             .collect();
-        app.workspace.graph_runtime.egui_state =
-            Some(EguiGraphState::from_graph_with_memberships_projection(
-                graph_for_render,
-                &view_selection,
-                view_selection.primary(),
-                &crashed_nodes,
-                &memberships_by_uuid,
-                &semantic_badges_by_key(app, graph_for_render),
-                &archived_nodes,
-                filtered_graph.is_none() && culled_graph.is_none(),
-            ));
+        let mut egui_state = EguiGraphState::from_graph_with_memberships_projection(
+            graph_for_render,
+            &view_selection,
+            view_selection.primary(),
+            &crashed_nodes,
+            &memberships_by_uuid,
+            &semantic_badges_by_key(app, graph_for_render),
+            &archived_nodes,
+            filtered_graph.is_none() && culled_graph.is_none(),
+        );
+        let theme_resolution = phase3_resolve_active_theme(app.default_registry_theme_id());
+        egui_state.apply_edge_theme_tokens(theme_resolution.tokens.edge_tokens.clone());
+        app.workspace.graph_runtime.egui_state = Some(egui_state);
         app.workspace.graph_runtime.egui_state_dirty = false;
         app.workspace.graph_runtime.last_culled_node_keys = culled_node_keys;
     }

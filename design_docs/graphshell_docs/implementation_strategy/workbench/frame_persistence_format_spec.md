@@ -293,16 +293,28 @@ Normative rule:
 
 ## 11. Graph Representation Relationship
 
-Saving a named frame bundle currently also synchronizes a graph-backed named frame representation.
+**Authority split** (updated 2026-03-21 per
+`2026-03-20_arrangement_graph_projection_plan.md`):
 
-Normative rule:
+- **Graph edges carry membership truth.** `ArrangementRelation(FrameMember)` and
+  `UserGrouped` edges are the durable, authoritative record of which nodes belong
+  to which named frame. They persist in the graph store (redb WAL) independently
+  of any frame bundle, survive restarts without a separate bootstrap step, and are
+  the canonical input to graphlet computation.
+- **FrameSnapshot captures workspace-restore state.** The frame bundle records
+  which nodes were warm/active at save time plus presentation state (active-tab
+  identity, split geometry). Its role is workspace restore — re-opening the saved
+  tiles and arrangement shape when a frame is loaded — not carrying membership
+  truth. If the bundle is absent or stale, graph edges reconstruct durable
+  membership without it.
+- **Neither should silently diverge.** On save, graph membership and bundle
+  membership must be mutually consistent. On load, graph edges take precedence for
+  membership; bundle layout takes precedence for presentation shape.
 
-- the JSON bundle remains the authoritative structural snapshot format,
-- the graph-backed frame node/edges are the semantic projection,
-- neither should silently diverge.
+Normative rule (revised):
 
-This implies:
-
+- the FrameSnapshot bundle is the workspace-restore format for named frames,
+- the graph-backed `FrameMember` edges are the authoritative membership record,
 - save must synchronize graph representation,
 - delete must remove graph representation,
 - activation should update activation metadata consistently.

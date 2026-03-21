@@ -1,5 +1,6 @@
 use super::*;
 use crate::graph::{ArrangementSubKind, NodeKey};
+use crate::graph::graphlet;
 use crate::util::VersoAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +70,15 @@ impl GraphBrowserApp {
             }
         }
         index
+    }
+
+    /// Return all nodes in the same durable graphlet as `seed`, excluding `seed`.
+    ///
+    /// A durable graphlet is the weakly-connected component reachable via
+    /// `UserGrouped` or `ArrangementRelation(FrameMember)` edges only.
+    /// Circumstantial edges (Hyperlink, History, etc.) are not traversed.
+    pub fn durable_graphlet_peers(&self, seed: NodeKey) -> Vec<NodeKey> {
+        graphlet::graphlet_peers_for_node(self.domain_graph(), seed)
     }
 
     pub(crate) fn apply_open_node_frame_routed(

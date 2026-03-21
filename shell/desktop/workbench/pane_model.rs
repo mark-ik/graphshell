@@ -10,11 +10,21 @@
 //! - **Tool panes**: diagnostic, history, accessibility, and settings surfaces.
 //!
 //! This is the canonical type model for P5 "Pane-hosted multi-view architecture".
-//! It is not a second canonical layout tree. Live workbench layout authority
-//! remains the runtime `egui_tiles::Tree<TileKind>`; this module defines the
-//! pane payload/schema carried inside that tree and by persistence formats.
-//! Dispatch, persistence, and intent routing in subsequent phases (P6–P8) operate
-//! on `PaneViewState` variants rather than backend-specific tile assumptions.
+//! It is not a second canonical layout tree. Two authority layers are distinct:
+//!
+//! - **Layout authority** — split geometry, tab order, active-tile identity —
+//!   remains in the runtime `egui_tiles::Tree<TileKind>`. The tile tree owns
+//!   *how* nodes are arranged on screen.
+//! - **Membership authority** — which nodes belong together and whether each is
+//!   currently presented — lives in the graph layer: `UserGrouped` and
+//!   `FrameMember` edges carry durable membership; `NodeLifecycle` carries
+//!   presence state. The tile tree is a *projection* of this membership, not the
+//!   source of truth. See
+//!   `design_docs/graphshell_docs/implementation_strategy/workbench/2026-03-20_arrangement_graph_projection_plan.md`.
+//!
+//! This module defines the pane payload/schema carried inside the tile tree and
+//! by persistence formats. Dispatch, persistence, and intent routing operate on
+//! `PaneViewState` variants rather than backend-specific tile assumptions.
 //!
 //! **Source refs**:
 //! - `design_docs/graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md`

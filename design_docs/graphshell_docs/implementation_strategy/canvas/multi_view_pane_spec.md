@@ -39,6 +39,8 @@ Normative multi-view contracts use: intent, trigger, preconditions, semantic res
 - Tile/frame arrangement is not content hierarchy.
 - Navigator is not content truth authority.
 - Physics presets are not camera modes.
+- Nodes remain graph identity; tiles are their workbench presentation grammar.
+- Graphlets remain grouped graph arrangement objects; tile groups are their workbench presentation grammar.
 
 ---
 
@@ -69,6 +71,12 @@ But pane-hosting is not the semantic root:
 - a `GraphViewId` exists as graph-scoped identity whether or not it is currently hosted in a pane
 - the Graph Bar names the active graph target and remains the top-level graph chrome
 - the workbench hosts contextual leaves for the active branch, which may include graph-view panes, node/document/media panes, and tool panes
+
+Projection rule:
+
+- nodes project as tiles in workbench chrome
+- graphlets project as tile groups in workbench chrome
+- this is presentation correspondence, not a collapse of graph terms into workbench terms
 
 ```
 TileKind =

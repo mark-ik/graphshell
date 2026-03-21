@@ -42,13 +42,23 @@ The Sidebar Navigator and Toolbar Navigator must behave identically.
 
 The Navigator projects:
 
-- graph-backed nodes that have container-backed tile representations
+- graph-backed nodes that belong to an arrangement group (connected via
+  `UserGrouped` or `ArrangementRelation(FrameMember)` edges), **regardless of
+  lifecycle**. Cold graphlet members appear with a ○ residency badge; warm/active
+  members appear with a ● badge. Cold members are not suppressed.
 - structural arrangement containers (`Frame`, `Tile`, `Split`, `Group`)
-- node residency/presentation state needed to decide whether a node is live in
-  workbench memory or cold on the graph
+- node residency/presentation state (`NodeLifecycle`) needed to decide whether
+  a node is live in workbench memory or cold on the graph
 
-Bare panes with no container-backed tile/node representation do **not** appear
-as Navigator rows, even if they are persisted in a frame snapshot.
+**Updated from prior specification**: the Navigator previously suppressed nodes
+without a live tile representation. Under the graphlet model, graph membership
+(durable edges + lifecycle) is sufficient for Navigator projection. The tile tree
+is not the authority. Cold members are always visible so users can discover and
+activate them.
+
+Bare panes with no container-backed node representation (e.g. graph-view panes
+not belonging to any graphlet) do **not** appear as Navigator rows, even if they
+are persisted in a frame snapshot.
 
 ### 2.2 Actions
 
@@ -95,16 +105,21 @@ resulting in a selected row plus matching graph selection highlight.
 
 **Sentence form**:
 
-When the user double-clicks a node row in the Navigator, `NavigateToNodePresentation`
-is emitted, which resolves the node's active presentation target from residency
-state owned by runtime/workbench authority, resulting in workbench navigation
-if the node is live and graph navigation if the node is cold.
+When the user double-clicks a node row in the Navigator, the action depends on
+the node's lifecycle:
+
+- **Warm/active node**: `NavigateToNodePresentation` — routes to the node's
+  existing tile in the workbench.
+- **Cold node**: `OpenNode(N)` — activates the node; opens a tile in the
+  graphlet's existing tab group (or a new tile if the graphlet has no warm
+  members). The node's lifecycle transitions from `Cold` to `Warm`/`Active`.
 
 **Behavior**:
 
 1. The node is selected if it is not already selected.
-2. If the node's view is already live/in memory, navigation goes to workbench.
-3. If the node is cold, navigation goes to graph.
+2. If the node is warm/active (has a live tile), navigation routes to workbench.
+3. If the node is cold, `OpenNode(N)` fires; the tile opens in the graphlet's tab
+   group; lifecycle transitions to `Active`.
 4. Focus moves to the resolved presentation target.
 
 ### 3.3 Selected Node Row Actions
@@ -113,12 +128,14 @@ Only selected node rows expose these actions:
 
 #### Dismiss
 
-When the user activates `Dismiss` on a selected node row, `DismissNode` is
-emitted, which removes the node from its current frame/group container owned by
-workbench arrangement authority, resulting in the node disappearing from that
-container and being demoted to `Recent` / `Cold`.
+When the user activates `Dismiss` on a selected warm/active node row, `DismissTile`
+is emitted: the tile is closed and the node's lifecycle becomes `Cold`. All graph
+edges are preserved — the node remains in its graphlet and continues to appear in
+the Navigator with a ○ badge.
 
-If the node is already cold, dismiss deletes it from graph truth.
+To remove a node from its graphlet entirely (retract durable edges), use
+`RemoveFromGraphlet`. To delete the node from the graph, use the Delete action.
+These three gestures must never be aliased.
 
 #### Switch Surface
 
@@ -208,11 +225,13 @@ of one shared node identity.
 | Single click on node row selects node | Test: click node row -> graph selection truth updated; no navigation |
 | Selected node row shows trailing actions | Test: click node row -> `Dismiss` and `Switch Surface` appear |
 | Double click on live node row navigates to workbench | Test: node live in memory -> double-click row -> workbench shown |
-| Double click on cold node row navigates to graph | Test: node cold -> double-click row -> graph shown |
+| Double click on cold node row opens tile in graphlet tab group | Test: node cold -> double-click row -> `OpenNode` fires -> tile opens in graphlet tab group; lifecycle becomes Active |
+| Cold node row shows ○ badge | Test: dismiss node -> row remains in Navigator with ○ lifecycle badge |
+| Warm/active node row shows ● badge | Test: node has live tile -> row shows ● badge |
 | Single click on frame/group row expands contents | Test: click structural row -> child rows revealed |
 | Structural rows do not write graph selection on click | Test: click frame/group row -> no node selection write |
 | Bare panes are absent from Navigator | Test: pane without container-backed node/tile row -> not listed |
-| Dismiss removes selected node from current container | Test: dismiss selected node row -> row disappears from current frame/group |
-| Dismiss demotes node to `Recent` / `Cold` | Test: dismiss selected live node -> node becomes cold/recent |
-| Dismissing cold node deletes it | Test: dismiss cold node -> node removed from graph and Navigator |
+| Dismiss closes tile and demotes node to Cold | Test: dismiss selected live node -> tile closed; node becomes Cold; edges preserved; node remains in Navigator with ○ badge |
+| Dismissed node remains in graphlet | Test: dismiss node -> durable edges intact; node still in Navigator row for its graphlet |
+| Right-click cold node offers RemoveFromGraphlet | Test: right-click cold node row -> context menu shows `RemoveFromGraphlet`; activating retracts durable edges; node leaves Navigator row |
 | Sidebar and Toolbar Navigator use the same grammar | Test: same node/structural row interactions behave identically in both surfaces |
