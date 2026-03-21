@@ -182,6 +182,7 @@ fn uxtree_a11y_graft_plan_projects_canonical_node_state_and_rendered_affordance(
         selection_ring_rendered: true,
         lifecycle_treatment: LifecycleTreatment::RuntimeBlocked,
         lens_glyphs_rendered: vec!["semantic".to_string(), "starred".to_string()],
+        paint_callback_registered: true,
     }];
 
     let plan =

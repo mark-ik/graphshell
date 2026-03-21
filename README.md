@@ -1,26 +1,70 @@
 # graphshell
 
-    An open source, prototype, spatial browser that represents nodes in a force-directed graph as tabs in tilable frames.
+    A prototype, spatial, P2P web browser
 
-- Force-directed graph canvas with Servo-powered web rendering
-- Tiled multi-pane frame: graph overview and webview panes, side by side
-- Local-first persistent browsing graph with crash-safe recovery
-- Event-driven navigation semantics from Servo delegate callbacks
+## Canvas
+
+- Force-directed node graph canvas (that's the spatial bit) where nodes represent content (webviews, documents, media, file directories)
+- The graph IS the session state, not a visualization or projection.
+- Nodes are related by edge types organized into families: semantic, traversal, containment, arrangement, imported
+- Manipulate graphlet (a set of connected nodes) structure manually (select, drag, tag, create/delete)
+- Configure what edge types are rendered for either the whole graph or specific nodes
+
+## Workbench
+
+    Tile-tree arrangement of content views
+
+- Panes: chromeless, ephemeral content view. No graph representation
+- Tiles: container + pane with a tab handle, arrangable. Represented as nodes in the graph
+- Tile groups: container with multiple tiles with impermanent layout. Represented as edge-connected nodes in the graph
+- Frames: persisted arrangement of tiles (like split/quarterscreen arrangements). Represented as a box of nodes, each centered where their tiles are in the arrangement. Nodes in the frame can still have edges leading out of the frame.
+
+## Navigator
+
+- Toolbar
+- Sidebar
+- Graph Bar
+- Workbench Bar
+
+## Commands
+
+- Palette
+- Registry
+- Keyboard-first navigation
+- - Keybinds
+
+## Lens system
+
+- Layout
+- Filter
+- Theme
+- Physics
+- Scene
+
+## Diagnostics
+
+- Goal: practically self-debugging, covering ui, ux, all system components, telemetry.
+- Whenever I run into an issue with this app, my first move
+
+## Accessibility
+
+- important, because everyone benefits from clear accessibility semantics
+- navigate through graphs with the keyboard, ux-aware element narration, accessibility contracts for ui and ux elements
 
 ## Build and Run (Standalone)
 
-Graphshell is **cargo-first**. The default cargo workflow is the canonical build path for most contributors and CI-like local validation.
+Graphshell has scripts for defining build environments, but I use cargo first and foremost, so that's what I'd try first on your system. Remember though, this is a prototype! Be prepared to bugfix or stick to releases for more predictable behavior.
 
-    # Build (debug profile)
+    # Build (debug profile, aka default)
     cargo build
 
     # Run (debug profile)
-    cargo run -- https://example.com
+    cargo run -- https://example.com (or the first node will default to https://www.servo.org)
 
     # Test (debug profile by default)
     cargo test
 
-    # Check/format/lint
+    # Check/format/lint (you'll probably catch doc formatting issues, recommend you exclude design_docs)
     cargo check
     cargo fmt
     cargo clippy
@@ -30,13 +74,13 @@ Use release profile only when you need runtime/perf parity:
     cargo build --release
     cargo run --release -- https://example.com
 
-Optional helper scripts in `scripts/dev/` are wrappers around cargo for lane-safe target directories and convenience; they are not required for normal development.
+Optional helper scripts in `scripts/dev/` are wrappers around cargo for lane-safe target directories and convenience; they are not required nor really recommended for normal development.
 
-See `design_docs/graphshell_docs/technical_architecture/BUILD.md` for platform prerequisites, debug testing workflows, and extended cargo usage.
+See `design_docs/graphshell_docs/technical_architecture/BUILD.md` for platform prerequisites, debug testing workflows, and extended cargo usage. All of that is inferred from Servo, especially the platform prerequisites because I don't have a linux or mac system to test on. Make an issue if they're inaccurate and/or you found a workaround.
 
 ## Environment Overrides
 
-These environment variables override CLI/prefs for quick tuning:
+These environment variables override CLI/prefs for quick tuning (occasionally good for avoiding long builds):
 
 - `GRAPHSHELL_PERSISTENCE_OPEN_TIMEOUT_MS`: Startup persistence open timeout in ms (0 = wait indefinitely).
 - `GRAPHSHELL_VERSE_INIT`: `off`, `background` (default), or `blocking`.
@@ -48,109 +92,89 @@ These environment variables override CLI/prefs for quick tuning:
 - `GRAPHSHELL_WINDOW_SIZE`: Override initial window size, e.g. `1024x740`.
 - `GRAPHSHELL_HISTORY_MANAGER_LIMIT`: Max entries shown in History Manager lists.
 
-## Currently Implemented
+## Verse - P2P Networking, in your browser!
 
-### Graph UI
+    Optional, decentralized network components (still in design phase)
 
-- Force-directed graph canvas: webpages are nodes, navigation and associations are edges
-- Zoom, pan, smart-fit, keyboard zoom, and graph/detail view controls
-- Thumbnail and favicon rendering on nodes with tiered fallback (thumbnail > favicon > lifecycle color)
-- Fuzzy search and filtering (nucleo), with highlight and filter display modes
-- Node selection, creation, deletion, and explicit edge operations via command/radial/context flows
-- View-specific keyboard controls (guarded when text fields are focused)
+The second half of the project: pooling storage and browsing data into a decentralized, permissions-based peer network, controlled from the grass up. A decentralized storage time bank + communal intelligence
 
-### Tiled Frame
+- Nostr NIP-72 communities for creating, curating, and sharing various amenities (indices, applets, graph views, hosted sites, mods for graphshell (commands, layouts, scenes, etc.), model skills, forums), semantically-categorized, and self-organized.
 
-- egui_tiles multi-pane layout: graph pane and webview panes coexist in a tile tree
-- Per-pane tab bars with close/focus management and frame-aware open routing
-- Three-tier lifecycle (`Active`/`Warm`/`Cold`) with desired-vs-observed runtime reconciliation
-- Explicit runtime backpressure and blocked/cooldown state for webview creation failures
-- Omnibar with scoped graph search (`@` modes) and URL navigation routed to explicit tile targets
+### Reputation
 
-### Servo Integration
+    Proof of access ledger: reputation is always computed even when there's no payout, through receipts
 
-- Full webview lifecycle: create, navigate, destroy, track URL/title/history changes
-- Delegate-driven semantic event pipeline (`request_create_new`, `notify_url_changed`, `notify_history_changed`)
-- Intent/reducer control-plane with reconcile as the side-effect boundary
-- Favicon ingestion from Servo's page metadata
-- Thumbnail capture from webview rendering output
+- For network reputation, receipts have reputational utility but don't allow low-volume, low quality reputational inflation
+- - Blobs served: storage and retrieval cycles
+- - Index quality (community/validator semantic grading vs contributor's manifest and grading)
+- - FLoRA contributions (weight submissions)
+- Review, admin, moderation work
+- Reputation decay: mild, rolling decay to prevent oligarchies of early network participants
+- Community-specific reputations, which can provide you with crediblity in related communities
 
-### Persistence
+### Decentralized Search (shout out, YaCy)
 
-- Crash-safe local storage: fjall append-only mutation log + redb periodic snapshots + rkyv serialization
-- Startup recovery: load latest snapshot, replay log entries since snapshot
-- Runtime/session diagnostics and retention controls via Persistence Hub / settings flow
-- Encryption-at-rest pipeline (compress + encrypt) and legacy migration path
+    distributed, topic-scoped search indices stored as blobs
 
-### Identity and State Model
+- Communities maintain index artifacts: tantivy segments, technically
+- - Subscribe to indices you trust
+- - Queries run locally against your own graph and any indices you've downloaded.
+- - Alternatively, you can query a search provider in a verse for indices too large to download, possibly for a fee
+- - Indices are forkable, mutually composable, and should be encrypted/permission-oriented.
+- Communities fund crawling through bounties: post a target, user crawler(s) build the index, validators check it, tokens/receipts release to crawler contributors.
+- No central search engine: the community that cares about a topic maintains the index for it.
 
-- Node identity is UUID-based and stable across sessions
-- URL is mutable node metadata (duplicate URLs are valid)
-- Graph intent reducer is the semantic source of truth; runtime webview state is reconciled
 
-## Current State
+### LoRA / FLoRA
 
-M1 foundation is complete. Current active work is M2 architecture and UX stabilization:
+    Contributors keep their raw data local and submit adapter weight updates to build communal algorithms/model adaptors, specialized to their subject matter.
 
-- **Registry Migration**: Phase 1 (Input/Action) complete; Phase 2 (Protocols/Viewers) active.
-- **Edge Traversal**: History Manager UI landed; archival storage active.
-- **Embedder Decomposition**: Stage 4 (GUI/Toolbar split) largely complete (toolbar decomposed into 7 submodules as of 2026-02-23); remaining: Input/Output boundary formalization.
-- **UDC Semantic Tagging**: Phase 1 (Registry & Parsing) active.
-- **Settings Architecture**: Blocked by Registry Phase 2.
-- **Frame Routing**: Manifest-based persistence and membership complete.
+- - With access rights, you can download versions of that verse's LoRA as a portable knowledge layer for your own model, fork it, use it to grow your own private verse's LoRA... the possibilities for open source LLM/model tailoring are pretty big.
+- - Verse communities can gate model access by contribution, reputation, or moderation policy, including review buffers before submitted updates are merged into the shared adapter.
+- - - Curate and semantically-grade datasets to meet communities' data bounties
+- - - Circumstantial value dependent on dataset size, character, consistency, quality, range, subject, and semantics
+- - keep your raw data private always, but the more you share weights derived from that data without significant updates to the dataset, the less rare and valuable the weights become.
 
-## Planned
+### Storage Economy
 
-### Near-term
+    shared storage sourced from either self/peer/priority-hosting, or decentralized storage economy
 
-- Bookmarks/history import and node tagging UX expansion
-- Edge traversal payload migration and History Manager consolidation (Timeline + Dissolved)
-- Performance hardening for larger graphs (measurement-driven)
-- Continued embedder/runtime decomposition and UI module split
-- Accessibility improvements subject to Servo embedder/API surface constraints
+- - Commit storage to the network for a certain amount of time, and recieve tokenized compensation. I don't want to make an asset for $$$$, just a utility for a real problem!
+- - The goal is to make the networked data reliably accessible and only to permitted users, so you'd basically get paid in the right to more storage, depending on the number of peers looking for the data and the number of seeds
 
-### Graph UI (future)
+### Co-op Browsing
 
-- Rule-based node motility: physics system organizes nodes according to rules and graph structure
-- Lasso zoning: prescribe exclusionary or inclusionary sections for specific access or domains
-- Lifecycle policy and retention tuning (Active/Warm/Cold with memory pressure demotion)
-- Level-of-detail rendering: zooming out groups nodes by time, domain, origin, or relatedness
-- Minimap for large graphs
-- 2D/3D canvas modes
+    Share a graph session with other participants — browsing together or asynchronously.
 
-### Detail View (future)
-
-- Clipping: DOM inspection and element extraction from webpages into graph as independent nodes
-- Collapsible groups from hub-connected node clusters
-- Drag-and-reorganize reflected in graph structure
-
-### Sessions (future)
-
-- Graph export/import and portable backup workflows
-- Individual nodes shareable as standard URLs with metadata
-- Ghost nodes to represent deleted nodes while preserving graph shape
-
-### Ergonomics (future)
-
-- Arrow key focus traversal across all interactable elements
-- Edge and node types differentiated by line style, shape, color, and icon
-- Graph-to-list conversion for screen reader accessibility
-- Mods: shareable physics parameters, custom node/edge/filter types, canvas region definitions
-
-## Verse
-
-    Optional, decentralized network component (design phase)
-
-The second half of the project: pooling browsing data into a decentralized, permissions-based peer network.
-
-- Community-owned domain adapters ("federated LoRA" / FLora): a verse can stake to fund a topic-specific adapter, contributors keep raw data local and submit adapter weight updates from relevant data, and members can load that verse's accumulated LoRA as a portable knowledge layer for their own AI.
-- Verse communities can gate model access by contribution, reputation, or moderation policy, including review buffers before submitted updates are merged into the shared adapter.
-
-### P2P Co-op Browsing
 
 - Collaborative browsing where changes to a shared graph synchronize across participants
-- Async mode: check in/check out with diffs
-- Live mode: version-controlled realtime edits with time-synchronized web processes
+- Async mode: check a shared session out like a git branch, browse and edit independently, then merge your diffs back -- or don't!
+- Live mode: join a shared co-op session, a real-time synchronized graph view instance with time-synchronized web processes and version-controlled history (just like the local, offline graph!)
+- - See your guest/host/peer's (customizable) cursor flit around the canvas!
+- - Highlight a node with (auto-assigned but configurable) peer accent color when you open a page,
+- - Screenshare a webview to another participant; the share is cast into a pane or an arrangeable tile on their end
+- Built on [iroh](https://github.com/n0-computer/iroh) for transport
+
+### Nostr Spine
+
+    Graphshell uses Nostr as its identity and social/post layer
+
+- Identity: your Nostr keypair is your identity across the whole stack.
+- - Identifies you to peers, communities, and co-op sessions; I want to pair it with other keys, too (like Matrix IDs) but we'll see how that plays out.
+- Follow other users' public graphs; browsing activity/chains of posts/comments could be surfaced as a graphlet (each post having a url, timestamp, and a reply edge to a prior post), or more simply presented in an applet or web app
+- Verse communities are Nostr communities (NIP-72) under the hood — moderation, membership, and governance happen there
+- DMs and notifications use Nostr relays (NIP-17 sealed gift-wrap)
+- No account nor server required, just a keypair. But you can be a relay and rebroadcast your choice of stuff!
+
+### Matrix Rooms
+
+    Between a co-op session and a full Verse community, this is the tier for mid-sized groups of peers
+
+- A Matrix room gives a group a persistent, federated space for coordination without committing to managing a verse
+- Useful for small teams, classrooms, or private research groups that want shared browsing history/chat/graph views without running a community node
+- Graph snapshots and session links can be shared into Matrix rooms directly from the workbench
+- The room's persistence, storage budget (self/peer hosted), moderation are determined by the admins/membership
+
 
 ## AI Disclaimer
 
@@ -179,3 +203,12 @@ Other inspirations:
 - Syncthing (open source device sync)
 - Obsidian (canvas, plugins)
 - Anytype (IPFS, shared vaults)
+
+### Want to help?
+
+If you can, please contribute to [Servo](https://servo.org)! Servo needs high-quality contributions (and cash) more than ever to close the WPT gap and implement the web standards that will empower graphshell and many more browsers to come.
+Servo does not accept AI contributions, but the components shared with Firefox may be covered by Firefox's more permissive AI policy.
+
+If you want to help improve graphshell's infrastructure and are intimidated (like me) by Servo's complexity. Raise issues in this repo if you actually use this hobby project of mine, but you can also contribute to the crates I'm using, in particular egui: egui_glow, egui_graphs, egui_tiles, egui-winit, egui-file-dialog, egui-notify.
+
+Lastly, I am not a rich man, and I would like to live alone and work on labors of love. If you find that you have a ducat or two left after tithing the big projects, here's [my ko-fi link](https://ko-fi.com/markik).

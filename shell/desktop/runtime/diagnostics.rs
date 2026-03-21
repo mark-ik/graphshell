@@ -3783,6 +3783,7 @@ Object {
         String("recent_intents"),
         String("runtime_cache"),
         String("security_health"),
+        String("signal_trace"),
         String("spans"),
         String("tracing_perf"),
         String("version"),

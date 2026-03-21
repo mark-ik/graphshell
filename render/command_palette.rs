@@ -190,6 +190,8 @@ fn disabled_action_reason(
         | ActionId::NodeOpenConnected
         | ActionId::NodeOpenSplit
         | ActionId::NodeMoveToActivePane
+        | ActionId::NodeWarmSelect
+        | ActionId::NodeRemoveFromGraphlet
         | ActionId::NodeCopyUrl
         | ActionId::NodeCopyTitle => {
             if !action_context.any_selected && action_context.target_node.is_none() {

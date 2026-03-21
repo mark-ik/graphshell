@@ -1276,6 +1276,7 @@ mod tests {
             lifecycle_treatment:
                 crate::shell::desktop::workbench::tile_compositor::LifecycleTreatment::RuntimeBlocked,
             lens_glyphs_rendered: vec!["semantic".to_string()],
+            paint_callback_registered: true,
         }];
 
         let projection =

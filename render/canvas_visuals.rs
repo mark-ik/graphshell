@@ -9,7 +9,9 @@ use crate::app::{GraphBrowserApp, GraphViewId, SearchDisplayMode};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::model::graph::filter::{FacetExpr, FilterEvaluationSummary, evaluate_filter_result};
 use crate::registries::domain::presentation::PresentationProfile;
-use crate::shell::desktop::runtime::registries::phase3_resolve_active_presentation_profile;
+use crate::shell::desktop::runtime::registries::{
+    phase3_resolve_active_presentation_profile, phase3_resolve_active_theme,
+};
 use egui::Color32;
 use std::collections::HashSet;
 
@@ -48,6 +50,9 @@ pub(super) fn apply_search_node_visuals(
     let search_mode = app.workspace.graph_runtime.search_display_mode;
     let adjacency_set = hovered_adjacency_set(app, hovered);
     let presentation = active_presentation_profile(app);
+    let theme_resolution = phase3_resolve_active_theme(app.default_registry_theme_id());
+    let theme_tokens = &theme_resolution.tokens;
+    let highlighted_endpoint_color = theme_tokens.edge_tokens.selection.foreground_color;
     let colors: Vec<(NodeKey, Color32)> = app
         .workspace
         .domain
@@ -63,9 +68,9 @@ pub(super) fn apply_search_node_visuals(
             let search_miss = search_query_active && !search_matches.contains(&key);
             if search_match {
                 color = if active_search_match == Some(key) {
-                    presentation.search_match_active.to_color32()
+                    theme_tokens.graph_node_search_match_active
                 } else {
-                    presentation.search_match.to_color32()
+                    theme_tokens.graph_node_search_match
                 };
             } else if search_miss && matches!(search_mode, SearchDisplayMode::Highlight) {
                 color = color.gamma_multiply(0.45);
@@ -75,15 +80,15 @@ pub(super) fn apply_search_node_visuals(
                 color = color.gamma_multiply(0.4);
             }
             if hovered == Some(key) {
-                color = presentation.hover_target.to_color32();
+                color = theme_tokens.graph_node_hover;
             }
             if let Some((from, to)) = highlighted_edge
                 && (key == from || key == to)
             {
-                color = presentation.edge_highlight_foreground.to_color32();
+                color = highlighted_endpoint_color;
             }
             if selection.primary() == Some(key) {
-                color = presentation.selection_primary.to_color32();
+                color = theme_tokens.graph_node_selection;
             } else if selection.contains(&key) && hovered != Some(key) {
                 color = if app.is_crash_blocked(key) {
                     presentation.crash_blocked.to_color32()
@@ -98,9 +103,13 @@ pub(super) fn apply_search_node_visuals(
     let Some(state) = app.workspace.graph_runtime.egui_state.as_mut() else {
         return;
     };
+    let focus_ring_color = theme_tokens.graph_node_focus_ring;
+    let hover_ring_color = theme_tokens.graph_node_hover_ring;
     for (key, color) in colors {
         if let Some(node) = state.graph.node_mut(key) {
             node.set_color(color);
+            node.display_mut().set_focus_ring_color(focus_ring_color);
+            node.display_mut().set_hover_ring_color(hover_ring_color);
         }
     }
 
@@ -443,6 +452,60 @@ mod tests {
         let filtered = filtered_graph_for_search(&app, &matches);
         assert!(filtered.get_node(a).is_some());
         assert!(filtered.get_node(b).is_none());
+    }
+
+    #[test]
+    fn primary_selection_uses_theme_node_selection_color() {
+        let mut app = test_app();
+        let key = app.add_node_and_sync("alpha".into(), Point2D::new(0.0, 0.0));
+        app.select_node(key, false);
+        app.workspace.graph_runtime.egui_state =
+            Some(EguiGraphState::from_graph_with_visual_state(
+                &app.workspace.domain.graph,
+                app.focused_selection(),
+                app.focused_selection().primary(),
+                &HashSet::new(),
+            ));
+
+        let selection = app.focused_selection().clone();
+        apply_search_node_visuals(&mut app, &selection, &HashSet::new(), None, false);
+
+        let state = app.workspace.graph_runtime.egui_state.as_ref().unwrap();
+        let theme_resolution =
+            crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+                app.default_registry_theme_id(),
+            );
+        assert_eq!(
+            state.graph.node(key).unwrap().color(),
+            Some(theme_resolution.tokens.graph_node_selection)
+        );
+    }
+
+    #[test]
+    fn hovered_node_uses_theme_hover_color() {
+        let mut app = test_app();
+        let key = app.add_node_and_sync("alpha".into(), Point2D::new(0.0, 0.0));
+        app.workspace.graph_runtime.hovered_graph_node = Some(key);
+        app.workspace.graph_runtime.egui_state =
+            Some(EguiGraphState::from_graph_with_visual_state(
+                &app.workspace.domain.graph,
+                app.focused_selection(),
+                app.focused_selection().primary(),
+                &HashSet::new(),
+            ));
+
+        let selection = app.focused_selection().clone();
+        apply_search_node_visuals(&mut app, &selection, &HashSet::new(), None, false);
+
+        let state = app.workspace.graph_runtime.egui_state.as_ref().unwrap();
+        let theme_resolution =
+            crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+                app.default_registry_theme_id(),
+            );
+        assert_eq!(
+            state.graph.node(key).unwrap().color(),
+            Some(theme_resolution.tokens.graph_node_hover)
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@ use crate::graph::edge_style_registry::{
     EdgeAccessibilityMode, ThemeAccessibilitySupport, ThemeContract, ThemeEdgeTokens,
     validate_theme_edge_tokens,
 };
+use crate::graph::egui_adapter::GraphNodeChromeTheme;
 use crate::registries::atomic::lens::{
     THEME_ID_DARK as LEGACY_THEME_ID_DARK, THEME_ID_DEFAULT as LEGACY_THEME_ID_DEFAULT, ThemeData,
 };
@@ -37,6 +38,18 @@ pub(crate) struct ThemeTokenSet {
     pub(crate) hover_label_background: egui::Color32,
     pub(crate) hover_label_stroke: egui::Color32,
     pub(crate) hover_label_text: egui::Color32,
+    pub(crate) graph_node_search_match: egui::Color32,
+    pub(crate) graph_node_search_match_active: egui::Color32,
+    pub(crate) graph_node_hover: egui::Color32,
+    pub(crate) graph_node_selection: egui::Color32,
+    pub(crate) graph_node_focus_ring: egui::Color32,
+    pub(crate) graph_node_hover_ring: egui::Color32,
+    pub(crate) graph_node_chrome: GraphNodeChromeTheme,
+    pub(crate) status_success: egui::Color32,
+    pub(crate) status_error: egui::Color32,
+    pub(crate) semantic_origin_manual: egui::Color32,
+    pub(crate) semantic_origin_semantic: egui::Color32,
+    pub(crate) semantic_origin_anchor: egui::Color32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,6 +282,33 @@ fn default_theme_tokens() -> ThemeTokenSet {
         hover_label_background: egui::Color32::from_rgba_unmultiplied(22, 28, 34, 235),
         hover_label_stroke: egui::Color32::from_rgb(88, 110, 126),
         hover_label_text: egui::Color32::from_rgb(220, 236, 248),
+        graph_node_search_match: egui::Color32::from_rgb(95, 220, 130),
+        graph_node_search_match_active: egui::Color32::from_rgb(140, 255, 140),
+        graph_node_hover: egui::Color32::from_rgb(255, 150, 80),
+        graph_node_selection: egui::Color32::from_rgb(255, 200, 100),
+        graph_node_focus_ring: egui::Color32::from_rgb(120, 200, 255),
+        graph_node_hover_ring: egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180),
+        graph_node_chrome: GraphNodeChromeTheme {
+            workspace_badge_background: egui::Color32::from_rgba_unmultiplied(20, 30, 46, 224),
+            workspace_badge_text: egui::Color32::from_gray(245),
+            semantic_badge_background: egui::Color32::from_rgba_unmultiplied(34, 44, 64, 224),
+            semantic_badge_text: egui::Color32::from_gray(245),
+            semantic_badge_overflow_background: egui::Color32::from_rgba_unmultiplied(
+                24, 24, 24, 216,
+            ),
+            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(
+                20, 28, 42, 230,
+            ),
+            pinned_fill: egui::Color32::WHITE,
+            pinned_stroke: egui::Color32::from_gray(40),
+            clip_ring: egui::Color32::from_rgb(170, 210, 255),
+            default_stroke: egui::Color32::from_gray(90),
+        },
+        status_success: egui::Color32::from_rgb(90, 200, 120),
+        status_error: egui::Color32::from_rgb(180, 60, 60),
+        semantic_origin_manual: egui::Color32::from_rgb(120, 170, 255),
+        semantic_origin_semantic: egui::Color32::from_rgb(76, 175, 80),
+        semantic_origin_anchor: egui::Color32::from_rgb(255, 167, 38),
     }
 }
 
@@ -301,6 +341,33 @@ fn light_theme_tokens() -> ThemeTokenSet {
         hover_label_background: egui::Color32::from_rgba_unmultiplied(250, 252, 255, 244),
         hover_label_stroke: egui::Color32::from_rgb(178, 188, 202),
         hover_label_text: egui::Color32::from_rgb(28, 36, 46),
+        graph_node_search_match: egui::Color32::from_rgb(50, 170, 94),
+        graph_node_search_match_active: egui::Color32::from_rgb(38, 146, 80),
+        graph_node_hover: egui::Color32::from_rgb(214, 120, 52),
+        graph_node_selection: egui::Color32::from_rgb(214, 160, 56),
+        graph_node_focus_ring: egui::Color32::from_rgb(54, 120, 212),
+        graph_node_hover_ring: egui::Color32::from_rgba_unmultiplied(152, 160, 172, 164),
+        graph_node_chrome: GraphNodeChromeTheme {
+            workspace_badge_background: egui::Color32::from_rgba_unmultiplied(232, 238, 246, 236),
+            workspace_badge_text: egui::Color32::from_rgb(32, 40, 52),
+            semantic_badge_background: egui::Color32::from_rgba_unmultiplied(220, 228, 238, 236),
+            semantic_badge_text: egui::Color32::from_rgb(38, 46, 58),
+            semantic_badge_overflow_background: egui::Color32::from_rgba_unmultiplied(
+                204, 212, 224, 232,
+            ),
+            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(
+                238, 242, 248, 240,
+            ),
+            pinned_fill: egui::Color32::from_rgb(255, 255, 255),
+            pinned_stroke: egui::Color32::from_rgb(110, 122, 136),
+            clip_ring: egui::Color32::from_rgb(92, 146, 214),
+            default_stroke: egui::Color32::from_rgb(132, 144, 158),
+        },
+        status_success: egui::Color32::from_rgb(46, 140, 86),
+        status_error: egui::Color32::from_rgb(170, 62, 62),
+        semantic_origin_manual: egui::Color32::from_rgb(90, 150, 220),
+        semantic_origin_semantic: egui::Color32::from_rgb(50, 150, 86),
+        semantic_origin_anchor: egui::Color32::from_rgb(214, 130, 36),
     }
 }
 
@@ -333,6 +400,33 @@ fn dark_theme_tokens() -> ThemeTokenSet {
         hover_label_background: egui::Color32::from_rgba_unmultiplied(16, 20, 28, 240),
         hover_label_stroke: egui::Color32::from_rgb(86, 110, 136),
         hover_label_text: egui::Color32::from_rgb(226, 236, 248),
+        graph_node_search_match: egui::Color32::from_rgb(112, 214, 158),
+        graph_node_search_match_active: egui::Color32::from_rgb(162, 245, 188),
+        graph_node_hover: egui::Color32::from_rgb(255, 166, 104),
+        graph_node_selection: egui::Color32::from_rgb(255, 214, 134),
+        graph_node_focus_ring: egui::Color32::from_rgb(140, 182, 255),
+        graph_node_hover_ring: egui::Color32::from_rgba_unmultiplied(170, 176, 194, 190),
+        graph_node_chrome: GraphNodeChromeTheme {
+            workspace_badge_background: egui::Color32::from_rgba_unmultiplied(26, 36, 50, 228),
+            workspace_badge_text: egui::Color32::from_rgb(242, 246, 250),
+            semantic_badge_background: egui::Color32::from_rgba_unmultiplied(38, 48, 66, 228),
+            semantic_badge_text: egui::Color32::from_rgb(242, 246, 250),
+            semantic_badge_overflow_background: egui::Color32::from_rgba_unmultiplied(
+                28, 32, 40, 220,
+            ),
+            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(
+                22, 30, 44, 234,
+            ),
+            pinned_fill: egui::Color32::from_rgb(255, 255, 255),
+            pinned_stroke: egui::Color32::from_rgb(56, 66, 82),
+            clip_ring: egui::Color32::from_rgb(156, 198, 255),
+            default_stroke: egui::Color32::from_rgb(104, 116, 132),
+        },
+        status_success: egui::Color32::from_rgb(110, 216, 146),
+        status_error: egui::Color32::from_rgb(220, 102, 102),
+        semantic_origin_manual: egui::Color32::from_rgb(138, 186, 255),
+        semantic_origin_semantic: egui::Color32::from_rgb(98, 198, 112),
+        semantic_origin_anchor: egui::Color32::from_rgb(255, 182, 84),
     }
 }
 
@@ -373,6 +467,33 @@ fn high_contrast_theme_tokens() -> ThemeTokenSet {
         hover_label_background: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 255),
         hover_label_stroke: egui::Color32::from_rgb(255, 255, 255),
         hover_label_text: egui::Color32::from_rgb(255, 255, 255),
+        graph_node_search_match: egui::Color32::from_rgb(0, 255, 170),
+        graph_node_search_match_active: egui::Color32::from_rgb(255, 255, 255),
+        graph_node_hover: egui::Color32::from_rgb(255, 128, 0),
+        graph_node_selection: egui::Color32::from_rgb(255, 230, 0),
+        graph_node_focus_ring: egui::Color32::from_rgb(255, 255, 255),
+        graph_node_hover_ring: egui::Color32::from_rgba_unmultiplied(255, 255, 255, 196),
+        graph_node_chrome: GraphNodeChromeTheme {
+            workspace_badge_background: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 255),
+            workspace_badge_text: egui::Color32::from_rgb(255, 255, 255),
+            semantic_badge_background: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 255),
+            semantic_badge_text: egui::Color32::from_rgb(255, 255, 255),
+            semantic_badge_overflow_background: egui::Color32::from_rgba_unmultiplied(
+                255, 255, 255, 255,
+            ),
+            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(
+                0, 0, 0, 255,
+            ),
+            pinned_fill: egui::Color32::from_rgb(255, 230, 0),
+            pinned_stroke: egui::Color32::from_rgb(255, 255, 255),
+            clip_ring: egui::Color32::from_rgb(255, 255, 255),
+            default_stroke: egui::Color32::from_rgb(255, 255, 255),
+        },
+        status_success: egui::Color32::from_rgb(0, 255, 170),
+        status_error: egui::Color32::from_rgb(255, 64, 64),
+        semantic_origin_manual: egui::Color32::from_rgb(0, 255, 255),
+        semantic_origin_semantic: egui::Color32::from_rgb(0, 255, 170),
+        semantic_origin_anchor: egui::Color32::from_rgb(255, 230, 0),
     }
 }
 

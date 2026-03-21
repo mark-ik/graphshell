@@ -261,6 +261,15 @@ pub(crate) fn build_snapshot(
     graph_app: &GraphBrowserApp,
     build_duration_us: u64,
 ) -> UxTreeSnapshot {
+    build_snapshot_with_rects(tiles_tree, graph_app, build_duration_us, &HashMap::new())
+}
+
+pub(crate) fn build_snapshot_with_rects(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    build_duration_us: u64,
+    node_rects: &HashMap<NodeKey, egui::Rect>,
+) -> UxTreeSnapshot {
     let active: HashSet<TileId> = tiles_tree.active_tiles().into_iter().collect();
 
     let mut semantic_nodes = vec![UxSemanticNode {
@@ -301,6 +310,7 @@ pub(crate) fn build_snapshot(
             root,
             &active,
             Some(UX_TREE_WORKBENCH_ROOT_ID),
+            node_rects,
             &mut semantic_nodes,
             &mut presentation_nodes,
             &mut trace_nodes,
@@ -767,6 +777,7 @@ fn push_nodes(
     tile_id: TileId,
     active: &HashSet<TileId>,
     parent_ux_node_id: Option<&str>,
+    node_rects: &HashMap<NodeKey, egui::Rect>,
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
@@ -891,9 +902,12 @@ fn push_nodes(
                     node_key: state.node,
                 },
             });
+            let bounds = node_rects
+                .get(&state.node)
+                .map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]);
             presentation_nodes.push(UxPresentationNode {
                 ux_node_id: ux_node_id.clone(),
-                bounds: None,
+                bounds,
                 render_mode: Some(state.render_mode),
                 z_pass: "workbench.content",
                 style_flags: vec!["surface:node", "presentation:floating"],
@@ -1035,9 +1049,12 @@ fn push_nodes(
                     node_key: state.node,
                 },
             });
+            let bounds = node_rects
+                .get(&state.node)
+                .map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]);
             presentation_nodes.push(UxPresentationNode {
                 ux_node_id: ux_node_id.clone(),
-                bounds: None,
+                bounds,
                 render_mode: Some(state.render_mode),
                 z_pass: "workbench.content",
                 style_flags: vec!["surface:node"],
@@ -1124,6 +1141,7 @@ fn push_nodes(
                     *child,
                     active,
                     Some(ux_node_id.as_str()),
+                    node_rects,
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -1167,6 +1185,7 @@ fn push_nodes(
                     *child,
                     active,
                     Some(ux_node_id.as_str()),
+                    node_rects,
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -1211,6 +1230,7 @@ fn push_nodes(
                     *child,
                     active,
                     Some(ux_node_id.as_str()),
+                    node_rects,
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -1293,6 +1313,101 @@ pub(crate) fn presentation_id_consistency_violation(snapshot: &UxTreeSnapshot) -
         }
     }
     None
+}
+
+pub(crate) fn node_pane_bounds_missing_count(snapshot: &UxTreeSnapshot) -> usize {
+    let presentation_has_bounds: std::collections::HashMap<&str, bool> = snapshot
+        .presentation_nodes
+        .iter()
+        .map(|n| (n.ux_node_id.as_str(), n.bounds.is_some()))
+        .collect();
+    snapshot
+        .semantic_nodes
+        .iter()
+        .filter(|n| n.role == UxNodeRole::NodePane)
+        .filter(|n| {
+            !presentation_has_bounds
+                .get(n.ux_node_id.as_str())
+                .copied()
+                .unwrap_or(false)
+        })
+        .count()
+}
+
+pub(crate) struct CoverageReport {
+    /// Number of adjacent tile pairs with a gap > 1 px between their edges.
+    pub(crate) gutter_pair_count: usize,
+    /// Number of tile pairs whose rects have a non-zero area intersection.
+    pub(crate) overlap_pair_count: usize,
+}
+
+/// Pure coverage analysis over a set of laid-out tile rects.
+///
+/// A *gutter* is a gap of more than 1 px between two rects that share an
+/// axis-aligned edge direction (i.e. one rect's right edge is close to another
+/// rect's left edge, or top/bottom equivalents) but do not actually touch.
+///
+/// An *overlap* is any pair of rects whose intersection has positive area.
+pub(crate) fn run_coverage_analysis(
+    rects: &std::collections::HashMap<crate::graph::NodeKey, egui::Rect>,
+) -> CoverageReport {
+    const GAP_THRESHOLD: f32 = 1.0;
+
+    let rects: Vec<egui::Rect> = rects.values().copied().collect();
+    let mut gutter_pair_count = 0usize;
+    let mut overlap_pair_count = 0usize;
+
+    for i in 0..rects.len() {
+        for j in (i + 1)..rects.len() {
+            let a = rects[i];
+            let b = rects[j];
+
+            // Overlap: intersection has positive area.
+            let inter = a.intersect(b);
+            if inter.width() > 0.0 && inter.height() > 0.0 {
+                overlap_pair_count += 1;
+                continue;
+            }
+
+            // Gutter: rects do not overlap but are "neighbours" along one axis
+            // with a gap > GAP_THRESHOLD on the shared axis.
+            //
+            // Horizontal neighbours: x-projections overlap or are adjacent,
+            // one rect's right is close to the other's left.
+            let x_gap = if a.max.x <= b.min.x {
+                b.min.x - a.max.x
+            } else if b.max.x <= a.min.x {
+                a.min.x - b.max.x
+            } else {
+                0.0
+            };
+            let y_gap = if a.max.y <= b.min.y {
+                b.min.y - a.max.y
+            } else if b.max.y <= a.min.y {
+                a.min.y - b.max.y
+            } else {
+                0.0
+            };
+
+            // Only consider pairs that are neighbours along exactly one axis
+            // (the other axis has overlapping or touching projections).
+            let x_proj_overlap =
+                a.min.x < b.max.x + GAP_THRESHOLD && b.min.x < a.max.x + GAP_THRESHOLD;
+            let y_proj_overlap =
+                a.min.y < b.max.y + GAP_THRESHOLD && b.min.y < a.max.y + GAP_THRESHOLD;
+
+            if x_gap > GAP_THRESHOLD && y_proj_overlap {
+                gutter_pair_count += 1;
+            } else if y_gap > GAP_THRESHOLD && x_proj_overlap {
+                gutter_pair_count += 1;
+            }
+        }
+    }
+
+    CoverageReport {
+        gutter_pair_count,
+        overlap_pair_count,
+    }
 }
 
 #[cfg(test)]

@@ -20,7 +20,7 @@ use crate::shell::desktop::runtime::registries::input::{
     GamepadButton, InputBinding, InputBindingRemap, InputBindingSection, InputContext, action_id,
 };
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UI_HISTORY_MANAGER_LIMIT, phase2_describe_input_bindings,
+    CHANNEL_UI_HISTORY_MANAGER_LIMIT, phase2_describe_input_bindings, phase3_resolve_active_theme,
 };
 use crate::shell::desktop::workbench::tile_compositor::CompositorFrameActivitySummary;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
@@ -898,11 +898,13 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 auto_curate_keep
             ));
             if health.preview_mode_active {
+                let theme_tokens =
+                    phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         egui::RichText::new("Viewing history")
-                            .color(egui::Color32::from_rgb(255, 200, 80))
+                            .color(theme_tokens.command_notice)
                             .strong(),
                     );
                     if ui.button("Return to Present").clicked() {
@@ -977,11 +979,13 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
         HistoryManagerTab::All => {
             // Stage M4: preview mode banner
             if health.preview_mode_active {
+                let theme_tokens =
+                    phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         egui::RichText::new("Viewing history")
-                            .color(egui::Color32::from_rgb(255, 200, 80))
+                            .color(theme_tokens.command_notice)
                             .strong(),
                     );
                     if ui.button("Return to Present").clicked() {
@@ -1318,7 +1322,13 @@ fn render_history_manager_rows(
                     from_key,
                     to_key,
                 ) {
-                    ui.label(egui::RichText::new(activity_chip).small().color(egui::Color32::from_rgb(90, 200, 120)));
+                    let theme_tokens =
+                        phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
+                    ui.label(
+                        egui::RichText::new(activity_chip)
+                            .small()
+                            .color(theme_tokens.status_success),
+                    );
                 }
                 let response = ui.selectable_label(false, format!("{} → {}", from_label, to_label));
                 if response.clicked() && let Some(key) = to_key.or(from_key) {
@@ -2743,7 +2753,8 @@ fn render_keybindings_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
     }
 
     if let Some(error) = capture_error.as_deref() {
-        ui.colored_label(egui::Color32::from_rgb(180, 60, 60), error);
+        let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
+        ui.colored_label(theme_tokens.status_error, error);
     }
 
     let descriptors = phase2_describe_input_bindings();

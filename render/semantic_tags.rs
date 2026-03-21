@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::reducer_bridge::apply_reducer_graph_intents_hardened;
 use crate::app::GraphIntent;
+use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 
 // ── Structs ───────────────────────────────────────────────────────────────────
 
@@ -655,11 +656,16 @@ pub(super) fn graph_search_scope_label(
     " | 1-hop neighborhood".to_string()
 }
 
-pub(super) fn render_graph_search_origin_badge(ui: &mut egui::Ui, origin: &GraphSearchOrigin) {
+pub(super) fn render_graph_search_origin_badge(
+    app: &GraphBrowserApp,
+    ui: &mut egui::Ui,
+    origin: &GraphSearchOrigin,
+) {
+    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
     let (label, color) = match origin {
-        GraphSearchOrigin::Manual => ("manual", egui::Color32::from_rgb(120, 170, 255)),
-        GraphSearchOrigin::SemanticTag => ("semantic", egui::Color32::from_rgb(76, 175, 80)),
-        GraphSearchOrigin::AnchorSlice => ("anchor", egui::Color32::from_rgb(255, 167, 38)),
+        GraphSearchOrigin::Manual => ("manual", theme_tokens.semantic_origin_manual),
+        GraphSearchOrigin::SemanticTag => ("semantic", theme_tokens.semantic_origin_semantic),
+        GraphSearchOrigin::AnchorSlice => ("anchor", theme_tokens.semantic_origin_anchor),
     };
     ui.label(egui::RichText::new("●").small().color(color));
     ui.small(label);

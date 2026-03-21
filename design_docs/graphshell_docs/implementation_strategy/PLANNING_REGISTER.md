@@ -16,6 +16,8 @@
 - [system/register/2026-03-17_matrix_core_type_sketch.md](system/register/2026-03-17_matrix_core_type_sketch.md) - Rust-facing type sketch for `MatrixCoreRegistry`, supervised worker commands, normalized Matrix events, and bounded proposal routing.
 - [system/2026-03-17_runtime_task_budget.md](system/2026-03-17_runtime_task_budget.md) - Async worker priority tiers, concurrency envelope, suspension/resume policy, and diagnostics channels for the ControlPanel multi-worker runtime (pre-design backlog note).
 - [../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md](../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md) - Archived completion plan: tile tree as projection of arrangement graph truth (all phases shipped 2026-03-21).
+- [canvas/2026-03-21_edge_family_and_provenance_expansion_plan.md](canvas/2026-03-21_edge_family_and_provenance_expansion_plan.md) - Active plan for relation vocabulary expansion: keeps the current family model, adds a dedicated Provenance family, and broadens prototype edge sub-kinds before worrying about backwards compatibility.
+- [canvas/2026-03-21_edge_payload_type_sketch.md](canvas/2026-03-21_edge_payload_type_sketch.md) - Rust-facing companion sketch for the edge vocabulary plan: replaces the overloaded `EdgeType` carrier with family-specific assertion enums, explicit traversal events, and typed Imported/Provenance payloads.
 
 ## Contents
 

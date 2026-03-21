@@ -13,6 +13,7 @@ engine share one coherent model rather than three ad hoc ones.
 - `graph_node_edge_interaction_spec.md` — §5.2 richer relationship tooling
 - `../subsystem_history/edge_traversal_spec.md` — `TraversalDerived` lifecycle and decay rules
 - `agent_derived_edges_spec.md` — `AgentDerived` provenance and assertion protocol
+- `2026-03-21_edge_family_and_provenance_expansion_plan.md` — follow-on plan for widening edge vocabulary and introducing a dedicated Provenance family
 - `../canvas/2026-02-25_progressive_lens_and_physics_binding_plan.md` — physics profiles
 - `../../TERMINOLOGY.md` — `EdgeKind`, `EdgePayload`, `Graph`, `Frame`, `TileGroup`
 - `../workbench/WORKBENCH.md` — workbench owns arrangement interaction/session mutation truth, not graph meaning

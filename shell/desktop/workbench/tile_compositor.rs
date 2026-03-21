@@ -40,6 +40,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_TILE_DRAG,
+    CHANNEL_COMPOSITOR_NATIVE_OVERLAY_RECT_MISMATCH, CHANNEL_COMPOSITOR_PAINT_NOT_CONFIRMED,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
     CHANNEL_COMPOSITOR_TILE_ACTIVITY, phase3_resolve_active_presentation_profile,
 };
@@ -214,6 +215,10 @@ pub(crate) struct TileAffordanceAnnotation {
     pub(crate) selection_ring_rendered: bool,
     pub(crate) lifecycle_treatment: LifecycleTreatment,
     pub(crate) lens_glyphs_rendered: Vec<String>,
+    /// True when a composited paint callback was registered for this tile's rect
+    /// in the current frame. False indicates the tile was laid out but its paint
+    /// pass was skipped or failed — a potential rendering gap.
+    pub(crate) paint_callback_registered: bool,
 }
 
 static COMPOSITED_CONTENT_SIGNATURES: OnceLock<
@@ -223,6 +228,8 @@ static COMPOSITOR_ACTIVITY_FRAME_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static COMPOSITOR_ACTIVITY_SUMMARIES: OnceLock<Mutex<VecDeque<CompositorFrameActivitySummary>>> =
     OnceLock::new();
 static LATEST_AFFORDANCE_ANNOTATIONS: OnceLock<Mutex<Vec<TileAffordanceAnnotation>>> =
+    OnceLock::new();
+static LAST_SENT_NATIVE_OVERLAY_RECTS: OnceLock<Mutex<HashMap<NodeKey, egui::Rect>>> =
     OnceLock::new();
 
 thread_local! {
@@ -240,6 +247,10 @@ fn compositor_activity_summaries() -> &'static Mutex<VecDeque<CompositorFrameAct
 
 fn latest_affordance_annotations() -> &'static Mutex<Vec<TileAffordanceAnnotation>> {
     LATEST_AFFORDANCE_ANNOTATIONS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn last_sent_native_overlay_rects() -> &'static Mutex<HashMap<NodeKey, egui::Rect>> {
+    LAST_SENT_NATIVE_OVERLAY_RECTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub(crate) fn latest_tile_affordance_annotations() -> Vec<TileAffordanceAnnotation> {
@@ -505,6 +516,29 @@ fn format_gpu_pressure_degraded_receipt(
 }
 
 fn sync_native_overlay_for_tile(node_key: NodeKey, tile_rect: egui::Rect, visible: bool) {
+    // Wave 4: detect rect drift between successive sync calls for the same node.
+    {
+        const MISMATCH_THRESHOLD: f32 = 1.0;
+        let mut last_rects = last_sent_native_overlay_rects()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(prev) = last_rects.get(&node_key) {
+            let dx = (tile_rect.min.x - prev.min.x).abs().max(
+                (tile_rect.max.x - prev.max.x).abs(),
+            );
+            let dy = (tile_rect.min.y - prev.min.y).abs().max(
+                (tile_rect.max.y - prev.max.y).abs(),
+            );
+            if dx > MISMATCH_THRESHOLD || dy > MISMATCH_THRESHOLD {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_COMPOSITOR_NATIVE_OVERLAY_RECT_MISMATCH,
+                    byte_len: 1,
+                });
+            }
+        }
+        last_rects.insert(node_key, tile_rect);
+    }
+
     #[cfg(feature = "wry")]
     {
         verso::sync_wry_overlay_for_node(
@@ -999,10 +1033,11 @@ pub(crate) fn composite_active_node_pane_webviews(
         let tile_rect = pass.tile_rect;
         let render_mode = semantic.render_mode;
 
-        if render_mode == TileRenderMode::CompositedTexture
+        let paint_callback_registered = if render_mode == TileRenderMode::CompositedTexture
             && semantic.lifecycle != NodeLifecycle::Cold
             && semantic.lifecycle != NodeLifecycle::Tombstone
-            && !run_composited_texture_content_pass(
+        {
+            run_composited_texture_content_pass(
                 ctx,
                 window,
                 graph_app,
@@ -1019,20 +1054,25 @@ pub(crate) fn composite_active_node_pane_webviews(
                 &pass.overlays,
                 &mut frame_activity,
             )
-        {
-            continue;
-        }
+        } else {
+            // NativeOverlay tiles and Cold/Tombstone tiles are handled outside
+            // the composited paint path — not a paint failure.
+            true
+        };
 
-        affordance_annotations.push(tile_affordance_annotation(&semantic, &pass.overlays));
+        affordance_annotations
+            .push(tile_affordance_annotation(&semantic, &pass.overlays, paint_callback_registered));
 
-        for overlay in pass.overlays {
-            pending_overlay_passes.push(overlay_pass_for_schedule(
-                overlay,
-                tile_rect,
-                focus_ring_alpha,
-                &presentation,
-                Some(prepared.interaction_render_mode),
-            ));
+        if paint_callback_registered {
+            for overlay in pass.overlays {
+                pending_overlay_passes.push(overlay_pass_for_schedule(
+                    overlay,
+                    tile_rect,
+                    focus_ring_alpha,
+                    &presentation,
+                    Some(prepared.interaction_render_mode),
+                ));
+            }
         }
     }
 
@@ -1063,6 +1103,16 @@ pub(crate) fn composite_active_node_pane_webviews(
         while summaries.len() > 256 {
             summaries.pop_front();
         }
+    }
+    let paint_not_confirmed_count = affordance_annotations
+        .iter()
+        .filter(|a| !a.paint_callback_registered)
+        .count();
+    if paint_not_confirmed_count > 0 {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_PAINT_NOT_CONFIRMED,
+            byte_len: paint_not_confirmed_count,
+        });
     }
     *latest_affordance_annotations()
         .lock()
@@ -1277,6 +1327,7 @@ fn lifecycle_treatment_for_input(semantic: &TileSemanticOverlayInput) -> Lifecyc
 fn tile_affordance_annotation(
     semantic: &TileSemanticOverlayInput,
     overlays: &[ScheduledOverlay],
+    paint_callback_registered: bool,
 ) -> TileAffordanceAnnotation {
     TileAffordanceAnnotation {
         node_key: semantic.node_key,
@@ -1291,6 +1342,7 @@ fn tile_affordance_annotation(
             .into_iter()
             .map(|glyph| glyph.glyph_id)
             .collect(),
+        paint_callback_registered,
     }
 }
 
@@ -2491,6 +2543,7 @@ mod tests {
                 ScheduledOverlay::Selection(semantic.clone()),
                 ScheduledOverlay::Focus(semantic.clone()),
             ],
+            true,
         );
 
         assert!(annotation.focus_ring_rendered);

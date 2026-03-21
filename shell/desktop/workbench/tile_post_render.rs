@@ -8,6 +8,7 @@ use std::time::Instant;
 use egui_tiles::Tree;
 
 use super::tile_behavior::{GraphshellTileBehavior, PendingOpenNode};
+use super::tile_compositor;
 use super::tile_grouping;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
@@ -16,7 +17,9 @@ use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_LAYOUT_GUTTER_DETECTED,
+    CHANNEL_UX_LAYOUT_OVERLAP_DETECTED, CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
+    CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
 };
 
 pub(crate) struct TileRenderOutputs {
@@ -136,10 +139,18 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         }
     }
 
-    let uxtree_snapshot = ux_tree::build_snapshot(
+    // Build a NodeKey → Rect map from the current active tile rects for bounds population.
+    let active_rects = tile_compositor::active_node_pane_rects(tiles_tree);
+    let node_rect_map: std::collections::HashMap<NodeKey, egui::Rect> = active_rects
+        .into_iter()
+        .map(|(_, node_key, rect)| (node_key, rect))
+        .collect();
+
+    let uxtree_snapshot = ux_tree::build_snapshot_with_rects(
         tiles_tree,
         graph_app,
         uxtree_build_started.elapsed().as_micros() as u64,
+        &node_rect_map,
     );
     emit_event(DiagnosticEvent::MessageReceived {
         channel_id: CHANNEL_UX_TREE_BUILD,
@@ -154,6 +165,29 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UX_CONTRACT_WARNING,
             byte_len: message.len(),
+        });
+    }
+    // Emit a diagnostic if any NodePane semantic node has no presentation bounds —
+    // indicates a tile that was rendered by the semantic tree but never laid out by the compositor.
+    let bounds_missing_count = ux_tree::node_pane_bounds_missing_count(&uxtree_snapshot);
+    if bounds_missing_count > 0 {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
+            byte_len: bounds_missing_count,
+        });
+    }
+
+    let coverage = ux_tree::run_coverage_analysis(&node_rect_map);
+    if coverage.gutter_pair_count > 0 {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_LAYOUT_GUTTER_DETECTED,
+            byte_len: coverage.gutter_pair_count,
+        });
+    }
+    if coverage.overlap_pair_count > 0 {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_LAYOUT_OVERLAP_DETECTED,
+            byte_len: coverage.overlap_pair_count,
         });
     }
 

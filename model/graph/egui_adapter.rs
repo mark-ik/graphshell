@@ -51,6 +51,49 @@ enum SelectionVisualRole {
     Secondary,
 }
 
+fn default_graph_node_selection_color() -> Color32 {
+    Color32::from_rgb(255, 200, 100)
+}
+
+fn default_graph_node_focus_ring_color() -> Color32 {
+    Color32::from_rgb(120, 200, 255)
+}
+
+fn default_graph_node_hover_ring_color() -> Color32 {
+    Color32::from_rgba_unmultiplied(180, 180, 190, 180)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GraphNodeChromeTheme {
+    pub workspace_badge_background: Color32,
+    pub workspace_badge_text: Color32,
+    pub semantic_badge_background: Color32,
+    pub semantic_badge_text: Color32,
+    pub semantic_badge_overflow_background: Color32,
+    pub semantic_badge_orbit_background: Color32,
+    pub pinned_fill: Color32,
+    pub pinned_stroke: Color32,
+    pub clip_ring: Color32,
+    pub default_stroke: Color32,
+}
+
+impl Default for GraphNodeChromeTheme {
+    fn default() -> Self {
+        Self {
+            workspace_badge_background: Color32::from_rgba_unmultiplied(20, 30, 46, 224),
+            workspace_badge_text: Color32::from_gray(245),
+            semantic_badge_background: Color32::from_rgba_unmultiplied(34, 44, 64, 224),
+            semantic_badge_text: Color32::from_gray(245),
+            semantic_badge_overflow_background: Color32::from_rgba_unmultiplied(24, 24, 24, 216),
+            semantic_badge_orbit_background: Color32::from_rgba_unmultiplied(20, 28, 42, 230),
+            pinned_fill: Color32::WHITE,
+            pinned_stroke: Color32::from_gray(40),
+            clip_ring: Color32::from_rgb(170, 210, 255),
+            default_stroke: Color32::from_gray(90),
+        }
+    }
+}
+
 /// Node shape that renders favicon textures when available.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphNodeShape {
@@ -96,6 +139,12 @@ pub struct GraphNodeShape {
     is_crashed: bool,
     #[serde(default)]
     selection_role: SelectionVisualRole,
+    #[serde(default = "default_graph_node_focus_ring_color")]
+    focus_ring_color: Color32,
+    #[serde(default = "default_graph_node_hover_ring_color")]
+    hover_ring_color: Color32,
+    #[serde(default)]
+    chrome_theme: GraphNodeChromeTheme,
 }
 
 impl From<NodeProps<Node>> for GraphNodeShape {
@@ -135,6 +184,9 @@ impl From<NodeProps<Node>> for GraphNodeShape {
             } else {
                 SelectionVisualRole::None
             },
+            focus_ring_color: default_graph_node_focus_ring_color(),
+            hover_ring_color: default_graph_node_hover_ring_color(),
+            chrome_theme: GraphNodeChromeTheme::default(),
         };
         shape.thumbnail_hash = Self::hash_bytes(&shape.thumbnail_png);
         shape.favicon_hash = Self::hash_favicon(&shape.favicon_rgba);
@@ -309,6 +361,18 @@ impl GraphNodeShape {
         self.selection_role = role;
     }
 
+    pub(crate) fn set_focus_ring_color(&mut self, color: Color32) {
+        self.focus_ring_color = color;
+    }
+
+    pub(crate) fn set_hover_ring_color(&mut self, color: Color32) {
+        self.hover_ring_color = color;
+    }
+
+    pub(crate) fn set_chrome_theme(&mut self, chrome_theme: GraphNodeChromeTheme) {
+        self.chrome_theme = chrome_theme;
+    }
+
     fn set_crashed(&mut self, crashed: bool) {
         self.is_crashed = crashed;
     }
@@ -327,9 +391,13 @@ impl GraphNodeShape {
         let scale = (circle_radius / 15.0).clamp(0.7, 1.8);
         let badge_text = self.workspace_membership_count.to_string();
         let badge_font = FontId::new((9.5 * scale).clamp(8.0, 18.0), FontFamily::Monospace);
-        let badge_galley = ctx
-            .ctx
-            .fonts_mut(|f| f.layout_no_wrap(badge_text, badge_font, Color32::from_gray(245)));
+        let badge_galley = ctx.ctx.fonts_mut(|f| {
+            f.layout_no_wrap(
+                badge_text,
+                badge_font,
+                self.chrome_theme.workspace_badge_text,
+            )
+        });
         let padding = Vec2::new(4.0 * scale, 2.0 * scale);
         let badge_size = badge_galley.size() + padding * 2.0;
         // Top-right keeps clear of top-center pin affordances.
@@ -341,10 +409,12 @@ impl GraphNodeShape {
         shapes.push(Shape::rect_filled(
             badge_rect,
             4.0 * scale,
-            Color32::from_rgba_unmultiplied(20, 30, 46, 224),
+            self.chrome_theme.workspace_badge_background,
         ));
         let badge_pos = Pos2::new(badge_rect.min.x + padding.x, badge_rect.min.y + padding.y);
-        shapes.push(TextShape::new(badge_pos, badge_galley, Color32::from_gray(245)).into());
+        shapes.push(
+            TextShape::new(badge_pos, badge_galley, self.chrome_theme.workspace_badge_text).into(),
+        );
     }
 
     fn push_pinned_indicator(
@@ -362,8 +432,8 @@ impl GraphNodeShape {
             CircleShape {
                 center: marker_center,
                 radius: marker_radius,
-                fill: Color32::WHITE,
-                stroke: Stroke::new(1.0, Color32::from_gray(40)),
+                fill: self.chrome_theme.pinned_fill,
+                stroke: Stroke::new(1.0, self.chrome_theme.pinned_stroke),
             }
             .into(),
         );
@@ -391,7 +461,11 @@ impl GraphNodeShape {
 
         for badge in &self.semantic_badges {
             let galley = ctx.ctx.fonts_mut(|f| {
-                f.layout_no_wrap(badge.token.clone(), font.clone(), Color32::from_gray(245))
+                f.layout_no_wrap(
+                    badge.token.clone(),
+                    font.clone(),
+                    self.chrome_theme.semantic_badge_text,
+                )
             });
             let padding = Vec2::new(4.0 * scale, 2.0 * scale);
             let badge_size = galley.size() + padding * 2.0;
@@ -405,18 +479,24 @@ impl GraphNodeShape {
             shapes.push(Shape::rect_filled(
                 badge_rect,
                 4.0 * scale,
-                Color32::from_rgba_unmultiplied(34, 44, 64, 224),
+                self.chrome_theme.semantic_badge_background,
             ));
             let badge_pos = Pos2::new(badge_rect.min.x + padding.x, badge_rect.min.y + padding.y);
-            shapes.push(TextShape::new(badge_pos, galley, Color32::from_gray(245)).into());
+            shapes.push(
+                TextShape::new(badge_pos, galley, self.chrome_theme.semantic_badge_text).into(),
+            );
             next_left = badge_rect.min.x - 4.0 * scale;
         }
 
         if self.semantic_badge_overflow > 0 {
             let overflow_text = format!("+{}", self.semantic_badge_overflow);
-            let galley = ctx
-                .ctx
-                .fonts_mut(|f| f.layout_no_wrap(overflow_text, font, Color32::from_gray(245)));
+            let galley = ctx.ctx.fonts_mut(|f| {
+                f.layout_no_wrap(
+                    overflow_text,
+                    font,
+                    self.chrome_theme.semantic_badge_text,
+                )
+            });
             let padding = Vec2::new(4.0 * scale, 2.0 * scale);
             let badge_size = galley.size() + padding * 2.0;
             let badge_rect = Rect::from_min_size(
@@ -429,10 +509,12 @@ impl GraphNodeShape {
             shapes.push(Shape::rect_filled(
                 badge_rect,
                 4.0 * scale,
-                Color32::from_rgba_unmultiplied(24, 24, 24, 216),
+                self.chrome_theme.semantic_badge_overflow_background,
             ));
             let badge_pos = Pos2::new(badge_rect.min.x + padding.x, badge_rect.min.y + padding.y);
-            shapes.push(TextShape::new(badge_pos, galley, Color32::from_gray(245)).into());
+            shapes.push(
+                TextShape::new(badge_pos, galley, self.chrome_theme.semantic_badge_text).into(),
+            );
         }
     }
 
@@ -460,18 +542,20 @@ impl GraphNodeShape {
             );
             let label = crate::util::truncate_with_ellipsis(&badge.label, 12);
             let text = format!("{} {}", badge.token, label);
-            let galley = ctx
-                .ctx
-                .fonts_mut(|f| f.layout_no_wrap(text, font.clone(), Color32::from_gray(245)));
+            let galley = ctx.ctx.fonts_mut(|f| {
+                f.layout_no_wrap(text, font.clone(), self.chrome_theme.semantic_badge_text)
+            });
             let padding = Vec2::new(6.0, 3.0);
             let rect = Rect::from_center_size(center, galley.size() + padding * 2.0);
             shapes.push(Shape::rect_filled(
                 rect,
                 6.0,
-                Color32::from_rgba_unmultiplied(20, 28, 42, 230),
+                self.chrome_theme.semantic_badge_orbit_background,
             ));
             let text_pos = Pos2::new(rect.min.x + padding.x, rect.min.y + padding.y);
-            shapes.push(TextShape::new(text_pos, galley, Color32::from_gray(245)).into());
+            shapes.push(
+                TextShape::new(text_pos, galley, self.chrome_theme.semantic_badge_text).into(),
+            );
         }
     }
 
@@ -498,7 +582,7 @@ impl GraphNodeShape {
                 .collect::<Vec<_>>();
             shapes.push(Shape::line(
                 points,
-                Stroke::new(1.5, Color32::from_rgb(170, 210, 255)),
+                Stroke::new(1.5, self.chrome_theme.clip_ring),
             ));
         }
     }
@@ -517,7 +601,7 @@ impl GraphNodeShape {
                 center: circle_center,
                 radius: circle_radius + 2.0,
                 fill: Color32::TRANSPARENT,
-                stroke: Stroke::new(2.0, Color32::from_rgb(255, 200, 100)),
+                stroke: Stroke::new(2.0, self.apply_archive_tint(self.focus_ring_color)),
             }
             .into(),
         );
@@ -563,7 +647,13 @@ impl GraphNodeShape {
 
     fn projected_color(&self) -> Option<Color32> {
         if self.selection_role == SelectionVisualRole::Primary {
-            return Some(self.apply_archive_tint(Color32::from_rgb(255, 200, 100)));
+            return Some(
+                self.color
+                    .map(|color| self.apply_archive_tint(color))
+                    .unwrap_or_else(|| {
+                        self.apply_archive_tint(default_graph_node_selection_color())
+                    }),
+            );
         }
         if self.is_crashed {
             return Some(self.apply_archive_tint(Color32::from_rgb(205, 112, 82)));
@@ -574,18 +664,18 @@ impl GraphNodeShape {
     fn effective_stroke(&self, ctx: &DrawContext) -> Stroke {
         let _ = ctx;
         if self.dragged {
-            return Stroke::new(2.5, Color32::from_rgb(255, 220, 120));
+            return Stroke::new(2.5, self.apply_archive_tint(self.focus_ring_color));
         }
         if self.hovered {
-            return Stroke::new(2.0, Color32::from_rgb(255, 170, 90));
+            return Stroke::new(2.0, self.apply_archive_tint(self.hover_ring_color));
         }
         if self.selection_role == SelectionVisualRole::Primary {
-            return Stroke::new(1.8, Color32::from_rgb(255, 200, 120));
+            return Stroke::new(1.8, self.apply_archive_tint(self.focus_ring_color));
         }
         if self.is_clip {
-            return Stroke::new(1.4, Color32::from_rgb(140, 190, 255));
+            return Stroke::new(1.4, self.chrome_theme.clip_ring);
         }
-        Stroke::new(1.0, Color32::from_gray(90))
+        Stroke::new(1.0, self.chrome_theme.default_stroke)
     }
 
     fn advance_badge_expand_t(&mut self, ctx: &DrawContext) {
@@ -1452,7 +1542,7 @@ impl EguiGraphState {
                     SelectionVisualRole::Secondary
                 });
                 if is_primary {
-                    node.set_color(Color32::from_rgb(255, 200, 100));
+                    node.set_color(default_graph_node_selection_color());
                 }
             }
         }
@@ -1545,6 +1635,15 @@ impl EguiGraphState {
             if let Some(edge) = self.graph.edge_mut(edge_key) {
                 edge.display_mut()
                     .set_theme_tokens(edge_theme_tokens.clone());
+            }
+        }
+    }
+
+    pub fn apply_node_chrome_theme(&mut self, chrome_theme: GraphNodeChromeTheme) {
+        let node_keys: Vec<_> = self.graph.nodes_iter().map(|(key, _)| key).collect();
+        for node_key in node_keys {
+            if let Some(node) = self.graph.node_mut(node_key) {
+                node.display_mut().set_chrome_theme(chrome_theme);
             }
         }
     }
@@ -2269,5 +2368,49 @@ mod tests {
             .display()
             .projected_color();
         assert_ne!(cold_color, crashed_color);
+    }
+
+    #[test]
+    fn primary_selected_node_uses_assigned_theme_color() {
+        let mut graph = Graph::new();
+        let primary = graph.add_node("https://a.example".into(), Point2D::new(0.0, 0.0));
+        let selected = HashSet::from([primary]);
+
+        let mut state = EguiGraphState::from_graph_with_visual_state(
+            &graph,
+            &selected,
+            Some(primary),
+            &HashSet::new(),
+        );
+        let themed_selection = Color32::from_rgb(214, 160, 56);
+        state.graph.node_mut(primary).unwrap().display_mut().color = Some(themed_selection);
+
+        assert_eq!(
+            state.graph.node(primary).unwrap().display().projected_color(),
+            Some(themed_selection)
+        );
+    }
+
+    #[test]
+    fn apply_node_chrome_theme_updates_display_chrome() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://a.example".into(), Point2D::new(0.0, 0.0));
+        let mut state = EguiGraphState::from_graph(&graph, &HashSet::new());
+        let chrome = GraphNodeChromeTheme {
+            workspace_badge_background: Color32::from_rgb(10, 20, 30),
+            workspace_badge_text: Color32::from_rgb(240, 230, 220),
+            semantic_badge_background: Color32::from_rgb(20, 30, 40),
+            semantic_badge_text: Color32::from_rgb(230, 220, 210),
+            semantic_badge_overflow_background: Color32::from_rgb(30, 40, 50),
+            semantic_badge_orbit_background: Color32::from_rgb(40, 50, 60),
+            pinned_fill: Color32::from_rgb(250, 240, 230),
+            pinned_stroke: Color32::from_rgb(50, 60, 70),
+            clip_ring: Color32::from_rgb(60, 120, 180),
+            default_stroke: Color32::from_rgb(80, 90, 100),
+        };
+
+        state.apply_node_chrome_theme(chrome);
+
+        assert_eq!(state.graph.node(key).unwrap().display().chrome_theme, chrome);
     }
 }

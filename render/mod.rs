@@ -457,6 +457,7 @@ pub fn render_graph_in_ui_collect_actions(
         );
         let theme_resolution = phase3_resolve_active_theme(app.default_registry_theme_id());
         egui_state.apply_edge_theme_tokens(theme_resolution.tokens.edge_tokens.clone());
+        egui_state.apply_node_chrome_theme(theme_resolution.tokens.graph_node_chrome);
         app.workspace.graph_runtime.egui_state = Some(egui_state);
         app.workspace.graph_runtime.egui_state_dirty = false;
         app.workspace.graph_runtime.last_culled_node_keys = culled_node_keys;

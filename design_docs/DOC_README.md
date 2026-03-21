@@ -41,7 +41,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 20, 2026
+Last updated: March 21, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -104,7 +104,10 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md](graphshell_docs/implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md) - Canonical interaction contract for the workbench/frame/tile model.
 - [graphshell_docs/implementation_strategy/workbench/2026-03-20_arrangement_graph_projection_plan.md](graphshell_docs/implementation_strategy/workbench/2026-03-20_arrangement_graph_projection_plan.md) - Plan to make tile tree a projection of arrangement graph truth: HostedSurface bridge object, ArrangementRelation sub-kinds (tab-order-next, group-member, split-child, etc.), Navigator faithfulness contract, workbench invocation via arrangement mutations, and 5-phase migration plan.
 - [graphshell_docs/implementation_strategy/workbench/pane_presentation_and_locking_spec.md](graphshell_docs/implementation_strategy/workbench/pane_presentation_and_locking_spec.md) - Canonical contract for tiled/docked presentation and `PaneLock` behavior.
+- [graphshell_docs/implementation_strategy/workbench/workbench_layout_policy_spec.md](graphshell_docs/implementation_strategy/workbench/workbench_layout_policy_spec.md) - Semantic layout policy: `WorkbenchLayoutConstraint` (role-keyed anchor splits), `UxConfigMode` (per-surface unlock/configure/lock flow), `SurfaceFirstUsePolicy` (first-use preference prompts), and `WorkbenchLayoutPolicyEvaluator` (pure `(UxTreeSnapshot, WorkbenchProfile) → Vec<WorkbenchIntent>`).
 - [graphshell_docs/implementation_strategy/canvas/graph_node_edge_interaction_spec.md](graphshell_docs/implementation_strategy/canvas/graph_node_edge_interaction_spec.md) - Canonical interaction contract for graph, node, edge, and camera semantics.
+- [graphshell_docs/implementation_strategy/canvas/2026-03-21_edge_family_and_provenance_expansion_plan.md](graphshell_docs/implementation_strategy/canvas/2026-03-21_edge_family_and_provenance_expansion_plan.md) - Edge vocabulary expansion plan: keeps the current five relation families, adds a dedicated Provenance family, and proposes broader semantic/traversal/containment/arrangement/imported sub-kind vocabularies for prototype-era knowledge capture.
+- [graphshell_docs/implementation_strategy/canvas/2026-03-21_edge_payload_type_sketch.md](graphshell_docs/implementation_strategy/canvas/2026-03-21_edge_payload_type_sketch.md) - Rust-facing graph-model sketch for the next `EdgePayload`: split family from sub-kind, move traversal onto an explicit event carrier, and add typed Imported/Provenance sidecars.
 - [graphshell_docs/implementation_strategy/canvas/2026-03-11_graph_enrichment_plan.md](graphshell_docs/implementation_strategy/canvas/2026-03-11_graph_enrichment_plan.md) - Umbrella graph-enrichment plan unifying tags, badges, UDC classification, import/clip enrichment, provenance, and visible graph effects under the knowledge-capture lane.
 - [graphshell_docs/implementation_strategy/canvas/faceted_filter_surface_spec.md](graphshell_docs/implementation_strategy/canvas/faceted_filter_surface_spec.md) - Canonical faceted-filter contract: PMEST schema, operator semantics, Lens integration, omnibar/palette parity, and diagnostics/test gates.
 - [graphshell_docs/implementation_strategy/canvas/facet_pane_routing_spec.md](graphshell_docs/implementation_strategy/canvas/facet_pane_routing_spec.md) - Canonical facet-rail routing contract: single-node facet navigation, Enter-to-pane destination resolution, focus return, and UxTree exposure.

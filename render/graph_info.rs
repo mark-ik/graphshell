@@ -98,6 +98,7 @@ pub(super) fn draw_graph_info(
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             render_graph_search_origin_badge(
+                                app,
                                 ui,
                                 &app.workspace.graph_runtime.active_graph_search_origin,
                             );
@@ -263,7 +264,7 @@ pub(super) fn draw_graph_info(
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(egui::RichText::new("PIN").small().strong());
-                            render_graph_search_origin_badge(ui, &entry.origin);
+                            render_graph_search_origin_badge(app, ui, &entry.origin);
                             ui.small(graph_search_history_label(&entry));
                             if ui.small_button("Restore").clicked() {
                                 request_graph_search_entry(app, entry.clone(), false, None);
