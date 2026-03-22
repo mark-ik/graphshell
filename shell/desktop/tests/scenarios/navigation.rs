@@ -1,6 +1,6 @@
 use super::super::harness::TestRegistry;
 use crate::app::GraphIntent;
-use crate::graph::{EdgeType, NavigationTrigger};
+use crate::graph::NavigationTrigger;
 
 #[test]
 fn webview_url_changed_updates_existing_mapping() {
@@ -165,15 +165,9 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         .graph
         .get_edge(back_edge_key)
         .expect("back edge payload should exist");
-    assert!(
-        harness
-            .app
-            .workspace
-            .domain
-            .graph
-            .edges()
-            .any(|edge| { edge.edge_type == EdgeType::History && edge.from == b && edge.to == a })
-    );
+    assert!(harness.app.workspace.domain.graph.get_edge(back_edge_key).is_some_and(|payload| {
+        payload.has_relation(crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal))
+    }));
     assert_eq!(back_edge.traversals().len(), 2);
     assert_eq!(back_edge.traversals()[0].trigger, NavigationTrigger::Back);
     assert_eq!(back_edge.traversals()[1].trigger, NavigationTrigger::Back);
@@ -193,13 +187,11 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         .get_edge(forward_edge_key)
         .expect("forward edge payload should exist");
     assert!(
-        harness
-            .app
-            .workspace
-            .domain
-            .graph
-            .edges()
-            .any(|edge| { edge.edge_type == EdgeType::History && edge.from == a && edge.to == b })
+        harness.app.workspace.domain.graph.get_edge(forward_edge_key).is_some_and(|payload| {
+            payload.has_relation(crate::graph::RelationSelector::Family(
+                crate::graph::EdgeFamily::Traversal,
+            ))
+        })
     );
     assert_eq!(forward_edge.traversals().len(), 1);
     assert_eq!(
@@ -256,9 +248,17 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
         .expect("step2 node should exist");
     assert_eq!(node.history_index, 1);
 
-    let has_history_edge =
-        harness.app.workspace.domain.graph.edges().any(|edge| {
-            edge.edge_type == EdgeType::History && edge.from == step2 && edge.to == step1
+    let has_history_edge = harness
+        .app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(step2, step1)
+        .and_then(|edge_key| harness.app.workspace.domain.graph.get_edge(edge_key))
+        .is_some_and(|payload| {
+            payload.has_relation(crate::graph::RelationSelector::Family(
+                crate::graph::EdgeFamily::Traversal,
+            ))
         });
     assert!(
         has_history_edge,

@@ -844,7 +844,7 @@ fn emit_open_decision(path: UxOpenDecisionPath, reason: UxOpenDecisionReason) {
 mod tests {
     use super::*;
     use crate::app::GraphViewId;
-    use crate::graph::{EdgeType, NodeKey};
+    use crate::graph::NodeKey;
     use crate::shell::desktop::workbench::pane_model::{
         GraphPaneRef, NodePaneState, PaneId, SplitDirection,
     };
@@ -1111,15 +1111,13 @@ mod tests {
         let group_key = tile_group_nodes[0].0;
         let group_node = tile_group_nodes[0].1;
         assert_eq!(group_node.title, "Tile Group");
-        assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type
-                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup)
+        assert!(app.domain_graph().arrangement_edges().any(|edge| {
+            edge.sub_kind == crate::graph::ArrangementSubKind::TileGroup
                 && edge.from == group_key
                 && edge.to == left
         }));
-        assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type
-                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup)
+        assert!(app.domain_graph().arrangement_edges().any(|edge| {
+            edge.sub_kind == crate::graph::ArrangementSubKind::TileGroup
                 && edge.from == group_key
                 && edge.to == right
         }));
@@ -1162,9 +1160,8 @@ mod tests {
                 )
             })
             .expect("tile group node should be created");
-        assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type
-                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup)
+        assert!(app.domain_graph().arrangement_edges().any(|edge| {
+            edge.sub_kind == crate::graph::ArrangementSubKind::TileGroup
                 && edge.from == group_key
                 && edge.to == view_member_key
         }));

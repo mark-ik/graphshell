@@ -1,5 +1,7 @@
 use super::*;
 
+const WEBVIEW_STOP_LOAD_SUPPORTED: bool = false;
+
 pub(super) fn resolve_browser_command_target(
     app: &GraphBrowserApp,
     window: &EmbedderWindow,
@@ -32,6 +34,23 @@ pub(super) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: 
             }
             BrowserCommand::Reload => {
                 webview.reload();
+                window.set_needs_update();
+            }
+            BrowserCommand::StopLoad => {
+                if WEBVIEW_STOP_LOAD_SUPPORTED {
+                    window.set_needs_update();
+                }
+            }
+            BrowserCommand::ZoomIn => {
+                webview.set_page_zoom(webview.page_zoom() + 0.1);
+                window.set_needs_update();
+            }
+            BrowserCommand::ZoomOut => {
+                webview.set_page_zoom(webview.page_zoom() - 0.1);
+                window.set_needs_update();
+            }
+            BrowserCommand::ZoomReset => {
+                webview.set_page_zoom(1.0);
                 window.set_needs_update();
             }
             BrowserCommand::Close => {

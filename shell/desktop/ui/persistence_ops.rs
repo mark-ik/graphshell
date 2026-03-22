@@ -791,7 +791,6 @@ pub(crate) fn parse_data_dir_input(raw: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::EdgeType;
     use crate::shell::desktop::ui::workbench_sidebar::WorkbenchChromeProjection;
     use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneState};
     use crate::util::VersoAddress;
@@ -1021,15 +1020,13 @@ mod tests {
             .domain_graph()
             .get_node_by_url(&view_url)
             .expect("graph view member node should be created");
-        assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type
-                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::FrameMember)
+        assert!(app.domain_graph().arrangement_edges().any(|edge| {
+            edge.sub_kind == crate::graph::ArrangementSubKind::FrameMember
                 && edge.from == frame_key
                 && edge.to == view_key
         }));
-        assert!(app.domain_graph().edges().any(|edge| {
-            edge.edge_type
-                == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::FrameMember)
+        assert!(app.domain_graph().arrangement_edges().any(|edge| {
+            edge.sub_kind == crate::graph::ArrangementSubKind::FrameMember
                 && edge.from == frame_key
                 && edge.to == node
         }));

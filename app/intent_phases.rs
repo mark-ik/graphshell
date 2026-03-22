@@ -555,9 +555,17 @@ impl GraphBrowserApp {
                 // Phase 5: capture the active graphlet context before create_new_node_near_center
                 // overwrites the selection with the new node's key.
                 let graphlet_peer = if mode == PendingTileOpenMode::Tab {
-                    self.focused_selection()
-                        .primary()
-                        .filter(|&peer| !self.durable_graphlet_peers(peer).is_empty())
+                    let selected_nodes: Vec<NodeKey> =
+                        self.focused_selection().iter().copied().collect();
+                    let has_graphlet_context = !selected_nodes.is_empty()
+                        && self.graphlet_members_for_active_projection(&selected_nodes).len() > 1;
+                    has_graphlet_context
+                        .then(|| {
+                            self.focused_selection()
+                                .primary()
+                                .or_else(|| selected_nodes.first().copied())
+                        })
+                        .flatten()
                 } else {
                     None
                 };
@@ -632,9 +640,13 @@ impl GraphBrowserApp {
             GraphIntent::RemoveEdge {
                 from,
                 to,
-                edge_type,
+                selector,
             } => {
-                let _ = self.remove_edges_and_log(from, to, edge_type);
+                if selector == crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal) {
+                    let _ = self.remove_edges_and_log(from, to, crate::graph::EdgeType::History);
+                } else {
+                    let _ = self.retract_relations_and_log(from, to, selector);
+                }
             }
             GraphIntent::CreateUserGroupedEdgeFromPrimarySelection => {
                 let primary = self.focused_selection().primary();
@@ -904,6 +916,9 @@ impl GraphBrowserApp {
             | GraphIntent::SetNodeFormDraft { .. }
             | GraphIntent::SetNodeThumbnail { .. }
             | GraphIntent::SetNodeFavicon { .. }
+            | GraphIntent::SetWorkbenchEdgeProjection { .. }
+            | GraphIntent::SetViewEdgeProjectionOverride { .. }
+            | GraphIntent::SetSelectionEdgeProjectionOverride { .. }
             | GraphIntent::SetNavigatorContainmentRelationSource { .. }
             | GraphIntent::SetNavigatorSortMode { .. }
             | GraphIntent::SetNavigatorRootFilter { .. }

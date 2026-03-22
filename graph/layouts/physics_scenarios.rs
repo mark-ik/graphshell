@@ -23,7 +23,7 @@ use super::barnes_hut_force_directed::BarnesHutForceDirectedLayout;
 use crate::graph::physics::{default_graph_physics_state, scenario_helpers::*};
 use crate::model::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
 use crate::model::graph::egui_adapter::EguiGraphState;
-use crate::model::graph::{EdgeType, Graph};
+use crate::model::graph::Graph;
 use crate::registries::atomic::lens::PhysicsProfile;
 
 /// Convergence threshold: average displacement < this value = converged.
@@ -67,11 +67,14 @@ fn build_ring_graph(n: usize) -> Graph {
         let to = keys[(i + 1) % n];
         apply_graph_delta(
             &mut graph,
-            GraphDelta::AddEdge {
+            GraphDelta::AssertRelation {
                 from,
                 to,
-                edge_type: EdgeType::Hyperlink,
-                edge_label: None,
+                assertion: crate::graph::EdgeAssertion::Semantic {
+                    sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                    label: None,
+                    decay_progress: None,
+                },
             },
         );
     }

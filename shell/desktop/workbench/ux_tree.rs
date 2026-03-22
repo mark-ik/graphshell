@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 use egui_tiles::{Container, Tile, TileId, Tree};
 
 use crate::app::{GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode};
-use crate::graph::{EdgeType, NodeKey};
+use crate::graph::{EdgeFamily, NodeKey, RelationSelector};
 use crate::render::radial_menu::latest_semantic_snapshot;
 
 use super::pane_model::TileRenderMode;
@@ -353,15 +353,16 @@ fn append_workbench_semantics_nodes(
     fn recent_traversal_node_timestamps(graph_app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
         let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
         for edge in graph_app.domain_graph().edges() {
-            if edge.edge_type != EdgeType::History {
+            let Some(edge_key) = graph_app.domain_graph().find_edge_key(edge.from, edge.to) else {
+                continue;
+            };
+            let Some(payload) = graph_app.domain_graph().get_edge(edge_key) else {
+                continue;
+            };
+            if !payload.has_relation(RelationSelector::Family(EdgeFamily::Traversal)) {
                 continue;
             }
-            let timestamp = graph_app
-                .domain_graph()
-                .find_edge_key(edge.from, edge.to)
-                .and_then(|edge_key| graph_app.domain_graph().get_edge(edge_key))
-                .and_then(|payload| payload.metrics().last_navigated_at)
-                .unwrap_or(0);
+            let timestamp = payload.metrics().last_navigated_at.unwrap_or(0);
             if timestamp == 0 {
                 continue;
             }

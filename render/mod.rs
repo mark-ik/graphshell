@@ -989,6 +989,7 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
                     if memberships.is_empty() {
                         let msg = match request.mode {
                             ChooseFramePickerMode::OpenNodeInFrame => {
@@ -1004,7 +1005,11 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
                                 "No named frames available. Save one first."
                             }
                         };
-                        ui.small(msg);
+                        ui.label(
+                            egui::RichText::new(msg)
+                                .small()
+                                .color(theme_tokens.command_notice),
+                        );
                     } else {
                         memberships.dedup();
                         let header = match request.mode {
@@ -1017,7 +1022,11 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
                                 "Add selected nodes to frame:"
                             }
                         };
-                        ui.small(header);
+                        ui.label(
+                            egui::RichText::new(header)
+                                .small()
+                                .color(theme_tokens.radial_chrome_text),
+                        );
                         for name in &memberships {
                             if ui.button(name).clicked() {
                                 selected_frame = Some(name.clone());
@@ -2183,8 +2192,24 @@ mod tests {
         let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
         let c = app.add_node_and_sync("c".into(), Point2D::new(20.0, 0.0));
-        let _ = app.add_edge_and_sync(a, b, crate::graph::EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(c, a, crate::graph::EdgeType::Hyperlink, None);
+        let _ = app.assert_relation_and_sync(
+            a,
+            b,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        let _ = app.assert_relation_and_sync(
+            c,
+            a,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
 
         let set = hovered_adjacency_set(&app, Some(a));
         assert!(set.contains(&a));
@@ -2489,8 +2514,15 @@ mod tests {
         }
 
         for pair in keys.windows(2) {
-            let _ =
-                app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink, None);
+            let _ = app.assert_relation_and_sync(
+                pair[0],
+                pair[1],
+                crate::graph::EdgeAssertion::Semantic {
+                    sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                    label: None,
+                    decay_progress: None,
+                },
+            );
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(300.0, 300.0));
@@ -2519,8 +2551,15 @@ mod tests {
         }
 
         for pair in keys.windows(2) {
-            let _ =
-                app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink, None);
+            let _ = app.assert_relation_and_sync(
+                pair[0],
+                pair[1],
+                crate::graph::EdgeAssertion::Semantic {
+                    sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                    label: None,
+                    decay_progress: None,
+                },
+            );
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(260.0, 260.0));

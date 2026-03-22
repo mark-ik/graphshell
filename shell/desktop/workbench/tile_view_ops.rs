@@ -414,7 +414,10 @@ pub(crate) fn warm_peer_tab_container(
     tiles_tree: &Tree<TileKind>,
     node_key: NodeKey,
 ) -> Option<TileId> {
-    let peers = graph_app.durable_graphlet_peers(node_key);
+    let peers = graph_app.graphlet_peers_for_view(
+        node_key,
+        active_graph_view_id(tiles_tree).or(graph_app.workspace.graph_runtime.focused_view),
+    );
     for peer in peers {
         let Some(peer_tile_id) =
             tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {

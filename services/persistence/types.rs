@@ -72,7 +72,6 @@ pub struct PersistedNode {
     pub address_kind: PersistedAddressKind,
 }
 
-/// Edge type for persistence.
 #[derive(
     Archive,
     Serialize,
@@ -81,17 +80,239 @@ pub struct PersistedNode {
     Copy,
     Debug,
     PartialEq,
+    Eq,
     serde::Serialize,
     serde::Deserialize,
 )]
 #[rkyv(derive(Debug, PartialEq))]
-pub enum PersistedEdgeType {
+pub enum PersistedEdgeFamily {
+    Semantic,
+    Traversal,
+    Containment,
+    Arrangement,
+    Imported,
+    Provenance,
+}
+
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedSemanticSubKind {
     Hyperlink,
-    History,
     UserGrouped,
-    ArrangementFrameMember,
-    ArrangementTileGroup,
-    ArrangementSplitPair,
+    AgentDerived,
+    Cites,
+    Quotes,
+    Summarizes,
+    Elaborates,
+    ExampleOf,
+    Supports,
+    Contradicts,
+    Questions,
+    SameEntityAs,
+    DuplicateOf,
+    CanonicalMirrorOf,
+    DependsOn,
+    Blocks,
+    NextStep,
+}
+
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedContainmentSubKind {
+    UrlPath,
+    Domain,
+    FileSystem,
+    UserFolder,
+    ClipSource,
+    NotebookSection,
+    CollectionMember,
+}
+
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedArrangementSubKind {
+    FrameMember,
+    TileGroup,
+    SplitPair,
+    TabNeighbor,
+    ActiveTab,
+    PinnedInFrame,
+}
+
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedImportedSubKind {
+    BookmarkFolder,
+    HistoryImport,
+    RssMembership,
+    FileSystemImport,
+    ArchiveMembership,
+    SharedCollection,
+}
+
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedProvenanceSubKind {
+    ClippedFrom,
+    ExcerptedFrom,
+    SummarizedFrom,
+    TranslatedFrom,
+    RewrittenFrom,
+    GeneratedFrom,
+    ExtractedFrom,
+    ImportedFromSource,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct PersistedSemanticEdgeData {
+    #[serde(default)]
+    pub sub_kinds: Vec<PersistedSemanticSubKind>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub agent_decay_progress: Option<f32>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct PersistedTraversalRecord {
+    pub timestamp_ms: u64,
+    pub trigger: PersistedNavigationTrigger,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct PersistedTraversalMetrics {
+    pub total_navigations: u64,
+    pub forward_navigations: u64,
+    pub backward_navigations: u64,
+    pub last_navigated_at: Option<u64>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct PersistedTraversalEdgeData {
+    #[serde(default)]
+    pub traversals: Vec<PersistedTraversalRecord>,
+    #[serde(default)]
+    pub metrics: PersistedTraversalMetrics,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct PersistedContainmentEdgeData {
+    #[serde(default)]
+    pub sub_kinds: Vec<PersistedContainmentSubKind>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct PersistedArrangementEdgeData {
+    #[serde(default)]
+    pub sub_kinds: Vec<PersistedArrangementSubKind>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct PersistedImportedEdgeData {
+    #[serde(default)]
+    pub sub_kinds: Vec<PersistedImportedSubKind>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct PersistedProvenanceEdgeData {
+    #[serde(default)]
+    pub sub_kinds: Vec<PersistedProvenanceSubKind>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedEdgeAssertion {
+    Semantic {
+        sub_kind: PersistedSemanticSubKind,
+        label: Option<String>,
+        agent_decay_progress: Option<f32>,
+    },
+    Containment {
+        sub_kind: PersistedContainmentSubKind,
+    },
+    Arrangement {
+        sub_kind: PersistedArrangementSubKind,
+    },
+    Imported {
+        sub_kind: PersistedImportedSubKind,
+    },
+    Provenance {
+        sub_kind: PersistedProvenanceSubKind,
+    },
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedRelationSelector {
+    Family(PersistedEdgeFamily),
+    Semantic(PersistedSemanticSubKind),
+    Containment(PersistedContainmentSubKind),
+    Arrangement(PersistedArrangementSubKind),
+    Imported(PersistedImportedSubKind),
+    Provenance(PersistedProvenanceSubKind),
 }
 
 /// Persisted traversal trigger classification (v1 scope).
@@ -230,12 +451,24 @@ pub struct HistoryTimelineFilter {
 }
 
 /// Persisted edge.
-#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PersistedEdge {
     pub from_node_id: String,
     pub to_node_id: String,
-    pub edge_type: PersistedEdgeType,
-    pub edge_label: Option<String>,
+    #[serde(default)]
+    pub families: Vec<PersistedEdgeFamily>,
+    #[serde(default)]
+    pub semantic: Option<PersistedSemanticEdgeData>,
+    #[serde(default)]
+    pub traversal: Option<PersistedTraversalEdgeData>,
+    #[serde(default)]
+    pub containment: Option<PersistedContainmentEdgeData>,
+    #[serde(default)]
+    pub arrangement: Option<PersistedArrangementEdgeData>,
+    #[serde(default)]
+    pub imported: Option<PersistedImportedEdgeData>,
+    #[serde(default)]
+    pub provenance: Option<PersistedProvenanceEdgeData>,
 }
 
 /// Full graph snapshot for periodic saves.
@@ -261,13 +494,12 @@ pub enum LogEntry {
     AddEdge {
         from_node_id: String,
         to_node_id: String,
-        edge_type: PersistedEdgeType,
-        edge_label: Option<String>,
+        assertion: PersistedEdgeAssertion,
     },
     RemoveEdge {
         from_node_id: String,
         to_node_id: String,
-        edge_type: PersistedEdgeType,
+        selector: PersistedRelationSelector,
     },
     AppendTraversal {
         from_node_id: String,
@@ -412,15 +644,25 @@ mod tests {
         let edge = PersistedEdge {
             from_node_id: Uuid::new_v4().to_string(),
             to_node_id: Uuid::new_v4().to_string(),
-            edge_type: PersistedEdgeType::Hyperlink,
-            edge_label: None,
+            families: vec![PersistedEdgeFamily::Semantic],
+            semantic: Some(PersistedSemanticEdgeData {
+                sub_kinds: vec![PersistedSemanticSubKind::Hyperlink],
+                label: None,
+                agent_decay_progress: None,
+            }),
+            traversal: None,
+            containment: None,
+            arrangement: None,
+            imported: None,
+            provenance: None,
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&edge).unwrap();
         let archived = rkyv::access::<ArchivedPersistedEdge, rkyv::rancor::Error>(&bytes).unwrap();
         assert!(!archived.from_node_id.as_str().is_empty());
         assert!(!archived.to_node_id.as_str().is_empty());
-        assert_eq!(archived.edge_type, ArchivedPersistedEdgeType::Hyperlink);
+        assert_eq!(archived.families.len(), 1);
+        assert!(archived.semantic.is_some());
     }
 
     #[test]
@@ -428,13 +670,22 @@ mod tests {
         let edge = PersistedEdge {
             from_node_id: Uuid::new_v4().to_string(),
             to_node_id: Uuid::new_v4().to_string(),
-            edge_type: PersistedEdgeType::UserGrouped,
-            edge_label: Some("tab-group".to_string()),
+            families: vec![PersistedEdgeFamily::Semantic],
+            semantic: Some(PersistedSemanticEdgeData {
+                sub_kinds: vec![PersistedSemanticSubKind::UserGrouped],
+                label: Some("tab-group".to_string()),
+                agent_decay_progress: None,
+            }),
+            traversal: None,
+            containment: None,
+            arrangement: None,
+            imported: None,
+            provenance: None,
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&edge).unwrap();
         let archived = rkyv::access::<ArchivedPersistedEdge, rkyv::rancor::Error>(&bytes).unwrap();
-        assert_eq!(archived.edge_type, ArchivedPersistedEdgeType::UserGrouped);
+        assert!(archived.semantic.is_some());
     }
 
     #[test]
@@ -537,7 +788,7 @@ mod tests {
         let entry = LogEntry::RemoveEdge {
             from_node_id: Uuid::new_v4().to_string(),
             to_node_id: Uuid::new_v4().to_string(),
-            edge_type: PersistedEdgeType::UserGrouped,
+            selector: PersistedRelationSelector::Semantic(PersistedSemanticSubKind::UserGrouped),
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
@@ -546,11 +797,16 @@ mod tests {
             ArchivedLogEntry::RemoveEdge {
                 from_node_id,
                 to_node_id,
-                edge_type,
+                selector,
             } => {
                 assert!(!from_node_id.as_str().is_empty());
                 assert!(!to_node_id.as_str().is_empty());
-                assert_eq!(*edge_type, ArchivedPersistedEdgeType::UserGrouped);
+                assert_eq!(
+                    *selector,
+                    ArchivedPersistedRelationSelector::Semantic(
+                        ArchivedPersistedSemanticSubKind::UserGrouped,
+                    ),
+                );
             }
             _ => panic!("Expected RemoveEdge variant"),
         }

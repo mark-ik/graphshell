@@ -1477,8 +1477,7 @@ impl GraphStore {
                 ArchivedLogEntry::AddEdge {
                     from_node_id,
                     to_node_id,
-                    edge_type,
-                    edge_label,
+                    assertion,
                 } => {
                     let Ok(from_node_id) = Uuid::parse_str(from_node_id.as_str()) else {
                         continue;
@@ -1486,42 +1485,179 @@ impl GraphStore {
                     let Ok(to_node_id) = Uuid::parse_str(to_node_id.as_str()) else {
                         continue;
                     };
-                    let et = match edge_type {
-                        types::ArchivedPersistedEdgeType::Hyperlink => {
-                            crate::graph::EdgeType::Hyperlink
+                    let assertion = match assertion {
+                        types::ArchivedPersistedEdgeAssertion::Semantic {
+                            sub_kind,
+                            label,
+                            agent_decay_progress,
+                        } => crate::graph::EdgeAssertion::Semantic {
+                            sub_kind: match sub_kind {
+                                types::ArchivedPersistedSemanticSubKind::Hyperlink => {
+                                    crate::graph::SemanticSubKind::Hyperlink
+                                }
+                                types::ArchivedPersistedSemanticSubKind::UserGrouped => {
+                                    crate::graph::SemanticSubKind::UserGrouped
+                                }
+                                types::ArchivedPersistedSemanticSubKind::AgentDerived => {
+                                    crate::graph::SemanticSubKind::AgentDerived
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Cites => {
+                                    crate::graph::SemanticSubKind::Cites
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Quotes => {
+                                    crate::graph::SemanticSubKind::Quotes
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Summarizes => {
+                                    crate::graph::SemanticSubKind::Summarizes
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Elaborates => {
+                                    crate::graph::SemanticSubKind::Elaborates
+                                }
+                                types::ArchivedPersistedSemanticSubKind::ExampleOf => {
+                                    crate::graph::SemanticSubKind::ExampleOf
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Supports => {
+                                    crate::graph::SemanticSubKind::Supports
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Contradicts => {
+                                    crate::graph::SemanticSubKind::Contradicts
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Questions => {
+                                    crate::graph::SemanticSubKind::Questions
+                                }
+                                types::ArchivedPersistedSemanticSubKind::SameEntityAs => {
+                                    crate::graph::SemanticSubKind::SameEntityAs
+                                }
+                                types::ArchivedPersistedSemanticSubKind::DuplicateOf => {
+                                    crate::graph::SemanticSubKind::DuplicateOf
+                                }
+                                types::ArchivedPersistedSemanticSubKind::CanonicalMirrorOf => {
+                                    crate::graph::SemanticSubKind::CanonicalMirrorOf
+                                }
+                                types::ArchivedPersistedSemanticSubKind::DependsOn => {
+                                    crate::graph::SemanticSubKind::DependsOn
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Blocks => {
+                                    crate::graph::SemanticSubKind::Blocks
+                                }
+                                types::ArchivedPersistedSemanticSubKind::NextStep => {
+                                    crate::graph::SemanticSubKind::NextStep
+                                }
+                            },
+                            label: label.as_ref().map(|value| value.to_string()),
+                            decay_progress: agent_decay_progress.as_ref().map(|value| (*value).into()),
+                        },
+                        types::ArchivedPersistedEdgeAssertion::Arrangement { sub_kind } => {
+                            crate::graph::EdgeAssertion::Arrangement {
+                                sub_kind: match sub_kind {
+                                    types::ArchivedPersistedArrangementSubKind::FrameMember => {
+                                        crate::graph::ArrangementSubKind::FrameMember
+                                    }
+                                    types::ArchivedPersistedArrangementSubKind::TileGroup => {
+                                        crate::graph::ArrangementSubKind::TileGroup
+                                    }
+                                    types::ArchivedPersistedArrangementSubKind::SplitPair => {
+                                        crate::graph::ArrangementSubKind::SplitPair
+                                    }
+                                    _ => continue,
+                                },
+                            }
                         }
-                        types::ArchivedPersistedEdgeType::History => {
-                            crate::graph::EdgeType::History
+                        types::ArchivedPersistedEdgeAssertion::Containment { sub_kind } => {
+                            crate::graph::EdgeAssertion::Containment {
+                                sub_kind: match sub_kind {
+                                    types::ArchivedPersistedContainmentSubKind::UrlPath => {
+                                        crate::graph::ContainmentSubKind::UrlPath
+                                    }
+                                    types::ArchivedPersistedContainmentSubKind::Domain => {
+                                        crate::graph::ContainmentSubKind::Domain
+                                    }
+                                    types::ArchivedPersistedContainmentSubKind::FileSystem => {
+                                        crate::graph::ContainmentSubKind::FileSystem
+                                    }
+                                    types::ArchivedPersistedContainmentSubKind::UserFolder => {
+                                        crate::graph::ContainmentSubKind::UserFolder
+                                    }
+                                    types::ArchivedPersistedContainmentSubKind::ClipSource => {
+                                        crate::graph::ContainmentSubKind::ClipSource
+                                    }
+                                    types::ArchivedPersistedContainmentSubKind::NotebookSection => {
+                                        crate::graph::ContainmentSubKind::NotebookSection
+                                    }
+                                    types::ArchivedPersistedContainmentSubKind::CollectionMember => {
+                                        crate::graph::ContainmentSubKind::CollectionMember
+                                    }
+                                },
+                            }
                         }
-                        types::ArchivedPersistedEdgeType::UserGrouped => {
-                            crate::graph::EdgeType::UserGrouped
+                        types::ArchivedPersistedEdgeAssertion::Imported { sub_kind } => {
+                            crate::graph::EdgeAssertion::Imported {
+                                sub_kind: match sub_kind {
+                                    types::ArchivedPersistedImportedSubKind::BookmarkFolder => {
+                                        crate::graph::ImportedSubKind::BookmarkFolder
+                                    }
+                                    types::ArchivedPersistedImportedSubKind::HistoryImport => {
+                                        crate::graph::ImportedSubKind::HistoryImport
+                                    }
+                                    types::ArchivedPersistedImportedSubKind::RssMembership => {
+                                        crate::graph::ImportedSubKind::RssMembership
+                                    }
+                                    types::ArchivedPersistedImportedSubKind::FileSystemImport => {
+                                        crate::graph::ImportedSubKind::FileSystemImport
+                                    }
+                                    types::ArchivedPersistedImportedSubKind::ArchiveMembership => {
+                                        crate::graph::ImportedSubKind::ArchiveMembership
+                                    }
+                                    types::ArchivedPersistedImportedSubKind::SharedCollection => {
+                                        crate::graph::ImportedSubKind::SharedCollection
+                                    }
+                                },
+                            }
                         }
-                        types::ArchivedPersistedEdgeType::ArrangementFrameMember => {
-                            crate::graph::EdgeType::ArrangementRelation(
-                                crate::graph::ArrangementSubKind::FrameMember,
-                            )
-                        }
-                        types::ArchivedPersistedEdgeType::ArrangementTileGroup => {
-                            continue;
-                        }
-                        types::ArchivedPersistedEdgeType::ArrangementSplitPair => {
-                            continue;
+                        types::ArchivedPersistedEdgeAssertion::Provenance { sub_kind } => {
+                            crate::graph::EdgeAssertion::Provenance {
+                                sub_kind: match sub_kind {
+                                    types::ArchivedPersistedProvenanceSubKind::ClippedFrom => {
+                                        crate::graph::ProvenanceSubKind::ClippedFrom
+                                    }
+                                    types::ArchivedPersistedProvenanceSubKind::ExcerptedFrom => {
+                                        crate::graph::ProvenanceSubKind::ExcerptedFrom
+                                    }
+                                    types::ArchivedPersistedProvenanceSubKind::SummarizedFrom => {
+                                        crate::graph::ProvenanceSubKind::SummarizedFrom
+                                    }
+                                    types::ArchivedPersistedProvenanceSubKind::TranslatedFrom => {
+                                        crate::graph::ProvenanceSubKind::TranslatedFrom
+                                    }
+                                    types::ArchivedPersistedProvenanceSubKind::RewrittenFrom => {
+                                        crate::graph::ProvenanceSubKind::RewrittenFrom
+                                    }
+                                    types::ArchivedPersistedProvenanceSubKind::GeneratedFrom => {
+                                        crate::graph::ProvenanceSubKind::GeneratedFrom
+                                    }
+                                    types::ArchivedPersistedProvenanceSubKind::ExtractedFrom => {
+                                        crate::graph::ProvenanceSubKind::ExtractedFrom
+                                    }
+                                    types::ArchivedPersistedProvenanceSubKind::ImportedFromSource => {
+                                        crate::graph::ProvenanceSubKind::ImportedFromSource
+                                    }
+                                },
+                            }
                         }
                     };
                     let _ = apply_graph_delta(
                         graph,
-                        GraphDelta::ReplayAddEdgeByIds {
+                        GraphDelta::ReplayAssertRelationByIds {
                             from_id: from_node_id,
                             to_id: to_node_id,
-                            edge_type: et,
-                            edge_label: edge_label.as_ref().map(|label| label.to_string()),
+                            assertion,
                         },
                     );
                 }
                 ArchivedLogEntry::RemoveEdge {
                     from_node_id,
                     to_node_id,
-                    edge_type,
+                    selector,
                 } => {
                     let Ok(from_node_id) = Uuid::parse_str(from_node_id.as_str()) else {
                         continue;
@@ -1529,34 +1665,180 @@ impl GraphStore {
                     let Ok(to_node_id) = Uuid::parse_str(to_node_id.as_str()) else {
                         continue;
                     };
-                    let et = match edge_type {
-                        types::ArchivedPersistedEdgeType::Hyperlink => {
-                            crate::graph::EdgeType::Hyperlink
+                    let selector = match selector {
+                        types::ArchivedPersistedRelationSelector::Semantic(sub_kind) => {
+                            crate::graph::RelationSelector::Semantic(match sub_kind {
+                                types::ArchivedPersistedSemanticSubKind::Hyperlink => {
+                                    crate::graph::SemanticSubKind::Hyperlink
+                                }
+                                types::ArchivedPersistedSemanticSubKind::UserGrouped => {
+                                    crate::graph::SemanticSubKind::UserGrouped
+                                }
+                                types::ArchivedPersistedSemanticSubKind::AgentDerived => {
+                                    crate::graph::SemanticSubKind::AgentDerived
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Cites => {
+                                    crate::graph::SemanticSubKind::Cites
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Quotes => {
+                                    crate::graph::SemanticSubKind::Quotes
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Summarizes => {
+                                    crate::graph::SemanticSubKind::Summarizes
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Elaborates => {
+                                    crate::graph::SemanticSubKind::Elaborates
+                                }
+                                types::ArchivedPersistedSemanticSubKind::ExampleOf => {
+                                    crate::graph::SemanticSubKind::ExampleOf
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Supports => {
+                                    crate::graph::SemanticSubKind::Supports
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Contradicts => {
+                                    crate::graph::SemanticSubKind::Contradicts
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Questions => {
+                                    crate::graph::SemanticSubKind::Questions
+                                }
+                                types::ArchivedPersistedSemanticSubKind::SameEntityAs => {
+                                    crate::graph::SemanticSubKind::SameEntityAs
+                                }
+                                types::ArchivedPersistedSemanticSubKind::DuplicateOf => {
+                                    crate::graph::SemanticSubKind::DuplicateOf
+                                }
+                                types::ArchivedPersistedSemanticSubKind::CanonicalMirrorOf => {
+                                    crate::graph::SemanticSubKind::CanonicalMirrorOf
+                                }
+                                types::ArchivedPersistedSemanticSubKind::DependsOn => {
+                                    crate::graph::SemanticSubKind::DependsOn
+                                }
+                                types::ArchivedPersistedSemanticSubKind::Blocks => {
+                                    crate::graph::SemanticSubKind::Blocks
+                                }
+                                types::ArchivedPersistedSemanticSubKind::NextStep => {
+                                    crate::graph::SemanticSubKind::NextStep
+                                }
+                            })
                         }
-                        types::ArchivedPersistedEdgeType::History => {
-                            crate::graph::EdgeType::History
+                        types::ArchivedPersistedRelationSelector::Arrangement(sub_kind) => {
+                            crate::graph::RelationSelector::Arrangement(match sub_kind {
+                                types::ArchivedPersistedArrangementSubKind::FrameMember => {
+                                    crate::graph::ArrangementSubKind::FrameMember
+                                }
+                                types::ArchivedPersistedArrangementSubKind::TileGroup => {
+                                    crate::graph::ArrangementSubKind::TileGroup
+                                }
+                                types::ArchivedPersistedArrangementSubKind::SplitPair => {
+                                    crate::graph::ArrangementSubKind::SplitPair
+                                }
+                                _ => continue,
+                            })
                         }
-                        types::ArchivedPersistedEdgeType::UserGrouped => {
-                            crate::graph::EdgeType::UserGrouped
+                        types::ArchivedPersistedRelationSelector::Containment(sub_kind) => {
+                            crate::graph::RelationSelector::Containment(match sub_kind {
+                                types::ArchivedPersistedContainmentSubKind::UrlPath => {
+                                    crate::graph::ContainmentSubKind::UrlPath
+                                }
+                                types::ArchivedPersistedContainmentSubKind::Domain => {
+                                    crate::graph::ContainmentSubKind::Domain
+                                }
+                                types::ArchivedPersistedContainmentSubKind::FileSystem => {
+                                    crate::graph::ContainmentSubKind::FileSystem
+                                }
+                                types::ArchivedPersistedContainmentSubKind::UserFolder => {
+                                    crate::graph::ContainmentSubKind::UserFolder
+                                }
+                                types::ArchivedPersistedContainmentSubKind::ClipSource => {
+                                    crate::graph::ContainmentSubKind::ClipSource
+                                }
+                                types::ArchivedPersistedContainmentSubKind::NotebookSection => {
+                                    crate::graph::ContainmentSubKind::NotebookSection
+                                }
+                                types::ArchivedPersistedContainmentSubKind::CollectionMember => {
+                                    crate::graph::ContainmentSubKind::CollectionMember
+                                }
+                            })
                         }
-                        types::ArchivedPersistedEdgeType::ArrangementFrameMember => {
-                            crate::graph::EdgeType::ArrangementRelation(
-                                crate::graph::ArrangementSubKind::FrameMember,
-                            )
+                        types::ArchivedPersistedRelationSelector::Imported(sub_kind) => {
+                            crate::graph::RelationSelector::Imported(match sub_kind {
+                                types::ArchivedPersistedImportedSubKind::BookmarkFolder => {
+                                    crate::graph::ImportedSubKind::BookmarkFolder
+                                }
+                                types::ArchivedPersistedImportedSubKind::HistoryImport => {
+                                    crate::graph::ImportedSubKind::HistoryImport
+                                }
+                                types::ArchivedPersistedImportedSubKind::RssMembership => {
+                                    crate::graph::ImportedSubKind::RssMembership
+                                }
+                                types::ArchivedPersistedImportedSubKind::FileSystemImport => {
+                                    crate::graph::ImportedSubKind::FileSystemImport
+                                }
+                                types::ArchivedPersistedImportedSubKind::ArchiveMembership => {
+                                    crate::graph::ImportedSubKind::ArchiveMembership
+                                }
+                                types::ArchivedPersistedImportedSubKind::SharedCollection => {
+                                    crate::graph::ImportedSubKind::SharedCollection
+                                }
+                            })
                         }
-                        types::ArchivedPersistedEdgeType::ArrangementTileGroup => {
-                            continue;
+                        types::ArchivedPersistedRelationSelector::Family(family) => {
+                            crate::graph::RelationSelector::Family(match family {
+                                types::ArchivedPersistedEdgeFamily::Semantic => {
+                                    crate::graph::EdgeFamily::Semantic
+                                }
+                                types::ArchivedPersistedEdgeFamily::Traversal => {
+                                    crate::graph::EdgeFamily::Traversal
+                                }
+                                types::ArchivedPersistedEdgeFamily::Containment => {
+                                    crate::graph::EdgeFamily::Containment
+                                }
+                                types::ArchivedPersistedEdgeFamily::Arrangement => {
+                                    crate::graph::EdgeFamily::Arrangement
+                                }
+                                types::ArchivedPersistedEdgeFamily::Imported => {
+                                    crate::graph::EdgeFamily::Imported
+                                }
+                                types::ArchivedPersistedEdgeFamily::Provenance => {
+                                    crate::graph::EdgeFamily::Provenance
+                                }
+                            })
                         }
-                        types::ArchivedPersistedEdgeType::ArrangementSplitPair => {
-                            continue;
+                        types::ArchivedPersistedRelationSelector::Provenance(sub_kind) => {
+                            crate::graph::RelationSelector::Provenance(match sub_kind {
+                                types::ArchivedPersistedProvenanceSubKind::ClippedFrom => {
+                                    crate::graph::ProvenanceSubKind::ClippedFrom
+                                }
+                                types::ArchivedPersistedProvenanceSubKind::ExcerptedFrom => {
+                                    crate::graph::ProvenanceSubKind::ExcerptedFrom
+                                }
+                                types::ArchivedPersistedProvenanceSubKind::SummarizedFrom => {
+                                    crate::graph::ProvenanceSubKind::SummarizedFrom
+                                }
+                                types::ArchivedPersistedProvenanceSubKind::TranslatedFrom => {
+                                    crate::graph::ProvenanceSubKind::TranslatedFrom
+                                }
+                                types::ArchivedPersistedProvenanceSubKind::RewrittenFrom => {
+                                    crate::graph::ProvenanceSubKind::RewrittenFrom
+                                }
+                                types::ArchivedPersistedProvenanceSubKind::GeneratedFrom => {
+                                    crate::graph::ProvenanceSubKind::GeneratedFrom
+                                }
+                                types::ArchivedPersistedProvenanceSubKind::ExtractedFrom => {
+                                    crate::graph::ProvenanceSubKind::ExtractedFrom
+                                }
+                                types::ArchivedPersistedProvenanceSubKind::ImportedFromSource => {
+                                    crate::graph::ProvenanceSubKind::ImportedFromSource
+                                }
+                            })
                         }
                     };
                     let _ = apply_graph_delta(
                         graph,
-                        GraphDelta::ReplayRemoveEdgesByIds {
+                        GraphDelta::ReplayRetractRelationsByIds {
                             from_id: from_node_id,
                             to_id: to_node_id,
-                            edge_type: et,
+                            selector,
                         },
                     );
                 }
@@ -1821,8 +2103,11 @@ mod tests {
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
-                edge_type: types::PersistedEdgeType::Hyperlink,
-                edge_label: None,
+                assertion: types::PersistedEdgeAssertion::Semantic {
+                    sub_kind: types::PersistedSemanticSubKind::Hyperlink,
+                    label: None,
+                    agent_decay_progress: None,
+                },
             });
         }
 
@@ -1864,8 +2149,11 @@ mod tests {
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
-                edge_type: types::PersistedEdgeType::UserGrouped,
-                edge_label: None,
+                assertion: types::PersistedEdgeAssertion::Semantic {
+                    sub_kind: types::PersistedSemanticSubKind::UserGrouped,
+                    label: None,
+                    agent_decay_progress: None,
+                },
             });
         }
 
@@ -1903,8 +2191,11 @@ mod tests {
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
-                edge_type: types::PersistedEdgeType::UserGrouped,
-                edge_label: Some("tab-group".to_string()),
+                assertion: types::PersistedEdgeAssertion::Semantic {
+                    sub_kind: types::PersistedSemanticSubKind::UserGrouped,
+                    label: Some("tab-group".to_string()),
+                    agent_decay_progress: None,
+                },
             });
         }
 
@@ -2026,13 +2317,18 @@ mod tests {
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
-                edge_type: types::PersistedEdgeType::UserGrouped,
-                edge_label: None,
+                assertion: types::PersistedEdgeAssertion::Semantic {
+                    sub_kind: types::PersistedSemanticSubKind::UserGrouped,
+                    label: None,
+                    agent_decay_progress: None,
+                },
             });
             store.log_mutation(&LogEntry::RemoveEdge {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
-                edge_type: types::PersistedEdgeType::UserGrouped,
+                selector: types::PersistedRelationSelector::Semantic(
+                    types::PersistedSemanticSubKind::UserGrouped,
+                ),
             });
         }
 
@@ -2066,12 +2362,6 @@ mod tests {
                 position_x: 1.0,
                 position_y: 1.0,
                 timestamp_ms: 0,
-            });
-            store.log_mutation(&LogEntry::AddEdge {
-                from_node_id: id_a.to_string(),
-                to_node_id: id_b.to_string(),
-                edge_type: types::PersistedEdgeType::History,
-                edge_label: None,
             });
             store.log_mutation(&LogEntry::AppendTraversal {
                 from_node_id: id_a.to_string(),
@@ -2705,13 +2995,6 @@ mod tests {
                 position_y: 0.0,
                 timestamp_ms: 0,
             });
-            store.log_mutation(&LogEntry::AddEdge {
-                from_node_id: id_a.to_string(),
-                to_node_id: id_b.to_string(),
-                edge_type: types::PersistedEdgeType::History,
-                edge_label: None,
-            });
-
             // Archive traversal events
             store
                 .archive_append_traversal(&LogEntry::AppendTraversal {

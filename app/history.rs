@@ -107,17 +107,18 @@ impl super::GraphBrowserApp {
         })
     }
 
-    pub(crate) fn has_typed_edge(
+    pub(crate) fn has_relation(
         &self,
         from: super::NodeKey,
         to: super::NodeKey,
-        edge_type: super::EdgeType,
+        selector: crate::graph::RelationSelector,
     ) -> bool {
         self.workspace
             .domain
             .graph
-            .edges()
-            .any(|edge| edge.from == from && edge.to == to && edge.edge_type == edge_type)
+            .find_edge_key(from, to)
+            .and_then(|edge_key| self.workspace.domain.graph.get_edge(edge_key))
+            .is_some_and(|payload| payload.has_relation(selector))
     }
 
     fn would_create_user_grouped_edge(&self, from: super::NodeKey, to: super::NodeKey) -> bool {
@@ -129,7 +130,11 @@ impl super::GraphBrowserApp {
         {
             return false;
         }
-        !self.has_typed_edge(from, to, super::EdgeType::UserGrouped)
+        !self.has_relation(
+            from,
+            to,
+            crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped),
+        )
     }
 
     fn would_promote_import_record_to_user_group(
@@ -196,8 +201,8 @@ impl super::GraphBrowserApp {
             super::GraphMutation::RemoveEdge {
                 from,
                 to,
-                edge_type,
-            } => self.has_typed_edge(from, to, edge_type),
+                selector,
+            } => self.has_relation(from, to, selector),
             super::GraphMutation::SetNodePinned { key, is_pinned } => {
                 let Some(node) = self.workspace.domain.graph.get_node(key) else {
                     return false;

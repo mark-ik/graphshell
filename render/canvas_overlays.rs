@@ -6,7 +6,7 @@
 //! hovered-edge tooltip, and hovered-node tooltip.
 
 use crate::app::GraphBrowserApp;
-use crate::graph::{EdgePayload, EdgeType, NodeLifecycle};
+use crate::graph::{EdgeFamily, EdgePayload, NodeLifecycle, RelationSelector, SemanticSubKind};
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use egui::{Stroke, Ui, Vec2};
 use egui_graphs::MetadataFrame;
@@ -17,13 +17,13 @@ use std::time::{Duration, UNIX_EPOCH};
 
 fn edge_family_rows(payload: &EdgePayload) -> Vec<String> {
     let mut rows = Vec::new();
-    if payload.has_edge_type(EdgeType::Hyperlink) {
+    if payload.has_relation(RelationSelector::Semantic(SemanticSubKind::Hyperlink)) {
         rows.push("hyperlink | durable | graph.link_extraction".to_string());
     }
-    if payload.has_edge_type(EdgeType::History) {
+    if payload.has_relation(RelationSelector::Family(EdgeFamily::Traversal)) {
         rows.push("history | durable | runtime.navigation_log".to_string());
     }
-    if payload.has_edge_type(EdgeType::UserGrouped) {
+    if payload.has_relation(RelationSelector::Semantic(SemanticSubKind::UserGrouped)) {
         rows.push("user-grouped | durable | user.explicit_grouping".to_string());
     }
     if let Some(arrangement) = payload.arrangement_data() {
@@ -370,16 +370,36 @@ pub(super) fn draw_hovered_node_tooltip(
         .fixed_pos(anchor + egui::vec2(14.0, 14.0))
         .interactable(false)
         .show(ui.ctx(), |ui| {
+            let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(240.0);
                 ui.strong(compact_hover_node_label(node));
-                ui.small(format!("Last visited: {last_visited_text}"));
-                ui.small(format!("Lifecycle: {lifecycle_text}"));
+                ui.label(
+                    egui::RichText::new(format!("Last visited: {last_visited_text}"))
+                        .small()
+                        .color(theme_tokens.radial_chrome_text),
+                );
+                ui.label(
+                    egui::RichText::new(format!("Lifecycle: {lifecycle_text}"))
+                        .small()
+                        .color(theme_tokens.radial_chrome_text),
+                );
                 if !workspace_memberships.is_empty() {
                     ui.separator();
-                    ui.small(format!("Workspaces ({})", workspace_memberships.len()));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Workspaces ({})",
+                            workspace_memberships.len()
+                        ))
+                        .small()
+                        .color(theme_tokens.command_notice),
+                    );
                     for workspace in &workspace_memberships {
-                        ui.small(format!("- {workspace}"));
+                        ui.label(
+                            egui::RichText::new(format!("- {workspace}"))
+                                .small()
+                                .color(theme_tokens.radial_chrome_text),
+                        );
                     }
                 }
             });

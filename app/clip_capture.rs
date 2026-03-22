@@ -2,7 +2,7 @@ use base64::Engine;
 use euclid::default::Point2D;
 
 use crate::app::{GraphBrowserApp, RendererId};
-use crate::graph::{AddressKind, EdgeType, NodeKey};
+use crate::graph::{AddressKind, NodeKey};
 
 const CLIP_EDGE_LABEL: &str = "clip-source";
 const CLIP_TITLE_FALLBACK: &str = "Clipped element";
@@ -213,11 +213,14 @@ impl GraphBrowserApp {
         let _ = graph.set_node_address_kind(clip_key, AddressKind::Custom);
         let _ = graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
         self.workspace.graph_runtime.semantic_index_dirty = true;
-        let _ = self.add_edge_and_sync(
+        let _ = self.assert_relation_and_sync(
             source_key,
             clip_key,
-            EdgeType::UserGrouped,
-            Some(CLIP_EDGE_LABEL.to_string()),
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::UserGrouped,
+                label: Some(CLIP_EDGE_LABEL.to_string()),
+                decay_progress: None,
+            },
         );
         clip_key
     }
@@ -364,7 +367,6 @@ mod tests {
         resolved_clip_title,
     };
     use crate::app::GraphBrowserApp;
-    use crate::graph::EdgeType;
 
     fn test_webview_id() -> WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -453,19 +455,18 @@ mod tests {
         );
         assert!(clip_node.url.starts_with("data:text/html"));
 
-        let has_clip_edge = app.workspace.domain.graph.edges().any(|edge| {
-            edge.from == source_key
-                && edge.to == clip_key
-                && edge.edge_type == EdgeType::UserGrouped
-                && app
-                    .workspace
-                    .domain
-                    .graph
-                    .find_edge_key(source_key, clip_key)
-                    .and_then(|edge_key| app.workspace.domain.graph.get_edge(edge_key))
-                    .and_then(|payload| payload.label())
-                    == Some(CLIP_EDGE_LABEL)
-        });
+        let has_clip_edge = app
+            .workspace
+            .domain
+            .graph
+            .find_edge_key(source_key, clip_key)
+            .and_then(|edge_key| app.workspace.domain.graph.get_edge(edge_key))
+            .is_some_and(|payload| {
+                payload.has_relation(crate::graph::RelationSelector::Semantic(
+                    crate::graph::SemanticSubKind::UserGrouped,
+                ))
+                    && payload.label() == Some(CLIP_EDGE_LABEL)
+            });
         assert!(has_clip_edge, "expected labeled clip-source edge");
     }
 

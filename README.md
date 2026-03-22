@@ -7,8 +7,11 @@
 - Force-directed node graph canvas (that's the spatial bit) where nodes represent content (webviews, documents, media, file directories)
 - The graph IS the session state, not a visualization or projection.
 - Nodes are related by edge types organized into families: semantic, traversal, containment, arrangement, imported
-- Manipulate graphlet (a set of connected nodes) structure manually (select, drag, tag, create/delete)
-- Configure what edge types are rendered for either the whole graph or specific nodes
+- Manipulate graphlet structure manually. A graphlet is the connected component
+  produced by the currently active edge projection, not a permanently fixed
+  object.
+- Configure what edge families/selectors are rendered per graph, per graph
+  view, or for an explicit node selection
 
 ## Workbench
 
@@ -16,40 +19,53 @@
 
 - Panes: chromeless, ephemeral content view. No graph representation
 - Tiles: container + pane with a tab handle, arrangable. Represented as nodes in the graph
-- Tile groups: container with multiple tiles with impermanent layout. Represented as edge-connected nodes in the graph
+- Tile groups: container with multiple tiles with impermanent layout. A tile
+  group can stay linked to a graphlet definition or detach as an arrangement
+  snapshot
 - Frames: persisted arrangement of tiles (like split/quarterscreen arrangements). Represented as a box of nodes, each centered where their tiles are in the arrangement. Nodes in the frame can still have edges leading out of the frame.
 
-## Navigator
+## Navigator (in dev)
 
-- Toolbar
-- Sidebar
-- Graph Bar
-- Workbench Bar
+    a UI projection over your graph and workbench state
 
-## Commands
+- Sidebar: full hierarchical tree — nodes, graphlets, frames, open tiles, cold members included. Automatically scopable to the graph or workbench, or includes both
+- Toolbar: compact version of the sidebar for when you want the gutter space back
 
-- Palette
-- Registry
-- Keyboard-first navigation
-- - Keybinds
 
-## Lens system
+## Commands (done, description pending)
 
-- Layout
-- Filter
-- Theme
-- Physics
-- Scene
+    Every action has a canonical ID, preconditions, and a reason when it's disabled. No silent dead buttons.
 
-## Diagnostics
+- Command palette: keyboard-invoked, fuzzy search over all registered actions
+- Radial menu: context-aware, pointer/touch, geometry-constrained so label text doesn't collide
+- Keybindings: keyboard-first throughout, fully remappable
 
-- Goal: practically self-debugging, covering ui, ux, all system components, telemetry.
-- Whenever I run into an issue with this app, my first move
+## Lens system (to polish)
+
+    A named configuration of how the graph renders and behaves. Applied per graph view, not globally.
+
+- Layout: physics preset — force-directed, tree, ring, bus, etc.
+- Filter: faceted filter on nodes and edges — what's visible and why
+- Theme: visual encoding of edge families, node roles, badges
+- Physics: simulation parameters — attraction, repulsion, damping
+- Scene: saved combination of the above, switchable without touching graph truth
+
+## Diagnostics (done and always expanding)
+
+    The app, watching itself.
+
+- Every subsystem emits structured events through a shared channel bus: compositor frames, layout coverage, UX tree snapshots, storage health, focus state, security events
+- Channels have declared severity and schema versions — shape changes are caught by snapshot tests
+- Whenever I run into an issue, my first move is the diagnostics pane. That's the goal: you open it and it tells you where things went wrong before you reach for a debugger
 
 ## Accessibility
 
-- important, because everyone benefits from clear accessibility semantics
-- navigate through graphs with the keyboard, ux-aware element narration, accessibility contracts for ui and ux elements
+    Everyone benefits from clear accessibility semantics, not just screen reader users.
+
+- The UX tree semantic projection feeds AccessKit — screen readers get the same structured view of the workbench that the diagnostics pane does
+- Keyboard navigation with deterministic focus order, region cycling, no focus traps
+- Every surface must either meet the accessibility contract or explicitly declare partial support — silent regressions are caught by contract tests
+- WCAG 2.2 Level AA target
 
 ## Build and Run (Standalone)
 
@@ -92,25 +108,13 @@ These environment variables override CLI/prefs for quick tuning (occasionally go
 - `GRAPHSHELL_WINDOW_SIZE`: Override initial window size, e.g. `1024x740`.
 - `GRAPHSHELL_HISTORY_MANAGER_LIMIT`: Max entries shown in History Manager lists.
 
-## Verse - P2P Networking, in your browser!
+## Verse - P2P Networking, in your browser! (being designed)
 
-    Optional, decentralized network components (still in design phase)
+    pool storage, browsing reports, and data weights into a decentralized, permissions-based, and federated network of communities.
 
-The second half of the project: pooling storage and browsing data into a decentralized, permissions-based peer network, controlled from the grass up. A decentralized storage time bank + communal intelligence
+    **Optional, decentralized network components**
 
 - Nostr NIP-72 communities for creating, curating, and sharing various amenities (indices, applets, graph views, hosted sites, mods for graphshell (commands, layouts, scenes, etc.), model skills, forums), semantically-categorized, and self-organized.
-
-### Reputation
-
-    Proof of access ledger: reputation is always computed even when there's no payout, through receipts
-
-- For network reputation, receipts have reputational utility but don't allow low-volume, low quality reputational inflation
-- - Blobs served: storage and retrieval cycles
-- - Index quality (community/validator semantic grading vs contributor's manifest and grading)
-- - FLoRA contributions (weight submissions)
-- Review, admin, moderation work
-- Reputation decay: mild, rolling decay to prevent oligarchies of early network participants
-- Community-specific reputations, which can provide you with crediblity in related communities
 
 ### Decentralized Search (shout out, YaCy)
 
@@ -135,12 +139,31 @@ The second half of the project: pooling storage and browsing data into a decentr
 - - - Circumstantial value dependent on dataset size, character, consistency, quality, range, subject, and semantics
 - - keep your raw data private always, but the more you share weights derived from that data without significant updates to the dataset, the less rare and valuable the weights become.
 
-### Storage Economy
+### Decentralized Storage Time Bank
 
     shared storage sourced from either self/peer/priority-hosting, or decentralized storage economy
 
 - - Commit storage to the network for a certain amount of time, and recieve tokenized compensation. I don't want to make an asset for $$$$, just a utility for a real problem!
 - - The goal is to make the networked data reliably accessible and only to permitted users, so you'd basically get paid in the right to more storage, depending on the number of peers looking for the data and the number of seeds
+
+### Reputation
+
+    All of this — storage, indexing, crawling, reviews, FLora contributions — is accounted through a Proof of Access ledger. Receipts are evidence of work, not money.
+
+- Reputation is always computed; financialization is optional and off by default. I don't want to see sats everywhere; talk about a hostile, fork over your cash ux!
+- Reputation half-life: reputation decays gently over time so early participants don't entrench permanently
+- - High water mark: the highest your rep gets in a community is persisted as a separate rep field
+- - This decay rate (halving rep by specified time) can be adjusted by the rep attributing party, between the bounds of a month and a year.
+- - - Floor: can't be so fast that less than a month away tanks half your rep
+- - - Ceiling: can't be so slow that someone inactive for a year retains  power
+- Community-specific reputations
+- - Provide you with crediblity depending on how people view the standards of the community
+- - Communities decide their own reward schedules, what they value, what they accept in type, granular semantics, and quality, and how quickly their reputations decay.
+- - For network reputation, receipts have reputational utility but characterize what you do ~in context~, disallowing low-volume, low quality reputational inflation
+- - - Blobs served: storage and retrieval cycles
+- - - Index quality (community/validator semantic grading vs contributor's manifest and grading)
+- - - FLoRA contributions (weight submissions)
+- - - Review, admin, moderation work
 
 ### Co-op Browsing
 
@@ -155,7 +178,7 @@ The second half of the project: pooling storage and browsing data into a decentr
 - - Screenshare a webview to another participant; the share is cast into a pane or an arrangeable tile on their end
 - Built on [iroh](https://github.com/n0-computer/iroh) for transport
 
-### Nostr Spine
+### Nostr (spine partially reticulated)
 
     Graphshell uses Nostr as its identity and social/post layer
 
@@ -166,7 +189,7 @@ The second half of the project: pooling storage and browsing data into a decentr
 - DMs and notifications use Nostr relays (NIP-17 sealed gift-wrap)
 - No account nor server required, just a keypair. But you can be a relay and rebroadcast your choice of stuff!
 
-### Matrix Rooms
+### Matrix Rooms (not yet)
 
     Between a co-op session and a full Verse community, this is the tier for mid-sized groups of peers
 
@@ -180,7 +203,15 @@ The second half of the project: pooling storage and browsing data into a decentr
 
 First, a disclaimer: I use and have used AI to support this project.
 
-The idea itself is not the product of AI. I have years of notes in which I drafted the graph browser idea and the decentralized network component. I iterated my way into the insight that users should own their data, not be tracked, and we ourselves can capture much richer browsing insights than trackers. That's the second, prospective half of this project, the Verse bit.
+The idea itself is not the product of AI. I have years of notes in which I drafted the graph browser idea and the decentralized network component. I iterated my way into the insight that users should own their data, not be tracked, and we ourselves can capture much richer browsing insights than trackers. That's the real source of the second, prospective half of this project, the Verse bit.
+
+Now, that said, there's tremendous potential in this tech. I have no fear of new tech. The costs and benefits are able to be balanced if they are managed collectively and not monopolistically. And we can use our collective resources so much more efficiently, with AI.
+
+We need not destroy the environment, poison our water, or heat our atmosphere just because we have new tools. That's a capitalism problem. My thing is, stop using *any* tools to capitalize on and exploit people.
+
+The biggest cost people bear is the cost of being exploited by profit-driven companies. Can you imagine the money they're going to squeeze from you in the future, when you really do need some level of routinized, predictable computation to deal with every day life?
+
+I want to make sure normal people have a path to being able to manage and benefit from the tremendous amounts of data they own and make, that privacy is the default on the web, and that we can pool our resources in a consensual, communal manner.
 
 I'm not an experienced developer in the least but I've got opinions, a smidgen of coding experience, and honestly, I want to learn how to use these discursive tools and see how far I can get with them. I've also followed the Servo community for years, despite not being a real developer: please contribute if you are able!
 
@@ -206,9 +237,14 @@ Other inspirations:
 
 ### Want to help?
 
-If you can, please contribute to [Servo](https://servo.org)! Servo needs high-quality contributions (and cash) more than ever to close the WPT gap and implement the web standards that will empower graphshell and many more browsers to come.
-Servo does not accept AI contributions, but the components shared with Firefox may be covered by Firefox's more permissive AI policy.
+If you can, **please contribute to [Servo](https://servo.org)**! Servo needs high-quality contributions (and cash) more than ever to close the WPT gap and implement the web standards that will empower graphshell and many more sophisticated browsers to come.
 
-If you want to help improve graphshell's infrastructure and are intimidated (like me) by Servo's complexity. Raise issues in this repo if you actually use this hobby project of mine, but you can also contribute to the crates I'm using, in particular egui: egui_glow, egui_graphs, egui_tiles, egui-winit, egui-file-dialog, egui-notify.
+**Servo does not accept AI contributions**, but the components shared with Firefox may be covered by Firefox's more permissive AI policy.
+
+If you want to help improve graphshell's infrastructure and are intimidated (like me) by Servo's complexity...
+
+- raise issues in this repo if you actually use this hobby project of mine
+- you can also contribute to the crates I'm using, in particular egui: egui_glow, egui_graphs, egui_tiles, egui-winit, egui-file-dialog, egui-notify.
+- I'm a real sucker for a helper, please tell me if I'm approaching this naively and you have a better recommendation!
 
 Lastly, I am not a rich man, and I would like to live alone and work on labors of love. If you find that you have a ducat or two left after tithing the big projects, here's [my ko-fi link](https://ko-fi.com/markik).

@@ -84,12 +84,16 @@ pub enum AnchorEdge {
 
 /// Semantic surface roles that can carry layout constraints.
 /// These map to UxDomainIdentity variants and survive tile-key churn.
+///
+/// Note: the Navigator surface has two form factors (Sidebar panel and
+/// Toolbar bar), but both are the same semantic role — `Navigator`.
+/// Form factor is tracked separately in `WorkbenchProfile` via the
+/// Navigator scope/form-factor settings (see `NAVIGATOR.md §11`).
+/// `SurfaceRole` does not encode form factor.
 pub enum SurfaceRole {
     Navigator,
-    Toolbar,
     DiagnosticsPane,
     FacetRail,
-    Sidebar,
     /// Named custom surface (for future extension).
     Named(Arc<str>),
 }

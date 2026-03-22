@@ -372,6 +372,7 @@ pub(super) fn render_selected_node_tag_panel(
     let mut pending_icon_write: Option<(String, Option<crate::graph::badge::BadgeIcon>)> = None;
     let warning = reserved_tag_warning(&text_input);
     let suggestions = ranked_tag_suggestions(app, selected_key, &text_input);
+    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
 
     Window::new(format!("Tags for {}", title))
         .id(egui::Id::new((
@@ -456,7 +457,11 @@ pub(super) fn render_selected_node_tag_panel(
                 });
             }
             if let Some(warning) = warning.as_ref() {
-                ui.small(warning);
+                ui.label(
+                    egui::RichText::new(warning)
+                        .small()
+                        .color(theme_tokens.command_notice),
+                );
             }
 
             ui.separator();
@@ -549,6 +554,7 @@ pub(super) fn render_semantic_tag_status_buttons(
     app: &mut GraphBrowserApp,
     chips: &[SemanticTagStatusChip],
 ) {
+    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
     ui.horizontal_wrapped(|ui| {
         for entry in chips {
             ui.vertical(|ui| {
@@ -570,7 +576,11 @@ pub(super) fn render_semantic_tag_status_buttons(
                         ),
                     );
                 }
-                ui.small(&entry.status);
+                ui.label(
+                    egui::RichText::new(&entry.status)
+                        .small()
+                        .color(theme_tokens.radial_chrome_text),
+                );
             });
         }
     });
@@ -581,6 +591,7 @@ pub(super) fn render_semantic_suggestion_buttons(
     app: &mut GraphBrowserApp,
     chips: &[SemanticSuggestionChip],
 ) {
+    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
     ui.horizontal_wrapped(|ui| {
         for entry in chips {
             ui.vertical(|ui| {
@@ -602,7 +613,11 @@ pub(super) fn render_semantic_suggestion_buttons(
                         ),
                     );
                 }
-                ui.small(&entry.reason);
+                ui.label(
+                    egui::RichText::new(&entry.reason)
+                        .small()
+                        .color(theme_tokens.radial_chrome_text),
+                );
             });
         }
     });

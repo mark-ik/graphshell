@@ -10,6 +10,7 @@ how node navigation resolves between graph and workbench presentations.
 
 - [NAVIGATOR.md](NAVIGATOR.md) — Navigator domain spec and authority boundaries
 - [navigator_backlog_pack.md](navigator_backlog_pack.md) — implementation backlog
+- `../workbench/graphlet_projection_binding_spec.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../canvas/frame_graph_representation_spec.md`
@@ -42,19 +43,29 @@ The Sidebar Navigator and Toolbar Navigator must behave identically.
 
 The Navigator projects:
 
-- graph-backed nodes that belong to an arrangement group (connected via
-  `UserGrouped` or `ArrangementRelation(FrameMember)` edges), **regardless of
-  lifecycle**. Cold graphlet members appear with a ○ residency badge; warm/active
-  members appear with a ● badge. Cold members are not suppressed.
+- graph-backed nodes that belong to the currently resolved graphlet projection,
+  **regardless of lifecycle**. Cold graphlet members appear with a ○ residency
+  badge; warm/active members appear with a ● badge. Cold members are not
+  suppressed.
 - structural arrangement containers (`Frame`, `Tile`, `Split`, `Group`)
 - node residency/presentation state (`NodeLifecycle`) needed to decide whether
   a node is live in workbench memory or cold on the graph
 
 **Updated from prior specification**: the Navigator previously suppressed nodes
 without a live tile representation. Under the graphlet model, graph membership
-(durable edges + lifecycle) is sufficient for Navigator projection. The tile tree
-is not the authority. Cold members are always visible so users can discover and
-activate them.
+(selector-resolved connectivity + lifecycle) is sufficient for Navigator
+projection. The tile tree is not the authority. Cold members are always visible
+so users can discover and activate them.
+
+Projection resolution follows the same scope stack as workbench graphlet
+routing:
+
+- selection override
+- graph-view override
+- graph default
+
+Compatibility fallback to durable `UserGrouped` + `FrameMember` graphlets is
+allowed during migration, but it is not the intended long-term authority.
 
 Bare panes with no container-backed node representation (e.g. graph-view panes
 not belonging to any graphlet) do **not** appear as Navigator rows, even if they
@@ -176,6 +187,63 @@ explicitly rather than inferred.
 Frame chips and tile chips in the workbench header/sidebar are structural
 switch affordances, not node rows. They do not participate in node selection.
 
+### 4.4 Security and Permission Chips
+
+Navigator header chrome may also render focused-node trust and origin
+permission chips. These are neither structural rows nor node rows; they are
+read-only status affordances with detail-launch behavior.
+
+Required behavior:
+
+1. Trust chips summarize the focused or selected node's current transport trust
+  state and degraded-origin warnings.
+2. Permission chips summarize per-origin state for camera, microphone,
+  location, and notifications.
+3. Clicking a trust or permission chip opens the relevant detail surface,
+  inspector, or permission-management route. It does not write graph
+  selection truth.
+4. Trust and permission chips must not disappear solely because the Navigator
+  switches between sidebar/toolbar or graph/workbench scope while a node-backed
+  content surface remains active.
+
+### 4.5 Focused Content Control Chips
+
+Navigator header chrome must render a focused-content control cluster whenever
+the focused or selected node resolves to a live content viewer that supports
+page-local controls.
+
+Required controls:
+
+- **Load-state chip/control**: shows whether the page is loading, idle, or
+  failed. While loading, it exposes `StopLoad` / `CancelLoad`.
+
+- **Find-in-page chip/control**: opens a page-local find surface scoped to the
+  focused viewer only. It must not reuse or overwrite graph search state.
+
+- **Content zoom chip/control**: shows current viewer content zoom level and
+  exposes zoom in, zoom out, and reset actions for page content only.
+
+- **Media chip/control**: shows whether the focused tile is currently playing
+  audio/media and exposes mute/unmute at the tile/viewer level.
+
+- **Downloads chip/control**: shows active or recent download state when
+  present and opens the downloads manager/history surface on activation.
+
+Required behavior:
+
+1. Clicking these chips routes to viewer/runtime authority, not graph
+  selection mutation.
+2. `Ctrl+F` routed from focused content opens find-in-page for that content
+  viewer, not graph search.
+3. `Ctrl+=`, `Ctrl+-`, and `Ctrl+0` routed from focused content control viewer
+  content zoom, not graph camera zoom.
+4. Audio/media and downloads indicators must remain visible in Navigator chrome
+  while their underlying focused content state remains active or relevant.
+5. Unsupported controls must degrade explicitly. For example, a plaintext or
+  placeholder viewer may omit the media chip entirely, while a viewer lacking
+  in-page search must show an explicit blocked reason rather than silently
+  hijacking graph search.
+
 ---
 
 ## 5. Synchronization
@@ -200,6 +268,13 @@ This is enough to drive:
 - row action visibility
 - graph selection highlight
 - residency badges (`cold`, `live`, etc.)
+
+Additional focused-node chrome state, such as trust and per-origin permission
+chips, is synchronized from security/runtime truth rather than from row state.
+
+The same rule applies to focused-content controls: load state, content zoom,
+media status, and downloads status are projected from viewer/runtime truth,
+not inferred from Navigator-local state.
 
 ---
 
@@ -235,3 +310,12 @@ of one shared node identity.
 | Dismissed node remains in graphlet | Test: dismiss node -> durable edges intact; node still in Navigator row for its graphlet |
 | Right-click cold node offers RemoveFromGraphlet | Test: right-click cold node row -> context menu shows `RemoveFromGraphlet`; activating retracts durable edges; node leaves Navigator row |
 | Sidebar and Toolbar Navigator use the same grammar | Test: same node/structural row interactions behave identically in both surfaces |
+| Focused secure web node shows trust chip | Test: focus secure web-content node -> Navigator header shows secure trust indicator without opening settings |
+| Mixed-content node shows degraded warning chip | Test: focus node with mixed content -> Navigator header shows degraded trust warning |
+| Focused origin shows permission chips | Test: focus node with origin permission state -> camera/microphone/location/notifications chips show `allowed` / `blocked` / `prompt` as applicable |
+| Trust/permission chip click does not change node selection | Test: click security chip -> detail surface opens; graph selection truth unchanged |
+| Loading page shows stop-load control | Test: focus node with in-progress page load -> Navigator header shows stop/cancel load affordance |
+| Focused viewer `Ctrl+F` opens find in page | Test: focused content viewer + `Ctrl+F` -> page-local find surface opens; graph search state unchanged |
+| Content zoom controls stay distinct from graph zoom | Test: focused content viewer + zoom shortcut/chip -> rendered page zoom changes; graph camera unchanged |
+| Playing media shows media chip | Test: focused tile playing audio -> Navigator header shows media indicator and mute action |
+| Active download shows downloads chip | Test: focused content starts a download -> Navigator header shows download indicator and opens download manager on click |

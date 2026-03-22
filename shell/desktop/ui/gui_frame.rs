@@ -588,19 +588,41 @@ mod connected_open_tests {
         let shared =
             app.add_node_and_sync("https://shared.example".into(), Point2D::new(30.0, 0.0));
 
-        let _ = app.add_edge_and_sync(source, left, crate::model::graph::EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(
+        let _ = app.assert_relation_and_sync(
+            source,
+            left,
+            crate::model::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::model::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        let _ = app.assert_relation_and_sync(
             source,
             right,
-            crate::model::graph::EdgeType::Hyperlink,
-            None,
+            crate::model::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::model::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
         );
-        let _ = app.add_edge_and_sync(left, shared, crate::model::graph::EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(
+        let _ = app.assert_relation_and_sync(
+            left,
+            shared,
+            crate::model::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::model::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        let _ = app.assert_relation_and_sync(
             right,
             shared,
-            crate::model::graph::EdgeType::Hyperlink,
-            None,
+            crate::model::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::model::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
         );
 
         let candidates = app
@@ -629,17 +651,23 @@ mod connected_open_tests {
         let depth_two =
             app.add_node_and_sync("https://depth-two.example".into(), Point2D::new(20.0, 0.0));
 
-        let _ = app.add_edge_and_sync(
+        let _ = app.assert_relation_and_sync(
             source,
             neighbor,
-            crate::model::graph::EdgeType::Hyperlink,
-            None,
+            crate::model::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::model::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
         );
-        let _ = app.add_edge_and_sync(
+        let _ = app.assert_relation_and_sync(
             neighbor,
             depth_two,
-            crate::model::graph::EdgeType::Hyperlink,
-            None,
+            crate::model::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::model::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
         );
 
         let candidates = app

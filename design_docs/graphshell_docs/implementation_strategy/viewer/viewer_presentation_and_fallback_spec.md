@@ -57,6 +57,7 @@ It explains:
 - who owns viewer selection and render-mode policy,
 - what state transitions viewer routing implies,
 - what visual feedback must accompany loading, fallback, and degraded states,
+- which focused-content controls must exist for page-local browsing behavior,
 - what fallback behavior must happen when the preferred viewer is unavailable,
 - which viewer capabilities are core, planned, and exploratory.
 
@@ -170,6 +171,50 @@ Make incomplete viewer paths explicit.
 
 **Fallback**: Partial behavior must describe what is missing. Deferred behavior must surface as intentional absence, not as a broken pane.
 
+### 4.3A Focused Content Control Surface
+
+For live content viewers, Graphshell must expose page-local viewer controls that
+are distinct from graph controls and global settings.
+
+Required focused-content controls:
+
+- **Stop / cancel load** — visible only while the current page load is in
+   progress
+- **Find in page** — searches within the rendered content of the active viewer
+   only
+- **Content zoom** — zoom in/out/reset for rendered page content only
+- **Audio / media controls** — playing indicator plus tile-level mute/unmute
+- **Downloads** — active/recent download indicator plus route into the
+   downloads manager/history page
+
+Ownership model:
+
+- Navigator/shared chrome owns presentation of these controls for the focused
+   viewer
+- viewer/runtime authority owns execution and state
+- graph/workbench authority does not reinterpret these as graph zoom, graph
+   search, or arrangement commands
+
+Keyboard and interaction rules:
+
+- `Ctrl+F` targets find in page when focused content supports it
+- `Ctrl+=`, `Ctrl+-`, and `Ctrl+0` target content zoom when focused content
+   supports it
+- media mute/unmute is tile/viewer-scoped, not global-app mute by default
+- downloads chip activation opens the downloads manager/history route without
+   changing graph identity
+
+Degradation rules:
+
+- if the viewer does not support find in page, Graphshell must expose an
+   explicit blocked or unsupported reason; it must not silently substitute graph
+   search
+- if content zoom is unsupported, Graphshell must leave graph camera zoom
+   semantics untouched
+- if no media is active, the media chip may be absent
+- if no downloads are active or recent, the downloads chip may collapse to an
+   overflow-only entry, but the downloads manager surface remains reachable
+
 ### 4.4 Tool Surfaces vs Node Surfaces
 
 Distinguish app tool pages from content-node viewers.
@@ -200,6 +245,8 @@ Keep viewer behavior observable and trustworthy.
 
 - dedicated embedded PDF and CSV viewer paths,
 - richer viewer-state badges and diagnostics summaries,
+- richer focused-content control chips for load state, find results, media, and
+   downloads,
 - stronger thumbnail and prewarm strategies,
 - more explicit viewer override controls,
 - per-domain Viewer settings page: default viewer overrides, placeholder explanation verbosity, prewarm strategy — exposed via the **General** settings category in `aspect_control/settings_and_control_surfaces_spec.md §4.2`.
@@ -223,3 +270,6 @@ Keep viewer behavior observable and trustworthy.
 4. Fallback and degraded states are visible and explained.
 5. Tool surfaces remain app-owned and composable with pane semantics.
 6. Viewer state is diagnosable and accessible.
+7. Focused-content controls for load cancel, find in page, content zoom,
+   media, and downloads are explicit and remain distinct from graph/workbench
+   controls.

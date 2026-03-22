@@ -12,6 +12,7 @@ use crate::app::{CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, Workb
 use crate::graph::{ArrangementSubKind, NodeKey};
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -163,6 +164,7 @@ impl WorkbenchChromeProjection {
         tiles_tree: &Tree<TileKind>,
         active_pane: Option<PaneId>,
     ) -> Self {
+        let projection_view_id = graph_view_id_for_navigation(graph_app, tiles_tree);
         let arrangement_memberships = pane_arrangement_memberships(graph_app);
         let mut saved_frame_names = graph_app
             .list_workspace_layout_names()
@@ -218,7 +220,8 @@ impl WorkbenchChromeProjection {
             .iter()
             .find(|entry| entry.is_active)
             .map(|entry| entry.title.clone());
-        let navigator_groups = navigator_groups(graph_app, &arrangement_memberships);
+        let navigator_groups =
+            navigator_groups(graph_app, &arrangement_memberships, projection_view_id);
         let tree_root = tiles_tree.root().and_then(|root| {
             build_tree_node(
                 graph_app,
@@ -229,7 +232,7 @@ impl WorkbenchChromeProjection {
             )
         });
         let active_graphlet_roster =
-            build_active_graphlet_roster(graph_app, tiles_tree, active_pane);
+            build_active_graphlet_roster(graph_app, tiles_tree, active_pane, projection_view_id);
         Self {
             layer_state,
             chrome_policy,
@@ -254,8 +257,9 @@ impl WorkbenchChromeProjection {
 fn navigator_groups(
     graph_app: &GraphBrowserApp,
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
+    graph_view_id: Option<GraphViewId>,
 ) -> Vec<WorkbenchNavigatorGroup> {
-    let mut groups = arrangement_navigator_groups(graph_app);
+    let mut groups = arrangement_navigator_groups(graph_app, graph_view_id);
     let mut assigned_keys = groups
         .iter()
         .flat_map(|group| group.members.iter().map(|member| member.node_key))
@@ -296,7 +300,10 @@ fn navigator_groups(
     groups
 }
 
-fn arrangement_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNavigatorGroup> {
+fn arrangement_navigator_groups(
+    graph_app: &GraphBrowserApp,
+    graph_view_id: Option<GraphViewId>,
+) -> Vec<WorkbenchNavigatorGroup> {
     graph_app
         .arrangement_projection_groups()
         .into_iter()
@@ -312,7 +319,7 @@ fn arrangement_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNav
             let existing: std::collections::HashSet<NodeKey> =
                 member_keys.iter().copied().collect();
             for &seed in &group.member_keys {
-                for peer in graph_app.durable_graphlet_peers(seed) {
+                for peer in graph_app.graphlet_peers_for_view(seed, graph_view_id) {
                     if !existing.contains(&peer) && !member_keys.contains(&peer) {
                         // Skip internal surface nodes (frame anchors, tool panes, etc.)
                         // that are reachable via FrameMember edges but are not user-visible
@@ -344,14 +351,16 @@ fn arrangement_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNav
 
 /// Build the graphlet roster for the active node pane (Phase 3 — omnibar).
 ///
-/// Returns all durable graphlet peers of the active pane's node, plus the node
-/// itself, sorted: warm/active members first (by title), then cold members.
+/// Returns all graphlet peers of the active pane's node under the resolved
+/// projection, plus the node itself, sorted: warm/active members first (by
+/// title), then cold members.
 /// Returns an empty `Vec` if the active pane is not a node pane or the node
 /// has no graphlet peers.
 fn build_active_graphlet_roster(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     active_pane: Option<PaneId>,
+    graph_view_id: Option<GraphViewId>,
 ) -> Vec<GraphletRosterEntry> {
     let active_pane = match active_pane {
         Some(p) => p,
@@ -370,9 +379,9 @@ fn build_active_graphlet_roster(
         None => return Vec::new(),
     };
 
-    // Collect the seed + all durable graphlet peers.
+    // Collect the seed + all graphlet peers under the resolved projection.
     let mut all_nodes = vec![seed_node];
-    all_nodes.extend(graph_app.durable_graphlet_peers(seed_node));
+    all_nodes.extend(graph_app.graphlet_peers_for_view(seed_node, graph_view_id));
     all_nodes.sort_by_key(|k| k.index());
     all_nodes.dedup();
 
@@ -1017,9 +1026,8 @@ pub(crate) fn render_workbench_sidebar(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     focused_toolbar_node: Option<NodeKey>,
+    focused_content_status: &FocusedContentStatus,
     active_toolbar_pane: Option<PaneId>,
-    can_go_back: bool,
-    can_go_forward: bool,
     location_dirty: &mut bool,
 ) -> WorkbenchChromeProjection {
     let projection =
@@ -1106,8 +1114,7 @@ pub(crate) fn render_workbench_sidebar(
                         graph_app,
                         window,
                         focused_toolbar_node,
-                        can_go_back,
-                        can_go_forward,
+                        focused_content_status,
                         location_dirty,
                     );
                     render_frame_pin_controls(
@@ -1558,10 +1565,11 @@ fn render_navigation_buttons(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     focused_toolbar_node: Option<NodeKey>,
-    can_go_back: bool,
-    can_go_forward: bool,
+    focused_content_status: &FocusedContentStatus,
     location_dirty: &mut bool,
 ) {
+    let can_go_back = focused_content_status.can_go_back;
+    let can_go_forward = focused_content_status.can_go_forward;
     if ui
         .add_enabled(can_go_back, toolbar_button("<"))
         .on_hover_text("Back")
@@ -1589,8 +1597,16 @@ fn render_navigation_buttons(
         );
     }
     if ui
-        .add(toolbar_button("R"))
-        .on_hover_text("Reload")
+        .add(toolbar_button(if focused_content_status.can_stop_load {
+            "X"
+        } else {
+            "R"
+        }))
+        .on_hover_text(if focused_content_status.can_stop_load {
+            "Stop loading"
+        } else {
+            "Reload"
+        })
         .clicked()
     {
         *location_dirty = false;
@@ -1598,8 +1614,52 @@ fn render_navigation_buttons(
             graph_app,
             window,
             focused_toolbar_node,
-            ToolbarNavAction::Reload,
+            if focused_content_status.can_stop_load {
+                ToolbarNavAction::StopLoad
+            } else {
+                ToolbarNavAction::Reload
+            },
         );
+    }
+
+    if let Some(zoom_level) = focused_content_status.content_zoom_level {
+        if ui
+            .add(toolbar_button("-"))
+            .on_hover_text("Zoom out page content")
+            .clicked()
+        {
+            let _ = toolbar_routing::run_nav_action(
+                graph_app,
+                window,
+                focused_toolbar_node,
+                ToolbarNavAction::ZoomOut,
+            );
+        }
+        ui.label(RichText::new(format!("{:.0}%", zoom_level * 100.0)).small());
+        if ui
+            .add(toolbar_button("+"))
+            .on_hover_text("Zoom in page content")
+            .clicked()
+        {
+            let _ = toolbar_routing::run_nav_action(
+                graph_app,
+                window,
+                focused_toolbar_node,
+                ToolbarNavAction::ZoomIn,
+            );
+        }
+        if ui
+            .add(toolbar_button("1:1"))
+            .on_hover_text("Reset page zoom")
+            .clicked()
+        {
+            let _ = toolbar_routing::run_nav_action(
+                graph_app,
+                window,
+                focused_toolbar_node,
+                ToolbarNavAction::ZoomReset,
+            );
+        }
     }
 }
 
@@ -2222,7 +2282,7 @@ mod tests {
             _ => None,
         });
 
-        let roster = build_active_graphlet_roster(&app, &tree, active_pane);
+        let roster = build_active_graphlet_roster(&app, &tree, active_pane, None);
 
         assert_eq!(roster.len(), 2, "roster should include warm_node and cold_node");
 
@@ -2237,6 +2297,58 @@ mod tests {
             .find(|e| e.node_key == warm_node)
             .expect("warm_node must appear in roster");
         assert!(!warm_entry.is_cold, "warm_node entry must have is_cold = false");
+    }
+
+    #[test]
+    fn active_graphlet_roster_uses_view_projection_override() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.set_workspace_focused_view_with_transition(Some(graph_view));
+
+        let warm_node = app.add_node_and_sync(
+            "https://example.com/warm-view".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let cold_node = app.add_node_and_sync(
+            "https://example.com/cold-view".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+        let _ = app.assert_relation_and_sync(
+            warm_node,
+            cold_node,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        app.apply_reducer_intents([crate::app::GraphIntent::SetViewEdgeProjectionOverride {
+            view_id: graph_view,
+            selectors: Some(vec![crate::graph::RelationSelector::Semantic(
+                crate::graph::SemanticSubKind::Hyperlink,
+            )]),
+        }]);
+        app.apply_reducer_intents([crate::app::GraphIntent::SelectNode {
+            key: warm_node,
+            multi_select: false,
+        }]);
+
+        let mut tiles = Tiles::default();
+        let warm_pane_tile =
+            tiles.insert_pane(TileKind::Node(NodePaneState::for_node(warm_node)));
+        let root = tiles.insert_tab_tile(vec![warm_pane_tile]);
+        let tree = Tree::new("roster_view_override", root, tiles);
+
+        let active_pane = tree.tiles.iter().find_map(|(_, tile)| match tile {
+            egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == warm_node => {
+                Some(state.pane_id)
+            }
+            _ => None,
+        });
+
+        let roster = build_active_graphlet_roster(&app, &tree, active_pane, Some(graph_view));
+        assert!(roster.iter().any(|entry| entry.node_key == cold_node));
     }
 
     /// After a DismissTile, the cold node's `WorkbenchNavigatorMember` inside an

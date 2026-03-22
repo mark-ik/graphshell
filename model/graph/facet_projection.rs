@@ -19,7 +19,7 @@ use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 
 use super::filter::{FacetProjection, FacetScalar, FacetValue, facet_keys};
-use super::{ArrangementSubKind, EdgeKind, Graph, NodeKey};
+use super::{ArrangementSubKind, EdgeFamily, Graph, NodeKey};
 
 /// Compute the PMEST facet projection for a single node.
 ///
@@ -81,8 +81,8 @@ pub fn facet_projection_for_node(graph: &Graph, key: NodeKey) -> Option<FacetPro
 
     let mut edge_kind_labels: HashSet<&'static str> = HashSet::new();
     for e in out_edges.iter().chain(in_edges.iter()) {
-        for kind in &e.weight().kinds {
-            edge_kind_labels.insert(edge_kind_label(kind));
+        for family in e.weight().families() {
+            edge_kind_labels.insert(edge_family_label(*family));
         }
     }
 
@@ -174,15 +174,14 @@ pub fn facet_projection_for_node(graph: &Graph, key: NodeKey) -> Option<FacetPro
     Some(proj)
 }
 
-fn edge_kind_label(kind: &EdgeKind) -> &'static str {
-    match kind {
-        EdgeKind::Hyperlink => "Hyperlink",
-        EdgeKind::UserGrouped => "UserGrouped",
-        EdgeKind::TraversalDerived => "TraversalDerived",
-        EdgeKind::ArrangementRelation => "ArrangementRelation",
-        EdgeKind::ContainmentRelation => "ContainmentRelation",
-        EdgeKind::ImportedRelation => "ImportedRelation",
-        EdgeKind::AgentDerived => "AgentDerived",
+fn edge_family_label(family: EdgeFamily) -> &'static str {
+    match family {
+        EdgeFamily::Semantic => "Semantic",
+        EdgeFamily::Traversal => "Traversal",
+        EdgeFamily::Containment => "Containment",
+        EdgeFamily::Arrangement => "Arrangement",
+        EdgeFamily::Imported => "Imported",
+        EdgeFamily::Provenance => "Provenance",
     }
 }
 
@@ -193,7 +192,7 @@ mod tests {
     use super::*;
     use crate::model::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
     use crate::model::graph::filter::facet_keys;
-    use crate::model::graph::{EdgeType, Graph};
+    use crate::model::graph::Graph;
 
     fn build_node(graph: &mut Graph, url: &str) -> NodeKey {
         let GraphDeltaResult::NodeAdded(key) = apply_graph_delta(
@@ -231,11 +230,14 @@ mod tests {
         let b = build_node(&mut graph, "https://b.test/");
         apply_graph_delta(
             &mut graph,
-            GraphDelta::AddEdge {
+            GraphDelta::AssertRelation {
                 from: a,
                 to: b,
-                edge_type: EdgeType::Hyperlink,
-                edge_label: None,
+                assertion: crate::graph::EdgeAssertion::Semantic {
+                    sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                    label: None,
+                    decay_progress: None,
+                },
             },
         );
 

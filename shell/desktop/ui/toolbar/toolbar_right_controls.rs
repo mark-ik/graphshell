@@ -1,6 +1,7 @@
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use egui::{WidgetInfo, WidgetType};
 
 pub(super) fn render_toolbar_right_controls(
@@ -57,21 +58,22 @@ pub(super) fn render_toolbar_right_controls(
 fn render_sync_status_indicator(ui: &mut egui::Ui) {
     use crate::mods::verse;
 
+    let theme_tokens = phase3_resolve_active_theme(None).tokens;
     // Check if Verse is available
     let (status_char, status_color, tooltip) = if !verse::is_initialized() {
-        // Verse not available - show gray dot
+        // Verse not available - show neutral dot
         (
             "○",
-            egui::Color32::from_rgb(128, 128, 128),
+            theme_tokens.radial_chrome_text,
             "Sync: Not available".to_string(),
         )
     } else {
         let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
         if !peers.is_empty() {
-            // Has peers - show green dot
+            // Has peers - show success dot
             (
                 "●",
-                egui::Color32::from_rgb(0, 200, 0),
+                theme_tokens.status_success,
                 format!(
                     "Sync: Connected ({} peer{})",
                     peers.len(),
@@ -79,10 +81,10 @@ fn render_sync_status_indicator(ui: &mut egui::Ui) {
                 ),
             )
         } else {
-            // No peers - show yellow dot
+            // No peers yet - show notice dot
             (
                 "○",
-                egui::Color32::from_rgb(200, 200, 0),
+                theme_tokens.command_notice,
                 "Sync: Ready (no peers)".to_string(),
             )
         }

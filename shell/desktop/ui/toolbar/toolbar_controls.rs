@@ -1,6 +1,7 @@
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use egui::{WidgetInfo, WidgetType};
 use std::collections::HashSet;
 
@@ -105,10 +106,11 @@ pub(crate) fn render_navigation_buttons(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     focused_toolbar_node: Option<NodeKey>,
-    can_go_back: bool,
-    can_go_forward: bool,
+    focused_content_status: &FocusedContentStatus,
     location_dirty: &mut bool,
 ) {
+    let can_go_back = focused_content_status.can_go_back;
+    let can_go_forward = focused_content_status.can_go_forward;
     let back_button = ui.add_enabled(can_go_back, super::toolbar_button("<"));
     back_button.widget_info(|| {
         let mut info = WidgetInfo::new(WidgetType::Button);
@@ -141,19 +143,65 @@ pub(crate) fn render_navigation_buttons(
         );
     }
 
-    let reload_button = ui.add(super::toolbar_button("R"));
+    let (reload_label, reload_hover, reload_action) = if focused_content_status.can_stop_load {
+        ("X", "Stop loading", ToolbarNavAction::StopLoad)
+    } else {
+        ("R", "Reload", ToolbarNavAction::Reload)
+    };
+    let reload_button = ui.add(super::toolbar_button(reload_label));
     reload_button.widget_info(|| {
         let mut info = WidgetInfo::new(WidgetType::Button);
-        info.label = Some("Reload".into());
+        info.label = Some(reload_hover.into());
         info
     });
+    let reload_button = reload_button.on_hover_text(reload_hover);
     if reload_button.clicked() {
         *location_dirty = false;
         let _ = toolbar_routing::run_nav_action(
             graph_app,
             window,
             focused_toolbar_node,
-            ToolbarNavAction::Reload,
+            reload_action,
         );
+    }
+
+    if let Some(zoom_level) = focused_content_status.content_zoom_level {
+        let zoom_out_button = ui
+            .add(super::toolbar_button("-"))
+            .on_hover_text("Zoom out page content");
+        if zoom_out_button.clicked() {
+            let _ = toolbar_routing::run_nav_action(
+                graph_app,
+                window,
+                focused_toolbar_node,
+                ToolbarNavAction::ZoomOut,
+            );
+        }
+
+        ui.label(format!("{:.0}%", zoom_level * 100.0));
+
+        let zoom_in_button = ui
+            .add(super::toolbar_button("+"))
+            .on_hover_text("Zoom in page content");
+        if zoom_in_button.clicked() {
+            let _ = toolbar_routing::run_nav_action(
+                graph_app,
+                window,
+                focused_toolbar_node,
+                ToolbarNavAction::ZoomIn,
+            );
+        }
+
+        let zoom_reset_button = ui
+            .add(super::toolbar_button("1:1"))
+            .on_hover_text("Reset page zoom");
+        if zoom_reset_button.clicked() {
+            let _ = toolbar_routing::run_nav_action(
+                graph_app,
+                window,
+                focused_toolbar_node,
+                ToolbarNavAction::ZoomReset,
+            );
+        }
     }
 }

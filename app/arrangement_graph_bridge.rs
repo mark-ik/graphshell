@@ -20,10 +20,12 @@
 //! graph structure via those helpers directly.
 
 use euclid::default::Point2D;
+use petgraph::Direction;
+use petgraph::visit::EdgeRef;
 use uuid::Uuid;
 
 use crate::graph::apply::{GraphDelta, GraphDeltaResult};
-use crate::graph::{ArrangementSubKind, EdgeType, NodeKey};
+use crate::graph::{ArrangementSubKind, NodeKey, RelationSelector, SemanticSubKind};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::util::VersoAddress;
 
@@ -103,6 +105,40 @@ impl GraphBrowserApp {
 // ── Private reconciler implementations ───────────────────────────────────────
 
 impl GraphBrowserApp {
+    fn outgoing_membership_relations(&self, container_key: NodeKey) -> Vec<(NodeKey, RelationSelector)> {
+        self.domain_graph()
+            .inner
+            .edges_directed(container_key, Direction::Outgoing)
+            .flat_map(|edge| {
+                let payload = edge.weight();
+                let mut relations = Vec::new();
+                if payload.has_relation(RelationSelector::Semantic(SemanticSubKind::UserGrouped)) {
+                    relations.push((
+                        edge.target(),
+                        RelationSelector::Semantic(SemanticSubKind::UserGrouped),
+                    ));
+                }
+                if let Some(arrangement) = payload.arrangement_data() {
+                    for sub_kind in &arrangement.sub_kinds {
+                        relations.push((edge.target(), RelationSelector::Arrangement(*sub_kind)));
+                    }
+                }
+                relations
+            })
+            .collect()
+    }
+
+    fn outgoing_membership_nodes(&self, container_key: NodeKey) -> Vec<NodeKey> {
+        let mut member_keys = self
+            .outgoing_membership_relations(container_key)
+            .into_iter()
+            .map(|(member_key, _)| member_key)
+            .collect::<Vec<_>>();
+        member_keys.sort_by_key(|key| key.index());
+        member_keys.dedup();
+        member_keys
+    }
+
     fn reconcile_frame_snapshot(
         &mut self,
         name: &str,
@@ -112,19 +148,8 @@ impl GraphBrowserApp {
 
         // Capture existing members before mutation for delta reporting.
         let frame_url = VersoAddress::frame(name.to_string()).to_string();
-        let existing_members: Vec<NodeKey> =
-            if let Some((frame_key, _)) = self.domain_graph().get_node_by_url(&frame_url) {
-                self.domain_graph()
-                    .edges()
-                    .filter(|e| {
-                        e.from == frame_key
-                            && matches!(
-                                e.edge_type,
-                                EdgeType::UserGrouped | EdgeType::ArrangementRelation(_)
-                            )
-                    })
-                    .map(|e| e.to)
-                    .collect()
+        let existing_members: Vec<NodeKey> = if let Some((frame_key, _)) = self.domain_graph().get_node_by_url(&frame_url) {
+                self.outgoing_membership_nodes(frame_key)
             } else {
                 Vec::new()
             };
@@ -204,18 +229,7 @@ impl GraphBrowserApp {
             };
         };
         // Capture members before removal for delta reporting.
-        let removed_members: Vec<NodeKey> = self
-            .domain_graph()
-            .edges()
-            .filter(|e| {
-                e.from == frame_key
-                    && matches!(
-                        e.edge_type,
-                        EdgeType::UserGrouped | EdgeType::ArrangementRelation(_)
-                    )
-            })
-            .map(|e| e.to)
-            .collect();
+        let removed_members: Vec<NodeKey> = self.outgoing_membership_nodes(frame_key);
 
         self.remove_internal_surface_node(frame_key);
 
@@ -321,23 +335,14 @@ impl GraphBrowserApp {
     ) {
         let desired_members: std::collections::HashSet<NodeKey> =
             member_node_keys.iter().copied().collect();
-        let existing_members: Vec<(NodeKey, EdgeType)> = self
-            .domain_graph()
-            .edges()
-            .filter(|edge| {
-                edge.from == container_key
-                    && matches!(
-                        edge.edge_type,
-                        EdgeType::UserGrouped | EdgeType::ArrangementRelation(_)
-                    )
-            })
-            .map(|edge| (edge.to, edge.edge_type))
-            .collect();
+        let existing_members = self.outgoing_membership_relations(container_key);
 
         if sub_kind == ArrangementSubKind::FrameMember {
-            for (member_key, edge_type) in &existing_members {
-                if !desired_members.contains(member_key) || *edge_type == EdgeType::UserGrouped {
-                    let _ = self.remove_edges_and_log(container_key, *member_key, *edge_type);
+            for (member_key, selector) in &existing_members {
+                if !desired_members.contains(member_key)
+                    || *selector == RelationSelector::Semantic(SemanticSubKind::UserGrouped)
+                {
+                    let _ = self.retract_relations_and_log(container_key, *member_key, *selector);
                 }
             }
             for member_key in member_node_keys {
@@ -346,8 +351,8 @@ impl GraphBrowserApp {
             return;
         }
 
-        for (member_key, edge_type) in existing_members {
-            let _ = self.remove_edges_and_log(container_key, member_key, edge_type);
+        for (member_key, selector) in existing_members {
+            let _ = self.retract_relations_and_log(container_key, member_key, selector);
         }
         for member_key in member_node_keys {
             self.add_arrangement_relation_if_missing(container_key, *member_key, sub_kind);

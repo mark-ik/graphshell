@@ -1,4 +1,7 @@
 use super::*;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use egui_tiles::Tile;
+use crate::shell::desktop::workbench::pane_model::PaneViewState;
 use crate::shell::desktop::ui::persistence_ops;
 
 pub(super) fn parse_omnibar_search_query(raw: &str) -> (OmnibarSearchMode, &str) {
@@ -416,6 +419,22 @@ fn tab_node_keys_in_tree(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
         .collect()
 }
 
+fn omnibar_graph_view_context(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<GraphViewId> {
+    tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
+        match tiles_tree.tiles.get(tile_id) {
+            Some(Tile::Pane(TileKind::Graph(graph_ref))) => Some(graph_ref.graph_view_id),
+            Some(Tile::Pane(TileKind::Pane(PaneViewState::Graph(graph_ref)))) => {
+                Some(graph_ref.graph_view_id)
+            }
+            _ => None,
+        }
+    })
+    .or(graph_app.workspace.graph_runtime.focused_view)
+}
+
 fn saved_tab_node_keys(graph_app: &GraphBrowserApp) -> HashSet<NodeKey> {
     let mut saved_tab_nodes = HashSet::new();
     for frame_name in graph_app.list_workspace_layout_names() {
@@ -434,15 +453,117 @@ fn saved_tab_node_keys(graph_app: &GraphBrowserApp) -> HashSet<NodeKey> {
     saved_tab_nodes
 }
 
-fn edge_type_label(edge_type: crate::graph::EdgeType) -> &'static str {
-    match edge_type {
-        crate::graph::EdgeType::Hyperlink => "hyperlink",
-        crate::graph::EdgeType::History => "history",
-        crate::graph::EdgeType::UserGrouped => "user_grouped",
-        crate::graph::EdgeType::ArrangementRelation(sub_kind) => sub_kind.as_tag(),
-        crate::graph::EdgeType::ContainmentRelation(sub_kind) => sub_kind.as_tag(),
-        crate::graph::EdgeType::ImportedRelation => "imported_relation",
-        crate::graph::EdgeType::AgentDerived { .. } => "agent_derived",
+fn semantic_sub_kind_label(sub_kind: crate::graph::SemanticSubKind) -> &'static str {
+    match sub_kind {
+        crate::graph::SemanticSubKind::Hyperlink => "hyperlink",
+        crate::graph::SemanticSubKind::UserGrouped => "user_grouped",
+        crate::graph::SemanticSubKind::AgentDerived => "agent_derived",
+        crate::graph::SemanticSubKind::Cites => "cites",
+        crate::graph::SemanticSubKind::Quotes => "quotes",
+        crate::graph::SemanticSubKind::Summarizes => "summarizes",
+        crate::graph::SemanticSubKind::Elaborates => "elaborates",
+        crate::graph::SemanticSubKind::ExampleOf => "example_of",
+        crate::graph::SemanticSubKind::Supports => "supports",
+        crate::graph::SemanticSubKind::Contradicts => "contradicts",
+        crate::graph::SemanticSubKind::Questions => "questions",
+        crate::graph::SemanticSubKind::SameEntityAs => "same_entity_as",
+        crate::graph::SemanticSubKind::DuplicateOf => "duplicate_of",
+        crate::graph::SemanticSubKind::CanonicalMirrorOf => "canonical_mirror_of",
+        crate::graph::SemanticSubKind::DependsOn => "depends_on",
+        crate::graph::SemanticSubKind::Blocks => "blocks",
+        crate::graph::SemanticSubKind::NextStep => "next_step",
+    }
+}
+
+fn imported_sub_kind_label(sub_kind: crate::graph::ImportedSubKind) -> &'static str {
+    match sub_kind {
+        crate::graph::ImportedSubKind::BookmarkFolder => "bookmark_folder",
+        crate::graph::ImportedSubKind::HistoryImport => "history_import",
+        crate::graph::ImportedSubKind::RssMembership => "rss_membership",
+        crate::graph::ImportedSubKind::FileSystemImport => "filesystem_import",
+        crate::graph::ImportedSubKind::ArchiveMembership => "archive_membership",
+        crate::graph::ImportedSubKind::SharedCollection => "shared_collection",
+    }
+}
+
+fn provenance_sub_kind_label(sub_kind: crate::graph::ProvenanceSubKind) -> &'static str {
+    match sub_kind {
+        crate::graph::ProvenanceSubKind::ClippedFrom => "clipped_from",
+        crate::graph::ProvenanceSubKind::ExcerptedFrom => "excerpted_from",
+        crate::graph::ProvenanceSubKind::SummarizedFrom => "summarized_from",
+        crate::graph::ProvenanceSubKind::TranslatedFrom => "translated_from",
+        crate::graph::ProvenanceSubKind::RewrittenFrom => "rewritten_from",
+        crate::graph::ProvenanceSubKind::GeneratedFrom => "generated_from",
+        crate::graph::ProvenanceSubKind::ExtractedFrom => "extracted_from",
+        crate::graph::ProvenanceSubKind::ImportedFromSource => "imported_from_source",
+    }
+}
+
+fn edge_payload_label_text(payload: &crate::graph::EdgePayload) -> String {
+    let mut labels = Vec::new();
+
+    for sub_kind in [
+        crate::graph::SemanticSubKind::Hyperlink,
+        crate::graph::SemanticSubKind::UserGrouped,
+        crate::graph::SemanticSubKind::AgentDerived,
+        crate::graph::SemanticSubKind::Cites,
+        crate::graph::SemanticSubKind::Quotes,
+        crate::graph::SemanticSubKind::Summarizes,
+        crate::graph::SemanticSubKind::Elaborates,
+        crate::graph::SemanticSubKind::ExampleOf,
+        crate::graph::SemanticSubKind::Supports,
+        crate::graph::SemanticSubKind::Contradicts,
+        crate::graph::SemanticSubKind::Questions,
+        crate::graph::SemanticSubKind::SameEntityAs,
+        crate::graph::SemanticSubKind::DuplicateOf,
+        crate::graph::SemanticSubKind::CanonicalMirrorOf,
+        crate::graph::SemanticSubKind::DependsOn,
+        crate::graph::SemanticSubKind::Blocks,
+        crate::graph::SemanticSubKind::NextStep,
+    ] {
+        if payload.has_relation(crate::graph::RelationSelector::Semantic(sub_kind)) {
+            labels.push(semantic_sub_kind_label(sub_kind));
+        }
+    }
+
+    if payload.has_relation(crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal)) {
+        labels.push("history");
+    }
+
+    if let Some(containment) = payload.containment_data() {
+        for sub_kind in &containment.sub_kinds {
+            labels.push(sub_kind.as_tag());
+        }
+    }
+
+    if let Some(arrangement) = payload.arrangement_data() {
+        for sub_kind in &arrangement.sub_kinds {
+            labels.push(sub_kind.as_tag());
+        }
+    }
+
+    if let Some(imported) = payload.imported_data() {
+        if imported.sub_kinds.is_empty() {
+            labels.push("imported_relation");
+        } else {
+            for sub_kind in &imported.sub_kinds {
+                labels.push(imported_sub_kind_label(*sub_kind));
+            }
+        }
+    } else if payload.has_relation(crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Imported)) {
+        labels.push("imported_relation");
+    }
+
+    if let Some(provenance) = payload.provenance_data() {
+        for sub_kind in &provenance.sub_kinds {
+            labels.push(provenance_sub_kind_label(*sub_kind));
+        }
+    }
+
+    if labels.is_empty() {
+        "edge".to_string()
+    } else {
+        labels.join(" ")
     }
 }
 
@@ -458,30 +579,32 @@ fn edge_candidates_for_graph(
     only_targets: Option<&HashSet<NodeKey>>,
 ) -> Vec<OmnibarSearchCandidate> {
     let mut out = Vec::new();
-    for edge in graph.edges() {
+    for edge in graph.inner.edge_references() {
+        let from = edge.source();
+        let to = edge.target();
         if let Some(filter) = only_targets
-            && (!filter.contains(&edge.from) || !filter.contains(&edge.to))
+            && (!filter.contains(&from) || !filter.contains(&to))
         {
             continue;
         }
-        let Some(from_node) = graph.get_node(edge.from) else {
+        let Some(from_node) = graph.get_node(from) else {
             continue;
         };
-        let Some(to_node) = graph.get_node(edge.to) else {
+        let Some(to_node) = graph.get_node(to) else {
             continue;
         };
         out.push(OmnibarSearchCandidate {
             text: format!(
                 "{} {} {} {} {}",
-                edge_type_label(edge.edge_type),
+                edge_payload_label_text(edge.weight()),
                 from_node.title,
                 from_node.url,
                 to_node.title,
                 to_node.url
             ),
             target: OmnibarMatch::Edge {
-                from: edge.from,
-                to: edge.to,
+                from,
+                to,
             },
         });
     }
@@ -714,14 +837,16 @@ pub(super) fn omnibar_matches_for_query(
     if query.is_empty() {
         if matches!(mode, OmnibarSearchMode::TabsLocal) {
             let warm_set = tab_node_keys_in_tree(tiles_tree);
+            let view_id = omnibar_graph_view_context(graph_app, tiles_tree);
             let mut local_tabs: Vec<NodeKey> = warm_set.iter().copied().collect();
             local_tabs.sort_by_key(|key| key.index());
             let mut out: Vec<OmnibarMatch> =
                 local_tabs.into_iter().map(OmnibarMatch::Node).collect();
-            // Append cold durable graphlet peers — nodes with edges but no live tile.
+            // Append cold graphlet peers under the active projection — nodes with
+            // graphlet edges but no live tile.
             let mut cold_seen: HashSet<NodeKey> = warm_set.clone();
             for &warm_node in &warm_set {
-                let mut peers = graph_app.durable_graphlet_peers(warm_node);
+                let mut peers = graph_app.graphlet_peers_for_view(warm_node, view_id);
                 peers.sort_by_key(|k| k.index());
                 for peer in peers {
                     if cold_seen.insert(peer) {
@@ -784,10 +909,15 @@ pub(super) fn omnibar_matches_for_query(
             if let (Some(from_key), Some(to_key)) = (current_from, current_to)
                 && mapped_edge_keys_seen.insert((from_key, to_key))
             {
+                let edge_label = snapshot
+                    .find_edge_key(edge.from, edge.to)
+                    .and_then(|edge_key| snapshot.get_edge(edge_key))
+                    .map(edge_payload_label_text)
+                    .unwrap_or_else(|| "edge".to_string());
                 all_graph_edge_candidates.push(OmnibarSearchCandidate {
                     text: format!(
                         "{} {} {} {} {}",
-                        edge_type_label(edge.edge_type),
+                        edge_label,
                         from_node.title,
                         from_node.url,
                         to_node.title,
@@ -830,10 +960,15 @@ pub(super) fn omnibar_matches_for_query(
                 if let (Some(from_key), Some(to_key)) = (current_from, current_to)
                     && mapped_edge_keys_seen.insert((from_key, to_key))
                 {
+                    let edge_label = snapshot
+                        .find_edge_key(edge.from, edge.to)
+                        .and_then(|edge_key| snapshot.get_edge(edge_key))
+                        .map(edge_payload_label_text)
+                        .unwrap_or_else(|| "edge".to_string());
                     all_graph_edge_candidates.push(OmnibarSearchCandidate {
                         text: format!(
                             "{} {} {} {} {}",
-                            edge_type_label(edge.edge_type),
+                            edge_label,
                             from_node.title,
                             from_node.url,
                             to_node.title,
@@ -964,7 +1099,7 @@ pub(super) fn omnibar_matches_for_query(
 mod tests {
     use super::*;
     use crate::app::{GraphBrowserApp, GraphViewId};
-    use crate::graph::{EdgeType, ImportRecord, ImportRecordMembership};
+    use crate::graph::{ImportRecord, ImportRecordMembership};
     use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use egui_tiles::Tree;
@@ -1119,7 +1254,15 @@ mod tests {
                 format!("https://alpha-connected-{idx}.example"),
                 Point2D::new(20.0 + idx as f32, 0.0),
             );
-            let _ = app.add_edge_and_sync(context, key, EdgeType::Hyperlink, None);
+            let _ = app.assert_relation_and_sync(
+                context,
+                key,
+                crate::graph::EdgeAssertion::Semantic {
+                    sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                    label: None,
+                    decay_progress: None,
+                },
+            );
             connected_nodes.push(key);
         }
         app.apply_reducer_intents([GraphIntent::SelectNode {
@@ -1196,6 +1339,49 @@ mod tests {
     }
 
     #[test]
+    fn test_tabs_local_empty_query_uses_view_edge_projection_for_cold_graphlet_members() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_workspace_focused_view_with_transition(Some(view_id));
+
+        let warm_key =
+            app.add_node_and_sync("https://warm-tab.example".into(), Point2D::zero());
+        let cold_key = app.add_node_and_sync(
+            "https://cold-peer.example".into(),
+            Point2D::new(20.0, 0.0),
+        );
+        let _ = app.assert_relation_and_sync(
+            warm_key,
+            cold_key,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        app.apply_reducer_intents([GraphIntent::SetViewEdgeProjectionOverride {
+            view_id,
+            selectors: Some(vec![crate::graph::RelationSelector::Semantic(
+                crate::graph::SemanticSubKind::Hyperlink,
+            )]),
+        }]);
+        app.apply_reducer_intents([GraphIntent::SelectNode {
+            key: warm_key,
+            multi_select: false,
+        }]);
+
+        let mut tiles = egui_tiles::Tiles::default();
+        let warm_tile = tiles.insert_pane(TileKind::Node(warm_key.into()));
+        let root = tiles.insert_tab_tile(vec![warm_tile]);
+        let tree = Tree::new("tabs_local_projection_override", root, tiles);
+
+        let matches =
+            omnibar_matches_for_query(&mut app, &tree, OmnibarSearchMode::TabsLocal, "", true);
+        assert!(matches.contains(&OmnibarMatch::ColdGraphletMember(cold_key)));
+    }
+
+    #[test]
     fn test_omnibar_mixed_mode_prioritizes_tab_nodes_in_detail_mode() {
         let mut app = GraphBrowserApp::new_for_testing();
         let tab_key = app.add_node_and_sync("https://beta-tab.example".into(), Point2D::zero());
@@ -1226,8 +1412,16 @@ mod tests {
             "https://alpha-unrelated.example".into(),
             Point2D::new(40.0, 0.0),
         );
-        app.add_edge_and_sync(context_key, related_tab, EdgeType::Hyperlink, None)
-            .expect("edge should be valid");
+        app.assert_relation_and_sync(
+            context_key,
+            related_tab,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        )
+        .expect("edge should be valid");
         app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
@@ -1257,9 +1451,33 @@ mod tests {
             app.add_node_and_sync("https://alpha-hop2.example".into(), Point2D::new(20.0, 0.0));
         let hop3 =
             app.add_node_and_sync("https://alpha-hop3.example".into(), Point2D::new(30.0, 0.0));
-        let _ = app.add_edge_and_sync(context_key, hop1, EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(hop1, hop2, EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(hop2, hop3, EdgeType::Hyperlink, None);
+        let _ = app.assert_relation_and_sync(
+            context_key,
+            hop1,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        let _ = app.assert_relation_and_sync(
+            hop1,
+            hop2,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        let _ = app.assert_relation_and_sync(
+            hop2,
+            hop3,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
         app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
@@ -1293,8 +1511,24 @@ mod tests {
             "https://alpha-graph-hop2.example".into(),
             Point2D::new(20.0, 0.0),
         );
-        let _ = app.add_edge_and_sync(context_key, hop1, EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(hop1, hop2, EdgeType::Hyperlink, None);
+        let _ = app.assert_relation_and_sync(
+            context_key,
+            hop1,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        let _ = app.assert_relation_and_sync(
+            hop1,
+            hop2,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
         app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
@@ -1417,10 +1651,24 @@ mod tests {
         let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
         let from = app.add_node_and_sync("https://edge-a.example".into(), Point2D::zero());
         let to = app.add_node_and_sync("https://edge-b.example".into(), Point2D::new(20.0, 0.0));
-        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped, None);
+        let _ = app.assert_relation_and_sync(
+            from,
+            to,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::UserGrouped,
+                label: None,
+                decay_progress: None,
+            },
+        );
         app.save_named_graph_snapshot("saved-edge-graph")
             .expect("save named graph snapshot");
-        let _ = app.remove_edges_and_log(from, to, EdgeType::UserGrouped);
+        let _ = app.retract_relations_and_log(
+            from,
+            to,
+            crate::graph::RelationSelector::Semantic(
+                crate::graph::SemanticSubKind::UserGrouped,
+            ),
+        );
 
         let mut tiles = egui_tiles::Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));

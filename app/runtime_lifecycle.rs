@@ -51,7 +51,15 @@ impl GraphBrowserApp {
                 .insert(child_node, token);
         }
         if let Some(parent_key) = parent_node {
-            let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink, None);
+            let _ = self.assert_relation_and_sync(
+                parent_key,
+                child_node,
+                crate::graph::EdgeAssertion::Semantic {
+                    sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                    label: None,
+                    decay_progress: None,
+                },
+            );
         }
     }
 
@@ -94,7 +102,15 @@ impl GraphBrowserApp {
             },
         ]);
         if let Some(parent_key) = parent_node {
-            let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink, None);
+            let _ = self.assert_relation_and_sync(
+                parent_key,
+                child_node,
+                crate::graph::EdgeAssertion::Semantic {
+                    sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                    label: None,
+                    decay_progress: None,
+                },
+            );
         }
     }
 

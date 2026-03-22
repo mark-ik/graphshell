@@ -77,14 +77,16 @@ impl GraphBrowserApp {
 
     pub fn clear_selection(&mut self) {
         let previous_primary = self.focused_selection().primary();
+        let scope = self.current_selection_scope();
         if let Some(selection) = self
             .workspace
             .graph_runtime
             .selection_by_scope
-            .get_mut(&self.current_selection_scope())
+            .get_mut(&scope)
         {
             selection.clear();
         }
+        self.sync_selection_edge_projection_override_for_scope(scope);
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
@@ -92,6 +94,10 @@ impl GraphBrowserApp {
     pub(crate) fn reset_selection_state(&mut self) {
         let previous_primary = self.focused_selection().primary();
         self.workspace.graph_runtime.selection_by_scope.clear();
+        self.workspace
+            .graph_runtime
+            .selection_edge_projections
+            .clear();
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
@@ -105,6 +111,7 @@ impl GraphBrowserApp {
             .graph_runtime
             .selection_by_scope
             .retain(|_, selection| !selection.is_empty());
+        self.sync_all_selection_edge_projection_overrides();
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
@@ -124,6 +131,15 @@ impl GraphBrowserApp {
                     live_graph_views.contains(view_id) || registered_views.contains(view_id)
                 }
             });
+        self.workspace
+            .graph_runtime
+            .selection_edge_projections
+            .retain(|scope, _| match scope {
+                SelectionScope::Unfocused => true,
+                SelectionScope::View(view_id) => {
+                    live_graph_views.contains(view_id) || registered_views.contains(view_id)
+                }
+            });
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
@@ -137,7 +153,9 @@ impl GraphBrowserApp {
 
     pub(crate) fn select_in_focused_view(&mut self, key: NodeKey, multi_select: bool) {
         let previous_primary = self.focused_selection().primary();
+        let scope = self.current_selection_scope();
         self.current_selection_mut().select(key, multi_select);
+        self.sync_selection_edge_projection_override_for_scope(scope);
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
@@ -148,7 +166,9 @@ impl GraphBrowserApp {
         mode: SelectionUpdateMode,
     ) {
         let previous_primary = self.focused_selection().primary();
+        let scope = self.current_selection_scope();
         self.current_selection_mut().update_many(keys, mode);
+        self.sync_selection_edge_projection_override_for_scope(scope);
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
@@ -161,6 +181,7 @@ impl GraphBrowserApp {
         let previous_primary = self.focused_selection().primary();
         self.workspace.graph_runtime.selection_by_scope = selection_by_scope;
         self.set_unfocused_selection(active_selection);
+        self.sync_all_selection_edge_projection_overrides();
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.graph_runtime.egui_state_dirty = true;
     }

@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use winit::window::Window;
 
 use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
+use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::ui::workbench_sidebar::WorkbenchLayerState;
@@ -168,6 +169,7 @@ pub(crate) struct Input<'a> {
     pub focused_toolbar_node: Option<NodeKey>,
     pub active_toolbar_pane: Option<PaneId>,
     pub workbench_layer_state: WorkbenchLayerState,
+    pub focused_content_status: &'a FocusedContentStatus,
     pub local_widget_focus: &'a mut Option<LocalFocusTarget>,
     pub can_go_back: bool,
     pub can_go_forward: bool,
@@ -546,6 +548,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         focused_toolbar_node,
         active_toolbar_pane,
         workbench_layer_state,
+        focused_content_status,
         local_widget_focus,
         can_go_back: _,
         can_go_forward: _,
@@ -656,6 +659,16 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                 });
 
                 columns[2].with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.horizontal(|ui| {
+                        toolbar_controls::render_navigation_buttons(
+                            ui,
+                            graph_app,
+                            window,
+                            focused_toolbar_node,
+                            focused_content_status,
+                            location_dirty,
+                        );
+                    });
                     render_toolbar_right_controls(
                         ui,
                         state,

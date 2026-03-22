@@ -14,6 +14,10 @@ pub(crate) enum ToolbarNavAction {
     Back,
     Forward,
     Reload,
+    StopLoad,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
 }
 
 pub(crate) enum ToolbarOpenMode {
@@ -33,19 +37,28 @@ pub(crate) fn run_nav_action(
     focused_toolbar_node: Option<NodeKey>,
     action: ToolbarNavAction,
 ) -> bool {
-    let binding_id = match action {
-        ToolbarNavAction::Back => binding_id::toolbar::NAV_BACK,
-        ToolbarNavAction::Forward => binding_id::toolbar::NAV_FORWARD,
-        ToolbarNavAction::Reload => binding_id::toolbar::NAV_RELOAD,
-    };
-    if !registries::phase2_resolve_input_binding(binding_id) {
-        return false;
+    if let Some(binding_id) = match action {
+        ToolbarNavAction::Back => Some(binding_id::toolbar::NAV_BACK),
+        ToolbarNavAction::Forward => Some(binding_id::toolbar::NAV_FORWARD),
+        ToolbarNavAction::Reload => Some(binding_id::toolbar::NAV_RELOAD),
+        ToolbarNavAction::StopLoad
+        | ToolbarNavAction::ZoomIn
+        | ToolbarNavAction::ZoomOut
+        | ToolbarNavAction::ZoomReset => None,
+    } {
+        if !registries::phase2_resolve_input_binding(binding_id) {
+            return false;
+        }
     }
 
     let command = match action {
         ToolbarNavAction::Back => BrowserCommand::Back,
         ToolbarNavAction::Forward => BrowserCommand::Forward,
         ToolbarNavAction::Reload => BrowserCommand::Reload,
+        ToolbarNavAction::StopLoad => BrowserCommand::StopLoad,
+        ToolbarNavAction::ZoomIn => BrowserCommand::ZoomIn,
+        ToolbarNavAction::ZoomOut => BrowserCommand::ZoomOut,
+        ToolbarNavAction::ZoomReset => BrowserCommand::ZoomReset,
     };
     let target = BrowserCommandTarget::ChromeProjection {
         fallback_node: nav_targeting::chrome_projection_node(graph_app, _window)
@@ -107,6 +120,11 @@ fn requested_open_mode(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prefs::AppPreferences;
+    use crate::shell::desktop::host::headless_window::HeadlessWindow;
+    use crate::shell::desktop::host::window::EmbedderWindow;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
 
     #[test]
     fn test_requested_open_mode_none_when_not_requested() {
@@ -128,5 +146,21 @@ mod tests {
             requested_open_mode(true, true),
             Some(ToolbarOpenMode::SplitHorizontal)
         ));
+    }
+
+    #[test]
+    fn stop_load_action_enqueues_browser_command_without_binding_lookup() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        assert!(run_nav_action(&mut app, &window, None, ToolbarNavAction::StopLoad));
+        assert_eq!(
+            app.take_pending_browser_command(),
+            Some((
+                BrowserCommandTarget::ChromeProjection { fallback_node: None },
+                BrowserCommand::StopLoad,
+            ))
+        );
     }
 }

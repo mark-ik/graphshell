@@ -1,11 +1,22 @@
 # Chrome Scope Split: Graph Bar + Workbench Chrome (Sidebar Default)
 
 **Date**: 2026-03-13
+**Last updated**: 2026-03-22
 **Status**: Design — Pre-Implementation
 **Purpose**: Define the split chrome architecture that replaces the current
 monolithic toolbar, aligning control surfaces with the semantic authority
 boundaries already present in the codebase. The desktop default is a persistent
 top Graph Bar plus a Workbench Sidebar/Rail, not two equal horizontal bars.
+
+**Supersession note (2026-03-22)**: The fixed two-surface model (Graph Bar +
+Workbench Sidebar as separate permanent chrome) is superseded by the unified
+Navigator model in `../navigator/NAVIGATOR.md §11`. Under that model, "Graph
+Bar" and "Workbench Bar" are scope configurations of a single Navigator surface
+rather than distinct chrome surfaces. The implementation slices in this document
+remain valid as an execution plan — the controls described are still correct —
+but they should be understood as building toward a configurable Navigator rather
+than hardcoding a two-bar split. Resolve §11 scope/form-factor defaults before
+implementing the chrome layout described in §3.
 
 **Related**:
 - `2026-03-01_ux_execution_control_plane.md`

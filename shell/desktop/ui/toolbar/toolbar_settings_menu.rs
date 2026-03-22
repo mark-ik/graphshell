@@ -4,6 +4,7 @@ use crate::app::{
 };
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use crate::shell::desktop::runtime::registries::theme::{THEME_ID_DARK, THEME_ID_LIGHT};
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
@@ -60,6 +61,7 @@ pub(super) fn render_settings_menu(
         .auto_shrink([false, false])
         .max_height(max_menu_height)
         .show(ui, |ui| {
+            let theme_tokens = phase3_resolve_active_theme(graph_app.default_registry_theme_id()).tokens;
             ui.label(
                 egui::RichText::new(if prefer_overlay {
                     "Graph scope: settings pages open as overlays."
@@ -106,7 +108,11 @@ pub(super) fn render_settings_menu(
             let active_theme = crate::shell::desktop::runtime::registries::phase3_describe_theme(
                 graph_app.default_registry_theme_id(),
             );
-            ui.small(format!("Active theme: {}", active_theme.display_name));
+            ui.label(
+                egui::RichText::new(format!("Active theme: {}", active_theme.display_name))
+                    .small()
+                    .color(theme_tokens.radial_chrome_text),
+            );
             let (toggle_label, toggle_theme_id) =
                 theme_toggle_details(Some(active_theme.resolved_id.as_str()));
             if ui.button(toggle_label).clicked() {
@@ -118,10 +124,14 @@ pub(super) fn render_settings_menu(
 
             ui.separator();
             ui.label("Command Surfaces");
-            ui.small(format!(
-                "Right-click surface: {}",
-                context_command_surface_label(graph_app.context_command_surface_preference())
-            ));
+            ui.label(
+                egui::RichText::new(format!(
+                    "Right-click surface: {}",
+                    context_command_surface_label(graph_app.context_command_surface_preference())
+                ))
+                .small()
+                .color(theme_tokens.radial_chrome_text),
+            );
             for preference in [
                 ContextCommandSurfacePreference::RadialPalette,
                 ContextCommandSurfacePreference::ContextPalette,

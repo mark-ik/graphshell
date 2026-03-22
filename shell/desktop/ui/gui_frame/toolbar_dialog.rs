@@ -15,6 +15,7 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::lifecycle::webview_status_sync;
 use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthorityState};
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
@@ -101,15 +102,16 @@ pub(crate) fn handle_toolbar_dialog_phase(
         focused_toolbar_node_key,
         graph_app.get_single_selected_node(),
     );
+    let focused_content_status =
+        webview_status_sync::focused_content_status(focused_toolbar_node, graph_app, window);
     let workbench_projection = workbench_sidebar::render_workbench_sidebar(
         ctx,
         graph_app,
         window,
         tiles_tree,
         focused_toolbar_node,
+        &focused_content_status,
         active_toolbar_pane,
-        can_go_back,
-        can_go_forward,
         location_dirty,
     );
     let is_graph_view = matches!(
@@ -131,6 +133,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         focused_toolbar_node,
         active_toolbar_pane,
         workbench_layer_state: workbench_projection.layer_state,
+        focused_content_status: &focused_content_status,
         local_widget_focus,
         can_go_back,
         can_go_forward,

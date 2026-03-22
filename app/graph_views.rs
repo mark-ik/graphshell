@@ -1,4 +1,86 @@
 use super::*;
+use crate::graph::{ArrangementSubKind, NodeKey, RelationSelector, SemanticSubKind};
+
+fn default_edge_projection_selectors() -> Vec<RelationSelector> {
+    vec![
+        RelationSelector::Semantic(SemanticSubKind::UserGrouped),
+        RelationSelector::Arrangement(ArrangementSubKind::FrameMember),
+    ]
+}
+
+fn sanitize_edge_projection_selectors(
+    selectors: impl IntoIterator<Item = RelationSelector>,
+) -> Vec<RelationSelector> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for selector in selectors {
+        if seen.insert(selector) {
+            out.push(selector);
+        }
+    }
+    out
+}
+
+fn sorted_unique_node_keys(nodes: impl IntoIterator<Item = NodeKey>) -> Vec<NodeKey> {
+    let mut out: Vec<NodeKey> = nodes.into_iter().collect();
+    out.sort_by_key(|key| key.index());
+    out.dedup();
+    out
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeProjectionSource {
+    WorkbenchDefault,
+    GraphViewOverride,
+    SelectionOverride,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EdgeProjectionState {
+    #[serde(default = "default_edge_projection_selectors")]
+    pub active_selectors: Vec<RelationSelector>,
+}
+
+impl Default for EdgeProjectionState {
+    fn default() -> Self {
+        Self {
+            active_selectors: default_edge_projection_selectors(),
+        }
+    }
+}
+
+impl EdgeProjectionState {
+    pub fn new(selectors: Vec<RelationSelector>) -> Self {
+        Self {
+            active_selectors: sanitize_edge_projection_selectors(selectors),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectionEdgeProjectionOverride {
+    pub selected_nodes: Vec<NodeKey>,
+    pub selectors: Vec<RelationSelector>,
+}
+
+impl SelectionEdgeProjectionOverride {
+    pub fn new(selected_nodes: Vec<NodeKey>, selectors: Vec<RelationSelector>) -> Option<Self> {
+        let selected_nodes = sorted_unique_node_keys(selected_nodes);
+        if selected_nodes.is_empty() {
+            return None;
+        }
+        Some(Self {
+            selected_nodes,
+            selectors: sanitize_edge_projection_selectors(selectors),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedEdgeProjection {
+    pub source: EdgeProjectionSource,
+    pub selectors: Vec<RelationSelector>,
+}
 
 /// Camera state for zoom bounds enforcement
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -61,6 +143,175 @@ impl Default for GraphViewId {
 }
 
 impl GraphBrowserApp {
+    pub fn workbench_edge_projection(&self) -> &EdgeProjectionState {
+        &self.workspace.workbench_session.edge_projection
+    }
+
+    pub fn graph_view_edge_projection_override(
+        &self,
+        view_id: GraphViewId,
+    ) -> Option<&EdgeProjectionState> {
+        self.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .and_then(|view| view.edge_projection_override.as_ref())
+    }
+
+    fn selection_scope_for_view(view_id: Option<GraphViewId>) -> SelectionScope {
+        view_id
+            .map(SelectionScope::View)
+            .unwrap_or(SelectionScope::Unfocused)
+    }
+
+    fn selection_node_keys_for_scope(&self, scope: SelectionScope) -> Vec<NodeKey> {
+        let mut nodes: Vec<NodeKey> = self
+            .workspace
+            .graph_runtime
+            .selection_by_scope
+            .get(&scope)
+            .into_iter()
+            .flat_map(|selection| selection.iter().copied())
+            .collect();
+        nodes.sort_by_key(|key| key.index());
+        nodes.dedup();
+        nodes
+    }
+
+    pub(crate) fn clear_selection_edge_projection_override_for_scope(
+        &mut self,
+        scope: SelectionScope,
+    ) {
+        self.workspace
+            .graph_runtime
+            .selection_edge_projections
+            .remove(&scope);
+    }
+
+    pub(crate) fn sync_selection_edge_projection_override_for_scope(
+        &mut self,
+        scope: SelectionScope,
+    ) {
+        let Some(existing) = self
+            .workspace
+            .graph_runtime
+            .selection_edge_projections
+            .get(&scope)
+            .cloned()
+        else {
+            return;
+        };
+        let current_nodes = self.selection_node_keys_for_scope(scope);
+        if current_nodes != existing.selected_nodes {
+            self.clear_selection_edge_projection_override_for_scope(scope);
+        }
+    }
+
+    pub(crate) fn sync_all_selection_edge_projection_overrides(&mut self) {
+        let scopes: Vec<SelectionScope> = self
+            .workspace
+            .graph_runtime
+            .selection_edge_projections
+            .keys()
+            .copied()
+            .collect();
+        for scope in scopes {
+            self.sync_selection_edge_projection_override_for_scope(scope);
+        }
+    }
+
+    pub fn set_workbench_edge_projection(&mut self, selectors: Vec<RelationSelector>) {
+        self.workspace.workbench_session.edge_projection = EdgeProjectionState::new(selectors);
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn set_graph_view_edge_projection_override(
+        &mut self,
+        view_id: GraphViewId,
+        selectors: Option<Vec<RelationSelector>>,
+    ) {
+        let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) else {
+            return;
+        };
+        view.edge_projection_override = selectors.map(EdgeProjectionState::new);
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn set_selection_edge_projection_override(
+        &mut self,
+        view_id: Option<GraphViewId>,
+        selectors: Option<Vec<RelationSelector>>,
+    ) {
+        let scope = Self::selection_scope_for_view(view_id);
+        match selectors.and_then(|selectors| {
+            SelectionEdgeProjectionOverride::new(
+                self.selection_node_keys_for_scope(scope),
+                selectors,
+            )
+        }) {
+            Some(override_state) => {
+                self.workspace
+                    .graph_runtime
+                    .selection_edge_projections
+                    .insert(scope, override_state);
+            }
+            None => {
+                self.clear_selection_edge_projection_override_for_scope(scope);
+            }
+        }
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn resolved_edge_projection_for_nodes(
+        &self,
+        nodes: &[NodeKey],
+        view_id: Option<GraphViewId>,
+    ) -> ResolvedEdgeProjection {
+        let scope = Self::selection_scope_for_view(view_id);
+        let requested_nodes = sorted_unique_node_keys(nodes.iter().copied());
+        if !requested_nodes.is_empty()
+            && let Some(selection_override) = self
+                .workspace
+                .graph_runtime
+                .selection_edge_projections
+                .get(&scope)
+        {
+            let selection_nodes: HashSet<NodeKey> =
+                selection_override.selected_nodes.iter().copied().collect();
+            if requested_nodes
+                .iter()
+                .all(|node| selection_nodes.contains(node))
+            {
+                return ResolvedEdgeProjection {
+                    source: EdgeProjectionSource::SelectionOverride,
+                    selectors: selection_override.selectors.clone(),
+                };
+            }
+        }
+
+        if let Some(view_id) = view_id
+            && let Some(view_override) = self.graph_view_edge_projection_override(view_id)
+        {
+            return ResolvedEdgeProjection {
+                source: EdgeProjectionSource::GraphViewOverride,
+                selectors: view_override.active_selectors.clone(),
+            };
+        }
+
+        ResolvedEdgeProjection {
+            source: EdgeProjectionSource::WorkbenchDefault,
+            selectors: self.workbench_edge_projection().active_selectors.clone(),
+        }
+    }
+
+    pub fn resolved_edge_projection_for_seed(
+        &self,
+        seed: NodeKey,
+        view_id: Option<GraphViewId>,
+    ) -> ResolvedEdgeProjection {
+        self.resolved_edge_projection_for_nodes(&[seed], view_id)
+    }
+
     /// Request camera fit on next render frame.
     pub fn request_fit_to_screen(&mut self) {
         self.request_camera_command(CameraCommand::Fit);
@@ -884,6 +1135,10 @@ pub struct GraphViewState {
     /// `None` means all nodes are visible (no filter active).
     #[serde(default)]
     pub active_filter: Option<crate::model::graph::filter::FacetExpr>,
+    /// Optional per-view relation projection override used for graphlet
+    /// computation and projection-aware workbench routing.
+    #[serde(default)]
+    pub edge_projection_override: Option<EdgeProjectionState>,
 }
 
 impl std::fmt::Debug for GraphViewState {
@@ -899,6 +1154,7 @@ impl std::fmt::Debug for GraphViewState {
             .field("dimension", &self.dimension)
             .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
             .field("active_filter", &self.active_filter)
+            .field("edge_projection_override", &self.edge_projection_override)
             .finish_non_exhaustive()
     }
 }
@@ -917,6 +1173,7 @@ impl Clone for GraphViewState {
             last_layout_algorithm_id: self.last_layout_algorithm_id.clone(),
             egui_state: None,
             active_filter: self.active_filter.clone(),
+            edge_projection_override: self.edge_projection_override.clone(),
         }
     }
 }
@@ -941,6 +1198,7 @@ impl GraphViewState {
             last_layout_algorithm_id: None,
             egui_state: None,
             active_filter: None,
+            edge_projection_override: None,
         }
     }
 

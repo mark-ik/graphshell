@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use euclid::default::Point2D;
 
-use crate::graph::{EdgeType, NodeKey};
+use crate::graph::{NodeKey, RelationSelector};
 
 use super::{
     CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand, GraphSearchRequest,
@@ -22,6 +22,10 @@ pub enum BrowserCommand {
     Back,
     Forward,
     Reload,
+    StopLoad,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
     Close,
 }
 
@@ -183,6 +187,17 @@ pub enum ViewAction {
         width: u32,
         height: u32,
     },
+    SetWorkbenchEdgeProjection {
+        selectors: Vec<RelationSelector>,
+    },
+    SetViewEdgeProjectionOverride {
+        view_id: GraphViewId,
+        selectors: Option<Vec<RelationSelector>>,
+    },
+    SetSelectionEdgeProjectionOverride {
+        view_id: Option<GraphViewId>,
+        selectors: Option<Vec<RelationSelector>>,
+    },
     SetNavigatorContainmentRelationSource {
         source: NavigatorContainmentRelationSource,
     },
@@ -298,7 +313,7 @@ pub enum GraphMutation {
     RemoveEdge {
         from: NodeKey,
         to: NodeKey,
-        edge_type: EdgeType,
+        selector: RelationSelector,
     },
     CreateUserGroupedEdgeFromPrimarySelection,
     ExecuteEdgeCommand {
@@ -582,7 +597,7 @@ pub enum GraphIntent {
     RemoveEdge {
         from: NodeKey,
         to: NodeKey,
-        edge_type: EdgeType,
+        selector: RelationSelector,
     },
     CreateUserGroupedEdgeFromPrimarySelection,
     GroupNodesBySemanticTags,
@@ -670,6 +685,17 @@ pub enum GraphIntent {
         rgba: Vec<u8>,
         width: u32,
         height: u32,
+    },
+    SetWorkbenchEdgeProjection {
+        selectors: Vec<RelationSelector>,
+    },
+    SetViewEdgeProjectionOverride {
+        view_id: GraphViewId,
+        selectors: Option<Vec<RelationSelector>>,
+    },
+    SetSelectionEdgeProjectionOverride {
+        view_id: Option<GraphViewId>,
+        selectors: Option<Vec<RelationSelector>>,
     },
     ClearHistoryTimeline,
     ClearHistoryDissolved,
@@ -880,6 +906,9 @@ impl GraphIntent {
             | Self::WebViewCrashed { .. }
             | Self::SetNodeThumbnail { .. }
             | Self::SetNodeFavicon { .. }
+            | Self::SetWorkbenchEdgeProjection { .. }
+            | Self::SetViewEdgeProjectionOverride { .. }
+            | Self::SetSelectionEdgeProjectionOverride { .. }
             | Self::ClearHistoryTimeline
             | Self::ClearHistoryDissolved
             | Self::AutoCurateHistoryTimeline { .. }
@@ -1014,6 +1043,15 @@ impl From<ViewAction> for GraphIntent {
                 width,
                 height,
             },
+            ViewAction::SetWorkbenchEdgeProjection { selectors } => {
+                Self::SetWorkbenchEdgeProjection { selectors }
+            }
+            ViewAction::SetViewEdgeProjectionOverride { view_id, selectors } => {
+                Self::SetViewEdgeProjectionOverride { view_id, selectors }
+            }
+            ViewAction::SetSelectionEdgeProjectionOverride { view_id, selectors } => {
+                Self::SetSelectionEdgeProjectionOverride { view_id, selectors }
+            }
             ViewAction::SetNavigatorContainmentRelationSource { source } => {
                 Self::SetNavigatorContainmentRelationSource { source }
             }
@@ -1076,11 +1114,11 @@ impl From<GraphMutation> for GraphIntent {
             GraphMutation::RemoveEdge {
                 from,
                 to,
-                edge_type,
+                selector,
             } => Self::RemoveEdge {
                 from,
                 to,
-                edge_type,
+                selector,
             },
             GraphMutation::CreateUserGroupedEdgeFromPrimarySelection => {
                 Self::CreateUserGroupedEdgeFromPrimarySelection
@@ -1275,6 +1313,23 @@ impl GraphIntent {
                 width: *width,
                 height: *height,
             }),
+            Self::SetWorkbenchEdgeProjection { selectors } => {
+                Some(ViewAction::SetWorkbenchEdgeProjection {
+                    selectors: selectors.clone(),
+                })
+            }
+            Self::SetViewEdgeProjectionOverride { view_id, selectors } => {
+                Some(ViewAction::SetViewEdgeProjectionOverride {
+                    view_id: *view_id,
+                    selectors: selectors.clone(),
+                })
+            }
+            Self::SetSelectionEdgeProjectionOverride { view_id, selectors } => {
+                Some(ViewAction::SetSelectionEdgeProjectionOverride {
+                    view_id: *view_id,
+                    selectors: selectors.clone(),
+                })
+            }
             Self::SetNavigatorContainmentRelationSource { source } => {
                 Some(ViewAction::SetNavigatorContainmentRelationSource { source: *source })
             }
@@ -1360,11 +1415,11 @@ impl GraphIntent {
             Self::RemoveEdge {
                 from,
                 to,
-                edge_type,
+                selector,
             } => Some(GraphMutation::RemoveEdge {
                 from: *from,
                 to: *to,
-                edge_type: *edge_type,
+                selector: *selector,
             }),
             Self::CreateUserGroupedEdgeFromPrimarySelection => {
                 Some(GraphMutation::CreateUserGroupedEdgeFromPrimarySelection)

@@ -361,28 +361,37 @@ These signals do not introduce new routing mechanisms — they use the existing
 The goal is to replace ad hoc observer coupling (NV10) with shared reusable
 signal paths.
 
-### 4.3 Chrome Scope Split
+### 4.3 Navigator Chrome Model
 
-The monolithic toolbar ("Workbar") is superseded by two chrome surfaces:
+**Updated 2026-03-22**: The two-surface chrome split (Graph Bar + Workbench
+Sidebar as fixed separate surfaces) described in
+`subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` is superseded
+by the unified Navigator model. See `navigator/NAVIGATOR.md §11` for the
+canonical model.
 
-- **Graph Bar** — always-visible top chrome. Graph-scope controls: undo/redo,
-  new node/edge/tag, omnibar, physics chip, lens chip, tag filter chips, sync
-  badge, overflow. Stable regardless of which tiles are open.
-- **Workbench Sidebar** — visible when workbench surfaces are active. Projects
-  tile tree, frames, tile groups as navigator. Carries pane-local controls
-  (back/forward/reload/clip/viewer).
+Summary: there is one Navigator surface with two orthogonal settings — form
+factor (Sidebar panel or Toolbar bar) and scope (Both / GraphOnly /
+WorkbenchOnly / Auto). The controls previously attributed to "Graph Bar" and
+"Workbench Sidebar" are now scope-sections within the unified Navigator.
 
-This split enforces INV-1 (graph identity controls are always available) and
-keeps arrangement controls contextual to workbench state.
+The goal this section was enforcing remains unchanged:
 
-**Wiring implications**:
+- Graph-scope controls (undo/redo, new node/edge, omnibar, physics, lens,
+  tag filters, sync) must always be available regardless of which tiles are open
+- Arrangement controls (frame management, tile layout, back/forward) are
+  contextual to workbench state
 
-- Graph Bar reads from graph truth + selection model; writes through
-  `ActionRegistry` → graph reducer.
-- Workbench Sidebar reads from tile tree + workbench session state; writes
-  through `ActionRegistry` → workbench authority.
-- Both surfaces must receive `SelectionChanged` and `FocusChanged` signals to
-  stay current.
+These goals are achieved through Navigator scope configuration rather than
+fixed surface separation.
+
+**Wiring implications** (unchanged):
+
+- Graph-scope Navigator sections read from graph truth + selection model;
+  write through `ActionRegistry` → graph reducer.
+- Workbench-scope Navigator sections read from tile tree + workbench session
+  state; write through `ActionRegistry` → workbench authority.
+- Both scope sections must receive `SelectionChanged` and `FocusChanged`
+  signals to stay current.
 
 ### 4.4 ActionRegistry as Single Command Authority
 
@@ -592,7 +601,11 @@ correctly.
 3. Wire navigator projection refresh via signals: NV10.
 4. Implement navigator arrangement projection: NV15.
 5. Implement cross-surface diagnostics: G43, WB24, NV21.
-6. Complete chrome scope split: Graph Bar + Workbench Sidebar.
+6. Implement unified Navigator chrome with scope/form-factor configuration
+   per `navigator/NAVIGATOR.md §11`. The chrome scope split plan
+   (`2026-03-13_chrome_scope_split_plan.md`) remains a valid execution
+   reference for the controls involved, but the target surface model is the
+   unified Navigator, not two fixed bars.
 
 **Exit criteria**: Focus changes propagate to selection and navigator via
 signals. Frames are graph-backed arrangement relations. Navigator refreshes on

@@ -135,6 +135,70 @@ pub(crate) enum EmbeddedContentTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusedContentFeatureSupport {
+    Unsupported,
+    Available,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusedContentMediaState {
+    Unsupported,
+    Silent,
+    Playing,
+    Muted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusedContentDownloadState {
+    Unsupported,
+    Idle,
+    Active,
+    Recent,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FocusedContentStatus {
+    pub(crate) node_key: Option<NodeKey>,
+    pub(crate) renderer_id: Option<WebViewId>,
+    pub(crate) current_url: Option<String>,
+    pub(crate) load_status: LoadStatus,
+    pub(crate) status_text: Option<String>,
+    pub(crate) can_go_back: bool,
+    pub(crate) can_go_forward: bool,
+    pub(crate) can_stop_load: bool,
+    pub(crate) find_in_page: FocusedContentFeatureSupport,
+    pub(crate) content_zoom_level: Option<f32>,
+    pub(crate) media_state: FocusedContentMediaState,
+    pub(crate) download_state: FocusedContentDownloadState,
+}
+
+impl FocusedContentStatus {
+    pub(crate) fn unavailable(
+        node_key: Option<NodeKey>,
+        renderer_id: Option<WebViewId>,
+    ) -> Self {
+        Self {
+            node_key,
+            renderer_id,
+            current_url: None,
+            load_status: LoadStatus::Complete,
+            status_text: None,
+            can_go_back: false,
+            can_go_forward: false,
+            can_stop_load: false,
+            find_in_page: FocusedContentFeatureSupport::Unsupported,
+            content_zoom_level: None,
+            media_state: FocusedContentMediaState::Unsupported,
+            download_state: FocusedContentDownloadState::Unsupported,
+        }
+    }
+
+    pub(crate) fn live_content_active(&self) -> bool {
+        self.renderer_id.is_some()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FocusCaptureSurface {
     ModalDialog,
     CommandPalette,

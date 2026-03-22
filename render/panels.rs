@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui::{Ui, Window};
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use uuid::Uuid;
 
 use crate::app::{
@@ -13,7 +14,7 @@ use crate::app::{
     OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference, ViewAction, WorkbenchIntent,
     clip_capture_matches_filter, clip_capture_matches_query,
 };
-use crate::graph::{ArrangementSubKind, EdgeType, NodeKey, format_imported_at_secs};
+use crate::graph::{ArrangementSubKind, EdgeFamily, NodeKey, RelationSelector, format_imported_at_secs};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{
@@ -143,21 +144,19 @@ fn containment_folder_from_row_key(row_key: &str) -> Option<&str> {
 
 fn recent_traversal_node_timestamps(app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
     let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
-    for edge in app.domain_graph().edges() {
-        if edge.edge_type != EdgeType::History {
+    for edge in app.domain_graph().inner.edge_references() {
+        if !edge
+            .weight()
+            .has_relation(RelationSelector::Family(EdgeFamily::Traversal))
+        {
             continue;
         }
-        let timestamp = app
-            .domain_graph()
-            .find_edge_key(edge.from, edge.to)
-            .and_then(|edge_key| app.domain_graph().get_edge(edge_key))
-            .and_then(|payload| payload.metrics().last_navigated_at)
-            .unwrap_or(0);
+        let timestamp = edge.weight().metrics().last_navigated_at.unwrap_or(0);
         if timestamp == 0 {
             continue;
         }
         by_node
-            .entry(edge.to)
+            .entry(edge.target())
             .and_modify(|current| *current = (*current).max(timestamp))
             .or_insert(timestamp);
     }
@@ -2226,23 +2225,33 @@ fn render_settings_surface_in_ui_with_control_panel(
                     ui.label(
                         "Settings surfaces configure graph, view, and workbench behavior without becoming the semantic owner of those domains.",
                     );
-                    ui.small(
+                    themed_secondary_small_label(
+                        ui,
+                        phase3_resolve_active_theme(app.default_registry_theme_id())
+                            .tokens
+                            .radial_chrome_text,
                         "Use the page list on the left for editable categories. Related tool surfaces stay separate so settings does not turn into a generic utilities drawer.",
                     );
 
                     ui.separator();
                     ui.label("Current Surface");
-                    ui.small(match surface_mode {
-                        SettingsSurfaceMode::ToolPane => {
-                            "This page is hosted in the workbench and participates in normal pane focus, split, and restore behavior."
-                        }
-                        SettingsSurfaceMode::Overlay => {
-                            "This page is currently a graph overlay. Use 'Tile This Page' to promote it into the workbench without changing the route."
-                        }
-                        SettingsSurfaceMode::NodeViewer => {
-                            "This page is rendered inside a node viewer pane so settings routes can remain page-backed even before they are promoted into dedicated tool surfaces."
-                        }
-                    });
+                    themed_secondary_small_label(
+                        ui,
+                        phase3_resolve_active_theme(app.default_registry_theme_id())
+                            .tokens
+                            .radial_chrome_text,
+                        match surface_mode {
+                            SettingsSurfaceMode::ToolPane => {
+                                "This page is hosted in the workbench and participates in normal pane focus, split, and restore behavior."
+                            }
+                            SettingsSurfaceMode::Overlay => {
+                                "This page is currently a graph overlay. Use 'Tile This Page' to promote it into the workbench without changing the route."
+                            }
+                            SettingsSurfaceMode::NodeViewer => {
+                                "This page is rendered inside a node viewer pane so settings routes can remain page-backed even before they are promoted into dedicated tool surfaces."
+                            }
+                        },
+                    );
 
                     ui.separator();
                     ui.label("Related Surfaces");
@@ -2336,7 +2345,11 @@ fn render_settings_surface_in_ui_with_control_panel(
                     if ui.button("Restore Latest Graph").clicked() {
                         app.request_restore_graph_snapshot_latest();
                     }
-                    ui.small(
+                    themed_secondary_small_label(
+                        ui,
+                        phase3_resolve_active_theme(app.default_registry_theme_id())
+                            .tokens
+                            .radial_chrome_text,
                         "Frame save, restore, and pruning now live with the active frame in workbench chrome rather than inside persistence settings.",
                     );
                 }
@@ -2347,7 +2360,13 @@ fn render_settings_surface_in_ui_with_control_panel(
                     if let Some(control_panel) = control_panel.as_mut() {
                         render_sync_settings_in_ui(ui, app, control_panel);
                     } else {
-                        ui.small("Sync controls unavailable in this surface.");
+                        themed_secondary_small_label(
+                            ui,
+                            phase3_resolve_active_theme(app.default_registry_theme_id())
+                                .tokens
+                                .command_notice,
+                            "Sync controls unavailable in this surface.",
+                        );
                     }
                 }
                 SettingsToolPage::Appearance => {
@@ -2372,7 +2391,13 @@ fn render_settings_surface_in_ui_with_control_panel(
                             ));
                         }
                     }
-                    ui.small("Theme mode is persisted through the workspace settings model.");
+                    themed_secondary_small_label(
+                        ui,
+                        phase3_resolve_active_theme(app.default_registry_theme_id())
+                            .tokens
+                            .radial_chrome_text,
+                        "Theme mode is persisted through the workspace settings model.",
+                    );
 
                     ui.separator();
                     ui.label("Notifications");
@@ -2421,7 +2446,13 @@ fn render_settings_surface_in_ui_with_control_panel(
                     }
                     if let Some(reason) = wry_disabled_reason {
                         wry_toggle_response.on_hover_text(reason);
-                        ui.small(reason);
+                        themed_secondary_small_label(
+                            ui,
+                            phase3_resolve_active_theme(app.default_registry_theme_id())
+                                .tokens
+                                .command_notice,
+                            reason,
+                        );
                     }
                 }
                 SettingsToolPage::Keybindings => {
@@ -2515,7 +2546,13 @@ fn render_settings_surface_in_ui_with_control_panel(
                     if !active_remaps.is_empty()
                         && !(active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset)
                     {
-                        ui.small("Stored remaps include custom bindings outside these presets.");
+                        themed_secondary_small_label(
+                            ui,
+                            phase3_resolve_active_theme(app.default_registry_theme_id())
+                                .tokens
+                                .command_notice,
+                            "Stored remaps include custom bindings outside these presets.",
+                        );
                     }
 
                     ui.separator();
@@ -2741,7 +2778,13 @@ fn render_keybindings_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
     }
 
     ui.label("Keyboard shortcuts are registry-backed and persisted per workspace.");
-    ui.small("Click Rebind, then press a key or chord. Press Esc to cancel capture.");
+    themed_secondary_small_label(
+        ui,
+        phase3_resolve_active_theme(app.default_registry_theme_id())
+            .tokens
+            .radial_chrome_text,
+        "Click Rebind, then press a key or chord. Press Esc to cancel capture.",
+    );
     ui.add_space(8.0);
 
     if ui.button("Reset All To Defaults").clicked() {
@@ -2801,7 +2844,13 @@ fn render_keybindings_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
                             .map(InputBinding::display_label)
                             .unwrap_or_else(|| "None".to_string()),
                     );
-                    ui.small(entry.context.label());
+                    themed_secondary_small_label(
+                        ui,
+                        phase3_resolve_active_theme(app.default_registry_theme_id())
+                            .tokens
+                            .radial_chrome_text,
+                        entry.context.label(),
+                    );
                     ui.horizontal(|ui| {
                         if ui
                             .button(if is_capturing {
@@ -2844,12 +2893,51 @@ fn render_keybindings_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
     });
 }
 
+fn themed_secondary_small_label(ui: &mut Ui, color: egui::Color32, text: impl Into<String>) {
+    ui.label(egui::RichText::new(text.into()).small().color(color));
+}
+
+fn nip46_decision_color(
+    theme_tokens: &crate::shell::desktop::runtime::registries::theme::ThemeTokenSet,
+    decision: crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision,
+) -> egui::Color32 {
+    match decision {
+        crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Pending => {
+            theme_tokens.command_notice
+        }
+        crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Allow => {
+            theme_tokens.status_success
+        }
+        crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Deny => {
+            theme_tokens.status_error
+        }
+    }
+}
+
+fn nip07_decision_color(
+    theme_tokens: &crate::shell::desktop::runtime::registries::theme::ThemeTokenSet,
+    decision: crate::shell::desktop::runtime::registries::Nip07PermissionDecision,
+) -> egui::Color32 {
+    match decision {
+        crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Pending => {
+            theme_tokens.command_notice
+        }
+        crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow => {
+            theme_tokens.status_success
+        }
+        crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Deny => {
+            theme_tokens.status_error
+        }
+    }
+}
+
 pub fn render_sync_settings_in_ui(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
     control_panel: &mut crate::shell::desktop::runtime::control_panel::ControlPanel,
 ) {
     let ctx = ui.ctx().clone();
+    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
     let pairing_code_id = egui::Id::new("verse_pairing_code");
     let pairing_code_input_id = egui::Id::new("verse_pairing_code_input");
     let discovery_results_id = egui::Id::new("verse_discovery_results");
@@ -2880,7 +2968,11 @@ pub fn render_sync_settings_in_ui(
     ui.separator();
 
     if !verse_initialized {
-        ui.label("Verse is initializing. Device list will appear shortly.");
+        themed_secondary_small_label(
+            ui,
+            theme_tokens.radial_chrome_text,
+            "Verse is initializing. Device list will appear shortly.",
+        );
     } else {
         ui.horizontal(|ui| {
             if ui.button("Show Pairing Code").clicked() {
@@ -3028,7 +3120,7 @@ pub fn render_sync_settings_in_ui(
 
         let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
         if peers.is_empty() {
-            ui.label("No paired devices yet.");
+            themed_secondary_small_label(ui, theme_tokens.command_notice, "No paired devices yet.");
         } else {
             for peer in &peers {
                 ui.group(|ui| {
@@ -3051,7 +3143,11 @@ pub fn render_sync_settings_in_ui(
                     });
 
                     if peer.workspace_grants.is_empty() {
-                        ui.small("No workspace grants");
+                        themed_secondary_small_label(
+                            ui,
+                            theme_tokens.radial_chrome_text,
+                            "No workspace grants",
+                        );
                     } else {
                         for grant in &peer.workspace_grants {
                             ui.horizontal(|ui| {
@@ -3082,7 +3178,11 @@ pub fn render_sync_settings_in_ui(
     ui.separator();
     ui.label(egui::RichText::new("Sync Status").strong());
     if !verse_initialized {
-        ui.label("Initializing Verse networking...");
+        themed_secondary_small_label(
+            ui,
+            theme_tokens.radial_chrome_text,
+            "Initializing Verse networking...",
+        );
     } else {
         let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
         ui.label(format!("Connected peers: {}", peers.len()));
@@ -3092,12 +3192,17 @@ pub fn render_sync_settings_in_ui(
 
     if let Some(message) = ctx.data_mut(|d| d.get_temp::<String>(sync_status_id)) {
         ui.separator();
-        ui.small(message);
+        ui.label(
+            egui::RichText::new(message)
+                .small()
+                .color(theme_tokens.radial_chrome_text),
+        );
     }
 }
 
 fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
     let ctx = ui.ctx().clone();
+    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
     let bunker_uri_input_id = egui::Id::new("nostr_bunker_uri_input");
     let nostr_status_id = egui::Id::new("nostr_signer_status");
 
@@ -3164,7 +3269,11 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
 
     match crate::shell::desktop::runtime::registries::phase3_nostr_signer_backend_snapshot() {
         crate::shell::desktop::runtime::registries::NostrSignerBackendSnapshot::LocalHostKey => {
-            ui.small("Current backend: local secp256k1 user signer.");
+            themed_secondary_small_label(
+                ui,
+                theme_tokens.radial_chrome_text,
+                "Current backend: local secp256k1 user signer.",
+            );
         }
         crate::shell::desktop::runtime::registries::NostrSignerBackendSnapshot::Nip46Delegated {
             relay_urls,
@@ -3175,23 +3284,51 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
             signer_user_pubkey,
             connected,
         } => {
-            ui.small(format!(
+            themed_secondary_small_label(
+                ui,
+                theme_tokens.radial_chrome_text,
+                format!(
                 "Current backend: NIP-46 delegated signer {}",
                 &signer_pubkey[..signer_pubkey.len().min(16)]
-            ));
-            ui.small(format!("Relays: {}", relay_urls.join(", ")));
-            ui.small(if connected {
-                "Connection status: connected"
-            } else {
-                "Connection status: pending connect on first use"
-            });
-            ui.small(if has_ephemeral_secret {
-                "Session secret: loaded for this run only"
-            } else {
-                "Session secret: none loaded"
-            });
+                ),
+            );
+            themed_secondary_small_label(
+                ui,
+                theme_tokens.radial_chrome_text,
+                format!("Relays: {}", relay_urls.join(", ")),
+            );
+            themed_secondary_small_label(
+                ui,
+                if connected {
+                    theme_tokens.status_success
+                } else {
+                    theme_tokens.command_notice
+                },
+                if connected {
+                    "Connection status: connected"
+                } else {
+                    "Connection status: pending connect on first use"
+                },
+            );
+            themed_secondary_small_label(
+                ui,
+                if has_ephemeral_secret {
+                    theme_tokens.status_success
+                } else {
+                    theme_tokens.command_notice
+                },
+                if has_ephemeral_secret {
+                    "Session secret: loaded for this run only"
+                } else {
+                    "Session secret: none loaded"
+                },
+            );
             if let Some(user_pubkey) = signer_user_pubkey {
-                ui.small(format!("Signer user pubkey: {user_pubkey}"));
+                themed_secondary_small_label(
+                    ui,
+                    theme_tokens.radial_chrome_text,
+                    format!("Signer user pubkey: {user_pubkey}"),
+                );
             }
 
             let mut grants = permission_grants;
@@ -3207,21 +3344,31 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
             ui.separator();
             ui.label("Local permission memory");
             if requested_permissions.is_empty() {
-                ui.small("No permissions were declared in the bunker URI. Local approval still gates delegated signing.");
+                themed_secondary_small_label(
+                    ui,
+                    theme_tokens.radial_chrome_text,
+                    "No permissions were declared in the bunker URI. Local approval still gates delegated signing.",
+                );
             } else {
-                ui.small(format!(
-                    "Bunker-declared permissions: {}",
-                    requested_permissions.join(", ")
-                ));
+                themed_secondary_small_label(
+                    ui,
+                    theme_tokens.radial_chrome_text,
+                    format!("Bunker-declared permissions: {}", requested_permissions.join(", ")),
+                );
             }
             for grant in grants {
                 ui.horizontal(|ui| {
-                    ui.label(&grant.permission);
-                    ui.small(match grant.decision {
+                    let decision_label = match &grant.decision {
                         crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Pending => "pending",
                         crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Allow => "allowed",
                         crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Deny => "denied",
-                    });
+                    };
+                    ui.label(&grant.permission);
+                    themed_secondary_small_label(
+                        ui,
+                        nip46_decision_color(&theme_tokens, grant.decision.clone()),
+                        decision_label,
+                    );
                     if ui.small_button("Allow").clicked()
                         && crate::shell::desktop::runtime::registries::phase3_nostr_set_nip46_permission(
                             &grant.permission,
@@ -3256,19 +3403,23 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
 
     ui.separator();
     ui.label(egui::RichText::new("NIP-07 Web Origins").strong());
-    ui.small(
+    themed_secondary_small_label(
+        ui,
+        theme_tokens.radial_chrome_text,
         "Graphshell injects a host-owned window.nostr bridge. Sensitive methods are gated per origin.",
     );
     let nip07_grants =
         crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants();
     if nip07_grants.is_empty() {
-        ui.small("No web origins have requested NIP-07 access yet.");
+        themed_secondary_small_label(
+            ui,
+            theme_tokens.radial_chrome_text,
+            "No web origins have requested NIP-07 access yet.",
+        );
     } else {
         for grant in nip07_grants {
             ui.horizontal_wrapped(|ui| {
-                ui.monospace(&grant.origin);
-                ui.label(&grant.method);
-                ui.small(match grant.decision {
+                let decision_label = match &grant.decision {
                     crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Pending => {
                         "pending"
                     }
@@ -3278,7 +3429,14 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
                     crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Deny => {
                         "denied"
                     }
-                });
+                };
+                ui.monospace(&grant.origin);
+                ui.label(&grant.method);
+                themed_secondary_small_label(
+                    ui,
+                    nip07_decision_color(&theme_tokens, grant.decision.clone()),
+                    decision_label,
+                );
                 if ui.small_button("Allow").clicked()
                     && crate::shell::desktop::runtime::registries::phase3_nostr_set_nip07_permission(
                         &grant.origin,
@@ -3332,6 +3490,10 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
     }
 
     if let Some(message) = ctx.data_mut(|d| d.get_temp::<String>(nostr_status_id)) {
-        ui.small(message);
+        ui.label(
+            egui::RichText::new(message)
+                .small()
+                .color(theme_tokens.radial_chrome_text),
+        );
     }
 }

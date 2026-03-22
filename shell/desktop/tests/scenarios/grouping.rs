@@ -1,6 +1,6 @@
 use super::super::harness::TestRegistry;
 use crate::app::{GraphIntent, WorkbenchIntent};
-use crate::graph::{EdgeType, NodeLifecycle};
+use crate::graph::NodeLifecycle;
 use crate::shell::desktop::runtime::registries::{self as registries};
 use crate::shell::desktop::runtime::registries::action::{
     ACTION_GRAPH_NODE_REMOVE_FROM_GRAPHLET, ACTION_GRAPH_SELECTION_WARM_SELECT, ActionOutcome,
@@ -72,11 +72,14 @@ fn create_user_grouped_edge_from_primary_selection_creates_grouped_edge() {
         .workspace
         .domain
         .graph
-        .edges()
-        .filter(|edge| {
-            edge.edge_type == EdgeType::UserGrouped && edge.from == source && edge.to == destination
+        .find_edge_key(source, destination)
+        .and_then(|edge_key| harness.app.workspace.domain.graph.get_edge(edge_key))
+        .map(|payload| {
+            usize::from(payload.has_relation(crate::graph::RelationSelector::Semantic(
+                crate::graph::SemanticSubKind::UserGrouped,
+            )))
         })
-        .count();
+        .unwrap_or(0);
 
     assert_eq!(
         grouped_edge_count, 1,
@@ -123,8 +126,17 @@ fn dismiss_tile_demotes_lifecycle_and_preserves_edges() {
     );
 
     let edge_preserved = harness.app.domain_graph().edges().any(|e| {
-        e.edge_type == EdgeType::UserGrouped
-            && ((e.from == a && e.to == b) || (e.from == b && e.to == a))
+        ((e.from == a && e.to == b) || (e.from == b && e.to == a))
+            && harness
+                .app
+                .domain_graph()
+                .find_edge_key(e.from, e.to)
+                .and_then(|edge_key| harness.app.domain_graph().get_edge(edge_key))
+                .is_some_and(|payload| {
+                    payload.has_relation(crate::graph::RelationSelector::Semantic(
+                        crate::graph::SemanticSubKind::UserGrouped,
+                    ))
+                })
     });
     assert!(
         edge_preserved,
@@ -298,7 +310,15 @@ fn remove_from_graphlet_action_retracts_durable_edges_only() {
         label: None,
     }]);
     // Circumstantial edge that must NOT be retracted.
-    harness.app.add_edge_and_sync(a, b, EdgeType::Hyperlink, None);
+    let _ = harness.app.assert_relation_and_sync(
+        a,
+        b,
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+            label: None,
+            decay_progress: None,
+        },
+    );
 
     harness.app.select_node(a, false);
 
@@ -319,14 +339,34 @@ fn remove_from_graphlet_action_retracts_durable_edges_only() {
 
     // UserGrouped edge should be gone.
     let has_grouped = harness.app.domain_graph().edges().any(|e| {
-        e.edge_type == EdgeType::UserGrouped
-            && ((e.from == a && e.to == b) || (e.from == b && e.to == a))
+        ((e.from == a && e.to == b) || (e.from == b && e.to == a))
+            && harness
+                .app
+                .domain_graph()
+                .find_edge_key(e.from, e.to)
+                .and_then(|edge_key| harness.app.domain_graph().get_edge(edge_key))
+                .is_some_and(|payload| {
+                    payload.has_relation(crate::graph::RelationSelector::Semantic(
+                        crate::graph::SemanticSubKind::UserGrouped,
+                    ))
+                })
     });
     assert!(!has_grouped, "UserGrouped edge should be retracted by RemoveFromGraphlet");
 
     // Hyperlink edge should remain.
     let has_hyperlink = harness.app.domain_graph().edges().any(|e| {
-        e.edge_type == EdgeType::Hyperlink && e.from == a && e.to == b
+        e.from == a
+            && e.to == b
+            && harness
+                .app
+                .domain_graph()
+                .find_edge_key(e.from, e.to)
+                .and_then(|edge_key| harness.app.domain_graph().get_edge(edge_key))
+                .is_some_and(|payload| {
+                    payload.has_relation(crate::graph::RelationSelector::Semantic(
+                        crate::graph::SemanticSubKind::Hyperlink,
+                    ))
+                })
     });
     assert!(
         has_hyperlink,
@@ -425,8 +465,17 @@ fn new_tile_as_tab_creates_durable_graphlet_edge() {
         .expect("a new node should have been created");
 
     let has_edge = harness.app.domain_graph().edges().any(|e| {
-        e.edge_type == EdgeType::UserGrouped
-            && ((e.from == new_node && e.to == a) || (e.from == a && e.to == new_node))
+        ((e.from == new_node && e.to == a) || (e.from == a && e.to == new_node))
+            && harness
+                .app
+                .domain_graph()
+                .find_edge_key(e.from, e.to)
+                .and_then(|edge_key| harness.app.domain_graph().get_edge(edge_key))
+                .is_some_and(|payload| {
+                    payload.has_relation(crate::graph::RelationSelector::Semantic(
+                        crate::graph::SemanticSubKind::UserGrouped,
+                    ))
+                })
     });
     assert!(
         has_edge,

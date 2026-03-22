@@ -17,6 +17,8 @@
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar split
 - `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation edges backing frame/tile membership; Navigator projection sections
+- `graphlet_projection_binding_spec.md`
+- `workbench_layout_policy_spec.md` — surface-role layout constraints, `UxConfigMode`, `WorkbenchLayoutPolicyEvaluator`
 - `workbench_profile_and_workflow_composition_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../system/register/SYSTEM_REGISTER.md`
@@ -50,7 +52,9 @@ Normative workbench contracts use: intent, trigger, preconditions, semantic resu
 - Physics presets are not camera modes.
 - "File tree" is a legacy alias — use **Navigator** in new code and docs.
 - Node and Tile are not synonyms: a node is graph identity; a tile is its workbench presentation/container.
-- Graphlet and Tile Group are not synonyms: a graphlet is grouped graph arrangement; a tile group is its workbench presentation/container.
+- Graphlet and Tile Group are not synonyms: a graphlet is a connected component
+  under an active edge projection; a tile group is its workbench
+  presentation/container and may be either linked to that graphlet or detached.
 
 ### Status update (2026-03-18)
 
@@ -138,6 +142,8 @@ Additional structure rules:
 - A hosted graph view remains graph-owned semantic scope even while presented inside a pane.
 - Nodes project as tiles in workbench chrome; graphlets project as tile groups.
 - These are presentation correspondences, not term collapses.
+- A tile group does not automatically own graphlet truth. It may follow a live
+  graphlet binding or preserve a detached arrangement snapshot.
 
 ### 2.2 What each layer is for
 
@@ -232,7 +238,10 @@ Create and select persistent arrangement contexts for the active graph.
 
 **Core controls**: Workbench chrome exposes explicit `Create Tile` and
 `Create Frame` actions. In the desktop default, these actions live in the
-Workbench Sidebar header and/or frame overflow affordances. A frame
+Navigator (workbench-scope) header and/or frame overflow affordances.
+See `../navigator/NAVIGATOR.md §11` for the Navigator scope/form-factor
+model — "Workbench Sidebar" is the Navigator in panel form with workbench
+scope active. A frame
 chip/dropdown summarizes frame order and active frame, while the sidebar body
 shows the full pane tree. Selecting a frame changes the active frame context
 without changing graph identity.
@@ -333,6 +342,126 @@ Rearrange presentation structure without changing graph identity.
 
 **Fallback**: Unsupported targets or surfaces cancel safely with explicit feedback. Invalid structural operations must not leave behind ambiguous half-state.
 
+### 4.3A Relation-Projected Containers
+
+Split/tab arrangement remains the base workbench grammar, but it is not the
+only useful way to surface graph relations inside the workbench.
+
+The workbench may project non-arrangement edges through explicit
+relation-aware containers, provided the authority boundary stays intact:
+
+- graph relations remain graph truth
+- the workbench remains arrangement authority
+- a relation-aware container is a presentation strategy, not a mutation of
+  graph truth
+
+Canonical rule:
+
+- arrangement containers decide where panes live
+- relation-aware containers decide how a particular set of panes is interpreted
+  or organized inside that arrangement
+
+#### 4.3A.1 Container Families
+
+The preferred family set is:
+
+- **Tab Group** — default unordered co-location for a graphlet or ad hoc bundle
+- **Split Container** — spatial comparison between two or more tiles
+- **Sequence Lane** — ordered presentation for traversal history, chronology,
+  or spawn-order organization
+- **Containment Outline** — hierarchical projection for containment relations
+  such as domain/path/folder/collection membership
+- **Relation Fan** — one focus tile with an attached side rail or satellite band
+  of related tiles for semantic/provenance neighborhoods
+
+New relation semantics should first ask whether they fit one of these
+container families before introducing bespoke layout rules.
+
+#### 4.3A.2 `SequenceLane`
+
+`SequenceLane` is the primary workbench answer for:
+
+- traversal-derived order
+- browser/history adjacency
+- "next / previous tile" semantics
+- creation/spawn chronology when selected nodes do not form a single connected
+  graphlet under an edge selector
+
+Semantics:
+
+- exactly one item is primary/focused at a time
+- lane order is meaningful and visible
+- moving along the lane follows an explicit predecessor/successor model
+- the lane may be **linked** to a history/traversal projection or **detached**
+  as a frozen ordered arrangement
+
+This is the preferred fallback when the user wants to keep several nodes
+together in order but graphlet connectivity is weak or absent.
+
+#### 4.3A.3 `ContainmentOutline`
+
+`ContainmentOutline` is the preferred container when containment edges matter
+more than co-equal tabbing.
+
+Examples:
+
+- domain -> page
+- folder -> document
+- notebook section -> note
+- collection -> member
+
+Semantics:
+
+- hierarchy is visible as hierarchy, not flattened into tab order
+- opening a child does not erase the parent context
+- the outline may coexist beside ordinary content tiles rather than replacing
+  the whole workbench tree
+
+#### 4.3A.4 `RelationFan`
+
+`RelationFan` is the preferred container for semantic/provenance relations that
+should stay legible without forcing a full split tree.
+
+Examples:
+
+- "supports / contradicts / questions" around one source node
+- "summarized from / clipped from / generated from" around one artifact
+
+Semantics:
+
+- one primary center tile anchors the group
+- related tiles appear in an attached rail/band/list
+- relation labels remain visible
+- activating a secondary tile may promote it to primary while preserving the
+  same fan container
+
+This gives semantic edges visibility in the workbench without pretending that
+every relation needs a literal geometric split.
+
+#### 4.3A.5 Binding and Truth Constraints
+
+Relation-aware containers must obey the graphlet binding model:
+
+- a container may be **linked** to a live projection
+- or it may be **detached** and kept as an arrangement snapshot
+
+The system must never silently treat these as equivalent.
+
+When a selector change would rewrite a linked container's membership, the
+system must surface the three-choice confirmation flow defined in
+`graphlet_projection_binding_spec.md §7`: Apply and keep linked / Apply and
+detach arrangement / Cancel. This is not an implicit side effect — it is an
+explicit user decision.
+
+Additional invariants:
+
+- changing relation selectors may rewrite membership, but must not silently
+  rewrite detached arrangements
+- changing container family (for example `TabGroup -> SequenceLane`) is an
+  arrangement choice, not a graph mutation
+- chronology/spawn-order organization may produce a useful `SequenceLane` even
+  when no selector-defined graphlet connects all members
+
 ### 4.4 Close, Empty-State, and Recovery
 
 Preserve usability and context integrity when presentation surfaces disappear.
@@ -392,12 +521,15 @@ These are intended near-term behaviors. They are not yet required for baseline c
 - Explicit "open in new frame"
 - Explicit "open in specific frame"
 - Explicit duplicate-tile command paths
+- Explicit "open as sequence lane / containment outline / relation fan"
 
 ### 5.2 Better structural previews
 
 - Stronger live previews during grouping, reorder, and split drags
 - Better invalid-drop explanation
 - More legible structural container affordances
+- Better previews when selector changes would rebind a linked relation-aware
+  container
 
 ### 5.3 History and recovery refinement
 
@@ -428,6 +560,8 @@ These are exploratory design directions. They are informative only and should no
 - Semantic tile composition beyond basic split/tab structure
 - Promotable and demotable structural groupings
 - More expressive persistent workspace arrangements
+- Relation-aware containers that can switch between linked graphlet mode and
+  detached arrangement mode
 
 ### 6.3 Advanced history workflows
 
@@ -452,3 +586,6 @@ These are exploratory design directions. They are informative only and should no
 11. Inter-workbench switch/open/restore semantics are explicitly defined for `WorkbenchId` routing.
 12. Cross-workbench focus return path and fallback order are deterministic and documented.
 13. Route/focus diagnostics assertions for inter-workbench flows are defined and testable.
+14. Workbench architecture distinguishes base arrangement containers from
+    relation-aware containers such as `SequenceLane`, `ContainmentOutline`, and
+    `RelationFan`.

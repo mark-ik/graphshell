@@ -29,7 +29,7 @@ use crate::registries::atomic::lens::{
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::types::{
-    LogEntry, PersistedEdgeType, PersistedNavigationTrigger,
+    LogEntry, PersistedNavigationTrigger,
 };
 use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::shell::desktop::runtime::caches::{CachePolicy, RuntimeCaches};
@@ -169,8 +169,10 @@ mod focus_selection;
 #[path = "app/graph_views.rs"]
 mod graph_views;
 pub use graph_views::{
-    Camera, GraphViewFrame, GraphViewId, GraphViewLayoutDirection, GraphViewLayoutManagerState,
-    GraphViewSlot, GraphViewState, LensConfig, LocalSimulation, ThreeDMode, ViewDimension, ZSource,
+    Camera, EdgeProjectionSource, EdgeProjectionState, GraphViewFrame, GraphViewId,
+    GraphViewLayoutDirection, GraphViewLayoutManagerState, GraphViewSlot, GraphViewState,
+    LensConfig, LocalSimulation, ResolvedEdgeProjection, SelectionEdgeProjectionOverride,
+    ThreeDMode, ViewDimension, ZSource,
 };
 pub(crate) use graph_views::{
     PersistedGraphViewLayoutManager, default_semantic_depth_dimension, is_semantic_depth_dimension,
@@ -811,6 +813,7 @@ impl GraphBrowserApp {
                     physics: Self::default_physics_state(),
                     physics_running_before_interaction: None,
                     selection_by_scope: HashMap::new(),
+                    selection_edge_projections: HashMap::new(),
                     webview_to_node: HashMap::new(),
                     node_to_webview: HashMap::new(),
                     embedded_content_focus_webview: None,
@@ -887,6 +890,7 @@ impl GraphBrowserApp {
                     workspace_has_unsaved_changes: false,
                     unsaved_workspace_prompt_warned: false,
                     pending_workbench_intents: Vec::new(),
+                    edge_projection: EdgeProjectionState::default(),
                     pending_app_commands: VecDeque::new(),
                     pending_host_create_tokens: HashMap::new(),
                 },
@@ -946,6 +950,7 @@ impl GraphBrowserApp {
                     physics: Self::default_physics_state(),
                     physics_running_before_interaction: None,
                     selection_by_scope: HashMap::new(),
+                    selection_edge_projections: HashMap::new(),
                     webview_to_node: HashMap::new(),
                     node_to_webview: HashMap::new(),
                     embedded_content_focus_webview: None,
@@ -1022,6 +1027,7 @@ impl GraphBrowserApp {
                     workspace_has_unsaved_changes: false,
                     unsaved_workspace_prompt_warned: false,
                     pending_workbench_intents: Vec::new(),
+                    edge_projection: EdgeProjectionState::default(),
                     pending_app_commands: VecDeque::new(),
                     pending_host_create_tokens: HashMap::new(),
                 },
@@ -1752,6 +1758,18 @@ impl GraphBrowserApp {
                 else {
                     unreachable!("favicon delta must return NodeMetadataUpdated");
                 };
+                true
+            }
+            ViewAction::SetWorkbenchEdgeProjection { selectors } => {
+                self.set_workbench_edge_projection(selectors);
+                true
+            }
+            ViewAction::SetViewEdgeProjectionOverride { view_id, selectors } => {
+                self.set_graph_view_edge_projection_override(view_id, selectors);
+                true
+            }
+            ViewAction::SetSelectionEdgeProjectionOverride { view_id, selectors } => {
+                self.set_selection_edge_projection_override(view_id, selectors);
                 true
             }
             ViewAction::SetNavigatorContainmentRelationSource { source } => {

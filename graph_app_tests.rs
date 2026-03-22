@@ -1,6 +1,7 @@
 use super::*;
 use crate::util::NoteAddress;
 use euclid::default::Point2D;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -2446,7 +2447,7 @@ fn history_archive_counts_consistent_after_dissolution_and_clear() {
     app.apply_reducer_intents([GraphIntent::RemoveEdge {
         from: a,
         to: b,
-        edge_type: EdgeType::History,
+        selector: crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal),
     }]);
 
     let after_remove = app.history_manager_archive_counts();
@@ -2916,12 +2917,17 @@ fn test_intent_create_user_grouped_edge_adds_single_edge() {
         label: None,
     }]);
 
+    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+
     let count = app
         .workspace
         .domain
         .graph
-        .edges()
-        .filter(|e| e.edge_type == EdgeType::UserGrouped && e.from == from && e.to == to)
+        .inner
+        .edge_references()
+        .filter(|edge| {
+            edge.source() == from && edge.target() == to && edge.weight().has_relation(grouped)
+        })
         .count();
     assert_eq!(count, 1);
 }
@@ -2953,12 +2959,17 @@ fn test_intent_create_user_grouped_edge_is_idempotent() {
         },
     ]);
 
+    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+
     let count = app
         .workspace
         .domain
         .graph
-        .edges()
-        .filter(|e| e.edge_type == EdgeType::UserGrouped && e.from == from && e.to == to)
+        .inner
+        .edge_references()
+        .filter(|edge| {
+            edge.source() == from && edge.target() == to && edge.weight().has_relation(grouped)
+        })
         .count();
     assert_eq!(count, 1);
 }
@@ -2975,12 +2986,15 @@ fn test_intent_create_user_grouped_edge_from_primary_selection_noop_for_single_s
 
     app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
 
+    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+
     let count = app
         .workspace
         .domain
         .graph
-        .edges()
-        .filter(|e| e.edge_type == EdgeType::UserGrouped)
+        .inner
+        .edge_references()
+        .filter(|edge| edge.weight().has_relation(grouped))
         .count();
     assert_eq!(count, 0);
 }
@@ -3007,13 +3021,11 @@ fn test_execute_edge_command_connect_selected_pair() {
         command: EdgeCommand::ConnectSelectedPair,
     }]);
 
-    assert!(
-        app.workspace
-            .domain
-            .graph
-            .edges()
-            .any(|e| e.edge_type == EdgeType::UserGrouped && e.from == from && e.to == to)
-    );
+    assert!(app.has_relation(
+        from,
+        to,
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped),
+    ));
     assert!(app.workspace.graph_runtime.physics.base.is_running);
 }
 
@@ -3064,13 +3076,9 @@ fn test_execute_edge_command_remove_user_edge_removes_both_directions() {
         command: EdgeCommand::RemoveUserEdge,
     }]);
 
-    assert!(
-        !app.workspace
-            .domain
-            .graph
-            .edges()
-            .any(|e| e.edge_type == EdgeType::UserGrouped)
-    );
+    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    assert!(!app.has_relation(from, to, grouped));
+    assert!(!app.has_relation(to, from, grouped));
     assert!(app.workspace.graph_runtime.physics.base.is_running);
 }
 
@@ -3202,27 +3210,43 @@ fn test_intent_remove_edge_removes_matching_type_only() {
     let from = app.add_node_and_sync("https://from.com".into(), Point2D::new(0.0, 0.0));
     let to = app.add_node_and_sync("https://to.com".into(), Point2D::new(100.0, 0.0));
 
-    let _ = app.add_edge_and_sync(from, to, EdgeType::Hyperlink, None);
-    let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped, None);
+    let _ = app.assert_relation_and_sync(
+        from,
+        to,
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+            label: None,
+            decay_progress: None,
+        },
+    );
+    let _ = app.assert_relation_and_sync(
+        from,
+        to,
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::UserGrouped,
+            label: None,
+            decay_progress: None,
+        },
+    );
 
     app.apply_reducer_intents([GraphIntent::RemoveEdge {
         from,
         to,
-        edge_type: EdgeType::UserGrouped,
+        selector: crate::graph::RelationSelector::Semantic(
+            crate::graph::SemanticSubKind::UserGrouped,
+        ),
     }]);
 
-    let has_user_grouped = app
-        .workspace
-        .domain
-        .graph
-        .edges()
-        .any(|e| e.edge_type == EdgeType::UserGrouped && e.from == from && e.to == to);
-    let has_hyperlink = app
-        .workspace
-        .domain
-        .graph
-        .edges()
-        .any(|e| e.edge_type == EdgeType::Hyperlink && e.from == from && e.to == to);
+    let has_user_grouped = app.has_relation(
+        from,
+        to,
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped),
+    );
+    let has_hyperlink = app.has_relation(
+        from,
+        to,
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::Hyperlink),
+    );
     assert!(!has_user_grouped);
     assert!(has_hyperlink);
 }
@@ -3233,20 +3257,36 @@ fn test_remove_edges_and_log_reports_removed_count() {
     let from = app.add_node_and_sync("https://from.com".into(), Point2D::new(0.0, 0.0));
     let to = app.add_node_and_sync("https://to.com".into(), Point2D::new(100.0, 0.0));
 
-    let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped, None);
-    let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped, None);
-
-    let removed = app.remove_edges_and_log(from, to, EdgeType::UserGrouped);
-    assert_eq!(removed, 1);
-    assert_eq!(
-        app.workspace
-            .domain
-            .graph
-            .edges()
-            .filter(|e| e.edge_type == EdgeType::UserGrouped)
-            .count(),
-        0
+    let _ = app.assert_relation_and_sync(
+        from,
+        to,
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::UserGrouped,
+            label: None,
+            decay_progress: None,
+        },
     );
+    let _ = app.assert_relation_and_sync(
+        from,
+        to,
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::UserGrouped,
+            label: None,
+            decay_progress: None,
+        },
+    );
+
+    let removed = app.retract_relations_and_log(
+        from,
+        to,
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped),
+    );
+    assert_eq!(removed, 1);
+    assert!(!app.has_relation(
+        from,
+        to,
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped),
+    ));
 }
 
 #[test]
@@ -3419,12 +3459,13 @@ fn test_promote_import_record_to_user_group_intent_creates_bidirectional_edges_f
         anchor,
     }]);
 
-    assert!(app.has_typed_edge(anchor, peer, EdgeType::UserGrouped));
-    assert!(app.has_typed_edge(peer, anchor, EdgeType::UserGrouped));
-    assert!(app.has_typed_edge(anchor, other_peer, EdgeType::UserGrouped));
-    assert!(app.has_typed_edge(other_peer, anchor, EdgeType::UserGrouped));
-    assert!(!app.has_typed_edge(peer, other_peer, EdgeType::UserGrouped));
-    assert!(!app.has_typed_edge(other_peer, peer, EdgeType::UserGrouped));
+    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    assert!(app.has_relation(anchor, peer, grouped));
+    assert!(app.has_relation(peer, anchor, grouped));
+    assert!(app.has_relation(anchor, other_peer, grouped));
+    assert!(app.has_relation(other_peer, anchor, grouped));
+    assert!(!app.has_relation(peer, other_peer, grouped));
+    assert!(!app.has_relation(other_peer, peer, grouped));
 }
 
 #[test]
@@ -4860,8 +4901,11 @@ fn test_new_from_dir_recovers_logged_graph() {
         store.log_mutation(&LogEntry::AddEdge {
             from_node_id: id_a.to_string(),
             to_node_id: id_b.to_string(),
-            edge_type: PersistedEdgeType::Hyperlink,
-            edge_label: None,
+            assertion: crate::services::persistence::types::PersistedEdgeAssertion::Semantic {
+                sub_kind: crate::services::persistence::types::PersistedSemanticSubKind::Hyperlink,
+                label: None,
+                agent_decay_progress: None,
+            },
         });
     }
 
@@ -5943,38 +5987,31 @@ fn undo_redo_user_grouped_edge_create_and_remove_round_trip() {
         to,
         label: Some("registry-label".to_string()),
     }]);
-    assert!(app.workspace.domain.graph.edges().any(|edge| {
-        edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
-    }));
+    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    assert!(app.has_relation(from, to, grouped));
     let edge_key = app.workspace.domain.graph.find_edge_key(from, to).unwrap();
     let payload = app.workspace.domain.graph.get_edge(edge_key).unwrap();
     assert_eq!(payload.label(), Some("registry-label"));
     assert_eq!(app.undo_stack_len(), 1);
 
     app.apply_reducer_intents([GraphIntent::Undo]);
-    assert!(!app.workspace.domain.graph.edges().any(|edge| {
-        edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
-    }));
+    assert!(!app.has_relation(from, to, grouped));
 
     app.apply_reducer_intents([GraphIntent::Redo]);
-    assert!(app.workspace.domain.graph.edges().any(|edge| {
-        edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
-    }));
+    assert!(app.has_relation(from, to, grouped));
 
     app.apply_reducer_intents([GraphIntent::RemoveEdge {
         from,
         to,
-        edge_type: EdgeType::UserGrouped,
+        selector: crate::graph::RelationSelector::Semantic(
+            crate::graph::SemanticSubKind::UserGrouped,
+        ),
     }]);
-    assert!(!app.workspace.domain.graph.edges().any(|edge| {
-        edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
-    }));
+    assert!(!app.has_relation(from, to, grouped));
     assert_eq!(app.undo_stack_len(), 2);
 
     app.apply_reducer_intents([GraphIntent::Undo]);
-    assert!(app.workspace.domain.graph.edges().any(|edge| {
-        edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
-    }));
+    assert!(app.has_relation(from, to, grouped));
 }
 
 #[test]
@@ -6507,7 +6544,7 @@ fn remove_history_edge_emits_history_archive_dissolved_appended_channel() {
     app.apply_reducer_intents([GraphIntent::RemoveEdge {
         from: a,
         to: b,
-        edge_type: EdgeType::History,
+        selector: crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal),
     }]);
 
     diagnostics.force_drain_for_tests();

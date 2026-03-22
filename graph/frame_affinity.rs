@@ -23,7 +23,7 @@ use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 
 use crate::graph::{ArrangementSubKind, Graph, NodeKey};
-use crate::model::graph::EdgeKind;
+use crate::model::graph::RelationSelector;
 
 /// Default soft-attraction coefficient for frame-affinity force.
 ///
@@ -66,12 +66,9 @@ pub(crate) fn derive_frame_affinity_regions(graph: &Graph) -> Vec<FrameAffinityR
 
     for (key, _) in graph.nodes() {
         for edge in graph.inner.edges_directed(key, Direction::Outgoing) {
-            if edge.weight().kinds.contains(&EdgeKind::ArrangementRelation)
-                && edge
-                    .weight()
-                    .arrangement
-                    .as_ref()
-                    .is_some_and(|a| a.sub_kinds.contains(&ArrangementSubKind::FrameMember))
+            if edge
+                .weight()
+                .has_relation(RelationSelector::Arrangement(ArrangementSubKind::FrameMember))
             {
                 anchor_to_members
                     .entry(key)
@@ -209,7 +206,7 @@ fn stable_frame_color(index: usize) -> Color32 {
 mod tests {
     use super::*;
     use crate::model::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
-    use crate::model::graph::{ArrangementSubKind, EdgeType, Graph};
+    use crate::model::graph::{ArrangementSubKind, Graph};
 
     fn add_node(graph: &mut Graph, url: &str) -> NodeKey {
         let GraphDeltaResult::NodeAdded(key) = apply_graph_delta(
@@ -228,11 +225,12 @@ mod tests {
     fn add_frame_member_edge(graph: &mut Graph, anchor: NodeKey, member: NodeKey) {
         apply_graph_delta(
             graph,
-            GraphDelta::AddEdge {
+            GraphDelta::AssertRelation {
                 from: anchor,
                 to: member,
-                edge_type: EdgeType::ArrangementRelation(ArrangementSubKind::FrameMember),
-                edge_label: None,
+                assertion: crate::graph::EdgeAssertion::Arrangement {
+                    sub_kind: ArrangementSubKind::FrameMember,
+                },
             },
         );
     }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::graph::{ArrangementSubKind, NodeKey};
+use crate::graph::{ArrangementSubKind, NodeKey, RelationSelector};
 use crate::graph::graphlet;
 use crate::util::VersoAddress;
 
@@ -13,6 +13,43 @@ pub struct ArrangementProjectionGroup {
 }
 
 impl GraphBrowserApp {
+    pub fn graphlet_peers_for_view(
+        &self,
+        seed: NodeKey,
+        view_id: Option<GraphViewId>,
+    ) -> Vec<NodeKey> {
+        let projection = self.resolved_edge_projection_for_seed(seed, view_id);
+        graphlet::graphlet_peers_for_node_with_selectors(
+            self.domain_graph(),
+            seed,
+            &projection.selectors,
+        )
+    }
+
+    pub fn graphlet_members_for_nodes_in_view(
+        &self,
+        seed_nodes: &[NodeKey],
+        view_id: Option<GraphViewId>,
+    ) -> Vec<NodeKey> {
+        let projection = self.resolved_edge_projection_for_nodes(seed_nodes, view_id);
+        graphlet::graphlet_members_for_seeds_with_selectors(
+            self.domain_graph(),
+            seed_nodes,
+            &projection.selectors,
+        )
+    }
+
+    pub fn graphlet_peers_for_active_projection(&self, seed: NodeKey) -> Vec<NodeKey> {
+        self.graphlet_peers_for_view(seed, self.workspace.graph_runtime.focused_view)
+    }
+
+    pub fn graphlet_members_for_active_projection(&self, seed_nodes: &[NodeKey]) -> Vec<NodeKey> {
+        self.graphlet_members_for_nodes_in_view(
+            seed_nodes,
+            self.workspace.graph_runtime.focused_view,
+        )
+    }
+
     pub fn arrangement_projection_groups(&self) -> Vec<ArrangementProjectionGroup> {
         let mut groups: HashMap<(NodeKey, ArrangementSubKind), Vec<NodeKey>> = HashMap::new();
         for edge in self.domain_graph().arrangement_edges() {
@@ -72,11 +109,24 @@ impl GraphBrowserApp {
         index
     }
 
-    /// Return all nodes in the same durable graphlet as `seed`, excluding `seed`.
+    /// Return all nodes in the graphlet induced by `selectors`, excluding `seed`.
     ///
-    /// A durable graphlet is the weakly-connected component reachable via
-    /// `UserGrouped` or `ArrangementRelation(FrameMember)` edges only.
-    /// Circumstantial edges (Hyperlink, History, etc.) are not traversed.
+    /// This is the projection-aware graphlet API: callers decide which relation
+    /// families/sub-kinds contribute to graphlet connectivity.
+    pub fn graphlet_peers_for_selectors(
+        &self,
+        seed: NodeKey,
+        selectors: &[RelationSelector],
+    ) -> Vec<NodeKey> {
+        graphlet::graphlet_peers_for_node_with_selectors(self.domain_graph(), seed, selectors)
+    }
+
+    /// Return all nodes in the same default durable graphlet as `seed`,
+    /// excluding `seed`.
+    ///
+    /// This remains the compatibility/default workbench projection until
+    /// per-view and per-selection edge visibility controls are wired into the
+    /// workbench graphlet-routing paths.
     pub fn durable_graphlet_peers(&self, seed: NodeKey) -> Vec<NodeKey> {
         graphlet::graphlet_peers_for_node(self.domain_graph(), seed)
     }
@@ -938,5 +988,54 @@ mod tests {
                 .workbench_session
                 .current_workspace_is_synthesized
         );
+    }
+
+    #[test]
+    fn graphlet_peers_for_view_uses_graph_default_projection() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync("https://a.test".to_string(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.test".to_string(), Point2D::new(1.0, 0.0));
+        app.apply_graph_delta_and_sync(crate::graph::apply::GraphDelta::AddEdge {
+            from: a,
+            to: b,
+            edge_type: crate::graph::EdgeType::History,
+            edge_label: None,
+        });
+
+        app.set_workbench_edge_projection(vec![RelationSelector::Family(
+            crate::graph::EdgeFamily::Traversal,
+        )]);
+
+        assert_eq!(app.graphlet_peers_for_view(a, None), vec![b]);
+    }
+
+    #[test]
+    fn graphlet_peers_for_view_prefers_selection_override_for_selected_seed() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_workspace_focused_view_with_transition(Some(view_id));
+
+        let a = app.add_node_and_sync("https://a.test".to_string(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.test".to_string(), Point2D::new(1.0, 0.0));
+        let _ = app.assert_relation_and_sync(
+            a,
+            b,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+                label: None,
+                decay_progress: None,
+            },
+        );
+
+        app.select_node(a, false);
+        app.set_selection_edge_projection_override(
+            Some(view_id),
+            Some(vec![RelationSelector::Semantic(
+                crate::graph::SemanticSubKind::Hyperlink,
+            )]),
+        );
+
+        assert_eq!(app.graphlet_peers_for_view(a, Some(view_id)), vec![b]);
     }
 }

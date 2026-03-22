@@ -23,8 +23,12 @@ Graphshell intentionally keeps **graph identity terms** separate from **workbenc
 
 - A **Node** is graph-semantic identity/state.
 - A **Tile** is the workbench presentation/container that hosts a node-bearing or graph-view-bearing leaf.
-- A **Graphlet** is a graph-semantic grouped arrangement object.
-- A **Tile Group** is the workbench presentation of that grouped arrangement.
+- A **Graphlet** is the graph-semantic connected component produced by an active
+  edge projection. It is projection-derived rather than a permanently fixed
+  durable object.
+- A **Tile Group** is the workbench presentation of a graphlet-aligned or
+  graphlet-adjacent arrangement. A tile group may be explicitly **linked** to a
+  graphlet definition or **detached** as an arrangement snapshot.
 
 Canonical projection law:
 
@@ -52,7 +56,7 @@ This is a presentation correspondence, not a term collapse. A node can exist wit
     | **Grid** | `Container::Grid` | All simultaneously | Yes, rows & columns | 2D, auto or fixed column count |
 
 * **Tab Group**: A container that renders a tab bar; only the **active** child Tile is visible. Promoted tiles (`TileKind::Node`, `TileKind::Graph`, `TileKind::Tool`) are always wrapped in a Tab Group (enforced by `all_panes_must_have_tabs: true`), so each split region always has its own tab strip that can accept additional tabs. Ephemeral panes (`TileKind::Pane`) are exempt from this invariant — they are placed directly in a split region without a Tab Group wrapper, so no tab selector appears for them.
-    Canonical projection note: when a graph-rooted grouped arrangement is rendered in workbench chrome, the Tab Group / Tile Group is its workbench presentation rather than a separate semantic owner.
+    Canonical projection note: when a graph-rooted grouped arrangement is rendered in workbench chrome, the Tab Group / Tile Group is its workbench presentation rather than a separate semantic owner. The association may be live-linked to a graphlet projection or detached as an arrangement snapshot.
 * **Split**: A container that arranges children in either top/bottom regions (`Horizontal`, horizontal divider) or left/right regions (`Vertical`, vertical divider) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal arrangement label) or `Split ↕` (vertical arrangement label) in tile selector strips.
 * **Grid**: A container that arranges children in a 2D matrix. Layout is either `Auto` (dynamic column count) or `Columns(n)`.
 * **Shares**: Per-child `f32` weights within a Split that determine proportional space allocation. Default share is `1.0`.

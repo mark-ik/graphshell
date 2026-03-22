@@ -843,7 +843,8 @@ fn execute_graph_node_remove_from_graphlet_action(
     app: &GraphBrowserApp,
     _payload: &ActionPayload,
 ) -> ActionOutcome {
-    use crate::graph::{ArrangementSubKind, EdgeType};
+    use crate::graph::{ArrangementSubKind, RelationSelector, SemanticSubKind};
+    use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 
     let Some(&node_key) = app.focused_selection().iter().next() else {
         return ActionOutcome::Failure(ActionFailure {
@@ -852,18 +853,38 @@ fn execute_graph_node_remove_from_graphlet_action(
         });
     };
 
-    let edges_to_retract: Vec<(NodeKey, NodeKey, EdgeType)> = app
+    let edges_to_retract: Vec<(NodeKey, NodeKey, crate::graph::RelationSelector)> = app
         .domain_graph()
-        .edges()
-        .filter(|e| {
-            (e.from == node_key || e.to == node_key)
-                && match e.edge_type {
-                    EdgeType::UserGrouped => true,
-                    EdgeType::ArrangementRelation(sub) => sub == ArrangementSubKind::FrameMember,
-                    _ => false,
-                }
+        .inner
+        .edge_references()
+        .flat_map(|edge| {
+            if edge.source() != node_key && edge.target() != node_key {
+                return Vec::new();
+            }
+
+            let mut selectors = Vec::new();
+            if edge
+                .weight()
+                .has_relation(RelationSelector::Semantic(SemanticSubKind::UserGrouped))
+            {
+                selectors.push((
+                    edge.source(),
+                    edge.target(),
+                    RelationSelector::Semantic(SemanticSubKind::UserGrouped),
+                ));
+            }
+            if edge
+                .weight()
+                .has_relation(RelationSelector::Arrangement(ArrangementSubKind::FrameMember))
+            {
+                selectors.push((
+                    edge.source(),
+                    edge.target(),
+                    RelationSelector::Arrangement(ArrangementSubKind::FrameMember),
+                ));
+            }
+            selectors
         })
-        .map(|e| (e.from, e.to, e.edge_type))
         .collect();
 
     if edges_to_retract.is_empty() {
@@ -875,7 +896,7 @@ fn execute_graph_node_remove_from_graphlet_action(
 
     let intents = edges_to_retract
         .into_iter()
-        .map(|(from, to, edge_type)| GraphIntent::RemoveEdge { from, to, edge_type })
+        .map(|(from, to, selector)| GraphIntent::RemoveEdge { from, to, selector })
         .collect();
 
     ActionOutcome::Dispatch(ActionDispatch {

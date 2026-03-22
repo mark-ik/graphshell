@@ -228,6 +228,11 @@ misreported as complete.
 | "Return to present" from temporal navigation | 📋 Planned | |
 | Back / forward within node pane | ✅ Done | WebView history |
 | Intra-node navigation separate from edge history | ✅ Done | Node history vs graph edge traversals |
+| Stop / cancel in-progress page load | 📋 Planned | Focused viewer control; distinct from reload |
+| Find in page (within rendered content) | 📋 Planned | Focused viewer control; distinct from graph search/filter |
+| Per-webview content zoom | 📋 Planned | Focused viewer control; distinct from graph camera zoom |
+| Audio/media playing indicator + tile mute | 📋 Planned | Focused viewer/Navigator chrome state |
+| Downloads indicator / manager entry | 📋 Planned | Downloads settings page exists; shared-chrome indicator/manager contract pending |
 
 ### Knowledge Capture & Tagging
 

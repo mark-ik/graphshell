@@ -362,9 +362,10 @@ pub(super) fn handle_reconcile_graphlet_tiles_intent(
 ) {
     use std::collections::HashSet;
 
-    // 1. Full durable graphlet including seed.
-    let mut graphlet = graph_app.durable_graphlet_peers(seed);
-    graphlet.push(seed);
+    // 1. Full graphlet including seed under the active projection.
+    let view_id = crate::shell::desktop::workbench::tile_view_ops::active_graph_view_id(tiles_tree)
+        .or(graph_app.workspace.graph_runtime.focused_view);
+    let graphlet = graph_app.graphlet_members_for_nodes_in_view(&[seed], view_id);
 
     // 2. Warm members — those that currently have a tile in the tree.
     let warm: Vec<(NodeKey, PaneId)> = graphlet

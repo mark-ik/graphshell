@@ -19,13 +19,13 @@ use crate::shell::desktop::runtime::caches::RuntimeCaches;
 use super::AppCommand;
 use super::{
     Camera, ClipInspectorState, CommandPaletteShortcut, ContextCommandSurfacePreference,
-    GraphReaderState, GraphSearchHistoryEntry, GraphSearchOrigin, GraphViewFrame, GraphViewId,
-    GraphViewLayoutManagerState, GraphViewState, HelpPanelShortcut, HistoryManagerTab,
-    HistoryTraversalFailureReason, KeyboardPanInputMode, MemoryPressureLevel,
+    EdgeProjectionState, GraphReaderState, GraphSearchHistoryEntry, GraphSearchOrigin,
+    GraphViewFrame, GraphViewId, GraphViewLayoutManagerState, GraphViewState, HelpPanelShortcut,
+    HistoryManagerTab, HistoryTraversalFailureReason, KeyboardPanInputMode, MemoryPressureLevel,
     NavigatorProjectionState, OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingCreateToken,
-    RadialMenuShortcut, RendererId, RuntimeBlockState, SearchDisplayMode, SelectionScope,
-    SelectionState, SettingsToolPage, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot,
-    ViewDimension, WorkbenchIntent,
+    RadialMenuShortcut, RendererId, RuntimeBlockState, SearchDisplayMode,
+    SelectionEdgeProjectionOverride, SelectionScope, SelectionState, SettingsToolPage,
+    TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, ViewDimension, WorkbenchIntent,
 };
 
 /// View-layer runtime state: physics, selection, views, search, history, rendering.
@@ -38,6 +38,11 @@ pub struct GraphViewRuntimeState {
 
     /// Canonical selection state keyed by runtime selection scope.
     pub(crate) selection_by_scope: HashMap<SelectionScope, SelectionState>,
+
+    /// Temporary per-selection graphlet projection overrides keyed by
+    /// selection scope.
+    pub(crate) selection_edge_projections:
+        HashMap<SelectionScope, SelectionEdgeProjectionOverride>,
 
     /// Bidirectional mapping between renderer instances and graph nodes.
     pub(crate) webview_to_node: HashMap<RendererId, NodeKey>,
@@ -249,6 +254,10 @@ pub struct WorkbenchSessionState {
 
     /// Pending workbench-authority intents staged for frame-loop orchestration.
     pub(crate) pending_workbench_intents: Vec<WorkbenchIntent>,
+
+    /// Graph-wide default relation projection for graphlet computation and
+    /// projection-aware workbench routing.
+    pub edge_projection: EdgeProjectionState,
 
     /// Ordered app-command queue replacing a subset of hand-managed pending snapshot fields.
     pub(crate) pending_app_commands: VecDeque<AppCommand>,

@@ -1,4 +1,363 @@
 use super::*;
+use crate::services::persistence::types::{
+    PersistedArrangementSubKind, PersistedContainmentSubKind, PersistedEdgeAssertion,
+    PersistedImportedSubKind, PersistedProvenanceSubKind, PersistedRelationSelector,
+    PersistedSemanticSubKind,
+};
+
+fn edge_type_to_assertion(
+    edge_type: crate::graph::EdgeType,
+    edge_label: Option<String>,
+) -> Option<crate::graph::EdgeAssertion> {
+    match edge_type {
+        crate::graph::EdgeType::Hyperlink => Some(crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+            label: edge_label,
+            decay_progress: None,
+        }),
+        crate::graph::EdgeType::UserGrouped => Some(crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::UserGrouped,
+            label: edge_label,
+            decay_progress: None,
+        }),
+        crate::graph::EdgeType::AgentDerived { decay_progress } => {
+            Some(crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::AgentDerived,
+                label: edge_label,
+                decay_progress: Some(decay_progress),
+            })
+        }
+        crate::graph::EdgeType::ContainmentRelation(sub_kind) => {
+            Some(crate::graph::EdgeAssertion::Containment { sub_kind })
+        }
+        crate::graph::EdgeType::ArrangementRelation(sub_kind) => {
+            Some(crate::graph::EdgeAssertion::Arrangement { sub_kind })
+        }
+        crate::graph::EdgeType::History | crate::graph::EdgeType::ImportedRelation => None,
+    }
+}
+
+fn edge_type_to_selector(
+    edge_type: crate::graph::EdgeType,
+) -> Option<crate::graph::RelationSelector> {
+    match edge_type {
+        crate::graph::EdgeType::Hyperlink => Some(crate::graph::RelationSelector::Semantic(
+            crate::graph::SemanticSubKind::Hyperlink,
+        )),
+        crate::graph::EdgeType::UserGrouped => Some(crate::graph::RelationSelector::Semantic(
+            crate::graph::SemanticSubKind::UserGrouped,
+        )),
+        crate::graph::EdgeType::AgentDerived { .. } => {
+            Some(crate::graph::RelationSelector::Semantic(
+                crate::graph::SemanticSubKind::AgentDerived,
+            ))
+        }
+        crate::graph::EdgeType::ContainmentRelation(sub_kind) => {
+            Some(crate::graph::RelationSelector::Containment(sub_kind))
+        }
+        crate::graph::EdgeType::ArrangementRelation(sub_kind) => {
+            Some(crate::graph::RelationSelector::Arrangement(sub_kind))
+        }
+        crate::graph::EdgeType::ImportedRelation => None,
+        crate::graph::EdgeType::History => {
+            Some(crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal))
+        }
+    }
+}
+
+fn persisted_assertion_from_graph_assertion(
+    assertion: crate::graph::EdgeAssertion,
+) -> PersistedEdgeAssertion {
+    match assertion {
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind,
+            label,
+            decay_progress,
+        } => PersistedEdgeAssertion::Semantic {
+            sub_kind: match sub_kind {
+                crate::graph::SemanticSubKind::Hyperlink => PersistedSemanticSubKind::Hyperlink,
+                crate::graph::SemanticSubKind::UserGrouped => {
+                    PersistedSemanticSubKind::UserGrouped
+                }
+                crate::graph::SemanticSubKind::AgentDerived => {
+                    PersistedSemanticSubKind::AgentDerived
+                }
+                crate::graph::SemanticSubKind::Cites => PersistedSemanticSubKind::Cites,
+                crate::graph::SemanticSubKind::Quotes => PersistedSemanticSubKind::Quotes,
+                crate::graph::SemanticSubKind::Summarizes => {
+                    PersistedSemanticSubKind::Summarizes
+                }
+                crate::graph::SemanticSubKind::Elaborates => {
+                    PersistedSemanticSubKind::Elaborates
+                }
+                crate::graph::SemanticSubKind::ExampleOf => PersistedSemanticSubKind::ExampleOf,
+                crate::graph::SemanticSubKind::Supports => PersistedSemanticSubKind::Supports,
+                crate::graph::SemanticSubKind::Contradicts => {
+                    PersistedSemanticSubKind::Contradicts
+                }
+                crate::graph::SemanticSubKind::Questions => PersistedSemanticSubKind::Questions,
+                crate::graph::SemanticSubKind::SameEntityAs => {
+                    PersistedSemanticSubKind::SameEntityAs
+                }
+                crate::graph::SemanticSubKind::DuplicateOf => {
+                    PersistedSemanticSubKind::DuplicateOf
+                }
+                crate::graph::SemanticSubKind::CanonicalMirrorOf => {
+                    PersistedSemanticSubKind::CanonicalMirrorOf
+                }
+                crate::graph::SemanticSubKind::DependsOn => PersistedSemanticSubKind::DependsOn,
+                crate::graph::SemanticSubKind::Blocks => PersistedSemanticSubKind::Blocks,
+                crate::graph::SemanticSubKind::NextStep => PersistedSemanticSubKind::NextStep,
+            },
+            label,
+            agent_decay_progress: decay_progress,
+        },
+        crate::graph::EdgeAssertion::Containment { sub_kind } => {
+            PersistedEdgeAssertion::Containment {
+                sub_kind: match sub_kind {
+                    crate::graph::ContainmentSubKind::UrlPath => {
+                        PersistedContainmentSubKind::UrlPath
+                    }
+                    crate::graph::ContainmentSubKind::Domain => {
+                        PersistedContainmentSubKind::Domain
+                    }
+                    crate::graph::ContainmentSubKind::FileSystem => {
+                        PersistedContainmentSubKind::FileSystem
+                    }
+                    crate::graph::ContainmentSubKind::UserFolder => {
+                        PersistedContainmentSubKind::UserFolder
+                    }
+                    crate::graph::ContainmentSubKind::ClipSource => {
+                        PersistedContainmentSubKind::ClipSource
+                    }
+                    crate::graph::ContainmentSubKind::NotebookSection => {
+                        PersistedContainmentSubKind::NotebookSection
+                    }
+                    crate::graph::ContainmentSubKind::CollectionMember => {
+                        PersistedContainmentSubKind::CollectionMember
+                    }
+                },
+            }
+        }
+        crate::graph::EdgeAssertion::Arrangement { sub_kind } => {
+            PersistedEdgeAssertion::Arrangement {
+                sub_kind: match sub_kind {
+                    crate::graph::ArrangementSubKind::FrameMember => {
+                        PersistedArrangementSubKind::FrameMember
+                    }
+                    crate::graph::ArrangementSubKind::TileGroup => {
+                        PersistedArrangementSubKind::TileGroup
+                    }
+                    crate::graph::ArrangementSubKind::SplitPair => {
+                        PersistedArrangementSubKind::SplitPair
+                    }
+                },
+            }
+        }
+        crate::graph::EdgeAssertion::Imported { sub_kind } => PersistedEdgeAssertion::Imported {
+            sub_kind: match sub_kind {
+                crate::graph::ImportedSubKind::BookmarkFolder => {
+                    PersistedImportedSubKind::BookmarkFolder
+                }
+                crate::graph::ImportedSubKind::HistoryImport => {
+                    PersistedImportedSubKind::HistoryImport
+                }
+                crate::graph::ImportedSubKind::RssMembership => {
+                    PersistedImportedSubKind::RssMembership
+                }
+                crate::graph::ImportedSubKind::FileSystemImport => {
+                    PersistedImportedSubKind::FileSystemImport
+                }
+                crate::graph::ImportedSubKind::ArchiveMembership => {
+                    PersistedImportedSubKind::ArchiveMembership
+                }
+                crate::graph::ImportedSubKind::SharedCollection => {
+                    PersistedImportedSubKind::SharedCollection
+                }
+            },
+        },
+        crate::graph::EdgeAssertion::Provenance { sub_kind } => {
+            PersistedEdgeAssertion::Provenance {
+                sub_kind: match sub_kind {
+                    crate::graph::ProvenanceSubKind::ClippedFrom => {
+                        PersistedProvenanceSubKind::ClippedFrom
+                    }
+                    crate::graph::ProvenanceSubKind::ExcerptedFrom => {
+                        PersistedProvenanceSubKind::ExcerptedFrom
+                    }
+                    crate::graph::ProvenanceSubKind::SummarizedFrom => {
+                        PersistedProvenanceSubKind::SummarizedFrom
+                    }
+                    crate::graph::ProvenanceSubKind::TranslatedFrom => {
+                        PersistedProvenanceSubKind::TranslatedFrom
+                    }
+                    crate::graph::ProvenanceSubKind::RewrittenFrom => {
+                        PersistedProvenanceSubKind::RewrittenFrom
+                    }
+                    crate::graph::ProvenanceSubKind::GeneratedFrom => {
+                        PersistedProvenanceSubKind::GeneratedFrom
+                    }
+                    crate::graph::ProvenanceSubKind::ExtractedFrom => {
+                        PersistedProvenanceSubKind::ExtractedFrom
+                    }
+                    crate::graph::ProvenanceSubKind::ImportedFromSource => {
+                        PersistedProvenanceSubKind::ImportedFromSource
+                    }
+                },
+            }
+        }
+    }
+}
+
+fn persisted_selector_from_graph_selector(
+    selector: crate::graph::RelationSelector,
+) -> Option<PersistedRelationSelector> {
+    Some(match selector {
+        crate::graph::RelationSelector::Family(family) => PersistedRelationSelector::Family(
+            match family {
+                crate::graph::EdgeFamily::Semantic => {
+                    crate::services::persistence::types::PersistedEdgeFamily::Semantic
+                }
+                crate::graph::EdgeFamily::Traversal => {
+                    crate::services::persistence::types::PersistedEdgeFamily::Traversal
+                }
+                crate::graph::EdgeFamily::Containment => {
+                    crate::services::persistence::types::PersistedEdgeFamily::Containment
+                }
+                crate::graph::EdgeFamily::Arrangement => {
+                    crate::services::persistence::types::PersistedEdgeFamily::Arrangement
+                }
+                crate::graph::EdgeFamily::Imported => {
+                    crate::services::persistence::types::PersistedEdgeFamily::Imported
+                }
+                crate::graph::EdgeFamily::Provenance => {
+                    crate::services::persistence::types::PersistedEdgeFamily::Provenance
+                }
+            },
+        ),
+        crate::graph::RelationSelector::Semantic(sub_kind) => {
+            PersistedRelationSelector::Semantic(match sub_kind {
+                crate::graph::SemanticSubKind::Hyperlink => PersistedSemanticSubKind::Hyperlink,
+                crate::graph::SemanticSubKind::UserGrouped => {
+                    PersistedSemanticSubKind::UserGrouped
+                }
+                crate::graph::SemanticSubKind::AgentDerived => {
+                    PersistedSemanticSubKind::AgentDerived
+                }
+                crate::graph::SemanticSubKind::Cites => PersistedSemanticSubKind::Cites,
+                crate::graph::SemanticSubKind::Quotes => PersistedSemanticSubKind::Quotes,
+                crate::graph::SemanticSubKind::Summarizes => {
+                    PersistedSemanticSubKind::Summarizes
+                }
+                crate::graph::SemanticSubKind::Elaborates => {
+                    PersistedSemanticSubKind::Elaborates
+                }
+                crate::graph::SemanticSubKind::ExampleOf => PersistedSemanticSubKind::ExampleOf,
+                crate::graph::SemanticSubKind::Supports => PersistedSemanticSubKind::Supports,
+                crate::graph::SemanticSubKind::Contradicts => {
+                    PersistedSemanticSubKind::Contradicts
+                }
+                crate::graph::SemanticSubKind::Questions => PersistedSemanticSubKind::Questions,
+                crate::graph::SemanticSubKind::SameEntityAs => {
+                    PersistedSemanticSubKind::SameEntityAs
+                }
+                crate::graph::SemanticSubKind::DuplicateOf => {
+                    PersistedSemanticSubKind::DuplicateOf
+                }
+                crate::graph::SemanticSubKind::CanonicalMirrorOf => {
+                    PersistedSemanticSubKind::CanonicalMirrorOf
+                }
+                crate::graph::SemanticSubKind::DependsOn => PersistedSemanticSubKind::DependsOn,
+                crate::graph::SemanticSubKind::Blocks => PersistedSemanticSubKind::Blocks,
+                crate::graph::SemanticSubKind::NextStep => PersistedSemanticSubKind::NextStep,
+            })
+        }
+        crate::graph::RelationSelector::Containment(sub_kind) => {
+            PersistedRelationSelector::Containment(match sub_kind {
+                crate::graph::ContainmentSubKind::UrlPath => PersistedContainmentSubKind::UrlPath,
+                crate::graph::ContainmentSubKind::Domain => PersistedContainmentSubKind::Domain,
+                crate::graph::ContainmentSubKind::FileSystem => {
+                    PersistedContainmentSubKind::FileSystem
+                }
+                crate::graph::ContainmentSubKind::UserFolder => {
+                    PersistedContainmentSubKind::UserFolder
+                }
+                crate::graph::ContainmentSubKind::ClipSource => {
+                    PersistedContainmentSubKind::ClipSource
+                }
+                crate::graph::ContainmentSubKind::NotebookSection => {
+                    PersistedContainmentSubKind::NotebookSection
+                }
+                crate::graph::ContainmentSubKind::CollectionMember => {
+                    PersistedContainmentSubKind::CollectionMember
+                }
+            })
+        }
+        crate::graph::RelationSelector::Arrangement(sub_kind) => {
+            PersistedRelationSelector::Arrangement(match sub_kind {
+                crate::graph::ArrangementSubKind::FrameMember => {
+                    PersistedArrangementSubKind::FrameMember
+                }
+                crate::graph::ArrangementSubKind::TileGroup => {
+                    PersistedArrangementSubKind::TileGroup
+                }
+                crate::graph::ArrangementSubKind::SplitPair => {
+                    PersistedArrangementSubKind::SplitPair
+                }
+            })
+        }
+        crate::graph::RelationSelector::Imported(sub_kind) => {
+            PersistedRelationSelector::Imported(match sub_kind {
+                crate::graph::ImportedSubKind::BookmarkFolder => {
+                    PersistedImportedSubKind::BookmarkFolder
+                }
+                crate::graph::ImportedSubKind::HistoryImport => {
+                    PersistedImportedSubKind::HistoryImport
+                }
+                crate::graph::ImportedSubKind::RssMembership => {
+                    PersistedImportedSubKind::RssMembership
+                }
+                crate::graph::ImportedSubKind::FileSystemImport => {
+                    PersistedImportedSubKind::FileSystemImport
+                }
+                crate::graph::ImportedSubKind::ArchiveMembership => {
+                    PersistedImportedSubKind::ArchiveMembership
+                }
+                crate::graph::ImportedSubKind::SharedCollection => {
+                    PersistedImportedSubKind::SharedCollection
+                }
+            })
+        }
+        crate::graph::RelationSelector::Provenance(sub_kind) => {
+            PersistedRelationSelector::Provenance(match sub_kind {
+                crate::graph::ProvenanceSubKind::ClippedFrom => {
+                    PersistedProvenanceSubKind::ClippedFrom
+                }
+                crate::graph::ProvenanceSubKind::ExcerptedFrom => {
+                    PersistedProvenanceSubKind::ExcerptedFrom
+                }
+                crate::graph::ProvenanceSubKind::SummarizedFrom => {
+                    PersistedProvenanceSubKind::SummarizedFrom
+                }
+                crate::graph::ProvenanceSubKind::TranslatedFrom => {
+                    PersistedProvenanceSubKind::TranslatedFrom
+                }
+                crate::graph::ProvenanceSubKind::RewrittenFrom => {
+                    PersistedProvenanceSubKind::RewrittenFrom
+                }
+                crate::graph::ProvenanceSubKind::GeneratedFrom => {
+                    PersistedProvenanceSubKind::GeneratedFrom
+                }
+                crate::graph::ProvenanceSubKind::ExtractedFrom => {
+                    PersistedProvenanceSubKind::ExtractedFrom
+                }
+                crate::graph::ProvenanceSubKind::ImportedFromSource => {
+                    PersistedProvenanceSubKind::ImportedFromSource
+                }
+            })
+        }
+    })
+}
 
 /// Durable identifier for a rich note document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -117,6 +476,9 @@ impl GraphBrowserApp {
         edge_type: crate::graph::EdgeType,
         edge_label: Option<String>,
     ) -> Option<crate::graph::EdgeKey> {
+        if let Some(assertion) = edge_type_to_assertion(edge_type, edge_label.clone()) {
+            return self.assert_relation_and_sync(from_key, to_key, assertion);
+        }
         let GraphDeltaResult::EdgeAdded(edge_key) =
             self.apply_graph_delta_and_sync(GraphDelta::AddEdge {
                 from: from_key,
@@ -135,12 +497,84 @@ impl GraphBrowserApp {
         edge_key
     }
 
+    pub fn assert_relation_and_sync(
+        &mut self,
+        from_key: NodeKey,
+        to_key: NodeKey,
+        assertion: crate::graph::EdgeAssertion,
+    ) -> Option<crate::graph::EdgeKey> {
+        let GraphDeltaResult::EdgeAdded(edge_key) =
+            self.apply_graph_delta_and_sync(GraphDelta::AssertRelation {
+                from: from_key,
+                to: to_key,
+                assertion: assertion.clone(),
+            })
+        else {
+            unreachable!("assert relation delta must return EdgeAdded");
+        };
+        if edge_key.is_some() {
+            self.log_relation_assertion(from_key, to_key, assertion);
+            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.drag_release_frames_remaining = 0;
+        }
+        edge_key
+    }
+
     pub fn remove_edges_and_log(
         &mut self,
         from_key: NodeKey,
         to_key: NodeKey,
         edge_type: crate::graph::EdgeType,
     ) -> usize {
+        if edge_type == crate::graph::EdgeType::History {
+            let mut emitted_dissolved_append = false;
+            let removed = if let Some(store) = &mut self.services.persistence {
+                let dissolved_before = store.dissolved_archive_len();
+                let removed = store
+                    .dissolve_and_remove_edges(
+                        &mut self.workspace.domain.graph,
+                        from_key,
+                        to_key,
+                        edge_type,
+                    )
+                    .unwrap_or_else(|e| {
+                        log::warn!("Dissolution transfer failed, falling back to direct removal: {e}");
+                        self.workspace
+                            .domain
+                            .graph
+                            .remove_edges(from_key, to_key, edge_type)
+                    });
+                let dissolved_after = store.dissolved_archive_len();
+                emitted_dissolved_append = dissolved_after > dissolved_before;
+                removed
+            } else {
+                self.workspace
+                    .domain
+                    .graph
+                    .remove_edges(from_key, to_key, edge_type)
+            };
+
+            if emitted_dissolved_append {
+                self.workspace.graph_runtime.history_last_event_unix_ms =
+                    Some(Self::unix_timestamp_ms_now());
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
+                    latency_us: 0,
+                });
+            }
+
+            if removed > 0 {
+                self.log_edge_removal_mutation(from_key, to_key, edge_type);
+                self.workspace.graph_runtime.egui_state_dirty = true;
+                self.workspace.graph_runtime.physics.base.is_running = true;
+                self.workspace.graph_runtime.drag_release_frames_remaining = 0;
+            }
+            return removed;
+        }
+
+        if let Some(selector) = edge_type_to_selector(edge_type) {
+            return self.retract_relations_and_log(from_key, to_key, selector);
+        }
         let mut emitted_dissolved_append = false;
         let removed = if let Some(store) = &mut self.services.persistence {
             let dissolved_before = store.dissolved_archive_len();
@@ -186,12 +620,35 @@ impl GraphBrowserApp {
         removed
     }
 
-    pub fn log_edge_mutation(
+    pub fn retract_relations_and_log(
         &mut self,
         from_key: NodeKey,
         to_key: NodeKey,
-        edge_type: crate::graph::EdgeType,
-        edge_label: Option<String>,
+        selector: crate::graph::RelationSelector,
+    ) -> usize {
+        let GraphDeltaResult::EdgesRemoved(removed) =
+            self.apply_graph_delta_and_sync(GraphDelta::RetractRelations {
+                from: from_key,
+                to: to_key,
+                selector,
+            })
+        else {
+            unreachable!("retract relations delta must return EdgesRemoved");
+        };
+        if removed > 0 {
+            self.log_relation_retraction(from_key, to_key, selector);
+            self.workspace.graph_runtime.egui_state_dirty = true;
+            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.drag_release_frames_remaining = 0;
+        }
+        removed
+    }
+
+    fn log_relation_assertion(
+        &mut self,
+        from_key: NodeKey,
+        to_key: NodeKey,
+        assertion: crate::graph::EdgeAssertion,
     ) {
         if let Some(store) = &mut self.services.persistence {
             let from_id = self
@@ -209,29 +666,56 @@ impl GraphBrowserApp {
             let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
                 return;
             };
-            let persisted_type = match edge_type {
-                crate::graph::EdgeType::Hyperlink => PersistedEdgeType::Hyperlink,
-                crate::graph::EdgeType::History => PersistedEdgeType::History,
-                crate::graph::EdgeType::UserGrouped => PersistedEdgeType::UserGrouped,
-                crate::graph::EdgeType::ArrangementRelation(
-                    crate::graph::ArrangementSubKind::FrameMember,
-                ) => PersistedEdgeType::ArrangementFrameMember,
-                crate::graph::EdgeType::ArrangementRelation(
-                    crate::graph::ArrangementSubKind::TileGroup,
-                ) => return,
-                crate::graph::EdgeType::ArrangementRelation(
-                    crate::graph::ArrangementSubKind::SplitPair,
-                ) => return,
-                crate::graph::EdgeType::ContainmentRelation(_) => return,
-                crate::graph::EdgeType::ImportedRelation => return,
-                crate::graph::EdgeType::AgentDerived { .. } => return,
-            };
             store.log_mutation(&LogEntry::AddEdge {
                 from_node_id,
                 to_node_id,
-                edge_type: persisted_type,
-                edge_label,
+                assertion: persisted_assertion_from_graph_assertion(assertion),
             });
+        }
+    }
+
+    fn log_relation_retraction(
+        &mut self,
+        from_key: NodeKey,
+        to_key: NodeKey,
+        selector: crate::graph::RelationSelector,
+    ) {
+        if let Some(store) = &mut self.services.persistence {
+            let from_id = self
+                .workspace
+                .domain
+                .graph
+                .get_node(from_key)
+                .map(|n| n.id.to_string());
+            let to_id = self
+                .workspace
+                .domain
+                .graph
+                .get_node(to_key)
+                .map(|n| n.id.to_string());
+            let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
+                return;
+            };
+            let Some(selector) = persisted_selector_from_graph_selector(selector) else {
+                return;
+            };
+            store.log_mutation(&LogEntry::RemoveEdge {
+                from_node_id,
+                to_node_id,
+                selector,
+            });
+        }
+    }
+
+    pub fn log_edge_mutation(
+        &mut self,
+        from_key: NodeKey,
+        to_key: NodeKey,
+        edge_type: crate::graph::EdgeType,
+        edge_label: Option<String>,
+    ) {
+        if let Some(assertion) = edge_type_to_assertion(edge_type, edge_label) {
+            self.log_relation_assertion(from_key, to_key, assertion);
         }
     }
 
@@ -241,44 +725,8 @@ impl GraphBrowserApp {
         to_key: NodeKey,
         edge_type: crate::graph::EdgeType,
     ) {
-        if let Some(store) = &mut self.services.persistence {
-            let from_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(from_key)
-                .map(|n| n.id.to_string());
-            let to_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(to_key)
-                .map(|n| n.id.to_string());
-            let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
-                return;
-            };
-            let persisted_type = match edge_type {
-                crate::graph::EdgeType::Hyperlink => PersistedEdgeType::Hyperlink,
-                crate::graph::EdgeType::History => PersistedEdgeType::History,
-                crate::graph::EdgeType::UserGrouped => PersistedEdgeType::UserGrouped,
-                crate::graph::EdgeType::ArrangementRelation(
-                    crate::graph::ArrangementSubKind::FrameMember,
-                ) => PersistedEdgeType::ArrangementFrameMember,
-                crate::graph::EdgeType::ArrangementRelation(
-                    crate::graph::ArrangementSubKind::TileGroup,
-                ) => return,
-                crate::graph::EdgeType::ArrangementRelation(
-                    crate::graph::ArrangementSubKind::SplitPair,
-                ) => return,
-                crate::graph::EdgeType::ContainmentRelation(_) => return,
-                crate::graph::EdgeType::ImportedRelation => return,
-                crate::graph::EdgeType::AgentDerived { .. } => return,
-            };
-            store.log_mutation(&LogEntry::RemoveEdge {
-                from_node_id,
-                to_node_id,
-                edge_type: persisted_type,
-            });
+        if let Some(selector) = edge_type_to_selector(edge_type) {
+            self.log_relation_retraction(from_key, to_key, selector);
         }
     }
 
@@ -492,11 +940,27 @@ impl GraphBrowserApp {
         {
             return;
         }
-        let already_grouped = self.workspace.domain.graph.edges().any(|edge| {
-            edge.edge_type == EdgeType::UserGrouped && edge.from == from && edge.to == to
-        });
+        let already_grouped = self
+            .workspace
+            .domain
+            .graph
+            .find_edge_key(from, to)
+            .and_then(|edge_key| self.workspace.domain.graph.get_edge(edge_key))
+            .is_some_and(|payload| {
+                payload.has_relation(crate::graph::RelationSelector::Semantic(
+                    crate::graph::SemanticSubKind::UserGrouped,
+                ))
+            });
         if !already_grouped {
-            let _ = self.add_edge_and_sync(from, to, EdgeType::UserGrouped, label);
+            let _ = self.assert_relation_and_sync(
+                from,
+                to,
+                crate::graph::EdgeAssertion::Semantic {
+                    sub_kind: crate::graph::SemanticSubKind::UserGrouped,
+                    label,
+                    decay_progress: None,
+                },
+            );
         }
     }
 
@@ -553,7 +1017,7 @@ impl GraphBrowserApp {
         {
             return;
         }
-        let edge_type = EdgeType::ArrangementRelation(sub_kind);
+        let selector = crate::graph::RelationSelector::Arrangement(sub_kind);
         let has_opposite_durability = self
             .workspace
             .domain
@@ -572,10 +1036,15 @@ impl GraphBrowserApp {
             .workspace
             .domain
             .graph
-            .edges()
-            .any(|edge| edge.edge_type == edge_type && edge.from == from && edge.to == to);
+            .find_edge_key(from, to)
+            .and_then(|edge_key| self.workspace.domain.graph.get_edge(edge_key))
+            .is_some_and(|payload| payload.has_relation(selector));
         if !already_exists {
-            let _ = self.add_edge_and_sync(from, to, edge_type, None);
+            let _ = self.assert_relation_and_sync(
+                from,
+                to,
+                crate::graph::EdgeAssertion::Arrangement { sub_kind },
+            );
             if has_opposite_durability {
                 self.emit_arrangement_durability_transition();
             }
@@ -595,24 +1064,26 @@ impl GraphBrowserApp {
         {
             return;
         }
-
-        let had_tile_group = self.workspace.domain.graph.edges().any(|edge| {
-            edge.from == from
-                && edge.to == to
-                && edge.edge_type
-                    == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup)
+        let edge_payload = self
+            .workspace
+            .domain
+            .graph
+            .find_edge_key(from, to)
+            .and_then(|edge_key| self.workspace.domain.graph.get_edge(edge_key));
+        let had_tile_group = edge_payload.is_some_and(|payload| {
+            payload.has_relation(crate::graph::RelationSelector::Arrangement(
+                crate::graph::ArrangementSubKind::TileGroup,
+            ))
         });
-        let had_split_pair = self.workspace.domain.graph.edges().any(|edge| {
-            edge.from == from
-                && edge.to == to
-                && edge.edge_type
-                    == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::SplitPair)
+        let had_split_pair = edge_payload.is_some_and(|payload| {
+            payload.has_relation(crate::graph::RelationSelector::Arrangement(
+                crate::graph::ArrangementSubKind::SplitPair,
+            ))
         });
-        let had_frame_member = self.workspace.domain.graph.edges().any(|edge| {
-            edge.from == from
-                && edge.to == to
-                && edge.edge_type
-                    == EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::FrameMember)
+        let had_frame_member = edge_payload.is_some_and(|payload| {
+            payload.has_relation(crate::graph::RelationSelector::Arrangement(
+                crate::graph::ArrangementSubKind::FrameMember,
+            ))
         });
 
         self.add_arrangement_relation_if_missing(
@@ -622,17 +1093,21 @@ impl GraphBrowserApp {
         );
 
         if had_tile_group {
-            let _ = self.remove_edges_and_log(
+            let _ = self.retract_relations_and_log(
                 from,
                 to,
-                EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::TileGroup),
+                crate::graph::RelationSelector::Arrangement(
+                    crate::graph::ArrangementSubKind::TileGroup,
+                ),
             );
         }
         if had_split_pair {
-            let _ = self.remove_edges_and_log(
+            let _ = self.retract_relations_and_log(
                 from,
                 to,
-                EdgeType::ArrangementRelation(crate::graph::ArrangementSubKind::SplitPair),
+                crate::graph::RelationSelector::Arrangement(
+                    crate::graph::ArrangementSubKind::SplitPair,
+                ),
             );
         }
 
@@ -748,12 +1223,16 @@ impl GraphBrowserApp {
                         GraphIntent::RemoveEdge {
                             from,
                             to,
-                            edge_type: EdgeType::UserGrouped,
+                            selector: crate::graph::RelationSelector::Semantic(
+                                crate::graph::SemanticSubKind::UserGrouped,
+                            ),
                         },
                         GraphIntent::RemoveEdge {
                             from: to,
                             to: from,
-                            edge_type: EdgeType::UserGrouped,
+                            selector: crate::graph::RelationSelector::Semantic(
+                                crate::graph::SemanticSubKind::UserGrouped,
+                            ),
                         },
                     ]
                 })
@@ -763,12 +1242,16 @@ impl GraphBrowserApp {
                     GraphIntent::RemoveEdge {
                         from: a,
                         to: b,
-                        edge_type: EdgeType::UserGrouped,
+                        selector: crate::graph::RelationSelector::Semantic(
+                            crate::graph::SemanticSubKind::UserGrouped,
+                        ),
                     },
                     GraphIntent::RemoveEdge {
                         from: b,
                         to: a,
-                        edge_type: EdgeType::UserGrouped,
+                        selector: crate::graph::RelationSelector::Semantic(
+                            crate::graph::SemanticSubKind::UserGrouped,
+                        ),
                     },
                 ]
             }

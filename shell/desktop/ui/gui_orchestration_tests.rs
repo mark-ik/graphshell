@@ -201,7 +201,15 @@ fn refresh_graph_search_matches_includes_anchor_neighborhood_context() {
         "https://example.com/far".into(),
         euclid::default::Point2D::new(20.0, 0.0),
     );
-    app.add_edge_and_sync(anchor, neighbor, crate::graph::EdgeType::Hyperlink, None);
+    let _ = app.assert_relation_and_sync(
+        anchor,
+        neighbor,
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+            label: None,
+            decay_progress: None,
+        },
+    );
     let _ = app
         .workspace
         .domain
@@ -248,12 +256,23 @@ fn refresh_graph_search_matches_supports_two_hop_anchor_neighborhood_context() {
         "https://example.com/second-hop".into(),
         euclid::default::Point2D::new(20.0, 0.0),
     );
-    app.add_edge_and_sync(anchor, neighbor, crate::graph::EdgeType::Hyperlink, None);
-    app.add_edge_and_sync(
+    let _ = app.assert_relation_and_sync(
+        anchor,
+        neighbor,
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+            label: None,
+            decay_progress: None,
+        },
+    );
+    let _ = app.assert_relation_and_sync(
         neighbor,
         second_hop,
-        crate::graph::EdgeType::Hyperlink,
-        None,
+        crate::graph::EdgeAssertion::Semantic {
+            sub_kind: crate::graph::SemanticSubKind::Hyperlink,
+            label: None,
+            decay_progress: None,
+        },
     );
     let _ = app
         .workspace

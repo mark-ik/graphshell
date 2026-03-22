@@ -35,8 +35,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::services::persistence::types::{
-    GraphSnapshot, PersistedAddressKind, PersistedEdge, PersistedEdgeType, PersistedNode,
-    PersistedNodeSessionState,
+    GraphSnapshot, PersistedAddressKind, PersistedArrangementEdgeData,
+    PersistedArrangementSubKind, PersistedContainmentEdgeData, PersistedContainmentSubKind,
+    PersistedEdge, PersistedEdgeFamily, PersistedImportedEdgeData, PersistedImportedSubKind,
+    PersistedNavigationTrigger, PersistedNode, PersistedNodeSessionState,
+    PersistedProvenanceEdgeData, PersistedProvenanceSubKind, PersistedSemanticEdgeData,
+    PersistedSemanticSubKind,
+    PersistedTraversalEdgeData, PersistedTraversalMetrics, PersistedTraversalRecord,
 };
 
 pub mod apply;
@@ -590,7 +595,80 @@ pub enum EdgeType {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Archive, Serialize, Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
+pub enum EdgeFamily {
+    Semantic,
+    Traversal,
+    Containment,
+    Arrangement,
+    Imported,
+    Provenance,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
+pub enum SemanticSubKind {
+    Hyperlink,
+    UserGrouped,
+    AgentDerived,
+    Cites,
+    Quotes,
+    Summarizes,
+    Elaborates,
+    ExampleOf,
+    Supports,
+    Contradicts,
+    Questions,
+    SameEntityAs,
+    DuplicateOf,
+    CanonicalMirrorOf,
+    DependsOn,
+    Blocks,
+    NextStep,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
 pub enum ArrangementSubKind {
@@ -600,12 +678,29 @@ pub enum ArrangementSubKind {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Archive, Serialize, Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
 pub enum ContainmentSubKind {
     UrlPath,
     Domain,
+    FileSystem,
+    UserFolder,
+    ClipSource,
+    NotebookSection,
+    CollectionMember,
 }
 
 impl ContainmentSubKind {
@@ -613,8 +708,65 @@ impl ContainmentSubKind {
         match self {
             Self::UrlPath => "url-path",
             Self::Domain => "domain",
+            Self::FileSystem => "filesystem",
+            Self::UserFolder => "user-folder",
+            Self::ClipSource => "clip-source",
+            Self::NotebookSection => "notebook-section",
+            Self::CollectionMember => "collection-member",
         }
     }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
+pub enum ImportedSubKind {
+    BookmarkFolder,
+    HistoryImport,
+    RssMembership,
+    FileSystemImport,
+    ArchiveMembership,
+    SharedCollection,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
+pub enum ProvenanceSubKind {
+    ClippedFrom,
+    ExcerptedFrom,
+    SummarizedFrom,
+    TranslatedFrom,
+    RewrittenFrom,
+    GeneratedFrom,
+    ExtractedFrom,
+    ImportedFromSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
@@ -669,6 +821,49 @@ pub(crate) enum EdgeKind {
     ArrangementRelation,
     ContainmentRelation,
     ImportedRelation,
+}
+
+#[derive(Debug, Clone, PartialEq, Archive, Serialize, Deserialize)]
+pub enum EdgeAssertion {
+    Semantic {
+        sub_kind: SemanticSubKind,
+        label: Option<String>,
+        decay_progress: Option<f32>,
+    },
+    Containment {
+        sub_kind: ContainmentSubKind,
+    },
+    Arrangement {
+        sub_kind: ArrangementSubKind,
+    },
+    Imported {
+        sub_kind: ImportedSubKind,
+    },
+    Provenance {
+        sub_kind: ProvenanceSubKind,
+    },
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub enum RelationSelector {
+    Family(EdgeFamily),
+    Semantic(SemanticSubKind),
+    Containment(ContainmentSubKind),
+    Arrangement(ArrangementSubKind),
+    Imported(ImportedSubKind),
+    Provenance(ProvenanceSubKind),
 }
 
 /// Trigger classification for a traversal event.
@@ -773,6 +968,16 @@ pub struct ContainmentData {
     pub sub_kinds: BTreeSet<ContainmentSubKind>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Default)]
+pub struct ImportedData {
+    pub sub_kinds: BTreeSet<ImportedSubKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Default)]
+pub struct ProvenanceData {
+    pub sub_kinds: BTreeSet<ProvenanceSubKind>,
+}
+
 impl ContainmentData {
     fn insert(&mut self, sub_kind: ContainmentSubKind) -> bool {
         self.sub_kinds.insert(sub_kind)
@@ -826,21 +1031,27 @@ impl ArrangementData {
 /// Edge semantics payload: structural assertions + temporal traversal events.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct EdgePayload {
+    pub(crate) families: BTreeSet<EdgeFamily>,
     pub(crate) kinds: BTreeSet<EdgeKind>,
     pub user_grouped: Option<UserGroupedData>,
     pub traversal: Option<TraversalData>,
     pub arrangement: Option<ArrangementData>,
     pub containment: Option<ContainmentData>,
+    pub imported: Option<ImportedData>,
+    pub provenance: Option<ProvenanceData>,
 }
 
 impl EdgePayload {
     pub fn new() -> Self {
         Self {
+            families: BTreeSet::new(),
             kinds: BTreeSet::new(),
             user_grouped: None,
             traversal: None,
             arrangement: None,
             containment: None,
+            imported: None,
+            provenance: None,
         }
     }
 
@@ -850,11 +1061,96 @@ impl EdgePayload {
         payload
     }
 
+    fn sync_family_from_kind(&mut self, kind: EdgeKind) {
+        match kind {
+            EdgeKind::Hyperlink | EdgeKind::UserGrouped | EdgeKind::AgentDerived => {
+                let _ = self.families.insert(EdgeFamily::Semantic);
+            }
+            EdgeKind::TraversalDerived => {
+                let _ = self.families.insert(EdgeFamily::Traversal);
+            }
+            EdgeKind::ArrangementRelation => {
+                let _ = self.families.insert(EdgeFamily::Arrangement);
+            }
+            EdgeKind::ContainmentRelation => {
+                let _ = self.families.insert(EdgeFamily::Containment);
+            }
+            EdgeKind::ImportedRelation => {
+                let _ = self.families.insert(EdgeFamily::Imported);
+            }
+        }
+    }
+
+    fn prune_family(&mut self, family: EdgeFamily) {
+        let keep = match family {
+            EdgeFamily::Semantic => {
+                self.kinds.contains(&EdgeKind::Hyperlink)
+                    || self.kinds.contains(&EdgeKind::UserGrouped)
+                    || self.kinds.contains(&EdgeKind::AgentDerived)
+            }
+            EdgeFamily::Traversal => self.kinds.contains(&EdgeKind::TraversalDerived),
+            EdgeFamily::Containment => self.kinds.contains(&EdgeKind::ContainmentRelation),
+            EdgeFamily::Arrangement => self.kinds.contains(&EdgeKind::ArrangementRelation),
+            EdgeFamily::Imported => self.kinds.contains(&EdgeKind::ImportedRelation),
+            EdgeFamily::Provenance => self.provenance.as_ref().is_some_and(|data| !data.sub_kinds.is_empty()),
+        };
+        if !keep {
+            self.families.remove(&family);
+        }
+    }
+
+    pub fn assert_relation(&mut self, assertion: EdgeAssertion) -> bool {
+        match assertion {
+            EdgeAssertion::Semantic {
+                sub_kind: SemanticSubKind::Hyperlink,
+                label,
+                ..
+            } => self.add_edge_kind(EdgeType::Hyperlink, label),
+            EdgeAssertion::Semantic {
+                sub_kind: SemanticSubKind::UserGrouped,
+                label,
+                ..
+            } => self.add_edge_kind(EdgeType::UserGrouped, label),
+            EdgeAssertion::Semantic {
+                sub_kind: SemanticSubKind::AgentDerived,
+                decay_progress,
+                ..
+            } => self.add_edge_kind(
+                EdgeType::AgentDerived {
+                    decay_progress: decay_progress.unwrap_or(0.0),
+                },
+                None,
+            ),
+            EdgeAssertion::Semantic { .. } => false,
+            EdgeAssertion::Containment { sub_kind } => {
+                self.add_edge_kind(EdgeType::ContainmentRelation(sub_kind), None)
+            }
+            EdgeAssertion::Arrangement { sub_kind } => {
+                self.add_edge_kind(EdgeType::ArrangementRelation(sub_kind), None)
+            }
+            EdgeAssertion::Imported { sub_kind } => {
+                let inserted = self.add_edge_kind(EdgeType::ImportedRelation, None);
+                let data = self.imported.get_or_insert_with(ImportedData::default);
+                inserted | data.sub_kinds.insert(sub_kind)
+            }
+            EdgeAssertion::Provenance { sub_kind } => {
+                let _ = self.families.insert(EdgeFamily::Provenance);
+                let data = self.provenance.get_or_insert_with(ProvenanceData::default);
+                data.sub_kinds.insert(sub_kind)
+            }
+        }
+    }
+
     pub fn add_edge_kind(&mut self, edge_type: EdgeType, label: Option<String>) -> bool {
         match edge_type {
-            EdgeType::Hyperlink => self.kinds.insert(EdgeKind::Hyperlink),
+            EdgeType::Hyperlink => {
+                let inserted = self.kinds.insert(EdgeKind::Hyperlink);
+                self.sync_family_from_kind(EdgeKind::Hyperlink);
+                inserted
+            }
             EdgeType::UserGrouped => {
                 let inserted = self.kinds.insert(EdgeKind::UserGrouped);
+                self.sync_family_from_kind(EdgeKind::UserGrouped);
                 let data = self
                     .user_grouped
                     .get_or_insert_with(UserGroupedData::default);
@@ -868,12 +1164,14 @@ impl EdgePayload {
             }
             EdgeType::History => {
                 let inserted = self.kinds.insert(EdgeKind::TraversalDerived);
+                self.sync_family_from_kind(EdgeKind::TraversalDerived);
                 let had_data = self.traversal.is_some();
                 let _ = self.traversal.get_or_insert_with(TraversalData::default);
                 inserted || !had_data
             }
             EdgeType::ArrangementRelation(sub_kind) => {
                 let inserted = self.kinds.insert(EdgeKind::ArrangementRelation);
+                self.sync_family_from_kind(EdgeKind::ArrangementRelation);
                 let data = self
                     .arrangement
                     .get_or_insert_with(ArrangementData::default);
@@ -881,18 +1179,60 @@ impl EdgePayload {
             }
             EdgeType::ContainmentRelation(sub_kind) => {
                 let inserted = self.kinds.insert(EdgeKind::ContainmentRelation);
+                self.sync_family_from_kind(EdgeKind::ContainmentRelation);
                 let data = self
                     .containment
                     .get_or_insert_with(ContainmentData::default);
                 inserted | data.insert(sub_kind)
             }
-            EdgeType::ImportedRelation => self.kinds.insert(EdgeKind::ImportedRelation),
-            EdgeType::AgentDerived { .. } => self.kinds.insert(EdgeKind::AgentDerived),
+            EdgeType::ImportedRelation => {
+                let inserted = self.kinds.insert(EdgeKind::ImportedRelation);
+                self.sync_family_from_kind(EdgeKind::ImportedRelation);
+                let _ = self.imported.get_or_insert_with(ImportedData::default);
+                inserted
+            }
+            EdgeType::AgentDerived { .. } => {
+                let inserted = self.kinds.insert(EdgeKind::AgentDerived);
+                self.sync_family_from_kind(EdgeKind::AgentDerived);
+                inserted
+            }
         }
     }
 
     pub fn add_edge_type(&mut self, edge_type: EdgeType) {
         let _ = self.add_edge_kind(edge_type, None);
+    }
+
+    pub fn has_relation(&self, selector: RelationSelector) -> bool {
+        match selector {
+            RelationSelector::Family(family) => self.families.contains(&family),
+            RelationSelector::Semantic(SemanticSubKind::Hyperlink) => {
+                self.has_edge_type(EdgeType::Hyperlink)
+            }
+            RelationSelector::Semantic(SemanticSubKind::UserGrouped) => {
+                self.has_edge_type(EdgeType::UserGrouped)
+            }
+            RelationSelector::Semantic(SemanticSubKind::AgentDerived) => {
+                self.has_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 })
+            }
+            RelationSelector::Semantic(_) => false,
+            RelationSelector::Containment(sub_kind) => {
+                self.has_edge_type(EdgeType::ContainmentRelation(sub_kind))
+            }
+            RelationSelector::Arrangement(sub_kind) => {
+                self.has_edge_type(EdgeType::ArrangementRelation(sub_kind))
+            }
+            RelationSelector::Imported(sub_kind) => self
+                .imported
+                .as_ref()
+                .is_some_and(|data| data.sub_kinds.contains(&sub_kind))
+                || (self.imported.as_ref().is_some_and(|data| data.sub_kinds.is_empty())
+                    && self.has_edge_type(EdgeType::ImportedRelation)),
+            RelationSelector::Provenance(sub_kind) => self
+                .provenance
+                .as_ref()
+                .is_some_and(|data| data.sub_kinds.contains(&sub_kind)),
+        }
     }
 
     pub fn has_edge_kind(&self, edge_type: EdgeType) -> bool {
@@ -931,15 +1271,66 @@ impl EdgePayload {
         self.kinds.contains(&kind)
     }
 
+    pub fn retract_relation(&mut self, selector: RelationSelector) -> bool {
+        match selector {
+            RelationSelector::Family(EdgeFamily::Traversal) => self.remove_edge_type(EdgeType::History),
+            RelationSelector::Family(_) => false,
+            RelationSelector::Semantic(SemanticSubKind::Hyperlink) => {
+                self.remove_edge_type(EdgeType::Hyperlink)
+            }
+            RelationSelector::Semantic(SemanticSubKind::UserGrouped) => {
+                self.remove_edge_type(EdgeType::UserGrouped)
+            }
+            RelationSelector::Semantic(SemanticSubKind::AgentDerived) => {
+                self.remove_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 })
+            }
+            RelationSelector::Semantic(_) => false,
+            RelationSelector::Containment(sub_kind) => {
+                self.remove_edge_type(EdgeType::ContainmentRelation(sub_kind))
+            }
+            RelationSelector::Arrangement(sub_kind) => {
+                self.remove_edge_type(EdgeType::ArrangementRelation(sub_kind))
+            }
+            RelationSelector::Imported(sub_kind) => {
+                if let Some(data) = self.imported.as_mut()
+                    && data.sub_kinds.remove(&sub_kind)
+                {
+                    if data.sub_kinds.is_empty() {
+                        self.imported = None;
+                        let _ = self.remove_edge_type(EdgeType::ImportedRelation);
+                    }
+                    true
+                } else {
+                    self.remove_edge_type(EdgeType::ImportedRelation)
+                }
+            }
+            RelationSelector::Provenance(sub_kind) => {
+                if let Some(data) = self.provenance.as_mut()
+                    && data.sub_kinds.remove(&sub_kind)
+                {
+                    if data.sub_kinds.is_empty() {
+                        self.provenance = None;
+                        self.prune_family(EdgeFamily::Provenance);
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
     pub fn remove_edge_kind(&mut self, edge_type: EdgeType) -> bool {
         match edge_type {
             EdgeType::Hyperlink if self.kinds.remove(&EdgeKind::Hyperlink) => true,
             EdgeType::UserGrouped if self.kinds.remove(&EdgeKind::UserGrouped) => {
                 self.user_grouped = None;
+                self.prune_family(EdgeFamily::Semantic);
                 true
             }
             EdgeType::History if self.kinds.remove(&EdgeKind::TraversalDerived) => {
                 self.traversal = None;
+                self.prune_family(EdgeFamily::Traversal);
                 true
             }
             EdgeType::ArrangementRelation(sub_kind)
@@ -955,6 +1346,7 @@ impl EdgePayload {
                 {
                     self.arrangement = None;
                     self.kinds.remove(&EdgeKind::ArrangementRelation);
+                    self.prune_family(EdgeFamily::Arrangement);
                 }
                 true
             }
@@ -971,11 +1363,19 @@ impl EdgePayload {
                 {
                     self.containment = None;
                     self.kinds.remove(&EdgeKind::ContainmentRelation);
+                    self.prune_family(EdgeFamily::Containment);
                 }
                 true
             }
-            EdgeType::ImportedRelation if self.kinds.remove(&EdgeKind::ImportedRelation) => true,
-            EdgeType::AgentDerived { .. } if self.kinds.remove(&EdgeKind::AgentDerived) => true,
+            EdgeType::ImportedRelation if self.kinds.remove(&EdgeKind::ImportedRelation) => {
+                self.imported = None;
+                self.prune_family(EdgeFamily::Imported);
+                true
+            }
+            EdgeType::AgentDerived { .. } if self.kinds.remove(&EdgeKind::AgentDerived) => {
+                self.prune_family(EdgeFamily::Semantic);
+                true
+            }
             _ => false,
         }
     }
@@ -1004,6 +1404,14 @@ impl EdgePayload {
 
     pub fn containment_data(&self) -> Option<&ContainmentData> {
         self.containment.as_ref()
+    }
+
+    pub fn imported_data(&self) -> Option<&ImportedData> {
+        self.imported.as_ref()
+    }
+
+    pub fn provenance_data(&self) -> Option<&ProvenanceData> {
+        self.provenance.as_ref()
     }
 
     pub fn has_arrangement_sub_kind(&self, sub_kind: ArrangementSubKind) -> bool {
@@ -1040,9 +1448,14 @@ impl EdgePayload {
 
     pub fn push_traversal(&mut self, traversal: Traversal) {
         let _ = self.kinds.insert(EdgeKind::TraversalDerived);
+        self.sync_family_from_kind(EdgeKind::TraversalDerived);
         self.traversal
             .get_or_insert_with(TraversalData::default)
             .push(traversal);
+    }
+
+    pub fn families(&self) -> &BTreeSet<EdgeFamily> {
+        &self.families
     }
 }
 
@@ -1690,6 +2103,26 @@ impl Graph {
         )
     }
 
+    pub(crate) fn assert_relation(
+        &mut self,
+        from: NodeKey,
+        to: NodeKey,
+        assertion: EdgeAssertion,
+    ) -> Option<EdgeKey> {
+        if !self.inner.contains_node(from) || !self.inner.contains_node(to) {
+            return None;
+        }
+        if let Some(edge_key) = self.find_edge_key(from, to) {
+            let payload = self.inner.edge_weight_mut(edge_key)?;
+            return payload.assert_relation(assertion).then_some(edge_key);
+        }
+        let mut payload = EdgePayload::new();
+        if !payload.assert_relation(assertion) {
+            return None;
+        }
+        Some(self.inner.add_edge(from, to, payload))
+    }
+
     /// Replay helper: add node only if UUID is not already present.
     pub(crate) fn replay_add_node_with_id_if_missing(
         &mut self,
@@ -1738,6 +2171,32 @@ impl Graph {
             return 0;
         };
         self.remove_edges(from_key, to_key, edge_type)
+    }
+
+    pub(crate) fn replay_retract_relations_by_ids(
+        &mut self,
+        from_id: Uuid,
+        to_id: Uuid,
+        selector: RelationSelector,
+    ) -> usize {
+        let Some(from_key) = self.get_node_key_by_id(from_id) else {
+            return 0;
+        };
+        let Some(to_key) = self.get_node_key_by_id(to_id) else {
+            return 0;
+        };
+        self.retract_relations(from_key, to_key, selector)
+    }
+
+    pub(crate) fn replay_assert_relation_by_ids(
+        &mut self,
+        from_id: Uuid,
+        to_id: Uuid,
+        assertion: EdgeAssertion,
+    ) -> Option<EdgeKey> {
+        let from_key = self.get_node_key_by_id(from_id)?;
+        let to_key = self.get_node_key_by_id(to_id)?;
+        self.assert_relation(from_key, to_key, assertion)
     }
 
     /// Dissolve helper: collect traversals from all incident edges and remove the node.
@@ -1898,6 +2357,37 @@ impl Graph {
         for edge_id in edge_ids {
             if let Some(payload) = self.inner.edge_weight_mut(edge_id)
                 && payload.remove_edge_type(edge_type)
+            {
+                removed += 1;
+                if payload.is_empty() {
+                    edges_to_delete.push(edge_id);
+                }
+            }
+        }
+        for edge_id in edges_to_delete {
+            let _ = self.inner.remove_edge(edge_id);
+        }
+        removed
+    }
+
+    pub(crate) fn retract_relations(
+        &mut self,
+        from: NodeKey,
+        to: NodeKey,
+        selector: RelationSelector,
+    ) -> usize {
+        let edge_ids: Vec<EdgeKey> = self
+            .inner
+            .edge_references()
+            .filter(|edge| edge.source() == from && edge.target() == to && edge.weight().has_relation(selector))
+            .map(|edge| edge.id())
+            .collect();
+
+        let mut removed = 0usize;
+        let mut edges_to_delete = Vec::new();
+        for edge_id in edge_ids {
+            if let Some(payload) = self.inner.edge_weight_mut(edge_id)
+                && payload.retract_relation(selector)
             {
                 removed += 1;
                 if payload.is_empty() {
@@ -2407,7 +2897,7 @@ impl Graph {
         let edges = self
             .inner
             .edge_references()
-            .flat_map(|edge| {
+            .map(|edge| {
                 let from_node_id = self
                     .get_node(edge.source())
                     .map(|n| n.id.to_string())
@@ -2417,55 +2907,125 @@ impl Graph {
                     .map(|n| n.id.to_string())
                     .unwrap_or_default();
                 let payload = edge.weight();
-                let mut persisted_edges = Vec::with_capacity(6);
-                if payload.has_kind(EdgeKind::Hyperlink) {
-                    persisted_edges.push(PersistedEdge {
-                        from_node_id: from_node_id.clone(),
-                        to_node_id: to_node_id.clone(),
-                        edge_type: PersistedEdgeType::Hyperlink,
-                        edge_label: payload.label().map(str::to_string),
-                    });
+                PersistedEdge {
+                    from_node_id,
+                    to_node_id,
+                    families: payload
+                        .families()
+                        .iter()
+                        .map(|family| match family {
+                            EdgeFamily::Semantic => PersistedEdgeFamily::Semantic,
+                            EdgeFamily::Traversal => PersistedEdgeFamily::Traversal,
+                            EdgeFamily::Containment => PersistedEdgeFamily::Containment,
+                            EdgeFamily::Arrangement => PersistedEdgeFamily::Arrangement,
+                            EdgeFamily::Imported => PersistedEdgeFamily::Imported,
+                            EdgeFamily::Provenance => PersistedEdgeFamily::Provenance,
+                        })
+                        .collect(),
+                    semantic: Some(PersistedSemanticEdgeData {
+                        sub_kinds: [
+                            payload
+                                .has_edge_type(EdgeType::Hyperlink)
+                                .then_some(PersistedSemanticSubKind::Hyperlink),
+                            payload
+                                .has_edge_type(EdgeType::UserGrouped)
+                                .then_some(PersistedSemanticSubKind::UserGrouped),
+                            payload
+                                .has_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 })
+                                .then_some(PersistedSemanticSubKind::AgentDerived),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .collect(),
+                        label: payload.label().map(str::to_string),
+                        agent_decay_progress: payload
+                            .has_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 })
+                            .then_some(0.0),
+                    })
+                    .filter(|data| !data.sub_kinds.is_empty() || data.label.is_some()),
+                    traversal: payload.traversal_data().map(|data| PersistedTraversalEdgeData {
+                        traversals: data
+                            .traversals
+                            .iter()
+                            .map(|traversal| PersistedTraversalRecord {
+                                timestamp_ms: traversal.timestamp_ms,
+                                trigger: match traversal.trigger {
+                                    NavigationTrigger::Unknown => PersistedNavigationTrigger::Unknown,
+                                    NavigationTrigger::LinkClick => PersistedNavigationTrigger::LinkClick,
+                                    NavigationTrigger::Back => PersistedNavigationTrigger::Back,
+                                    NavigationTrigger::Forward => PersistedNavigationTrigger::Forward,
+                                    NavigationTrigger::AddressBarEntry => PersistedNavigationTrigger::AddressBarEntry,
+                                    NavigationTrigger::PanePromotion => PersistedNavigationTrigger::PanePromotion,
+                                    NavigationTrigger::Programmatic => PersistedNavigationTrigger::Programmatic,
+                                },
+                            })
+                            .collect(),
+                        metrics: PersistedTraversalMetrics {
+                            total_navigations: data.metrics.total_navigations,
+                            forward_navigations: data.metrics.forward_navigations,
+                            backward_navigations: data.metrics.backward_navigations,
+                            last_navigated_at: data.metrics.last_navigated_at,
+                        },
+                    }),
+                    containment: payload.containment_data().map(|data| PersistedContainmentEdgeData {
+                        sub_kinds: data
+                            .sub_kinds
+                            .iter()
+                            .map(|sub_kind| match sub_kind {
+                                ContainmentSubKind::UrlPath => PersistedContainmentSubKind::UrlPath,
+                                ContainmentSubKind::Domain => PersistedContainmentSubKind::Domain,
+                                ContainmentSubKind::FileSystem => PersistedContainmentSubKind::FileSystem,
+                                ContainmentSubKind::UserFolder => PersistedContainmentSubKind::UserFolder,
+                                ContainmentSubKind::ClipSource => PersistedContainmentSubKind::ClipSource,
+                                ContainmentSubKind::NotebookSection => PersistedContainmentSubKind::NotebookSection,
+                                ContainmentSubKind::CollectionMember => PersistedContainmentSubKind::CollectionMember,
+                            })
+                            .collect(),
+                    }),
+                    arrangement: payload.arrangement_data().map(|data| PersistedArrangementEdgeData {
+                        sub_kinds: data
+                            .sub_kinds
+                            .iter()
+                            .copied()
+                            .filter(|sub_kind| sub_kind.durability() == RelationDurability::Durable)
+                            .map(|sub_kind| match sub_kind {
+                                ArrangementSubKind::FrameMember => PersistedArrangementSubKind::FrameMember,
+                                ArrangementSubKind::TileGroup => PersistedArrangementSubKind::TileGroup,
+                                ArrangementSubKind::SplitPair => PersistedArrangementSubKind::SplitPair,
+                            })
+                            .collect(),
+                    }),
+                    imported: payload.imported_data().map(|data| PersistedImportedEdgeData {
+                        sub_kinds: data
+                            .sub_kinds
+                            .iter()
+                            .map(|sub_kind| match sub_kind {
+                                ImportedSubKind::BookmarkFolder => PersistedImportedSubKind::BookmarkFolder,
+                                ImportedSubKind::HistoryImport => PersistedImportedSubKind::HistoryImport,
+                                ImportedSubKind::RssMembership => PersistedImportedSubKind::RssMembership,
+                                ImportedSubKind::FileSystemImport => PersistedImportedSubKind::FileSystemImport,
+                                ImportedSubKind::ArchiveMembership => PersistedImportedSubKind::ArchiveMembership,
+                                ImportedSubKind::SharedCollection => PersistedImportedSubKind::SharedCollection,
+                            })
+                            .collect(),
+                    }),
+                    provenance: payload.provenance_data().map(|data| PersistedProvenanceEdgeData {
+                        sub_kinds: data
+                            .sub_kinds
+                            .iter()
+                            .map(|sub_kind| match sub_kind {
+                                ProvenanceSubKind::ClippedFrom => PersistedProvenanceSubKind::ClippedFrom,
+                                ProvenanceSubKind::ExcerptedFrom => PersistedProvenanceSubKind::ExcerptedFrom,
+                                ProvenanceSubKind::SummarizedFrom => PersistedProvenanceSubKind::SummarizedFrom,
+                                ProvenanceSubKind::TranslatedFrom => PersistedProvenanceSubKind::TranslatedFrom,
+                                ProvenanceSubKind::RewrittenFrom => PersistedProvenanceSubKind::RewrittenFrom,
+                                ProvenanceSubKind::GeneratedFrom => PersistedProvenanceSubKind::GeneratedFrom,
+                                ProvenanceSubKind::ExtractedFrom => PersistedProvenanceSubKind::ExtractedFrom,
+                                ProvenanceSubKind::ImportedFromSource => PersistedProvenanceSubKind::ImportedFromSource,
+                            })
+                            .collect(),
+                    }),
                 }
-                if payload.has_kind(EdgeKind::TraversalDerived) {
-                    persisted_edges.push(PersistedEdge {
-                        from_node_id: from_node_id.clone(),
-                        to_node_id: to_node_id.clone(),
-                        edge_type: PersistedEdgeType::History,
-                        edge_label: payload.label().map(str::to_string),
-                    });
-                }
-                if payload.has_kind(EdgeKind::UserGrouped) {
-                    persisted_edges.push(PersistedEdge {
-                        from_node_id: from_node_id.clone(),
-                        to_node_id: to_node_id.clone(),
-                        edge_type: PersistedEdgeType::UserGrouped,
-                        edge_label: payload.label().map(str::to_string),
-                    });
-                }
-                if let Some(arrangement) = payload.arrangement_data() {
-                    for sub_kind in &arrangement.sub_kinds {
-                        if sub_kind.durability() != RelationDurability::Durable {
-                            continue;
-                        }
-                        persisted_edges.push(PersistedEdge {
-                            from_node_id: from_node_id.clone(),
-                            to_node_id: to_node_id.clone(),
-                            edge_type: match sub_kind {
-                                ArrangementSubKind::FrameMember => {
-                                    PersistedEdgeType::ArrangementFrameMember
-                                }
-                                ArrangementSubKind::TileGroup => {
-                                    PersistedEdgeType::ArrangementTileGroup
-                                }
-                                ArrangementSubKind::SplitPair => {
-                                    PersistedEdgeType::ArrangementSplitPair
-                                }
-                            },
-                            edge_label: None,
-                        });
-                    }
-                }
-                persisted_edges
             })
             .collect();
 
@@ -2553,21 +3113,154 @@ impl Graph {
                 .ok()
                 .and_then(|id| graph.get_node_key_by_id(id));
             if let (Some(from), Some(to)) = (from_key, to_key) {
-                let edge_type = match pedge.edge_type {
-                    PersistedEdgeType::Hyperlink => EdgeType::Hyperlink,
-                    PersistedEdgeType::History => EdgeType::History,
-                    PersistedEdgeType::UserGrouped => EdgeType::UserGrouped,
-                    PersistedEdgeType::ArrangementFrameMember => {
-                        EdgeType::ArrangementRelation(ArrangementSubKind::FrameMember)
+                if let Some(semantic) = &pedge.semantic {
+                    for sub_kind in &semantic.sub_kinds {
+                        let edge_type = match sub_kind {
+                            PersistedSemanticSubKind::Hyperlink => EdgeType::Hyperlink,
+                            PersistedSemanticSubKind::UserGrouped => EdgeType::UserGrouped,
+                            PersistedSemanticSubKind::AgentDerived => EdgeType::AgentDerived {
+                                decay_progress: semantic.agent_decay_progress.unwrap_or(0.0),
+                            },
+                            _ => continue,
+                        };
+                        let _ = graph.add_edge(from, to, edge_type, semantic.label.clone());
                     }
-                    PersistedEdgeType::ArrangementTileGroup => {
-                        continue;
+                }
+                if let Some(arrangement) = &pedge.arrangement {
+                    for sub_kind in &arrangement.sub_kinds {
+                        let edge_type = match sub_kind {
+                            PersistedArrangementSubKind::FrameMember => {
+                                EdgeType::ArrangementRelation(ArrangementSubKind::FrameMember)
+                            }
+                            PersistedArrangementSubKind::TileGroup => {
+                                EdgeType::ArrangementRelation(ArrangementSubKind::TileGroup)
+                            }
+                            PersistedArrangementSubKind::SplitPair => {
+                                EdgeType::ArrangementRelation(ArrangementSubKind::SplitPair)
+                            }
+                            PersistedArrangementSubKind::TabNeighbor
+                            | PersistedArrangementSubKind::ActiveTab
+                            | PersistedArrangementSubKind::PinnedInFrame => continue,
+                        };
+                        let _ = graph.add_edge(from, to, edge_type, None);
                     }
-                    PersistedEdgeType::ArrangementSplitPair => {
-                        continue;
+                }
+                if let Some(containment) = &pedge.containment {
+                    for sub_kind in &containment.sub_kinds {
+                        let edge_type = match sub_kind {
+                            PersistedContainmentSubKind::UrlPath => {
+                                EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath)
+                            }
+                            PersistedContainmentSubKind::Domain => {
+                                EdgeType::ContainmentRelation(ContainmentSubKind::Domain)
+                            }
+                            _ => continue,
+                        };
+                        let _ = graph.add_edge(from, to, edge_type, None);
                     }
-                };
-                let _ = graph.add_edge(from, to, edge_type, pedge.edge_label.clone());
+                }
+                if let Some(imported) = &pedge.imported {
+                    for sub_kind in &imported.sub_kinds {
+                        let assertion = match sub_kind {
+                            PersistedImportedSubKind::BookmarkFolder => EdgeAssertion::Imported {
+                                sub_kind: ImportedSubKind::BookmarkFolder,
+                            },
+                            PersistedImportedSubKind::HistoryImport => EdgeAssertion::Imported {
+                                sub_kind: ImportedSubKind::HistoryImport,
+                            },
+                            PersistedImportedSubKind::RssMembership => EdgeAssertion::Imported {
+                                sub_kind: ImportedSubKind::RssMembership,
+                            },
+                            PersistedImportedSubKind::FileSystemImport => EdgeAssertion::Imported {
+                                sub_kind: ImportedSubKind::FileSystemImport,
+                            },
+                            PersistedImportedSubKind::ArchiveMembership => EdgeAssertion::Imported {
+                                sub_kind: ImportedSubKind::ArchiveMembership,
+                            },
+                            PersistedImportedSubKind::SharedCollection => EdgeAssertion::Imported {
+                                sub_kind: ImportedSubKind::SharedCollection,
+                            },
+                        };
+                        let _ = graph.assert_relation(from, to, assertion);
+                    }
+                }
+                if let Some(provenance) = &pedge.provenance {
+                    for sub_kind in &provenance.sub_kinds {
+                        let assertion = match sub_kind {
+                            PersistedProvenanceSubKind::ClippedFrom => {
+                                EdgeAssertion::Provenance {
+                                    sub_kind: ProvenanceSubKind::ClippedFrom,
+                                }
+                            }
+                            PersistedProvenanceSubKind::ExcerptedFrom => {
+                                EdgeAssertion::Provenance {
+                                    sub_kind: ProvenanceSubKind::ExcerptedFrom,
+                                }
+                            }
+                            PersistedProvenanceSubKind::SummarizedFrom => {
+                                EdgeAssertion::Provenance {
+                                    sub_kind: ProvenanceSubKind::SummarizedFrom,
+                                }
+                            }
+                            PersistedProvenanceSubKind::TranslatedFrom => {
+                                EdgeAssertion::Provenance {
+                                    sub_kind: ProvenanceSubKind::TranslatedFrom,
+                                }
+                            }
+                            PersistedProvenanceSubKind::RewrittenFrom => {
+                                EdgeAssertion::Provenance {
+                                    sub_kind: ProvenanceSubKind::RewrittenFrom,
+                                }
+                            }
+                            PersistedProvenanceSubKind::GeneratedFrom => {
+                                EdgeAssertion::Provenance {
+                                    sub_kind: ProvenanceSubKind::GeneratedFrom,
+                                }
+                            }
+                            PersistedProvenanceSubKind::ExtractedFrom => {
+                                EdgeAssertion::Provenance {
+                                    sub_kind: ProvenanceSubKind::ExtractedFrom,
+                                }
+                            }
+                            PersistedProvenanceSubKind::ImportedFromSource => {
+                                EdgeAssertion::Provenance {
+                                    sub_kind: ProvenanceSubKind::ImportedFromSource,
+                                }
+                            }
+                        };
+                        let _ = graph.assert_relation(from, to, assertion);
+                    }
+                }
+                if let Some(traversal) = &pedge.traversal {
+                    let _ = graph.add_edge(from, to, EdgeType::History, None);
+                    if let Some(edge_key) = graph.find_edge_key(from, to)
+                        && let Some(payload) = graph.inner.edge_weight_mut(edge_key)
+                        && let Some(data) = payload.traversal.as_mut()
+                    {
+                        data.traversals = traversal
+                            .traversals
+                            .iter()
+                            .map(|record| Traversal {
+                                timestamp_ms: record.timestamp_ms,
+                                trigger: match record.trigger {
+                                    PersistedNavigationTrigger::Unknown => NavigationTrigger::Unknown,
+                                    PersistedNavigationTrigger::LinkClick => NavigationTrigger::LinkClick,
+                                    PersistedNavigationTrigger::Back => NavigationTrigger::Back,
+                                    PersistedNavigationTrigger::Forward => NavigationTrigger::Forward,
+                                    PersistedNavigationTrigger::AddressBarEntry => NavigationTrigger::AddressBarEntry,
+                                    PersistedNavigationTrigger::PanePromotion => NavigationTrigger::PanePromotion,
+                                    PersistedNavigationTrigger::Programmatic => NavigationTrigger::Programmatic,
+                                },
+                            })
+                            .collect();
+                        data.metrics = EdgeMetrics {
+                            total_navigations: traversal.metrics.total_navigations,
+                            forward_navigations: traversal.metrics.forward_navigations,
+                            backward_navigations: traversal.metrics.backward_navigations,
+                            last_navigated_at: traversal.metrics.last_navigated_at,
+                        };
+                    }
+                }
             }
         }
 
@@ -2861,11 +3554,10 @@ mod tests {
         let removed = graph.remove_edges(a, b, EdgeType::UserGrouped);
         assert_eq!(removed, 1);
         assert_eq!(graph.edge_count(), 1);
-        assert!(
-            graph
-                .edges()
-                .all(|edge| edge.edge_type == EdgeType::Hyperlink)
-        );
+        let edge_key = graph.find_edge_key(a, b).expect("remaining hyperlink edge");
+        let payload = graph.get_edge(edge_key).expect("remaining edge payload");
+        assert!(payload.has_relation(RelationSelector::Semantic(SemanticSubKind::Hyperlink)));
+        assert!(!payload.has_relation(RelationSelector::Semantic(SemanticSubKind::UserGrouped)));
     }
 
     #[test]
@@ -2941,8 +3633,10 @@ mod tests {
         let edge_count = graph.edges().count();
         assert_eq!(edge_count, 2);
 
-        let edge_types: Vec<EdgeType> = graph.edges().map(|e| e.edge_type).collect();
-        assert!(edge_types.iter().all(|&t| t == EdgeType::Hyperlink));
+        assert!(graph.inner.edge_references().all(|edge| {
+            edge.weight()
+                .has_relation(RelationSelector::Semantic(SemanticSubKind::Hyperlink))
+        }));
     }
 
     #[test]
@@ -3044,10 +3738,24 @@ mod tests {
 
         assert_eq!(restored.edge_count(), 3);
 
-        let edges: Vec<_> = restored.edges().collect();
-        let has_hyperlink = edges.iter().any(|e| e.edge_type == EdgeType::Hyperlink);
-        let has_history = edges.iter().any(|e| e.edge_type == EdgeType::History);
-        let has_user_grouped = edges.iter().any(|e| e.edge_type == EdgeType::UserGrouped);
+        let has_hyperlink = restored
+            .find_edge_key(n1, n2)
+            .and_then(|edge_key| restored.get_edge(edge_key))
+            .is_some_and(|payload| {
+                payload.has_relation(RelationSelector::Semantic(SemanticSubKind::Hyperlink))
+            });
+        let has_history = restored
+            .find_edge_key(n2, n1)
+            .and_then(|edge_key| restored.get_edge(edge_key))
+            .is_some_and(|payload| {
+                payload.has_relation(RelationSelector::Family(EdgeFamily::Traversal))
+            });
+        let has_user_grouped = restored
+            .find_edge_key(n1, n3)
+            .and_then(|edge_key| restored.get_edge(edge_key))
+            .is_some_and(|payload| {
+                payload.has_relation(RelationSelector::Semantic(SemanticSubKind::UserGrouped))
+            });
         assert!(has_hyperlink);
         assert!(has_history);
         assert!(has_user_grouped);
@@ -3129,7 +3837,7 @@ mod tests {
     #[test]
     fn test_snapshot_edge_with_missing_url_is_dropped() {
         use crate::services::persistence::types::{
-            GraphSnapshot, PersistedAddressKind, PersistedEdge, PersistedEdgeType, PersistedNode,
+            GraphSnapshot, PersistedAddressKind, PersistedEdge, PersistedNode,
         };
 
         let snapshot = GraphSnapshot {
@@ -3159,8 +3867,17 @@ mod tests {
             edges: vec![PersistedEdge {
                 from_node_id: Uuid::new_v4().to_string(),
                 to_node_id: Uuid::new_v4().to_string(),
-                edge_type: PersistedEdgeType::Hyperlink,
-                edge_label: None,
+                families: vec![PersistedEdgeFamily::Semantic],
+                semantic: Some(PersistedSemanticEdgeData {
+                    sub_kinds: vec![PersistedSemanticSubKind::Hyperlink],
+                    label: None,
+                    agent_decay_progress: None,
+                }),
+                traversal: None,
+                containment: None,
+                arrangement: None,
+                imported: None,
+                provenance: None,
             }],
             import_records: vec![],
             timestamp_secs: 0,
@@ -3428,6 +4145,37 @@ mod tests {
                 source_label: "Firefox bookmarks".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn test_snapshot_roundtrip_preserves_imported_and_provenance_edge_sub_kinds() {
+        let mut graph = Graph::new();
+        let from = graph.add_node("https://from.example".to_string(), Point2D::new(0.0, 0.0));
+        let to = graph.add_node("https://to.example".to_string(), Point2D::new(10.0, 0.0));
+
+        let _ = graph.assert_relation(
+            from,
+            to,
+            EdgeAssertion::Imported {
+                sub_kind: ImportedSubKind::BookmarkFolder,
+            },
+        );
+        let _ = graph.assert_relation(
+            from,
+            to,
+            EdgeAssertion::Provenance {
+                sub_kind: ProvenanceSubKind::ClippedFrom,
+            },
+        );
+
+        let restored = Graph::from_snapshot(&graph.to_snapshot());
+        let edge_key = restored
+            .find_edge_key(from, to)
+            .expect("restored imported/provenance edge");
+        let payload = restored.get_edge(edge_key).expect("restored payload");
+
+        assert!(payload.has_relation(RelationSelector::Imported(ImportedSubKind::BookmarkFolder)));
+        assert!(payload.has_relation(RelationSelector::Provenance(ProvenanceSubKind::ClippedFrom)));
     }
 
     #[test]

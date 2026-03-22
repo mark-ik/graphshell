@@ -76,6 +76,8 @@ The Navigator domain owns:
   (not persisted as graph truth)
 - **Filter/search model** — local filter semantics that do not mutate
   underlying truth
+- **Shared chrome security projection** — focused-node trust and origin
+  permission summaries rendered in Navigator chrome from security/runtime truth
 - **Refresh triggers** — which graph and workbench state changes cause the
   Navigator projection to rebuild or update
 
@@ -206,6 +208,11 @@ The Navigator reads these at projection time. It does not cache copies of
 graph or workbench state independently — stale projection is diagnosed, not
 silently tolerated.
 
+The same rule applies to security and permission exposure. Navigator chrome may
+summarize trust and permission state for the focused node or origin, but those
+summaries are projections from security/runtime truth, not Navigator-owned
+flags.
+
 ---
 
 ## 9. Refresh Triggers
@@ -221,6 +228,11 @@ The Navigator projection rebuilds or updates when:
 - The user applies a local filter or search query
 
 Refresh is routed through the shared signal path (`phase3_publish_workbench_projection_refresh_requested`), not through ad hoc observers.
+
+Security and permission chrome must refresh on the same principle: when focused
+node trust state changes, when mixed-content state changes, and when origin
+permission state changes, the Navigator updates through shared signals rather
+than polling or UI-local caches.
 
 ---
 
@@ -240,3 +252,152 @@ This is the same relationship as graph canvas / graph domain: the workbench
 chrome hosts the graph view slot; the graph domain owns what renders inside it.
 
 The `WORKBENCH.md` sidebar ownership claim is updated to reflect this split.
+
+## 10A. Security and Permission Exposure Contract
+
+The Navigator is the canonical shared chrome surface for node-scoped trust and
+origin-scoped permission visibility.
+
+For any focused or selected node backed by remote or embedded web content,
+Navigator chrome must expose:
+
+- current transport trust state (`secure`, `degraded`, or `insecure` at minimum)
+- an entry point to certificate or identity details when such details exist
+- mixed-content or other degraded-origin warnings when present
+- per-origin permission state for camera, microphone, location, and
+  notifications
+
+These signals are part of the Navigator's projection responsibility because
+they help the user decide whether to activate, trust, and interact with the
+content represented by the current node. They are not optional embellishments
+and must not be hidden behind settings pages or diagnostics-only views.
+
+Scope implications:
+
+- `GraphOnly` and `Both` must show the trust/permission summary whenever a
+  node-backed graph context is active.
+- `WorkbenchOnly` must still show the focused pane's node trust/permission
+  summary because workbench focus does not erase the node's security boundary.
+- `Auto` must preserve these summaries across scope switches so the active
+  safety state does not disappear merely because focus moved.
+
+The Navigator does not own permission grants or trust evaluation. It projects
+them and routes the user to the authority that does.
+
+## 10B. Focused Content Control Contract
+
+The Navigator is also the canonical shared chrome surface for focused
+node-backed page controls that are neither graph controls nor generic app
+settings.
+
+For any focused node whose effective viewer is a live web/content viewer,
+Navigator chrome must expose a focused-content control cluster covering:
+
+- page load state, including a visible stop/cancel affordance while a load is
+  in progress
+- find-in-page entry for searching within the currently rendered page content
+- per-viewer content zoom controls and current zoom state, distinct from graph
+  camera zoom
+- audio/media activity and mute state
+- downloads activity and entry into the download manager/history surface
+
+These are page-local controls. They must not be conflated with:
+
+- graph camera zoom
+- graph search or graph filter state
+- workspace/global settings pages
+- unrelated ambient app status chips
+
+Scope implications:
+
+- `WorkbenchOnly` must surface the focused pane's content control cluster when
+  the pane hosts live content.
+- `GraphOnly` and `Both` must surface the same cluster when a node-backed
+  content context is active and Graphshell can still identify the focused node
+  viewer.
+- `Auto` must carry the active content-control cluster across scope changes so
+  page-local controls do not disappear merely because focus moved between graph
+  and workbench surfaces.
+
+If no focused node-backed content viewer is active, these controls may collapse
+or disappear entirely. Placeholder chrome is not required.
+
+---
+
+## 11. Navigator Scope and Form Factor
+
+**Date**: 2026-03-22
+
+### 11.1 One Navigator
+
+There is one Navigator. It has two orthogonal settings:
+
+- **Form factor** — how it is presented: `Sidebar` (panel) or `Toolbar` (compact bar)
+- **Scope** — what it projects: `Both`, `GraphOnly`, `WorkbenchOnly`, or `Auto`
+
+These are independent. A sidebar can be graph-only. A toolbar can show both
+scopes. The user sets them separately.
+
+### 11.2 Scope Modes
+
+| Scope | Behaviour |
+|-------|-----------|
+| `Both` | Projects graph truth and workbench arrangement state simultaneously, as named sections. Default. |
+| `GraphOnly` | Projects graph truth only. Workbench sections hidden. |
+| `WorkbenchOnly` | Projects workbench arrangement state only. Graph sections hidden. |
+| `Auto` | Switches between graph scope and workbench scope when focus moves between the graph canvas and a workbench tile. Mirrors keybinding scope switching. |
+
+### 11.3 Deprecating Graph Bar and Workbench Bar as Separate Surfaces
+
+The previous model had two separate horizontal bars:
+
+- **Graph Bar** — toolbar Navigator, graph scope
+- **Workbench Bar** — toolbar Navigator, workbench scope
+
+These were implementation seams exposed as chrome. Under this model they are
+replaced by a single Navigator toolbar whose scope setting determines what it
+shows. A user who wants the old two-bar behaviour sets scope to `Both` and uses
+a toolbar form factor — the graph and workbench sections appear as labelled
+sections within the same bar.
+
+"Graph Bar" and "Workbench Bar" are therefore retired as surface names. They
+may remain as section labels within the Navigator projection if that aids
+orientation.
+
+### 11.4 Single-Surface vs. Two-Surface Configurations
+
+The active Navigator configuration is one of three cases:
+
+**Sidebar only** — the sidebar must cover both scopes. Scope setting is
+`Both` (graph and workbench sections shown simultaneously) or `Auto`
+(switches between graph and workbench based on focus). Both are valid;
+`Both` is the default.
+
+**Toolbar only** — same as sidebar only. The toolbar must cover both scopes.
+`Both` or `Auto`; `Both` is the default.
+
+**Sidebar + Toolbar** — each surface takes one scope. The natural default
+assignment is:
+
+- Sidebar → `GraphOnly` (panel format suits deep hierarchical graph projection)
+- Toolbar → `WorkbenchOnly` (compact format suits flatter workbench arrangement chrome)
+
+When the user enables a second Navigator surface, the system assigns the
+complementary scope automatically. The user can override this — both surfaces
+showing `Both`, both showing `Auto`, or any other combination — but the
+default avoids redundancy.
+
+### 11.5 Scope Setting Persistence
+
+Scope and form factor are persisted in `WorkbenchProfile` per surface. They
+are part of the layout policy the user configures and are not reset between
+sessions. Enabling or disabling a surface updates the other surface's scope
+default only on first activation, not on subsequent changes.
+
+### 11.6 Constraint With Layout Policy
+
+When the Navigator is in `Toolbar` form factor, it is a candidate for
+`WorkbenchLayoutConstraint::AnchoredSplit` (see `workbench_layout_policy_spec.md`).
+The scope setting is independent of the anchor edge — a toolbar Navigator
+anchored to the bottom showing `WorkbenchOnly` is the expected two-surface
+default configuration.

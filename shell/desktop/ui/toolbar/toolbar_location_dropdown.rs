@@ -107,7 +107,15 @@ pub fn render_omnibar_dropdown(
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    ui.small(signifier);
+                                    let theme_tokens = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+                                        graph_app.default_registry_theme_id(),
+                                    )
+                                    .tokens;
+                                    ui.label(
+                                        egui::RichText::new(signifier)
+                                            .small()
+                                            .color(theme_tokens.radial_chrome_text),
+                                    );
                                 },
                             );
                             selected_label
@@ -128,7 +136,15 @@ pub fn render_omnibar_dropdown(
                     if !session.selected_indices.is_empty() {
                         ui.separator();
                         ui.horizontal_wrapped(|ui| {
-                            ui.small(format!("{} selected", session.selected_indices.len()));
+                            let theme_tokens = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+                                graph_app.default_registry_theme_id(),
+                            )
+                            .tokens;
+                            ui.label(
+                                egui::RichText::new(format!("{} selected", session.selected_indices.len()))
+                                    .small()
+                                    .color(theme_tokens.command_notice),
+                            );
                             if ui.small_button("Open Selected").clicked() {
                                 bulk_open_selected = true;
                             }
@@ -141,7 +157,15 @@ pub fn render_omnibar_dropdown(
                         ui.separator();
                     }
                     if let Some(status) = provider_status_label(session.provider_status) {
-                        ui.small(status);
+                        let theme_tokens = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+                            graph_app.default_registry_theme_id(),
+                        )
+                        .tokens;
+                        ui.label(
+                            egui::RichText::new(status)
+                                .small()
+                                .color(theme_tokens.radial_chrome_text),
+                        );
                     }
                     ui.horizontal_wrapped(|ui| {
                         for (label, prefix) in [

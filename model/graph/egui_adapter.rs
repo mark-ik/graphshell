@@ -14,8 +14,8 @@ use super::edge_style_registry::{
     EdgeStyleToken, ThemeEdgeTokens,
 };
 use super::{
-    ContainmentSubKind, EdgeKey, EdgePayload, EdgeType, Graph, GraphDirection, GraphIndex, Node,
-    NodeKey, NodeLifecycle,
+    ContainmentSubKind, EdgeFamily, EdgeKey, EdgePayload, Graph, GraphDirection, GraphIndex,
+    Node, NodeKey, NodeLifecycle, RelationSelector, SemanticSubKind,
 };
 use egui::epaint::{CircleShape, CubicBezierShape, TextShape};
 use egui::{
@@ -1015,36 +1015,33 @@ impl GraphEdgeShape {
         // 5. ContainmentUrlPath  6. ContainmentDomain
         // 7. ArrangementFrameMember  8. ArrangementTileGroup
         // 9. ArrangementSplitPair  10. ImportedRelation
-        if payload.has_edge_type(EdgeType::UserGrouped) {
+        if payload.has_relation(RelationSelector::Semantic(SemanticSubKind::UserGrouped)) {
             GraphEdgeVisualStyle::UserGrouped
-        } else if payload.has_edge_type(EdgeType::Hyperlink) {
+        } else if payload.has_relation(RelationSelector::Semantic(SemanticSubKind::Hyperlink)) {
             GraphEdgeVisualStyle::Hyperlink
-        } else if payload.has_edge_type(EdgeType::AgentDerived {
-            decay_progress: 0.0,
-        }) {
+        } else if payload.has_relation(RelationSelector::Semantic(SemanticSubKind::AgentDerived)) {
             GraphEdgeVisualStyle::AgentDerived {
                 decay_progress: 0.0,
             }
-        } else if payload.has_edge_type(EdgeType::History) {
+        } else if payload.has_relation(RelationSelector::Family(EdgeFamily::Traversal)) {
             GraphEdgeVisualStyle::TraversalHistory
-        } else if payload.has_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath))
-        {
+        } else if payload.has_relation(RelationSelector::Containment(ContainmentSubKind::UrlPath)) {
             GraphEdgeVisualStyle::ContainmentUrlPath
-        } else if payload.has_edge_type(EdgeType::ContainmentRelation(ContainmentSubKind::Domain)) {
+        } else if payload.has_relation(RelationSelector::Containment(ContainmentSubKind::Domain)) {
             GraphEdgeVisualStyle::ContainmentDomain
-        } else if payload.has_edge_type(EdgeType::ArrangementRelation(
+        } else if payload.has_relation(RelationSelector::Arrangement(
             crate::model::graph::ArrangementSubKind::FrameMember,
         )) {
             GraphEdgeVisualStyle::ArrangementFrameMember
-        } else if payload.has_edge_type(EdgeType::ArrangementRelation(
+        } else if payload.has_relation(RelationSelector::Arrangement(
             crate::model::graph::ArrangementSubKind::TileGroup,
         )) {
             GraphEdgeVisualStyle::ArrangementTileGroup
-        } else if payload.has_edge_type(EdgeType::ArrangementRelation(
+        } else if payload.has_relation(RelationSelector::Arrangement(
             crate::model::graph::ArrangementSubKind::SplitPair,
         )) {
             GraphEdgeVisualStyle::ArrangementSplitPair
-        } else if payload.has_edge_type(EdgeType::ImportedRelation) {
+        } else if payload.has_relation(RelationSelector::Family(EdgeFamily::Imported)) {
             GraphEdgeVisualStyle::ImportedRelation
         } else {
             GraphEdgeVisualStyle::Hidden
@@ -1371,39 +1368,37 @@ fn aggregate_logical_pair_traversals(
     let backward_count = dominant_source
         .map(|p| p.metrics().backward_navigations as usize)
         .unwrap_or(0);
-    let either_type = |et: EdgeType| {
-        ab_payload.is_some_and(|p| p.has_edge_type(et))
-            || ba_payload.is_some_and(|p| p.has_edge_type(et))
+    let either_relation = |selector: RelationSelector| {
+        ab_payload.is_some_and(|p| p.has_relation(selector))
+            || ba_payload.is_some_and(|p| p.has_relation(selector))
     };
-    let style = if either_type(EdgeType::UserGrouped) {
+    let style = if either_relation(RelationSelector::Semantic(SemanticSubKind::UserGrouped)) {
         GraphEdgeVisualStyle::UserGrouped
-    } else if either_type(EdgeType::Hyperlink) {
+    } else if either_relation(RelationSelector::Semantic(SemanticSubKind::Hyperlink)) {
         GraphEdgeVisualStyle::Hyperlink
-    } else if either_type(EdgeType::AgentDerived {
-        decay_progress: 0.0,
-    }) {
+    } else if either_relation(RelationSelector::Semantic(SemanticSubKind::AgentDerived)) {
         GraphEdgeVisualStyle::AgentDerived {
             decay_progress: 0.0,
         }
-    } else if either_type(EdgeType::History) {
+    } else if either_relation(RelationSelector::Family(EdgeFamily::Traversal)) {
         GraphEdgeVisualStyle::TraversalHistory
-    } else if either_type(EdgeType::ContainmentRelation(ContainmentSubKind::UrlPath)) {
+    } else if either_relation(RelationSelector::Containment(ContainmentSubKind::UrlPath)) {
         GraphEdgeVisualStyle::ContainmentUrlPath
-    } else if either_type(EdgeType::ContainmentRelation(ContainmentSubKind::Domain)) {
+    } else if either_relation(RelationSelector::Containment(ContainmentSubKind::Domain)) {
         GraphEdgeVisualStyle::ContainmentDomain
-    } else if either_type(EdgeType::ArrangementRelation(
+    } else if either_relation(RelationSelector::Arrangement(
         crate::model::graph::ArrangementSubKind::FrameMember,
     )) {
         GraphEdgeVisualStyle::ArrangementFrameMember
-    } else if either_type(EdgeType::ArrangementRelation(
+    } else if either_relation(RelationSelector::Arrangement(
         crate::model::graph::ArrangementSubKind::TileGroup,
     )) {
         GraphEdgeVisualStyle::ArrangementTileGroup
-    } else if either_type(EdgeType::ArrangementRelation(
+    } else if either_relation(RelationSelector::Arrangement(
         crate::model::graph::ArrangementSubKind::SplitPair,
     )) {
         GraphEdgeVisualStyle::ArrangementSplitPair
-    } else if either_type(EdgeType::ImportedRelation) {
+    } else if either_relation(RelationSelector::Family(EdgeFamily::Imported)) {
         GraphEdgeVisualStyle::ImportedRelation
     } else {
         GraphEdgeVisualStyle::Hidden
@@ -1679,9 +1674,13 @@ impl EguiGraphState {
                 self.sync_edges_from_graph(graph);
             }
             (GraphDelta::AddEdge { .. }, GraphDeltaResult::EdgeAdded(_))
+            | (GraphDelta::AssertRelation { .. }, GraphDeltaResult::EdgeAdded(_))
             | (GraphDelta::ReplayAddEdgeByIds { .. }, GraphDeltaResult::EdgeAdded(_))
+            | (GraphDelta::ReplayAssertRelationByIds { .. }, GraphDeltaResult::EdgeAdded(_))
             | (GraphDelta::ReplayRemoveEdgesByIds { .. }, GraphDeltaResult::EdgesRemoved(_))
+            | (GraphDelta::ReplayRetractRelationsByIds { .. }, GraphDeltaResult::EdgesRemoved(_))
             | (GraphDelta::RemoveEdges { .. }, GraphDeltaResult::EdgesRemoved(_))
+            | (GraphDelta::RetractRelations { .. }, GraphDeltaResult::EdgesRemoved(_))
             | (GraphDelta::AppendTraversal { .. }, GraphDeltaResult::TraversalAppended(_)) => {
                 self.sync_edges_from_graph(graph);
             }
@@ -1858,6 +1857,7 @@ fn refresh_logical_pair_edge_display(graph: &Graph, egui_graph: &mut EguiGraph) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::graph::EdgeType;
     use egui::Color32;
     use euclid::default::Point2D;
 

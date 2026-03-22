@@ -37,7 +37,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 3. **Crypto-correctness policy**: At-rest and in-transit cryptographic requirements are mandatory boundaries, not optional enhancements.
 4. **Identity-trust policy**: Identity resolution and trust state must be explicit, versioned, and diagnosable.
 5. **Denial-observability policy**: Security denials, bypass attempts, and fallback paths must surface with structured diagnostics.
-6. **Shared-surface policy**: Settings pages, diagnostics panes, and workbench/Navigator surfaces may expose trust, grant, and capability state, but security authority remains in identity/trust/grant/runtime boundaries rather than UI-local toggles.
+6. **Shared-surface policy**: Settings pages, diagnostics panes, and workbench/Navigator surfaces may expose trust, grant, capability, and permission state, but security authority remains in identity/trust/grant/runtime boundaries rather than UI-local toggles.
 
 ---
 
@@ -52,6 +52,14 @@ Without subsystem-level treatment, every new `GraphIntent` variant, every Verse 
 Security is also a cross-surface concern: pairing, grant review, capability
 status, and degraded identity state must be exposed through shared UI surfaces
 without allowing those surfaces to invent alternate enforcement paths.
+
+For web-content-backed nodes, this includes the browser-grade safety signals
+users rely on to decide whether to trust and interact with content at all:
+transport trust, certificate identity, mixed-content degradation, and per-origin
+permission state for sensitive capabilities such as camera, microphone,
+location, and notifications. If those states exist only in diagnostics or
+settings pages, the system has already failed the most important safety
+interaction.
 
 ---
 
@@ -104,6 +112,13 @@ without allowing those surfaces to invent alternate enforcement paths.
 3. **Mod channel namespace enforcement** — Mods can only emit diagnostic channels in their declared namespace. Cross-namespace emission is rejected.
 4. **Mod capability declaration** — `ModManifest.requires` declares all capabilities. Loading a mod that requires undeclared capabilities fails with `registry.mod.security_violation`.
 
+### 3.6 Host / Content Trust Exposure Invariants
+
+1. **Per-node trust visibility** — Any node backed by remote or embedded web content must expose its current trust state in shared chrome while that node is focused or selected. Trust state includes, at minimum, transport security, certificate identity entry point, and mixed-content or degraded-origin warnings.
+2. **Per-origin permission visibility** — Navigator/workbench chrome must expose the current permission state for sensitive origin-scoped capabilities, including camera, microphone, location, and notifications. The state model must distinguish `allowed`, `blocked`, and `prompt` at minimum.
+3. **No settings-only security state** — Security-critical trust or permission status must not be discoverable only by opening settings, diagnostics, or a secondary inspector. Shared chrome may launch detailed views, but the existence of degraded or granted state must already be visible inline.
+4. **Read-only chrome authority** — Shared chrome may summarize and launch permission/trust management, but final grant/revoke decisions remain owned by the relevant runtime/security authority rather than by ad hoc UI-local state.
+
 ---
 
 ## 4. Surface Capability Declarations (Folded Approach)
@@ -149,6 +164,9 @@ notes: String
 | `security.trust.peer_added` | Info | New trusted peer added via pairing |
 | `security.trust.peer_revoked` | Info | Peer trust revoked |
 | `security.trust.store_load_failed` | Error | Trust store deserialization/integrity failure |
+| `security.content.trust_state_changed` | Warn | Focused or selected content node trust state changed |
+| `security.content.mixed_content_detected` | Warn | Mixed-content or downgraded subresource detected for a content node |
+| `security.content.permission_state_changed` | Info | Origin permission state changed for a sensitive capability |
 | `verse.sync.access_denied` | Error | Inbound sync for non-granted workspace rejected |
 | `verse.sync.readonly_mutation_rejected` | Warn | ReadOnly peer attempted mutating intent |
 | `verse.sync.grant_created` | Info | Workspace access granted to peer |
@@ -166,11 +184,16 @@ notes: String
 - Access denial counters (recent window)
 - Mod security: any capability violations in session
 - Cryptographic status: encryption active/degraded
+- Focused-node trust summary: secure/insecure/degraded transport state, mixed-content warnings, certificate identity entry point
+- Focused-origin permission summary: camera, microphone, location, and notifications state
 
 Shared exposure rule:
 
 - The same security-health aggregates may be surfaced in settings or nearby
   control chrome as read-only status or launch points.
+- Navigator/workbench chrome should surface the focused-node trust summary and
+  focused-origin permission summary inline, with escalation paths to detailed
+  inspectors or settings pages when more explanation is needed.
 - Denials and degraded trust state should reuse diagnostics-backed summaries
   rather than each surface inventing bespoke counters or warning logic.
 
@@ -221,7 +244,7 @@ Security-relevant events should be reviewable in a dedicated Diagnostic Inspecto
 
 - Degradation states emit to `security.*` channels.
 - Diagnostic Inspector reflects degraded security status prominently.
-- User-visible indicators for: keychain locked, trust store reset, no encryption.
+- User-visible indicators for: keychain locked, trust store reset, no encryption, focused-node degraded trust, and sensitive permission grants/blocks.
 - No silent fallback to unencrypted or unauthenticated operations.
 
 ---
@@ -262,6 +285,7 @@ Security-relevant events should be reviewable in a dedicated Diagnostic Inspecto
 - Deterministic denial-path diagnostics validation across all sync branches.
 - Trust-store integrity checks/recovery and comprehensive `security.identity.*` channel coverage.
 - A unified authority model across identity, trust/grants, persistence crypto, mod capabilities, and host/content boundary security. See `2026-03-08_unified_security_architecture_plan.md`.
+- Navigator/workbench chrome requirements for focused-node trust indicators and per-origin permission state are now explicit here, but still require a complete runtime data model and projection contract in the Navigator domain.
 
 ### 10.1 Architecture Gap
 
@@ -292,7 +316,8 @@ Based on the Phase 5.4/5.5 done-gate closures and current code:
 2. Add trust store round-trip integrity test (serialize → corrupt → deserialize → detect → recover).
 3. Audit all `GraphIntent` variants for grant classification coverage.
 4. Add `security.identity.*` channel family to diagnostics channel phase contracts.
-5. Use `2026-03-08_unified_security_architecture_plan.md` to normalize identity authority, trust/grant boundaries, and host/content security coverage.
+5. Define the focused-node trust-state carrier and per-origin permission-state carrier consumed by Navigator/workbench chrome.
+6. Use `2026-03-08_unified_security_architecture_plan.md` to normalize identity authority, trust/grant boundaries, and host/content security coverage.
 
 ---
 
@@ -322,4 +347,5 @@ Security is a guaranteed system property when:
 - Trust store corruption is detected and recovered with user notification.
 - At-rest encryption is verified (nonce uniqueness, tag verification).
 - Mod capability restrictions are enforced and tested.
+- Focused-node trust state and sensitive per-origin permission state are surfaced inline in Navigator/workbench chrome and backed by diagnostics/runtime authority rather than UI-local state.
 - New sync paths, intent variants, and mod capabilities require security review (CI-gated or documented audit).
