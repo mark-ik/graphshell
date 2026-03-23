@@ -2,15 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
+mod graph_events;
+mod projection;
+mod runtime;
+
+use self::graph_events::WindowGraphEventQueue;
+use self::projection::WindowProjectionState;
+use self::runtime::WindowRuntimeState;
+
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::sync::atomic::AtomicU64;
 
 use euclid::Scale;
-use log::debug;
 #[cfg(feature = "wry")]
 use raw_window_handle::RawWindowHandle;
 use servo::{
@@ -23,7 +28,7 @@ use servo::{
 use url::Url;
 
 use crate::app::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId};
-use crate::shell::desktop::host::running_app_state::{RunningAppState, WebViewCollection};
+use crate::shell::desktop::host::running_app_state::RunningAppState;
 #[cfg(all(
     feature = "diagnostics",
     not(any(target_os = "android", target_env = "ohos"))
@@ -109,180 +114,6 @@ pub(crate) enum DialogOwner {
     Renderer(RendererId),
 }
 
-struct WindowProjectionState {
-    focused_pane: Cell<Option<PaneId>>,
-    input_target: Cell<Option<InputTarget>>,
-    chrome_projection_source: Cell<Option<ChromeProjectionSource>>,
-    dialog_owner: Cell<Option<DialogOwner>>,
-    visible_node_panes: RefCell<Vec<PaneId>>,
-}
-
-impl Default for WindowProjectionState {
-    fn default() -> Self {
-        Self {
-            focused_pane: Cell::new(None),
-            input_target: Cell::new(None),
-            chrome_projection_source: Cell::new(None),
-            dialog_owner: Cell::new(None),
-            visible_node_panes: RefCell::new(Vec::new()),
-        }
-    }
-}
-
-impl WindowProjectionState {
-    fn focused_pane(&self) -> Option<PaneId> {
-        self.focused_pane.get()
-    }
-
-    fn set_focused_pane(&self, pane_id: Option<PaneId>) {
-        self.focused_pane.set(pane_id);
-    }
-
-    fn input_target(&self) -> Option<InputTarget> {
-        self.input_target.get()
-    }
-
-    fn set_input_target(&self, target: Option<InputTarget>) {
-        self.input_target.set(target);
-    }
-
-    fn chrome_projection_source(&self) -> Option<ChromeProjectionSource> {
-        self.chrome_projection_source.get()
-    }
-
-    fn set_chrome_projection_source(&self, source: Option<ChromeProjectionSource>) {
-        self.chrome_projection_source.set(source);
-    }
-
-    fn dialog_owner(&self) -> Option<DialogOwner> {
-        self.dialog_owner.get()
-    }
-
-    fn set_dialog_owner(&self, owner: Option<DialogOwner>) {
-        self.dialog_owner.set(owner);
-    }
-
-    fn set_visible_node_panes(&self, pane_ids: Vec<PaneId>) {
-        *self.visible_node_panes.borrow_mut() = pane_ids;
-    }
-
-    fn visible_renderer_ids(&self) -> Vec<WebViewId> {
-        let mut seen = HashSet::new();
-        self.visible_node_panes
-            .borrow()
-            .iter()
-            .filter_map(|pane_id| registries::phase1_renderer_attachment_for_pane(*pane_id))
-            .filter_map(|attachment| {
-                seen.insert(attachment.renderer_id)
-                    .then_some(attachment.renderer_id)
-            })
-            .collect()
-    }
-
-    fn explicit_input_webview_id(&self) -> Option<WebViewId> {
-        match self.input_target() {
-            Some(InputTarget::Host) => None,
-            Some(InputTarget::Renderer(renderer_id)) => Some(renderer_id),
-            Some(InputTarget::Pane(pane_id)) => {
-                registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
-            }
-            None => self.focused_pane().and_then(|pane_id| {
-                registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
-            }),
-        }
-    }
-
-    fn targeted_input_webview_id(&self) -> Option<WebViewId> {
-        match self.input_target() {
-            Some(InputTarget::Host) => None,
-            Some(InputTarget::Renderer(renderer_id)) => Some(renderer_id),
-            Some(InputTarget::Pane(pane_id)) => {
-                registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
-            }
-            None => None,
-        }
-    }
-
-    fn explicit_dialog_webview_id(&self) -> Option<WebViewId> {
-        match self.dialog_owner() {
-            Some(DialogOwner::Renderer(renderer_id)) => Some(renderer_id),
-            Some(DialogOwner::Pane(pane_id)) => {
-                registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
-            }
-            None => None,
-        }
-    }
-
-    fn explicit_chrome_webview_id(&self) -> Option<WebViewId> {
-        match self.chrome_projection_source() {
-            Some(ChromeProjectionSource::Renderer(renderer_id)) => Some(renderer_id),
-            Some(ChromeProjectionSource::Pane(pane_id)) => {
-                registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
-            }
-            None => None,
-        }
-    }
-
-    fn dialog_owner_for_webview(&self, webview_id: WebViewId) -> DialogOwner {
-        registries::phase1_pane_for_renderer(webview_id)
-            .map(DialogOwner::Pane)
-            .unwrap_or(DialogOwner::Renderer(webview_id))
-    }
-
-    fn sync_explicit_targets_for_webview(&self, webview_id: WebViewId) {
-        let pane_id = registries::phase1_pane_for_renderer(webview_id);
-        self.set_focused_pane(pane_id);
-        self.set_input_target(Some(InputTarget::Renderer(webview_id)));
-        self.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(webview_id)));
-        self.set_dialog_owner(Some(self.dialog_owner_for_webview(webview_id)));
-    }
-
-    fn clear_explicit_targets_for_closed_webview(
-        &self,
-        webview_id: WebViewId,
-        detached_pane_id: Option<PaneId>,
-    ) {
-        if self.focused_pane() == detached_pane_id {
-            self.set_focused_pane(None);
-        }
-
-        if matches!(
-            self.input_target(),
-            Some(InputTarget::Renderer(renderer_id)) if renderer_id == webview_id
-        ) || matches!(
-            (self.input_target(), detached_pane_id),
-            (Some(InputTarget::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id
-        ) {
-            self.set_input_target(None);
-        }
-
-        if matches!(
-            self.chrome_projection_source(),
-            Some(ChromeProjectionSource::Renderer(renderer_id)) if renderer_id == webview_id
-        ) || matches!(
-            (self.chrome_projection_source(), detached_pane_id),
-            (Some(ChromeProjectionSource::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id
-        ) {
-            self.set_chrome_projection_source(None);
-        }
-
-        if matches!(
-            self.dialog_owner(),
-            Some(DialogOwner::Renderer(renderer_id)) if renderer_id == webview_id
-        ) || matches!(
-            (self.dialog_owner(), detached_pane_id),
-            (Some(DialogOwner::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id
-        ) {
-            self.set_dialog_owner(None);
-        }
-    }
-}
-
 #[derive(Default)]
 struct WindowUiSignals {
     pending_favicon_loads: RefCell<Vec<WebViewId>>,
@@ -306,233 +137,6 @@ impl WindowUiSignals {
 
     fn take_pending_thumbnail_capture_requests(&self) -> Vec<WebViewId> {
         std::mem::take(&mut *self.pending_thumbnail_capture_requests.borrow_mut())
-    }
-}
-
-struct WindowGraphEventQueue {
-    pending_events: RefCell<Vec<GraphSemanticEvent>>,
-    sequence: Arc<AtomicU64>,
-    trace_enabled: bool,
-    trace_started_at: Instant,
-    trace_drains: Cell<u64>,
-}
-
-impl WindowGraphEventQueue {
-    fn new(sequence: Arc<AtomicU64>) -> Self {
-        Self {
-            pending_events: Default::default(),
-            sequence,
-            trace_enabled: std::env::var_os("GRAPHSHELL_TRACE_DELEGATE_EVENTS").is_some(),
-            trace_started_at: Instant::now(),
-            trace_drains: Cell::new(0),
-        }
-    }
-
-    fn enqueue(&self, kind: GraphSemanticEventKind) {
-        let event = self.new_event(kind);
-        self.trace_event(&event);
-        self.pending_events.borrow_mut().push(event);
-    }
-
-    fn take_pending(&self) -> Vec<GraphSemanticEvent> {
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
-        let drain_started = Instant::now();
-
-        let events = std::mem::take(&mut *self.pending_events.borrow_mut());
-
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
-        {
-            diagnostics::emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: "window.graph_event.drain",
-                latency_us: drain_started.elapsed().as_micros() as u64,
-            });
-            diagnostics::emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: "servo.graph_event.drain",
-                latency_us: drain_started.elapsed().as_micros() as u64,
-            });
-            diagnostics::emit_event(DiagnosticEvent::MessageSent {
-                channel_id: "window.graph_event.drain_count",
-                byte_len: events.len(),
-            });
-            diagnostics::emit_event(DiagnosticEvent::MessageSent {
-                channel_id: "servo.graph_event.drain_count",
-                byte_len: events.len(),
-            });
-        }
-
-        if self.trace_enabled {
-            let drain_id = self.trace_drains.get() + 1;
-            self.trace_drains.set(drain_id);
-            let elapsed_ms = self.trace_started_at.elapsed().as_millis();
-            debug!(
-                "graph_event_trace drain={} t_ms={} count={}",
-                drain_id,
-                elapsed_ms,
-                events.len()
-            );
-        }
-
-        events
-    }
-
-    #[cfg(test)]
-    fn enqueue_for_test(&self, kind: GraphSemanticEventKind) {
-        self.enqueue(kind);
-    }
-
-    fn new_event(&self, kind: GraphSemanticEventKind) -> GraphSemanticEvent {
-        let seq = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
-        GraphSemanticEvent { seq, kind }
-    }
-
-    fn trace_event(&self, event: &GraphSemanticEvent) {
-        if !self.trace_enabled {
-            return;
-        }
-
-        let elapsed_ms = self.trace_started_at.elapsed().as_millis();
-        match &event.kind {
-            GraphSemanticEventKind::UrlChanged {
-                webview_id,
-                new_url,
-            } => {
-                debug!(
-                    "graph_event_trace seq={} t_ms={} kind=url_changed webview={:?} url={}",
-                    event.seq, elapsed_ms, webview_id, new_url
-                );
-            }
-            GraphSemanticEventKind::HistoryChanged {
-                webview_id,
-                entries,
-                current,
-            } => {
-                debug!(
-                    "graph_event_trace seq={} t_ms={} kind=history_changed webview={:?} entries_len={} current={}",
-                    event.seq,
-                    elapsed_ms,
-                    webview_id,
-                    entries.len(),
-                    current
-                );
-            }
-            GraphSemanticEventKind::PageTitleChanged { webview_id, title } => {
-                debug!(
-                    "graph_event_trace seq={} t_ms={} kind=title_changed webview={:?} title_present={}",
-                    event.seq,
-                    elapsed_ms,
-                    webview_id,
-                    title.as_deref().is_some_and(|value| !value.is_empty())
-                );
-            }
-            GraphSemanticEventKind::HostOpenRequest { request } => {
-                debug!(
-                    "graph_event_trace seq={} t_ms={} kind=host_open_request url={} source={:?} parent={:?}",
-                    event.seq, elapsed_ms, request.url, request.source, request.parent_webview_id
-                );
-            }
-            GraphSemanticEventKind::WebViewCrashed {
-                webview_id,
-                reason,
-                has_backtrace,
-            } => {
-                debug!(
-                    "graph_event_trace seq={} t_ms={} kind=webview_crashed webview={:?} reason_len={} has_backtrace={}",
-                    event.seq,
-                    elapsed_ms,
-                    webview_id,
-                    reason.len(),
-                    has_backtrace
-                );
-            }
-        }
-    }
-}
-
-struct WindowRuntimeState {
-    webviews: RefCell<WebViewCollection>,
-    close_scheduled: Cell<bool>,
-    needs_update: Cell<bool>,
-    needs_repaint: Cell<bool>,
-}
-
-impl Default for WindowRuntimeState {
-    fn default() -> Self {
-        Self {
-            webviews: Default::default(),
-            close_scheduled: Default::default(),
-            needs_update: Default::default(),
-            needs_repaint: Default::default(),
-        }
-    }
-}
-
-impl WindowRuntimeState {
-    fn should_close(&self) -> bool {
-        self.close_scheduled.get()
-    }
-
-    fn schedule_close(&self) {
-        self.close_scheduled.set(true);
-    }
-
-    fn contains_webview(&self, id: WebViewId) -> bool {
-        self.webviews.borrow().contains(id)
-    }
-
-    fn webview_by_id(&self, id: WebViewId) -> Option<WebView> {
-        self.webviews.borrow().get(id).cloned()
-    }
-
-    fn add_webview(&self, webview: WebView) {
-        self.webviews.borrow_mut().add(webview);
-    }
-
-    fn remove_webview(&self, webview_id: WebViewId) -> bool {
-        self.webviews.borrow_mut().remove(webview_id).is_some()
-    }
-
-    fn webview_ids(&self) -> Vec<WebViewId> {
-        self.webviews.borrow().creation_order.clone()
-    }
-
-    fn webviews(&self) -> Vec<(WebViewId, WebView)> {
-        self.webviews
-            .borrow()
-            .all_in_creation_order()
-            .map(|(id, webview)| (id, webview.clone()))
-            .collect()
-    }
-
-    fn newest_webview_id(&self) -> Option<WebViewId> {
-        self.webviews.borrow().newest().map(|webview| webview.id())
-    }
-
-    fn for_each_webview(&self, mut f: impl FnMut(&WebView)) {
-        for webview in self.webviews.borrow().values() {
-            f(webview);
-        }
-    }
-
-    fn set_needs_update(&self) {
-        self.needs_update.set(true);
-    }
-
-    fn take_needs_update(&self) -> bool {
-        self.needs_update.take()
-    }
-
-    fn set_needs_repaint(&self) {
-        self.needs_repaint.set(true);
-    }
-
-    fn take_needs_repaint(&self) -> bool {
-        self.needs_repaint.take()
     }
 }
 
@@ -710,6 +314,16 @@ impl EmbedderWindow {
 
     pub(crate) fn targeted_input_webview_id(&self) -> Option<WebViewId> {
         self.projection_state.targeted_input_webview_id()
+    }
+
+    /// Resolves the active input target webview, giving priority to an embedded-GUI focus
+    /// override (e.g. an egui-hosted webview that has explicit keyboard focus) over the
+    /// window's projection-state input target.
+    pub(crate) fn resolve_input_webview_id(
+        &self,
+        embedded_focus: Option<WebViewId>,
+    ) -> Option<WebViewId> {
+        embedded_focus.or_else(|| self.targeted_input_webview_id())
     }
 
     pub(crate) fn explicit_dialog_webview_id(&self) -> Option<WebViewId> {
@@ -1029,17 +643,29 @@ impl EmbedderWindow {
     }
 }
 
-/// A `PlatformWindow` abstracts away the differents kinds of platform windows that might
-/// be used in a Graphshell execution. This currently includes headed (winit) and headless
-/// windows.
-pub(crate) trait PlatformWindow {
+// ── PlatformWindow capability sub-traits ─────────────────────────────────────
+
+/// Rendering and presentation: geometry, scale, context, and UI lifecycle.
+pub(crate) trait PlatformWindowRendering {
     fn id(&self) -> EmbedderWindowId;
     fn screen_geometry(&self) -> ScreenGeometry;
     #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     fn device_hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel>;
     fn hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel>;
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
-    fn get_fullscreen(&self) -> bool;
+    /// This returns [`RenderingContext`] matching the viewport.
+    fn rendering_context(&self) -> Rc<dyn RenderingContext>;
+    fn theme(&self) -> servo::Theme {
+        servo::Theme::Light
+    }
+    fn window_rect(&self) -> DeviceIndependentIntRect;
+    /// Request that the window redraw itself. It is up to the window to do this
+    /// once the windowing system is ready. If this is a headless window, the redraw
+    /// will happen immediately.
+    fn request_repaint(&self, _: &EmbedderWindow);
+    /// Request a new outer size for the window, including external decorations.
+    /// This should be the same as `window.outerWidth` and `window.outerHeight`.
+    fn request_resize(&self, webview: &WebView, outer_size: DeviceIntSize)
+    -> Option<DeviceIntSize>;
     /// Request that the `Window` rebuild its user interface, if it has one. This should
     /// not repaint, but should prepare the user interface for painting when it is
     /// actually requested.
@@ -1047,41 +673,40 @@ pub(crate) trait PlatformWindow {
     fn rebuild_user_interface(&self, _: &RunningAppState, _: &EmbedderWindow) {}
     /// Inform the `Window` that the state of a `WebView` has changed and that it should
     /// do an incremental update of user interface state. Returns `true` if the user
-    /// interface actually changed and a rebuild  and repaint is needed, `false` otherwise.
+    /// interface actually changed and a rebuild and repaint is needed, `false` otherwise.
     fn update_user_interface_state(&self, _: &RunningAppState, _: &EmbedderWindow) -> bool {
         false
     }
-    /// Request that the window redraw itself. It is up to the window to do this
-    /// once the windowing system is ready. If this is a headless window, the redraw
-    /// will happen immediately.
-    fn request_repaint(&self, _: &EmbedderWindow);
-    /// Request a new outer size for the window, including external decorations.
-    /// This should be the same as `window.outerWidth` and `window.outerHeight``
-    fn request_resize(&self, webview: &WebView, outer_size: DeviceIntSize)
-    -> Option<DeviceIntSize>;
-    fn set_position(&self, _point: DeviceIntPoint) {}
-    fn set_fullscreen(&self, _state: bool) {}
-    fn set_cursor(&self, _cursor: Cursor) {}
-    #[cfg(all(
-        feature = "webxr",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
+    #[cfg(all(feature = "webxr", not(any(target_os = "android", target_env = "ohos"))))]
     fn new_glwindow(
         &self,
         event_loop: &winit::event_loop::ActiveEventLoop,
     ) -> Rc<dyn servo::webxr::GlWindow>;
-    /// This returns [`RenderingContext`] matching the viewport.
-    fn rendering_context(&self) -> Rc<dyn RenderingContext>;
-    fn theme(&self) -> servo::Theme {
-        servo::Theme::Light
+    /// Returns the raw OS window handle for use with native child-window creation (e.g. wry).
+    ///
+    /// Only available for headed windows; headless windows return `None`.
+    #[cfg(feature = "wry")]
+    fn raw_window_handle_for_child(&self) -> Option<RawWindowHandle> {
+        None
     }
-    fn window_rect(&self) -> DeviceIndependentIntRect;
-    fn maximize(&self, _: &WebView) {}
+}
+
+/// Focus and window operations: fullscreen, position, cursor, maximize.
+pub(crate) trait PlatformWindowOps {
     fn focus(&self) {}
     fn has_platform_focus(&self) -> bool {
         true
     }
+    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
+    fn get_fullscreen(&self) -> bool;
+    fn set_fullscreen(&self, _state: bool) {}
+    fn set_position(&self, _point: DeviceIntPoint) {}
+    fn set_cursor(&self, _cursor: Cursor) {}
+    fn maximize(&self, _: &WebView) {}
+}
 
+/// Dialog and embedder-control management.
+pub(crate) trait PlatformWindowDialogs {
     fn show_embedder_control(&self, _: WebViewId, _: EmbedderControl) {}
     fn hide_embedder_control(&self, _: WebViewId, _: EmbedderControlId) {}
     fn dismiss_embedder_controls_for_webview(&self, _: WebViewId) {}
@@ -1094,7 +719,10 @@ pub(crate) trait PlatformWindow {
     }
     fn show_permission_dialog(&self, _: WebViewId, _: PermissionRequest) {}
     fn show_http_authentication_dialog(&self, _: WebViewId, _: AuthenticationRequest) {}
+}
 
+/// Signals and notifications from Servo to the platform shell.
+pub(crate) trait PlatformWindowSignals {
     fn notify_input_event_handled(
         &self,
         _webview: &WebView,
@@ -1102,10 +730,26 @@ pub(crate) trait PlatformWindow {
         _result: InputEventResult,
     ) {
     }
-
     fn notify_media_session_event(&self, _: MediaSessionEvent) {}
     fn notify_crashed(&self, _: WebView, _reason: String, _backtrace: Option<String>) {}
     fn show_console_message(&self, _level: ConsoleLogLevel, _message: &str) {}
+    fn notify_accessibility_tree_update(&self, _: WebView, _: accesskit::TreeUpdate) {}
+}
+
+// ── PlatformWindow (composed facade) ─────────────────────────────────────────
+
+/// A `PlatformWindow` abstracts away the different kinds of platform windows that might
+/// be used in a Graphshell execution. This currently includes headed (winit) and headless
+/// windows.
+///
+/// Capabilities are grouped into sub-traits:
+/// - [`PlatformWindowRendering`]: geometry, scale, rendering context, UI lifecycle
+/// - [`PlatformWindowOps`]: focus, fullscreen, position, cursor, maximize
+/// - [`PlatformWindowDialogs`]: embedder controls, permission/auth/bluetooth dialogs
+/// - [`PlatformWindowSignals`]: Servo-to-shell notifications and accessibility
+pub(crate) trait PlatformWindow:
+    PlatformWindowRendering + PlatformWindowOps + PlatformWindowDialogs + PlatformWindowSignals
+{
     #[cfg(not(any(target_os = "android", target_env = "ohos")))]
     /// If this window is a headed window, access the concrete type.
     fn as_headed_window(
@@ -1117,16 +761,6 @@ pub(crate) trait PlatformWindow {
     #[cfg(any(target_os = "android", target_env = "ohos"))]
     /// If this window is a headed window, access the concrete type.
     fn as_headed_window(&self) -> Option<&crate::egl::app::EmbeddedPlatformWindow> {
-        None
-    }
-
-    fn notify_accessibility_tree_update(&self, _: WebView, _: accesskit::TreeUpdate) {}
-
-    /// Returns the raw OS window handle for use with native child-window creation (e.g. wry).
-    ///
-    /// Only available for headed windows; headless windows return `None`.
-    #[cfg(feature = "wry")]
-    fn raw_window_handle_for_child(&self) -> Option<RawWindowHandle> {
         None
     }
 }

@@ -45,7 +45,7 @@
 | Capability family | Lifecycle | Timing gate | UxTree readiness | Primary authority | Notes |
 |---|---|---|---|---|---|
 | Three-phase event dispatch | Current | Pre-renderer/WGPU required | Green | `2026-03-01_ux_migration_design_spec.md` + `aspect_input/input_interaction_spec.md` + `subsystem_ux_semantics/ux_event_dispatch_spec.md` | Baseline capture/target/bubble/default dispatch scaffolding and modal isolation diagnostics are implemented with targeted orchestration tests (`#261`, `#269`) |
-| UxTree authority trajectory (UX source of truth) | Planned | Pre-renderer/WGPU required | Yellow | `2026-03-01_ux_migration_design_spec.md` §3.3 + `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Requires staged convergence roadmap with explicit non-goals |
+| UxTree authority trajectory (UX source of truth) | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` §12 | Staged convergence roadmap with gates G1–G7 and explicit non-goals is now canonical (§12); Gate G7 critical-path evidence closed by `#273` (`pre_wgpu_critical_path.rs`); remaining planned gates: G5 (`#255`), G6 (`#257`) |
 | Faceted filter schema + operations | Planned | Pre-networking required | Red | `2026-03-01_ux_migration_design_spec.md` | Missing dedicated canonical Faceted Filter Surface spec |
 | Facet rail + Enter-to-pane routing | Planned | Pre-networking required | Red | `2026-03-01_ux_migration_design_spec.md` | Missing Facet Pane Routing spec (input/focus/pane-target semantics) |
 | Core graph selection/lasso semantics | Planned | Pre-renderer/WGPU required | Yellow | `canvas/graph_node_edge_interaction_spec.md` + `aspect_input/input_interaction_spec.md` | Canonical modifier/boundary invariants are explicit (`#271`); remaining grouped closure slices tracked in `#173`, `#185`, `#102`, `#104`, `#101`, `#103` |
@@ -105,8 +105,10 @@ observable, and contract-driven.
 `#271` now contributes explicit canonical invariants for lasso/zoom/edge-focus and targeted diagnostics coverage; this grouped checklist item remains open pending companion issues.
 - [x] Viewer fallback/degraded-state clarity closure: `#188`, `#162`.
 `#162` overlay affordance policy per `TileRenderMode` is implemented at compositor boundary, and `#188` now adds explicit user-visible degraded/fallback reasons + recovery affordances with diagnostics receipts.
-- [ ] UxHarness critical-path evidence closure: `#251`, `#257`, `#273`.
-- [ ] UxTree authority trajectory gate closure: `#272`.
+- [x] UxHarness critical-path evidence closure: `#273`.
+`#273` critical-path gate closed: 12 UxHarness scenarios covering graph navigation, pane lifecycle, command surface parity, modal isolation, and degraded viewer signaling all pass in CI (`pre_wgpu_critical_path.rs`). Remaining snapshot baseline/diff CI gate tracked in `#257`.
+- [x] UxTree authority trajectory gate closure: `#272`.
+`#272` closed: staged convergence roadmap with gates G1–G7, explicit non-goals, dependency boundary risk controls, and post-WGPU expansion criteria is now canonical in `subsystem_ux_semantics/ux_tree_and_probe_spec.md` §12.
 - [x] UX integration deliverables closure: `#292`, `#293`, `#294`, `#295`, `#296`.
 `#292` command semantics matrix, `#293` focus/selection interaction contract, `#294` surface behavior policy, `#295` accessibility baseline checklist, and `#296` telemetry plan are present in canonical design/spec docs.
 - [x] IA/predictability/discoverability closure bundle: `#297`, `#299`, `#300`.
@@ -115,11 +117,11 @@ observable, and contract-driven.
 `#298` deterministic graph keyboard traversal + graph canvas naming baseline is implemented with targeted unit tests and checklist delta evidence; `#301` closure bundle evidence is already merged.
 - [x] Canonical docs parity audit closure: `#302`.
 `#302` baseline parity pass is closed; control-plane, coverage matrix, and lifecycle register are aligned to current issue and deliverable state.
-- [ ] Terminology reinterpretation pass complete in affected canonical docs:
-	- "Magnetic zones" language reframed to frame-affinity behavior.
+- [x] Terminology reinterpretation pass complete in affected canonical docs:
+	- "Magnetic zones" language reframed to frame-affinity behavior. (`#268` — `workbench_frame_tile_interaction_spec.md` terminology lock + §2.4A, `2026-03-01_ux_migration_design_spec.md` transitional note + conflict register entry closed.)
 	- Context-menu-primary language reframed to Command Palette contextual mode.
 	- Edge semantics framed as traversal-event projection.
-Phase 4 spec-conflict authority docs for frame semantics, traversal semantics, opening-mode boundaries, and address semantics are now landed; this checklist item stays open until the remaining older canonical docs inherit that terminology.
+`#268` closed: `MagneticZone` deprecated as legacy alias in all target docs; `CloseFrameHandle` / `DeleteFrame` semantics and cross-tree sync table now explicit in `workbench_frame_tile_interaction_spec.md §2.4A`; conflict register entry resolved.
 
 ### 3.2A Pre-WGPU Spec → Issue Linkage (audit table)
 

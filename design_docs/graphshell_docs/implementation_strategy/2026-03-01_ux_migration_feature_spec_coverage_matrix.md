@@ -116,7 +116,7 @@ UX migration is complete when:
 
 ## 6. Immediate Next Doc Passes
 
-1. Patch `canvas/layout_behaviors_and_physics_spec.md` to replace organizational `MagneticZone` wording with frame-affinity terminology where applicable.
+1. ~~Patch `canvas/layout_behaviors_and_physics_spec.md` to replace organizational `MagneticZone` wording with frame-affinity terminology where applicable.~~ **Done 2026-03-23** (`#268`): `layout_behaviors_and_physics_spec.md` already carries the canonical frame-affinity framing and legacy-alias rule; `workbench_frame_tile_interaction_spec.md` now has explicit terminology lock entry, §2.4A cross-tree sync table, and `graph_first_frame_semantics_spec.md` link.
 2. Propagate the landed Phase 4 authority docs (`graph_first_frame_semantics_spec.md`, `edge_traversal_spec.md`, Pane Opening Mode / internal address plans) into remaining canonical cross-links that still rely on older wording (`graphshell://` historical references vs `verso://` runtime canonical namespace).
 3. Expand UxHarness scenario coverage for newly closed faceted-filter and facet-pane-routing contracts.
 4. Add a recurring checklist item in PR review templates: “feature row updated in UX migration coverage matrix.”

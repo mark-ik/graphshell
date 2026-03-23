@@ -504,3 +504,95 @@ UxProbeSet continue operating.
 - At `Point` LOD, `GraphNode` semantic children are omitted and `StatusIndicator` is present.
 - At `Compact` or `Expanded` LOD, `GraphNode` semantic children are present for interactable nodes.
 - Any mismatch emits diagnostics (`ux:navigation_violation` or `ux:contract_warning`).
+
+---
+
+## 12. UxTree Authority Trajectory
+
+**Added**: 2026-03-23
+**Status**: Canonical — closes #272
+**Gate**: Pre-renderer/WGPU required
+
+### 12.1 Current authority model (two-authority runtime)
+
+UxTree is a **read-only projection** built from two runtime authorities that it does not own or replace:
+
+| Runtime authority | Owns | UxTree relationship |
+|---|---|---|
+| `egui_tiles::Tree<TileKind>` | Pane layout, tab grouping, tile visibility, active-tile set | Structural spine — UxTree traverses it as the walk order source |
+| `GraphBrowserApp` / `GraphWorkspace` | Graph state, node selection, focus, camera, viewer registry | Semantic enrichment — UxTree reads but does not mutate |
+
+UxTree's job is to make runtime state **contract-visible and testable**, not to become a third authority that the other two must consult.
+
+### 12.2 Staged convergence gates
+
+Authority expansion follows a gate sequence tied to pre-WGPU readiness milestones. Each gate has an explicit non-goal to prevent scope creep.
+
+#### Gate G1 — Graph navigation + camera (closed)
+
+**Done-gate**: UxTree reflects node selection and camera fit-lock state; `presentation_id_consistency_violation` passes on selection transitions.
+**Non-goal**: UxTree does not drive camera state; it reflects it.
+**Evidence**: `graph_navigation_*` scenarios in `pre_wgpu_critical_path.rs`.
+
+#### Gate G2 — Pane lifecycle (closed)
+
+**Done-gate**: Node pane open/close/focus-cycle are traceable through UxTree role changes without orphaned entries.
+**Non-goal**: UxTree does not own pane ordering or tab group membership; `egui_tiles` retains layout authority.
+**Evidence**: `pane_lifecycle_*` scenarios in `pre_wgpu_critical_path.rs`.
+
+#### Gate G3 — Viewer fallback/degraded state (closed)
+
+**Done-gate**: `TileRenderMode::Placeholder` maps to `degraded = true` in UxTree; `CompositedTexture` maps to `degraded = false`. The fallback signal is contract-visible before the WGPU switch.
+**Non-goal**: UxTree does not decide which render mode a pane receives; the viewer registry retains that authority.
+**Evidence**: `degraded_viewer_*` scenarios in `pre_wgpu_critical_path.rs`.
+
+#### Gate G4 — Command surface + modal isolation (closed)
+
+**Done-gate**: `WorkbenchIntent::ToggleCommandPalette` and `GraphIntent::ToggleCommandPalette` produce identical state; focus-cycle intents are consumed without leaking through modal boundaries.
+**Non-goal**: UxTree does not mediate intent dispatch; `gui_orchestration` retains authority routing.
+**Evidence**: `command_surface_*` and `modal_isolation_*` scenarios in `pre_wgpu_critical_path.rs`.
+
+#### Gate G5 — UxProbe structural invariants (planned)
+
+**Done-gate**: C1–C5 probe contracts emit diagnostics on violation; `ux:probe_registered` and `ux:contract_warning` channels carry actionable payloads.
+**Non-goal**: Probes observe; they do not block or roll back runtime state.
+**Depends on**: #255 (Phase 3: UxProbes + structural invariants).
+
+#### Gate G6 — UxScenario CI baseline (planned)
+
+**Done-gate**: Snapshot baseline/diff CI gate blocks merge on structural UxNode path regressions; scenario suite runs deterministically in headless mode.
+**Non-goal**: Snapshot diffs are structural (semantic node count, role changes, ID consistency); they are not pixel-level screenshot comparisons.
+**Depends on**: #257 (Phase 5: UxScenarios + snapshot baseline/diff CI gates).
+
+#### Gate G7 — Critical-path coverage (closed)
+
+**Done-gate**: All five coverage areas (graph navigation, pane lifecycle, command surface, modal isolation, degraded viewer) have committed UxHarness scenarios that pass in CI.
+**Non-goal**: G7 does not authorize the WGPU switch; it is a readiness pre-condition, not the final gate.
+**Evidence**: `shell/desktop/tests/scenarios/pre_wgpu_critical_path.rs` — 12 scenarios, all green.
+
+### 12.3 Explicit non-goals for the current migration window
+
+The following expansions are **out of scope** until post-WGPU stabilization:
+
+1. **UxTree as layout authority** — tile ordering, tab grouping, and active-tile selection remain owned by `egui_tiles`. UxTree must not write back into tile tree state.
+2. **UxTree as focus authority** — keyboard focus assignment remains owned by the Focus subsystem and `egui`. UxTree reflects focus state; it does not set it.
+3. **UxTree as viewer-resolver** — viewer backend selection remains owned by the viewer registry. UxTree reflects `TileRenderMode`; it does not determine it.
+4. **UxTree as intent dispatcher** — command routing remains owned by `gui_orchestration` and the `WorkbenchIntent`/`GraphIntent` reducer chain. UxTree is not an intermediate in the dispatch path.
+
+### 12.4 Risk controls for dependency boundaries
+
+| Dependency | Risk | Control |
+|---|---|---|
+| `egui_tiles` structural spine | API changes in `egui_tiles` break UxTree traversal | UxTree only uses the public `Tree::active_tiles()` + `Tiles::iter()` surface; no internal tile-tree access |
+| `egui_graphs` rendering | Graph canvas state leaks into UxTree build path | UxTree reads from `GraphBrowserApp` state only; it does not call into `egui_graphs` render APIs |
+| Two-authority consistency | `egui_tiles` and `GraphBrowserApp` diverge (e.g., pane exists in tile tree with no corresponding graph node) | `presentation_id_consistency_violation` detects orphaned IDs; `UxNodeState::degraded` signals broken viewer bindings |
+
+### 12.5 Readiness criteria for post-WGPU authority expansion
+
+UxTree authority may be expanded (e.g., to drive AccessKit, or to serve as a canonical focus-query surface) only after:
+
+1. Gates G1–G7 are all closed.
+2. Renderer switch authorization is granted (see `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md`).
+3. A dedicated spec issue scopes the authority expansion with explicit non-goals, a done-gate, and a risk register entry.
+
+Authority expansion without these prerequisites is a migration risk and must not proceed.

@@ -2,3 +2,21 @@
 {"run_id":"1774106847-438688500","line":3757,"new":{"module_name":"graphshell__shell__desktop__runtime__diagnostics__tests","snapshot_name":"diagnostics_json_snapshot_shape_is_stable","metadata":{"source":"shell/desktop/runtime/diagnostics.rs","assertion_line":3757,"expression":"shape"},"snapshot":"Object {\n    \"channel_keys\": Array [\n        String(\"message_bytes_sent\"),\n        String(\"message_counts\"),\n        String(\"message_latency_recent_us\"),\n        String(\"message_latency_samples\"),\n        String(\"message_latency_us\"),\n    ],\n    \"first_frame_sequence\": String(\"[sequence]\"),\n    \"frame_count\": Number(1),\n    \"generated_at_unix_secs\": String(\"[unix-secs]\"),\n    \"intent_count\": Number(1),\n    \"top_level_keys\": Array [\n        String(\"analysis\"),\n        String(\"backend_telemetry\"),\n        String(\"backend_telemetry_report\"),\n        String(\"channels\"),\n        String(\"compositor_differential\"),\n        String(\"compositor_frames\"),\n        String(\"compositor_replay\"),\n        String(\"compositor_replay_samples\"),\n        String(\"event_ring_len\"),\n        String(\"generated_at_unix_secs\"),\n        String(\"history_health\"),\n        String(\"persistence_health\"),\n        String(\"recent_intents\"),\n        String(\"runtime_cache\"),\n        String(\"security_health\"),\n        String(\"signal_trace\"),\n        String(\"spans\"),\n        String(\"tracing_perf\"),\n        String(\"version\"),\n    ],\n}"},"old":{"module_name":"graphshell__shell__desktop__runtime__diagnostics__tests","metadata":{},"snapshot":"Object {\n    \"channel_keys\": Array [\n        String(\"message_bytes_sent\"),\n        String(\"message_counts\"),\n        String(\"message_latency_recent_us\"),\n        String(\"message_latency_samples\"),\n        String(\"message_latency_us\"),\n    ],\n    \"first_frame_sequence\": String(\"[sequence]\"),\n    \"frame_count\": Number(1),\n    \"generated_at_unix_secs\": String(\"[unix-secs]\"),\n    \"intent_count\": Number(1),\n    \"top_level_keys\": Array [\n        String(\"analysis\"),\n        String(\"backend_telemetry\"),\n        String(\"backend_telemetry_report\"),\n        String(\"channels\"),\n        String(\"compositor_differential\"),\n        String(\"compositor_frames\"),\n        String(\"compositor_replay\"),\n        String(\"compositor_replay_samples\"),\n        String(\"event_ring_len\"),\n        String(\"generated_at_unix_secs\"),\n        String(\"history_health\"),\n        String(\"persistence_health\"),\n        String(\"recent_intents\"),\n        String(\"runtime_cache\"),\n        String(\"security_health\"),\n        String(\"spans\"),\n        String(\"tracing_perf\"),\n        String(\"version\"),\n    ],\n}"}}
 {"run_id":"1774106926-339188200","line":4563,"new":null,"old":null}
 {"run_id":"1774106926-339188200","line":3757,"new":null,"old":null}
+{"run_id":"1774242515-562499300","line":4563,"new":null,"old":null}
+{"run_id":"1774242515-562499300","line":3757,"new":null,"old":null}
+{"run_id":"1774248060-565844700","line":4563,"new":null,"old":null}
+{"run_id":"1774248060-565844700","line":3757,"new":null,"old":null}
+{"run_id":"1774248225-439796300","line":3757,"new":null,"old":null}
+{"run_id":"1774248225-439796300","line":4563,"new":null,"old":null}
+{"run_id":"1774248266-226006800","line":4563,"new":null,"old":null}
+{"run_id":"1774248266-226006800","line":3757,"new":null,"old":null}
+{"run_id":"1774251170-401629400","line":3757,"new":null,"old":null}
+{"run_id":"1774251170-401629400","line":4563,"new":null,"old":null}
+{"run_id":"1774251348-898048400","line":3757,"new":null,"old":null}
+{"run_id":"1774251348-898048400","line":4563,"new":null,"old":null}
+{"run_id":"1774251406-324042900","line":4563,"new":null,"old":null}
+{"run_id":"1774251406-324042900","line":3757,"new":null,"old":null}
+{"run_id":"1774252421-420069300","line":4563,"new":null,"old":null}
+{"run_id":"1774252421-420069300","line":3757,"new":null,"old":null}
+{"run_id":"1774252707-967820100","line":3757,"new":null,"old":null}
+{"run_id":"1774252707-967820100","line":4563,"new":null,"old":null}

@@ -6,7 +6,6 @@
 
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::rc::Rc;
 #[cfg(all(
     feature = "diagnostics",
@@ -22,11 +21,8 @@ use image::{DynamicImage, ImageFormat};
 use libc::c_char;
 use log::{error, info};
 use servo::{
-    AllowOrDenyRequest, AuthenticationRequest, ConsoleLogLevel, CreateNewWebViewRequest,
-    DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId, EventLoopWaker,
-    GamepadHapticEffectType, GenericSender, InputEventId, InputEventResult, LoadStatus,
-    MediaSessionEvent, PermissionRequest, PrefValue, Preferences, Servo, ServoDelegate,
-    ServoError, TraversalId, UserContentManager, WebDriverLoadStatus, WebView, WebViewDelegate,
+    AllowOrDenyRequest, ConsoleLogLevel, CreateNewWebViewRequest, EventLoopWaker, PrefValue,
+    Preferences, Servo, ServoDelegate, ServoError, UserContentManager, WebView, WebViewDelegate,
     WebViewId, pref,
 };
 use url::Url;
@@ -58,6 +54,9 @@ use crate::shell::desktop::host::webdriver_runtime::WebDriverRuntime;
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent, SpanPhase};
+
+mod webview_delegate;
+use self::webview_delegate::RunningAppStateWebViewDelegate;
 #[cfg(all(
     any(coverage, llvm_pgo),
     any(target_os = "android", target_env = "ohos")
@@ -250,9 +249,11 @@ mod tests {
     #[test]
     fn servo_callbacks_only_enqueue_events() {
         let running_state_source = include_str!("running_app_state.rs");
+        let webview_delegate_source =
+            include_str!("running_app_state/webview_delegate.rs");
         let window_source = include_str!("window.rs");
 
-        for source in [running_state_source, window_source] {
+        for source in [running_state_source, webview_delegate_source, window_source] {
             assert!(
                 !source.contains(concat!("Graph", "BrowserApp")),
                 concat!(
@@ -284,6 +285,63 @@ mod tests {
                 !source.contains(concat!("apply", "_intents")),
                 concat!("Servo callbacks must not call the reducer ", "directly")
             );
+        }
+    }
+
+    #[test]
+    fn graph_event_sequencing_is_owned_by_window() {
+        // Platform adapters must go through EmbedderWindow facade methods to emit graph
+        // events. Direct access to the queue or its internal types breaks sequencing
+        // guarantees (monotonic seq numbers, diagnostics instrumentation).
+        let adapter_sources = [
+            include_str!("headed_window.rs"),
+            include_str!("headed_window/input_routing.rs"),
+            include_str!("headed_window/clip_extraction.rs"),
+            include_str!("headless_window.rs"),
+        ];
+        for source in adapter_sources {
+            assert!(
+                !source.contains(concat!("Window", "GraphEventQueue")),
+                "Platform adapters must not reference WindowGraphEventQueue directly"
+            );
+            assert!(
+                !source.contains(concat!("GraphSemantic", "Event")),
+                "Platform adapters must not construct or name GraphSemanticEvent directly"
+            );
+            assert!(
+                !source.contains(concat!("graph_events", ".enqueue")),
+                "Platform adapters must not call graph_events.enqueue directly"
+            );
+        }
+    }
+
+    #[test]
+    fn platform_adapters_do_not_reach_into_window_internals() {
+        // EmbedderWindow exposes a public facade. Adapters must not bypass it by naming
+        // the private sub-structs or their field paths. Keeping this boundary intact lets
+        // window internals be refactored without auditing all platform-specific code.
+        let adapter_sources = [
+            include_str!("headed_window.rs"),
+            include_str!("headed_window/input_routing.rs"),
+            include_str!("headed_window/clip_extraction.rs"),
+            include_str!("headless_window.rs"),
+        ];
+        let forbidden = [
+            concat!("Window", "ProjectionState"),
+            concat!("Window", "RuntimeState"),
+            concat!("Window", "UiSignals"),
+            concat!("Window", "GraphEventQueue"),
+            ".projection_state",
+            ".runtime_state",
+            ".ui_signals",
+        ];
+        for source in adapter_sources {
+            for term in forbidden {
+                assert!(
+                    !source.contains(term),
+                    "Platform adapter must not reference window-internal type or field `{term}`"
+                );
+            }
         }
     }
 
@@ -627,226 +685,6 @@ impl WebViewCreationContext for RunningAppState {
 
     fn webview_delegate(self: Rc<Self>) -> Rc<dyn WebViewDelegate> {
         Rc::new(RunningAppStateWebViewDelegate { state: self })
-    }
-}
-
-struct RunningAppStateWebViewDelegate {
-    state: Rc<RunningAppState>,
-}
-
-impl Deref for RunningAppStateWebViewDelegate {
-    type Target = RunningAppState;
-
-    fn deref(&self) -> &Self::Target {
-        &self.state
-    }
-}
-
-impl WebViewDelegate for RunningAppStateWebViewDelegate {
-    fn screen_geometry(&self, webview: WebView) -> Option<servo::ScreenGeometry> {
-        Some(
-            self.platform_window_for_webview_id(webview.id())
-                .screen_geometry(),
-        )
-    }
-
-    fn notify_status_text_changed(&self, webview: WebView, _status: Option<String>) {
-        self.window_for_webview_id(webview.id()).set_needs_update();
-    }
-
-    fn notify_url_changed(&self, webview: WebView, url: Url) {
-        let window = self.window_for_webview_id(webview.id());
-        window.notify_url_changed(webview, url);
-    }
-
-    fn notify_history_changed(&self, webview: WebView, entries: Vec<Url>, current: usize) {
-        let window = self.window_for_webview_id(webview.id());
-        window.notify_history_changed(webview, entries, current);
-    }
-
-    fn notify_page_title_changed(&self, webview: WebView, title: Option<String>) {
-        let window = self.window_for_webview_id(webview.id());
-        window.notify_page_title_changed(webview, title);
-    }
-
-    fn notify_traversal_complete(&self, _webview: WebView, traversal_id: TraversalId) {
-        self.webdriver.complete_traversal(traversal_id);
-    }
-
-    fn request_move_to(&self, webview: WebView, new_position: DeviceIntPoint) {
-        self.platform_window_for_webview_id(webview.id())
-            .set_position(new_position);
-    }
-
-    fn request_resize_to(&self, webview: WebView, requested_outer_size: DeviceIntSize) {
-        self.platform_window_for_webview_id(webview.id())
-            .request_resize(&webview, requested_outer_size);
-    }
-
-    fn request_authentication(
-        &self,
-        webview: WebView,
-        authentication_request: AuthenticationRequest,
-    ) {
-        self.window_for_webview_id(webview.id())
-            .show_http_authentication_dialog(webview.id(), authentication_request);
-    }
-
-    fn request_create_new(&self, parent_webview: WebView, request: CreateNewWebViewRequest) {
-        let window = self.window_for_webview_id(parent_webview.id());
-        let token = self.store_pending_create_request(request);
-        window.notify_host_open_request(
-            "about:blank".into(),
-            crate::app::OpenSurfaceSource::ChildWebview,
-            Some(parent_webview.id()),
-            Some(token),
-        );
-    }
-
-    fn notify_closed(&self, webview: WebView) {
-        self.window_for_webview_id(webview.id())
-            .close_webview(webview.id())
-    }
-
-    fn notify_input_event_handled(
-        &self,
-        webview: WebView,
-        id: InputEventId,
-        result: InputEventResult,
-    ) {
-        self.platform_window_for_webview_id(webview.id())
-            .notify_input_event_handled(&webview, id, result);
-        self.webdriver.finish_input_event(id);
-    }
-
-    fn notify_cursor_changed(&self, webview: WebView, cursor: servo::Cursor) {
-        self.platform_window_for_webview_id(webview.id())
-            .set_cursor(cursor);
-    }
-
-    fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
-        let window = self.window_for_webview_id(webview.id());
-        window.set_needs_update();
-
-        if status == LoadStatus::Complete {
-            window.notify_load_status_complete(webview.clone());
-            if let Some(sender) = self.webdriver.take_load_status_sender(webview.id()) {
-                let _ = sender.send(WebDriverLoadStatus::Complete);
-            }
-            self.maybe_request_screenshot(webview);
-        }
-    }
-
-    fn notify_fullscreen_state_changed(&self, webview: WebView, fullscreen_state: bool) {
-        self.platform_window_for_webview_id(webview.id())
-            .set_fullscreen(fullscreen_state);
-    }
-
-    fn show_bluetooth_device_dialog(
-        &self,
-        webview: WebView,
-        devices: Vec<String>,
-        response_sender: GenericSender<Option<String>>,
-    ) {
-        self.window_for_webview_id(webview.id())
-            .show_bluetooth_device_dialog(webview.id(), devices, response_sender);
-    }
-
-    fn request_permission(&self, webview: WebView, permission_request: PermissionRequest) {
-        self.window_for_webview_id(webview.id())
-            .show_permission_dialog(webview.id(), permission_request);
-    }
-
-    fn notify_new_frame_ready(&self, webview: WebView) {
-        self.window_for_webview_id(webview.id()).set_needs_repaint();
-    }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    fn play_gamepad_haptic_effect(
-        &self,
-        _webview: WebView,
-        index: usize,
-        effect_type: GamepadHapticEffectType,
-        effect_complete_callback: Box<dyn FnOnce(bool)>,
-    ) {
-        self.gamepad
-            .play_haptic_effect(index, effect_type, effect_complete_callback);
-    }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    fn stop_gamepad_haptic_effect(
-        &self,
-        _webview: WebView,
-        index: usize,
-        haptic_stop_callback: Box<dyn FnOnce(bool)>,
-    ) {
-        self.gamepad.stop_haptic_effect(index, haptic_stop_callback);
-    }
-
-    fn show_embedder_control(&self, webview: WebView, embedder_control: EmbedderControl) {
-        if self.app_preferences.webdriver_port.get().is_some() {
-            if matches!(&embedder_control, EmbedderControl::SimpleDialog(..)) {
-                self.webdriver.interrupt_script_evaluation();
-
-                // Dialogs block the page load, so need need to notify WebDriver
-                self.webdriver.block_load_status_if_any(webview.id());
-            }
-
-            self.webdriver
-                .show_embedder_control(webview.id(), embedder_control);
-            return;
-        }
-
-        self.window_for_webview_id(webview.id())
-            .show_embedder_control(webview, embedder_control);
-    }
-
-    fn hide_embedder_control(&self, webview: WebView, embedder_control_id: EmbedderControlId) {
-        if self.app_preferences.webdriver_port.get().is_some() {
-            self.webdriver
-                .hide_embedder_control(webview.id(), embedder_control_id);
-            return;
-        }
-
-        self.window_for_webview_id(webview.id())
-            .hide_embedder_control(webview, embedder_control_id);
-    }
-
-    fn notify_favicon_changed(&self, webview: WebView) {
-        self.window_for_webview_id(webview.id())
-            .notify_favicon_changed(webview);
-    }
-
-    fn notify_media_session_event(&self, webview: WebView, event: MediaSessionEvent) {
-        self.platform_window_for_webview_id(webview.id())
-            .notify_media_session_event(event);
-    }
-
-    fn notify_crashed(&self, webview: WebView, reason: String, backtrace: Option<String>) {
-        let window = self.window_for_webview_id(webview.id());
-        window.notify_webview_crashed(webview.clone(), reason.clone(), backtrace.clone());
-        self.platform_window_for_webview_id(webview.id())
-            .notify_crashed(webview, reason, backtrace);
-    }
-
-    fn show_console_message(&self, webview: WebView, level: ConsoleLogLevel, message: String) {
-        self.platform_window_for_webview_id(webview.id())
-            .show_console_message(level, &message);
-    }
-
-    fn notify_accessibility_tree_update(
-        &self,
-        webview: WebView,
-        tree_update: accesskit::TreeUpdate,
-    ) {
-        self.platform_window_for_webview_id(webview.id())
-            .notify_accessibility_tree_update(webview, tree_update);
     }
 }
 

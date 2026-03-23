@@ -13,7 +13,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_NO_BOUNDS, CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_ZERO_VIEW,
     CHANNEL_UI_GRAPH_CAMERA_FIT_DEFERRED_NO_METADATA,
     CHANNEL_UI_GRAPH_CAMERA_ZOOM_DEFERRED_NO_METADATA,
-    CHANNEL_UI_GRAPH_FIT_SELECTION_FALLBACK_TO_FIT, CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK,
+    CHANNEL_UI_GRAPH_FIT_GRAPHLET_FALLBACK_TO_FIT, CHANNEL_UI_GRAPH_FIT_SELECTION_FALLBACK_TO_FIT,
+    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK,
     CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW,
     CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
@@ -23,7 +24,7 @@ use egui::{Ui, Vec2};
 use egui_graphs::MetadataFrame;
 use std::time::Duration;
 
-use super::canvas_visuals::node_bounds_for_selection;
+use super::canvas_visuals::{node_bounds_for_keys, node_bounds_for_selection};
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -438,6 +439,89 @@ pub(super) fn apply_pending_camera_command(
                 app.clear_pending_camera_command();
             }
             updated_zoom
+        }
+        CameraCommand::FitGraphlet => {
+            // Resolve the graphlet members for the primary selected node, then
+            // delegate to FitSelection-style bounds computation over those members.
+            let selection = app.focused_selection();
+            let seed = selection.iter().copied().next();
+            let members = seed.map(|s| app.graphlet_members_for_active_projection(&[s]));
+            match members {
+                Some(ref nodes) if !nodes.is_empty() => {
+                    let bounds = node_bounds_for_keys(app, nodes.iter().copied());
+                    if bounds.is_none() {
+                        emit_event(DiagnosticEvent::MessageReceived {
+                            channel_id: CHANNEL_UI_GRAPH_FIT_GRAPHLET_FALLBACK_TO_FIT,
+                            latency_us: 0,
+                        });
+                        app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
+                        return None;
+                    }
+                    let (min_x, max_x, min_y, max_y) = bounds.unwrap();
+                    let graph_rect = ui.max_rect();
+                    let view_size = graph_rect.size();
+                    if view_size.x <= f32::EPSILON || view_size.y <= f32::EPSILON {
+                        return None;
+                    }
+                    let width = (max_x - min_x).abs().max(1.0);
+                    let height = (max_y - min_y).abs().max(1.0);
+                    let padding = canvas_profile.navigation.camera_focus_selection_padding;
+                    let padded_width = width * padding;
+                    let padded_height = height * padding;
+                    let fit_zoom =
+                        (view_size.x / padded_width).min(view_size.y / padded_height);
+                    let target_zoom = fit_zoom.clamp(zoom_min, zoom_max);
+                    let center =
+                        egui::pos2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
+                    let viewport_center =
+                        egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size())
+                            .center()
+                            .to_vec2();
+                    let target_pan =
+                        viewport_center - center.to_vec2() * target_zoom;
+                    let mut updated_zoom = None;
+                    let mut seeded_metadata = false;
+                    let seeded_frame = seeded_metadata_frame_for_view(app, view_id);
+                    ui.ctx().data_mut(|data| {
+                        let mut meta = if let Some(existing) =
+                            data.get_persisted::<MetadataFrame>(metadata_id)
+                        {
+                            existing
+                        } else {
+                            seeded_metadata = true;
+                            seeded_frame
+                        };
+                        if seeded_metadata || meta.zoom == target_zoom && meta.pan == target_pan {
+                            meta.zoom = target_zoom;
+                            meta.pan = target_pan;
+                            data.insert_persisted(metadata_id, meta);
+                            updated_zoom = Some(target_zoom);
+                        } else {
+                            meta.zoom = target_zoom;
+                            meta.pan = target_pan;
+                            data.insert_persisted(metadata_id, meta);
+                            updated_zoom = Some(target_zoom);
+                        }
+                    });
+                    if let Some(new_zoom) = updated_zoom {
+                        if let Some(view) =
+                            app.workspace.graph_runtime.views.get_mut(&view_id)
+                        {
+                            view.camera.current_zoom = new_zoom;
+                        }
+                        app.clear_pending_camera_command();
+                    }
+                    return updated_zoom;
+                }
+                _ => {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UI_GRAPH_FIT_GRAPHLET_FALLBACK_TO_FIT,
+                        latency_us: 0,
+                    });
+                    app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
+                    return None;
+                }
+            }
         }
         CameraCommand::Fit | CameraCommand::FitSelection => {
             let graph_rect = ui.max_rect();

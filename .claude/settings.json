@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(xargs grep:*)",
-      "Bash(gh issue:*)"
+      "Bash(gh issue:*)",
+      "Read(//mnt/c/Users/mark_/Code/source/**)",
+      "Read(//c/Users/mark_/Code/source/repos//**)",
+      "Read(//^pub/\\(crate/\\) fn execute_action/**)",
+      "Bash(cargo build:*)",
+      "Bash(grep -rn 'pub.*struct GuiRuntimeState' /c/Users/mark_/Code/source/repos/graphshell/shell/desktop/ui/ --include=*.rs)",
+      "Bash(git -C /c/Users/mark_/Code/source/repos/graphshell log --oneline -5)",
+      "Bash(git -C /c/Users/mark_/Code/source/repos/graphshell log --oneline --all -- shell/desktop/ui/gui/focus_state.rs)",
+      "Bash(git -C /c/Users/mark_/Code/source/repos/graphshell stash)"
     ]
   }
 }

@@ -9,31 +9,24 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::env;
 use std::rc::Rc;
-use std::time::Duration;
 
 use euclid::{Length, Point2D, Rect, Scale, Size2D};
 use keyboard_types::ShortcutMatcher;
 use log::{debug, info, warn};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
-use serde_json::Value as JsonValue;
 use servo::{
     AuthenticationRequest, Cursor, DeviceIndependentIntRect, DeviceIndependentPixel,
     DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint, EmbedderControl,
     EmbedderControlId, GenericSender, ImeEvent, InputEvent, InputEventId, InputEventResult,
-    InputMethodControl, JSValue, JavaScriptEvaluationError, Key, KeyboardEvent,
-    Modifiers, MouseButton as ServoMouseButton, MouseButtonAction, MouseButtonEvent,
-    MouseLeftViewportEvent, MouseMoveEvent, NamedKey, OffscreenRenderingContext, PermissionRequest,
-    RenderingContext, ScreenGeometry, Theme, TouchEvent, TouchEventType, TouchId,
-    WebRenderDebugOption, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode,
+    InputMethodControl, KeyboardEvent, MouseLeftViewportEvent, OffscreenRenderingContext,
+    PermissionRequest, RenderingContext, ScreenGeometry, Theme, TouchEvent, TouchEventType,
+    TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode,
     WindowRenderingContext, convert_rect_to_css_pixel,
 };
 use url::Url;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::event::{
-    ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
-};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 #[cfg(target_os = "linux")]
@@ -46,8 +39,6 @@ use {
     objc2_foundation::MainThreadMarker,
 };
 
-use crate::app::OpenSurfaceSource;
-use crate::app::{BrowserCommand, BrowserCommandTarget, ClipCaptureData};
 use crate::prefs::AppPreferences;
 use crate::shell::desktop::host::accelerated_gl_media::setup_gl_accelerated_media;
 use crate::shell::desktop::host::event_loop::AppEvent;
@@ -55,18 +46,20 @@ use crate::shell::desktop::host::geometry::{
     winit_position_to_euclid_point, winit_size_to_euclid_size,
 };
 use crate::shell::desktop::host::keyutils::CMD_OR_CONTROL;
-use crate::shell::desktop::host::keyutils::{CMD_OR_ALT, keyboard_event_from_winit};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, LINE_HEIGHT, LINE_WIDTH, MIN_WINDOW_INNER_SIZE,
-    PlatformWindow,
+    PlatformWindow, PlatformWindowDialogs, PlatformWindowOps, PlatformWindowRendering,
+    PlatformWindowSignals,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::ui::dialog::Dialog;
 use crate::shell::desktop::ui::gui::Gui;
 
+mod clip_extraction;
 mod embedder_controls;
+mod input_routing;
 mod xr;
 
 pub(crate) const INITIAL_WINDOW_TITLE: &str = "Graphshell";
@@ -244,290 +237,6 @@ impl HeadedWindow {
         &self.winit_window
     }
 
-    fn explicit_input_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
-        self.resolved_input_webview_id(window)
-            .and_then(|id| window.webview_by_id(id))
-    }
-
-    fn resolve_embedded_input_webview_id(
-        embedded_focus: Option<WebViewId>,
-        explicit_input: Option<WebViewId>,
-    ) -> Option<WebViewId> {
-        embedded_focus.or(explicit_input)
-    }
-
-    fn resolved_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
-        Self::resolve_embedded_input_webview_id(
-            self.gui.borrow().focused_embedded_content_webview_id(),
-            window.targeted_input_webview_id(),
-        )
-    }
-
-    fn explicit_chrome_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
-        window
-            .explicit_chrome_webview_id()
-            .and_then(|id| window.webview_by_id(id))
-    }
-
-    fn should_retarget_webview_focus(state: ElementState) -> bool {
-        state == ElementState::Pressed
-    }
-
-    fn is_graph_control_shortcut(key_code: KeyCode) -> bool {
-        matches!(
-            key_code,
-            KeyCode::KeyT
-                | KeyCode::KeyP
-                | KeyCode::KeyC
-                | KeyCode::Home
-                | KeyCode::Escape
-                | KeyCode::F2
-                | KeyCode::F6
-                | KeyCode::F9
-        )
-    }
-
-    fn resolve_pointer_position(
-        &self,
-        event_position: Option<PhysicalPosition<f64>>,
-    ) -> Option<Point2D<f32, DeviceIndependentPixel>> {
-        event_position
-            .map(|position| {
-                winit_position_to_euclid_point(position).to_f32() / self.hidpi_scale_factor()
-            })
-            .or_else(|| self.gui.borrow().pointer_hover_position())
-            .or(self.last_mouse_position.get())
-    }
-
-    fn handle_keyboard_input(
-        &self,
-        state: Rc<RunningAppState>,
-        window: &EmbedderWindow,
-        winit_event: KeyEvent,
-    ) {
-        // First, handle Graphshell key bindings that are not overridable by, or visible to, the page.
-        let keyboard_event = keyboard_event_from_winit(&winit_event, self.modifiers_state.get());
-        if self.handle_intercepted_key_bindings(state.clone(), window, &keyboard_event) {
-            return;
-        }
-
-        // Then we deliver character and keyboard events to the focused webview tile target.
-        let Some(webview) = self.explicit_input_webview(window) else {
-            return;
-        };
-
-        for xr_window_pose in self.xr_window_poses.borrow().iter() {
-            xr_window_pose.handle_xr_rotation(&winit_event, self.modifiers_state.get());
-            xr_window_pose.handle_xr_translation(&keyboard_event);
-        }
-
-        let id = webview.notify_input_event(InputEvent::Keyboard(keyboard_event.clone()));
-        self.pending_keyboard_events
-            .borrow_mut()
-            .insert(id, keyboard_event);
-    }
-
-    /// Helper function to handle a click
-    fn handle_mouse_button_event(
-        &self,
-        webview: &WebView,
-        button: MouseButton,
-        action: ElementState,
-    ) {
-        // `point` can be outside viewport, such as at toolbar with negative y-coordinate.
-        let point = self.webview_relative_mouse_point.get();
-        let webview_rect: Rect<_, _> = webview.size().into();
-        if !webview_rect.contains(point) {
-            return;
-        }
-
-        if self
-            .touch_event_simulator
-            .as_ref()
-            .is_some_and(|touch_event_simulator| {
-                touch_event_simulator
-                    .maybe_consume_move_button_event(webview, button, action, point)
-            })
-        {
-            return;
-        }
-
-        let mouse_button = match &button {
-            MouseButton::Left => ServoMouseButton::Left,
-            MouseButton::Right => ServoMouseButton::Right,
-            MouseButton::Middle => ServoMouseButton::Middle,
-            MouseButton::Back => ServoMouseButton::Back,
-            MouseButton::Forward => ServoMouseButton::Forward,
-            MouseButton::Other(value) => ServoMouseButton::Other(*value),
-        };
-
-        let action = match action {
-            ElementState::Pressed => MouseButtonAction::Down,
-            ElementState::Released => MouseButtonAction::Up,
-        };
-
-        webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
-            action,
-            mouse_button,
-            point.into(),
-        )));
-    }
-
-    /// Helper function to handle mouse move events.
-    fn set_webview_relative_mouse_point(&self, point: Point2D<f32, DeviceIndependentPixel>) {
-        let scale = self.hidpi_scale_factor().get();
-        self.webview_relative_mouse_point
-            .set(Point2D::new(point.x * scale, point.y * scale));
-    }
-
-    fn handle_mouse_move_event_with_webview_relative_point(
-        &self,
-        webview: &WebView,
-        point: Point2D<f32, DevicePixel>,
-    ) {
-        let previous_point = self.webview_relative_mouse_point.get();
-        self.webview_relative_mouse_point.set(point);
-
-        let webview_rect: Rect<_, _> = webview.size().into();
-        if !webview_rect.contains(point) {
-            if webview_rect.contains(previous_point) {
-                webview.notify_input_event(InputEvent::MouseLeftViewport(
-                    MouseLeftViewportEvent::default(),
-                ));
-            }
-            return;
-        }
-
-        if self
-            .touch_event_simulator
-            .as_ref()
-            .is_some_and(|touch_event_simulator| {
-                touch_event_simulator.maybe_consume_mouse_move_event(webview, point)
-            })
-        {
-            return;
-        }
-
-        webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(point.into())));
-    }
-
-    /// Handle key events before sending them to Servo.
-    fn handle_intercepted_key_bindings(
-        &self,
-        state: Rc<RunningAppState>,
-        window: &EmbedderWindow,
-        key_event: &KeyboardEvent,
-    ) -> bool {
-        let Some(active_webview) = self.explicit_input_webview(window) else {
-            return false;
-        };
-
-        let mut handled = true;
-        ShortcutMatcher::from_event(key_event.event.clone())
-            .shortcut(CMD_OR_CONTROL, 'R', || {
-                self.gui.borrow_mut().request_browser_command(
-                    BrowserCommandTarget::FocusedInput,
-                    BrowserCommand::Reload,
-                );
-            })
-            .shortcut(CMD_OR_CONTROL, 'W', || {
-                self.gui.borrow_mut().request_browser_command(
-                    BrowserCommandTarget::FocusedInput,
-                    BrowserCommand::Close,
-                );
-            })
-            .shortcut(CMD_OR_CONTROL, 'P', || {
-                let rate = env::var("SAMPLING_RATE")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(10);
-                let duration = env::var("SAMPLING_DURATION")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(10);
-                active_webview.toggle_sampling_profiler(
-                    Duration::from_millis(rate),
-                    Duration::from_secs(duration),
-                );
-            })
-            .shortcut(CMD_OR_CONTROL, 'X', || {
-                active_webview
-                    .notify_input_event(InputEvent::EditingAction(servo::EditingActionEvent::Cut));
-            })
-            .shortcut(CMD_OR_CONTROL, 'C', || {
-                active_webview
-                    .notify_input_event(InputEvent::EditingAction(servo::EditingActionEvent::Copy));
-            })
-            .shortcut(CMD_OR_CONTROL, 'V', || {
-                active_webview.notify_input_event(InputEvent::EditingAction(
-                    servo::EditingActionEvent::Paste,
-                ));
-            })
-            .shortcut(Modifiers::CONTROL, Key::Named(NamedKey::F9), || {
-                active_webview.capture_webrender();
-            })
-            .shortcut(Modifiers::CONTROL, Key::Named(NamedKey::F10), || {
-                active_webview.toggle_webrender_debugging(WebRenderDebugOption::RenderTargetDebug);
-            })
-            .shortcut(Modifiers::CONTROL, Key::Named(NamedKey::F11), || {
-                active_webview.toggle_webrender_debugging(WebRenderDebugOption::TextureCacheDebug);
-            })
-            .shortcut(Modifiers::CONTROL, Key::Named(NamedKey::F12), || {
-                active_webview.toggle_webrender_debugging(WebRenderDebugOption::Profiler);
-            })
-            .shortcut(CMD_OR_ALT, Key::Named(NamedKey::ArrowRight), || {
-                self.gui.borrow_mut().request_browser_command(
-                    BrowserCommandTarget::FocusedInput,
-                    BrowserCommand::Forward,
-                );
-            })
-            .optional_shortcut(
-                cfg!(not(target_os = "windows")),
-                CMD_OR_CONTROL,
-                ']',
-                || {
-                    self.gui.borrow_mut().request_browser_command(
-                        BrowserCommandTarget::FocusedInput,
-                        BrowserCommand::Forward,
-                    );
-                },
-            )
-            .shortcut(CMD_OR_ALT, Key::Named(NamedKey::ArrowLeft), || {
-                self.gui.borrow_mut().request_browser_command(
-                    BrowserCommandTarget::FocusedInput,
-                    BrowserCommand::Back,
-                );
-            })
-            .optional_shortcut(
-                cfg!(not(target_os = "windows")),
-                CMD_OR_CONTROL,
-                '[',
-                || {
-                    self.gui.borrow_mut().request_browser_command(
-                        BrowserCommandTarget::FocusedInput,
-                        BrowserCommand::Back,
-                    );
-                },
-            )
-            .optional_shortcut(
-                self.get_fullscreen(),
-                Modifiers::empty(),
-                Key::Named(NamedKey::Escape),
-                || active_webview.exit_fullscreen(),
-            )
-            .shortcut(CMD_OR_CONTROL, 'T', || {
-                window.notify_host_open_request(
-                    "servo:newtab".to_string(),
-                    OpenSurfaceSource::KeyboardShortcut,
-                    Some(active_webview.id()),
-                    None,
-                );
-            })
-            .shortcut(CMD_OR_CONTROL, 'Q', || state.schedule_exit())
-            .otherwise(|| handled = false);
-        handled
-    }
-
     #[cfg_attr(not(target_os = "macos"), expect(unused_variables))]
     fn force_srgb_color_space(window_handle: RawWindowHandle) {
         #[cfg(target_os = "macos")]
@@ -578,7 +287,7 @@ impl HeadedWindow {
         };
         if active_dialogs.is_empty() {
             if self.dialog_cursor_override_active.replace(false) {
-                self.apply_platform_cursor(self.last_servo_cursor.get());
+                input_routing::apply_platform_cursor(self, self.last_servo_cursor.get());
             }
             return;
         }
@@ -586,7 +295,7 @@ impl HeadedWindow {
         // Force default cursor while dialog is open and restore the last Servo cursor once all
         // dialogs close.
         if !self.dialog_cursor_override_active.replace(true) {
-            self.apply_platform_cursor(Cursor::Default);
+            input_routing::apply_platform_cursor(self, Cursor::Default);
         }
 
         let length = active_dialogs.len();
@@ -595,7 +304,7 @@ impl HeadedWindow {
             callback(dialog)
         });
         if active_dialogs.is_empty() && self.dialog_cursor_override_active.replace(false) {
-            self.apply_platform_cursor(self.last_servo_cursor.get());
+            input_routing::apply_platform_cursor(self, self.last_servo_cursor.get());
         }
         if length != active_dialogs.len() {
             window.set_needs_repaint();
@@ -604,53 +313,6 @@ impl HeadedWindow {
         if had_any_active_dialog != has_any_active_dialog {
             emit_navigation_transition_host_dialog_capture();
         }
-    }
-
-    fn apply_platform_cursor(&self, cursor: Cursor) {
-        use winit::window::CursorIcon;
-
-        let winit_cursor = match cursor {
-            Cursor::Default => CursorIcon::Default,
-            Cursor::Pointer => CursorIcon::Pointer,
-            Cursor::ContextMenu => CursorIcon::ContextMenu,
-            Cursor::Help => CursorIcon::Help,
-            Cursor::Progress => CursorIcon::Progress,
-            Cursor::Wait => CursorIcon::Wait,
-            Cursor::Cell => CursorIcon::Cell,
-            Cursor::Crosshair => CursorIcon::Crosshair,
-            Cursor::Text => CursorIcon::Text,
-            Cursor::VerticalText => CursorIcon::VerticalText,
-            Cursor::Alias => CursorIcon::Alias,
-            Cursor::Copy => CursorIcon::Copy,
-            Cursor::Move => CursorIcon::Move,
-            Cursor::NoDrop => CursorIcon::NoDrop,
-            Cursor::NotAllowed => CursorIcon::NotAllowed,
-            Cursor::Grab => CursorIcon::Grab,
-            Cursor::Grabbing => CursorIcon::Grabbing,
-            Cursor::EResize => CursorIcon::EResize,
-            Cursor::NResize => CursorIcon::NResize,
-            Cursor::NeResize => CursorIcon::NeResize,
-            Cursor::NwResize => CursorIcon::NwResize,
-            Cursor::SResize => CursorIcon::SResize,
-            Cursor::SeResize => CursorIcon::SeResize,
-            Cursor::SwResize => CursorIcon::SwResize,
-            Cursor::WResize => CursorIcon::WResize,
-            Cursor::EwResize => CursorIcon::EwResize,
-            Cursor::NsResize => CursorIcon::NsResize,
-            Cursor::NeswResize => CursorIcon::NeswResize,
-            Cursor::NwseResize => CursorIcon::NwseResize,
-            Cursor::ColResize => CursorIcon::ColResize,
-            Cursor::RowResize => CursorIcon::RowResize,
-            Cursor::AllScroll => CursorIcon::AllScroll,
-            Cursor::ZoomIn => CursorIcon::ZoomIn,
-            Cursor::ZoomOut => CursorIcon::ZoomOut,
-            Cursor::None => {
-                self.winit_window.set_cursor_visible(false);
-                return;
-            }
-        };
-        self.winit_window.set_cursor(winit_cursor);
-        self.winit_window.set_cursor_visible(true);
     }
 
     fn add_dialog(&self, webview_id: WebViewId, dialog: Dialog) {
@@ -714,7 +376,7 @@ impl HeadedWindow {
                 return true;
             }
 
-            let Some(point) = self.resolve_pointer_position(point) else {
+            let Some(point) = input_routing::resolve_pointer_position(self, point) else {
                 return true;
             };
 
@@ -759,7 +421,7 @@ impl HeadedWindow {
                 button: MouseButton::Forward,
                 ..
             } => {
-                if let Some(webview_id) = self.resolved_input_webview_id(&window)
+                if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window)
                     && let Some(webview) = window.webview_by_id(webview_id)
                 {
                     self.gui
@@ -776,7 +438,7 @@ impl HeadedWindow {
                 button: MouseButton::Back,
                 ..
             } => {
-                if let Some(webview_id) = self.resolved_input_webview_id(&window)
+                if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window)
                     && let Some(webview) = window.webview_by_id(webview_id)
                 {
                     self.gui
@@ -852,7 +514,7 @@ impl HeadedWindow {
                 } = event
                     && !self.ui_or_dialog_capture_active()
                 {
-                    let cursor_point = self.resolve_pointer_position(None);
+                    let cursor_point = input_routing::resolve_pointer_position(self, None);
                     if let Some(point) = cursor_point {
                         self.last_mouse_position.set(Some(point));
                         let clicked_webview = self
@@ -920,13 +582,13 @@ impl HeadedWindow {
             match event {
                 WindowEvent::KeyboardInput { event, .. } => {
                     if !self.ui_or_dialog_capture_active() {
-                        if let Some(webview_id) = self.resolved_input_webview_id(&window) {
+                        if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window) {
                             self.gui
                                 .borrow_mut()
                                 .set_embedded_content_focus_webview(Some(webview_id));
                             window.retarget_input_to_webview(webview_id);
                         }
-                        self.handle_keyboard_input(state.clone(), &window, event)
+                        input_routing::handle_keyboard_input(self, state.clone(), &window, event)
                     }
                 }
                 WindowEvent::ModifiersChanged(modifiers) => {
@@ -936,13 +598,13 @@ impl HeadedWindow {
                     if !self.ui_or_dialog_capture_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
                     {
-                        let pointer_position = self.resolve_pointer_position(None);
+                        let pointer_position = input_routing::resolve_pointer_position(self, None);
                         if let Some(point) = pointer_position {
                             self.last_mouse_position.set(Some(point));
                         }
                         let pointer_target = pointer_position
                             .and_then(|point| self.gui.borrow().webview_at_point(point));
-                        if Self::should_retarget_webview_focus(state) {
+                        if input_routing::should_retarget_webview_focus(state) {
                             if let Some(webview_id) = pointer_target.map(|(id, _)| id) {
                                 let mut gui = self.gui.borrow_mut();
                                 let focused_node_key = gui.node_key_for_webview_id(webview_id);
@@ -958,8 +620,8 @@ impl HeadedWindow {
                         if let Some((webview_id, local_point)) = pointer_target
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
-                            self.set_webview_relative_mouse_point(local_point);
-                            self.handle_mouse_button_event(&webview, button, state);
+                            input_routing::set_webview_relative_mouse_point(self, local_point);
+                            input_routing::handle_mouse_button_event(self, &webview, button, state);
                         }
                     }
                 }
@@ -984,8 +646,9 @@ impl HeadedWindow {
                                     local_point,
                                 );
                             }
-                            self.set_webview_relative_mouse_point(local_point);
-                            self.handle_mouse_move_event_with_webview_relative_point(
+                            input_routing::set_webview_relative_mouse_point(self, local_point);
+                            input_routing::handle_mouse_move_event_with_webview_relative_point(
+                                self,
                                 &webview,
                                 self.webview_relative_mouse_point.get(),
                             );
@@ -996,13 +659,12 @@ impl HeadedWindow {
                     if !self.ui_or_dialog_capture_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
                     {
-                        let pointer_target = self
-                            .resolve_pointer_position(None)
+                        let pointer_target = input_routing::resolve_pointer_position(self, None)
                             .and_then(|point| self.gui.borrow().webview_at_point(point));
                         if let Some((webview_id, local_point)) = pointer_target
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
-                            self.set_webview_relative_mouse_point(local_point);
+                            input_routing::set_webview_relative_mouse_point(self, local_point);
                             let webview_rect: Rect<_, _> = webview.size().into();
                             if webview_rect.contains(self.webview_relative_mouse_point.get()) {
                                 webview.notify_input_event(InputEvent::MouseLeftViewport(
@@ -1016,13 +678,12 @@ impl HeadedWindow {
                     if !self.ui_or_dialog_capture_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
                     {
-                        let pointer_target = self
-                            .resolve_pointer_position(None)
+                        let pointer_target = input_routing::resolve_pointer_position(self, None)
                             .and_then(|point| self.gui.borrow().webview_at_point(point));
                         if let Some((webview_id, local_point)) = pointer_target
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
-                            self.set_webview_relative_mouse_point(local_point);
+                            input_routing::set_webview_relative_mouse_point(self, local_point);
                             let (delta_x, delta_y, mode) = match delta {
                                 MouseScrollDelta::LineDelta(delta_x, delta_y) => (
                                     (delta_x * LINE_WIDTH) as f64,
@@ -1050,7 +711,7 @@ impl HeadedWindow {
                 }
                 WindowEvent::Touch(touch) => {
                     if !self.ui_or_dialog_capture_active() {
-                        if let Some(webview_id) = self.resolved_input_webview_id(&window)
+                        if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window)
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
                             self.gui
@@ -1058,7 +719,7 @@ impl HeadedWindow {
                                 .set_embedded_content_focus_webview(Some(webview_id));
                             window.retarget_input_to_webview(webview_id);
                             webview.notify_input_event(InputEvent::Touch(TouchEvent::new(
-                                winit_phase_to_touch_event_type(touch.phase),
+                                input_routing::winit_phase_to_touch_event_type(touch.phase),
                                 TouchId(touch.id as i32),
                                 DevicePoint::new(touch.location.x as f32, touch.location.y as f32)
                                     .into(),
@@ -1068,13 +729,12 @@ impl HeadedWindow {
                 }
                 WindowEvent::PinchGesture { delta, .. } => {
                     if !self.ui_or_dialog_capture_active() {
-                        let pointer_target = self
-                            .resolve_pointer_position(None)
+                        let pointer_target = input_routing::resolve_pointer_position(self, None)
                             .and_then(|point| self.gui.borrow().webview_at_point(point));
                         if let Some((webview_id, local_point)) = pointer_target
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
-                            self.set_webview_relative_mouse_point(local_point);
+                            input_routing::set_webview_relative_mouse_point(self, local_point);
                             webview.pinch_zoom(
                                 delta as f32 + 1.0,
                                 self.webview_relative_mouse_point.get(),
@@ -1089,7 +749,7 @@ impl HeadedWindow {
                     crate::shell::desktop::runtime::registries::phase3_apply_system_theme_preference(
                         matches!(theme, winit::window::Theme::Dark),
                     );
-                    if let Some(webview) = self.explicit_input_webview(&window) {
+                    if let Some(webview) = input_routing::explicit_input_webview(self, &window) {
                         webview.notify_theme_change(match theme {
                             winit::window::Theme::Light => Theme::Light,
                             winit::window::Theme::Dark => Theme::Dark,
@@ -1097,7 +757,7 @@ impl HeadedWindow {
                     }
                 }
                 WindowEvent::Ime(ime) => {
-                    if let Some(webview) = self.explicit_input_webview(&window) {
+                    if let Some(webview) = input_routing::explicit_input_webview(self, &window) {
                         match ime {
                             Ime::Enabled => {
                                 webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(
@@ -1191,8 +851,8 @@ impl HeadedWindow {
 
         let proxy = self.event_loop_proxy.clone();
         let window_id = self.winit_window.id();
-        webview.evaluate_javascript(build_clip_extraction_script(element_rect), move |result| {
-            let result = parse_clip_capture_result(webview_id, result);
+        webview.evaluate_javascript(clip_extraction::build_clip_extraction_script(element_rect), move |result| {
+            let result = clip_extraction::parse_clip_capture_result(webview_id, result);
             if let Err(error) =
                 proxy.send_event(AppEvent::ClipExtractionCompleted { window_id, result })
             {
@@ -1216,8 +876,8 @@ impl HeadedWindow {
 
         let proxy = self.event_loop_proxy.clone();
         let window_id = self.winit_window.id();
-        webview.evaluate_javascript(build_page_inspector_extraction_script(), move |result| {
-            let result = parse_clip_capture_batch_result(webview_id, result);
+        webview.evaluate_javascript(clip_extraction::build_page_inspector_extraction_script(), move |result| {
+            let result = clip_extraction::parse_clip_capture_batch_result(webview_id, result);
             if let Err(error) =
                 proxy.send_event(AppEvent::ClipBatchExtractionCompleted { window_id, result })
             {
@@ -1242,9 +902,9 @@ impl HeadedWindow {
         let proxy = self.event_loop_proxy.clone();
         let window_id = self.winit_window.id();
         webview.evaluate_javascript(
-            build_clip_inspector_stack_script(local_point),
+            clip_extraction::build_clip_inspector_stack_script(local_point),
             move |result| {
-                let result = parse_clip_capture_batch_result(webview_id, result);
+                let result = clip_extraction::parse_clip_capture_batch_result(webview_id, result);
                 let send_result = proxy.send_event(AppEvent::ClipInspectorPointerUpdated {
                     window_id,
                     webview_id,
@@ -1266,398 +926,14 @@ impl HeadedWindow {
         let Some(webview) = window.webview_by_id(webview_id) else {
             return;
         };
-        webview.evaluate_javascript(build_clip_inspector_highlight_script(dom_path), |_| {});
+        webview.evaluate_javascript(clip_extraction::build_clip_inspector_highlight_script(dom_path), |_| {});
     }
 }
 
-fn build_clip_extraction_script(element_rect: DeviceIntRect) -> String {
-    let center_x = (element_rect.min.x + element_rect.max.x) as f32 / 2.0;
-    let center_y = (element_rect.min.y + element_rect.max.y) as f32 / 2.0;
-    format!(
-        r#"(function() {{
-            const dpr = window.devicePixelRatio || 1;
-            const x = {center_x} / dpr;
-            const y = {center_y} / dpr;
-            const element = document.elementFromPoint(x, y) || document.activeElement || document.body;
-            if (!element) {{
-                return JSON.stringify({{ ok: false, error: "No element found under context menu target." }});
-            }}
 
-            const textValue = (element.innerText || element.textContent || "")
-                .replace(/\s+/g, " ")
-                .trim();
-            const tagName = (element.tagName || "").toLowerCase();
-            const titleValue =
-                textValue ||
-                element.getAttribute("aria-label") ||
-                element.getAttribute("title") ||
-                element.getAttribute("alt") ||
-                (tagName ? `Clip: <${{tagName}}>` : "Clipped element");
-            const link = element.closest ? element.closest("a") : null;
-            const image =
-                tagName === "img"
-                    ? element
-                    : (element.querySelector ? element.querySelector("img") : null);
-            const domPathFor = (target) => {{
-                if (!(target instanceof Element)) return null;
-                const segments = [];
-                let current = target;
-                while (current && current.nodeType === 1 && current !== document.body) {{
-                    const tag = (current.tagName || "div").toLowerCase();
-                    let index = 1;
-                    let sibling = current;
-                    while ((sibling = sibling.previousElementSibling)) {{
-                        if ((sibling.tagName || "").toLowerCase() === tag) {{
-                            index += 1;
-                        }}
-                    }}
-                    segments.unshift(`${{tag}}:nth-of-type(${{index}})`);
-                    current = current.parentElement;
-                }}
-                segments.unshift("body");
-                return segments.join(" > ");
-            }};
 
-            return JSON.stringify({{
-                ok: true,
-                source_url: window.location.href,
-                page_title: document.title || null,
-                clip_title: titleValue,
-                outer_html: element.outerHTML || "",
-                text_excerpt: textValue,
-                tag_name: tagName,
-                href: (link && link.href) || element.getAttribute("href") || null,
-                image_url: (image && image.src) || null,
-                dom_path: domPathFor(element)
-            }});
-        }})()"#
-    )
-}
 
-fn build_page_inspector_extraction_script() -> String {
-    r#"(function() {
-        const normalizeWhitespace = (value) =>
-            (value || "").replace(/\s+/g, " ").trim();
-        const titleFor = (element, tagName, textValue) =>
-            normalizeWhitespace(
-                textValue ||
-                element.getAttribute("aria-label") ||
-                element.getAttribute("title") ||
-                element.getAttribute("alt") ||
-                element.querySelector?.("h1,h2,h3,h4,strong,b")?.textContent ||
-                (tagName ? `Clip: <${tagName}>` : "Clipped element")
-            );
-        const domPathFor = (element) => {
-            if (!(element instanceof Element)) return null;
-            const segments = [];
-            let current = element;
-            while (current && current.nodeType === 1 && current !== document.body) {
-                const tag = (current.tagName || "div").toLowerCase();
-                let index = 1;
-                let sibling = current;
-                while ((sibling = sibling.previousElementSibling)) {
-                    if ((sibling.tagName || "").toLowerCase() === tag) {
-                        index += 1;
-                    }
-                }
-                segments.unshift(`${tag}:nth-of-type(${index})`);
-                current = current.parentElement;
-            }
-            segments.unshift("body");
-            return segments.join(" > ");
-        };
-        const toPayload = (element) => {
-            const tagName = (element.tagName || "").toLowerCase();
-            const textValue = normalizeWhitespace(element.innerText || element.textContent || "");
-            const link = element.closest ? element.closest("a") : null;
-            const image =
-                tagName === "img"
-                    ? element
-                    : (element.querySelector ? element.querySelector("img") : null);
-            return {
-                source_url: window.location.href,
-                page_title: document.title || null,
-                clip_title: titleFor(element, tagName, textValue),
-                outer_html: element.outerHTML || "",
-                text_excerpt: textValue,
-                tag_name: tagName,
-                href: (link && link.href) || element.getAttribute("href") || null,
-                image_url: (image && image.src) || null,
-                dom_path: domPathFor(element)
-            };
-        };
 
-        const candidates = Array.from(
-            document.querySelectorAll("main article, article, section, aside, figure, img, h1, h2, h3, li")
-        );
-        const seen = new Set();
-        const clips = [];
-        for (const element of candidates) {
-            if (!element || seen.has(element)) {
-                continue;
-            }
-            const rect = element.getBoundingClientRect();
-            if (rect.width < 120 || rect.height < 36) {
-                continue;
-            }
-            const textValue = normalizeWhitespace(element.innerText || element.textContent || "");
-            const score =
-                Math.min(textValue.length, 280) +
-                Math.min(rect.width * rect.height / 1800, 180) +
-                (element.querySelector?.("img") ? 60 : 0) +
-                (/^(article|section|figure|aside)$/i.test(element.tagName || "") ? 45 : 0) +
-                (/^h[1-3]$/i.test(element.tagName || "") ? 35 : 0);
-            clips.push({ element, score, rectTop: rect.top });
-            seen.add(element);
-        }
-
-        clips.sort((a, b) => b.score - a.score || a.rectTop - b.rectTop);
-        const selected = [];
-        const selectedTitles = new Set();
-        for (const candidate of clips) {
-            const payload = toPayload(candidate.element);
-            if (!payload.outer_html || payload.outer_html.length > 24000) {
-                continue;
-            }
-            if (!payload.text_excerpt && !payload.image_url) {
-                continue;
-            }
-            const titleKey = payload.clip_title.toLowerCase();
-            if (selectedTitles.has(titleKey)) {
-                continue;
-            }
-            selected.push(payload);
-            selectedTitles.add(titleKey);
-            if (selected.length >= 8) {
-                break;
-            }
-        }
-
-        if (selected.length === 0) {
-            return JSON.stringify({ ok: false, error: "No salient page components were found to clip." });
-        }
-
-        return JSON.stringify({ ok: true, clips: selected });
-    })()"#
-        .to_string()
-}
-
-fn build_clip_inspector_stack_script(local_point: Point2D<f32, DeviceIndependentPixel>) -> String {
-    let x = local_point.x;
-    let y = local_point.y;
-    format!(
-        r#"(function() {{
-            const normalizeWhitespace = (value) => (value || "").replace(/\s+/g, " ").trim();
-            const domPathFor = (element) => {{
-                if (!(element instanceof Element)) return null;
-                const segments = [];
-                let current = element;
-                while (current && current.nodeType === 1 && current !== document.body) {{
-                    const tag = (current.tagName || "div").toLowerCase();
-                    let index = 1;
-                    let sibling = current;
-                    while ((sibling = sibling.previousElementSibling)) {{
-                        if ((sibling.tagName || "").toLowerCase() === tag) {{
-                            index += 1;
-                        }}
-                    }}
-                    segments.unshift(`${{tag}}:nth-of-type(${{index}})`);
-                    current = current.parentElement;
-                }}
-                segments.unshift("body");
-                return segments.join(" > ");
-            }};
-            const toPayload = (element) => {{
-                const tagName = (element.tagName || "").toLowerCase();
-                const textValue = normalizeWhitespace(element.innerText || element.textContent || "");
-                const link = element.closest ? element.closest("a") : null;
-                const image =
-                    tagName === "img"
-                        ? element
-                        : (element.querySelector ? element.querySelector("img") : null);
-                return {{
-                    source_url: window.location.href,
-                    page_title: document.title || null,
-                    clip_title:
-                        textValue ||
-                        element.getAttribute("aria-label") ||
-                        element.getAttribute("title") ||
-                        element.getAttribute("alt") ||
-                        (tagName ? `Clip: <${{tagName}}>` : "Clipped element"),
-                    outer_html: element.outerHTML || "",
-                    text_excerpt: textValue,
-                    tag_name: tagName,
-                    href: (link && link.href) || element.getAttribute("href") || null,
-                    image_url: (image && image.src) || null,
-                    dom_path: domPathFor(element)
-                }};
-            }};
-
-            const dpr = window.devicePixelRatio || 1;
-            const stack = (document.elementsFromPoint({x} / dpr, {y} / dpr) || [])
-                .filter((element) => element instanceof Element)
-                .filter((element, index, arr) => arr.indexOf(element) === index)
-                .slice(0, 8)
-                .map(toPayload);
-            if (stack.length === 0) {{
-                return JSON.stringify({{ ok: false, error: "No DOM elements found under pointer." }});
-            }}
-            return JSON.stringify({{ ok: true, clips: stack }});
-        }})()"#
-    )
-}
-
-fn build_clip_inspector_highlight_script(dom_path: Option<&str>) -> String {
-    let dom_path_json = serde_json::to_string(&dom_path).unwrap_or_else(|_| "null".to_string());
-    format!(
-        r##"(function() {{
-            const OVERLAY_ID = "__graphshell_clip_inspector_overlay__";
-            const LABEL_ID = "__graphshell_clip_inspector_label__";
-            const existingOverlay = document.getElementById(OVERLAY_ID);
-            const existingLabel = document.getElementById(LABEL_ID);
-            if (existingOverlay) existingOverlay.remove();
-            if (existingLabel) existingLabel.remove();
-
-            const selector = {dom_path_json};
-            if (!selector) {{
-                return JSON.stringify({{ ok: true }});
-            }}
-
-            const element = document.querySelector(selector);
-            if (!element) {{
-                return JSON.stringify({{ ok: false, error: "Inspector highlight target not found." }});
-            }}
-
-            const rect = element.getBoundingClientRect();
-            const overlay = document.createElement("div");
-            overlay.id = OVERLAY_ID;
-            overlay.style.position = "fixed";
-            overlay.style.left = `${{rect.left}}px`;
-            overlay.style.top = `${{rect.top}}px`;
-            overlay.style.width = `${{rect.width}}px`;
-            overlay.style.height = `${{rect.height}}px`;
-            overlay.style.border = "2px solid #ff7a00";
-            overlay.style.background = "rgba(255, 122, 0, 0.12)";
-            overlay.style.boxShadow = "0 0 0 9999px rgba(14, 10, 6, 0.12)";
-            overlay.style.pointerEvents = "none";
-            overlay.style.zIndex = "2147483646";
-            overlay.style.borderRadius = "8px";
-            document.documentElement.appendChild(overlay);
-
-            const label = document.createElement("div");
-            label.id = LABEL_ID;
-            label.textContent = selector;
-            label.style.position = "fixed";
-            label.style.left = `${{Math.max(rect.left, 8)}}px`;
-            label.style.top = `${{Math.max(rect.top - 28, 8)}}px`;
-            label.style.padding = "4px 8px";
-            label.style.background = "#1f1610";
-            label.style.color = "#fff8f0";
-            label.style.font = "12px monospace";
-            label.style.borderRadius = "999px";
-            label.style.pointerEvents = "none";
-            label.style.zIndex = "2147483647";
-            document.documentElement.appendChild(label);
-
-            return JSON.stringify({{ ok: true }});
-        }})()"##
-    )
-}
-
-fn parse_clip_capture_result(
-    webview_id: WebViewId,
-    result: Result<JSValue, JavaScriptEvaluationError>,
-) -> Result<ClipCaptureData, String> {
-    let value = parse_clip_json_result(result)?;
-    clip_capture_data_from_value(webview_id, &value)
-}
-
-fn parse_clip_capture_batch_result(
-    webview_id: WebViewId,
-    result: Result<JSValue, JavaScriptEvaluationError>,
-) -> Result<Vec<ClipCaptureData>, String> {
-    let value = parse_clip_json_result(result)?;
-    let clips = value
-        .get("clips")
-        .and_then(JsonValue::as_array)
-        .ok_or_else(|| "clip payload missing required field `clips`".to_string())?;
-    let mut captures = Vec::with_capacity(clips.len());
-    for clip in clips {
-        captures.push(clip_capture_data_from_value(webview_id, clip)?);
-    }
-    if captures.is_empty() {
-        return Err("clip payload contained no captured clips".to_string());
-    }
-    Ok(captures)
-}
-
-fn parse_clip_json_result(
-    result: Result<JSValue, JavaScriptEvaluationError>,
-) -> Result<JsonValue, String> {
-    let json = match result {
-        Ok(JSValue::String(json)) => json,
-        Ok(other) => return Err(format!("unexpected JavaScript clip result: {other:?}")),
-        Err(error) => return Err(format!("JavaScript clip extraction failed: {error:?}")),
-    };
-
-    let value: JsonValue = serde_json::from_str(&json)
-        .map_err(|error| format!("invalid clip payload JSON: {error}"))?;
-    if value.get("ok").and_then(JsonValue::as_bool) != Some(true) {
-        let detail = value
-            .get("error")
-            .and_then(JsonValue::as_str)
-            .unwrap_or("Clip extraction returned an unknown failure.");
-        return Err(detail.to_string());
-    }
-    Ok(value)
-}
-
-fn clip_capture_data_from_value(
-    webview_id: WebViewId,
-    value: &JsonValue,
-) -> Result<ClipCaptureData, String> {
-    let required = |key: &str| -> Result<String, String> {
-        value
-            .get(key)
-            .and_then(JsonValue::as_str)
-            .map(str::to_owned)
-            .filter(|entry| !entry.is_empty())
-            .ok_or_else(|| format!("clip payload missing required field `{key}`"))
-    };
-
-    Ok(ClipCaptureData {
-        webview_id,
-        source_url: required("source_url")?,
-        page_title: value
-            .get("page_title")
-            .and_then(JsonValue::as_str)
-            .map(str::to_owned),
-        clip_title: required("clip_title")?,
-        outer_html: required("outer_html")?,
-        text_excerpt: value
-            .get("text_excerpt")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        tag_name: value
-            .get("tag_name")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        href: value
-            .get("href")
-            .and_then(JsonValue::as_str)
-            .map(str::to_owned),
-        image_url: value
-            .get("image_url")
-            .and_then(JsonValue::as_str)
-            .map(str::to_owned),
-        dom_path: value
-            .get("dom_path")
-            .and_then(JsonValue::as_str)
-            .map(str::to_owned),
-    })
-}
 
 fn emit_navigation_transition_host_dialog_capture() {
     emit_event(DiagnosticEvent::MessageReceived {
@@ -1666,9 +942,10 @@ fn emit_navigation_transition_host_dialog_capture() {
     });
 }
 
-impl PlatformWindow for HeadedWindow {
-    fn as_headed_window(&self) -> Option<&Self> {
-        Some(self)
+impl PlatformWindowRendering for HeadedWindow {
+    fn id(&self) -> EmbedderWindowId {
+        let id: u64 = self.winit_window.id().into();
+        id.into()
     }
 
     #[cfg(feature = "wry")]
@@ -1708,13 +985,40 @@ impl PlatformWindow for HeadedWindow {
             .unwrap_or_else(|| self.device_hidpi_scale_factor())
     }
 
+    fn rendering_context(&self) -> Rc<dyn RenderingContext> {
+        self.rendering_context.clone()
+    }
+
+    fn theme(&self) -> servo::Theme {
+        match self.winit_window.theme() {
+            Some(winit::window::Theme::Dark) => servo::Theme::Dark,
+            Some(winit::window::Theme::Light) | None => servo::Theme::Light,
+        }
+    }
+
+    fn window_rect(&self) -> DeviceIndependentIntRect {
+        let outer_size = self.winit_window.outer_size();
+        let scale = self.hidpi_scale_factor();
+
+        let outer_size = winit_size_to_euclid_size(outer_size).to_i32();
+
+        let origin = self
+            .winit_window
+            .outer_position()
+            .map(winit_position_to_euclid_point)
+            .unwrap_or_default();
+        convert_rect_to_css_pixel(
+            DeviceIntRect::from_origin_and_size(origin, outer_size),
+            scale,
+        )
+    }
+
     fn rebuild_user_interface(&self, state: &RunningAppState, window: &EmbedderWindow) {
         self.gui.borrow_mut().update(state, window, self);
     }
 
     fn update_user_interface_state(&self, _: &RunningAppState, window: &EmbedderWindow) -> bool {
-        let title = self
-            .explicit_chrome_webview(window)
+        let title = input_routing::explicit_chrome_webview(self, window)
             .and_then(|webview| {
                 webview
                     .page_title()
@@ -1770,26 +1074,23 @@ impl PlatformWindow for HeadedWindow {
             })
     }
 
-    fn window_rect(&self) -> DeviceIndependentIntRect {
-        let outer_size = self.winit_window.outer_size();
-        let scale = self.hidpi_scale_factor();
+    #[cfg(feature = "webxr")]
+    fn new_glwindow(&self, event_loop: &ActiveEventLoop) -> Rc<dyn servo::webxr::GlWindow> {
+        xr::new_glwindow(self, event_loop)
+    }
+}
 
-        let outer_size = winit_size_to_euclid_size(outer_size).to_i32();
-
-        let origin = self
-            .winit_window
-            .outer_position()
-            .map(winit_position_to_euclid_point)
-            .unwrap_or_default();
-        convert_rect_to_css_pixel(
-            DeviceIntRect::from_origin_and_size(origin, outer_size),
-            scale,
-        )
+impl PlatformWindowOps for HeadedWindow {
+    fn focus(&self) {
+        self.winit_window.focus_window();
     }
 
-    fn set_position(&self, point: DeviceIntPoint) {
-        self.winit_window
-            .set_outer_position::<PhysicalPosition<i32>>(PhysicalPosition::new(point.x, point.y))
+    fn has_platform_focus(&self) -> bool {
+        self.winit_window.has_focus()
+    }
+
+    fn get_fullscreen(&self) -> bool {
+        self.fullscreen.get()
     }
 
     fn set_fullscreen(&self, state: bool) {
@@ -1805,81 +1106,26 @@ impl PlatformWindow for HeadedWindow {
         self.fullscreen.set(state);
     }
 
-    fn get_fullscreen(&self) -> bool {
-        self.fullscreen.get()
+    fn set_position(&self, point: DeviceIntPoint) {
+        self.winit_window
+            .set_outer_position::<PhysicalPosition<i32>>(PhysicalPosition::new(point.x, point.y))
     }
 
     fn set_cursor(&self, cursor: Cursor) {
         self.last_servo_cursor.set(cursor);
         if self.dialog_cursor_override_active.get() {
-            self.apply_platform_cursor(Cursor::Default);
+            input_routing::apply_platform_cursor(self, Cursor::Default);
             return;
         }
-        self.apply_platform_cursor(cursor);
-    }
-
-    fn id(&self) -> EmbedderWindowId {
-        let id: u64 = self.winit_window.id().into();
-        id.into()
-    }
-
-    #[cfg(feature = "webxr")]
-    fn new_glwindow(&self, event_loop: &ActiveEventLoop) -> Rc<dyn servo::webxr::GlWindow> {
-        xr::new_glwindow(self, event_loop)
-    }
-
-    fn rendering_context(&self) -> Rc<dyn RenderingContext> {
-        self.rendering_context.clone()
-    }
-
-    fn theme(&self) -> servo::Theme {
-        match self.winit_window.theme() {
-            Some(winit::window::Theme::Dark) => servo::Theme::Dark,
-            Some(winit::window::Theme::Light) | None => servo::Theme::Light,
-        }
+        input_routing::apply_platform_cursor(self, cursor);
     }
 
     fn maximize(&self, _webview: &WebView) {
         self.winit_window.set_maximized(true);
     }
+}
 
-    /// Handle Graphshell key bindings that may have been prevented by the page in the active webview.
-    fn notify_input_event_handled(
-        &self,
-        webview: &WebView,
-        id: InputEventId,
-        result: InputEventResult,
-    ) {
-        let Some(keyboard_event) = self.pending_keyboard_events.borrow_mut().remove(&id) else {
-            return;
-        };
-        if result.intersects(InputEventResult::DefaultPrevented | InputEventResult::Consumed) {
-            return;
-        }
-
-        ShortcutMatcher::from_event(keyboard_event.event)
-            .shortcut(CMD_OR_CONTROL, '=', || {
-                webview.set_page_zoom(webview.page_zoom() + 0.1);
-            })
-            .shortcut(CMD_OR_CONTROL, '+', || {
-                webview.set_page_zoom(webview.page_zoom() + 0.1);
-            })
-            .shortcut(CMD_OR_CONTROL, '-', || {
-                webview.set_page_zoom(webview.page_zoom() - 0.1);
-            })
-            .shortcut(CMD_OR_CONTROL, '0', || {
-                webview.set_page_zoom(1.0);
-            });
-    }
-
-    fn focus(&self) {
-        self.winit_window.focus_window();
-    }
-
-    fn has_platform_focus(&self) -> bool {
-        self.winit_window.has_focus()
-    }
-
+impl PlatformWindowDialogs for HeadedWindow {
     fn show_embedder_control(&self, webview_id: WebViewId, embedder_control: EmbedderControl) {
         embedder_controls::show_embedder_control(self, webview_id, embedder_control);
     }
@@ -1921,6 +1167,37 @@ impl PlatformWindow for HeadedWindow {
     fn dismiss_embedder_controls_for_webview(&self, webview_id: WebViewId) {
         embedder_controls::dismiss_embedder_controls_for_webview(self, webview_id);
     }
+}
+
+impl PlatformWindowSignals for HeadedWindow {
+    /// Handle Graphshell key bindings that may have been prevented by the page in the active webview.
+    fn notify_input_event_handled(
+        &self,
+        webview: &WebView,
+        id: InputEventId,
+        result: InputEventResult,
+    ) {
+        let Some(keyboard_event) = self.pending_keyboard_events.borrow_mut().remove(&id) else {
+            return;
+        };
+        if result.intersects(InputEventResult::DefaultPrevented | InputEventResult::Consumed) {
+            return;
+        }
+
+        ShortcutMatcher::from_event(keyboard_event.event)
+            .shortcut(CMD_OR_CONTROL, '=', || {
+                webview.set_page_zoom(webview.page_zoom() + 0.1);
+            })
+            .shortcut(CMD_OR_CONTROL, '+', || {
+                webview.set_page_zoom(webview.page_zoom() + 0.1);
+            })
+            .shortcut(CMD_OR_CONTROL, '-', || {
+                webview.set_page_zoom(webview.page_zoom() - 0.1);
+            })
+            .shortcut(CMD_OR_CONTROL, '0', || {
+                webview.set_page_zoom(1.0);
+            });
+    }
 
     fn show_console_message(&self, level: servo::ConsoleLogLevel, message: &str) {
         println!("{message}");
@@ -1938,14 +1215,12 @@ impl PlatformWindow for HeadedWindow {
     }
 }
 
-fn winit_phase_to_touch_event_type(phase: TouchPhase) -> TouchEventType {
-    match phase {
-        TouchPhase::Started => TouchEventType::Down,
-        TouchPhase::Moved => TouchEventType::Move,
-        TouchPhase::Ended => TouchEventType::Up,
-        TouchPhase::Cancelled => TouchEventType::Cancel,
+impl PlatformWindow for HeadedWindow {
+    fn as_headed_window(&self) -> Option<&Self> {
+        Some(self)
     }
 }
+
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn load_icon(icon_bytes: &[u8]) -> Icon {
@@ -2020,49 +1295,26 @@ impl TouchEventSimulator {
 mod tests {
     use super::*;
 
-    fn test_webview_id() -> WebViewId {
-        thread_local! {
-            static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-        }
-        NS_INSTALLED.with(|cell| {
-            if !cell.get() {
-                base::id::PipelineNamespace::install(base::id::PipelineNamespaceId(47));
-                cell.set(true);
-            }
-        });
-        WebViewId::new(base::id::PainterId::next())
-    }
-
     #[test]
     fn test_should_retarget_webview_focus_only_on_press() {
-        assert!(HeadedWindow::should_retarget_webview_focus(
+        assert!(input_routing::should_retarget_webview_focus(
             ElementState::Pressed
         ));
-        assert!(!HeadedWindow::should_retarget_webview_focus(
+        assert!(!input_routing::should_retarget_webview_focus(
             ElementState::Released
         ));
     }
 
     #[test]
     fn test_graph_control_shortcut_includes_focus_and_camera_lock_keys() {
-        assert!(HeadedWindow::is_graph_control_shortcut(KeyCode::F6));
-        assert!(HeadedWindow::is_graph_control_shortcut(KeyCode::F9));
+        assert!(input_routing::is_graph_control_shortcut(KeyCode::F6));
+        assert!(input_routing::is_graph_control_shortcut(KeyCode::F9));
     }
 
     #[test]
     fn test_graph_control_shortcut_excludes_regular_text_entry_keys() {
-        assert!(!HeadedWindow::is_graph_control_shortcut(KeyCode::Enter));
-        assert!(!HeadedWindow::is_graph_control_shortcut(KeyCode::KeyQ));
+        assert!(!input_routing::is_graph_control_shortcut(KeyCode::Enter));
+        assert!(!input_routing::is_graph_control_shortcut(KeyCode::KeyQ));
     }
 
-    #[test]
-    fn test_resolve_embedded_input_webview_id_prefers_explicit_embedded_focus() {
-        let embedded_focus = test_webview_id();
-        let fallback = test_webview_id();
-
-        assert_eq!(
-            HeadedWindow::resolve_embedded_input_webview_id(Some(embedded_focus), Some(fallback)),
-            Some(embedded_focus)
-        );
-    }
 }

@@ -787,9 +787,12 @@ Analogy contract:
 - closing a frame handle is like closing an open folder view,
 - neither operation destroys the underlying graph object.
 
-Transitional note: existing `MagneticZone` behavior is treated as legacy
-terminology in older docs, not an implemented runtime authority. Frame-affinity
-regions are the canonical organizational channel.
+Transitional note: `MagneticZone` is legacy terminology only, not an implemented
+runtime authority. The canonical model is `Frame` / `Frame membership` / `Frame-affinity region`
+as defined in `workbench/graph_first_frame_semantics_spec.md §3`. The visual canvas
+backdrop for a frame's members is a frame-affinity region; the term `MagneticZone`
+must not appear in new code or docs. Closing a frame handle (`CloseFrameHandle`) is
+non-destructive; `DeleteFrame` is the explicit destructive path requiring confirmation.
 
 ### 5.8 Multiple Graph Views
 
@@ -1144,7 +1147,7 @@ Each conflict is owned by the chief component responsible for resolution.
 |---------|-------------------|------------------|-------------------|
 | Right-click semantics | Some viewer/workbench docs still describe explicit context-menu flows, while command canonical docs retire Context Menu as first-class Graphshell surface | Command aspect | Keep command authority in `ActionRegistry`; treat embedder context menus as adapters that invoke contextual palette mode |
 | Edge traversal interaction depth | Edge traversal spec permits edge traversal primary action; migration spec adds keyboard edge-walk model that may overfit power users | History + Canvas | Validate against UX research agenda and settle default edge-focus model via targeted tests |
-| Frame-first organization vs older zone terminology | This migration reframes organization around graph-first Frames while some docs still use `MagneticZone` wording for organizational clustering | Workbench + Canvas | Adopt `Graph-First Frame Semantics` as authority and update older docs to frame-affinity wording |
+| ~~Frame-first organization vs older zone terminology~~ | **Resolved 2026-03-23**: `MagneticZone` is deprecated as legacy alias; canonical model is `Frame` / `Frame membership` / `Frame-affinity region` per `workbench/graph_first_frame_semantics_spec.md`. `CloseFrameHandle` / `DeleteFrame` semantics and cross-tree membership sync are now explicit in `workbench/workbench_frame_tile_interaction_spec.md §2.4A` and the terminology lock section. | Workbench + Canvas | **Closed** (`#268`) |
 | UxTree convergence ambition | Aspirational replacement of `egui_tiles` / `egui_graphs` responsibilities vs current two-authority contracts and near-term delivery constraints | UX Semantics subsystem | Stage as roadmap with explicit gates; keep C1–C5 + two-authority invariants intact during migration |
 | Radial overflow UX | Current radial second-ring implementation can stack labels; command spec requires readable directional surface | Command aspect | Ship dedicated radial geometry/overflow spec and acceptance tests before declaring radial primary |
 

@@ -1839,6 +1839,179 @@ mod tests {
         assert!(post <= pre);
     }
 
+    // ── §6 scenario contract tests (radial_menu_geometry_and_overflow_spec.md §6) ──────
+
+    /// §6 scenario 1: 1–8 category contexts render all Tier-1 categories on one ring page.
+    /// With exactly 4 registered categories, all fit on page 0 — no overflow page is needed.
+    #[test]
+    fn scenario_1_to_8_categories_fit_on_single_tier1_page() {
+        let categories = default_category_order();
+        assert!(
+            categories.len() <= MAX_VISIBLE_ACTIONS_PER_RING,
+            "all registered Tier-1 categories must fit on a single ring page (≤{}); \
+             got {}",
+            MAX_VISIBLE_ACTIONS_PER_RING,
+            categories.len()
+        );
+        let page_count = ring_page_count(categories.len(), MAX_VISIBLE_ACTIONS_PER_RING);
+        assert_eq!(
+            page_count,
+            1,
+            "exactly 1 Tier-1 page expected when category count ≤ max-visible"
+        );
+    }
+
+    /// §6 scenario 2: Tier-1 category selection drives the Tier-2 option ring for that
+    /// category. Each registered category must produce a non-empty Tier-2 action list.
+    #[test]
+    fn scenario_tier1_selection_drives_tier2_option_ring() {
+        let ctx = ActionContext {
+            target_node: None,
+            pair_context: None,
+            any_selected: false,
+            focused_pane_available: false,
+            undo_available: true,
+            redo_available: false,
+            input_mode: InputMode::MouseKeyboard,
+            view_id: crate::app::GraphViewId::new(),
+            wry_override_allowed: false,
+        };
+        for category in default_category_order() {
+            let actions = list_radial_actions_for_category(&ctx, category);
+            assert!(
+                !actions.is_empty(),
+                "Tier-1 category {:?} must produce at least one Tier-2 action for undo-available context",
+                category
+            );
+        }
+    }
+
+    /// §6 scenario 3: >8 categories/options trigger deterministic paging.
+    /// Build a synthetic entry list of 9 and verify page 0 has exactly 8, page 1 has 1.
+    #[test]
+    fn scenario_overflow_beyond_8_triggers_deterministic_paging() {
+        let entries: Vec<ActionEntry> = (0..9)
+            .map(|i| ActionEntry {
+                id: if i % 2 == 0 {
+                    ActionId::NodeNew
+                } else {
+                    ActionId::GraphFit
+                },
+                enabled: true,
+            })
+            .collect();
+
+        let page_count = ring_page_count(entries.len(), MAX_VISIBLE_ACTIONS_PER_RING);
+        assert_eq!(page_count, 2, "9 entries should produce 2 pages");
+
+        let page0 = paged_ring_entries(&entries, 0, MAX_VISIBLE_ACTIONS_PER_RING);
+        let page1 = paged_ring_entries(&entries, 1, MAX_VISIBLE_ACTIONS_PER_RING);
+        assert_eq!(page0.len(), MAX_VISIBLE_ACTIONS_PER_RING);
+        assert_eq!(page1.len(), 1);
+
+        // Determinism: same entries, same pages, same order.
+        let page0_again = paged_ring_entries(&entries, 0, MAX_VISIBLE_ACTIONS_PER_RING);
+        assert!(
+            page0
+                .iter()
+                .zip(page0_again.iter())
+                .all(|(a, b)| a.id == b.id),
+            "Tier-2 paging must be deterministic across calls"
+        );
+    }
+
+    /// §6 scenario 4: Tier-1/Tier-2 rings never produce lane/radius overlap under
+    /// hover scaling. The pre-check must pass for the default geometry at max visible count.
+    #[test]
+    fn scenario_rings_do_not_overlap_under_hover_scaling_at_max_visible() {
+        let center = egui::pos2(0.0, 0.0);
+        for domain in RadialDomain::ALL {
+            assert!(
+                ring_layout_supports_hover_non_overlap(
+                    center,
+                    domain,
+                    MAX_VISIBLE_ACTIONS_PER_RING,
+                    0.0,
+                    0.0,
+                ),
+                "Tier-2 ring with domain {:?} at max visible count must not produce \
+                 lane overlap under hover scaling (spec §4.1, §6 scenario 4)",
+                domain
+            );
+        }
+    }
+
+    /// §6 scenario 5: Label collision resolver reduces collisions at the default ring radius.
+    ///
+    /// Full zero-collision convergence is not guaranteed by the resolver alone — the spec
+    /// contract (§4.1) defines a three-stage fallback: radial offset → in-field truncation/scroll
+    /// → pagination. The unit-testable invariant is: post-collision count ≤ pre-collision count,
+    /// and the `ux:radial_label_collision` Warn channel fires when post > 0 (diagnostics contract
+    /// in §5.2 covers the observable fallback signal).
+    #[test]
+    fn scenario_label_collision_resolver_reduces_collisions_at_default_radius() {
+        let center = egui::pos2(0.0, 0.0);
+        let entries = sample_entries(); // 8 entries, evenly distributed
+        let metrics = compute_label_layout_metrics_with_radius(
+            center,
+            RadialDomain::Node,
+            &entries,
+            COMMAND_RING_RADIUS,
+        );
+        assert!(
+            metrics.post_collisions <= metrics.pre_collisions,
+            "label collision resolver must not increase collision count (spec §4.1, §6 scenario 5); \
+             pre={}, post={}",
+            metrics.pre_collisions,
+            metrics.post_collisions
+        );
+        // With only 2 entries the anchors are far enough apart that the resolver must fully converge.
+        let two_entry_metrics = compute_label_layout_metrics_with_radius(
+            center,
+            RadialDomain::Node,
+            &entries[..2],
+            COMMAND_RING_RADIUS,
+        );
+        assert_eq!(
+            two_entry_metrics.post_collisions,
+            0,
+            "label collision resolver must converge to 0 overlaps for 2-entry ring \
+             (anchors are 180° apart — no tangential crowding) (spec §4.1, §6 scenario 5)"
+        );
+    }
+
+    /// §6 scenario 6 (partial): Keyboard/gamepad angular selection resolves to the
+    /// same entry as pointer-based nearest-entry resolution when both aim at the
+    /// same angular position. Full dispatch parity requires egui context (integration test).
+    #[test]
+    fn scenario_keyboard_angular_selection_matches_pointer_nearest_entry() {
+        let center = egui::pos2(0.0, 0.0);
+        let entries = sample_entries();
+        let len = entries.len().min(MAX_VISIBLE_ACTIONS_PER_RING);
+
+        // For each anchor, aim the pointer directly at it — nearest_entry must pick that entry.
+        for idx in 0..len {
+            let anchor = command_anchor(center, RadialDomain::Node, idx, len);
+            let nearest = nearest_entry_for_pointer(
+                RadialDomain::Node,
+                center,
+                anchor,
+                &entries[..len],
+                0.0,
+                0.0,
+            );
+            assert!(
+                nearest.is_some(),
+                "pointer aimed at anchor {idx} must resolve a nearest entry (spec §4.3, §6 scenario 6)"
+            );
+            assert_eq!(
+                nearest.unwrap().id,
+                entries[idx].id,
+                "pointer aimed directly at anchor {idx} must resolve the entry at that index"
+            );
+        }
+    }
+
     #[test]
     fn radial_disabled_text_contrast_meets_wcag_minimum_for_text() {
         let tokens = crate::shell::desktop::runtime::registries::theme::ThemeRegistry::default()

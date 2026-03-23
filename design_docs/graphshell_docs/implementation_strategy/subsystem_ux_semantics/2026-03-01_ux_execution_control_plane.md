@@ -146,7 +146,7 @@ Issue status classes:
 | Severity | Gap slice | Issue links |
 |---|---|---|
 | Critical | Core canvas interaction invariants full closure (selection/lasso/zoom/edge focus) | `#173`, `#185`, `#102`, `#104`, `#101`, `#103`, `#271` |
-| High | UxHarness critical-path evidence and UxTree authority trajectory gate | `#251`, `#257`, `#273`, `#272` |
+| High | UxScenario snapshot baseline/diff CI gate (remaining open after G7) | `#257` |
 | High | Inter-workbench semantics and WorkbenchProfile composition contracts | `#174`, `#186`, `#187`, `#118`, `#119` |
 | Medium | Readability/adaptation portfolio expansion and post-switch interaction tuning | `#180`, `#181`, `#182` |
 

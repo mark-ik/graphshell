@@ -23,6 +23,7 @@ use winit::dpi::PhysicalSize;
 use crate::prefs::AppPreferences;
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, MIN_WINDOW_INNER_SIZE, PlatformWindow,
+    PlatformWindowDialogs, PlatformWindowOps, PlatformWindowRendering, PlatformWindowSignals,
 };
 
 pub struct HeadlessWindow {
@@ -81,12 +82,12 @@ impl Drop for HeadlessWindow {
     }
 }
 
-impl PlatformWindow for HeadlessWindow {
+impl PlatformWindowRendering for HeadlessWindow {
     fn id(&self) -> EmbedderWindowId {
         self.id
     }
 
-    fn screen_geometry(&self) -> servo::ScreenGeometry {
+    fn screen_geometry(&self) -> ScreenGeometry {
         ScreenGeometry {
             size: self.screen_size,
             available_size: self.screen_size,
@@ -97,8 +98,24 @@ impl PlatformWindow for HeadlessWindow {
         }
     }
 
-    fn set_position(&self, point: DeviceIntPoint) {
-        self.window_position.set(point);
+    fn device_hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel> {
+        Scale::new(1.0)
+    }
+
+    fn hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel> {
+        self.device_pixel_ratio_override
+            .unwrap_or_else(|| self.device_hidpi_scale_factor())
+    }
+
+    fn rendering_context(&self) -> Rc<dyn RenderingContext> {
+        self.rendering_context.clone()
+    }
+
+    fn window_rect(&self) -> DeviceIndependentIntRect {
+        convert_rect_to_css_pixel(
+            DeviceIntRect::from_origin_and_size(self.window_position.get(), self.inner_size.get()),
+            self.hidpi_scale_factor(),
+        )
     }
 
     fn request_repaint(&self, window: &EmbedderWindow) {
@@ -126,23 +143,6 @@ impl PlatformWindow for HeadlessWindow {
         Some(new_size)
     }
 
-    fn device_hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel> {
-        Scale::new(1.0)
-    }
-
-    fn hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel> {
-        self.device_pixel_ratio_override
-            .unwrap_or_else(|| self.device_hidpi_scale_factor())
-    }
-
-    fn set_fullscreen(&self, state: bool) {
-        self.fullscreen.set(state);
-    }
-
-    fn get_fullscreen(&self) -> bool {
-        self.fullscreen.get()
-    }
-
     #[cfg(feature = "webxr")]
     fn new_glwindow(
         &self,
@@ -151,16 +151,19 @@ impl PlatformWindow for HeadlessWindow {
         error!("HeadlessWindow does not support WebXR GL windows");
         std::process::abort()
     }
+}
 
-    fn window_rect(&self) -> DeviceIndependentIntRect {
-        convert_rect_to_css_pixel(
-            DeviceIntRect::from_origin_and_size(self.window_position.get(), self.inner_size.get()),
-            self.hidpi_scale_factor(),
-        )
+impl PlatformWindowOps for HeadlessWindow {
+    fn get_fullscreen(&self) -> bool {
+        self.fullscreen.get()
     }
 
-    fn rendering_context(&self) -> Rc<dyn RenderingContext> {
-        self.rendering_context.clone()
+    fn set_fullscreen(&self, state: bool) {
+        self.fullscreen.set(state);
+    }
+
+    fn set_position(&self, point: DeviceIntPoint) {
+        self.window_position.set(point);
     }
 
     fn maximize(&self, webview: &WebView) {
@@ -174,9 +177,15 @@ impl PlatformWindow for HeadlessWindow {
             self.screen_size.height as u32,
         ));
     }
+}
 
+impl PlatformWindowDialogs for HeadlessWindow {}
+
+impl PlatformWindowSignals for HeadlessWindow {
     fn show_console_message(&self, level: servo::ConsoleLogLevel, message: &str) {
         println!("{message}");
         log::log!(level.into(), "{message}");
     }
 }
+
+impl PlatformWindow for HeadlessWindow {}

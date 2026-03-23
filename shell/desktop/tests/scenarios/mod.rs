@@ -1,4 +1,5 @@
 mod black_tile;
+mod pre_wgpu_critical_path;
 mod diagnostics_startup;
 mod graph_parity;
 mod grouping;

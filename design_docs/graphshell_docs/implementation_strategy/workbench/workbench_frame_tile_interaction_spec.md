@@ -17,6 +17,7 @@
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar split
 - `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation edges backing frame/tile membership; Navigator projection sections
+- `graph_first_frame_semantics_spec.md` — canonical cross-tree semantics for Frame lifecycle, `CloseFrameHandle` vs `DeleteFrame`, and workbench-to-graph membership sync
 - `graphlet_projection_binding_spec.md`
 - `workbench_layout_policy_spec.md` — surface-role layout constraints, `UxConfigMode`, `WorkbenchLayoutPolicyEvaluator`
 - `workbench_profile_and_workflow_composition_spec.md`
@@ -55,6 +56,8 @@ Normative workbench contracts use: intent, trigger, preconditions, semantic resu
 - Graphlet and Tile Group are not synonyms: a graphlet is a connected component
   under an active edge projection; a tile group is its workbench
   presentation/container and may be either linked to that graphlet or detached.
+- `MagneticZone` is a legacy alias only — use `Frame`, `Frame membership`, or `Frame-affinity region`. The visual canvas backdrop for a frame's member nodes is informally called a frame-affinity region; the term `MagneticZone` must not appear in new code or docs. See `graph_first_frame_semantics_spec.md §3` and `../../TERMINOLOGY.md` Legacy section.
+- `CloseFrameHandle` is non-destructive: it removes the workbench handle only, preserving the graph frame identity and all membership edges. `DeleteFrame` is destructive and requires explicit confirmation. `Ctrl+W` on a frame context maps to `CloseFrameHandle`. See `graph_first_frame_semantics_spec.md §4.2`.
 
 ### Status update (2026-03-18)
 
@@ -187,6 +190,22 @@ Additional structure rules:
   interactive session mutation and structural realization.
 - The Workbench subsystem may persist arrangement state and return-path memory, but that persistence is workspace state, not durable content hierarchy.
 - The **Navigator** (Workbench Sidebar projection), when visible, is a Graph-owned read-only projection over relation families and is not part of workbench arrangement truth.
+
+### 2.4A Cross-tree sync semantics (authority: `graph_first_frame_semantics_spec.md`)
+
+Workbench frame operations have defined effects on graph-scope membership truth:
+
+| Workbench action | Graph-scope effect |
+|---|---|
+| `CreateFrame` | Emits graph-scope frame node; membership initially empty |
+| `AddNodeToFrame(frame_id, node_key)` | Emits `ArrangementRelation` / `frame-member` edge in graph scope |
+| `RemoveNodeFromFrame(frame_id, node_key)` | Removes `frame-member` edge; does not delete node |
+| `CloseFrameHandle(frame_id)` | No graph-scope effect; handle only removed from workbench session |
+| `DeleteFrame(frame_id)` | Removes graph frame identity and all `frame-member` edges (destructive; requires explicit confirmation) |
+
+Cross-tree rule: workbench frame UI operations that mutate membership must route through graph-scope intents so that graph truth and workbench arrangement stay consistent. Frame operations that are purely arrangement-local (split, dock, reorder) do not require graph-scope propagation.
+
+Authoritative contract: `graph_first_frame_semantics_spec.md §4`.
 
 ---
 
