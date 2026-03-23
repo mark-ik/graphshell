@@ -48,9 +48,9 @@ three increasingly important relation categories:
 The insight driving this design: these relation categories are not fundamentally
 different from the existing `EdgeKind` kinds — they are all relations between
 nodes with different semantics, lifecycle, and projection rules. Unifying them
-under one typed family vocabulary lets a single sidebar navigator render all
-relation types legibly, lets the physics engine apply appropriate forces per
-family, and lets the persistence layer apply appropriate durability per family.
+under one typed family vocabulary lets Navigator hosts render all relation
+types legibly, lets the physics engine apply appropriate forces per family, and
+lets the persistence layer apply appropriate durability per family.
 
 ### 1.1 Shared-carrier consequence
 
@@ -58,7 +58,7 @@ This family model is intentionally not canvas-only. The same relation-family
 vocabulary is meant to be reused by:
 
 - the **Navigator** for section ownership and row hierarchy,
-- the **Workbench Sidebar** for arrangement projection,
+- workbench-scoped **Navigator hosts** for arrangement projection,
 - the **History** subsystem for recent/traversal projection,
 - **filesystem/import** flows for derived hierarchy and imported grouping,
 - **lens + physics** policy (`FamilyPhysicsPolicy`) for family-aware layout and
@@ -216,8 +216,8 @@ This split is crucial: arrangement relations are graph-rooted, but not every
 runtime layout wiggle becomes durable graph truth. Promotion into a saved frame
 is the explicit bridge from session-only arrangement to durable arrangement.
 
-**Visibility rule**: Hidden from canvas by default. Arrangement is visible in the
-workbench sidebar navigator, not as canvas edges. Optionally visible as faint
+**Visibility rule**: Hidden from canvas by default. Arrangement is visible in a
+workbench-scoped Navigator host, not as canvas edges. Optionally visible as faint
 spatial grouping indicators in the canvas when a "workbench overlay" lens is
 active.
 
@@ -301,8 +301,9 @@ Four tiers govern durability:
 
 ## 5. Navigator Projection Policy
 
-The workbench sidebar navigator (see `2026-03-13_chrome_scope_split_plan.md §5`)
-is the primary tree/list projection surface over relation families.
+The Navigator, especially when rendered in a workbench-scoped host (see
+`2026-03-13_chrome_scope_split_plan.md §5`), is the primary tree/list
+projection surface over relation families.
 
 ### 5.0 Shared projection contract
 

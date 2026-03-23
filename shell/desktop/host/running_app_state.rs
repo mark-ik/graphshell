@@ -45,10 +45,10 @@ use crate::shell::desktop::host::gamepad::GamepadUiCommand;
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 use crate::shell::desktop::host::gamepad_runtime::GamepadRuntime;
+use crate::shell::desktop::host::webdriver_runtime::WebDriverRuntime;
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, GraphSemanticEvent, PlatformWindow, WebViewCreationContext,
 };
-use crate::shell::desktop::host::webdriver_runtime::WebDriverRuntime;
 #[cfg(all(
     feature = "diagnostics",
     not(any(target_os = "android", target_env = "ohos"))
@@ -249,8 +249,7 @@ mod tests {
     #[test]
     fn servo_callbacks_only_enqueue_events() {
         let running_state_source = include_str!("running_app_state.rs");
-        let webview_delegate_source =
-            include_str!("running_app_state/webview_delegate.rs");
+        let webview_delegate_source = include_str!("running_app_state/webview_delegate.rs");
         let window_source = include_str!("window.rs");
 
         for source in [running_state_source, webview_delegate_source, window_source] {
@@ -671,7 +670,6 @@ impl RunningAppState {
     pub(crate) fn handle_focused(&self, window: Rc<EmbedderWindow>) {
         self.embedder_core.focus_window(window);
     }
-
 }
 
 impl WebViewCreationContext for RunningAppState {

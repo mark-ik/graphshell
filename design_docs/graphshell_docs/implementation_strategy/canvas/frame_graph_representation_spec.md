@@ -65,7 +65,7 @@ background and a subtle border.
   default: approximately 4× the width of a standard node icon, adjustable by
   the force-directed layout engine's node-size policy.
 - **Color**: a distinct per-frame solid fill, drawn from the same palette used
-  for frame tabs in the Workbench Sidebar. The color is stable per frame
+  for frame tabs in the workbench-scoped Navigator host. The color is stable per frame
   identity (`FrameId`).
 
 ### 2.2 Label
@@ -193,7 +193,7 @@ interaction model as individual nodes, with one extension:
 | Interaction | Target | Result |
 |-------------|--------|--------|
 | Single click on frame box (not on a marker) | Frame box | Expands/reveals this frame's contents in the Navigator; workbench does not switch active frame |
-| Double click on frame box (not on a marker) | Frame box | Switches active frame in the workbench to this frame; opens the workbench sidebar if not visible |
+| Double click on frame box (not on a marker) | Frame box | Switches active frame in the workbench to this frame; opens the workbench-scoped Navigator host if not visible |
 | Single click on a marker inside frame box | Node marker | Selects that node (same as §2.1 of navigator isomorphism spec) |
 | Double click on a marker inside frame box | Node marker | Navigates to that node's resolved presentation target (same as §3.2) |
 | Right click on frame box | Frame box | Context menu: Rename, Delete Frame, Open Frame, Duplicate Frame |

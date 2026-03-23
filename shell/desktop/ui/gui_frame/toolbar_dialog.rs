@@ -20,7 +20,7 @@ use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthori
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
-use crate::shell::desktop::ui::workbench_sidebar;
+use crate::shell::desktop::ui::workbench_host;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
@@ -104,7 +104,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
     );
     let focused_content_status =
         webview_status_sync::focused_content_status(focused_toolbar_node, graph_app, window);
-    let workbench_projection = workbench_sidebar::render_workbench_sidebar(
+    let workbench_projection = workbench_host::render_workbench_host(
         ctx,
         graph_app,
         window,
@@ -116,8 +116,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
     );
     let is_graph_view = matches!(
         workbench_projection.layer_state,
-        workbench_sidebar::WorkbenchLayerState::GraphOnly
-            | workbench_sidebar::WorkbenchLayerState::GraphOverlayActive
+        workbench_host::WorkbenchLayerState::GraphOnly
+            | workbench_host::WorkbenchLayerState::GraphOverlayActive
     );
     if !is_graph_view {
         graph_app.workspace.graph_runtime.hovered_graph_node = None;

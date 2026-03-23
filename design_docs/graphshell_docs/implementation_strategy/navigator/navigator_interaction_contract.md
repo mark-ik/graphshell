@@ -2,9 +2,9 @@
 
 **Date**: 2026-03-17 (moved from `workbench/navigator_graph_isomorphism_spec.md` 2026-03-15)
 **Status**: Design — Pre-Implementation
-**Purpose**: Canonical interaction grammar for the Sidebar Navigator and Toolbar
-Navigator. Defines which rows select nodes, which rows expand containers, and
-how node navigation resolves between graph and workbench presentations.
+**Purpose**: Canonical interaction grammar for Navigator hosts. Defines which
+rows select nodes, which rows expand containers, and how node navigation
+resolves between graph and workbench presentations.
 
 **Related**:
 
@@ -33,7 +33,9 @@ The canonical click grammar is therefore **row-type specific**:
 | `Tile` row | Expand/collapse contents | No-op |
 | Other structural row (`Split`, `Group`) | Expand/collapse contents | No-op |
 
-The Sidebar Navigator and Toolbar Navigator must behave identically.
+All Navigator hosts must behave identically at the interaction-grammar level.
+Differences in host edge, form factor, scope, and margin settings must not
+change row semantics.
 
 ---
 
@@ -203,8 +205,8 @@ Required behavior:
   inspector, or permission-management route. It does not write graph
   selection truth.
 4. Trust and permission chips must not disappear solely because the Navigator
-  switches between sidebar/toolbar or graph/workbench scope while a node-backed
-  content surface remains active.
+  switches between host form factors, host edges, or graph/workbench scope
+  while a node-backed content surface remains active.
 
 ### 4.5 Focused Content Control Chips
 
@@ -309,7 +311,7 @@ of one shared node identity.
 | Dismiss closes tile and demotes node to Cold | Test: dismiss selected live node -> tile closed; node becomes Cold; edges preserved; node remains in Navigator with ○ badge |
 | Dismissed node remains in graphlet | Test: dismiss node -> durable edges intact; node still in Navigator row for its graphlet |
 | Right-click cold node offers RemoveFromGraphlet | Test: right-click cold node row -> context menu shows `RemoveFromGraphlet`; activating retracts durable edges; node leaves Navigator row |
-| Sidebar and Toolbar Navigator use the same grammar | Test: same node/structural row interactions behave identically in both surfaces |
+| Multiple Navigator hosts use the same grammar | Test: the same node/structural row interactions behave identically in top/bottom/left/right hosts regardless of form factor |
 | Focused secure web node shows trust chip | Test: focus secure web-content node -> Navigator header shows secure trust indicator without opening settings |
 | Mixed-content node shows degraded warning chip | Test: focus node with mixed content -> Navigator header shows degraded trust warning |
 | Focused origin shows permission chips | Test: focus node with origin permission state -> camera/microphone/location/notifications chips show `allowed` / `blocked` / `prompt` as applicable |

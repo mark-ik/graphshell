@@ -419,11 +419,11 @@ pub(crate) fn warm_peer_tab_container(
         active_graph_view_id(tiles_tree).or(graph_app.workspace.graph_runtime.focused_view),
     );
     for peer in peers {
-        let Some(peer_tile_id) =
-            tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
-                Tile::Pane(kind)
-                    if tile_matches_node(kind, peer) && !kind.is_floating() =>
-                {
+        let Some(peer_tile_id) = tiles_tree
+            .tiles
+            .iter()
+            .find_map(|(tile_id, tile)| match tile {
+                Tile::Pane(kind) if tile_matches_node(kind, peer) && !kind.is_floating() => {
                     Some(*tile_id)
                 }
                 _ => None,
@@ -469,8 +469,7 @@ pub(crate) fn open_node_with_graphlet_routing(
         let node_pane_tile_id = tiles_tree
             .tiles
             .insert_pane(TileKind::Node(node_key.into()));
-        if let Some(Tile::Container(Container::Tabs(tabs))) =
-            tiles_tree.tiles.get_mut(container_id)
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(container_id)
         {
             tabs.add_child(node_pane_tile_id);
             tabs.set_active(node_pane_tile_id);

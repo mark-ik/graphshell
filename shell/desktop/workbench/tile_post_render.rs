@@ -157,6 +157,10 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         latency_us: uxtree_build_started.elapsed().as_micros() as u64,
     });
     ux_tree::publish_snapshot(&uxtree_snapshot);
+    let layout_policy_intents = graph_app.evaluate_workbench_layout_policy(&uxtree_snapshot);
+    if !layout_policy_intents.is_empty() {
+        graph_app.extend_workbench_intents(layout_policy_intents);
+    }
     emit_event(DiagnosticEvent::MessageSent {
         channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
         byte_len: uxtree_snapshot.semantic_nodes.len(),
@@ -222,13 +226,25 @@ pub(crate) fn mapped_nodes_without_tiles(
 
 #[cfg(test)]
 mod tests {
-    use super::{active_context_return_target, should_summon_radial_palette_on_secondary_click};
-    use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
+    use std::collections::{HashMap, HashSet};
+
+    use super::{
+        active_context_return_target, render_tile_tree_and_collect_outputs,
+        should_summon_radial_palette_on_secondary_click,
+    };
+    use crate::app::{
+        GraphBrowserApp, GraphViewId, SurfaceHostId, ToolSurfaceReturnTarget, WorkbenchIntent,
+        WorkbenchLayoutConstraint,
+    };
     use crate::graph::NodeKey;
+    use crate::shell::desktop::runtime::control_panel::ControlPanel;
+    #[cfg(feature = "diagnostics")]
+    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::workbench::pane_model::{
         GraphPaneRef, NodePaneState, ToolPaneRef, ToolPaneState,
     };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use crate::shell::desktop::workbench::ux_tree;
     use egui_tiles::{Tiles, Tree};
 
     #[test]
@@ -291,5 +307,64 @@ mod tests {
             active_context_return_target(&tree),
             Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Settings))
         );
+    }
+
+    #[test]
+    fn render_pass_enqueues_layout_policy_intents_after_uxtree_publish() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_workbench_layout_constraint(
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top),
+            WorkbenchLayoutConstraint::anchored_split(
+                SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top),
+                crate::app::workbench_layout_policy::AnchorEdge::Top,
+                0.25,
+            ),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let mut tree = Tree::new("layout_policy_render_pass", graph, tiles);
+        let mut control_panel = ControlPanel::new(None);
+        let mut tile_favicon_textures = HashMap::new();
+        #[cfg(feature = "diagnostics")]
+        let mut diagnostics_state = DiagnosticsState::new();
+        let ctx = egui::Context::default();
+
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let outputs = render_tile_tree_and_collect_outputs(
+                    ui,
+                    &mut tree,
+                    &mut app,
+                    &mut control_panel,
+                    &mut tile_favicon_textures,
+                    &HashSet::new(),
+                    None,
+                    false,
+                    false,
+                    #[cfg(feature = "diagnostics")]
+                    &mut diagnostics_state,
+                    #[cfg(feature = "diagnostics")]
+                    None,
+                );
+                assert!(outputs.pending_open_nodes.is_empty());
+            });
+        });
+
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [WorkbenchIntent::ApplyLayoutConstraint {
+                surface_host,
+                constraint: WorkbenchLayoutConstraint::AnchoredSplit { anchor_edge, .. },
+            }] if *surface_host == SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Top,
+            ) && *anchor_edge == crate::app::workbench_layout_policy::AnchorEdge::Top
+        ));
+
+        let snapshot = ux_tree::latest_snapshot().expect("uxtree snapshot should be published");
+        assert!(snapshot.semantic_nodes.iter().any(|node| {
+            matches!(node.domain, crate::shell::desktop::workbench::ux_tree::UxDomainIdentity::NavigatorProjection { .. })
+        }));
     }
 }

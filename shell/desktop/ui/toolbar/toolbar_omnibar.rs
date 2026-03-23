@@ -1,8 +1,8 @@
 use super::*;
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use egui_tiles::Tile;
-use crate::shell::desktop::workbench::pane_model::PaneViewState;
 use crate::shell::desktop::ui::persistence_ops;
+use crate::shell::desktop::workbench::pane_model::PaneViewState;
+use egui_tiles::Tile;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 
 pub(super) fn parse_omnibar_search_query(raw: &str) -> (OmnibarSearchMode, &str) {
     let trimmed = raw.trim();
@@ -423,16 +423,17 @@ fn omnibar_graph_view_context(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) -> Option<GraphViewId> {
-    tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
-        match tiles_tree.tiles.get(tile_id) {
+    tiles_tree
+        .active_tiles()
+        .into_iter()
+        .find_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
             Some(Tile::Pane(TileKind::Graph(graph_ref))) => Some(graph_ref.graph_view_id),
             Some(Tile::Pane(TileKind::Pane(PaneViewState::Graph(graph_ref)))) => {
                 Some(graph_ref.graph_view_id)
             }
             _ => None,
-        }
-    })
-    .or(graph_app.workspace.graph_runtime.focused_view)
+        })
+        .or(graph_app.workspace.graph_runtime.focused_view)
 }
 
 fn saved_tab_node_keys(graph_app: &GraphBrowserApp) -> HashSet<NodeKey> {
@@ -526,7 +527,9 @@ fn edge_payload_label_text(payload: &crate::graph::EdgePayload) -> String {
         }
     }
 
-    if payload.has_relation(crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal)) {
+    if payload.has_relation(crate::graph::RelationSelector::Family(
+        crate::graph::EdgeFamily::Traversal,
+    )) {
         labels.push("history");
     }
 
@@ -550,7 +553,9 @@ fn edge_payload_label_text(payload: &crate::graph::EdgePayload) -> String {
                 labels.push(imported_sub_kind_label(*sub_kind));
             }
         }
-    } else if payload.has_relation(crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Imported)) {
+    } else if payload.has_relation(crate::graph::RelationSelector::Family(
+        crate::graph::EdgeFamily::Imported,
+    )) {
         labels.push("imported_relation");
     }
 
@@ -602,10 +607,7 @@ fn edge_candidates_for_graph(
                 to_node.title,
                 to_node.url
             ),
-            target: OmnibarMatch::Edge {
-                from,
-                to,
-            },
+            target: OmnibarMatch::Edge { from, to },
         });
     }
     out
@@ -917,11 +919,7 @@ pub(super) fn omnibar_matches_for_query(
                 all_graph_edge_candidates.push(OmnibarSearchCandidate {
                     text: format!(
                         "{} {} {} {} {}",
-                        edge_label,
-                        from_node.title,
-                        from_node.url,
-                        to_node.title,
-                        to_node.url
+                        edge_label, from_node.title, from_node.url, to_node.title, to_node.url
                     ),
                     target: OmnibarMatch::Edge {
                         from: from_key,
@@ -968,11 +966,7 @@ pub(super) fn omnibar_matches_for_query(
                     all_graph_edge_candidates.push(OmnibarSearchCandidate {
                         text: format!(
                             "{} {} {} {} {}",
-                            edge_label,
-                            from_node.title,
-                            from_node.url,
-                            to_node.title,
-                            to_node.url
+                            edge_label, from_node.title, from_node.url, to_node.title, to_node.url
                         ),
                         target: OmnibarMatch::Edge {
                             from: from_key,
@@ -1345,12 +1339,9 @@ mod tests {
         app.ensure_graph_view_registered(view_id);
         app.set_workspace_focused_view_with_transition(Some(view_id));
 
-        let warm_key =
-            app.add_node_and_sync("https://warm-tab.example".into(), Point2D::zero());
-        let cold_key = app.add_node_and_sync(
-            "https://cold-peer.example".into(),
-            Point2D::new(20.0, 0.0),
-        );
+        let warm_key = app.add_node_and_sync("https://warm-tab.example".into(), Point2D::zero());
+        let cold_key =
+            app.add_node_and_sync("https://cold-peer.example".into(), Point2D::new(20.0, 0.0));
         let _ = app.assert_relation_and_sync(
             warm_key,
             cold_key,
@@ -1665,9 +1656,7 @@ mod tests {
         let _ = app.retract_relations_and_log(
             from,
             to,
-            crate::graph::RelationSelector::Semantic(
-                crate::graph::SemanticSubKind::UserGrouped,
-            ),
+            crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped),
         );
 
         let mut tiles = egui_tiles::Tiles::default();

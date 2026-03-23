@@ -610,7 +610,7 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.omnibar_non_at_order =
             OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal;
         self.workspace.chrome_ui.wry_enabled = false;
-        self.workspace.chrome_ui.workbench_sidebar_pinned = false;
+        self.workspace.chrome_ui.workbench_host_pinned = false;
         self.workspace.graph_runtime.selected_tab_nodes.clear();
         self.workspace.graph_runtime.tab_selection_anchor = None;
         self.load_persisted_ui_settings();

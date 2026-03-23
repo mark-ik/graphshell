@@ -10,7 +10,7 @@
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`
-- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — chrome split authority: WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar
+- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — chrome visibility authority: WorkbenchLayerState, ChromeExposurePolicy, and graph/workbench Navigator scope exposure
 - `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation as graph-edge backing for frame/tile-group membership
 - `../navigator/NAVIGATOR.md` — Navigator domain spec (sidebar content authority; see §2 boundary note)
 - `../canvas/frame_graph_representation_spec.md` — how Frames render as spatial minimap bounding boxes on the graph canvas
@@ -58,14 +58,14 @@ The Workbench owns arrangement interaction/session mutation truth and presentati
 - destination selection after routing is requested
 - visible arrangement context
 - workbench-level focus handoff
-- **Workbench Sidebar chrome** (the layout slot, its resize handle, its show/hide toggle) — the sidebar *content* is owned by the Navigator domain; see `../navigator/NAVIGATOR.md`
+- workbench-owned host layout chrome for Navigator surfaces (host bounds, resize handles, show/hide toggles), while Navigator content grammar remains owned by the Navigator domain; see `../navigator/NAVIGATOR.md`
 
 The Workbench is the canonical owner of where content is shown and how session
 arrangement is structurally realized.
 
 It is not the owner of graph identity, graph topology, or graph semantic truth.
 
-**Chrome visibility** is governed by `WorkbenchLayerState` (`GraphOnly`, `GraphOverlayActive`, `WorkbenchActive`, `WorkbenchPinned`) — a derived state machine computed each frame. The Workbench Sidebar is visible only when the state is `WorkbenchActive` or `WorkbenchPinned`. The **Graph Bar** (search, lens chips, zoom controls) is separate from the Workbench Sidebar and persists across all states. See `subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md §7–8`.
+**Chrome visibility** is governed by `WorkbenchLayerState` (`GraphOnly`, `GraphOverlayActive`, `WorkbenchActive`, `WorkbenchPinned`) — a derived state machine computed each frame. Navigator hosts may expose graph scope, workbench scope, or both depending on host configuration and the active layer state. Workbench-owned chrome determines when each host is visible and how much edge space it occupies, while Navigator semantics determine what each visible host projects. See `subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md §7–8` and `../navigator/NAVIGATOR.md §11`.
 
 **Frame membership** is graph-backed: frame/tile-group membership is stored as `ArrangementRelation` edges in the graph, not as workbench-only data structures. The workbench reads these edges to render the tile tree and navigator. Mutating durable frame membership emits `GraphIntent`s that assert or retract `ArrangementRelation` edges, while session-only tile/split structure remains under workbench mutation authority until promoted. See `canvas/2026-03-14_graph_relation_families.md §2.4`.
 

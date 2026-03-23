@@ -25,9 +25,10 @@ pub(super) fn restore_startup_session_frame_if_available(
     if let Ok(bundle) = persistence_ops::load_named_frame_bundle(
         graph_app,
         GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
-    ) && let Ok((restored_tree, _)) =
+    ) && let Ok((restored_tree, _)) = {
+        persistence_ops::apply_workbench_profile_from_bundle(graph_app, &bundle);
         persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
-        && restored_tree.root().is_some()
+    } && restored_tree.root().is_some()
     {
         if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
             graph_app.mark_session_frame_layout_json(&runtime_layout_json);

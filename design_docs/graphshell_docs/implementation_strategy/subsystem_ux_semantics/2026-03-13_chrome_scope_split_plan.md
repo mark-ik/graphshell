@@ -1,28 +1,27 @@
-# Chrome Scope Split: Graph Bar + Workbench Chrome (Sidebar Default)
+# Chrome Scope Projection and Host Exposure Plan
 
 **Date**: 2026-03-13
 **Last updated**: 2026-03-22
 **Status**: Design — Pre-Implementation
-**Purpose**: Define the split chrome architecture that replaces the current
+**Purpose**: Define the host-based chrome architecture that replaces the current
 monolithic toolbar, aligning control surfaces with the semantic authority
-boundaries already present in the codebase. The desktop default is a persistent
-top Graph Bar plus a Workbench Sidebar/Rail, not two equal horizontal bars.
+boundaries already present in the codebase. The desktop default is a
+graph-scoped toolbar Navigator host plus a workbench-scoped sidebar Navigator
+host, but host count, edge, and form factor are layout policy rather than fixed
+surface types.
 
-**Supersession note (2026-03-22)**: The fixed two-surface model (Graph Bar +
-Workbench Sidebar as separate permanent chrome) is superseded by the unified
-Navigator model in `../navigator/NAVIGATOR.md §11`. Under that model, "Graph
-Bar" and "Workbench Bar" are scope configurations of a single Navigator surface
-rather than distinct chrome surfaces. The implementation slices in this document
-remain valid as an execution plan — the controls described are still correct —
-but they should be understood as building toward a configurable Navigator rather
-than hardcoding a two-bar split. Resolve §11 scope/form-factor defaults before
-implementing the chrome layout described in §3.
+**Alignment note (2026-03-23)**: `../navigator/NAVIGATOR.md §11` is the
+canonical source for Navigator host count, scope, anchor edge, and form factor.
+This document remains the execution-plan source for how graph/workbench/pane
+controls project into those hosts, and for the derived `WorkbenchLayerState`,
+`ChromeExposurePolicy`, and `WorkbenchChromeProjection` contracts.
 
 **Related**:
 - `2026-03-01_ux_execution_control_plane.md`
 - `2026-02-28_ux_contract_register.md`
 - `2026-03-04_model_boundary_control_matrix.md`
 - `2026-03-08_unified_ux_semantics_architecture_plan.md`
+- `2026-03-23_navigator_host_runtime_naming_plan.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `../canvas/multi_view_pane_spec.md`
@@ -98,11 +97,11 @@ semantics surface in the desktop chrome.
 
 - `../workbench/workbench_frame_tile_interaction_spec.md` remains the authority
   for frame/tile/pane semantics. This plan only defines how frame, group, and
-  pane structure are projected into default Workbench Sidebar chrome.
+  pane structure are projected into the default workbench-scoped Navigator host.
 - `../canvas/multi_view_pane_spec.md` remains the authority for
   `GraphViewId`, slot lifecycle, and routed graph panes. This plan makes the
-  Graph Bar the always-visible place where the active graph target and graph
-  view slots are named.
+  default graph-scoped Navigator host the always-visible place where the active
+  graph target and graph view slots are named.
 - `../aspect_control/settings_and_control_surfaces_spec.md` remains the
   authority for tool-page routing, apply semantics, and return paths. This plan
   adds the presentation distinction between transient graph overlays and
@@ -110,20 +109,21 @@ semantics surface in the desktop chrome.
 - `../canvas/2026-02-20_node_badge_and_tagging_plan.md` and
   `../aspect_render/2026-03-12_compositor_expansion_plan.md` remain the
   authority for canvas badges and tile affordances. This plan determines which
-  of those signals surface as Graph Bar chips versus Workbench Sidebar
-  row/header badges.
+  of those signals surface as graph-scoped host chips versus
+  workbench-scoped host row/header badges.
 
 ---
 
-## 3. Target Architecture: Graph Bar + Workbench Sidebar
+## 3. Target Architecture: Default Desktop Host Layout
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ Graph Bar (always visible)                                                              │
+│ Graph-scoped Navigator host (default: top toolbar, always visible)                      │
 │ [View ▾] [Undo] [Redo] [+node] [+edge] [+tag] [cmd] ··· [Omnibar] ··· [slots] [⟳] [⋯] │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────┬───────────────────────────┐
-│ Graph surface / tiled panes                                 │ Workbench Sidebar (default)│
+│ Graph surface / tiled panes                                 │ Workbench-scoped Navigator │
+│                                                              │ host (default: sidebar)   │
 │                                                              │ [←] [→] [R] [clip] [view] │
 │                                                              │ [Frame A ▾] [Group ▾]     │
 │                                                              │ > Pane tree / tab tree    │
@@ -133,25 +133,26 @@ semantics surface in the desktop chrome.
 └──────────────────────────────────────────────────────────────┴───────────────────────────┘
 ```
 
-The Graph Bar remains the only top chrome. It names the current graph target,
-anchors graph interaction controls, keeps the Omnibar centered, and carries
-graph-scope state chips and overflow. This layout stays stable regardless of
-what workbench structure is open.
+In the default desktop preset, the graph-scoped Navigator host remains the
+only top chrome. It names the current graph target, anchors graph interaction
+controls, keeps the Omnibar centered, and carries graph-scope state chips and
+overflow. This layout stays stable regardless of what workbench structure is
+open.
 
-The Workbench chrome renders primarily as a right-side sidebar/rail on desktop.
-Its header carries pane-local controls for the focused pane, its scope row
-summarizes the active frame and tile group, and its scroll body renders a
-tree-style projection of the current pane structure. A compact horizontal form
-may exist later as a narrow-width fallback, but it is not the primary desktop
-expression.
+Workbench chrome renders primarily as a right-side workbench-scoped Navigator
+host on desktop. Its header carries pane-local controls for the focused pane,
+its scope row summarizes the active frame and tile group, and its scroll body
+renders a tree-style projection of the current pane structure. A compact
+horizontal host form may exist later as a narrow-width fallback, but it is not
+the primary desktop expression.
 
 **Default side assumption:** the initial desktop implementation should place the
-Workbench Sidebar on the right so the left side remains available for graph
-hierarchy/file-tree-style surfaces if needed.
+workbench-scoped sidebar host on the right so the left side remains available
+for other graph/navigation host configurations if needed.
 
 ---
 
-## 4. Graph Bar
+## 4. Graph-Scoped Navigator Host
 
 Always visible. The persistent semantic operating layer. Never changes layout
 based on what tiles are open.
@@ -208,7 +209,7 @@ graph-only flow for quick configuration and inspection.
 
 **Default launcher policy**
 
-- The top Graph Bar `Settings` entry should open the most natural presentation
+- The default graph-scoped Navigator host `Settings` entry should open the most natural presentation
   for the current scope: overlay when the graph is the active context, hosted
   settings pane when the workbench is the active context.
 - The launcher may offer direct entry points to specific settings pages
@@ -219,14 +220,14 @@ graph-only flow for quick configuration and inspection.
 
 ---
 
-## 5. Workbench Sidebar
+## 5. Workbench-Scoped Navigator Host
 
 Visible when the workbench layer is active. The structural presentation layer.
-This sidebar is a **live projection of the tile tree onto a vertical navigator**
+This host is a **live projection of the tile tree onto a navigator surface**
 — it should feel like the workbench rendered as a side rail, not like another
 toolbar with more buttons.
 
-### 5.1 Sidebar Header — Pane-Local Controls
+### 5.1 Host Header — Pane-Local Controls
 
 These act on the focused pane only and live in the sidebar header:
 
@@ -237,7 +238,7 @@ These act on the focused pane only and live in the sidebar header:
 | Clip / capture | `OpenClip`, `CreateNoteForNode` | Content actions for the focused pane |
 | Reader / viewer controls | Viewer trait extension | Optional; contributed by the active viewer backend (e.g., reader mode toggle for web viewer, page nav for PDF viewer) |
 
-Graph Bar `Undo` / `Redo` do not morph in this direction. Graph history stays
+The graph-scoped host `Undo` / `Redo` do not morph in this direction. Graph history stays
 graph-scoped; pane navigation stays pane-scoped.
 
 ### 5.2 Scope Chips — Frame and Tile Group
@@ -329,10 +330,11 @@ between two nodes becomes their tile-tree proximity.
 
 ### 5.6 Visibility Rule
 
-The Workbench Sidebar appears automatically when a hosted workbench surface is
-active beyond the primary graph surface: node panes, tool panes, additional
-graph-view panes, or promoted/tiled config pages. It collapses when the app
-returns to the graph-only substrate. It can be pinned open explicitly — see §8.
+The default workbench-scoped Navigator host appears automatically when a hosted
+workbench surface is active beyond the primary graph surface: node panes, tool
+panes, additional graph-view panes, or promoted/tiled config pages. It
+collapses when the app returns to the graph-only substrate. It can be pinned
+open explicitly — see §8.
 
 Transient overlay surfaces above the graph do not, by themselves, force the
 sidebar to appear.
@@ -428,13 +430,13 @@ tile happens to exist.
 
 ```rust
 pub enum WorkbenchLayerState {
-    /// Primary graph surface only. Graph Bar is the only chrome.
+  /// Primary graph surface only. The default graph-scoped Navigator host is the only chrome.
     GraphOnly,
-    /// A transient graph overlay surface is open; Graph Bar remains the only chrome.
+  /// A transient graph overlay surface is open; the graph-scoped host remains the only chrome.
     GraphOverlayActive,
     /// One or more hosted workbench surfaces are active beyond the primary graph surface.
     WorkbenchActive,
-    /// Workbench Sidebar pinned; persists even if hosted workbench surfaces close.
+  /// The default workbench-scoped Navigator host is pinned; persists even if hosted workbench surfaces close.
     WorkbenchPinned,
 }
 ```
@@ -444,7 +446,7 @@ pub enum WorkbenchLayerState {
   `OpenNode`, `OpenNodeFrameRouted`, `OpenGraphViewPane`, tiled tool/config
   pages, etc.
 - Explicitly promoting a transient overlay surface into a tiled workbench pane
-- Explicitly pinning the Workbench Sidebar
+- Explicitly pinning the default workbench-scoped Navigator host
 
 **GraphOverlayActive** is triggered by:
 - Opening a transient over-graph settings/config/inspector page that is not yet
@@ -453,11 +455,11 @@ pub enum WorkbenchLayerState {
 **ExitWorkbench** is triggered by:
 - Closing the last hosted workbench surface so the app returns to the primary
   graph surface only
-- Explicitly unpinning the Workbench Sidebar when no hosted workbench surfaces
+- Explicitly unpinning the default workbench-scoped Navigator host when no hosted workbench surfaces
   remain
 
 **ExitWorkbench default:** when the last hosted workbench surface closes, the
-app returns to `GraphOnly` — graph canvas focused, Workbench Sidebar hidden.
+app returns to `GraphOnly` — graph canvas focused, workbench-scoped host hidden.
 This is the correct default: the graph is the persistent substrate and closing
 all staged content should return you to it, not leave you with empty structure
 chrome.
@@ -474,7 +476,7 @@ It does not change the source of truth; it only exposes one face of it.
 
 The `WorkbenchLayerState` replaces `is_graph_view: bool` / `has_node_panes: bool`
 in `toolbar_ui.rs Input` and becomes the single derived value that drives
-sidebar visibility and graph-only overlay routing.
+default workbench-host visibility and graph-only overlay routing.
 
 ---
 
@@ -485,14 +487,14 @@ a `ChromeExposurePolicy` from it each frame:
 
 ```rust
 pub enum ChromeExposurePolicy {
-    /// Graph Bar only.
+  /// Default graph-scoped Navigator host only.
     GraphOnly,
-    /// Graph Bar plus transient overlay surface; no Workbench Sidebar.
+  /// Default graph-scoped Navigator host plus transient overlay surface; no workbench-scoped host.
     GraphWithOverlay,
-    /// Graph Bar plus Workbench Sidebar.
-    GraphPlusWorkbenchSidebar,
-    /// Graph Bar plus pinned Workbench Sidebar.
-    GraphPlusWorkbenchSidebarPinned,
+  /// Default graph-scoped Navigator host plus the default workbench-scoped host.
+  GraphPlusWorkbenchHost,
+  /// Default graph-scoped Navigator host plus pinned workbench-scoped host.
+  GraphPlusWorkbenchHostPinned,
 }
 ```
 
@@ -508,25 +510,25 @@ adds explicit chrome-region tracking:
 
 ```rust
 pub enum ChromeRegion {
-    GraphBar,
-    WorkbenchSidebar,
+  GraphScopedNavigatorHost,
+  WorkbenchScopedNavigatorHost,
 }
 ```
 
 Focus transitions:
-- **F6 cycle**: `GraphSurface` → `GraphBar` → `WorkbenchSidebar` (when visible) → `GraphSurface`
-- **Tab within Graph Bar**: advances through control groups left-to-right
-- **Tab within Workbench Sidebar**: advances header → scope chips → pane tree → structural footer
+- **F6 cycle**: `GraphSurface` → `GraphScopedNavigatorHost` → `WorkbenchScopedNavigatorHost` (when visible) → `GraphSurface`
+- **Tab within graph-scoped host**: advances through control groups left-to-right
+- **Tab within workbench-scoped host**: advances header → scope chips → pane tree → structural footer
 - **Arrow navigation within pane tree**: `Up` / `Down` move between rows; `Left` / `Right`
   collapse/expand structural rows when exposed
-- **Escape from sidebar**: returns to `GraphSurface` or last active pane
+- **Escape from workbench-scoped host**: returns to `GraphSurface` or last active pane
 - **Transient overlays**: remain focus-capture surfaces of their own and do not
   force the sidebar into the region cycle unless promoted/tiled
 
 The UxTree build order (§4.2 of `SUBSYSTEM_UX_SEMANTICS.md`) will need
-updating: the single toolbar/chrome landmark becomes two — `GraphBar` and
-`WorkbenchSidebar` — each with their own traversal sequence and focus return
-target.
+updating: the single toolbar/chrome landmark becomes two default host landmarks
+— `GraphScopedNavigatorHost` and `WorkbenchScopedNavigatorHost` — each with
+their own traversal sequence and focus return target.
 
 ---
 
@@ -535,10 +537,10 @@ target.
 No new intents are required for Phase 1. The existing vocabulary covers all
 controls:
 
-- Graph Bar: `GraphIntent` variants (physics, lens, tags, fit, undo/redo, view slots, new node/edge/tag)
-- Workbench Sidebar header: viewer-scoped navigation via `ToolbarNavAction`; viewer trait extensions for reader/viewer controls
-- Workbench Sidebar scope chips: `WorkbenchIntent` for frame/group navigation; projection read-only
-- Workbench Sidebar pane tree + structural footer: `WorkbenchIntent` (split, close, promote/demote, pin); `OpenConnected` for adjacent routing
+- Graph-scoped host: `GraphIntent` variants (physics, lens, tags, fit, undo/redo, view slots, new node/edge/tag)
+- Workbench-scoped host header: viewer-scoped navigation via `ToolbarNavAction`; viewer trait extensions for reader/viewer controls
+- Workbench-scoped host scope chips: `WorkbenchIntent` for frame/group navigation; projection read-only
+- Workbench-scoped host pane tree + structural footer: `WorkbenchIntent` (split, close, promote/demote, pin); `OpenConnected` for adjacent routing
 - Settings/overflow: direct app preference mutation plus page open/promotion routing
 
 **What changes is routing, not vocabulary.** Controls that currently dispatch
@@ -559,19 +561,19 @@ Phase 1, but named here for completeness):
 
 ### Slice 1 — Structural split, sidebar scaffold, no new graph features
 
-1. Extract `GraphBar` and `WorkbenchSidebar` as separate render functions in
+1. Extract graph-scoped and workbench-scoped host render functions in
    `toolbar_ui.rs`, each with a typed input struct.
 2. Introduce `WorkbenchLayerState` on `GuiRuntimeState`; derive it from tile
    tree + overlay routing state each frame.
-3. Move Back/Forward/Reload into the `WorkbenchSidebar` header; do not render
+3. Move Back/Forward/Reload into the workbench-scoped host header; do not render
    them in `GraphOnly` / `GraphOverlayActive`.
 4. Move frame pin controls (P+/P-/W+/W-) into the sidebar structural area.
-5. Add `WorkbenchSidebar` as a right-side `SidePanel`; drive visibility from
+5. Add the default workbench-scoped host as a right-side `SidePanel`; drive visibility from
    `ChromeExposurePolicy`.
 6. Keep all existing controls in place otherwise — do not move physics or lens yet.
 
 **Acceptance criteria:**
-- Graph Bar + Workbench Sidebar render without regressions when hosted
+- Default graph/workbench Navigator hosts render without regressions when hosted
   workbench surfaces are active
 - Back/Forward/Reload absent in `GraphOnly` and `GraphOverlayActive`
 - `WorkbenchLayerState` transitions correctly on hosted-surface open/close and
@@ -582,7 +584,7 @@ Phase 1, but named here for completeness):
 
 1. Implement `WorkbenchChromeProjection` derivation from tile tree + frame
    semantics (§6).
-2. Render the pane tree in the Workbench Sidebar body using the projection.
+2. Render the pane tree in the workbench-scoped host body using the projection.
 3. Add the frame chip + switcher dropdown and active tile-group chip +
    scrollable dropdown.
 4. Implement expand-on-hover for pane rows: Close, Promote/Demote, Pin inline.
@@ -597,42 +599,42 @@ Phase 1, but named here for completeness):
 
 ### Slice 3 — Dedicated Graph vs Pane Navigation Controls
 
-1. Keep `Undo` / `Redo` fixed in the Graph Bar as graph-scope history controls.
-2. Add dedicated `Back` / `Forward` controls to the Workbench Sidebar header.
+1. Keep `Undo` / `Redo` fixed in the graph-scoped host as graph-scope history controls.
+2. Add dedicated `Back` / `Forward` controls to the workbench-scoped host header.
 3. Update `ToolbarNavAction` routing so sidebar controls dispatch pane
    navigation directly, with no morph dependency.
 
 **Acceptance criteria:**
 - Undo/Redo visible and functional when graph canvas is focused
-- Back/Forward visible and functional in the sidebar when a pane is focused
+- Back/Forward visible and functional in the workbench-scoped host when a pane is focused
 - Pane focus does not repurpose graph-scope buttons
 
-### Slice 4 — Graph Bar graph-scope controls migration
+### Slice 4 — Graph-scoped host controls migration
 
-1. Add the active graph-view target chip to the Graph Bar.
-2. Move physics controls out of the in-canvas overlay into a Graph Bar chip.
-3. Move lens / view-dimension picker into a Graph Bar chip.
-4. Add `GraphViewSlot` strip to the Graph Bar.
-5. Move active tag filter chips to the Graph Bar.
+1. Add the active graph-view target chip to the graph-scoped host.
+2. Move physics controls out of the in-canvas overlay into a graph-scoped host chip.
+3. Move lens / view-dimension picker into a graph-scoped host chip.
+4. Add `GraphViewSlot` strip to the graph-scoped host.
+5. Move active tag filter chips to the graph-scoped host.
 6. Expand sync badge to include `SyncNow` and trust controls on click.
 
 **Acceptance criteria:**
 - Physics panel no longer renders as a floating in-canvas overlay
-- Lens and view-dimension accessible from Graph Bar without entering settings
-- Active graph-view target is always legible in the Graph Bar
+- Lens and view-dimension accessible from the graph-scoped host without entering settings
+- Active graph-view target is always legible in the graph-scoped host
 - `GraphViewSlot` controls render and route correctly
 - Sync badge expands to Verse controls
 
 ### Slice 5 — Viewer backend selector + pane-local viewer controls
 
 1. Implement `ViewerControl` contribution from the `Viewer` trait (each viewer
-   declares what controls it contributes to the Workbench Sidebar header).
+  declares what controls it contributes to the workbench-scoped host header).
 2. Implement "Open with…" picker on pane row expand using `available_backends`
    from `WorkbenchTreeRow`.
 3. Wire `WorkbenchIntent::SelectViewerBackend` through the apply layer.
 
 **Acceptance criteria:**
-- Reader mode toggle (web viewer) appears in the Workbench Sidebar header when
+- Reader mode toggle (web viewer) appears in the workbench-scoped host header when
   the focused pane is a web node
 - "Open with…" appears on pane row expand when multiple backends are available
 - Selecting a backend re-attaches the viewer for that tile
@@ -641,8 +643,8 @@ Phase 1, but named here for completeness):
 
 1. Settings and config pages route through §4.2 logic (transient graph overlay,
    or tiled workbench pane depending on layer state and explicit promotion).
-2. Semantic depth active → badge chip in Graph Bar.
-3. Backend/degraded state → pane badge in the Workbench Sidebar row/header.
+2. Semantic depth active → badge chip in the graph-scoped host.
+3. Backend/degraded state → pane badge in the workbench-scoped host row/header.
 4. Remove the standalone "Clr" button; move Clear Data into overflow menu.
 5. Remove the "View toggle" button; `WorkbenchLayerState` + sidebar visibility
    replace it.
@@ -650,30 +652,30 @@ Phase 1, but named here for completeness):
 **Acceptance criteria:**
 - Config pages can remain transient overlays over the graph or be explicitly
   promoted into tiled workbench panes
-- Semantic depth active state is visible in the Graph Bar
-- Pane backend/degraded state is visible in the sidebar row/header
+- Semantic depth active state is visible in the graph-scoped host
+- Pane backend/degraded state is visible in the workbench-scoped host row/header
 - Clear Data and similar destructive actions live in overflow, not as permanent chrome buttons
 
 ---
 
 ## 12. Acceptance Criteria (Overall)
 
-- [ ] Graph Bar is stable — same controls regardless of what tiles are open
-- [ ] Workbench Sidebar appears/disappears on EnterWorkbench / ExitWorkbench
-- [ ] `GraphOverlayActive` does not force the Workbench Sidebar to appear
+- [ ] The default graph-scoped Navigator host is stable — same controls regardless of what tiles are open
+- [ ] The default workbench-scoped Navigator host appears/disappears on EnterWorkbench / ExitWorkbench
+- [ ] `GraphOverlayActive` does not force the workbench-scoped Navigator host to appear
 - [ ] ExitWorkbench (last hosted workbench surface closed) defaults back to graph canvas focus
-- [ ] Workbench Sidebar pinning (`WorkbenchPinned`) persists across sessions
+- [ ] Workbench host pinning (`WorkbenchPinned`) persists across sessions
 - [ ] Pane tree accurately projects the current frame/tile/group context
 - [ ] Pane row expand exposes Close, Promote/Demote, Pin, Open-with without a context menu
-- [ ] Graph Bar Undo/Redo remain graph-scoped
-- [ ] Back/Forward/Reload live in the Workbench Sidebar, not in the Graph Bar
-- [ ] Physics and lens controls accessible from Graph Bar chips (no overlay panel)
+- [ ] Graph-scoped host Undo/Redo remain graph-scoped
+- [ ] Back/Forward/Reload live in the workbench-scoped host, not in the graph-scoped host
+- [ ] Physics and lens controls accessible from graph-scoped host chips (no overlay panel)
 - [ ] Sync badge expands to Verse controls on click
 - [ ] Config pages open as transient overlays or workbench panes (no modal windows)
 - [ ] All existing `GraphIntent` dispatch paths preserved (no regressions)
-- [ ] Focus cycling (F6) covers Graph Bar and Workbench Sidebar in the correct order
+- [ ] Focus cycling (F6) covers the default graph/workbench Navigator hosts in the correct order
 - [ ] `WorkbenchLayerState` transitions tested in `gui_orchestration_tests.rs`
-- [ ] UxTree build updated to emit separate chrome landmarks (`GraphBar`, `WorkbenchSidebar`)
+- [ ] UxTree build updated to emit separate default host landmarks (`GraphScopedNavigatorHost`, `WorkbenchScopedNavigatorHost`)
 
 ---
 

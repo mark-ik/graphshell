@@ -22,15 +22,13 @@ use crate::graph::apply::{
 };
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::physics::{GraphPhysicsState, default_graph_physics_state};
-use crate::graph::{ContainmentSubKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
+use crate::graph::{EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
 use crate::registries::atomic::lens::{
     LayoutMode, PhysicsProfile, ThemeData, deserialize_optional_theme_data,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
-use crate::services::persistence::types::{
-    LogEntry, PersistedNavigationTrigger,
-};
+use crate::services::persistence::types::{LogEntry, PersistedNavigationTrigger};
 use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::shell::desktop::runtime::caches::{CachePolicy, RuntimeCaches};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -107,9 +105,7 @@ pub(crate) use selection::{SelectionScope, UndoRedoSnapshot};
 
 #[path = "app/history.rs"]
 mod history;
-pub use history::{
-    HistoryCaptureStatus, HistoryHealthSummary, HistoryManagerTab, HistoryTraversalFailureReason,
-};
+pub use history::{HistoryCaptureStatus, HistoryManagerTab, HistoryTraversalFailureReason};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersistenceHealthSummary {
@@ -161,22 +157,22 @@ mod workbench_commands;
 
 #[path = "app/arrangement_graph_bridge.rs"]
 mod arrangement_graph_bridge;
-pub use arrangement_graph_bridge::{ArrangementGraphDelta, ArrangementSnapshot};
 
 #[path = "app/focus_selection.rs"]
 mod focus_selection;
 
 #[path = "app/graph_views.rs"]
 mod graph_views;
+#[cfg(test)]
+pub use graph_views::GraphViewSlot;
+#[cfg(test)]
+pub(crate) use graph_views::PersistedGraphViewLayoutManager;
 pub use graph_views::{
-    Camera, EdgeProjectionSource, EdgeProjectionState, GraphViewFrame, GraphViewId,
-    GraphViewLayoutDirection, GraphViewLayoutManagerState, GraphViewSlot, GraphViewState,
-    LensConfig, LocalSimulation, ResolvedEdgeProjection, SelectionEdgeProjectionOverride,
+    Camera, EdgeProjectionState, GraphViewFrame, GraphViewId, GraphViewLayoutDirection,
+    GraphViewLayoutManagerState, GraphViewState, LensConfig, SelectionEdgeProjectionOverride,
     ThreeDMode, ViewDimension, ZSource,
 };
-pub(crate) use graph_views::{
-    PersistedGraphViewLayoutManager, default_semantic_depth_dimension, is_semantic_depth_dimension,
-};
+pub(crate) use graph_views::{default_semantic_depth_dimension, is_semantic_depth_dimension};
 
 #[path = "app/graph_layout.rs"]
 pub(crate) mod graph_layout;
@@ -198,6 +194,13 @@ mod startup_persistence;
 #[path = "app/settings_persistence.rs"]
 mod settings_persistence;
 pub use settings_persistence::SettingsToolPage;
+
+#[path = "app/workbench_layout_policy.rs"]
+pub(crate) mod workbench_layout_policy;
+pub use workbench_layout_policy::{
+    NavigatorHostScope, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode,
+    WorkbenchLayoutConstraint, WorkbenchProfile,
+};
 
 #[path = "app/persistence_facade.rs"]
 mod persistence_facade;
@@ -638,6 +641,14 @@ pub enum WorkbenchIntent {
         source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
         direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
     },
+    ApplyLayoutConstraint {
+        surface_host: SurfaceHostId,
+        constraint: WorkbenchLayoutConstraint,
+    },
+    SetSurfaceConfigMode {
+        surface_host: SurfaceHostId,
+        mode: UxConfigMode,
+    },
     DetachNodeToSplit {
         key: NodeKey,
     },
@@ -749,8 +760,10 @@ impl GraphBrowserApp {
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
         "workspace:settings-omnibar-non-at-order";
     pub const SETTINGS_WRY_ENABLED_NAME: &'static str = "workspace:settings-wry-enabled";
-    pub const SETTINGS_WORKBENCH_SIDEBAR_PINNED_NAME: &'static str =
-        "workspace:settings-workbench-sidebar-pinned";
+    pub const SETTINGS_WORKBENCH_HOST_PINNED_NAME: &'static str =
+        "workspace:settings-workbench-host-pinned";
+    pub const SETTINGS_WORKBENCH_PROFILE_STATE_NAME: &'static str =
+        "workspace:settings-workbench-profile-state";
     pub const SETTINGS_REGISTRY_LENS_ID_NAME: &'static str = "workspace:settings-registry-lens-id";
     pub const SETTINGS_REGISTRY_PHYSICS_ID_NAME: &'static str =
         "workspace:settings-registry-physics-id";
@@ -894,6 +907,11 @@ impl GraphBrowserApp {
                     workspace_has_unsaved_changes: false,
                     unsaved_workspace_prompt_warned: false,
                     pending_workbench_intents: Vec::new(),
+                    workbench_profile: WorkbenchProfile::default(),
+                    active_layout_constraints: HashMap::new(),
+                    draft_layout_constraints: HashMap::new(),
+                    ux_config_mode: UxConfigMode::Locked,
+                    session_suppressed_first_use_prompts: HashSet::new(),
                     edge_projection: EdgeProjectionState::default(),
                     pending_app_commands: VecDeque::new(),
                     pending_host_create_tokens: HashMap::new(),
@@ -923,7 +941,7 @@ impl GraphBrowserApp {
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                     wry_enabled: false,
-                    workbench_sidebar_pinned: false,
+                    workbench_host_pinned: false,
                     form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
                         .is_some(),
                     default_registry_lens_id: None,
@@ -1031,6 +1049,11 @@ impl GraphBrowserApp {
                     workspace_has_unsaved_changes: false,
                     unsaved_workspace_prompt_warned: false,
                     pending_workbench_intents: Vec::new(),
+                    workbench_profile: WorkbenchProfile::default(),
+                    active_layout_constraints: HashMap::new(),
+                    draft_layout_constraints: HashMap::new(),
+                    ux_config_mode: UxConfigMode::Locked,
+                    session_suppressed_first_use_prompts: HashSet::new(),
                     edge_projection: EdgeProjectionState::default(),
                     pending_app_commands: VecDeque::new(),
                     pending_host_create_tokens: HashMap::new(),
@@ -1060,7 +1083,7 @@ impl GraphBrowserApp {
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                     wry_enabled: false,
-                    workbench_sidebar_pinned: false,
+                    workbench_host_pinned: false,
                     form_draft_capture_enabled: false,
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,

@@ -66,10 +66,9 @@ pub(crate) fn derive_frame_affinity_regions(graph: &Graph) -> Vec<FrameAffinityR
 
     for (key, _) in graph.nodes() {
         for edge in graph.inner.edges_directed(key, Direction::Outgoing) {
-            if edge
-                .weight()
-                .has_relation(RelationSelector::Arrangement(ArrangementSubKind::FrameMember))
-            {
+            if edge.weight().has_relation(RelationSelector::Arrangement(
+                ArrangementSubKind::FrameMember,
+            )) {
                 anchor_to_members
                     .entry(key)
                     .or_default()

@@ -2917,7 +2917,8 @@ fn test_intent_create_user_grouped_edge_adds_single_edge() {
         label: None,
     }]);
 
-    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    let grouped =
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
 
     let count = app
         .workspace
@@ -2959,7 +2960,8 @@ fn test_intent_create_user_grouped_edge_is_idempotent() {
         },
     ]);
 
-    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    let grouped =
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
 
     let count = app
         .workspace
@@ -2986,7 +2988,8 @@ fn test_intent_create_user_grouped_edge_from_primary_selection_noop_for_single_s
 
     app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
 
-    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    let grouped =
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
 
     let count = app
         .workspace
@@ -3076,7 +3079,8 @@ fn test_execute_edge_command_remove_user_edge_removes_both_directions() {
         command: EdgeCommand::RemoveUserEdge,
     }]);
 
-    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    let grouped =
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
     assert!(!app.has_relation(from, to, grouped));
     assert!(!app.has_relation(to, from, grouped));
     assert!(app.workspace.graph_runtime.physics.base.is_running);
@@ -3459,7 +3463,8 @@ fn test_promote_import_record_to_user_group_intent_creates_bidirectional_edges_f
         anchor,
     }]);
 
-    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    let grouped =
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
     assert!(app.has_relation(anchor, peer, grouped));
     assert!(app.has_relation(peer, anchor, grouped));
     assert!(app.has_relation(anchor, other_peer, grouped));
@@ -5376,16 +5381,16 @@ fn default_registry_lens_setting_publishes_lens_invalidation_signal() {
 }
 
 #[test]
-fn test_workbench_sidebar_pin_persists_across_restart() {
+fn test_workbench_host_pin_persists_across_restart() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
 
     let mut app = GraphBrowserApp::new_from_dir(path.clone());
-    app.set_workbench_sidebar_pinned(true);
+    app.set_workbench_host_pinned(true);
     drop(app);
 
     let reopened = GraphBrowserApp::new_from_dir(path);
-    assert!(reopened.workbench_sidebar_pinned());
+    assert!(reopened.workbench_host_pinned());
 }
 
 #[test]
@@ -5987,7 +5992,8 @@ fn undo_redo_user_grouped_edge_create_and_remove_round_trip() {
         to,
         label: Some("registry-label".to_string()),
     }]);
-    let grouped = crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
+    let grouped =
+        crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
     assert!(app.has_relation(from, to, grouped));
     let edge_key = app.workspace.domain.graph.find_edge_key(from, to).unwrap();
     let payload = app.workspace.domain.graph.get_edge(edge_key).unwrap();
@@ -6909,11 +6915,10 @@ fn mark_tombstone_transitions_selected_node_to_tombstone() {
     use crate::graph::NodeLifecycle;
 
     let mut app = GraphBrowserApp::new_for_testing();
-    let key = app
-        .workspace
-        .domain
-        .graph
-        .add_node("ghost-me".to_string(), euclid::default::Point2D::new(0.0, 0.0));
+    let key = app.workspace.domain.graph.add_node(
+        "ghost-me".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
 
     // Select then ghost.
     app.apply_reducer_intents([GraphIntent::SelectNode {
@@ -6939,11 +6944,10 @@ fn restore_ghost_node_transitions_tombstone_to_cold() {
     use crate::graph::NodeLifecycle;
 
     let mut app = GraphBrowserApp::new_for_testing();
-    let key = app
-        .workspace
-        .domain
-        .graph
-        .add_node("restore-me".to_string(), euclid::default::Point2D::new(0.0, 0.0));
+    let key = app.workspace.domain.graph.add_node(
+        "restore-me".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
 
     // Ghost the node first.
     app.apply_reducer_intents([GraphIntent::SelectNode {

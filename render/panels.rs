@@ -14,7 +14,9 @@ use crate::app::{
     OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference, ViewAction, WorkbenchIntent,
     clip_capture_matches_filter, clip_capture_matches_query,
 };
-use crate::graph::{ArrangementSubKind, EdgeFamily, NodeKey, RelationSelector, format_imported_at_secs};
+use crate::graph::{
+    ArrangementSubKind, EdgeFamily, NodeKey, RelationSelector, format_imported_at_secs,
+};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{

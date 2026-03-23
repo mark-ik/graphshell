@@ -15,7 +15,7 @@
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
-- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — WorkbenchLayerState, ChromeExposurePolicy, Graph Bar vs Workbench Sidebar split
+- `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — WorkbenchLayerState, ChromeExposurePolicy, and graph/workbench Navigator scope exposure
 - `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation edges backing frame/tile membership; Navigator projection sections
 - `graph_first_frame_semantics_spec.md` — canonical cross-tree semantics for Frame lifecycle, `CloseFrameHandle` vs `DeleteFrame`, and workbench-to-graph membership sync
 - `graphlet_projection_binding_spec.md`
@@ -36,8 +36,8 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- Graph Bar = graph-scope chrome that names the active graph target and graph-view scope.
-- **Navigator** (Workbench Sidebar projection) = graph-backed hierarchical projection over relation families (replaces "file tree" — see `canvas/2026-03-14_graph_relation_families.md §5`).
+- Graph-scoped Navigator hosts = chrome surfaces that name the active graph target and graph-view scope.
+- **Navigator** = graph-backed hierarchical projection over relation families, rendered through one or more Navigator hosts (replaces "file tree" — see `canvas/2026-03-14_graph_relation_families.md §5`).
 - workbench = arrangement boundary.
 
 This spec owns arrangement semantics only; it must not define graph truth or Navigator content authority.
@@ -49,7 +49,7 @@ Normative workbench contracts use: intent, trigger, preconditions, semantic resu
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- Navigator (Workbench Sidebar projection) is not content truth authority — it is a read-only projection.
+- Navigator, regardless of host edge or form factor, is not content truth authority — it is a read-only projection.
 - Physics presets are not camera modes.
 - "File tree" is a legacy alias — use **Navigator** in new code and docs.
 - Node and Tile are not synonyms: a node is graph identity; a tile is its workbench presentation/container.
@@ -77,7 +77,7 @@ Within the architecture, this surface is the user-facing interaction layer of th
 **Workbench subsystem**.
 
 The workbench is not a peer semantic owner beside the graph. It is the contextual
-presentation layer under the currently active graph target named by the Graph Bar.
+presentation layer under the currently active graph target named by the active graph-scoped Navigator host.
 
 It explains:
 
@@ -119,7 +119,7 @@ For cross-app focus rules, viewer-state clarity, and app-owned tool surfaces, se
 
 1. `GraphId` is graph truth boundary.
 2. `GraphViewId` is graph-owned scoped view identity within that graph truth.
-3. The Graph Bar names the active graph target (`GraphId` / `GraphViewId`) one UI level above workbench hosting.
+3. A graph-scoped Navigator host names the active graph target (`GraphId` / `GraphViewId`) one UI level above workbench hosting.
 4. The workbench is the contextual arrangement layer for the leaves of the active branch.
 5. A Frame is a persisted arrangement context within that workbench layer.
 6. A Tile Group / Tile is a structural hosting unit inside the frame.
@@ -150,14 +150,14 @@ Additional structure rules:
 
 ### 2.2 What each layer is for
 
-- **Graph Bar target**: the graph-scoped thing currently being named, steered, and configured.
+- **Graph-scoped Navigator target**: the graph-scoped thing currently being named, steered, and configured.
 - **Workbench**: contextual presentation layer for the current branch's leaves.
 - **Frame**: named and persisted arrangement context inside the workbench.
 - **Tile**: primary arrangeable workspace container users move, split, focus,
   and populate with one or more node entries.
 - **Pane**: rendered presentation surface hosted by a tile for its currently
   active node entry.
-- **GraphViewId**: graph-owned scoped view and lens-state target that may be presented in a pane or selected in the Graph Bar without changing ownership.
+- **GraphViewId**: graph-owned scoped view and lens-state target that may be presented in a pane or selected in a graph-scoped Navigator host without changing ownership.
 - **Node**: graph identity; never reduced to a tile instance.
 
 ### 2.3 Ownership model
@@ -181,7 +181,7 @@ Additional structure rules:
   - tile activation,
   - pane hosting.
 - The Graph subsystem does not own arrangement truth.
-- The Graph Bar and graph-view manager may name/select graph targets above the
+- Graph-scoped Navigator hosts and the graph-view manager may name/select graph targets above the
   workbench layer without thereby creating or mutating workbench structure.
 - The Graph subsystem may request routing into the workbench, but it does not define the
   workbench tree structure.
@@ -189,7 +189,7 @@ Additional structure rules:
   graph-rooted through `ArrangementRelation`; the workbench remains the owner of
   interactive session mutation and structural realization.
 - The Workbench subsystem may persist arrangement state and return-path memory, but that persistence is workspace state, not durable content hierarchy.
-- The **Navigator** (Workbench Sidebar projection), when visible, is a Graph-owned read-only projection over relation families and is not part of workbench arrangement truth.
+- The **Navigator**, when visible in any host, is a Graph-owned read-only projection over relation families and is not part of workbench arrangement truth.
 
 ### 2.4A Cross-tree sync semantics (authority: `graph_first_frame_semantics_spec.md`)
 
@@ -258,12 +258,12 @@ Create and select persistent arrangement contexts for the active graph.
 **Core controls**: Workbench chrome exposes explicit `Create Tile` and
 `Create Frame` actions. In the desktop default, these actions live in the
 Navigator (workbench-scope) header and/or frame overflow affordances.
-See `../navigator/NAVIGATOR.md §11` for the Navigator scope/form-factor
-model — "Workbench Sidebar" is the Navigator in panel form with workbench
-scope active. A frame
-chip/dropdown summarizes frame order and active frame, while the sidebar body
-shows the full pane tree. Selecting a frame changes the active frame context
-without changing graph identity.
+See `../navigator/NAVIGATOR.md §11` for the Navigator host/scope/form-factor
+model. A workbench-scoped Navigator host may appear as a sidebar or toolbar,
+and multiple hosts may coexist. A frame chip/dropdown summarizes frame order
+and active frame, while any workbench-scoped body/tree host shows the full pane
+tree. Selecting a frame changes the active frame context without changing graph
+identity.
 
 **Owner**: Graphshell workbench controller owns frame creation semantics, active-frame state, and persistence. `egui_tiles` may render tab strips and layout chrome, but it does not define frame meaning.
 

@@ -231,7 +231,12 @@ mod tests {
         key
     }
 
-    fn assert_relation(graph: &mut Graph, from: NodeKey, to: NodeKey, assertion: crate::graph::EdgeAssertion) {
+    fn assert_relation(
+        graph: &mut Graph,
+        from: NodeKey,
+        to: NodeKey,
+        assertion: crate::graph::EdgeAssertion,
+    ) {
         apply_graph_delta(
             graph,
             GraphDelta::AssertRelation {
@@ -360,7 +365,9 @@ mod tests {
         let peers = graphlet_peers_for_node_with_selectors(
             &graph,
             a,
-            &[RelationSelector::Family(crate::graph::EdgeFamily::Traversal)],
+            &[RelationSelector::Family(
+                crate::graph::EdgeFamily::Traversal,
+            )],
         );
         assert_eq!(peers, vec![b]);
     }
@@ -450,7 +457,9 @@ mod tests {
         let mut members = graphlet_members_for_seeds_with_selectors(
             &graph,
             &[a, c],
-            &[RelationSelector::Family(crate::graph::EdgeFamily::Traversal)],
+            &[RelationSelector::Family(
+                crate::graph::EdgeFamily::Traversal,
+            )],
         );
         members.sort_by_key(|key| key.index());
         assert_eq!(members, vec![a, b, c]);

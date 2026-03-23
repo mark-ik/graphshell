@@ -15,9 +15,11 @@
 //! The radial palette reuses [`execute_action`] for its own dispatch, ensuring both
 //! surfaces share a single execution path.
 
+use crate::app::workbench_layout_policy::FirstUseOutcome;
 use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, PendingConnectedOpenScope,
-    PendingTileOpenMode, ViewAction, WorkbenchIntent,
+    PendingTileOpenMode, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, ViewAction,
+    WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
@@ -219,6 +221,57 @@ fn disabled_action_reason(
                 None
             }
         }
+        ActionId::WorkbenchUnlockSurfaceLayout => {
+            if action_context.layout_surface_target_ambiguous {
+                Some(
+                    "Multiple Navigator hosts are visible. Unlock layout from the specific host chrome first or enter config mode on that host.",
+                )
+            } else if !action_context.layout_surface_host_available {
+                Some(
+                    "No layout-configurable Navigator host is available in the current workbench context.",
+                )
+            } else if action_context.layout_surface_configuring {
+                Some(
+                    "Surface layout is already unlocked. Use Lock Surface Layout to finish configuration.",
+                )
+            } else {
+                None
+            }
+        }
+        ActionId::WorkbenchLockSurfaceLayout => {
+            if action_context.layout_surface_target_ambiguous {
+                Some(
+                    "Multiple Navigator hosts are visible. Lock layout from the host that is currently being configured.",
+                )
+            } else if !action_context.layout_surface_host_available {
+                Some(
+                    "No layout-configurable Navigator host is available in the current workbench context.",
+                )
+            } else if !action_context.layout_surface_configuring {
+                Some("Surface layout is already locked. Unlock a Navigator host first.")
+            } else {
+                None
+            }
+        }
+        ActionId::WorkbenchRememberLayoutPreference => {
+            if action_context.layout_surface_target_ambiguous {
+                Some(
+                    "Multiple Navigator hosts are visible. Remember the layout from the specific host that owns the draft.",
+                )
+            } else if !action_context.layout_surface_host_available {
+                Some(
+                    "No layout-configurable Navigator host is available in the current workbench context.",
+                )
+            } else if !action_context.layout_surface_configuring
+                && !action_context.layout_surface_has_draft
+            {
+                Some(
+                    "No in-progress layout draft is available to remember. Unlock and adjust a Navigator host first.",
+                )
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -228,6 +281,24 @@ fn empty_graph_message(node_count: usize) -> Option<&'static str> {
         Some("Graph is empty. Create your first node to unlock node and edge actions.")
     } else {
         None
+    }
+}
+
+fn layout_surface_host_label(surface_host: &SurfaceHostId) -> &'static str {
+    match surface_host {
+        SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top) => {
+            "Top Navigator Host"
+        }
+        SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Bottom) => {
+            "Bottom Navigator Host"
+        }
+        SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Left) => {
+            "Left Navigator Host"
+        }
+        SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Right) => {
+            "Right Navigator Host"
+        }
+        SurfaceHostId::Role(_) => "Workbench Host",
     }
 }
 
@@ -257,9 +328,10 @@ fn render_action_entry_button(
     }
     if response.clicked() {
         record_recent_category(ui.ctx(), entry.id.category());
-        execute_action(
+        execute_action_with_layout_target(
             app,
             entry.id,
+            action_context.layout_surface_target_host.clone(),
             pair_context,
             source_context,
             intents,
@@ -297,40 +369,12 @@ pub fn render_command_palette_panel(
     let focused_selection = app.focused_selection().clone();
     let any_selected = !focused_selection.is_empty();
     let graph_node_count = app.domain_graph().node_count();
-
-    let action_context = ActionContext {
-        target_node: source_context,
-        pair_context,
-        any_selected,
-        focused_pane_available: focused_pane_node.is_some(),
-        undo_available: app.undo_stack_len() > 0,
-        redo_available: app.redo_stack_len() > 0,
-        input_mode: InputMode::MouseKeyboard,
-        view_id: app
-            .workspace
-            .graph_runtime
-            .focused_view
-            .unwrap_or_else(crate::app::GraphViewId::new),
-        wry_override_allowed: cfg!(feature = "wry")
-            && app.wry_enabled()
-            && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry"),
-    };
-    let actions = list_actions_for_context(&action_context);
-    let categories_present: Vec<ActionCategory> = default_category_order()
-        .into_iter()
-        .filter(|category| actions.iter().any(|entry| entry.id.category() == *category))
-        .collect();
-    let ordered_categories = rank_categories_for_context(
-        &categories_present,
-        &action_context,
-        &load_category_recency(ctx),
-        &load_pinned_categories(ctx),
-    );
     let contextual_mode =
         app.workspace.chrome_ui.show_context_palette || app.pending_node_context_target().is_some();
     let contextual_anchor = app.workspace.chrome_ui.context_palette_anchor;
     let search_query_id = egui::Id::new("command_palette_search_query");
     let search_scope_id = egui::Id::new("command_palette_search_scope");
+    let layout_host_state_id = egui::Id::new("command_palette_layout_surface_host");
 
     if ctx.input(|i| i.key_pressed(Key::Escape)) {
         should_close = true;
@@ -339,6 +383,98 @@ pub fn render_command_palette_panel(
     let window_title = palette_window_title(contextual_mode);
 
     let mut render_palette_contents = |ui: &mut egui::Ui| {
+        let visible_layout_surface_hosts = app.visible_navigator_surface_hosts();
+        let configuring_layout_surface_host = match &app.workspace.workbench_session.ux_config_mode
+        {
+            UxConfigMode::Configuring { surface_host } => Some(surface_host.clone()),
+            UxConfigMode::Locked => None,
+        };
+        let mut selected_layout_surface_host =
+            if let Some(surface_host) = configuring_layout_surface_host.clone() {
+                Some(surface_host)
+            } else if visible_layout_surface_hosts.len() <= 1 {
+                visible_layout_surface_hosts.first().cloned()
+            } else {
+                ctx.data_mut(|d| d.get_persisted::<String>(layout_host_state_id))
+                    .and_then(|raw| raw.parse::<SurfaceHostId>().ok())
+                    .filter(|surface_host| visible_layout_surface_hosts.contains(surface_host))
+                    .or_else(|| visible_layout_surface_hosts.first().cloned())
+            };
+
+        if configuring_layout_surface_host.is_none() && visible_layout_surface_hosts.len() > 1 {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Layout Host:");
+                egui::ComboBox::from_id_salt("command_palette_layout_host_dropdown")
+                    .selected_text(
+                        selected_layout_surface_host
+                            .as_ref()
+                            .map(layout_surface_host_label)
+                            .unwrap_or("Select Navigator Host"),
+                    )
+                    .show_ui(ui, |ui| {
+                        for surface_host in &visible_layout_surface_hosts {
+                            ui.selectable_value(
+                                &mut selected_layout_surface_host,
+                                Some(surface_host.clone()),
+                                layout_surface_host_label(surface_host),
+                            );
+                        }
+                    });
+            });
+            ctx.data_mut(|d| {
+                if let Some(surface_host) = &selected_layout_surface_host {
+                    d.insert_persisted(layout_host_state_id, surface_host.to_string());
+                }
+            });
+            ui.small("Layout actions apply to the selected Navigator host.");
+            ui.add_space(4.0);
+        }
+
+        let action_context = ActionContext {
+            target_node: source_context,
+            pair_context,
+            any_selected,
+            focused_pane_available: focused_pane_node.is_some(),
+            undo_available: app.undo_stack_len() > 0,
+            redo_available: app.redo_stack_len() > 0,
+            input_mode: InputMode::MouseKeyboard,
+            view_id: app
+                .workspace
+                .graph_runtime
+                .focused_view
+                .unwrap_or_else(crate::app::GraphViewId::new),
+            wry_override_allowed: cfg!(feature = "wry")
+                && app.wry_enabled()
+                && crate::registries::infrastructure::mod_loader::runtime_has_capability(
+                    "viewer:wry",
+                ),
+            layout_surface_host_available: selected_layout_surface_host.is_some(),
+            layout_surface_target_host: selected_layout_surface_host.clone(),
+            layout_surface_target_ambiguous: app.has_ambiguous_navigator_surface_host_target()
+                && selected_layout_surface_host.is_none(),
+            layout_surface_configuring: matches!(
+                app.workspace.workbench_session.ux_config_mode,
+                UxConfigMode::Configuring { .. }
+            ),
+            layout_surface_has_draft: selected_layout_surface_host.as_ref().is_some_and(
+                |surface_host| {
+                    app.workbench_layout_constraint_draft_for_host(surface_host)
+                        .is_some()
+                },
+            ),
+        };
+        let actions = list_actions_for_context(&action_context);
+        let categories_present: Vec<ActionCategory> = default_category_order()
+            .into_iter()
+            .filter(|category| actions.iter().any(|entry| entry.id.category() == *category))
+            .collect();
+        let ordered_categories = rank_categories_for_context(
+            &categories_present,
+            &action_context,
+            &load_category_recency(ctx),
+            &load_pinned_categories(ctx),
+        );
+
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -600,8 +736,32 @@ pub(crate) fn execute_action(
     focused_pane_node: Option<NodeKey>,
     focused_pane_id: Option<PaneId>,
 ) {
+    execute_action_with_layout_target(
+        app,
+        action_id,
+        None,
+        pair_context,
+        source_context,
+        intents,
+        focused_pane_node,
+        focused_pane_id,
+    );
+}
+
+pub(crate) fn execute_action_with_layout_target(
+    app: &mut GraphBrowserApp,
+    action_id: ActionId,
+    layout_surface_target_host: Option<SurfaceHostId>,
+    pair_context: Option<(NodeKey, NodeKey)>,
+    source_context: Option<NodeKey>,
+    intents: &mut Vec<GraphIntent>,
+    focused_pane_node: Option<NodeKey>,
+    focused_pane_id: Option<PaneId>,
+) {
     let focused_selection = app.focused_selection().clone();
     let open_target = source_context.or_else(|| focused_selection.primary());
+    let active_layout_surface_host =
+        layout_surface_target_host.or_else(|| app.targetable_navigator_surface_host());
 
     match action_id {
         ActionId::NodeNew => intents.push(GraphMutation::CreateNodeNearCenter.into()),
@@ -783,6 +943,51 @@ pub(crate) fn execute_action(
             app.enqueue_workbench_intent(WorkbenchIntent::OpenCommandPalette);
         }
         ActionId::GraphRadialMenu => intents.push(GraphIntent::ToggleRadialMenu),
+        ActionId::WorkbenchUnlockSurfaceLayout => {
+            if let Some(active_layout_surface_host) = active_layout_surface_host {
+                app.enqueue_workbench_intent(WorkbenchIntent::SetSurfaceConfigMode {
+                    surface_host: active_layout_surface_host.clone(),
+                    mode: UxConfigMode::Configuring {
+                        surface_host: active_layout_surface_host,
+                    },
+                });
+            }
+        }
+        ActionId::WorkbenchLockSurfaceLayout => {
+            if let Some(active_layout_surface_host) = active_layout_surface_host {
+                app.enqueue_workbench_intent(WorkbenchIntent::SetSurfaceConfigMode {
+                    surface_host: active_layout_surface_host,
+                    mode: UxConfigMode::Locked,
+                });
+            }
+        }
+        ActionId::WorkbenchRememberLayoutPreference => {
+            if let Some(active_layout_surface_host) = active_layout_surface_host {
+                if let Some(constraint) = app
+                    .workbench_layout_constraint_for_host(&active_layout_surface_host)
+                    .cloned()
+                {
+                    app.set_workbench_layout_constraint(
+                        active_layout_surface_host.clone(),
+                        constraint.clone(),
+                    );
+                    app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+                        surface_host: active_layout_surface_host.clone(),
+                        prompt_shown: true,
+                        outcome: Some(FirstUseOutcome::RememberedConstraint(constraint)),
+                    });
+                }
+                if matches!(
+                    app.workspace.workbench_session.ux_config_mode,
+                    UxConfigMode::Configuring { .. }
+                ) {
+                    app.enqueue_workbench_intent(WorkbenchIntent::SetSurfaceConfigMode {
+                        surface_host: active_layout_surface_host,
+                        mode: UxConfigMode::Locked,
+                    });
+                }
+            }
+        }
         ActionId::WorkbenchGroupSelectedTiles => {
             app.enqueue_workbench_intent(WorkbenchIntent::GroupSelectedTiles);
         }
@@ -959,6 +1164,11 @@ mod tests {
             input_mode: InputMode::MouseKeyboard,
             view_id: GraphViewId::new(),
             wry_override_allowed: false,
+            layout_surface_host_available: false,
+            layout_surface_target_host: None,
+            layout_surface_target_ambiguous: false,
+            layout_surface_configuring: false,
+            layout_surface_has_draft: false,
         }
     }
 
@@ -981,6 +1191,23 @@ mod tests {
         assert_eq!(
             reason,
             Some("Requires a selected or targeted node. Select a node first.")
+        );
+    }
+
+    #[test]
+    fn disabled_layout_actions_expose_ambiguous_host_reason() {
+        let reason = disabled_action_reason(
+            ActionId::WorkbenchUnlockSurfaceLayout,
+            &ActionContext {
+                layout_surface_target_ambiguous: true,
+                ..default_action_context()
+            },
+        );
+        assert_eq!(
+            reason,
+            Some(
+                "Multiple Navigator hosts are visible. Unlock layout from the specific host chrome first or enter config mode on that host."
+            )
         );
     }
 
@@ -1059,6 +1286,262 @@ mod tests {
             [WorkbenchIntent::OpenToolPane {
                 kind: ToolPaneState::HistoryManager
             }]
+        ));
+    }
+
+    #[test]
+    fn execute_action_unlock_surface_layout_enqueues_configuring_intent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::WorkbenchUnlockSurfaceLayout,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::SetSurfaceConfigMode {
+                surface_host,
+                mode: UxConfigMode::Configuring { surface_host: configuring_host },
+            }] if surface_host == configuring_host
+        ));
+    }
+
+    #[test]
+    fn execute_action_unlock_surface_layout_skips_when_host_target_is_ambiguous() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_workbench_layout_constraint(
+            crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Top,
+            ),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                crate::app::SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Top,
+                ),
+                crate::app::workbench_layout_policy::AnchorEdge::Top,
+                0.15,
+            ),
+        );
+        app.set_workbench_layout_constraint(
+            crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+            ),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                crate::app::SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+                ),
+                crate::app::workbench_layout_policy::AnchorEdge::Bottom,
+                0.15,
+            ),
+        );
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::WorkbenchUnlockSurfaceLayout,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(app.take_pending_workbench_intents().is_empty());
+    }
+
+    #[test]
+    fn execute_action_with_layout_target_unlocks_selected_host_when_multiple_hosts_visible() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_workbench_layout_constraint(
+            crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Top,
+            ),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                crate::app::SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Top,
+                ),
+                crate::app::workbench_layout_policy::AnchorEdge::Top,
+                0.15,
+            ),
+        );
+        app.set_workbench_layout_constraint(
+            crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+            ),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                crate::app::SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+                ),
+                crate::app::workbench_layout_policy::AnchorEdge::Bottom,
+                0.15,
+            ),
+        );
+        let selected_host = crate::app::SurfaceHostId::Navigator(
+            crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+        );
+        let mut intents = Vec::new();
+
+        execute_action_with_layout_target(
+            &mut app,
+            ActionId::WorkbenchUnlockSurfaceLayout,
+            Some(selected_host.clone()),
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::SetSurfaceConfigMode {
+                surface_host,
+                mode: UxConfigMode::Configuring { surface_host: configuring_host },
+            }] if surface_host == &selected_host && configuring_host == &selected_host
+        ));
+    }
+
+    #[test]
+    fn execute_action_with_layout_target_remembers_selected_host_draft() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_workbench_layout_constraint(
+            crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Top,
+            ),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                crate::app::SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Top,
+                ),
+                crate::app::workbench_layout_policy::AnchorEdge::Top,
+                0.15,
+            ),
+        );
+        let selected_host = crate::app::SurfaceHostId::Navigator(
+            crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+        );
+        app.set_workbench_layout_constraint_draft(
+            selected_host.clone(),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                selected_host.clone(),
+                crate::app::workbench_layout_policy::AnchorEdge::Bottom,
+                0.21,
+            ),
+        );
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: selected_host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::ConfigureNow),
+        });
+        app.set_workbench_surface_config_mode(UxConfigMode::Configuring {
+            surface_host: selected_host.clone(),
+        });
+        let mut intents = Vec::new();
+
+        execute_action_with_layout_target(
+            &mut app,
+            ActionId::WorkbenchRememberLayoutPreference,
+            Some(selected_host.clone()),
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(
+            app.workbench_layout_constraint_draft_for_host(&selected_host)
+                .is_none()
+        );
+        assert!(matches!(
+            app.workbench_profile()
+                .first_use_policies
+                .get(&selected_host)
+                .and_then(|policy| policy.outcome.as_ref()),
+            Some(FirstUseOutcome::RememberedConstraint(
+                crate::app::WorkbenchLayoutConstraint::AnchoredSplit {
+                    surface_host,
+                    anchor_edge: crate::app::workbench_layout_policy::AnchorEdge::Bottom,
+                    anchor_size_fraction,
+                    ..
+                }
+            )) if surface_host == &selected_host && (*anchor_size_fraction - 0.21).abs() < f32::EPSILON
+        ));
+    }
+
+    #[test]
+    fn execute_action_remember_layout_preference_commits_draft_and_marks_policy() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let host = app.primary_navigator_surface_host();
+        app.set_workbench_layout_constraint_draft(
+            host.clone(),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                host.clone(),
+                crate::app::workbench_layout_policy::AnchorEdge::Top,
+                0.18,
+            ),
+        );
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::ConfigureNow),
+        });
+        app.set_workbench_surface_config_mode(UxConfigMode::Configuring {
+            surface_host: host.clone(),
+        });
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::WorkbenchRememberLayoutPreference,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(
+            app.workbench_layout_constraint_draft_for_host(&host)
+                .is_none()
+        );
+        assert!(app.workbench_layout_constraint_for_host(&host).is_some());
+        assert!(matches!(
+            app.workbench_profile()
+                .first_use_policies
+                .get(&host)
+                .and_then(|policy| policy.outcome.as_ref()),
+            Some(FirstUseOutcome::RememberedConstraint(
+                crate::app::WorkbenchLayoutConstraint::AnchoredSplit {
+                    surface_host,
+                    anchor_edge: crate::app::workbench_layout_policy::AnchorEdge::Top,
+                    anchor_size_fraction,
+                    cross_axis_margin_start_px,
+                    cross_axis_margin_end_px,
+                    resizable,
+                }
+            )) if surface_host == &host
+                && (*anchor_size_fraction - 0.18).abs() < f32::EPSILON
+                && (*cross_axis_margin_start_px).abs() < f32::EPSILON
+                && (*cross_axis_margin_end_px).abs() < f32::EPSILON
+                && *resizable
+        ));
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::SetSurfaceConfigMode {
+                surface_host,
+                mode: UxConfigMode::Locked,
+            }] if surface_host == &host
         ));
     }
 

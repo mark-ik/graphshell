@@ -21,9 +21,9 @@ use std::collections::HashSet;
 
 use super::barnes_hut_force_directed::BarnesHutForceDirectedLayout;
 use crate::graph::physics::{default_graph_physics_state, scenario_helpers::*};
+use crate::model::graph::Graph;
 use crate::model::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
 use crate::model::graph::egui_adapter::EguiGraphState;
-use crate::model::graph::Graph;
 use crate::registries::atomic::lens::PhysicsProfile;
 
 /// Convergence threshold: average displacement < this value = converged.

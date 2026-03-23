@@ -468,17 +468,14 @@ pub(super) fn apply_pending_camera_command(
                     let padding = canvas_profile.navigation.camera_focus_selection_padding;
                     let padded_width = width * padding;
                     let padded_height = height * padding;
-                    let fit_zoom =
-                        (view_size.x / padded_width).min(view_size.y / padded_height);
+                    let fit_zoom = (view_size.x / padded_width).min(view_size.y / padded_height);
                     let target_zoom = fit_zoom.clamp(zoom_min, zoom_max);
-                    let center =
-                        egui::pos2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
+                    let center = egui::pos2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
                     let viewport_center =
                         egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size())
                             .center()
                             .to_vec2();
-                    let target_pan =
-                        viewport_center - center.to_vec2() * target_zoom;
+                    let target_pan = viewport_center - center.to_vec2() * target_zoom;
                     let mut updated_zoom = None;
                     let mut seeded_metadata = false;
                     let seeded_frame = seeded_metadata_frame_for_view(app, view_id);
@@ -504,9 +501,7 @@ pub(super) fn apply_pending_camera_command(
                         }
                     });
                     if let Some(new_zoom) = updated_zoom {
-                        if let Some(view) =
-                            app.workspace.graph_runtime.views.get_mut(&view_id)
-                        {
+                        if let Some(view) = app.workspace.graph_runtime.views.get_mut(&view_id) {
                             view.camera.current_zoom = new_zoom;
                         }
                         app.clear_pending_camera_command();

@@ -1133,15 +1133,9 @@ impl From<GraphMutation> for GraphIntent {
             GraphMutation::PromoteImportRecordToUserGroup { record_id, anchor } => {
                 Self::PromoteImportRecordToUserGroup { record_id, anchor }
             }
-            GraphMutation::RemoveEdge {
-                from,
-                to,
-                selector,
-            } => Self::RemoveEdge {
-                from,
-                to,
-                selector,
-            },
+            GraphMutation::RemoveEdge { from, to, selector } => {
+                Self::RemoveEdge { from, to, selector }
+            }
             GraphMutation::CreateUserGroupedEdgeFromPrimarySelection => {
                 Self::CreateUserGroupedEdgeFromPrimarySelection
             }
@@ -1401,9 +1395,7 @@ impl GraphIntent {
             Self::AcceptHostOpenRequest { .. } => None,
             Self::RemoveSelectedNodes => Some(GraphMutation::RemoveSelectedNodes),
             Self::MarkTombstoneForSelected => Some(GraphMutation::MarkTombstoneForSelected),
-            Self::RestoreGhostNode { key } => {
-                Some(GraphMutation::RestoreGhostNode { key: *key })
-            }
+            Self::RestoreGhostNode { key } => Some(GraphMutation::RestoreGhostNode { key: *key }),
             Self::ClearGraph => Some(GraphMutation::ClearGraph),
             Self::SetNodeUrl { key, new_url } => Some(GraphMutation::SetNodeUrl {
                 key: *key,
@@ -1439,11 +1431,7 @@ impl GraphIntent {
                     anchor: *anchor,
                 })
             }
-            Self::RemoveEdge {
-                from,
-                to,
-                selector,
-            } => Some(GraphMutation::RemoveEdge {
+            Self::RemoveEdge { from, to, selector } => Some(GraphMutation::RemoveEdge {
                 from: *from,
                 to: *to,
                 selector: *selector,

@@ -35,13 +35,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::services::persistence::types::{
-    GraphSnapshot, PersistedAddressKind, PersistedArrangementEdgeData,
-    PersistedArrangementSubKind, PersistedContainmentEdgeData, PersistedContainmentSubKind,
-    PersistedEdge, PersistedEdgeFamily, PersistedImportedEdgeData, PersistedImportedSubKind,
-    PersistedNavigationTrigger, PersistedNode, PersistedNodeSessionState,
-    PersistedProvenanceEdgeData, PersistedProvenanceSubKind, PersistedSemanticEdgeData,
-    PersistedSemanticSubKind,
-    PersistedTraversalEdgeData, PersistedTraversalMetrics, PersistedTraversalRecord,
+    GraphSnapshot, PersistedAddressKind, PersistedArrangementEdgeData, PersistedArrangementSubKind,
+    PersistedContainmentEdgeData, PersistedContainmentSubKind, PersistedEdge, PersistedEdgeFamily,
+    PersistedImportedEdgeData, PersistedImportedSubKind, PersistedNavigationTrigger, PersistedNode,
+    PersistedNodeSessionState, PersistedProvenanceEdgeData, PersistedProvenanceSubKind,
+    PersistedSemanticEdgeData, PersistedSemanticSubKind, PersistedTraversalEdgeData,
+    PersistedTraversalMetrics, PersistedTraversalRecord,
 };
 
 pub mod apply;
@@ -1092,7 +1091,10 @@ impl EdgePayload {
             EdgeFamily::Containment => self.kinds.contains(&EdgeKind::ContainmentRelation),
             EdgeFamily::Arrangement => self.kinds.contains(&EdgeKind::ArrangementRelation),
             EdgeFamily::Imported => self.kinds.contains(&EdgeKind::ImportedRelation),
-            EdgeFamily::Provenance => self.provenance.as_ref().is_some_and(|data| !data.sub_kinds.is_empty()),
+            EdgeFamily::Provenance => self
+                .provenance
+                .as_ref()
+                .is_some_and(|data| !data.sub_kinds.is_empty()),
         };
         if !keep {
             self.families.remove(&family);
@@ -1213,7 +1215,9 @@ impl EdgePayload {
                 self.has_edge_type(EdgeType::UserGrouped)
             }
             RelationSelector::Semantic(SemanticSubKind::AgentDerived) => {
-                self.has_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 })
+                self.has_edge_type(EdgeType::AgentDerived {
+                    decay_progress: 0.0,
+                })
             }
             RelationSelector::Semantic(_) => false,
             RelationSelector::Containment(sub_kind) => {
@@ -1222,12 +1226,16 @@ impl EdgePayload {
             RelationSelector::Arrangement(sub_kind) => {
                 self.has_edge_type(EdgeType::ArrangementRelation(sub_kind))
             }
-            RelationSelector::Imported(sub_kind) => self
-                .imported
-                .as_ref()
-                .is_some_and(|data| data.sub_kinds.contains(&sub_kind))
-                || (self.imported.as_ref().is_some_and(|data| data.sub_kinds.is_empty())
-                    && self.has_edge_type(EdgeType::ImportedRelation)),
+            RelationSelector::Imported(sub_kind) => {
+                self.imported
+                    .as_ref()
+                    .is_some_and(|data| data.sub_kinds.contains(&sub_kind))
+                    || (self
+                        .imported
+                        .as_ref()
+                        .is_some_and(|data| data.sub_kinds.is_empty())
+                        && self.has_edge_type(EdgeType::ImportedRelation))
+            }
             RelationSelector::Provenance(sub_kind) => self
                 .provenance
                 .as_ref()
@@ -1273,7 +1281,9 @@ impl EdgePayload {
 
     pub fn retract_relation(&mut self, selector: RelationSelector) -> bool {
         match selector {
-            RelationSelector::Family(EdgeFamily::Traversal) => self.remove_edge_type(EdgeType::History),
+            RelationSelector::Family(EdgeFamily::Traversal) => {
+                self.remove_edge_type(EdgeType::History)
+            }
             RelationSelector::Family(_) => false,
             RelationSelector::Semantic(SemanticSubKind::Hyperlink) => {
                 self.remove_edge_type(EdgeType::Hyperlink)
@@ -1282,7 +1292,9 @@ impl EdgePayload {
                 self.remove_edge_type(EdgeType::UserGrouped)
             }
             RelationSelector::Semantic(SemanticSubKind::AgentDerived) => {
-                self.remove_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 })
+                self.remove_edge_type(EdgeType::AgentDerived {
+                    decay_progress: 0.0,
+                })
             }
             RelationSelector::Semantic(_) => false,
             RelationSelector::Containment(sub_kind) => {
@@ -2379,7 +2391,9 @@ impl Graph {
         let edge_ids: Vec<EdgeKey> = self
             .inner
             .edge_references()
-            .filter(|edge| edge.source() == from && edge.target() == to && edge.weight().has_relation(selector))
+            .filter(|edge| {
+                edge.source() == from && edge.target() == to && edge.weight().has_relation(selector)
+            })
             .map(|edge| edge.id())
             .collect();
 
@@ -2931,7 +2945,9 @@ impl Graph {
                                 .has_edge_type(EdgeType::UserGrouped)
                                 .then_some(PersistedSemanticSubKind::UserGrouped),
                             payload
-                                .has_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 })
+                                .has_edge_type(EdgeType::AgentDerived {
+                                    decay_progress: 0.0,
+                                })
                                 .then_some(PersistedSemanticSubKind::AgentDerived),
                         ]
                         .into_iter()
@@ -2939,92 +2955,166 @@ impl Graph {
                         .collect(),
                         label: payload.label().map(str::to_string),
                         agent_decay_progress: payload
-                            .has_edge_type(EdgeType::AgentDerived { decay_progress: 0.0 })
+                            .has_edge_type(EdgeType::AgentDerived {
+                                decay_progress: 0.0,
+                            })
                             .then_some(0.0),
                     })
                     .filter(|data| !data.sub_kinds.is_empty() || data.label.is_some()),
-                    traversal: payload.traversal_data().map(|data| PersistedTraversalEdgeData {
-                        traversals: data
-                            .traversals
-                            .iter()
-                            .map(|traversal| PersistedTraversalRecord {
-                                timestamp_ms: traversal.timestamp_ms,
-                                trigger: match traversal.trigger {
-                                    NavigationTrigger::Unknown => PersistedNavigationTrigger::Unknown,
-                                    NavigationTrigger::LinkClick => PersistedNavigationTrigger::LinkClick,
-                                    NavigationTrigger::Back => PersistedNavigationTrigger::Back,
-                                    NavigationTrigger::Forward => PersistedNavigationTrigger::Forward,
-                                    NavigationTrigger::AddressBarEntry => PersistedNavigationTrigger::AddressBarEntry,
-                                    NavigationTrigger::PanePromotion => PersistedNavigationTrigger::PanePromotion,
-                                    NavigationTrigger::Programmatic => PersistedNavigationTrigger::Programmatic,
-                                },
-                            })
-                            .collect(),
-                        metrics: PersistedTraversalMetrics {
-                            total_navigations: data.metrics.total_navigations,
-                            forward_navigations: data.metrics.forward_navigations,
-                            backward_navigations: data.metrics.backward_navigations,
-                            last_navigated_at: data.metrics.last_navigated_at,
-                        },
+                    traversal: payload
+                        .traversal_data()
+                        .map(|data| PersistedTraversalEdgeData {
+                            traversals: data
+                                .traversals
+                                .iter()
+                                .map(|traversal| PersistedTraversalRecord {
+                                    timestamp_ms: traversal.timestamp_ms,
+                                    trigger: match traversal.trigger {
+                                        NavigationTrigger::Unknown => {
+                                            PersistedNavigationTrigger::Unknown
+                                        }
+                                        NavigationTrigger::LinkClick => {
+                                            PersistedNavigationTrigger::LinkClick
+                                        }
+                                        NavigationTrigger::Back => PersistedNavigationTrigger::Back,
+                                        NavigationTrigger::Forward => {
+                                            PersistedNavigationTrigger::Forward
+                                        }
+                                        NavigationTrigger::AddressBarEntry => {
+                                            PersistedNavigationTrigger::AddressBarEntry
+                                        }
+                                        NavigationTrigger::PanePromotion => {
+                                            PersistedNavigationTrigger::PanePromotion
+                                        }
+                                        NavigationTrigger::Programmatic => {
+                                            PersistedNavigationTrigger::Programmatic
+                                        }
+                                    },
+                                })
+                                .collect(),
+                            metrics: PersistedTraversalMetrics {
+                                total_navigations: data.metrics.total_navigations,
+                                forward_navigations: data.metrics.forward_navigations,
+                                backward_navigations: data.metrics.backward_navigations,
+                                last_navigated_at: data.metrics.last_navigated_at,
+                            },
+                        }),
+                    containment: payload.containment_data().map(|data| {
+                        PersistedContainmentEdgeData {
+                            sub_kinds: data
+                                .sub_kinds
+                                .iter()
+                                .map(|sub_kind| match sub_kind {
+                                    ContainmentSubKind::UrlPath => {
+                                        PersistedContainmentSubKind::UrlPath
+                                    }
+                                    ContainmentSubKind::Domain => {
+                                        PersistedContainmentSubKind::Domain
+                                    }
+                                    ContainmentSubKind::FileSystem => {
+                                        PersistedContainmentSubKind::FileSystem
+                                    }
+                                    ContainmentSubKind::UserFolder => {
+                                        PersistedContainmentSubKind::UserFolder
+                                    }
+                                    ContainmentSubKind::ClipSource => {
+                                        PersistedContainmentSubKind::ClipSource
+                                    }
+                                    ContainmentSubKind::NotebookSection => {
+                                        PersistedContainmentSubKind::NotebookSection
+                                    }
+                                    ContainmentSubKind::CollectionMember => {
+                                        PersistedContainmentSubKind::CollectionMember
+                                    }
+                                })
+                                .collect(),
+                        }
                     }),
-                    containment: payload.containment_data().map(|data| PersistedContainmentEdgeData {
-                        sub_kinds: data
-                            .sub_kinds
-                            .iter()
-                            .map(|sub_kind| match sub_kind {
-                                ContainmentSubKind::UrlPath => PersistedContainmentSubKind::UrlPath,
-                                ContainmentSubKind::Domain => PersistedContainmentSubKind::Domain,
-                                ContainmentSubKind::FileSystem => PersistedContainmentSubKind::FileSystem,
-                                ContainmentSubKind::UserFolder => PersistedContainmentSubKind::UserFolder,
-                                ContainmentSubKind::ClipSource => PersistedContainmentSubKind::ClipSource,
-                                ContainmentSubKind::NotebookSection => PersistedContainmentSubKind::NotebookSection,
-                                ContainmentSubKind::CollectionMember => PersistedContainmentSubKind::CollectionMember,
-                            })
-                            .collect(),
+                    arrangement: payload.arrangement_data().map(|data| {
+                        PersistedArrangementEdgeData {
+                            sub_kinds: data
+                                .sub_kinds
+                                .iter()
+                                .copied()
+                                .filter(|sub_kind| {
+                                    sub_kind.durability() == RelationDurability::Durable
+                                })
+                                .map(|sub_kind| match sub_kind {
+                                    ArrangementSubKind::FrameMember => {
+                                        PersistedArrangementSubKind::FrameMember
+                                    }
+                                    ArrangementSubKind::TileGroup => {
+                                        PersistedArrangementSubKind::TileGroup
+                                    }
+                                    ArrangementSubKind::SplitPair => {
+                                        PersistedArrangementSubKind::SplitPair
+                                    }
+                                })
+                                .collect(),
+                        }
                     }),
-                    arrangement: payload.arrangement_data().map(|data| PersistedArrangementEdgeData {
-                        sub_kinds: data
-                            .sub_kinds
-                            .iter()
-                            .copied()
-                            .filter(|sub_kind| sub_kind.durability() == RelationDurability::Durable)
-                            .map(|sub_kind| match sub_kind {
-                                ArrangementSubKind::FrameMember => PersistedArrangementSubKind::FrameMember,
-                                ArrangementSubKind::TileGroup => PersistedArrangementSubKind::TileGroup,
-                                ArrangementSubKind::SplitPair => PersistedArrangementSubKind::SplitPair,
-                            })
-                            .collect(),
-                    }),
-                    imported: payload.imported_data().map(|data| PersistedImportedEdgeData {
-                        sub_kinds: data
-                            .sub_kinds
-                            .iter()
-                            .map(|sub_kind| match sub_kind {
-                                ImportedSubKind::BookmarkFolder => PersistedImportedSubKind::BookmarkFolder,
-                                ImportedSubKind::HistoryImport => PersistedImportedSubKind::HistoryImport,
-                                ImportedSubKind::RssMembership => PersistedImportedSubKind::RssMembership,
-                                ImportedSubKind::FileSystemImport => PersistedImportedSubKind::FileSystemImport,
-                                ImportedSubKind::ArchiveMembership => PersistedImportedSubKind::ArchiveMembership,
-                                ImportedSubKind::SharedCollection => PersistedImportedSubKind::SharedCollection,
-                            })
-                            .collect(),
-                    }),
-                    provenance: payload.provenance_data().map(|data| PersistedProvenanceEdgeData {
-                        sub_kinds: data
-                            .sub_kinds
-                            .iter()
-                            .map(|sub_kind| match sub_kind {
-                                ProvenanceSubKind::ClippedFrom => PersistedProvenanceSubKind::ClippedFrom,
-                                ProvenanceSubKind::ExcerptedFrom => PersistedProvenanceSubKind::ExcerptedFrom,
-                                ProvenanceSubKind::SummarizedFrom => PersistedProvenanceSubKind::SummarizedFrom,
-                                ProvenanceSubKind::TranslatedFrom => PersistedProvenanceSubKind::TranslatedFrom,
-                                ProvenanceSubKind::RewrittenFrom => PersistedProvenanceSubKind::RewrittenFrom,
-                                ProvenanceSubKind::GeneratedFrom => PersistedProvenanceSubKind::GeneratedFrom,
-                                ProvenanceSubKind::ExtractedFrom => PersistedProvenanceSubKind::ExtractedFrom,
-                                ProvenanceSubKind::ImportedFromSource => PersistedProvenanceSubKind::ImportedFromSource,
-                            })
-                            .collect(),
-                    }),
+                    imported: payload
+                        .imported_data()
+                        .map(|data| PersistedImportedEdgeData {
+                            sub_kinds: data
+                                .sub_kinds
+                                .iter()
+                                .map(|sub_kind| match sub_kind {
+                                    ImportedSubKind::BookmarkFolder => {
+                                        PersistedImportedSubKind::BookmarkFolder
+                                    }
+                                    ImportedSubKind::HistoryImport => {
+                                        PersistedImportedSubKind::HistoryImport
+                                    }
+                                    ImportedSubKind::RssMembership => {
+                                        PersistedImportedSubKind::RssMembership
+                                    }
+                                    ImportedSubKind::FileSystemImport => {
+                                        PersistedImportedSubKind::FileSystemImport
+                                    }
+                                    ImportedSubKind::ArchiveMembership => {
+                                        PersistedImportedSubKind::ArchiveMembership
+                                    }
+                                    ImportedSubKind::SharedCollection => {
+                                        PersistedImportedSubKind::SharedCollection
+                                    }
+                                })
+                                .collect(),
+                        }),
+                    provenance: payload
+                        .provenance_data()
+                        .map(|data| PersistedProvenanceEdgeData {
+                            sub_kinds: data
+                                .sub_kinds
+                                .iter()
+                                .map(|sub_kind| match sub_kind {
+                                    ProvenanceSubKind::ClippedFrom => {
+                                        PersistedProvenanceSubKind::ClippedFrom
+                                    }
+                                    ProvenanceSubKind::ExcerptedFrom => {
+                                        PersistedProvenanceSubKind::ExcerptedFrom
+                                    }
+                                    ProvenanceSubKind::SummarizedFrom => {
+                                        PersistedProvenanceSubKind::SummarizedFrom
+                                    }
+                                    ProvenanceSubKind::TranslatedFrom => {
+                                        PersistedProvenanceSubKind::TranslatedFrom
+                                    }
+                                    ProvenanceSubKind::RewrittenFrom => {
+                                        PersistedProvenanceSubKind::RewrittenFrom
+                                    }
+                                    ProvenanceSubKind::GeneratedFrom => {
+                                        PersistedProvenanceSubKind::GeneratedFrom
+                                    }
+                                    ProvenanceSubKind::ExtractedFrom => {
+                                        PersistedProvenanceSubKind::ExtractedFrom
+                                    }
+                                    ProvenanceSubKind::ImportedFromSource => {
+                                        PersistedProvenanceSubKind::ImportedFromSource
+                                    }
+                                })
+                                .collect(),
+                        }),
                 }
             })
             .collect();
@@ -3174,9 +3264,11 @@ impl Graph {
                             PersistedImportedSubKind::FileSystemImport => EdgeAssertion::Imported {
                                 sub_kind: ImportedSubKind::FileSystemImport,
                             },
-                            PersistedImportedSubKind::ArchiveMembership => EdgeAssertion::Imported {
-                                sub_kind: ImportedSubKind::ArchiveMembership,
-                            },
+                            PersistedImportedSubKind::ArchiveMembership => {
+                                EdgeAssertion::Imported {
+                                    sub_kind: ImportedSubKind::ArchiveMembership,
+                                }
+                            }
                             PersistedImportedSubKind::SharedCollection => EdgeAssertion::Imported {
                                 sub_kind: ImportedSubKind::SharedCollection,
                             },
@@ -3187,11 +3279,9 @@ impl Graph {
                 if let Some(provenance) = &pedge.provenance {
                     for sub_kind in &provenance.sub_kinds {
                         let assertion = match sub_kind {
-                            PersistedProvenanceSubKind::ClippedFrom => {
-                                EdgeAssertion::Provenance {
-                                    sub_kind: ProvenanceSubKind::ClippedFrom,
-                                }
-                            }
+                            PersistedProvenanceSubKind::ClippedFrom => EdgeAssertion::Provenance {
+                                sub_kind: ProvenanceSubKind::ClippedFrom,
+                            },
                             PersistedProvenanceSubKind::ExcerptedFrom => {
                                 EdgeAssertion::Provenance {
                                     sub_kind: ProvenanceSubKind::ExcerptedFrom,
@@ -3243,13 +3333,25 @@ impl Graph {
                             .map(|record| Traversal {
                                 timestamp_ms: record.timestamp_ms,
                                 trigger: match record.trigger {
-                                    PersistedNavigationTrigger::Unknown => NavigationTrigger::Unknown,
-                                    PersistedNavigationTrigger::LinkClick => NavigationTrigger::LinkClick,
+                                    PersistedNavigationTrigger::Unknown => {
+                                        NavigationTrigger::Unknown
+                                    }
+                                    PersistedNavigationTrigger::LinkClick => {
+                                        NavigationTrigger::LinkClick
+                                    }
                                     PersistedNavigationTrigger::Back => NavigationTrigger::Back,
-                                    PersistedNavigationTrigger::Forward => NavigationTrigger::Forward,
-                                    PersistedNavigationTrigger::AddressBarEntry => NavigationTrigger::AddressBarEntry,
-                                    PersistedNavigationTrigger::PanePromotion => NavigationTrigger::PanePromotion,
-                                    PersistedNavigationTrigger::Programmatic => NavigationTrigger::Programmatic,
+                                    PersistedNavigationTrigger::Forward => {
+                                        NavigationTrigger::Forward
+                                    }
+                                    PersistedNavigationTrigger::AddressBarEntry => {
+                                        NavigationTrigger::AddressBarEntry
+                                    }
+                                    PersistedNavigationTrigger::PanePromotion => {
+                                        NavigationTrigger::PanePromotion
+                                    }
+                                    PersistedNavigationTrigger::Programmatic => {
+                                        NavigationTrigger::Programmatic
+                                    }
                                 },
                             })
                             .collect();

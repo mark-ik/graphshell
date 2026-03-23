@@ -110,7 +110,10 @@ fn graph_navigation_zoom_intent_produces_pending_camera_command() {
         .apply_reducer_intents([GraphIntent::RequestZoomIn]);
 
     assert!(
-        harness.app.take_pending_keyboard_zoom_request(view_id).is_some(),
+        harness
+            .app
+            .take_pending_keyboard_zoom_request(view_id)
+            .is_some(),
         "zoom intent should produce a pending zoom request readable through the focused view"
     );
 }
@@ -127,12 +130,10 @@ fn pane_lifecycle_open_node_tab_appears_in_uxtree() {
 
     let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 12);
 
-    let has_node_pane = snapshot.semantic_nodes.iter().any(|n| {
-        matches!(
-            n.role,
-            ux_tree::UxNodeRole::NodePane
-        )
-    });
+    let has_node_pane = snapshot
+        .semantic_nodes
+        .iter()
+        .any(|n| matches!(n.role, ux_tree::UxNodeRole::NodePane));
     assert!(
         has_node_pane,
         "opening a node tab should produce a NodePane entry in the UxTree"
@@ -152,30 +153,28 @@ fn pane_lifecycle_open_node_tab_appears_in_uxtree() {
 fn pane_lifecycle_close_tool_pane_removes_entry_from_uxtree() {
     let mut harness = TestRegistry::new();
 
-    tile_view_ops::open_or_focus_tool_pane(
-        &mut harness.tiles_tree,
-        ToolPaneState::Settings,
-    );
+    tile_view_ops::open_or_focus_tool_pane(&mut harness.tiles_tree, ToolPaneState::Settings);
 
-    let tool_tile_id = harness
-        .tiles_tree
-        .tiles
-        .iter()
-        .find_map(|(tile_id, tile)| {
-            matches!(
-                tile,
-                egui_tiles::Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Settings
-            )
-            .then_some(*tile_id)
-        });
-    assert!(tool_tile_id.is_some(), "settings pane should exist after open");
+    let tool_tile_id = harness.tiles_tree.tiles.iter().find_map(|(tile_id, tile)| {
+        matches!(
+            tile,
+            egui_tiles::Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Settings
+        )
+        .then_some(*tile_id)
+    });
+    assert!(
+        tool_tile_id.is_some(),
+        "settings pane should exist after open"
+    );
 
     let settings_pane_id = harness
         .tiles_tree
         .tiles
         .iter()
         .find_map(|(_, tile)| match tile {
-            egui_tiles::Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Settings => {
+            egui_tiles::Tile::Pane(TileKind::Tool(tool))
+                if tool.kind == ToolPaneState::Settings =>
+            {
                 Some(tool.pane_id)
             }
             _ => None,
@@ -282,11 +281,18 @@ fn command_surface_graph_intent_and_workbench_intent_produce_identical_state() {
     let root_b = tiles_b.insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
     let mut tree_b = Tree::new("pre_wgpu_cmd_parity_b", root_b, tiles_b);
     let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
-    gui_orchestration::handle_tool_pane_intents(&mut via_workbench_intent, &mut tree_b, &mut intents);
+    gui_orchestration::handle_tool_pane_intents(
+        &mut via_workbench_intent,
+        &mut tree_b,
+        &mut intents,
+    );
 
     assert_eq!(
         via_graph_intent.workspace.chrome_ui.show_command_palette,
-        via_workbench_intent.workspace.chrome_ui.show_command_palette,
+        via_workbench_intent
+            .workspace
+            .chrome_ui
+            .show_command_palette,
         "GraphIntent and WorkbenchIntent paths must produce identical command palette state"
     );
 }
@@ -384,9 +390,10 @@ fn degraded_viewer_placeholder_render_mode_is_degraded_in_uxtree() {
 
     let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 16);
 
-    let node_pane = snapshot.semantic_nodes.iter().find(|n| {
-        matches!(n.role, ux_tree::UxNodeRole::NodePane) && n.state.degraded
-    });
+    let node_pane = snapshot
+        .semantic_nodes
+        .iter()
+        .find(|n| matches!(n.role, ux_tree::UxNodeRole::NodePane) && n.state.degraded);
 
     assert!(
         node_pane.is_some(),

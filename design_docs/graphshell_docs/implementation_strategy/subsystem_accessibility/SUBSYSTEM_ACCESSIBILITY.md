@@ -34,7 +34,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 3. **Non-silent-degradation policy**: Bridge failures, stale updates, and unavailable capabilities must be observable via diagnostics and user-visible status.
 4. **Determinism policy**: Focus fallback, region cycle order, and mode transitions must remain deterministic and test-backed.
 5. **Cross-surface parity policy**: New pane/viewer paths must either meet accessibility contracts or explicitly declare/diagnose partial support.
-6. **Shared-surface policy**: Graph Bar, Workbench Sidebar/Navigator, settings pages, and diagnostics panes are all first-class accessibility surfaces and should reuse declared capability and focus contracts rather than each defining special-case behavior.
+6. **Shared-surface policy**: Navigator hosts, settings pages, and diagnostics panes are all first-class accessibility surfaces and should reuse declared capability and focus contracts rather than each defining special-case behavior.
 
 ---
 
@@ -169,9 +169,9 @@ The Diagnostic Inspector accessibility section exposes:
 Shared-surface consequence:
 
 - Health/capability summaries should be reusable by settings/help/status UI.
-- Focus-region ordering for Graph Bar, Workbench Sidebar/Navigator, and settings
-  rails must remain aligned with the same declared capability model and not be
-  treated as out-of-band exceptions.
+- Focus-region ordering for graph-scoped and workbench-scoped Navigator hosts,
+  and settings rails must remain aligned with the same declared capability
+  model and not be treated as out-of-band exceptions.
 
 ### 5.3 Invariant Violations as First-Class Events
 

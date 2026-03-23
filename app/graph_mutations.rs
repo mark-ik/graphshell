@@ -47,11 +47,9 @@ fn edge_type_to_selector(
         crate::graph::EdgeType::UserGrouped => Some(crate::graph::RelationSelector::Semantic(
             crate::graph::SemanticSubKind::UserGrouped,
         )),
-        crate::graph::EdgeType::AgentDerived { .. } => {
-            Some(crate::graph::RelationSelector::Semantic(
-                crate::graph::SemanticSubKind::AgentDerived,
-            ))
-        }
+        crate::graph::EdgeType::AgentDerived { .. } => Some(
+            crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::AgentDerived),
+        ),
         crate::graph::EdgeType::ContainmentRelation(sub_kind) => {
             Some(crate::graph::RelationSelector::Containment(sub_kind))
         }
@@ -59,9 +57,9 @@ fn edge_type_to_selector(
             Some(crate::graph::RelationSelector::Arrangement(sub_kind))
         }
         crate::graph::EdgeType::ImportedRelation => None,
-        crate::graph::EdgeType::History => {
-            Some(crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal))
-        }
+        crate::graph::EdgeType::History => Some(crate::graph::RelationSelector::Family(
+            crate::graph::EdgeFamily::Traversal,
+        )),
     }
 }
 
@@ -76,32 +74,22 @@ fn persisted_assertion_from_graph_assertion(
         } => PersistedEdgeAssertion::Semantic {
             sub_kind: match sub_kind {
                 crate::graph::SemanticSubKind::Hyperlink => PersistedSemanticSubKind::Hyperlink,
-                crate::graph::SemanticSubKind::UserGrouped => {
-                    PersistedSemanticSubKind::UserGrouped
-                }
+                crate::graph::SemanticSubKind::UserGrouped => PersistedSemanticSubKind::UserGrouped,
                 crate::graph::SemanticSubKind::AgentDerived => {
                     PersistedSemanticSubKind::AgentDerived
                 }
                 crate::graph::SemanticSubKind::Cites => PersistedSemanticSubKind::Cites,
                 crate::graph::SemanticSubKind::Quotes => PersistedSemanticSubKind::Quotes,
-                crate::graph::SemanticSubKind::Summarizes => {
-                    PersistedSemanticSubKind::Summarizes
-                }
-                crate::graph::SemanticSubKind::Elaborates => {
-                    PersistedSemanticSubKind::Elaborates
-                }
+                crate::graph::SemanticSubKind::Summarizes => PersistedSemanticSubKind::Summarizes,
+                crate::graph::SemanticSubKind::Elaborates => PersistedSemanticSubKind::Elaborates,
                 crate::graph::SemanticSubKind::ExampleOf => PersistedSemanticSubKind::ExampleOf,
                 crate::graph::SemanticSubKind::Supports => PersistedSemanticSubKind::Supports,
-                crate::graph::SemanticSubKind::Contradicts => {
-                    PersistedSemanticSubKind::Contradicts
-                }
+                crate::graph::SemanticSubKind::Contradicts => PersistedSemanticSubKind::Contradicts,
                 crate::graph::SemanticSubKind::Questions => PersistedSemanticSubKind::Questions,
                 crate::graph::SemanticSubKind::SameEntityAs => {
                     PersistedSemanticSubKind::SameEntityAs
                 }
-                crate::graph::SemanticSubKind::DuplicateOf => {
-                    PersistedSemanticSubKind::DuplicateOf
-                }
+                crate::graph::SemanticSubKind::DuplicateOf => PersistedSemanticSubKind::DuplicateOf,
                 crate::graph::SemanticSubKind::CanonicalMirrorOf => {
                     PersistedSemanticSubKind::CanonicalMirrorOf
                 }
@@ -118,9 +106,7 @@ fn persisted_assertion_from_graph_assertion(
                     crate::graph::ContainmentSubKind::UrlPath => {
                         PersistedContainmentSubKind::UrlPath
                     }
-                    crate::graph::ContainmentSubKind::Domain => {
-                        PersistedContainmentSubKind::Domain
-                    }
+                    crate::graph::ContainmentSubKind::Domain => PersistedContainmentSubKind::Domain,
                     crate::graph::ContainmentSubKind::FileSystem => {
                         PersistedContainmentSubKind::FileSystem
                     }
@@ -213,8 +199,8 @@ fn persisted_selector_from_graph_selector(
     selector: crate::graph::RelationSelector,
 ) -> Option<PersistedRelationSelector> {
     Some(match selector {
-        crate::graph::RelationSelector::Family(family) => PersistedRelationSelector::Family(
-            match family {
+        crate::graph::RelationSelector::Family(family) => {
+            PersistedRelationSelector::Family(match family {
                 crate::graph::EdgeFamily::Semantic => {
                     crate::services::persistence::types::PersistedEdgeFamily::Semantic
                 }
@@ -233,37 +219,27 @@ fn persisted_selector_from_graph_selector(
                 crate::graph::EdgeFamily::Provenance => {
                     crate::services::persistence::types::PersistedEdgeFamily::Provenance
                 }
-            },
-        ),
+            })
+        }
         crate::graph::RelationSelector::Semantic(sub_kind) => {
             PersistedRelationSelector::Semantic(match sub_kind {
                 crate::graph::SemanticSubKind::Hyperlink => PersistedSemanticSubKind::Hyperlink,
-                crate::graph::SemanticSubKind::UserGrouped => {
-                    PersistedSemanticSubKind::UserGrouped
-                }
+                crate::graph::SemanticSubKind::UserGrouped => PersistedSemanticSubKind::UserGrouped,
                 crate::graph::SemanticSubKind::AgentDerived => {
                     PersistedSemanticSubKind::AgentDerived
                 }
                 crate::graph::SemanticSubKind::Cites => PersistedSemanticSubKind::Cites,
                 crate::graph::SemanticSubKind::Quotes => PersistedSemanticSubKind::Quotes,
-                crate::graph::SemanticSubKind::Summarizes => {
-                    PersistedSemanticSubKind::Summarizes
-                }
-                crate::graph::SemanticSubKind::Elaborates => {
-                    PersistedSemanticSubKind::Elaborates
-                }
+                crate::graph::SemanticSubKind::Summarizes => PersistedSemanticSubKind::Summarizes,
+                crate::graph::SemanticSubKind::Elaborates => PersistedSemanticSubKind::Elaborates,
                 crate::graph::SemanticSubKind::ExampleOf => PersistedSemanticSubKind::ExampleOf,
                 crate::graph::SemanticSubKind::Supports => PersistedSemanticSubKind::Supports,
-                crate::graph::SemanticSubKind::Contradicts => {
-                    PersistedSemanticSubKind::Contradicts
-                }
+                crate::graph::SemanticSubKind::Contradicts => PersistedSemanticSubKind::Contradicts,
                 crate::graph::SemanticSubKind::Questions => PersistedSemanticSubKind::Questions,
                 crate::graph::SemanticSubKind::SameEntityAs => {
                     PersistedSemanticSubKind::SameEntityAs
                 }
-                crate::graph::SemanticSubKind::DuplicateOf => {
-                    PersistedSemanticSubKind::DuplicateOf
-                }
+                crate::graph::SemanticSubKind::DuplicateOf => PersistedSemanticSubKind::DuplicateOf,
                 crate::graph::SemanticSubKind::CanonicalMirrorOf => {
                     PersistedSemanticSubKind::CanonicalMirrorOf
                 }
@@ -538,7 +514,9 @@ impl GraphBrowserApp {
                         edge_type,
                     )
                     .unwrap_or_else(|e| {
-                        log::warn!("Dissolution transfer failed, falling back to direct removal: {e}");
+                        log::warn!(
+                            "Dissolution transfer failed, falling back to direct removal: {e}"
+                        );
                         self.workspace
                             .domain
                             .graph

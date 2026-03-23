@@ -23,7 +23,8 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- Graph Bar = graph-scope chrome naming the active `GraphViewId` / graph target.
+- graph-scoped Navigator hosts = chrome surfaces naming the active
+  `GraphViewId` / graph target.
 - `Navigator` = graph-backed hierarchical projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
@@ -57,7 +58,8 @@ This spec defines the canonical contracts for:
 
 Reading order note:
 
-- Graph Bar owns graph-target naming and graph-view switching.
+- Graph-scoped Navigator hosts own graph-target naming and graph-view
+  switching.
 - This spec starts one level lower: how those graph-owned targets are hosted, routed, and isolated when they appear in panes.
 
 ---
@@ -69,7 +71,7 @@ The workbench does not special-case graph panes vs. viewer panes vs. tool panes 
 But pane-hosting is not the semantic root:
 
 - a `GraphViewId` exists as graph-scoped identity whether or not it is currently hosted in a pane
-- the Graph Bar names the active graph target and remains the top-level graph chrome
+- a graph-scoped Navigator host may name the active graph target and remain top-level graph chrome
 - the workbench hosts contextual leaves for the active branch, which may include graph-view panes, node/document/media panes, and tool panes
 
 Projection rule:
@@ -104,10 +106,10 @@ Each hosted graph view pane presents a stable `GraphViewId`. `GraphViewId` is th
 
 `GraphViewId` is generated at pane creation and persisted as part of the frame snapshot. It does not change when the pane is moved, split, or reordered.
 
-Desktop chrome tie-in: `GraphViewId` is the identity named by the Graph Bar's
-target chip, lens/dimension controls, and graph-view slot strip. Workbench
-chrome may host panes that present a `GraphViewId`, but it does not own
-`GraphViewId` semantics.
+Desktop chrome tie-in: `GraphViewId` is the identity named by a graph-scoped
+Navigator host's target chip, lens/dimension controls, and graph-view slot
+strip. Workbench chrome may host panes that present a `GraphViewId`, but it
+does not own `GraphViewId` semantics.
 
 ### 3.2 Per-View Camera
 
@@ -168,9 +170,9 @@ Guardrails:
 - Active (non-archived) slots must have unique `(row, col)` coordinates.
 - Move/restore into occupied coordinates must reject or auto-place deterministically.
 - Archiving does not delete graph content; it only removes active slot visibility.
-- Active non-archived slots are surfaced as compact selectors in the Graph Bar;
-  the full row/column manager remains a graph-surface workflow, not a
-  workbench-sidebar responsibility.
+- Active non-archived slots are surfaced as compact selectors in a graph-scoped
+  Navigator host; the full row/column manager remains a graph-surface workflow,
+  not a workbench-scoped Navigator responsibility.
 
 ### 5.3 Routing to workbench panes
 
@@ -179,8 +181,9 @@ Routing from manager to pane hosting is explicit:
 - `GraphIntent::RouteGraphViewToWorkbench { view_id, mode }` emits
   `WorkbenchIntent::OpenGraphViewPane { view_id, mode }`.
 - Workbench authority opens/focuses the pane and applies split/tab mode.
-- Routed panes become visible in the Workbench Sidebar/tree projection, but the
-  Graph Bar continues to name the active graph target independently.
+- Routed panes become visible in workbench-scoped Navigator host/tree
+  projection, while a graph-scoped Navigator host continues to name the active
+  graph target independently.
 - Reducer never mutates tile tree directly.
 
 This is the key separation: routing a graph view into the workbench changes contextual presentation, not graph-view semantic ownership.
@@ -278,7 +281,7 @@ When `egui_tiles::simplify()` runs and removes a tab container that has semantic
 | Slot create/rename/move/archive/restore flows are deterministic | Test: lifecycle intent sequence yields expected slot metadata |
 | Slot coordinate collision is guarded | Test: moving slot into occupied coordinates is rejected |
 | Graph-view route intent dispatches workbench pane-open intent | Test: route intent enqueues `OpenGraphViewPane` |
-| Routed graph view appears in workbench chrome projection without losing graph target identity | Test: route view to workbench -> sidebar/tree row appears while Graph Bar target remains `view_id`-stable |
+| Routed graph view appears in workbench chrome projection without losing graph target identity | Test: route view to workbench -> host/tree row appears while a graph-scoped Navigator host target remains `view_id`-stable |
 | `GraphViewId` persists across reorder | Test: reorder pane → `GraphViewId` unchanged |
 | Hoist creates `Container::Tabs` node | Test: hoist pane → tile tree contains `Container::Tabs` parent |
 | Unhoist removes container but retains semantic metadata | Test: unhoist → `TabGroupMetadata` still present in `FrameTabSemantics` |

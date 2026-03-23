@@ -296,9 +296,7 @@ fn default_theme_tokens() -> ThemeTokenSet {
             semantic_badge_overflow_background: egui::Color32::from_rgba_unmultiplied(
                 24, 24, 24, 216,
             ),
-            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(
-                20, 28, 42, 230,
-            ),
+            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(20, 28, 42, 230),
             pinned_fill: egui::Color32::WHITE,
             pinned_stroke: egui::Color32::from_gray(40),
             clip_ring: egui::Color32::from_rgb(170, 210, 255),
@@ -414,9 +412,7 @@ fn dark_theme_tokens() -> ThemeTokenSet {
             semantic_badge_overflow_background: egui::Color32::from_rgba_unmultiplied(
                 28, 32, 40, 220,
             ),
-            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(
-                22, 30, 44, 234,
-            ),
+            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(22, 30, 44, 234),
             pinned_fill: egui::Color32::from_rgb(255, 255, 255),
             pinned_stroke: egui::Color32::from_rgb(56, 66, 82),
             clip_ring: egui::Color32::from_rgb(156, 198, 255),
@@ -481,9 +477,7 @@ fn high_contrast_theme_tokens() -> ThemeTokenSet {
             semantic_badge_overflow_background: egui::Color32::from_rgba_unmultiplied(
                 255, 255, 255, 255,
             ),
-            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(
-                0, 0, 0, 255,
-            ),
+            semantic_badge_orbit_background: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 255),
             pinned_fill: egui::Color32::from_rgb(255, 230, 0),
             pinned_stroke: egui::Color32::from_rgb(255, 255, 255),
             clip_ring: egui::Color32::from_rgb(255, 255, 255),

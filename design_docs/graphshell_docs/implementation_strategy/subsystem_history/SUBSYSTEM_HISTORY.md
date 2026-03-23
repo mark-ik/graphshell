@@ -177,7 +177,7 @@ Examples:
 - Web viewers: `traversal_capture`
 - History Manager tool pane: `timeline_navigation`, `archive_export`, recent
    compositor activity annotation
-- Navigator / Workbench Sidebar: read-only traversal projection (`Recent`
+- Navigator / workbench-scoped Navigator host: read-only traversal projection (`Recent`
   section) sourced from history truth rather than a local recents cache
 
 ---

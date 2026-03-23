@@ -379,12 +379,7 @@ impl SignalRoutingLayer {
                         .routed_deliveries
                         .saturating_add(async_deliveries as u64);
                     guard.diagnostics.queue_depth = self.max_queue_depth();
-                    push_signal_trace(
-                        &mut guard.signal_trace,
-                        &envelope,
-                        async_deliveries,
-                        0,
-                    );
+                    push_signal_trace(&mut guard.signal_trace, &envelope, async_deliveries, 0);
                     return SignalPublishReport {
                         observers_notified: async_deliveries,
                         observer_failures: 0,
@@ -424,12 +419,7 @@ impl SignalRoutingLayer {
                         .routed_deliveries
                         .saturating_add(async_deliveries as u64);
                     guard.diagnostics.queue_depth = self.max_queue_depth();
-                    push_signal_trace(
-                        &mut guard.signal_trace,
-                        &envelope,
-                        async_deliveries,
-                        0,
-                    );
+                    push_signal_trace(&mut guard.signal_trace, &envelope, async_deliveries, 0);
                     return SignalPublishReport {
                         observers_notified: async_deliveries,
                         observer_failures: 0,

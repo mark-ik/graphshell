@@ -677,7 +677,10 @@ pub(crate) trait PlatformWindowRendering {
     fn update_user_interface_state(&self, _: &RunningAppState, _: &EmbedderWindow) -> bool {
         false
     }
-    #[cfg(all(feature = "webxr", not(any(target_os = "android", target_env = "ohos"))))]
+    #[cfg(all(
+        feature = "webxr",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
     fn new_glwindow(
         &self,
         event_loop: &winit::event_loop::ActiveEventLoop,

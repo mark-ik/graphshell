@@ -1,8 +1,9 @@
 use egui_tiles::{Container, Tile, TileId, Tree};
 
 use super::{
-    CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
-    CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
+    CHANNEL_UX_CONFIG_MODE_ENTERED, CHANNEL_UX_NAVIGATION_TRANSITION,
+    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_OPEN_DECISION_PATH,
+    CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::app::{
     GraphBrowserApp, GraphIntent, LifecycleCause, PendingTileOpenMode, SelectionUpdateMode,
@@ -427,6 +428,54 @@ impl WorkbenchSurfaceRegistry {
                 handle_split_pane_intent(tiles_tree, source_pane, direction);
                 None
             }
+            WorkbenchIntent::ApplyLayoutConstraint {
+                surface_host,
+                constraint,
+            } => {
+                graph_app
+                    .workspace
+                    .workbench_session
+                    .active_layout_constraints
+                    .insert(surface_host, constraint);
+                None
+            }
+            WorkbenchIntent::SetSurfaceConfigMode { surface_host, mode } => {
+                let exiting_host = match &graph_app.workspace.workbench_session.ux_config_mode {
+                    crate::app::UxConfigMode::Configuring { surface_host } => {
+                        Some(surface_host.clone())
+                    }
+                    crate::app::UxConfigMode::Locked => None,
+                };
+                if matches!(mode, crate::app::UxConfigMode::Configuring { .. }) {
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_UX_CONFIG_MODE_ENTERED,
+                        byte_len: surface_host.to_string().len(),
+                    });
+                }
+                if matches!(mode, crate::app::UxConfigMode::Locked)
+                    && exiting_host.as_ref() == Some(&surface_host)
+                {
+                    let should_hold_draft_for_first_use_followup = graph_app
+                        .workbench_profile()
+                        .first_use_policies
+                        .get(&surface_host)
+                        .and_then(|policy| policy.outcome.as_ref())
+                        .is_some_and(|outcome| {
+                            matches!(
+                                outcome,
+                                crate::app::workbench_layout_policy::FirstUseOutcome::ConfigureNow
+                            )
+                        });
+                    if should_hold_draft_for_first_use_followup {
+                        graph_app.set_workbench_surface_config_mode(mode);
+                        return None;
+                    }
+
+                    graph_app.commit_workbench_layout_constraint_draft(&surface_host);
+                }
+                graph_app.set_workbench_surface_config_mode(mode);
+                None
+            }
             WorkbenchIntent::DetachNodeToSplit { key } => {
                 handle_detach_node_to_split_intent(graph_app, tiles_tree, key);
                 None
@@ -843,8 +892,11 @@ fn emit_open_decision(path: UxOpenDecisionPath, reason: UxOpenDecisionReason) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::GraphViewId;
+    use crate::app::workbench_layout_policy::NavigatorHostId;
+    use crate::app::{GraphViewId, SurfaceHostId, UxConfigMode};
     use crate::graph::NodeKey;
+    #[cfg(feature = "diagnostics")]
+    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::workbench::pane_model::{
         GraphPaneRef, NodePaneState, PaneId, SplitDirection,
     };
@@ -852,6 +904,16 @@ mod tests {
     use crate::util::VersoAddress;
     use egui_tiles::{Tile, Tiles, Tree};
     use euclid::default::Point2D;
+
+    #[cfg(feature = "diagnostics")]
+    fn channel_count(snapshot: &serde_json::Value, channel: &str) -> u64 {
+        snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(channel))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+    }
 
     #[test]
     fn registry_defaults_to_default_profile() {
@@ -1165,5 +1227,40 @@ mod tests {
                 && edge.from == group_key
                 && edge.to == view_member_key
         }));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn dispatch_emits_config_mode_entered_only_when_entering_configuring_mode() {
+        let mut diagnostics = DiagnosticsState::new();
+        let registry = WorkbenchSurfaceRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("config_mode_entered", graph, tiles);
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            WorkbenchIntent::SetSurfaceConfigMode {
+                surface_host: host.clone(),
+                mode: UxConfigMode::Configuring {
+                    surface_host: host.clone(),
+                },
+            },
+        );
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            WorkbenchIntent::SetSurfaceConfigMode {
+                surface_host: host,
+                mode: UxConfigMode::Locked,
+            },
+        );
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert_eq!(channel_count(&snapshot, CHANNEL_UX_CONFIG_MODE_ENTERED), 1);
     }
 }

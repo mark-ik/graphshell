@@ -32,7 +32,9 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- **Navigator** = the Workbench Sidebar body section projecting graph relations into a section-structured tree (replaces "file tree" — see `2026-03-14_graph_relation_families.md §5`).
+- **Navigator** = the section-structured projection of graph relations rendered
+  through one or more Navigator hosts (replaces "file tree" — see
+  `2026-03-14_graph_relation_families.md §5`).
 - workbench = arrangement boundary.
 
 This spec defines graph-surface semantics and must not redefine workbench arrangement ownership.
@@ -44,7 +46,8 @@ Normative graph contracts use: intent, trigger, preconditions, semantic result, 
 ## Terminology lock (inherits UX Contract Register §3C)
 
 - Tile/frame arrangement is not content hierarchy.
-- Navigator (Workbench Sidebar projection) is not content truth authority — it is a read-only projection over graph relation families.
+- Navigator, regardless of host edge or form factor, is not content truth
+  authority — it is a read-only projection over graph relation families.
 - Physics presets are not camera modes.
 - "File tree" is a legacy alias — use **Navigator** in new code and docs.
 
@@ -75,7 +78,8 @@ This spec governs:
 - `Node`
 - `Edge`
 - `Canvas`
-- **Navigator** (Workbench Sidebar hierarchical projection over graph relation families) — see `2026-03-14_graph_relation_families.md §5`
+- **Navigator** (hierarchical projection over graph relation families rendered
+  through Navigator hosts) — see `2026-03-14_graph_relation_families.md §5`
 - camera and selection semantics inside the graph pane
 - the user-facing contract of the graph structure subsystem
 
@@ -106,7 +110,10 @@ The graph surface is composed of four primary interactive layers:
 4. **Edge**
    - the relationship or traversal surface between nodes
 
-When the **Navigator** (Workbench Sidebar projection) is active, it is a section-structured hierarchical projection over graph relation families — not a separate content-truth authority. It reads graph edges and renders them as a tree; it does not own graph identity or topology.
+When the **Navigator** is active in any host, it is a section-structured
+hierarchical projection over graph relation families — not a separate
+content-truth authority. It reads graph edges and renders them as a tree; it
+does not own graph identity or topology.
 
 Selectable graph-surface objects are the interactable objects rendered on the
 canvas: nodes, edges, arrangement objects (for example frames or minimized tile
@@ -120,7 +127,10 @@ selectable.
 - **Canvas**: the continuous space users pan, zoom, lasso, and inspect.
 - **Node**: the primary content entity users act on.
 - **Edge**: the relationship surface users inspect and, when defined, traverse. Edges have families (Semantic, Traversal, Containment, Arrangement, Imported) — see `2026-03-14_graph_relation_families.md`.
-- **Navigator (Workbench Sidebar)**: a section-structured hierarchical projection over graph relation families. Sections: Workbench (arrangement), Folders (containment/user-folder), Domain (containment/derived), Unrelated, Recent (traversal), Imported.
+- **Navigator**: a section-structured hierarchical projection over graph
+  relation families rendered through one or more hosts. Sections may include
+  Workbench (arrangement), Folders (containment/user-folder), Domain
+  (containment/derived), Unrelated, Recent (traversal), and Imported.
 
 ### 2.3 Ownership model
 
@@ -132,7 +142,8 @@ selectable.
   - lasso meaning,
   - node activation policy,
   - graph-to-workbench routing.
-- The Navigator (Workbench Sidebar projection), when active, is a read-only projection over graph relation families and must not become the owner of graph identity.
+- The Navigator, when active in any host, is a read-only projection over graph
+  relation families and must not become the owner of graph identity.
 
 ### 2.4 Subsystem boundary
 
@@ -190,7 +201,8 @@ The graph surface must make these user expectations reliable:
 - node activation routes through Graphshell open policy,
 - graph gestures do not silently fight each other,
 - blocked or degraded behavior is explicit rather than silent,
-- Navigator (Workbench Sidebar) navigation and graph-canvas navigation resolve to the same underlying graph-backed identities.
+- Navigator navigation, regardless of host, and graph-canvas navigation resolve
+  to the same underlying graph-backed identities.
 
 ---
 

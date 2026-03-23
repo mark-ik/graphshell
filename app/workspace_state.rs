@@ -25,7 +25,8 @@ use super::{
     NavigatorProjectionState, OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingCreateToken,
     RadialMenuShortcut, RendererId, RuntimeBlockState, SearchDisplayMode,
     SelectionEdgeProjectionOverride, SelectionScope, SelectionState, SettingsToolPage,
-    TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, ViewDimension, WorkbenchIntent,
+    SurfaceHostId, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, UxConfigMode,
+    ViewDimension, WorkbenchIntent, WorkbenchLayoutConstraint, WorkbenchProfile,
 };
 
 /// View-layer runtime state: physics, selection, views, search, history, rendering.
@@ -41,8 +42,7 @@ pub struct GraphViewRuntimeState {
 
     /// Temporary per-selection graphlet projection overrides keyed by
     /// selection scope.
-    pub(crate) selection_edge_projections:
-        HashMap<SelectionScope, SelectionEdgeProjectionOverride>,
+    pub(crate) selection_edge_projections: HashMap<SelectionScope, SelectionEdgeProjectionOverride>,
 
     /// Bidirectional mapping between renderer instances and graph nodes.
     pub(crate) webview_to_node: HashMap<RendererId, NodeKey>,
@@ -255,6 +255,21 @@ pub struct WorkbenchSessionState {
     /// Pending workbench-authority intents staged for frame-loop orchestration.
     pub(crate) pending_workbench_intents: Vec<WorkbenchIntent>,
 
+    /// Persisted workbench profile extension carrying layout-policy state.
+    pub workbench_profile: WorkbenchProfile,
+
+    /// Runtime-applied layout constraints keyed by concrete surface host.
+    pub(crate) active_layout_constraints: HashMap<SurfaceHostId, WorkbenchLayoutConstraint>,
+
+    /// In-progress layout constraints being configured this session but not yet committed.
+    pub(crate) draft_layout_constraints: HashMap<SurfaceHostId, WorkbenchLayoutConstraint>,
+
+    /// Active layout configuration mode for workbench surfaces.
+    pub(crate) ux_config_mode: UxConfigMode,
+
+    /// Hosts whose first-use prompt should remain hidden for the current session only.
+    pub(crate) session_suppressed_first_use_prompts: HashSet<SurfaceHostId>,
+
     /// Graph-wide default relation projection for graphlet computation and
     /// projection-aware workbench routing.
     pub edge_projection: EdgeProjectionState,
@@ -345,8 +360,8 @@ pub struct ChromeUiState {
     /// Global Wry backend enable toggle (disabled by default).
     pub wry_enabled: bool,
 
-    /// Whether the Workbench Sidebar stays visible even without hosted panes.
-    pub workbench_sidebar_pinned: bool,
+    /// Whether the default workbench host stays visible even without hosted panes.
+    pub workbench_host_pinned: bool,
 
     /// Whether form draft capture/replay metadata is enabled.
     pub(crate) form_draft_capture_enabled: bool,

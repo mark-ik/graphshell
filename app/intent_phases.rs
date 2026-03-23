@@ -86,9 +86,7 @@ impl GraphBrowserApp {
             }
             GraphIntent::ToggleGhostNodes => {
                 if let Some(view_id) = self.workspace.graph_runtime.focused_view {
-                    if let Some(view) =
-                        self.workspace.graph_runtime.views.get_mut(&view_id)
-                    {
+                    if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                         view.tombstones_visible = !view.tombstones_visible;
                         self.workspace.graph_runtime.egui_state_dirty = true;
                     }
@@ -569,7 +567,10 @@ impl GraphBrowserApp {
                     let selected_nodes: Vec<NodeKey> =
                         self.focused_selection().iter().copied().collect();
                     let has_graphlet_context = !selected_nodes.is_empty()
-                        && self.graphlet_members_for_active_projection(&selected_nodes).len() > 1;
+                        && self
+                            .graphlet_members_for_active_projection(&selected_nodes)
+                            .len()
+                            > 1;
                     has_graphlet_context
                         .then(|| {
                             self.focused_selection()
@@ -586,9 +587,9 @@ impl GraphBrowserApp {
                 // permanent graphlet member (survives filter changes).
                 if let Some(peer) = graphlet_peer {
                     self.add_user_grouped_edge_if_missing(key, peer, None);
-                    self.enqueue_workbench_intent(
-                        WorkbenchIntent::ReconcileGraphletTiles { node: key },
-                    );
+                    self.enqueue_workbench_intent(WorkbenchIntent::ReconcileGraphletTiles {
+                        node: key,
+                    });
                 }
                 self.request_open_node_tile_mode(key, mode);
             }
@@ -650,12 +651,10 @@ impl GraphBrowserApp {
             GraphIntent::PromoteImportRecordToUserGroup { record_id, anchor } => {
                 self.promote_import_record_to_user_group(record_id, anchor);
             }
-            GraphIntent::RemoveEdge {
-                from,
-                to,
-                selector,
-            } => {
-                if selector == crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal) {
+            GraphIntent::RemoveEdge { from, to, selector } => {
+                if selector
+                    == crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal)
+                {
                     let _ = self.remove_edges_and_log(from, to, crate::graph::EdgeType::History);
                 } else {
                     let _ = self.retract_relations_and_log(from, to, selector);

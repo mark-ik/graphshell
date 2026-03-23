@@ -330,12 +330,14 @@ pub(crate) const CHANNEL_UX_RADIAL_LAYOUT: &str = "ux:radial_layout";
 pub(crate) const CHANNEL_UX_RADIAL_LABEL_COLLISION: &str = "ux:radial_label_collision";
 pub(crate) const CHANNEL_UX_RADIAL_MODE_FALLBACK: &str = "ux:radial_mode_fallback";
 pub(crate) const CHANNEL_UX_TREE_SNAPSHOT_BUILT: &str = "ux:tree_snapshot_built";
-pub(crate) const CHANNEL_UX_PRESENTATION_BOUNDS_MISSING: &str =
-    "ux:presentation_bounds_missing";
+pub(crate) const CHANNEL_UX_PRESENTATION_BOUNDS_MISSING: &str = "ux:presentation_bounds_missing";
 pub(crate) const CHANNEL_UX_LAYOUT_GUTTER_DETECTED: &str = "ux:layout_gutter_detected";
 pub(crate) const CHANNEL_UX_LAYOUT_OVERLAP_DETECTED: &str = "ux:layout_overlap_detected";
-pub(crate) const CHANNEL_COMPOSITOR_PAINT_NOT_CONFIRMED: &str =
-    "compositor.paint_not_confirmed";
+pub(crate) const CHANNEL_UX_LAYOUT_CONSTRAINT_CONFLICT: &str = "ux:layout_constraint_conflict";
+pub(crate) const CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT: &str = "ux:layout_constraint_drift";
+pub(crate) const CHANNEL_UX_CONFIG_MODE_ENTERED: &str = "ux:config_mode_entered";
+pub(crate) const CHANNEL_UX_FIRST_USE_PROMPT_SHOWN: &str = "ux:first_use_prompt_shown";
+pub(crate) const CHANNEL_COMPOSITOR_PAINT_NOT_CONFIRMED: &str = "compositor.paint_not_confirmed";
 pub(crate) const CHANNEL_COMPOSITOR_NATIVE_OVERLAY_RECT_MISMATCH: &str =
     "compositor.native_overlay_rect_mismatch";
 pub(crate) const CHANNEL_UX_PROBE_REGISTERED: &str = "ux:probe_registered";

@@ -135,7 +135,7 @@ Mismatch between active canvas LOD tier and UxTree emission mode must emit
 - `NodeKey` (u32, stable for the lifetime of the node)
 - `TileId` (u64, stable within one tile tree session)
 - Named dialog identifiers (string constants, not frame-local handles)
-- Semantic string constants for fixed UI elements (omnibar, Graph Bar controls, Workbench Sidebar controls, status bar)
+- Semantic string constants for fixed UI elements (omnibar, graph-scoped Navigator host controls, workbench-scoped Navigator host controls, status bar)
 
 `UxNodeId`s must never be derived from:
 - Raw pointer values
@@ -297,7 +297,7 @@ declared in the mod's `ModManifest` and must not shadow core role names.
 | Role | Semantics | AccessKit mapping |
 |------|-----------|-------------------|
 | `GraphViewLensScope` | Graph-view lens/scope projection node carrying active lens/profile/filter semantics for a `GraphViewId`. | `Group` |
-| `FileTreeProjection` | **Legacy alias — use `NavigatorProjection` in new code.** Workbench Navigator projection node carrying active relation-family section, sort/filter state, and row/selection expansion metrics. Maps to the Workbench Sidebar Navigator section projection. | `Tree` |
+| `FileTreeProjection` | **Legacy alias — use `NavigatorProjection` in new code.** Workbench Navigator projection node carrying active relation-family section, sort/filter state, and row/selection expansion metrics. Maps to the workbench-scoped Navigator host section projection. | `Tree` |
 | `RouteOpenBoundary` | Workbench route/open projection node carrying pending contextual-open boundary state (context target, open-node mode, connected-open scope). | `Group` |
 
 ---

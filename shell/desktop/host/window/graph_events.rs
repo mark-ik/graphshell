@@ -9,12 +9,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use log::debug;
 #[cfg(all(
     feature = "diagnostics",
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent};
+use log::debug;
 
 use super::{GraphSemanticEvent, GraphSemanticEventKind};
 

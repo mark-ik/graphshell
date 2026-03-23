@@ -191,7 +191,8 @@ No silent narrowing to a subset.
 - Blocked execution is explicit and diagnosable (emits
   `command:blocked_execution` diagnostic); silent no-op is forbidden.
 - This rule applies uniformly: keyboard, command palette, radial menu, omnibar,
-  graph bar, and workbench sidebar all use the same applicability check.
+  graph-scoped Navigator hosts, and workbench-scoped Navigator hosts all use
+  the same applicability check.
 
 **Backlog anchors**: G29 (command applicability rule), NV13 (navigator command
 applicability), G28 (mixed selection — the input to applicability).
@@ -351,9 +352,9 @@ The following state-change propagation paths must exist via `SignalBus`:
 | Signal source | Signal | Observers |
 | --- | --- | --- |
 | Graph reducer (after `apply_intents`) | `GraphMutationCompleted` | Navigator (refresh projection), diagnostics (invariant check), canvas (re-render) |
-| Workbench authority (after tile-tree mutation) | `WorkbenchLayoutChanged` | Navigator (refresh arrangement sections), diagnostics, graph bar (frame chip update) |
+| Workbench authority (after tile-tree mutation) | `WorkbenchLayoutChanged` | Navigator (refresh arrangement sections), diagnostics, graph-scoped Navigator host (frame chip update) |
 | Selection model (after selection change) | `SelectionChanged(GraphViewId)` | Navigator (highlight row), canvas (re-render selection), command surfaces (re-evaluate applicability) |
-| Focus model (after focus handoff) | `FocusChanged(PaneId)` | Selection model (update selection truth), navigator (active row), graph bar (title update) |
+| Focus model (after focus handoff) | `FocusChanged(PaneId)` | Selection model (update selection truth), navigator (active row), graph-scoped Navigator host (title update) |
 | Lens / view config change | `ViewConfigChanged(GraphViewId)` | Canvas (re-render), physics (re-parameterize), navigator (optional section visibility) |
 
 These signals do not introduce new routing mechanisms — they use the existing
@@ -395,8 +396,9 @@ fixed surface separation.
 
 ### 4.4 ActionRegistry as Single Command Authority
 
-All command surfaces (keyboard, command palette, radial menu, omnibar, graph
-bar, workbench sidebar) must route through `ActionRegistry`:
+All command surfaces (keyboard, command palette, radial menu, omnibar,
+graph-scoped Navigator hosts, workbench-scoped Navigator hosts) must route
+through `ActionRegistry`:
 
 - `ActionRegistry::list_actions_for_context(...)` defines visibility.
 - `ActionRegistry::execute(...)` defines execution.

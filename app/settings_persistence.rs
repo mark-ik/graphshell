@@ -32,7 +32,8 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
             || name == Self::SETTINGS_WRY_ENABLED_NAME
-            || name == Self::SETTINGS_WORKBENCH_SIDEBAR_PINNED_NAME
+            || name == Self::SETTINGS_WORKBENCH_HOST_PINNED_NAME
+            || name == Self::SETTINGS_WORKBENCH_PROFILE_STATE_NAME
             || name == Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME
             || name == Self::SETTINGS_CANVAS_PROFILE_ID_NAME
             || name == Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME
@@ -423,13 +424,13 @@ impl GraphBrowserApp {
         self.save_wry_enabled();
     }
 
-    pub fn workbench_sidebar_pinned(&self) -> bool {
-        self.workspace.chrome_ui.workbench_sidebar_pinned
+    pub fn workbench_host_pinned(&self) -> bool {
+        self.workspace.chrome_ui.workbench_host_pinned
     }
 
-    pub fn set_workbench_sidebar_pinned(&mut self, pinned: bool) {
-        self.workspace.chrome_ui.workbench_sidebar_pinned = pinned;
-        self.save_workbench_sidebar_pinned();
+    pub fn set_workbench_host_pinned(&mut self, pinned: bool) {
+        self.workspace.chrome_ui.workbench_host_pinned = pinned;
+        self.save_workbench_host_pinned();
     }
 
     pub fn chrome_overlay_active(&self) -> bool {
@@ -452,15 +453,25 @@ impl GraphBrowserApp {
         );
     }
 
-    fn save_workbench_sidebar_pinned(&mut self) {
+    fn save_workbench_host_pinned(&mut self) {
         self.save_workspace_layout_json(
-            Self::SETTINGS_WORKBENCH_SIDEBAR_PINNED_NAME,
-            if self.workspace.chrome_ui.workbench_sidebar_pinned {
+            Self::SETTINGS_WORKBENCH_HOST_PINNED_NAME,
+            if self.workspace.chrome_ui.workbench_host_pinned {
                 "true"
             } else {
                 "false"
             },
         );
+    }
+
+    pub(crate) fn save_workbench_profile_state(&mut self) {
+        let Ok(encoded) =
+            serde_json::to_string(&self.workspace.workbench_session.workbench_profile)
+        else {
+            warn!("Failed to serialize persisted workbench profile state");
+            return;
+        };
+        self.save_workspace_layout_json(Self::SETTINGS_WORKBENCH_PROFILE_STATE_NAME, &encoded);
     }
 
     pub fn set_default_registry_lens_id(&mut self, lens_id: Option<&str>) {
@@ -674,16 +685,26 @@ impl GraphBrowserApp {
             }
         }
         if let Some(raw) =
-            self.load_workspace_layout_json(Self::SETTINGS_WORKBENCH_SIDEBAR_PINNED_NAME)
+            self.load_workspace_layout_json(Self::SETTINGS_WORKBENCH_HOST_PINNED_NAME)
         {
             match raw.trim().to_ascii_lowercase().as_str() {
                 "true" | "1" | "yes" | "on" => {
-                    self.workspace.chrome_ui.workbench_sidebar_pinned = true;
+                    self.workspace.chrome_ui.workbench_host_pinned = true;
                 }
                 "false" | "0" | "no" | "off" => {
-                    self.workspace.chrome_ui.workbench_sidebar_pinned = false;
+                    self.workspace.chrome_ui.workbench_host_pinned = false;
                 }
-                _ => warn!("Ignoring invalid persisted workbench sidebar pinned flag: '{raw}'"),
+                _ => warn!("Ignoring invalid persisted workbench host pinned flag: '{raw}'"),
+            }
+        }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_WORKBENCH_PROFILE_STATE_NAME)
+        {
+            match serde_json::from_str::<WorkbenchProfile>(&raw) {
+                Ok(profile) => self.restore_workbench_profile(profile),
+                Err(error) => {
+                    warn!("Ignoring invalid persisted workbench profile state: {error}");
+                }
             }
         }
         self.workspace.chrome_ui.default_registry_lens_id = self

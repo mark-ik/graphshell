@@ -107,8 +107,8 @@ A `Floating` pane is a chromeless overlay pane rendered at a fractional size (`Q
 ### 3.1 Tab Bar Rendering
 
 Each Tile that contains multiple node entries renders a tab bar strip (legacy
-term: **Workbar** for frames; now: frame tabs in the **Workbench Sidebar** or
-per-tile tab strips for multi-node tiles). The tab strip:
+term: **Workbar** for frames; now: frame tabs in a workbench-scoped Navigator
+host or per-tile tab strips for multi-node tiles). The tab strip:
 
 - Shows one tab entry per child tile with: title, badge strip (compact, per `../canvas/node_badge_and_tagging_spec.md §3.5`), close button.
 - Active tile's tab is highlighted.

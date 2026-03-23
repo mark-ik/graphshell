@@ -531,9 +531,9 @@ Badge state (tags, lifecycle, Crashed, `#unread`) is rendered in two separate co
 These are not the same thing. A node's graph-canvas badge orbit shows user-applied tags at the canvas level. A tile's Pass 3 border shows lifecycle state at the workbench level. Both can be visible simultaneously for the same node (if the canvas and a node-pane tile are visible at once).
 
 Chrome-scope tie-in: per `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`,
-graph-scope semantic filter chips belong in the Graph Bar, while pane runtime
-status (backend, degraded, blocked, loading) belongs in Workbench Sidebar
-rows/header. Node badges remain canvas/tab-level semantic output; they should
+graph-scope semantic filter chips belong in the graph-scoped Navigator host,
+while pane runtime status (backend, degraded, blocked, loading) belongs in
+workbench-scoped Navigator host rows/header. Node badges remain canvas/tab-level semantic output; they should
 not drift into generic toolbar chrome except as explicitly derived status
 signals.
 

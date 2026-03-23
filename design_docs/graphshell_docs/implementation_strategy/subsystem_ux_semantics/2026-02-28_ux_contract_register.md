@@ -199,7 +199,7 @@ Graphshell UX depends on keeping content truth, navigation projections, and work
 
 ### Navigation projections
 
-- The **Navigator** (Workbench Sidebar body) is a section-structured hierarchical projection over graph relation families (Semantic, Traversal, Containment, Arrangement, Imported). It replaces the legacy "file tree" concept. See `canvas/2026-03-14_graph_relation_families.md §5`.
+- The **Navigator** (as rendered in a workbench-scoped Navigator host body) is a section-structured hierarchical projection over graph relation families (Semantic, Traversal, Containment, Arrangement, Imported). It replaces the legacy "file tree" concept. See `canvas/2026-03-14_graph_relation_families.md §5`.
 - The Navigator may project content nodes, saved views, frame members, folder hierarchy, domain hierarchy, imported filesystem nodes, or another explicitly declared subset of graph-backed artifacts — organized into canonical sections.
 - The Navigator is a UI projection and navigation surface, not the canonical owner of content identity or graph truth.
 - The graph canvas is the primary relational navigation surface over the broader relation space; the Navigator is the structured hierarchical navigation surface.
@@ -230,7 +230,7 @@ All canonical specs in this register family inherit this shorthand and must not 
 ### 3C. Terminology Lock
 
 - Never call tile order or frame arrangement a content hierarchy.
-- Never call the Navigator (Workbench Sidebar projection) content truth or graph identity authority.
+- Never call the Navigator (workbench-scoped Navigator host projection) content truth or graph identity authority.
 - Never call physics presets camera modes.
 - Use **Navigator** instead of "file tree" in new code and docs. "File tree" is a legacy alias.
 - Treat `Liquid` / `Gas` / `Solid` as node-dynamics presets, not camera policies.

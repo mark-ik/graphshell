@@ -99,8 +99,7 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         state: &RunningAppState,
         window: &EmbedderWindow,
     ) -> bool {
-        let newest = window
-            .newest_webview_id();
+        let newest = window.newest_webview_id();
         let (Some(webview_id), _) =
             resolve_input_target_webview_id(window.explicit_input_webview_id(), newest)
         else {

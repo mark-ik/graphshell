@@ -23,7 +23,8 @@
 
 - `GraphId` = truth boundary.
 - `GraphViewId` = scoped view state.
-- Graph Bar = graph-scope chrome naming the active graph target and nearby control launch context.
+- graph-scoped Navigator hosts = chrome surfaces naming the active graph target
+  and nearby control launch context.
 - **Navigator** = graph-backed section-structured projection over relation families. Legacy alias: "file tree".
 - workbench = arrangement boundary.
 
@@ -134,9 +135,9 @@ Compatibility note:
   the graph without forcing Workbench chrome to appear.
 - In workbench context, or after explicit `Tile This Page` / promote action,
   the page is hosted like any other workbench pane.
-- The Graph Bar may launch these pages while remaining one UI level above their
-  eventual presentation mode; launching from Graph Bar chrome does not make the
-  resulting page graph-owned semantic truth.
+- A graph-scoped Navigator host may launch these pages while remaining one UI
+  level above their eventual presentation mode; launching from host chrome does
+  not make the resulting page graph-owned semantic truth.
 
 **Visual feedback**
 
@@ -164,7 +165,9 @@ Compatibility note:
   - Physics
   - Sync
   - Advanced
-- History, diagnostics, and Navigator (Workbench Sidebar projection) remain related control surfaces, not settings categories, even when they are launched from nearby chrome.
+- History, diagnostics, and Navigator projection remain related control
+  surfaces, not settings categories, even when they are launched from nearby
+  host chrome.
 - Frame save/restore/prune actions belong to workbench/frame chrome, not inside persistence settings.
 - The top-level `Settings` entry point should behave like a launcher/router, not a long inline form. Direct value editing belongs on the pages themselves.
 - Settings pages should act as the reusable control home for adjacent subsystem
@@ -254,8 +257,9 @@ Compatibility note:
 **Visual feedback**
 
 - Entry and exit should visibly preserve context.
-- Hosted control pages should become visible in the Workbench Sidebar/tree when
-  tiled; transient overlays should remain visually anchored to the graph.
+- Hosted control pages should become visible in a workbench-scoped Navigator
+  host/tree when tiled; transient overlays should remain visually anchored to
+  the graph.
 
 **Fallback / degraded behavior**
 

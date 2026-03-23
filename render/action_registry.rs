@@ -9,7 +9,7 @@
 //! returned [`ActionEntry`] carries enough metadata for any surface to
 //! render the action and decide whether it is currently enabled.
 
-use crate::app::GraphViewId;
+use crate::app::{GraphViewId, SurfaceHostId};
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::input::action_id as input_action;
 use std::sync::Once;
@@ -202,6 +202,9 @@ pub enum ActionId {
     GraphPhysicsConfig,
     GraphCommandPalette,
     GraphRadialMenu,
+    WorkbenchUnlockSurfaceLayout,
+    WorkbenchLockSurfaceLayout,
+    WorkbenchRememberLayoutPreference,
     WorkbenchGroupSelectedTiles,
     // Persistence actions
     PersistUndo,
@@ -288,6 +291,9 @@ impl ActionId {
             Self::GraphPhysicsConfig => "graph:physics_config",
             Self::GraphCommandPalette => "workbench:command_palette_open",
             Self::GraphRadialMenu => "workbench:radial_menu_open",
+            Self::WorkbenchUnlockSurfaceLayout => "workbench:unlock_surface_layout",
+            Self::WorkbenchLockSurfaceLayout => "workbench:lock_surface_layout",
+            Self::WorkbenchRememberLayoutPreference => "workbench:remember_layout_preference",
             Self::WorkbenchGroupSelectedTiles => "workbench:group_selected_tiles",
             Self::PersistUndo => "persistence:undo",
             Self::PersistRedo => "persistence:redo",
@@ -342,6 +348,9 @@ impl ActionId {
             Self::GraphPhysicsConfig => "Config",
             Self::GraphCommandPalette => "Cmd",
             Self::GraphRadialMenu => "Radial",
+            Self::WorkbenchUnlockSurfaceLayout => "Unlock",
+            Self::WorkbenchLockSurfaceLayout => "Lock",
+            Self::WorkbenchRememberLayoutPreference => "Remember",
             Self::WorkbenchGroupSelectedTiles => "Group Tiles",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",
@@ -396,6 +405,9 @@ impl ActionId {
             Self::GraphPhysicsConfig => "Open Physics Settings",
             Self::GraphCommandPalette => "Open Command Palette",
             Self::GraphRadialMenu => "Open Radial Palette",
+            Self::WorkbenchUnlockSurfaceLayout => "Unlock Surface Layout",
+            Self::WorkbenchLockSurfaceLayout => "Lock Surface Layout",
+            Self::WorkbenchRememberLayoutPreference => "Remember Layout Preference",
             Self::WorkbenchGroupSelectedTiles => "Group Selected Tiles",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",
@@ -450,6 +462,9 @@ impl ActionId {
             | Self::GraphPhysicsConfig
             | Self::GraphCommandPalette
             | Self::GraphRadialMenu
+            | Self::WorkbenchUnlockSurfaceLayout
+            | Self::WorkbenchLockSurfaceLayout
+            | Self::WorkbenchRememberLayoutPreference
             | Self::WorkbenchGroupSelectedTiles => ActionCategory::Graph,
             Self::PersistUndo
             | Self::PersistRedo
@@ -523,6 +538,9 @@ fn all_action_ids() -> &'static [ActionId] {
         GraphPhysicsConfig,
         GraphCommandPalette,
         GraphRadialMenu,
+        WorkbenchUnlockSurfaceLayout,
+        WorkbenchLockSurfaceLayout,
+        WorkbenchRememberLayoutPreference,
         WorkbenchGroupSelectedTiles,
         PersistUndo,
         PersistRedo,
@@ -577,6 +595,16 @@ pub struct ActionContext {
     pub view_id: GraphViewId,
     /// Whether explicit Wry override selection is currently allowed.
     pub wry_override_allowed: bool,
+    /// Whether a layout-configurable Navigator host is currently available.
+    pub layout_surface_host_available: bool,
+    /// The explicit Navigator host targeted by layout actions when unambiguous.
+    pub layout_surface_target_host: Option<SurfaceHostId>,
+    /// Whether multiple visible Navigator hosts exist and no explicit host target is selected.
+    pub layout_surface_target_ambiguous: bool,
+    /// Whether the active layout-configurable host is currently in config mode.
+    pub layout_surface_configuring: bool,
+    /// Whether the active layout-configurable host currently has a draft layout.
+    pub layout_surface_has_draft: bool,
 }
 
 /// A single resolved action entry returned by [`list_actions_for_context`].
@@ -639,6 +667,19 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (GraphToggleGhostNodes, true),
         (GraphPhysicsConfig, true),
         (GraphCommandPalette, true),
+        (
+            WorkbenchUnlockSurfaceLayout,
+            context.layout_surface_host_available && !context.layout_surface_configuring,
+        ),
+        (
+            WorkbenchLockSurfaceLayout,
+            context.layout_surface_host_available && context.layout_surface_configuring,
+        ),
+        (
+            WorkbenchRememberLayoutPreference,
+            context.layout_surface_host_available
+                && (context.layout_surface_configuring || context.layout_surface_has_draft),
+        ),
         (WorkbenchGroupSelectedTiles, true),
         // Persistence
         (PersistUndo, context.undo_available),
@@ -732,6 +773,11 @@ mod tests {
             input_mode: InputMode::MouseKeyboard,
             view_id: GraphViewId::new(),
             wry_override_allowed: false,
+            layout_surface_host_available: false,
+            layout_surface_target_host: None,
+            layout_surface_target_ambiguous: false,
+            layout_surface_configuring: false,
+            layout_surface_has_draft: false,
         }
     }
 
@@ -810,7 +856,6 @@ mod tests {
             .find(|e| e.id == ActionId::NodeDetachToSplit)
             .unwrap();
         assert!(!detach.enabled);
-
         let ctx_with_pane = ActionContext {
             focused_pane_available: true,
             ..default_context()
@@ -821,6 +866,78 @@ mod tests {
             .find(|e| e.id == ActionId::NodeDetachToSplit)
             .unwrap();
         assert!(detach.enabled);
+    }
+
+    #[test]
+    fn test_layout_actions_follow_host_config_state() {
+        let ctx = ActionContext {
+            layout_surface_host_available: true,
+            layout_surface_target_host: Some(SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Right,
+            )),
+            ..default_context()
+        };
+        let entries = list_actions_for_context(&ctx);
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::WorkbenchUnlockSurfaceLayout)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::WorkbenchLockSurfaceLayout)
+                .is_some_and(|entry| !entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::WorkbenchRememberLayoutPreference)
+                .is_some_and(|entry| !entry.enabled)
+        );
+
+        let ctx = ActionContext {
+            layout_surface_host_available: true,
+            layout_surface_target_host: Some(SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Right,
+            )),
+            layout_surface_configuring: true,
+            layout_surface_has_draft: true,
+            ..default_context()
+        };
+        let entries = list_actions_for_context(&ctx);
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::WorkbenchUnlockSurfaceLayout)
+                .is_some_and(|entry| !entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::WorkbenchLockSurfaceLayout)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::WorkbenchRememberLayoutPreference)
+                .is_some_and(|entry| entry.enabled)
+        );
+
+        let ctx = ActionContext {
+            layout_surface_host_available: false,
+            layout_surface_target_ambiguous: true,
+            ..default_context()
+        };
+        let entries = list_actions_for_context(&ctx);
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::WorkbenchUnlockSurfaceLayout)
+                .is_some_and(|entry| !entry.enabled)
+        );
     }
 
     #[test]

@@ -34,13 +34,12 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
-    CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED, CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
-    CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR,
+    CHANNEL_COMPOSITOR_LENS_OVERLAY_APPLIED, CHANNEL_COMPOSITOR_NATIVE_OVERLAY_RECT_MISMATCH,
+    CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE, CHANNEL_COMPOSITOR_OVERLAY_LIFECYCLE_INDICATOR,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
-    CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_TILE_DRAG,
-    CHANNEL_COMPOSITOR_NATIVE_OVERLAY_RECT_MISMATCH, CHANNEL_COMPOSITOR_PAINT_NOT_CONFIRMED,
+    CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_TILE_DRAG, CHANNEL_COMPOSITOR_PAINT_NOT_CONFIRMED,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
     CHANNEL_COMPOSITOR_TILE_ACTIVITY, phase3_resolve_active_presentation_profile,
 };
@@ -523,12 +522,12 @@ fn sync_native_overlay_for_tile(node_key: NodeKey, tile_rect: egui::Rect, visibl
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(prev) = last_rects.get(&node_key) {
-            let dx = (tile_rect.min.x - prev.min.x).abs().max(
-                (tile_rect.max.x - prev.max.x).abs(),
-            );
-            let dy = (tile_rect.min.y - prev.min.y).abs().max(
-                (tile_rect.max.y - prev.max.y).abs(),
-            );
+            let dx = (tile_rect.min.x - prev.min.x)
+                .abs()
+                .max((tile_rect.max.x - prev.max.x).abs());
+            let dy = (tile_rect.min.y - prev.min.y)
+                .abs()
+                .max((tile_rect.max.y - prev.max.y).abs());
             if dx > MISMATCH_THRESHOLD || dy > MISMATCH_THRESHOLD {
                 emit_event(DiagnosticEvent::MessageSent {
                     channel_id: CHANNEL_COMPOSITOR_NATIVE_OVERLAY_RECT_MISMATCH,
@@ -1060,8 +1059,11 @@ pub(crate) fn composite_active_node_pane_webviews(
             true
         };
 
-        affordance_annotations
-            .push(tile_affordance_annotation(&semantic, &pass.overlays, paint_callback_registered));
+        affordance_annotations.push(tile_affordance_annotation(
+            &semantic,
+            &pass.overlays,
+            paint_callback_registered,
+        ));
 
         if paint_callback_registered {
             for overlay in pass.overlays {

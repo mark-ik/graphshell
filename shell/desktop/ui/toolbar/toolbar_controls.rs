@@ -157,12 +157,8 @@ pub(crate) fn render_navigation_buttons(
     let reload_button = reload_button.on_hover_text(reload_hover);
     if reload_button.clicked() {
         *location_dirty = false;
-        let _ = toolbar_routing::run_nav_action(
-            graph_app,
-            window,
-            focused_toolbar_node,
-            reload_action,
-        );
+        let _ =
+            toolbar_routing::run_nav_action(graph_app, window, focused_toolbar_node, reload_action);
     }
 
     if let Some(zoom_level) = focused_content_status.content_zoom_level {

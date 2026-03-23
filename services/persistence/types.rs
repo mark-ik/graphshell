@@ -218,7 +218,17 @@ pub enum PersistedProvenanceSubKind {
     ImportedFromSource,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub struct PersistedSemanticEdgeData {
     #[serde(default)]
@@ -229,14 +239,35 @@ pub struct PersistedSemanticEdgeData {
     pub agent_decay_progress: Option<f32>,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub struct PersistedTraversalRecord {
     pub timestamp_ms: u64,
     pub trigger: PersistedNavigationTrigger,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub struct PersistedTraversalMetrics {
     pub total_navigations: u64,
@@ -245,7 +276,18 @@ pub struct PersistedTraversalMetrics {
     pub last_navigated_at: Option<u64>,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub struct PersistedTraversalEdgeData {
     #[serde(default)]
@@ -254,35 +296,81 @@ pub struct PersistedTraversalEdgeData {
     pub metrics: PersistedTraversalMetrics,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub struct PersistedContainmentEdgeData {
     #[serde(default)]
     pub sub_kinds: Vec<PersistedContainmentSubKind>,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub struct PersistedArrangementEdgeData {
     #[serde(default)]
     pub sub_kinds: Vec<PersistedArrangementSubKind>,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub struct PersistedImportedEdgeData {
     #[serde(default)]
     pub sub_kinds: Vec<PersistedImportedSubKind>,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub struct PersistedProvenanceEdgeData {
     #[serde(default)]
     pub sub_kinds: Vec<PersistedProvenanceSubKind>,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive, Serialize, Deserialize, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedEdgeAssertion {
     Semantic {
@@ -304,7 +392,17 @@ pub enum PersistedEdgeAssertion {
     },
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedRelationSelector {
     Family(PersistedEdgeFamily),

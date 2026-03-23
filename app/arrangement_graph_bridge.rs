@@ -105,7 +105,10 @@ impl GraphBrowserApp {
 // ── Private reconciler implementations ───────────────────────────────────────
 
 impl GraphBrowserApp {
-    fn outgoing_membership_relations(&self, container_key: NodeKey) -> Vec<(NodeKey, RelationSelector)> {
+    fn outgoing_membership_relations(
+        &self,
+        container_key: NodeKey,
+    ) -> Vec<(NodeKey, RelationSelector)> {
         self.domain_graph()
             .inner
             .edges_directed(container_key, Direction::Outgoing)
@@ -148,7 +151,8 @@ impl GraphBrowserApp {
 
         // Capture existing members before mutation for delta reporting.
         let frame_url = VersoAddress::frame(name.to_string()).to_string();
-        let existing_members: Vec<NodeKey> = if let Some((frame_key, _)) = self.domain_graph().get_node_by_url(&frame_url) {
+        let existing_members: Vec<NodeKey> =
+            if let Some((frame_key, _)) = self.domain_graph().get_node_by_url(&frame_url) {
                 self.outgoing_membership_nodes(frame_key)
             } else {
                 Vec::new()

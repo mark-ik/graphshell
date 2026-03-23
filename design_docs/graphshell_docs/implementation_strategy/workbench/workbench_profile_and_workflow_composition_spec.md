@@ -25,8 +25,9 @@ It canonicalizes:
 1. Interaction preference composition (`InputProfile`, focus/open policies).
 2. Pane behavior defaults (open/duplicate/close/degrade policies).
 3. Command-surface preferences (palette/radial/omnibar behavior defaults).
-4. Workflow presets (named bundles for repeatable task flows).
-5. Persistence boundaries and settings-surface ownership.
+4. Navigator host preferences (scope, edge, form factor, and host layout).
+5. Workflow presets (named bundles for repeatable task flows).
+6. Persistence boundaries and settings-surface ownership.
 
 This spec does not redefine Graph truth or reducer semantics.
 
@@ -46,6 +47,7 @@ WorkbenchProfile {
   interaction: InteractionPreferences,
   pane_defaults: PaneBehaviorDefaults,
   command_surface: CommandSurfacePreferences,
+  navigator_hosts: Vec<NavigatorHostPreferences>,
   workflow_presets: Vec<WorkflowPreset>
 }
 ```
@@ -116,7 +118,46 @@ Rules:
 - `omnibar_focus_policy` must preserve explicit-focus ownership requirements.
 - Pinned actions must be treated as hints, not permission bypasses.
 
-### 3.4 Workflow presets
+### 3.4 Navigator host preferences
+
+```json
+NavigatorHostPreferences {
+  host_id: NavigatorHostId,
+  enabled: bool,
+  scope: NavigatorScope,
+  form_factor: NavigatorFormFactor,
+  anchor_edge: AnchorEdge,
+  size_fraction: f32,
+  cross_axis_margin_start_px: f32,
+  cross_axis_margin_end_px: f32
+}
+```
+
+Rules:
+
+- `host_id` is stable and unique within one `WorkbenchProfile`.
+- At most one Navigator host may occupy a given edge at a time.
+- Multiple Navigator hosts may be enabled simultaneously so long as their
+  resolved bounds do not overlap.
+- `Top` / `Bottom` hosts default to `Toolbar` form factor.
+- `Left` / `Right` hosts default to `Sidebar` form factor.
+- Dragging a host across axes may change its default form factor, but the
+  chosen form factor is still persisted explicitly in the profile.
+- `scope` is per host; different hosts may project different scopes at the
+  same time.
+- Cross-axis margins are part of the remembered layout contract and must be
+  restored with the host.
+
+Suggested enums:
+
+```json
+NavigatorHostId = Top | Bottom | Left | Right
+NavigatorScope = Both | GraphOnly | WorkbenchOnly | Auto
+NavigatorFormFactor = Sidebar | Toolbar
+AnchorEdge = Top | Bottom | Left | Right
+```
+
+### 3.5 Workflow presets
 
 ```json
 WorkflowPreset {
@@ -143,6 +184,9 @@ Rules:
 - Profile catalog persistence is user-scoped.
 - Active profile selection is workspace-scoped.
 - Optional per-workbench override is workbench-scoped.
+- Navigator host enablement, scope, edge, form factor, and host margins are
+  profile-owned settings that may be overridden per workbench only through the
+  active `WorkbenchProfile` resolution chain.
 
 ### 4.2 Resolution chain
 
@@ -176,6 +220,8 @@ Required operations:
 - Create, clone, rename, delete profile.
 - Set workspace active profile.
 - Set or clear per-workbench profile override.
+- Enable/disable Navigator hosts.
+- Change Navigator host scope, anchor edge, form factor, and margins.
 - Apply workflow preset and preview affected domains.
 
 ---
@@ -195,6 +241,7 @@ Required operations:
 1. A canonical `WorkbenchProfile` schema exists and is cross-linked from workbench and settings specs.
 2. Profile resolution chain is deterministic and documented.
 3. Interaction, pane, command-surface, and workflow domains are represented in one profile object.
-4. Settings routes for profile and workflow editing are explicit.
-5. Persistence boundaries (user/workspace/workbench) are explicit and non-overlapping.
-6. Fallback and failure behavior is diagnostics-backed.
+4. Navigator host settings are represented in the profile with stable host IDs.
+5. Settings routes for profile and workflow editing are explicit.
+6. Persistence boundaries (user/workspace/workbench) are explicit and non-overlapping.
+7. Fallback and failure behavior is diagnostics-backed.

@@ -213,11 +213,9 @@ impl super::GraphBrowserApp {
                 .selected_pair_in_order()
                 .map(|(from, to)| self.would_create_user_grouped_edge(from, to))
                 .unwrap_or(false),
-            super::GraphMutation::RemoveEdge {
-                from,
-                to,
-                selector,
-            } => self.has_relation(from, to, selector),
+            super::GraphMutation::RemoveEdge { from, to, selector } => {
+                self.has_relation(from, to, selector)
+            }
             super::GraphMutation::SetNodePinned { key, is_pinned } => {
                 let Some(node) = self.workspace.domain.graph.get_node(key) else {
                     return false;

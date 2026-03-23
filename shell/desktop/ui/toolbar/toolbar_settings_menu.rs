@@ -61,7 +61,8 @@ pub(super) fn render_settings_menu(
         .auto_shrink([false, false])
         .max_height(max_menu_height)
         .show(ui, |ui| {
-            let theme_tokens = phase3_resolve_active_theme(graph_app.default_registry_theme_id()).tokens;
+            let theme_tokens =
+                phase3_resolve_active_theme(graph_app.default_registry_theme_id()).tokens;
             ui.label(
                 egui::RichText::new(if prefer_overlay {
                     "Graph scope: settings pages open as overlays."

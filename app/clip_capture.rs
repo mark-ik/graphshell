@@ -464,8 +464,7 @@ mod tests {
             .is_some_and(|payload| {
                 payload.has_relation(crate::graph::RelationSelector::Semantic(
                     crate::graph::SemanticSubKind::UserGrouped,
-                ))
-                    && payload.label() == Some(CLIP_EDGE_LABEL)
+                )) && payload.label() == Some(CLIP_EDGE_LABEL)
             });
         assert!(has_clip_edge, "expected labeled clip-source edge");
     }

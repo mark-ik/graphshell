@@ -21,8 +21,8 @@ use servo::{
     EmbedderControlId, GenericSender, ImeEvent, InputEvent, InputEventId, InputEventResult,
     InputMethodControl, KeyboardEvent, MouseLeftViewportEvent, OffscreenRenderingContext,
     PermissionRequest, RenderingContext, ScreenGeometry, Theme, TouchEvent, TouchEventType,
-    TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode,
-    WindowRenderingContext, convert_rect_to_css_pixel,
+    TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
+    convert_rect_to_css_pixel,
 };
 use url::Url;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
@@ -582,7 +582,9 @@ impl HeadedWindow {
             match event {
                 WindowEvent::KeyboardInput { event, .. } => {
                     if !self.ui_or_dialog_capture_active() {
-                        if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window) {
+                        if let Some(webview_id) =
+                            input_routing::resolved_input_webview_id(self, &window)
+                        {
                             self.gui
                                 .borrow_mut()
                                 .set_embedded_content_focus_webview(Some(webview_id));
@@ -711,7 +713,8 @@ impl HeadedWindow {
                 }
                 WindowEvent::Touch(touch) => {
                     if !self.ui_or_dialog_capture_active() {
-                        if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window)
+                        if let Some(webview_id) =
+                            input_routing::resolved_input_webview_id(self, &window)
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
                             self.gui
@@ -851,14 +854,17 @@ impl HeadedWindow {
 
         let proxy = self.event_loop_proxy.clone();
         let window_id = self.winit_window.id();
-        webview.evaluate_javascript(clip_extraction::build_clip_extraction_script(element_rect), move |result| {
-            let result = clip_extraction::parse_clip_capture_result(webview_id, result);
-            if let Err(error) =
-                proxy.send_event(AppEvent::ClipExtractionCompleted { window_id, result })
-            {
-                warn!("Failed to deliver clip extraction result to event loop: {error}");
-            }
-        });
+        webview.evaluate_javascript(
+            clip_extraction::build_clip_extraction_script(element_rect),
+            move |result| {
+                let result = clip_extraction::parse_clip_capture_result(webview_id, result);
+                if let Err(error) =
+                    proxy.send_event(AppEvent::ClipExtractionCompleted { window_id, result })
+                {
+                    warn!("Failed to deliver clip extraction result to event loop: {error}");
+                }
+            },
+        );
     }
 
     pub(crate) fn request_page_inspector_candidates(
@@ -876,14 +882,19 @@ impl HeadedWindow {
 
         let proxy = self.event_loop_proxy.clone();
         let window_id = self.winit_window.id();
-        webview.evaluate_javascript(clip_extraction::build_page_inspector_extraction_script(), move |result| {
-            let result = clip_extraction::parse_clip_capture_batch_result(webview_id, result);
-            if let Err(error) =
-                proxy.send_event(AppEvent::ClipBatchExtractionCompleted { window_id, result })
-            {
-                warn!("Failed to deliver page inspector extraction result to event loop: {error}");
-            }
-        });
+        webview.evaluate_javascript(
+            clip_extraction::build_page_inspector_extraction_script(),
+            move |result| {
+                let result = clip_extraction::parse_clip_capture_batch_result(webview_id, result);
+                if let Err(error) =
+                    proxy.send_event(AppEvent::ClipBatchExtractionCompleted { window_id, result })
+                {
+                    warn!(
+                        "Failed to deliver page inspector extraction result to event loop: {error}"
+                    );
+                }
+            },
+        );
     }
 
     pub(crate) fn request_clip_inspector_stack_at_pointer(
@@ -926,14 +937,12 @@ impl HeadedWindow {
         let Some(webview) = window.webview_by_id(webview_id) else {
             return;
         };
-        webview.evaluate_javascript(clip_extraction::build_clip_inspector_highlight_script(dom_path), |_| {});
+        webview.evaluate_javascript(
+            clip_extraction::build_clip_inspector_highlight_script(dom_path),
+            |_| {},
+        );
     }
 }
-
-
-
-
-
 
 fn emit_navigation_transition_host_dialog_capture() {
     emit_event(DiagnosticEvent::MessageReceived {
@@ -1140,12 +1149,7 @@ impl PlatformWindowDialogs for HeadedWindow {
         devices: Vec<String>,
         response_sender: GenericSender<Option<String>>,
     ) {
-        embedder_controls::show_bluetooth_device_dialog(
-            self,
-            webview_id,
-            devices,
-            response_sender,
-        );
+        embedder_controls::show_bluetooth_device_dialog(self, webview_id, devices, response_sender);
     }
 
     fn show_permission_dialog(&self, webview_id: WebViewId, permission_request: PermissionRequest) {
@@ -1220,7 +1224,6 @@ impl PlatformWindow for HeadedWindow {
         Some(self)
     }
 }
-
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn load_icon(icon_bytes: &[u8]) -> Icon {
@@ -1316,5 +1319,4 @@ mod tests {
         assert!(!input_routing::is_graph_control_shortcut(KeyCode::Enter));
         assert!(!input_routing::is_graph_control_shortcut(KeyCode::KeyQ));
     }
-
 }

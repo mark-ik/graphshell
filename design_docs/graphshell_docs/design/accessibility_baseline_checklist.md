@@ -24,7 +24,7 @@ Surface columns in this checklist:
 - Floating Windows
 - Dialogs
 - Omnibar
-- Graph Bar / Workbench Sidebar
+- Graph-scoped / Workbench-scoped Navigator host
 
 Status vocabulary:
 
@@ -43,7 +43,7 @@ Known-gap alignment from UX integration research:
 
 ## 2. WCAG 2.2 Level A + AA checklist
 
-| Criterion | Level | Graph Pane | Node Pane | Tool Pane | Floating Windows | Dialogs | Omnibar | Graph Bar / Workbench Sidebar | Notes |
+| Criterion | Level | Graph Pane | Node Pane | Tool Pane | Floating Windows | Dialogs | Omnibar | Graph-scoped / Workbench-scoped Navigator host | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 1.1.1 Non-text Content | A | Fail | Untested | Untested | Untested | Untested | Untested | Untested | Graph nodes/icons need verified text alternatives and accessible names. |
 | 1.2.1 Audio-only and Video-only (Prerecorded) | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No dedicated prerecorded media workflow is currently scoped. |
@@ -106,7 +106,7 @@ Known-gap alignment from UX integration research:
 
 This matrix seeds the required baseline for `#295` and follow-on implementation issues.
 
-| Environment | Screen Reader | Graph Pane | Node Pane | Tool Pane | Floating Windows | Dialogs | Omnibar | Graph Bar / Workbench Sidebar | Notes |
+| Environment | Screen Reader | Graph Pane | Node Pane | Tool Pane | Floating Windows | Dialogs | Omnibar | Graph-scoped / Workbench-scoped Navigator host | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | Windows 11 | NVDA (latest) | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Primary baseline target for desktop validation. |
 | Windows 11 | Narrator | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Secondary Microsoft-native verification pass. |
@@ -115,7 +115,7 @@ This matrix seeds the required baseline for `#295` and follow-on implementation 
 
 Execution note:
 
-- First pass should prioritize known gap surfaces (Graph Pane, Graph Bar / Workbench Sidebar focus transitions, command surfaces).
+- First pass should prioritize known gap surfaces (Graph Pane, Navigator host focus transitions, command surfaces).
 - Results should be copied back into §2 statuses and linked to follow-up issues (`#298`, `#301`).
 
 ---
@@ -124,7 +124,7 @@ Execution note:
 
 - [x] D4 checklist file exists at `design_docs/graphshell_docs/design/accessibility_baseline_checklist.md`.
 - [x] Contains one row per WCAG 2.2 Level A + AA criterion with no blank status cells.
-- [x] Includes all required surface columns (graph, node, tool, floating, dialogs, omnibar, graph bar / workbench sidebar).
+- [x] Includes all required surface columns (graph, node, tool, floating, dialogs, omnibar, graph-scoped / workbench-scoped Navigator host).
 - [x] Initial screen reader test matrix is included.
 
 ---

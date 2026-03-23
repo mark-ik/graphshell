@@ -14,7 +14,7 @@
 - `../subsystem_diagnostics/2026-02-26_test_infrastructure_improvement_plan.md` (T1/T2 infrastructure — Phase 0 prerequisite)
 - `PLANNING_REGISTER.md`
 - `2026-03-08_unified_ux_semantics_architecture_plan.md`
-- `2026-03-13_chrome_scope_split_plan.md` (Graph Bar + Workbench Sidebar split chrome architecture — affects §4.2 UxTree build order and the top-level Graph Bar / Workbench chrome landmark split)
+- `2026-03-13_chrome_scope_split_plan.md` (Navigator host chrome architecture — affects §4.2 UxTree build order and the top-level graph-scoped / workbench-scoped host landmark split)
 
 **Policy authority**: This file is the single canonical policy authority for the UX Semantics subsystem.
 Supporting UX-semantics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -22,7 +22,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 Hierarchy note:
 
-- the Graph Bar names graph-owned targets (`GraphId`, `GraphViewId`) one UI level above workbench hosting
+- the default graph-scoped Navigator host names graph-owned targets (`GraphId`, `GraphViewId`) one UI level above workbench hosting
 - the workbench tile tree is a contextual hosting structure for the active branch's leaves
 - `UxTree` must preserve that distinction in its semantic projection instead of making tile hosting look like semantic ownership
 
@@ -208,13 +208,14 @@ read-only projection — it does not modify app state.
 Build order:
 1. Read the active chrome projection plus `Gui::tiles_tree`
    (`egui_tiles::Tree<TileKind>`).
-2. Emit top-level chrome landmarks in focus order: Graph Bar (`Toolbar`),
-   Workbench chrome/sidebar (`WorkbenchChrome`) when present, status bar
+2. Emit top-level chrome landmarks in focus order: graph-scoped Navigator host
+  (`Toolbar`), workbench-scoped Navigator host (`WorkbenchChrome`) when
+  present, status bar
    (`StatusBar`) when present.
 3. Walk `Gui::tiles_tree`.
 4. For each `TileKind::Graph(GraphViewId)`: emit a `GraphView` region representing
-   a hosted presentation of a graph-owned scoped view already named by Graph Bar
-   chrome. For each
+  a hosted presentation of a graph-owned scoped view already named by the
+  graph-scoped Navigator host. For each
    graph node at LOD ≥ Compact, emit a `GraphNode` child.
 5. For each `TileKind::Node(NodePaneState)`: emit a `NodePane` region with:
    - Navigation bar sub-region (back/forward buttons, location field).

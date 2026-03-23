@@ -328,15 +328,30 @@ or disappear entirely. Placeholder chrome is not required.
 
 **Date**: 2026-03-22
 
-### 11.1 One Navigator
+### 11.1 One Navigator, Many Hosts
 
-There is one Navigator. It has two orthogonal settings:
+There is one Navigator projection grammar. It may be rendered through one or
+more **Navigator hosts** around the workbench frame.
+
+Each host has four orthogonal settings:
 
 - **Form factor** — how it is presented: `Sidebar` (panel) or `Toolbar` (compact bar)
 - **Scope** — what it projects: `Both`, `GraphOnly`, `WorkbenchOnly`, or `Auto`
+- **Anchor edge** — where it is mounted: `Top`, `Bottom`, `Left`, or `Right`
+- **Cross-axis margins** — adjustable insets from the host's non-anchor edges
 
 These are independent. A sidebar can be graph-only. A toolbar can show both
-scopes. The user sets them separately.
+scopes. Two different hosts may project different scopes at the same time.
+
+Canonical rule:
+
+- Navigator is one semantic surface family
+- host count is a layout policy decision
+- host settings are persisted per host, not globally
+
+All active Navigator hosts must use the same row grammar, trust/permission
+projection rules, focused-content control rules, and selection semantics. Hosts
+may differ in scope, form factor, anchor edge, and margin settings only.
 
 ### 11.2 Scope Modes
 
@@ -347,7 +362,7 @@ scopes. The user sets them separately.
 | `WorkbenchOnly` | Projects workbench arrangement state only. Graph sections hidden. |
 | `Auto` | Switches between graph scope and workbench scope when focus moves between the graph canvas and a workbench tile. Mirrors keybinding scope switching. |
 
-### 11.3 Deprecating Graph Bar and Workbench Bar as Separate Surfaces
+### 11.3 Deprecating Graph Bar and Workbench Bar as Fixed Surface Types
 
 The previous model had two separate horizontal bars:
 
@@ -355,49 +370,90 @@ The previous model had two separate horizontal bars:
 - **Workbench Bar** — toolbar Navigator, workbench scope
 
 These were implementation seams exposed as chrome. Under this model they are
-replaced by a single Navigator toolbar whose scope setting determines what it
-shows. A user who wants the old two-bar behaviour sets scope to `Both` and uses
-a toolbar form factor — the graph and workbench sections appear as labelled
-sections within the same bar.
+replaced by Navigator hosts whose scope setting determines what they show.
+
+Examples that are valid under this host model:
+
+- one top toolbar host showing `Both`
+- one left sidebar host showing `Both`
+- a top toolbar host showing `GraphOnly` plus a bottom toolbar host showing
+  `WorkbenchOnly`
+- a left sidebar host showing `GraphOnly` plus a right sidebar host showing
+  `WorkbenchOnly`
 
 "Graph Bar" and "Workbench Bar" are therefore retired as surface names. They
-may remain as section labels within the Navigator projection if that aids
-orientation.
+may remain as host presets or section labels within the Navigator projection if
+that aids orientation.
 
-### 11.4 Single-Surface vs. Two-Surface Configurations
+### 11.4 Host Model
 
-The active Navigator configuration is one of three cases:
+Navigator hosts are edge-mounted. At most one Navigator host may occupy a given
+edge. Multiple edges may host Navigator simultaneously.
 
-**Sidebar only** — the sidebar must cover both scopes. Scope setting is
-`Both` (graph and workbench sections shown simultaneously) or `Auto`
-(switches between graph and workbench based on focus). Both are valid;
-`Both` is the default.
+Valid host sets therefore include:
 
-**Toolbar only** — same as sidebar only. The toolbar must cover both scopes.
-`Both` or `Auto`; `Both` is the default.
+- one host on any one edge
+- two hosts on any two different edges
+- three hosts on three different edges
+- four hosts, one on each edge
 
-**Sidebar + Toolbar** — each surface takes one scope. The natural default
-assignment is:
+Each host chooses its own form factor:
 
-- Sidebar → `GraphOnly` (panel format suits deep hierarchical graph projection)
-- Toolbar → `WorkbenchOnly` (compact format suits flatter workbench arrangement chrome)
+- `Top` / `Bottom` naturally default to `Toolbar`
+- `Left` / `Right` naturally default to `Sidebar`
 
-When the user enables a second Navigator surface, the system assigns the
-complementary scope automatically. The user can override this — both surfaces
-showing `Both`, both showing `Auto`, or any other combination — but the
-default avoids redundancy.
+but this is a default, not a restriction.
 
-### 11.5 Scope Setting Persistence
+If a host is dragged across axes:
 
-Scope and form factor are persisted in `WorkbenchProfile` per surface. They
-are part of the layout policy the user configures and are not reset between
-sessions. Enabling or disabling a surface updates the other surface's scope
-default only on first activation, not on subsequent changes.
+- moving a `Toolbar` host from `Top`/`Bottom` to `Left`/`Right` converts it to
+  `Sidebar` form by default
+- moving a `Sidebar` host from `Left`/`Right` to `Top`/`Bottom` converts it to
+  `Toolbar` form by default
 
-### 11.6 Constraint With Layout Policy
+This keeps drag behavior aligned with visual expectations while preserving the
+host's scope.
 
-When the Navigator is in `Toolbar` form factor, it is a candidate for
-`WorkbenchLayoutConstraint::AnchoredSplit` (see `workbench_layout_policy_spec.md`).
-The scope setting is independent of the anchor edge — a toolbar Navigator
-anchored to the bottom showing `WorkbenchOnly` is the expected two-surface
-default configuration.
+### 11.5 Default Host Configuration
+
+The default remains conservative:
+
+- one primary Navigator host is enabled on first run
+- that primary host defaults to scope `Both`
+
+Additional hosts are optional and user-enabled.
+
+When a second host is enabled, the natural default assignment is:
+
+- existing host keeps its current scope
+- new host receives the complementary scope if one exists
+
+Examples:
+
+- existing `Both` host + new host -> new host also starts as `Both`
+- existing `GraphOnly` host + new host -> new host defaults to `WorkbenchOnly`
+- existing `WorkbenchOnly` host + new host -> new host defaults to `GraphOnly`
+
+Users may override these defaults freely. Mirrored or redundant hosts are valid
+so long as their bounds do not overlap.
+
+### 11.6 Host Persistence
+
+Scope, form factor, anchor edge, enabled state, and cross-axis margins are
+persisted in `WorkbenchProfile` per Navigator host. They are part of the layout
+policy the user configures and are not reset between sessions.
+
+### 11.7 Constraint With Layout Policy
+
+Navigator hosting is governed by workbench layout policy. The layout policy
+must be able to persist and restore:
+
+- which Navigator hosts are enabled
+- which edge each host occupies
+- which form factor each host uses
+- which scope each host projects
+- the host's adjustable cross-axis margins
+
+The scope setting is independent of the anchor edge. A bottom toolbar host
+showing `WorkbenchOnly`, or left and right sidebar hosts projecting different
+scopes, are both canonical-valid configurations.

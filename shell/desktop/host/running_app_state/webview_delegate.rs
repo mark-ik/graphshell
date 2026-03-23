@@ -10,16 +10,17 @@
 use std::ops::Deref;
 use std::rc::Rc;
 
-use servo::{
-    AuthenticationRequest, ConsoleLogLevel, CreateNewWebViewRequest, DeviceIntPoint, DeviceIntSize,
-    EmbedderControl, EmbedderControlId, GenericSender, InputEventId, InputEventResult, LoadStatus,
-    MediaSessionEvent, PermissionRequest, TraversalId, WebDriverLoadStatus, WebView, WebViewDelegate,
-};
 #[cfg(all(
     feature = "gamepad",
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 use servo::GamepadHapticEffectType;
+use servo::{
+    AuthenticationRequest, ConsoleLogLevel, CreateNewWebViewRequest, DeviceIntPoint, DeviceIntSize,
+    EmbedderControl, EmbedderControlId, GenericSender, InputEventId, InputEventResult, LoadStatus,
+    MediaSessionEvent, PermissionRequest, TraversalId, WebDriverLoadStatus, WebView,
+    WebViewDelegate,
+};
 use url::Url;
 
 use crate::app::OpenSurfaceSource;

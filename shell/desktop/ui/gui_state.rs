@@ -173,10 +173,7 @@ pub(crate) struct FocusedContentStatus {
 }
 
 impl FocusedContentStatus {
-    pub(crate) fn unavailable(
-        node_key: Option<NodeKey>,
-        renderer_id: Option<WebViewId>,
-    ) -> Self {
+    pub(crate) fn unavailable(node_key: Option<NodeKey>, renderer_id: Option<WebViewId>) -> Self {
         Self {
             node_key,
             renderer_id,

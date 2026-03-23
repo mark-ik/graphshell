@@ -165,9 +165,19 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         .graph
         .get_edge(back_edge_key)
         .expect("back edge payload should exist");
-    assert!(harness.app.workspace.domain.graph.get_edge(back_edge_key).is_some_and(|payload| {
-        payload.has_relation(crate::graph::RelationSelector::Family(crate::graph::EdgeFamily::Traversal))
-    }));
+    assert!(
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .get_edge(back_edge_key)
+            .is_some_and(|payload| {
+                payload.has_relation(crate::graph::RelationSelector::Family(
+                    crate::graph::EdgeFamily::Traversal,
+                ))
+            })
+    );
     assert_eq!(back_edge.traversals().len(), 2);
     assert_eq!(back_edge.traversals()[0].trigger, NavigationTrigger::Back);
     assert_eq!(back_edge.traversals()[1].trigger, NavigationTrigger::Back);
@@ -187,11 +197,17 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         .get_edge(forward_edge_key)
         .expect("forward edge payload should exist");
     assert!(
-        harness.app.workspace.domain.graph.get_edge(forward_edge_key).is_some_and(|payload| {
-            payload.has_relation(crate::graph::RelationSelector::Family(
-                crate::graph::EdgeFamily::Traversal,
-            ))
-        })
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .get_edge(forward_edge_key)
+            .is_some_and(|payload| {
+                payload.has_relation(crate::graph::RelationSelector::Family(
+                    crate::graph::EdgeFamily::Traversal,
+                ))
+            })
     );
     assert_eq!(forward_edge.traversals().len(), 1);
     assert_eq!(

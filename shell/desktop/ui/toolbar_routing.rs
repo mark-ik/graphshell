@@ -154,11 +154,18 @@ mod tests {
         let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
         let mut app = GraphBrowserApp::new_for_testing();
 
-        assert!(run_nav_action(&mut app, &window, None, ToolbarNavAction::StopLoad));
+        assert!(run_nav_action(
+            &mut app,
+            &window,
+            None,
+            ToolbarNavAction::StopLoad
+        ));
         assert_eq!(
             app.take_pending_browser_command(),
             Some((
-                BrowserCommandTarget::ChromeProjection { fallback_node: None },
+                BrowserCommandTarget::ChromeProjection {
+                    fallback_node: None
+                },
                 BrowserCommand::StopLoad,
             ))
         );

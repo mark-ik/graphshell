@@ -12,10 +12,10 @@ use std::time::Duration;
 use euclid::{Point2D, Rect};
 use keyboard_types::ShortcutMatcher;
 use servo::{
-    Cursor, DeviceIndependentPixel, DevicePixel, EditingActionEvent, InputEvent,
-    KeyboardEvent, Modifiers, MouseButton as ServoMouseButton, MouseButtonAction, MouseButtonEvent,
-    MouseLeftViewportEvent, MouseMoveEvent, NamedKey, TouchEventType,
-    WebRenderDebugOption, WebView, WebViewId,
+    Cursor, DeviceIndependentPixel, DevicePixel, EditingActionEvent, InputEvent, KeyboardEvent,
+    Modifiers, MouseButton as ServoMouseButton, MouseButtonAction, MouseButtonEvent,
+    MouseLeftViewportEvent, MouseMoveEvent, NamedKey, TouchEventType, WebRenderDebugOption,
+    WebView, WebViewId,
 };
 use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, KeyEvent, MouseButton, TouchPhase};
@@ -47,9 +47,7 @@ pub(super) fn resolved_input_webview_id(
     headed: &HeadedWindow,
     window: &EmbedderWindow,
 ) -> Option<WebViewId> {
-    window.resolve_input_webview_id(
-        headed.gui.borrow().focused_embedded_content_webview_id(),
-    )
+    window.resolve_input_webview_id(headed.gui.borrow().focused_embedded_content_webview_id())
 }
 
 pub(super) fn explicit_chrome_webview(
@@ -223,10 +221,10 @@ pub(super) fn handle_intercepted_key_bindings(
             );
         })
         .shortcut(CMD_OR_CONTROL, 'W', || {
-            headed.gui.borrow_mut().request_browser_command(
-                BrowserCommandTarget::FocusedInput,
-                BrowserCommand::Close,
-            );
+            headed
+                .gui
+                .borrow_mut()
+                .request_browser_command(BrowserCommandTarget::FocusedInput, BrowserCommand::Close);
         })
         .shortcut(CMD_OR_CONTROL, 'P', || {
             let rate = env::var("SAMPLING_RATE")
@@ -243,44 +241,26 @@ pub(super) fn handle_intercepted_key_bindings(
             );
         })
         .shortcut(CMD_OR_CONTROL, 'X', || {
-            active_webview
-                .notify_input_event(InputEvent::EditingAction(EditingActionEvent::Cut));
+            active_webview.notify_input_event(InputEvent::EditingAction(EditingActionEvent::Cut));
         })
         .shortcut(CMD_OR_CONTROL, 'C', || {
-            active_webview
-                .notify_input_event(InputEvent::EditingAction(EditingActionEvent::Copy));
+            active_webview.notify_input_event(InputEvent::EditingAction(EditingActionEvent::Copy));
         })
         .shortcut(CMD_OR_CONTROL, 'V', || {
-            active_webview.notify_input_event(InputEvent::EditingAction(
-                EditingActionEvent::Paste,
-            ));
+            active_webview.notify_input_event(InputEvent::EditingAction(EditingActionEvent::Paste));
         })
         .shortcut(Modifiers::CONTROL, servo::Key::Named(NamedKey::F9), || {
             active_webview.capture_webrender();
         })
-        .shortcut(
-            Modifiers::CONTROL,
-            servo::Key::Named(NamedKey::F10),
-            || {
-                active_webview
-                    .toggle_webrender_debugging(WebRenderDebugOption::RenderTargetDebug);
-            },
-        )
-        .shortcut(
-            Modifiers::CONTROL,
-            servo::Key::Named(NamedKey::F11),
-            || {
-                active_webview
-                    .toggle_webrender_debugging(WebRenderDebugOption::TextureCacheDebug);
-            },
-        )
-        .shortcut(
-            Modifiers::CONTROL,
-            servo::Key::Named(NamedKey::F12),
-            || {
-                active_webview.toggle_webrender_debugging(WebRenderDebugOption::Profiler);
-            },
-        )
+        .shortcut(Modifiers::CONTROL, servo::Key::Named(NamedKey::F10), || {
+            active_webview.toggle_webrender_debugging(WebRenderDebugOption::RenderTargetDebug);
+        })
+        .shortcut(Modifiers::CONTROL, servo::Key::Named(NamedKey::F11), || {
+            active_webview.toggle_webrender_debugging(WebRenderDebugOption::TextureCacheDebug);
+        })
+        .shortcut(Modifiers::CONTROL, servo::Key::Named(NamedKey::F12), || {
+            active_webview.toggle_webrender_debugging(WebRenderDebugOption::Profiler);
+        })
         .shortcut(CMD_OR_ALT, servo::Key::Named(NamedKey::ArrowRight), || {
             headed.gui.borrow_mut().request_browser_command(
                 BrowserCommandTarget::FocusedInput,
@@ -299,10 +279,10 @@ pub(super) fn handle_intercepted_key_bindings(
             },
         )
         .shortcut(CMD_OR_ALT, servo::Key::Named(NamedKey::ArrowLeft), || {
-            headed.gui.borrow_mut().request_browser_command(
-                BrowserCommandTarget::FocusedInput,
-                BrowserCommand::Back,
-            );
+            headed
+                .gui
+                .borrow_mut()
+                .request_browser_command(BrowserCommandTarget::FocusedInput, BrowserCommand::Back);
         })
         .optional_shortcut(
             cfg!(not(target_os = "windows")),

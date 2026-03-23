@@ -10,7 +10,9 @@
 //! which is shared with the command/context palette so both surfaces use a single
 //! execution path.
 
-use crate::app::{GraphBrowserApp, SelectionUpdateMode, ViewAction, WorkbenchIntent};
+use crate::app::{
+    GraphBrowserApp, SelectionUpdateMode, SurfaceHostId, UxConfigMode, ViewAction, WorkbenchIntent,
+};
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, category_persisted_name,
@@ -45,6 +47,7 @@ const HOVER_LABEL_OFFSET: f32 = 28.0;
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 const RADIAL_GAMEPAD_INPUTS_KEY: &str = "radial_menu_gamepad_inputs";
 const RADIAL_SELECTED_DOMAIN_KEY: &str = "radial_menu_selected_domain";
+const RADIAL_LAYOUT_HOST_KEY: &str = "radial_menu_layout_surface_host";
 const RAIL_OFFSET_STEP_RAD: f32 = 0.08;
 const RING_COLLISION_EPSILON: f32 = 2.0;
 const HUB_RADIUS_KEY: &str = "radial_hub_radius";
@@ -214,6 +217,94 @@ fn radial_command_selection_state_id(category: ActionCategory) -> egui::Id {
     egui::Id::new("radial_menu_selected_command").with(category_persisted_name(category))
 }
 
+fn radial_layout_surface_host_label(surface_host: &SurfaceHostId) -> &'static str {
+    match surface_host {
+        SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top) => {
+            "Top"
+        }
+        SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Bottom) => {
+            "Bottom"
+        }
+        SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Left) => {
+            "Left"
+        }
+        SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Right) => {
+            "Right"
+        }
+        SurfaceHostId::Role(_) => "Workbench",
+    }
+}
+
+fn cycle_layout_surface_host(
+    visible_hosts: &[SurfaceHostId],
+    selected_host: &Option<SurfaceHostId>,
+    step: isize,
+) -> Option<SurfaceHostId> {
+    if visible_hosts.is_empty() {
+        return None;
+    }
+
+    let current_index = selected_host
+        .as_ref()
+        .and_then(|surface_host| visible_hosts.iter().position(|host| host == surface_host))
+        .unwrap_or(0);
+    let len = visible_hosts.len() as isize;
+    let next_index = (current_index as isize + step).rem_euclid(len) as usize;
+    Some(visible_hosts[next_index].clone())
+}
+
+fn layout_action_requires_explicit_host(entry: Option<&ActionEntry>) -> bool {
+    entry.is_some_and(|entry| {
+        matches!(
+            entry.id,
+            ActionId::WorkbenchUnlockSurfaceLayout
+                | ActionId::WorkbenchLockSurfaceLayout
+                | ActionId::WorkbenchRememberLayoutPreference
+        )
+    })
+}
+
+fn build_radial_action_context(
+    app: &GraphBrowserApp,
+    source_context: Option<NodeKey>,
+    pair_context: Option<(NodeKey, NodeKey)>,
+    any_selected: bool,
+    focused_pane_node: Option<NodeKey>,
+    selected_layout_surface_host: Option<SurfaceHostId>,
+) -> ActionContext {
+    ActionContext {
+        target_node: source_context,
+        pair_context,
+        any_selected,
+        focused_pane_available: focused_pane_node.is_some(),
+        undo_available: app.undo_stack_len() > 0,
+        redo_available: app.redo_stack_len() > 0,
+        input_mode: InputMode::Gamepad,
+        view_id: app
+            .workspace
+            .graph_runtime
+            .focused_view
+            .unwrap_or_else(crate::app::GraphViewId::new),
+        wry_override_allowed: cfg!(feature = "wry")
+            && app.wry_enabled()
+            && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry"),
+        layout_surface_host_available: selected_layout_surface_host.is_some(),
+        layout_surface_target_host: selected_layout_surface_host.clone(),
+        layout_surface_target_ambiguous: app.has_ambiguous_navigator_surface_host_target()
+            && selected_layout_surface_host.is_none(),
+        layout_surface_configuring: matches!(
+            app.workspace.workbench_session.ux_config_mode,
+            UxConfigMode::Configuring { .. }
+        ),
+        layout_surface_has_draft: selected_layout_surface_host.as_ref().is_some_and(
+            |surface_host| {
+                app.workbench_layout_constraint_draft_for_host(surface_host)
+                    .is_some()
+            },
+        ),
+    }
+}
+
 /// Radial domain maps to `ActionCategory` for registry-backed content.
 ///
 /// Kept as an internal UI type for angular layout calculations only.
@@ -341,29 +432,12 @@ pub fn render_radial_command_menu(
     let any_selected = !app.focused_selection().is_empty();
     let mut intents = Vec::new();
     let mut should_close = false;
-
-    let action_context = ActionContext {
-        target_node: source_context,
-        pair_context,
-        any_selected,
-        focused_pane_available: focused_pane_node.is_some(),
-        undo_available: app.undo_stack_len() > 0,
-        redo_available: app.redo_stack_len() > 0,
-        input_mode: InputMode::Gamepad,
-        view_id: app
-            .workspace
-            .graph_runtime
-            .focused_view
-            .unwrap_or_else(crate::app::GraphViewId::new),
-        wry_override_allowed: cfg!(feature = "wry")
-            && app.wry_enabled()
-            && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry"),
-    };
     let theme_tokens = active_theme_tokens(app);
 
     let center_id = egui::Id::new("radial_menu_center");
     let node_context_group_state_id = egui::Id::new("node_context_kbd_group");
     let node_context_command_state_id = egui::Id::new("node_context_kbd_command");
+    let layout_host_state_id = egui::Id::new(RADIAL_LAYOUT_HOST_KEY);
     let pointer = ctx.input(|i| i.pointer.latest_pos());
     let center = ctx
         .data_mut(|d| d.get_persisted::<egui::Pos2>(center_id))
@@ -371,6 +445,30 @@ pub fn render_radial_command_menu(
         .unwrap_or(egui::pos2(320.0, 220.0));
     ctx.data_mut(|d| d.insert_persisted(center_id, center));
     let pending_gamepad_inputs = take_gamepad_inputs(ctx);
+    let visible_layout_surface_hosts = app.visible_navigator_surface_hosts();
+    let configuring_layout_surface_host = match &app.workspace.workbench_session.ux_config_mode {
+        UxConfigMode::Configuring { surface_host } => Some(surface_host.clone()),
+        UxConfigMode::Locked => None,
+    };
+    let mut selected_layout_surface_host =
+        if let Some(surface_host) = configuring_layout_surface_host.clone() {
+            Some(surface_host)
+        } else {
+            ctx.data_mut(|d| d.get_persisted::<String>(layout_host_state_id))
+                .and_then(|raw| raw.parse::<SurfaceHostId>().ok())
+                .filter(|surface_host| visible_layout_surface_hosts.contains(surface_host))
+                .or_else(|| app.targetable_navigator_surface_host())
+                .or_else(|| visible_layout_surface_hosts.first().cloned())
+        };
+
+    let mut action_context = build_radial_action_context(
+        app,
+        source_context,
+        pair_context,
+        any_selected,
+        focused_pane_node,
+        selected_layout_surface_host.clone(),
+    );
 
     if app.pending_node_context_target().is_some() {
         let mut group_idx = ctx
@@ -440,9 +538,10 @@ pub fn render_radial_command_menu(
                         && entry.enabled
                     {
                         record_recent_category(ctx, entry.id.category());
-                        super::command_palette::execute_action(
+                        super::command_palette::execute_action_with_layout_target(
                             app,
                             entry.id,
+                            selected_layout_surface_host.clone(),
                             pair_context,
                             source_context,
                             &mut intents,
@@ -465,9 +564,10 @@ pub fn render_radial_command_menu(
                 && entry.enabled
             {
                 record_recent_category(ctx, entry.id.category());
-                super::command_palette::execute_action(
+                super::command_palette::execute_action_with_layout_target(
                     app,
                     entry.id,
+                    selected_layout_surface_host.clone(),
                     pair_context,
                     source_context,
                     &mut intents,
@@ -489,6 +589,49 @@ pub fn render_radial_command_menu(
             .fixed_pos(center + egui::vec2(12.0, 12.0))
             .default_width(260.0)
             .show(ctx, |ui| {
+                if visible_layout_surface_hosts.len() > 1 {
+                    ui.horizontal(|ui| {
+                        ui.label("Host:");
+                        if ui.small_button("<").clicked() {
+                            selected_layout_surface_host = cycle_layout_surface_host(
+                                &visible_layout_surface_hosts,
+                                &selected_layout_surface_host,
+                                -1,
+                            );
+                            action_context = build_radial_action_context(
+                                app,
+                                source_context,
+                                pair_context,
+                                any_selected,
+                                focused_pane_node,
+                                selected_layout_surface_host.clone(),
+                            );
+                        }
+                        ui.label(
+                            selected_layout_surface_host
+                                .as_ref()
+                                .map(radial_layout_surface_host_label)
+                                .unwrap_or("Select Host"),
+                        );
+                        if ui.small_button(">").clicked() {
+                            selected_layout_surface_host = cycle_layout_surface_host(
+                                &visible_layout_surface_hosts,
+                                &selected_layout_surface_host,
+                                1,
+                            );
+                            action_context = build_radial_action_context(
+                                app,
+                                source_context,
+                                pair_context,
+                                any_selected,
+                                focused_pane_node,
+                                selected_layout_surface_host.clone(),
+                            );
+                        }
+                    });
+                    ui.small("Layout actions apply to the selected Navigator host.");
+                    ui.separator();
+                }
                 ui.horizontal(|ui| {
                     for (idx, group) in NodeContextGroup::ALL.iter().enumerate() {
                         let heading = if idx == group_idx {
@@ -503,9 +646,10 @@ pub fn render_radial_command_menu(
                                     .clicked()
                                 {
                                     record_recent_category(ctx, entry.id.category());
-                                    super::command_palette::execute_action(
+                                    super::command_palette::execute_action_with_layout_target(
                                         app,
                                         entry.id,
+                                        selected_layout_surface_host.clone(),
                                         pair_context,
                                         source_context,
                                         &mut intents,
@@ -543,9 +687,10 @@ pub fn render_radial_command_menu(
                     {
                         command_idx = idx;
                         record_recent_category(ctx, entry.id.category());
-                        super::command_palette::execute_action(
+                        super::command_palette::execute_action_with_layout_target(
                             app,
                             entry.id,
+                            selected_layout_surface_host.clone(),
                             pair_context,
                             source_context,
                             &mut intents,
@@ -678,11 +823,73 @@ pub fn render_radial_command_menu(
         for input in pending_gamepad_inputs.iter().copied() {
             match input {
                 RadialGamepadInput::NavigateLeft => {
-                    selected_domain_idx = (selected_domain_idx + RadialDomain::ALL.len() - 1)
-                        % RadialDomain::ALL.len();
+                    let current_category = ordered_categories[selected_domain_idx];
+                    let current_command_state_id =
+                        radial_command_selection_state_id(current_category);
+                    let current_commands =
+                        list_radial_actions_for_category(&action_context, current_category);
+                    let current_command_idx = ctx
+                        .data_mut(|d| d.get_persisted::<usize>(current_command_state_id))
+                        .unwrap_or(0);
+                    let current_entry = if current_commands.is_empty() {
+                        None
+                    } else {
+                        current_commands.get(current_command_idx % current_commands.len())
+                    };
+                    if visible_layout_surface_hosts.len() > 1
+                        && layout_action_requires_explicit_host(current_entry)
+                    {
+                        selected_layout_surface_host = cycle_layout_surface_host(
+                            &visible_layout_surface_hosts,
+                            &selected_layout_surface_host,
+                            -1,
+                        );
+                        action_context = build_radial_action_context(
+                            app,
+                            source_context,
+                            pair_context,
+                            any_selected,
+                            focused_pane_node,
+                            selected_layout_surface_host.clone(),
+                        );
+                    } else {
+                        selected_domain_idx = (selected_domain_idx + RadialDomain::ALL.len() - 1)
+                            % RadialDomain::ALL.len();
+                    }
                 }
                 RadialGamepadInput::NavigateRight => {
-                    selected_domain_idx = (selected_domain_idx + 1) % RadialDomain::ALL.len();
+                    let current_category = ordered_categories[selected_domain_idx];
+                    let current_command_state_id =
+                        radial_command_selection_state_id(current_category);
+                    let current_commands =
+                        list_radial_actions_for_category(&action_context, current_category);
+                    let current_command_idx = ctx
+                        .data_mut(|d| d.get_persisted::<usize>(current_command_state_id))
+                        .unwrap_or(0);
+                    let current_entry = if current_commands.is_empty() {
+                        None
+                    } else {
+                        current_commands.get(current_command_idx % current_commands.len())
+                    };
+                    if visible_layout_surface_hosts.len() > 1
+                        && layout_action_requires_explicit_host(current_entry)
+                    {
+                        selected_layout_surface_host = cycle_layout_surface_host(
+                            &visible_layout_surface_hosts,
+                            &selected_layout_surface_host,
+                            1,
+                        );
+                        action_context = build_radial_action_context(
+                            app,
+                            source_context,
+                            pair_context,
+                            any_selected,
+                            focused_pane_node,
+                            selected_layout_surface_host.clone(),
+                        );
+                    } else {
+                        selected_domain_idx = (selected_domain_idx + 1) % RadialDomain::ALL.len();
+                    }
                 }
                 RadialGamepadInput::NavigateUp
                 | RadialGamepadInput::NavigateDown
@@ -1056,6 +1263,21 @@ pub fn render_radial_command_menu(
                         egui::FontId::proportional(10.0),
                         theme_tokens.radial_chrome_text,
                     );
+                    if visible_layout_surface_hosts.len() > 1 {
+                        painter.text(
+                            center + egui::vec2(0.0, 68.0),
+                            egui::Align2::CENTER_CENTER,
+                            format!(
+                                "Host: {}",
+                                selected_layout_surface_host
+                                    .as_ref()
+                                    .map(radial_layout_surface_host_label)
+                                    .unwrap_or("Select Host")
+                            ),
+                            egui::FontId::proportional(11.0),
+                            theme_tokens.radial_chrome_text,
+                        );
+                    }
                 }
 
                 semantic_snapshot.summary.fallback_to_palette = fallback_to_command_palette;
@@ -1093,9 +1315,10 @@ pub fn render_radial_command_menu(
         if !fallback_to_command_palette && let Some(entry) = clicked_entry {
             if entry.enabled {
                 record_recent_category(ctx, entry.id.category());
-                super::command_palette::execute_action(
+                super::command_palette::execute_action_with_layout_target(
                     app,
                     entry.id,
+                    selected_layout_surface_host.clone(),
                     pair_context,
                     source_context,
                     &mut intents,
@@ -1105,6 +1328,12 @@ pub fn render_radial_command_menu(
             }
         }
     }
+
+    ctx.data_mut(|d| {
+        if let Some(surface_host) = &selected_layout_surface_host {
+            d.insert_persisted(layout_host_state_id, surface_host.to_string());
+        }
+    });
 
     if should_close {
         app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
@@ -1118,6 +1347,7 @@ pub fn render_radial_command_menu(
             d.remove::<egui::Pos2>(center_id);
             d.remove::<usize>(node_context_group_state_id);
             d.remove::<usize>(node_context_command_state_id);
+            d.remove::<String>(layout_host_state_id);
             d.remove::<usize>(egui::Id::new(RADIAL_SELECTED_DOMAIN_KEY));
             for category in default_category_order() {
                 d.remove::<usize>(radial_command_selection_state_id(category));
@@ -1855,8 +2085,7 @@ mod tests {
         );
         let page_count = ring_page_count(categories.len(), MAX_VISIBLE_ACTIONS_PER_RING);
         assert_eq!(
-            page_count,
-            1,
+            page_count, 1,
             "exactly 1 Tier-1 page expected when category count ≤ max-visible"
         );
     }
@@ -1875,6 +2104,11 @@ mod tests {
             input_mode: InputMode::MouseKeyboard,
             view_id: crate::app::GraphViewId::new(),
             wry_override_allowed: false,
+            layout_surface_host_available: false,
+            layout_surface_target_host: None,
+            layout_surface_target_ambiguous: false,
+            layout_surface_configuring: false,
+            layout_surface_has_draft: false,
         };
         for category in default_category_order() {
             let actions = list_radial_actions_for_category(&ctx, category);
@@ -1884,6 +2118,67 @@ mod tests {
                 category
             );
         }
+    }
+
+    #[test]
+    fn cycle_layout_surface_host_wraps_between_visible_hosts() {
+        let hosts = vec![
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top),
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Bottom),
+        ];
+
+        assert_eq!(
+            cycle_layout_surface_host(&hosts, &None, 1),
+            Some(hosts[1].clone())
+        );
+        assert_eq!(
+            cycle_layout_surface_host(&hosts, &Some(hosts[1].clone()), 1),
+            Some(hosts[0].clone())
+        );
+        assert_eq!(
+            cycle_layout_surface_host(&hosts, &Some(hosts[0].clone()), -1),
+            Some(hosts[1].clone())
+        );
+    }
+
+    #[test]
+    fn build_radial_action_context_uses_selected_host_for_layout_draft_state() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let top =
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top);
+        let bottom =
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Bottom);
+        app.set_workbench_layout_constraint(
+            top.clone(),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                top.clone(),
+                crate::app::workbench_layout_policy::AnchorEdge::Top,
+                0.15,
+            ),
+        );
+        app.set_workbench_layout_constraint(
+            bottom.clone(),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                bottom.clone(),
+                crate::app::workbench_layout_policy::AnchorEdge::Bottom,
+                0.15,
+            ),
+        );
+        app.set_workbench_layout_constraint_draft(
+            bottom.clone(),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                bottom.clone(),
+                crate::app::workbench_layout_policy::AnchorEdge::Bottom,
+                0.21,
+            ),
+        );
+
+        let top_context = build_radial_action_context(&app, None, None, false, None, Some(top));
+        assert!(!top_context.layout_surface_has_draft);
+
+        let bottom_context =
+            build_radial_action_context(&app, None, None, false, None, Some(bottom));
+        assert!(bottom_context.layout_surface_has_draft);
     }
 
     /// §6 scenario 3: >8 categories/options trigger deterministic paging.
@@ -1973,8 +2268,7 @@ mod tests {
             COMMAND_RING_RADIUS,
         );
         assert_eq!(
-            two_entry_metrics.post_collisions,
-            0,
+            two_entry_metrics.post_collisions, 0,
             "label collision resolver must converge to 0 overlaps for 2-entry ring \
              (anchors are 180° apart — no tangential crowding) (spec §4.1, §6 scenario 5)"
         );

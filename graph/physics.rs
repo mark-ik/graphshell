@@ -224,7 +224,6 @@ fn semantic_pair_similarity(a: &SemanticClassVector, b: &SemanticClassVector) ->
 #[cfg(test)]
 pub(crate) mod scenario_helpers {
     use crate::model::graph::egui_adapter::EguiGraph;
-    use egui::Vec2;
 
     /// Default canvas rect used by headless scenario tests.
     pub(crate) fn test_canvas() -> egui::Rect {

@@ -421,15 +421,9 @@ pub(super) fn visible_nodes_for_view_filters(
                 .filter(|k| tombs.contains(k))
                 .collect(),
         ),
-        (Some(facet), Some(search), None) => {
-            Some(facet.intersection(&search).copied().collect())
-        }
-        (Some(facet), None, Some(tombs)) => {
-            Some(facet.intersection(&tombs).copied().collect())
-        }
-        (None, Some(search), Some(tombs)) => {
-            Some(search.intersection(&tombs).copied().collect())
-        }
+        (Some(facet), Some(search), None) => Some(facet.intersection(&search).copied().collect()),
+        (Some(facet), None, Some(tombs)) => Some(facet.intersection(&tombs).copied().collect()),
+        (None, Some(search), Some(tombs)) => Some(search.intersection(&tombs).copied().collect()),
         (Some(facet), None, None) => Some(facet),
         (None, Some(search), None) => Some(search),
         (None, None, Some(tombs)) => Some(tombs),

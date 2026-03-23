@@ -1,5 +1,4 @@
 mod black_tile;
-mod pre_wgpu_critical_path;
 mod diagnostics_startup;
 mod graph_parity;
 mod grouping;
@@ -7,6 +6,7 @@ mod input_routing;
 mod layout;
 mod navigation;
 mod persistence;
+mod pre_wgpu_critical_path;
 mod registries;
 mod routing;
 mod tags;

@@ -6,8 +6,7 @@ use euclid::default::Point2D;
 use uuid::Uuid;
 
 use super::{
-    AddressKind, EdgeAssertion, EdgeKey, EdgeType, Graph, NodeKey, RelationSelector,
-    Traversal,
+    AddressKind, EdgeAssertion, EdgeKey, EdgeType, Graph, NodeKey, RelationSelector, Traversal,
 };
 
 #[derive(Debug, Clone)]

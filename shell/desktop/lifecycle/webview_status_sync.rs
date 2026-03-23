@@ -19,7 +19,8 @@ pub(crate) fn focused_content_status(
     graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
 ) -> FocusedContentStatus {
-    let renderer_id = focused_node_key.and_then(|node_key| graph_app.get_webview_for_node(node_key));
+    let renderer_id =
+        focused_node_key.and_then(|node_key| graph_app.get_webview_for_node(node_key));
     let Some(renderer_id) = renderer_id else {
         return FocusedContentStatus::unavailable(focused_node_key, None);
     };
@@ -175,9 +176,15 @@ mod tests {
         assert_eq!(status.renderer_id, Some(webview_id));
         assert_eq!(status.load_status, LoadStatus::Complete);
         assert_eq!(status.content_zoom_level, None);
-        assert_eq!(status.find_in_page, FocusedContentFeatureSupport::Unsupported);
+        assert_eq!(
+            status.find_in_page,
+            FocusedContentFeatureSupport::Unsupported
+        );
         assert_eq!(status.media_state, FocusedContentMediaState::Unsupported);
-        assert_eq!(status.download_state, FocusedContentDownloadState::Unsupported);
+        assert_eq!(
+            status.download_state,
+            FocusedContentDownloadState::Unsupported
+        );
         assert!(status.live_content_active());
     }
 

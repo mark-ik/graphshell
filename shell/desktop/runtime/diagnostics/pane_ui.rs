@@ -690,23 +690,26 @@ impl DiagnosticsState {
                                     {
                                         ui.small(format!("remediation: {remediation}"));
                                     }
-                                    egui::Grid::new(format!("diag_lane_drilldown_{}", lane.lane_id))
-                                        .num_columns(2)
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            ui.strong("Channel");
-                                            ui.strong("Count");
-                                            ui.end_row();
-                                            for (channel_id, count) in lane.channel_counts {
-                                                ui.monospace(channel_id);
-                                                if count > 0 {
-                                                    ui.colored_label(color, count.to_string());
-                                                } else {
-                                                    ui.monospace("0");
-                                                }
-                                                ui.end_row();
+                                    egui::Grid::new(format!(
+                                        "diag_lane_drilldown_{}",
+                                        lane.lane_id
+                                    ))
+                                    .num_columns(2)
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.strong("Channel");
+                                        ui.strong("Count");
+                                        ui.end_row();
+                                        for (channel_id, count) in lane.channel_counts {
+                                            ui.monospace(channel_id);
+                                            if count > 0 {
+                                                ui.colored_label(color, count.to_string());
+                                            } else {
+                                                ui.monospace("0");
                                             }
-                                        });
+                                            ui.end_row();
+                                        }
+                                    });
                                 });
                             ui.add_space(6.0);
                         }
@@ -731,12 +734,12 @@ impl DiagnosticsState {
                                     ui.end_row();
 
                                     for trend in channel_trends {
-                                        let pin_label = if self.pinned_channels.contains(trend.channel_id)
-                                        {
-                                            "Unpin"
-                                        } else {
-                                            "Pin"
-                                        };
+                                        let pin_label =
+                                            if self.pinned_channels.contains(trend.channel_id) {
+                                                "Unpin"
+                                            } else {
+                                                "Pin"
+                                            };
                                         if ui.small_button(pin_label).clicked() {
                                             if !self.pinned_channels.insert(trend.channel_id) {
                                                 self.pinned_channels.remove(trend.channel_id);
@@ -769,7 +772,9 @@ impl DiagnosticsState {
                                             trend
                                                 .recent_samples_us
                                                 .iter()
-                                                .map(|sample| format!("{:.1}", *sample as f64 / 1000.0))
+                                                .map(|sample| {
+                                                    format!("{:.1}", *sample as f64 / 1000.0)
+                                                })
                                                 .collect::<Vec<_>>()
                                                 .join(", ")
                                         };
@@ -809,7 +814,9 @@ impl DiagnosticsState {
                                             history
                                                 .latency_buckets_us
                                                 .iter()
-                                                .map(|sample| format!("{:.1}", *sample as f64 / 1000.0))
+                                                .map(|sample| {
+                                                    format!("{:.1}", *sample as f64 / 1000.0)
+                                                })
                                                 .collect::<Vec<_>>()
                                                 .join(", "),
                                         );
@@ -826,7 +833,9 @@ impl DiagnosticsState {
                             let receipts = self.recent_channel_receipts(channel_id, 12);
                             ui.small(format!("Recent receipts for {channel_id}"));
                             if receipts.is_empty() {
-                                ui.small("No matching send/receive events in the current event ring.");
+                                ui.small(
+                                    "No matching send/receive events in the current event ring.",
+                                );
                             } else {
                                 egui::Grid::new("diag_channel_receipts")
                                     .num_columns(3)
@@ -846,7 +855,9 @@ impl DiagnosticsState {
                                     });
                             }
                         } else {
-                            ui.small("Select a channel in Channel Trends to inspect recent receipts.");
+                            ui.small(
+                                "Select a channel in Channel Trends to inspect recent receipts.",
+                            );
                         }
                     });
 
@@ -878,12 +889,11 @@ impl DiagnosticsState {
                                             for entry in signal_trace.iter().rev() {
                                                 let (kind_label, topic_label) =
                                                     signal_trace_labels(&entry.kind);
-                                                let failure_color =
-                                                    if entry.observer_failures > 0 {
-                                                        egui::Color32::from_rgb(255, 120, 120)
-                                                    } else {
-                                                        ui.visuals().text_color()
-                                                    };
+                                                let failure_color = if entry.observer_failures > 0 {
+                                                    egui::Color32::from_rgb(255, 120, 120)
+                                                } else {
+                                                    ui.visuals().text_color()
+                                                };
                                                 let unrouted_color =
                                                     if entry.observers_notified == 0 {
                                                         egui::Color32::from_rgb(200, 160, 60)

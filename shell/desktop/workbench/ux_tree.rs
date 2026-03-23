@@ -7,12 +7,17 @@ use std::sync::{Mutex, OnceLock};
 
 use egui_tiles::{Container, Tile, TileId, Tree};
 
-use crate::app::{GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode};
+use crate::app::workbench_layout_policy::AnchorEdge;
+use crate::app::{
+    GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode, SurfaceHostId,
+    WorkbenchLayoutConstraint,
+};
 use crate::graph::{EdgeFamily, NodeKey, RelationSelector};
 use crate::render::radial_menu::latest_semantic_snapshot;
 
 use super::pane_model::TileRenderMode;
 use super::tile_kind::TileKind;
+use crate::shell::desktop::workbench::pane_model::PanePresentationMode;
 
 pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 2;
 pub(crate) const UX_TREE_PRESENTATION_SCHEMA_VERSION: u32 = 1;
@@ -105,6 +110,10 @@ pub(crate) enum UxDomainIdentity {
         selection_count: usize,
     },
     NavigatorProjection {
+        host: SurfaceHostId,
+        anchor_edge: AnchorEdge,
+        form_factor: String,
+        scope: String,
         containment_relation_source: String,
         sort_mode: String,
         root_filter: Option<String>,
@@ -246,6 +255,20 @@ fn snapshot_cache() -> &'static Mutex<Option<UxTreeSnapshot>> {
     LATEST_UX_TREE_SNAPSHOT.get_or_init(|| Mutex::new(None))
 }
 
+fn presentation_style_flags_for_mode(
+    base_flags: &[&'static str],
+    presentation_mode: PanePresentationMode,
+) -> Vec<&'static str> {
+    let mut flags = base_flags.to_vec();
+    flags.push(match presentation_mode {
+        PanePresentationMode::Tiled => "presentation:tiled",
+        PanePresentationMode::Docked => "presentation:docked",
+        PanePresentationMode::Floating => "presentation:floating",
+        PanePresentationMode::Fullscreen => "presentation:fullscreen",
+    });
+    flags
+}
+
 pub(crate) fn publish_snapshot(snapshot: &UxTreeSnapshot) {
     if let Ok(mut slot) = snapshot_cache().lock() {
         *slot = Some(snapshot.clone());
@@ -350,6 +373,64 @@ fn append_workbench_semantics_nodes(
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
 ) {
+    fn navigator_hosts_for_snapshot(graph_app: &GraphBrowserApp) -> Vec<SurfaceHostId> {
+        let mut hosts = graph_app
+            .workspace
+            .workbench_session
+            .active_layout_constraints
+            .keys()
+            .filter(|host| matches!(host, SurfaceHostId::Navigator(_)))
+            .cloned()
+            .collect::<Vec<_>>();
+        if hosts.is_empty() {
+            hosts.push(SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Right,
+            ));
+        }
+        hosts.sort_by_key(|host| match host {
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top) => {
+                0
+            }
+            SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+            ) => 1,
+            SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Left,
+            ) => 2,
+            SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Right,
+            ) => 3,
+            SurfaceHostId::Role(_) => 4,
+        });
+        hosts.dedup();
+        hosts
+    }
+
+    fn default_anchor_edge_for_host(surface_host: &SurfaceHostId) -> AnchorEdge {
+        match surface_host {
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top) => {
+                AnchorEdge::Top
+            }
+            SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+            ) => AnchorEdge::Bottom,
+            SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Left,
+            ) => AnchorEdge::Left,
+            SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Right,
+            )
+            | SurfaceHostId::Role(_) => AnchorEdge::Right,
+        }
+    }
+
+    fn default_form_factor_for_edge(anchor_edge: AnchorEdge) -> String {
+        match anchor_edge {
+            AnchorEdge::Top | AnchorEdge::Bottom => "toolbar".to_string(),
+            AnchorEdge::Left | AnchorEdge::Right => "sidebar".to_string(),
+        }
+    }
+
     fn recent_traversal_node_timestamps(graph_app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
         let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
         for edge in graph_app.domain_graph().edges() {
@@ -449,50 +530,74 @@ fn append_workbench_semantics_nodes(
             !arranged_nodes.contains(node_key) && !recent_timestamps.contains_key(node_key)
         })
         .count();
-    let navigator_projection_node_id = "uxnode://workbench/navigator/projection".to_string();
-    semantic_nodes.push(UxSemanticNode {
-        ux_node_id: navigator_projection_node_id.clone(),
-        parent_ux_node_id: Some(UX_TREE_WORKBENCH_ROOT_ID.to_string()),
-        role: UxNodeRole::NavigatorProjection,
-        label: "Navigator Projection".to_string(),
-        state: UxNodeState {
-            focused: false,
-            selected: !navigator_projection.selected_rows.is_empty(),
-            blocked: navigator_projection.row_targets.is_empty(),
-            degraded: false,
-        },
-        allowed_actions: vec![UxAction::Navigate],
-        domain: UxDomainIdentity::NavigatorProjection {
-            containment_relation_source: format!(
-                "{:?}",
-                navigator_projection.containment_relation_source
-            ),
-            sort_mode: format!("{:?}", navigator_projection.sort_mode),
-            root_filter: navigator_projection.root_filter.clone(),
-            row_count: navigator_projection.row_targets.len(),
-            selected_count: navigator_projection.selected_rows.len(),
-            expanded_count: navigator_projection.expanded_rows.len(),
-            collapsed_count: navigator_projection.collapsed_rows.len(),
-            workbench_group_count,
-            workbench_member_count,
-            unrelated_count,
-            recent_count,
-        },
-    });
-    presentation_nodes.push(UxPresentationNode {
-        ux_node_id: navigator_projection_node_id.clone(),
-        bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
-        z_pass: "workbench.navigator.projection",
-        style_flags: vec!["surface:navigator"],
-        transient_flags: Vec::new(),
-    });
-    trace_nodes.push(UxTraceNode {
-        ux_node_id: navigator_projection_node_id,
-        event_route: "workbench.navigator_route",
-        backend_path: "egui",
-        diagnostics_counter: navigator_projection.row_targets.len() as u64,
-    });
+    for navigator_host in navigator_hosts_for_snapshot(graph_app) {
+        let (anchor_edge, form_factor) = match graph_app
+            .workspace
+            .workbench_session
+            .active_layout_constraints
+            .get(&navigator_host)
+        {
+            Some(WorkbenchLayoutConstraint::AnchoredSplit { anchor_edge, .. }) => {
+                (*anchor_edge, default_form_factor_for_edge(*anchor_edge))
+            }
+            _ => {
+                let anchor_edge = default_anchor_edge_for_host(&navigator_host);
+                (anchor_edge, default_form_factor_for_edge(anchor_edge))
+            }
+        };
+        let configured_scope = graph_app.navigator_host_scope(&navigator_host);
+        let navigator_projection_node_id = format!(
+            "uxnode://workbench/navigator/projection/{}",
+            navigator_host.to_string().replace(':', "/")
+        );
+        semantic_nodes.push(UxSemanticNode {
+            ux_node_id: navigator_projection_node_id.clone(),
+            parent_ux_node_id: Some(UX_TREE_WORKBENCH_ROOT_ID.to_string()),
+            role: UxNodeRole::NavigatorProjection,
+            label: format!("Navigator Projection {}", navigator_host),
+            state: UxNodeState {
+                focused: false,
+                selected: !navigator_projection.selected_rows.is_empty(),
+                blocked: navigator_projection.row_targets.is_empty(),
+                degraded: false,
+            },
+            allowed_actions: vec![UxAction::Navigate],
+            domain: UxDomainIdentity::NavigatorProjection {
+                host: navigator_host.clone(),
+                anchor_edge,
+                form_factor,
+                scope: configured_scope.as_str().to_string(),
+                containment_relation_source: format!(
+                    "{:?}",
+                    navigator_projection.containment_relation_source
+                ),
+                sort_mode: format!("{:?}", navigator_projection.sort_mode),
+                root_filter: navigator_projection.root_filter.clone(),
+                row_count: navigator_projection.row_targets.len(),
+                selected_count: navigator_projection.selected_rows.len(),
+                expanded_count: navigator_projection.expanded_rows.len(),
+                collapsed_count: navigator_projection.collapsed_rows.len(),
+                workbench_group_count,
+                workbench_member_count,
+                unrelated_count,
+                recent_count,
+            },
+        });
+        presentation_nodes.push(UxPresentationNode {
+            ux_node_id: navigator_projection_node_id.clone(),
+            bounds: None,
+            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            z_pass: "workbench.navigator.projection",
+            style_flags: vec!["surface:navigator"],
+            transient_flags: Vec::new(),
+        });
+        trace_nodes.push(UxTraceNode {
+            ux_node_id: navigator_projection_node_id,
+            event_route: "workbench.navigator_route",
+            backend_path: "egui",
+            diagnostics_counter: navigator_projection.row_targets.len() as u64,
+        });
+    }
 
     let route_node_id = "uxnode://workbench/route-open/boundary".to_string();
     let pending_open_node = graph_app.pending_open_node_request().map(|pending| {
@@ -911,7 +1016,10 @@ fn push_nodes(
                 bounds,
                 render_mode: Some(state.render_mode),
                 z_pass: "workbench.content",
-                style_flags: vec!["surface:node", "presentation:floating"],
+                style_flags: presentation_style_flags_for_mode(
+                    &["surface:node"],
+                    state.presentation_mode,
+                ),
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
@@ -969,7 +1077,10 @@ fn push_nodes(
                 bounds: None,
                 render_mode: Some(TileRenderMode::EmbeddedEgui),
                 z_pass: "workbench.content",
-                style_flags: vec!["surface:graph", "backend:egui_graphs"],
+                style_flags: presentation_style_flags_for_mode(
+                    &["surface:graph", "backend:egui_graphs"],
+                    view_ref.presentation_mode,
+                ),
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
@@ -1058,7 +1169,10 @@ fn push_nodes(
                 bounds,
                 render_mode: Some(state.render_mode),
                 z_pass: "workbench.content",
-                style_flags: vec!["surface:node"],
+                style_flags: presentation_style_flags_for_mode(
+                    &["surface:node"],
+                    state.presentation_mode,
+                ),
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
@@ -1095,7 +1209,10 @@ fn push_nodes(
                 bounds: None,
                 render_mode: Some(TileRenderMode::EmbeddedEgui),
                 z_pass: "workbench.tool",
-                style_flags: vec!["surface:tool"],
+                style_flags: presentation_style_flags_for_mode(
+                    &["surface:tool"],
+                    tool.presentation_mode,
+                ),
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
@@ -1749,11 +1866,19 @@ mod tests {
                     && matches!(
                         &entry.domain,
                         UxDomainIdentity::NavigatorProjection {
+                            host,
+                            anchor_edge,
+                            form_factor,
+                            scope,
                             containment_relation_source,
                             selected_count,
                             row_count,
                             ..
-                        } if containment_relation_source == "SavedViewCollections"
+                        } if *host == SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Right)
+                            && *anchor_edge == AnchorEdge::Right
+                            && form_factor == "sidebar"
+                            && scope == "workbench"
+                            && containment_relation_source == "SavedViewCollections"
                             && *selected_count == 1
                             && *row_count >= 1
                     )
@@ -1782,5 +1907,56 @@ mod tests {
             }),
             "snapshot should include route/open boundary pending intent metadata"
         );
+    }
+
+    #[test]
+    fn snapshot_projects_multiple_navigator_hosts_from_profile_constraints() {
+        let mut harness = TestRegistry::new();
+        let view_id = GraphViewId::default();
+        harness.app.ensure_graph_view_registered(view_id);
+        harness.app.set_workbench_layout_constraint(
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top),
+            WorkbenchLayoutConstraint::AnchoredSplit {
+                surface_host: SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Top,
+                ),
+                anchor_edge: AnchorEdge::Top,
+                anchor_size_fraction: 0.15,
+                cross_axis_margin_start_px: 12.0,
+                cross_axis_margin_end_px: 18.0,
+                resizable: true,
+            },
+        );
+        harness.app.set_workbench_layout_constraint(
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Bottom),
+            WorkbenchLayoutConstraint::AnchoredSplit {
+                surface_host: SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+                ),
+                anchor_edge: AnchorEdge::Bottom,
+                anchor_size_fraction: 0.14,
+                cross_axis_margin_start_px: 0.0,
+                cross_axis_margin_end_px: 0.0,
+                resizable: false,
+            },
+        );
+
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 11);
+
+        let projected_hosts = snapshot
+            .semantic_nodes
+            .iter()
+            .filter_map(|entry| match &entry.domain {
+                UxDomainIdentity::NavigatorProjection { host, .. } => Some(host.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(projected_hosts.contains(&SurfaceHostId::Navigator(
+            crate::app::workbench_layout_policy::NavigatorHostId::Top,
+        )));
+        assert!(projected_hosts.contains(&SurfaceHostId::Navigator(
+            crate::app::workbench_layout_policy::NavigatorHostId::Bottom,
+        )));
     }
 }

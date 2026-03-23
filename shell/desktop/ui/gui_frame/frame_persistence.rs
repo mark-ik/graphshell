@@ -187,6 +187,7 @@ fn restore_named_frame_snapshot(
 ) {
     debug!("gui_frame: attempting to restore frame snapshot '{}'", name);
     match persistence_ops::load_named_frame_bundle(graph_app, name).and_then(|bundle| {
+        persistence_ops::apply_workbench_profile_from_bundle(graph_app, &bundle);
         persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
     }) {
         Ok((mut restored_tree, restored_nodes)) => {
@@ -288,6 +289,7 @@ fn add_nodes_to_named_frame_snapshot(
 
     let mut workspace_tree = match persistence_ops::load_named_frame_bundle(graph_app, name) {
         Ok(bundle) => {
+            persistence_ops::apply_workbench_profile_from_bundle(graph_app, &bundle);
             match persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle) {
                 Ok((tree, _)) => tree,
                 Err(e) => {

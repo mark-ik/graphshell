@@ -137,15 +137,10 @@ pub(super) fn handle_dismiss_tile_intent(
 ) {
     // Resolve the node key before closing the pane so we can still find the
     // tile in the tree.
-    let node_key = tiles_tree
-        .tiles
-        .iter()
-        .find_map(|(_, tile)| match tile {
-            Tile::Pane(kind) if kind.pane_id() == pane => {
-                kind.node_state().map(|s| s.node)
-            }
-            _ => None,
-        });
+    let node_key = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+        Tile::Pane(kind) if kind.pane_id() == pane => kind.node_state().map(|s| s.node),
+        _ => None,
+    });
 
     let closed = tile_view_ops::close_pane(tiles_tree, pane);
 
@@ -183,12 +178,10 @@ pub(super) fn handle_open_node_in_pane_intent(
     }
 
     // 2. Durable graphlet peer has a warm tile — route into its tab container.
-    if let Some(container_id) =
-        tile_view_ops::warm_peer_tab_container(graph_app, tiles_tree, node)
+    if let Some(container_id) = tile_view_ops::warm_peer_tab_container(graph_app, tiles_tree, node)
     {
         let node_pane_tile_id = tiles_tree.tiles.insert_pane(TileKind::Node(node.into()));
-        if let Some(Tile::Container(Container::Tabs(tabs))) =
-            tiles_tree.tiles.get_mut(container_id)
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(container_id)
         {
             tabs.add_child(node_pane_tile_id);
             tabs.set_active(node_pane_tile_id);
@@ -198,8 +191,7 @@ pub(super) fn handle_open_node_in_pane_intent(
     }
 
     // 3. Explicit pane target is inside a tab container — grow the graphlet.
-    if let Some((container_id, anchor_node)) = tab_container_and_anchor_for_pane(tiles_tree, pane)
-    {
+    if let Some((container_id, anchor_node)) = tab_container_and_anchor_for_pane(tiles_tree, pane) {
         if graph_app.domain_graph().get_node(node).is_some() {
             graph_app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdge {
                 from: node,
@@ -208,8 +200,7 @@ pub(super) fn handle_open_node_in_pane_intent(
             }]);
         }
         let node_pane_tile_id = tiles_tree.tiles.insert_pane(TileKind::Node(node.into()));
-        if let Some(Tile::Container(Container::Tabs(tabs))) =
-            tiles_tree.tiles.get_mut(container_id)
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(container_id)
         {
             tabs.add_child(node_pane_tile_id);
             tabs.set_active(node_pane_tile_id);
@@ -229,10 +220,13 @@ fn tab_container_and_anchor_for_pane(
     tiles_tree: &Tree<TileKind>,
     pane: PaneId,
 ) -> Option<(TileId, NodeKey)> {
-    let pane_tile_id = tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
-        Tile::Pane(kind) if kind.pane_id() == pane => Some(*tile_id),
-        _ => None,
-    })?;
+    let pane_tile_id = tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(tile_id, tile)| match tile {
+            Tile::Pane(kind) if kind.pane_id() == pane => Some(*tile_id),
+            _ => None,
+        })?;
 
     let container_id = tiles_tree.tiles.parent_of(pane_tile_id)?;
     if !matches!(
@@ -412,9 +406,9 @@ pub(super) fn handle_reconcile_graphlet_tiles_intent(
         .or_else(|| {
             let first_tile_id = tiles_tree.tiles.iter().find_map(|(tid, tile)| match tile {
                 Tile::Pane(kind)
-                    if warm.iter().any(|(n, _)| {
-                        kind.node_state().is_some_and(|s| s.node == *n)
-                    }) =>
+                    if warm
+                        .iter()
+                        .any(|(n, _)| kind.node_state().is_some_and(|s| s.node == *n)) =>
                 {
                     Some(*tid)
                 }

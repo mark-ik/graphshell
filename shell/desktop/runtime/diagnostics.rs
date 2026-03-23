@@ -734,9 +734,7 @@ fn analyze_persistence_health(
     if recover_succeeded > 0 {
         return AnalyzerResult {
             signal: AnalyzerSignal::Active,
-            summary: format!(
-                "persistence healthy (recover_succeeded={recover_succeeded})"
-            ),
+            summary: format!("persistence healthy (recover_succeeded={recover_succeeded})"),
         };
     }
 
@@ -1511,30 +1509,30 @@ impl DiagnosticsState {
 
     fn remediation_hint_for_analyzer(analyzer_id: &str) -> Option<&'static str> {
         match analyzer_id {
-            "lane.render_mode.health" => {
-                Some("Inspect Compositor and viewer fallback surfaces; verify render-mode receipts and placeholder/fallback reasons.")
-            }
-            "lane.signal_routing.health" => {
-                Some("Inspect routed signal producers/consumers and queue-depth receipts; unresolved failures usually point to missing consumer adoption.")
-            }
-            "lane.navigator_projection.health" => {
-                Some("Check Navigator projection refresh, arrangement-family mapping, and UX navigation violation receipts.")
-            }
-            "storage.persistence.health" => {
-                Some("Inspect persistence startup/open/recover receipts and storage health summaries; failures usually need store/open recovery follow-up.")
-            }
-            "security.identity.health" => {
-                Some("Inspect trust-store, sign/verify, and access-denied receipts; mismatches usually indicate grant or identity authority drift.")
-            }
-            "diagnostics.registry.health" => {
-                Some("Inspect orphan channels and startup self-check output; register missing channels or align owners/contracts.")
-            }
-            "tracing.hotpath.latency" => {
-                Some("Inspect hot channels and recent tracing samples; elevated p95 often indicates a blocked edge between ingress and compositor.")
-            }
-            "diagnostics.event_ring_pressure" => {
-                Some("Reduce noisy channel volume or increase sampling/retention controls before the event ring saturates.")
-            }
+            "lane.render_mode.health" => Some(
+                "Inspect Compositor and viewer fallback surfaces; verify render-mode receipts and placeholder/fallback reasons.",
+            ),
+            "lane.signal_routing.health" => Some(
+                "Inspect routed signal producers/consumers and queue-depth receipts; unresolved failures usually point to missing consumer adoption.",
+            ),
+            "lane.navigator_projection.health" => Some(
+                "Check Navigator projection refresh, arrangement-family mapping, and UX navigation violation receipts.",
+            ),
+            "storage.persistence.health" => Some(
+                "Inspect persistence startup/open/recover receipts and storage health summaries; failures usually need store/open recovery follow-up.",
+            ),
+            "security.identity.health" => Some(
+                "Inspect trust-store, sign/verify, and access-denied receipts; mismatches usually indicate grant or identity authority drift.",
+            ),
+            "diagnostics.registry.health" => Some(
+                "Inspect orphan channels and startup self-check output; register missing channels or align owners/contracts.",
+            ),
+            "tracing.hotpath.latency" => Some(
+                "Inspect hot channels and recent tracing samples; elevated p95 often indicates a blocked edge between ingress and compositor.",
+            ),
+            "diagnostics.event_ring_pressure" => Some(
+                "Reduce noisy channel volume or increase sampling/retention controls before the event ring saturates.",
+            ),
             _ => None,
         }
     }
@@ -1544,7 +1542,9 @@ impl DiagnosticsState {
         if query.is_empty() {
             return true;
         }
-        haystack.to_ascii_lowercase().contains(&query.to_ascii_lowercase())
+        haystack
+            .to_ascii_lowercase()
+            .contains(&query.to_ascii_lowercase())
     }
 
     fn analysis_snapshot_value(&self) -> Value {
@@ -3358,8 +3358,10 @@ mod tests {
             routing
                 .channel_counts
                 .iter()
-                .any(|(channel, count)| *channel == CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED
-                    && *count == 2)
+                .any(
+                    |(channel, count)| *channel == CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED
+                        && *count == 2
+                )
         );
 
         let navigator = summaries
@@ -3462,10 +3464,10 @@ mod tests {
             .diagnostic_graph
             .message_counts
             .insert("analysis.channel", 2);
-        state.diagnostic_graph.message_latency_recent_us.insert(
-            "analysis.channel",
-            VecDeque::from(vec![1_000_u64, 4_000]),
-        );
+        state
+            .diagnostic_graph
+            .message_latency_recent_us
+            .insert("analysis.channel", VecDeque::from(vec![1_000_u64, 4_000]));
         state
             .diagnostic_graph
             .message_latency_samples

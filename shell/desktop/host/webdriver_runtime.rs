@@ -191,7 +191,8 @@ impl WebDriverRuntime {
                             NewWindowTypeHint::Window | NewWindowTypeHint::Auto,
                             Some(create_platform_window),
                         ) => {
-                            let window = state.open_window(create_platform_window(url.clone()), url);
+                            let window =
+                                state.open_window(create_platform_window(url.clone()), url);
                             window
                                 .explicit_input_webview_id()
                                 .and_then(|id| window.webview_by_id(id))
@@ -213,7 +214,9 @@ impl WebDriverRuntime {
                     }
                 }
                 WebDriverCommandMsg::CloseWebView(webview_id, response_sender) => {
-                    state.window_for_webview_id(webview_id).close_webview(webview_id);
+                    state
+                        .window_for_webview_id(webview_id)
+                        .close_webview(webview_id);
                     if let Err(error) = response_sender.send(()) {
                         warn!("Failed to send response of CloseWebView: {error}");
                     }
@@ -312,8 +315,9 @@ impl WebDriverRuntime {
                     state.servo().execute_webdriver_command(msg);
                 }
                 WebDriverCommandMsg::CurrentUserPrompt(webview_id, response_sender) => {
-                    let current_dialog =
-                        self.embedder_controls.current_active_dialog_webdriver_type(webview_id);
+                    let current_dialog = self
+                        .embedder_controls
+                        .current_active_dialog_webdriver_type(webview_id);
                     if let Err(error) = response_sender.send(current_dialog) {
                         warn!("Failed to send response of CurrentUserPrompt: {error}");
                     }
@@ -381,9 +385,7 @@ impl WebDriverRuntime {
         &self,
         sender: Option<GenericSender<WebDriverJSResult>>,
     ) {
-        self.senders
-            .borrow_mut()
-            .script_evaluation_interrupt_sender = sender;
+        self.senders.borrow_mut().script_evaluation_interrupt_sender = sender;
     }
 
     fn handle_input_event(
@@ -401,7 +403,9 @@ impl WebDriverRuntime {
                     .insert(event_id, response_sender);
             }
         } else {
-            log::error!("Could not find WebView ({webview_id:?}) for WebDriver event: {input_event:?}");
+            log::error!(
+                "Could not find WebView ({webview_id:?}) for WebDriver event: {input_event:?}"
+            );
         }
     }
 
@@ -491,11 +495,19 @@ impl WebDriverRuntime {
         &self,
         webview_id: WebViewId,
     ) -> Option<GenericSender<WebDriverLoadStatus>> {
-        self.senders.borrow_mut().load_status_senders.remove(&webview_id)
+        self.senders
+            .borrow_mut()
+            .load_status_senders
+            .remove(&webview_id)
     }
 
     pub(crate) fn block_load_status_if_any(&self, webview_id: WebViewId) {
-        if let Some(sender) = self.senders.borrow_mut().load_status_senders.get(&webview_id) {
+        if let Some(sender) = self
+            .senders
+            .borrow_mut()
+            .load_status_senders
+            .get(&webview_id)
+        {
             let _ = sender.send(WebDriverLoadStatus::Blocked);
         }
     }

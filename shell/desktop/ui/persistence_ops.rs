@@ -13,7 +13,7 @@ use servo::{OffscreenRenderingContext, WebViewId};
 use uuid::Uuid;
 
 use crate::app::GraphViewId;
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchProfile};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
@@ -87,6 +87,8 @@ pub(crate) struct PersistedFrame {
     pub layout: FrameLayout,
     pub manifest: FrameManifest,
     pub metadata: FrameMetadata,
+    #[serde(default)]
+    pub workbench_profile: WorkbenchProfile,
 }
 
 pub(crate) type WorkspaceLayout = FrameLayout;
@@ -263,6 +265,7 @@ fn runtime_tree_to_bundle(
         layout: FrameLayout { tree: layout_tree },
         manifest,
         metadata,
+        workbench_profile: graph_app.workbench_profile().clone(),
     })
 }
 
@@ -311,6 +314,13 @@ pub(crate) fn load_named_frame_bundle(
         }
     }
     Ok(bundle)
+}
+
+pub(crate) fn apply_workbench_profile_from_bundle(
+    graph_app: &mut GraphBrowserApp,
+    bundle: &PersistedWorkspace,
+) {
+    graph_app.set_workbench_profile(bundle.workbench_profile.clone());
 }
 
 pub(crate) fn restore_runtime_tree_from_frame_bundle(
@@ -791,7 +801,7 @@ pub(crate) fn parse_data_dir_input(raw: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::desktop::ui::workbench_sidebar::WorkbenchChromeProjection;
+    use crate::shell::desktop::ui::workbench_host::WorkbenchChromeProjection;
     use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneState};
     use crate::util::VersoAddress;
     use egui_tiles::{Tiles, Tree};
@@ -925,6 +935,7 @@ mod tests {
         assert!(root.contains_key("layout"));
         assert!(root.contains_key("manifest"));
         assert!(root.contains_key("metadata"));
+        assert!(root.contains_key("workbench_profile"));
 
         assert!(!root.contains_key("diagnostic_graph"));
         assert!(!root.contains_key("compositor_state"));
@@ -985,9 +996,64 @@ mod tests {
         assert!(root.contains_key("layout"));
         assert!(root.contains_key("manifest"));
         assert!(root.contains_key("metadata"));
+        assert!(root.contains_key("workbench_profile"));
         assert!(!root.contains_key("diagnostic_graph"));
         assert!(!root.contains_key("channels"));
         assert!(!root.contains_key("spans"));
+    }
+
+    #[test]
+    fn test_frame_bundle_round_trips_workbench_profile_layout_constraints() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        app.set_workbench_layout_constraint(
+            crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Top,
+            ),
+            crate::app::WorkbenchLayoutConstraint::anchored_split(
+                crate::app::SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Top,
+                ),
+                crate::app::workbench_layout_policy::AnchorEdge::Top,
+                0.25,
+            ),
+        );
+
+        let tree: Tree<TileKind> = serde_json::from_str(&workspace_layout_json_with_nodes(&[]))
+            .expect("frame tree should deserialize");
+
+        save_named_workspace_bundle(&mut app, "workspace-layout-profile", &tree)
+            .expect("frame bundle should save");
+
+        let bundle = load_named_workspace_bundle(&app, "workspace-layout-profile")
+            .expect("frame bundle should load");
+        let constraint = bundle
+            .workbench_profile
+            .layout_constraints
+            .get(&crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Top,
+            ))
+            .expect("layout constraint should round trip");
+
+        assert!(matches!(
+            constraint,
+            crate::app::WorkbenchLayoutConstraint::AnchoredSplit {
+                anchor_edge: crate::app::workbench_layout_policy::AnchorEdge::Top,
+                ..
+            }
+        ));
+
+        let mut restored_app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        apply_workbench_profile_from_bundle(&mut restored_app, &bundle);
+        assert!(
+            restored_app
+                .workspace
+                .workbench_session
+                .active_layout_constraints
+                .contains_key(&crate::app::SurfaceHostId::Navigator(
+                    crate::app::workbench_layout_policy::NavigatorHostId::Top,
+                ))
+        );
     }
 
     #[test]
@@ -1250,6 +1316,7 @@ mod tests {
                 updated_at_ms: 1,
                 last_activated_at_ms: None,
             },
+            workbench_profile: WorkbenchProfile::default(),
         };
 
         let (restored, _) = restore_runtime_tree_from_workspace_bundle(&app, &bundle)

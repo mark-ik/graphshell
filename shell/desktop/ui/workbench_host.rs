@@ -8,10 +8,18 @@ use egui::{RichText, SidePanel};
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
 use uuid::Uuid;
 
-use crate::app::{CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, WorkbenchIntent};
+use crate::app::workbench_layout_policy::{AnchorEdge, FirstUseOutcome, NavigatorHostId};
+use crate::app::{
+    CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, NavigatorHostScope,
+    SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent, WorkbenchLayoutConstraint,
+};
 use crate::graph::{ArrangementSubKind, NodeKey};
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_FIRST_USE_PROMPT_SHOWN, CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
+};
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
@@ -20,26 +28,58 @@ use crate::shell::desktop::workbench::tile_view_ops;
 use crate::util::CoordBridge;
 use crate::util::VersoAddress;
 
-/// Maximum sidebar width as a fraction of screen width. Clamped so the sidebar
-/// never exceeds one-fifth of the available screen, with an absolute floor of 180 px.
-const SIDEBAR_MAX_FRACTION: f32 = 0.20;
-const SIDEBAR_MAX_FLOOR: f32 = 180.0;
-const SIDEBAR_LABEL_MAX_CHARS: usize = 40;
+/// Maximum workbench-host panel width as a fraction of screen width. Clamped so
+/// the host panel never exceeds one-fifth of the available screen, with an
+/// absolute floor of 180 px.
+const HOST_PANEL_MAX_FRACTION: f32 = 0.20;
+const HOST_PANEL_MAX_FLOOR: f32 = 180.0;
+const HOST_PANEL_MIN_FRACTION: f32 = 0.10;
+const HOST_PANEL_MARGIN_MAX: f32 = 240.0;
+const HOST_PANEL_LABEL_MAX_CHARS: usize = 40;
 const NAVIGATOR_RECENT_LIMIT: usize = 12;
 
-fn compact_sidebar_text(text: &str) -> String {
+fn compact_host_panel_text(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return String::new();
     }
-    if trimmed.chars().count() <= SIDEBAR_LABEL_MAX_CHARS {
+    if trimmed.chars().count() <= HOST_PANEL_LABEL_MAX_CHARS {
         return trimmed.to_string();
     }
     let shortened: String = trimmed
         .chars()
-        .take(SIDEBAR_LABEL_MAX_CHARS.saturating_sub(1))
+        .take(HOST_PANEL_LABEL_MAX_CHARS.saturating_sub(1))
         .collect();
     format!("{shortened}…")
+}
+
+fn show_host_contents_with_cross_axis_margins(
+    ui: &mut egui::Ui,
+    host_layout: &WorkbenchHostLayout,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
+    match host_layout.form_factor {
+        WorkbenchHostFormFactor::Sidebar => {
+            if host_layout.cross_axis_margin_start_px > 0.0 {
+                ui.add_space(host_layout.cross_axis_margin_start_px);
+            }
+            add_contents(ui);
+            if host_layout.cross_axis_margin_end_px > 0.0 {
+                ui.add_space(host_layout.cross_axis_margin_end_px);
+            }
+        }
+        WorkbenchHostFormFactor::Toolbar => {
+            ui.horizontal(|ui| {
+                if host_layout.cross_axis_margin_start_px > 0.0 {
+                    ui.add_space(host_layout.cross_axis_margin_start_px);
+                }
+                ui.vertical(|ui| add_contents(ui));
+                if host_layout.cross_axis_margin_end_px > 0.0 {
+                    ui.add_space(host_layout.cross_axis_margin_end_px);
+                }
+            });
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,8 +94,8 @@ pub(crate) enum WorkbenchLayerState {
 pub(crate) enum ChromeExposurePolicy {
     GraphOnly,
     GraphWithOverlay,
-    GraphPlusWorkbenchSidebar,
-    GraphPlusWorkbenchSidebarPinned,
+    GraphPlusWorkbenchHost,
+    GraphPlusWorkbenchHostPinned,
 }
 
 impl WorkbenchLayerState {
@@ -63,8 +103,8 @@ impl WorkbenchLayerState {
         match self {
             Self::GraphOnly => ChromeExposurePolicy::GraphOnly,
             Self::GraphOverlayActive => ChromeExposurePolicy::GraphWithOverlay,
-            Self::WorkbenchActive => ChromeExposurePolicy::GraphPlusWorkbenchSidebar,
-            Self::WorkbenchPinned => ChromeExposurePolicy::GraphPlusWorkbenchSidebarPinned,
+            Self::WorkbenchActive => ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            Self::WorkbenchPinned => ChromeExposurePolicy::GraphPlusWorkbenchHostPinned,
         }
     }
 }
@@ -96,10 +136,12 @@ pub(crate) struct GraphletRosterEntry {
     pub(crate) is_cold: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct WorkbenchChromeProjection {
     pub(crate) layer_state: WorkbenchLayerState,
     pub(crate) chrome_policy: ChromeExposurePolicy,
+    pub(crate) host_layout: WorkbenchHostLayout,
+    pub(crate) host_layouts: Vec<WorkbenchHostLayout>,
     pub(crate) active_pane_title: Option<String>,
     pub(crate) saved_frame_names: Vec<String>,
     pub(crate) navigator_groups: Vec<WorkbenchNavigatorGroup>,
@@ -108,6 +150,291 @@ pub(crate) struct WorkbenchChromeProjection {
     /// Full graphlet roster (warm ● + cold ○) for the active node pane's graphlet.
     /// Empty when the active pane is not a node pane or when the node has no graphlet peers.
     pub(crate) active_graphlet_roster: Vec<GraphletRosterEntry>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WorkbenchHostFormFactor {
+    Toolbar,
+    Sidebar,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct WorkbenchHostLayout {
+    pub(crate) host: SurfaceHostId,
+    pub(crate) anchor_edge: AnchorEdge,
+    pub(crate) form_factor: WorkbenchHostFormFactor,
+    pub(crate) configured_scope: NavigatorHostScope,
+    pub(crate) resolved_scope: NavigatorHostScope,
+    pub(crate) size_fraction: f32,
+    pub(crate) cross_axis_margin_start_px: f32,
+    pub(crate) cross_axis_margin_end_px: f32,
+    pub(crate) resizable: bool,
+}
+
+impl WorkbenchHostLayout {
+    fn default_workbench_navigator() -> Self {
+        Self::default_for_host(SurfaceHostId::Navigator(NavigatorHostId::Right), false)
+    }
+
+    fn default_for_host(host: SurfaceHostId, prefer_workbench_scope: bool) -> Self {
+        let anchor_edge = default_anchor_edge_for_host(&host);
+        let configured_scope = NavigatorHostScope::Both;
+        Self {
+            host,
+            anchor_edge,
+            form_factor: default_form_factor_for_edge(anchor_edge),
+            configured_scope,
+            resolved_scope: resolve_navigator_host_scope(configured_scope, prefer_workbench_scope),
+            size_fraction: HOST_PANEL_MAX_FRACTION * 0.75,
+            cross_axis_margin_start_px: 0.0,
+            cross_axis_margin_end_px: 0.0,
+            resizable: true,
+        }
+    }
+
+    fn from_constraint(
+        host: SurfaceHostId,
+        configured_scope: NavigatorHostScope,
+        prefer_workbench_scope: bool,
+        constraint: &WorkbenchLayoutConstraint,
+    ) -> Option<Self> {
+        let WorkbenchLayoutConstraint::AnchoredSplit {
+            anchor_edge,
+            anchor_size_fraction,
+            cross_axis_margin_start_px,
+            cross_axis_margin_end_px,
+            resizable,
+            ..
+        } = constraint
+        else {
+            return None;
+        };
+        Some(Self {
+            host,
+            anchor_edge: *anchor_edge,
+            form_factor: default_form_factor_for_edge(*anchor_edge),
+            configured_scope,
+            resolved_scope: resolve_navigator_host_scope(configured_scope, prefer_workbench_scope),
+            size_fraction: *anchor_size_fraction,
+            cross_axis_margin_start_px: *cross_axis_margin_start_px,
+            cross_axis_margin_end_px: *cross_axis_margin_end_px,
+            resizable: *resizable,
+        })
+    }
+
+    fn layouts_from_runtime(
+        graph_app: &GraphBrowserApp,
+        prefer_workbench_scope: bool,
+    ) -> Vec<Self> {
+        let mut layouts = graph_app
+            .workspace
+            .workbench_session
+            .active_layout_constraints
+            .iter()
+            .filter_map(|(surface_host, constraint)| match surface_host {
+                SurfaceHostId::Navigator(_) => Self::from_constraint(
+                    surface_host.clone(),
+                    graph_app.navigator_host_scope(surface_host),
+                    prefer_workbench_scope,
+                    constraint,
+                ),
+                SurfaceHostId::Role(_) => None,
+            })
+            .collect::<Vec<_>>();
+
+        if layouts.is_empty() {
+            layouts.push(Self::default_for_host(
+                SurfaceHostId::Navigator(NavigatorHostId::Right),
+                prefer_workbench_scope,
+            ));
+        }
+
+        layouts.sort_by_key(|layout| anchor_edge_priority(layout.anchor_edge));
+        layouts
+    }
+}
+
+fn resolve_navigator_host_scope(
+    configured_scope: NavigatorHostScope,
+    prefer_workbench_scope: bool,
+) -> NavigatorHostScope {
+    configured_scope.resolve(prefer_workbench_scope)
+}
+
+fn host_scope_label(scope: NavigatorHostScope) -> &'static str {
+    match scope {
+        NavigatorHostScope::Both => "Both",
+        NavigatorHostScope::GraphOnly => "Graph",
+        NavigatorHostScope::WorkbenchOnly => "Workbench",
+        NavigatorHostScope::Auto => "Auto",
+    }
+}
+
+fn host_shows_graph_scope(host_layout: &WorkbenchHostLayout) -> bool {
+    matches!(
+        host_layout.resolved_scope,
+        NavigatorHostScope::Both | NavigatorHostScope::GraphOnly
+    )
+}
+
+fn host_shows_workbench_scope(host_layout: &WorkbenchHostLayout) -> bool {
+    matches!(
+        host_layout.resolved_scope,
+        NavigatorHostScope::Both | NavigatorHostScope::WorkbenchOnly
+    )
+}
+
+fn anchor_edge_priority(anchor_edge: AnchorEdge) -> usize {
+    match anchor_edge {
+        AnchorEdge::Top => 0,
+        AnchorEdge::Bottom => 1,
+        AnchorEdge::Left => 2,
+        AnchorEdge::Right => 3,
+    }
+}
+
+fn default_anchor_edge_for_host(surface_host: &SurfaceHostId) -> AnchorEdge {
+    match surface_host {
+        SurfaceHostId::Navigator(NavigatorHostId::Top) => AnchorEdge::Top,
+        SurfaceHostId::Navigator(NavigatorHostId::Bottom) => AnchorEdge::Bottom,
+        SurfaceHostId::Navigator(NavigatorHostId::Left) => AnchorEdge::Left,
+        SurfaceHostId::Navigator(NavigatorHostId::Right) | SurfaceHostId::Role(_) => {
+            AnchorEdge::Right
+        }
+    }
+}
+
+fn default_form_factor_for_edge(anchor_edge: AnchorEdge) -> WorkbenchHostFormFactor {
+    match anchor_edge {
+        AnchorEdge::Top | AnchorEdge::Bottom => WorkbenchHostFormFactor::Toolbar,
+        AnchorEdge::Left | AnchorEdge::Right => WorkbenchHostFormFactor::Sidebar,
+    }
+}
+
+fn host_display_name(surface_host: &SurfaceHostId) -> &'static str {
+    match surface_host {
+        SurfaceHostId::Navigator(NavigatorHostId::Top) => "Top Navigator Host",
+        SurfaceHostId::Navigator(NavigatorHostId::Bottom) => "Bottom Navigator Host",
+        SurfaceHostId::Navigator(NavigatorHostId::Left) => "Left Navigator Host",
+        SurfaceHostId::Navigator(NavigatorHostId::Right) => "Right Navigator Host",
+        SurfaceHostId::Role(_) => "Workbench Host",
+    }
+}
+
+fn host_constraint_label(host_layout: &WorkbenchHostLayout) -> String {
+    format!(
+        "{} - {:?} - {}%",
+        host_scope_label(host_layout.resolved_scope),
+        host_layout.anchor_edge,
+        (host_layout.size_fraction * 100.0).round() as i32
+    )
+}
+
+fn constraint_from_host_layout(host_layout: &WorkbenchHostLayout) -> WorkbenchLayoutConstraint {
+    anchored_constraint_for_host_layout(
+        host_layout,
+        host_layout.anchor_edge,
+        host_layout.size_fraction,
+        host_layout.cross_axis_margin_start_px,
+        host_layout.cross_axis_margin_end_px,
+        host_layout.resizable,
+    )
+}
+
+fn anchored_constraint_for_host_layout(
+    host_layout: &WorkbenchHostLayout,
+    anchor_edge: AnchorEdge,
+    size_fraction: f32,
+    cross_axis_margin_start_px: f32,
+    cross_axis_margin_end_px: f32,
+    resizable: bool,
+) -> WorkbenchLayoutConstraint {
+    WorkbenchLayoutConstraint::AnchoredSplit {
+        surface_host: host_layout.host.clone(),
+        anchor_edge,
+        anchor_size_fraction: size_fraction,
+        cross_axis_margin_start_px,
+        cross_axis_margin_end_px,
+        resizable,
+    }
+}
+
+fn host_panel_id(surface_host: &SurfaceHostId) -> String {
+    format!(
+        "workbench_host_{}",
+        surface_host.to_string().replace(':', "_").to_lowercase()
+    )
+}
+
+fn is_host_configuring(graph_app: &GraphBrowserApp, surface_host: &SurfaceHostId) -> bool {
+    matches!(
+        &graph_app.workspace.workbench_session.ux_config_mode,
+        UxConfigMode::Configuring { surface_host: configuring_host } if configuring_host == surface_host
+    )
+}
+
+fn missing_navigator_hosts(host_layouts: &[WorkbenchHostLayout]) -> Vec<SurfaceHostId> {
+    let present = host_layouts
+        .iter()
+        .map(|layout| layout.host.clone())
+        .collect::<HashSet<_>>();
+    [
+        SurfaceHostId::Navigator(NavigatorHostId::Top),
+        SurfaceHostId::Navigator(NavigatorHostId::Bottom),
+        SurfaceHostId::Navigator(NavigatorHostId::Left),
+        SurfaceHostId::Navigator(NavigatorHostId::Right),
+    ]
+    .into_iter()
+    .filter(|host| !present.contains(host))
+    .collect()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ConfiguringOverlaySpec {
+    edge_targets: Vec<AnchorEdge>,
+    has_unconstrain_target: bool,
+    has_size_slider: bool,
+    margin_handle_labels: Vec<&'static str>,
+}
+
+fn configuring_overlay_spec(is_configuring: bool) -> Option<ConfiguringOverlaySpec> {
+    is_configuring.then(|| ConfiguringOverlaySpec {
+        edge_targets: vec![
+            AnchorEdge::Top,
+            AnchorEdge::Bottom,
+            AnchorEdge::Left,
+            AnchorEdge::Right,
+        ],
+        has_unconstrain_target: true,
+        has_size_slider: true,
+        margin_handle_labels: vec!["Start", "End"],
+    })
+}
+
+fn first_use_prompt_visible(graph_app: &GraphBrowserApp, surface_host: &SurfaceHostId) -> bool {
+    if graph_app.is_first_use_prompt_suppressed_for_session(surface_host) {
+        return false;
+    }
+    if graph_app
+        .workbench_profile()
+        .layout_constraints
+        .contains_key(surface_host)
+    {
+        return false;
+    }
+
+    graph_app
+        .workbench_profile()
+        .first_use_policies
+        .get(surface_host)
+        .map(|policy| {
+            policy.outcome.is_none()
+                || policy
+                    .outcome
+                    .as_ref()
+                    .is_some_and(|outcome| matches!(outcome, FirstUseOutcome::ConfigureNow))
+        })
+        .unwrap_or(true)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -206,7 +533,11 @@ impl WorkbenchChromeProjection {
             .iter()
             .any(|entry| !matches!(entry.kind, WorkbenchPaneKind::Graph { .. }))
             || graph_pane_count > 1;
-        let layer_state = if graph_app.workbench_sidebar_pinned() {
+        let active_pane_prefers_workbench_scope = active_pane
+            .and_then(|pane_id| pane_entries.iter().find(|entry| entry.pane_id == pane_id))
+            .is_some_and(|entry| !matches!(entry.kind, WorkbenchPaneKind::Graph { .. }));
+        let prefer_workbench_scope = has_hosted_workbench && active_pane_prefers_workbench_scope;
+        let layer_state = if graph_app.workbench_host_pinned() {
             WorkbenchLayerState::WorkbenchPinned
         } else if has_hosted_workbench {
             WorkbenchLayerState::WorkbenchActive
@@ -216,6 +547,12 @@ impl WorkbenchChromeProjection {
             WorkbenchLayerState::GraphOnly
         };
         let chrome_policy = layer_state.chrome_policy();
+        let host_layouts =
+            WorkbenchHostLayout::layouts_from_runtime(graph_app, prefer_workbench_scope);
+        let host_layout = host_layouts
+            .first()
+            .cloned()
+            .unwrap_or_else(WorkbenchHostLayout::default_workbench_navigator);
         let active_pane_title = pane_entries
             .iter()
             .find(|entry| entry.is_active)
@@ -236,6 +573,8 @@ impl WorkbenchChromeProjection {
         Self {
             layer_state,
             chrome_policy,
+            host_layout,
+            host_layouts,
             active_pane_title,
             saved_frame_names,
             navigator_groups,
@@ -248,8 +587,8 @@ impl WorkbenchChromeProjection {
     pub(crate) fn visible(&self) -> bool {
         matches!(
             self.chrome_policy,
-            ChromeExposurePolicy::GraphPlusWorkbenchSidebar
-                | ChromeExposurePolicy::GraphPlusWorkbenchSidebarPinned
+            ChromeExposurePolicy::GraphPlusWorkbenchHost
+                | ChromeExposurePolicy::GraphPlusWorkbenchHostPinned
         )
     }
 }
@@ -369,9 +708,7 @@ fn build_active_graphlet_roster(
 
     // Find the node key for the active pane.
     let seed_node = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
-        Tile::Pane(kind) if kind.pane_id() == active_pane => {
-            kind.node_state().map(|s| s.node)
-        }
+        Tile::Pane(kind) if kind.pane_id() == active_pane => kind.node_state().map(|s| s.node),
         _ => None,
     });
     let seed_node = match seed_node {
@@ -1020,7 +1357,7 @@ fn build_tree_node(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn render_workbench_sidebar(
+pub(crate) fn render_workbench_host(
     ctx: &egui::Context,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
@@ -1036,28 +1373,217 @@ pub(crate) fn render_workbench_sidebar(
         return projection;
     }
 
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape))
+        && matches!(
+            graph_app.workspace.workbench_session.ux_config_mode,
+            UxConfigMode::Configuring { .. }
+        )
+    {
+        graph_app.enqueue_workbench_intent(WorkbenchIntent::SetSurfaceConfigMode {
+            surface_host: projection.host_layout.host.clone(),
+            mode: UxConfigMode::Locked,
+        });
+    }
+
     let persisted_frame_names: HashSet<String> = graph_app
         .list_workspace_layout_names()
         .into_iter()
         .collect();
     let focused_pane_pin_name =
         focused_toolbar_node.and_then(|node| frame_pin_name_for_node(node, graph_app));
-    let mut post_panel_action = None;
-    let sidebar_max_width =
-        (ctx.content_rect().width() * SIDEBAR_MAX_FRACTION).max(SIDEBAR_MAX_FLOOR);
-    let sidebar_default_width =
-        (sidebar_max_width * 0.75).clamp(SIDEBAR_MAX_FLOOR, sidebar_max_width);
+    let mut post_host_actions = Vec::new();
+    let host_layouts = projection.host_layouts.clone();
+    let missing_hosts = missing_navigator_hosts(&host_layouts);
 
-    SidePanel::left("workbench_sidebar")
-        .resizable(true)
-        .default_width(sidebar_default_width)
-        .min_width(SIDEBAR_MAX_FLOOR)
-        .max_width(sidebar_max_width)
-        .show(ctx, |ui| {
+    for (index, host_layout) in host_layouts.iter().cloned().enumerate() {
+        let host_panel_max_extent = match host_layout.form_factor {
+            WorkbenchHostFormFactor::Sidebar => {
+                (ctx.content_rect().width() * HOST_PANEL_MAX_FRACTION).max(HOST_PANEL_MAX_FLOOR)
+            }
+            WorkbenchHostFormFactor::Toolbar => {
+                (ctx.content_rect().height() * HOST_PANEL_MAX_FRACTION).max(HOST_PANEL_MAX_FLOOR)
+            }
+        };
+        let host_panel_default_extent = (match host_layout.form_factor {
+            WorkbenchHostFormFactor::Sidebar => {
+                ctx.content_rect().width() * host_layout.size_fraction
+            }
+            WorkbenchHostFormFactor::Toolbar => {
+                ctx.content_rect().height() * host_layout.size_fraction
+            }
+        })
+        .clamp(HOST_PANEL_MAX_FLOOR, host_panel_max_extent);
+        let panel_id = host_panel_id(&host_layout.host);
+        let mut rendered_rect = None;
+        let mut show_host_contents = |ui: &mut egui::Ui| {
+            rendered_rect = Some(ui.max_rect());
             ui.vertical(|ui| {
-                ui.heading("Workbench");
+                ui.horizontal_wrapped(|ui| {
+                    ui.heading(host_display_name(&host_layout.host));
+                    ui.label(
+                        RichText::new(host_constraint_label(&host_layout))
+                            .small()
+                            .weak(),
+                    );
+                    let configuring_host = is_host_configuring(graph_app, &host_layout.host);
+                    let toggle_label = if configuring_host {
+                        "Lock Layout"
+                    } else {
+                        "Unlock Layout"
+                    };
+                    if ui.small_button(toggle_label).clicked() {
+                        post_host_actions.push(WorkbenchHostAction::SetSurfaceConfigMode {
+                            surface_host: host_layout.host.clone(),
+                            mode: if configuring_host {
+                                UxConfigMode::Locked
+                            } else {
+                                UxConfigMode::Configuring {
+                                    surface_host: host_layout.host.clone(),
+                                }
+                            },
+                        });
+                    }
+                });
                 if let Some(active_title) = &projection.active_pane_title {
                     ui.label(RichText::new(active_title).small().weak());
+                }
+                if first_use_prompt_visible(graph_app, &host_layout.host) {
+                    let existing_policy = graph_app
+                        .workbench_profile()
+                        .first_use_policies
+                        .get(&host_layout.host)
+                        .cloned();
+                    let awaiting_config_follow_up = existing_policy
+                        .as_ref()
+                        .and_then(|policy| policy.outcome.as_ref())
+                        .is_some_and(|outcome| matches!(outcome, FirstUseOutcome::ConfigureNow))
+                        && !is_host_configuring(graph_app, &host_layout.host);
+                    if existing_policy
+                        .as_ref()
+                        .is_none_or(|policy| !policy.prompt_shown)
+                    {
+                        post_host_actions.push(WorkbenchHostAction::SetFirstUsePolicy(
+                            SurfaceFirstUsePolicy {
+                                surface_host: host_layout.host.clone(),
+                                prompt_shown: true,
+                                outcome: None,
+                            },
+                        ));
+                    }
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        if awaiting_config_follow_up {
+                            ui.label(RichText::new("Keep this Navigator host layout?").small().strong());
+                            ui.label(
+                                RichText::new(
+                                    "Remember this edge placement, keep it for just this session, or discard the draft.",
+                                )
+                                .small(),
+                            );
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.small_button("Remember layout").clicked() {
+                                    let remembered_constraint = graph_app
+                                        .workbench_layout_constraint_for_host(&host_layout.host)
+                                        .cloned()
+                                        .unwrap_or_else(|| constraint_from_host_layout(&host_layout));
+                                    post_host_actions.push(
+                                        WorkbenchHostAction::CommitLayoutConstraintDraft(
+                                            host_layout.host.clone(),
+                                        ),
+                                    );
+                                    post_host_actions.push(WorkbenchHostAction::SetFirstUsePolicy(
+                                        SurfaceFirstUsePolicy {
+                                            surface_host: host_layout.host.clone(),
+                                            prompt_shown: true,
+                                            outcome: Some(FirstUseOutcome::RememberedConstraint(
+                                                remembered_constraint,
+                                            )),
+                                        },
+                                    ));
+                                }
+                                if ui.small_button("This session only").clicked() {
+                                    post_host_actions.push(WorkbenchHostAction::SetFirstUsePolicy(
+                                        SurfaceFirstUsePolicy {
+                                            surface_host: host_layout.host.clone(),
+                                            prompt_shown: true,
+                                            outcome: None,
+                                        },
+                                    ));
+                                    post_host_actions.push(
+                                        WorkbenchHostAction::SuppressFirstUsePromptForSession(
+                                            host_layout.host.clone(),
+                                        ),
+                                    );
+                                }
+                                if ui.small_button("Discard changes").clicked() {
+                                    post_host_actions.push(
+                                        WorkbenchHostAction::DiscardLayoutConstraintDraft(
+                                            host_layout.host.clone(),
+                                        ),
+                                    );
+                                    post_host_actions.push(WorkbenchHostAction::SetFirstUsePolicy(
+                                        SurfaceFirstUsePolicy {
+                                            surface_host: host_layout.host.clone(),
+                                            prompt_shown: true,
+                                            outcome: Some(FirstUseOutcome::Discarded),
+                                        },
+                                    ));
+                                }
+                            });
+                        } else {
+                            ui.label(RichText::new("Set up this Navigator host").small().strong());
+                            ui.label(
+                                RichText::new(
+                                    "Pin it to an edge now, keep the default layout, or dismiss this prompt.",
+                                )
+                                .small(),
+                            );
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.small_button("Set up layout").clicked() {
+                                    post_host_actions.push(WorkbenchHostAction::SetFirstUsePolicy(
+                                        SurfaceFirstUsePolicy {
+                                            surface_host: host_layout.host.clone(),
+                                            prompt_shown: true,
+                                            outcome: Some(FirstUseOutcome::ConfigureNow),
+                                        },
+                                    ));
+                                    post_host_actions.push(WorkbenchHostAction::SetSurfaceConfigMode {
+                                        surface_host: host_layout.host.clone(),
+                                        mode: UxConfigMode::Configuring {
+                                            surface_host: host_layout.host.clone(),
+                                        },
+                                    });
+                                }
+                                if ui.small_button("Use default").clicked() {
+                                    post_host_actions.push(WorkbenchHostAction::SetFirstUsePolicy(
+                                        SurfaceFirstUsePolicy {
+                                            surface_host: host_layout.host.clone(),
+                                            prompt_shown: true,
+                                            outcome: Some(FirstUseOutcome::AcceptDefault),
+                                        },
+                                    ));
+                                }
+                                if ui.small_button("Dismiss").clicked() {
+                                    post_host_actions.push(WorkbenchHostAction::SetFirstUsePolicy(
+                                        SurfaceFirstUsePolicy {
+                                            surface_host: host_layout.host.clone(),
+                                            prompt_shown: true,
+                                            outcome: Some(FirstUseOutcome::Dismissed),
+                                        },
+                                    ));
+                                }
+                            });
+                        }
+                    });
+                    ui.add_space(6.0);
+                }
+                if is_host_configuring(graph_app, &host_layout.host) {
+                    render_host_config_controls(
+                        ui,
+                        &host_layout,
+                        &missing_hosts,
+                        &mut post_host_actions,
+                    );
+                    ui.separator();
                 }
                 // Graphlet roster: ● warm peers already visible as tabs;
                 // ○ cold peers shown here for discovery / one-click activation.
@@ -1081,7 +1607,7 @@ pub(crate) fn render_workbench_sidebar(
                                 .clicked()
                                 && entry.is_cold
                             {
-                                post_panel_action = Some(SidebarAction::ActivateNode {
+                                post_host_actions.push(WorkbenchHostAction::ActivateNode {
                                     node_key: entry.node_key,
                                     row_key: None,
                                 });
@@ -1096,14 +1622,14 @@ pub(crate) fn render_workbench_sidebar(
                             .small()
                             .weak(),
                     );
-                    let pin_label = if graph_app.workbench_sidebar_pinned() {
-                        "Unpin Sidebar"
+                    let pin_label = if graph_app.workbench_host_pinned() {
+                            "Unpin Workbench Host"
                     } else {
-                        "Pin Sidebar"
+                            "Pin Workbench Host"
                     };
                     if ui.small_button(pin_label).clicked() {
-                        post_panel_action = Some(SidebarAction::SetWorkbenchPinned(
-                            !graph_app.workbench_sidebar_pinned(),
+                        post_host_actions.push(WorkbenchHostAction::SetWorkbenchPinned(
+                            !graph_app.workbench_host_pinned(),
                         ));
                     }
                 });
@@ -1128,11 +1654,11 @@ pub(crate) fn render_workbench_sidebar(
                         format!("Frames ({})", projection.saved_frame_names.len()),
                         |ui| {
                             if ui.button("Save Current Frame Snapshot").clicked() {
-                                post_panel_action = Some(SidebarAction::SaveCurrentFrame);
+                                post_host_actions.push(WorkbenchHostAction::SaveCurrentFrame);
                                 ui.close();
                             }
                             if ui.button("Prune Empty Named Frames").clicked() {
-                                post_panel_action = Some(SidebarAction::PruneEmptyFrames);
+                                post_host_actions.push(WorkbenchHostAction::PruneEmptyFrames);
                                 ui.close();
                             }
                             ui.separator();
@@ -1142,8 +1668,8 @@ pub(crate) fn render_workbench_sidebar(
                             }
                             for frame_name in &projection.saved_frame_names {
                                 if ui.button(frame_name).clicked() {
-                                    post_panel_action =
-                                        Some(SidebarAction::RestoreFrame(frame_name.clone()));
+                                    post_host_actions
+                                        .push(WorkbenchHostAction::RestoreFrame(frame_name.clone()));
                                     ui.close();
                                 }
                             }
@@ -1154,26 +1680,26 @@ pub(crate) fn render_workbench_sidebar(
                 ui.add_space(6.0);
                 ui.horizontal_wrapped(|ui| {
                     if ui.small_button("Settings").clicked() {
-                        post_panel_action = Some(SidebarAction::OpenTool(ToolPaneState::Settings));
+                        post_host_actions.push(WorkbenchHostAction::OpenTool(ToolPaneState::Settings));
                     }
                     if ui.small_button("History").clicked() {
-                        post_panel_action =
-                            Some(SidebarAction::OpenTool(ToolPaneState::HistoryManager));
+                        post_host_actions
+                            .push(WorkbenchHostAction::OpenTool(ToolPaneState::HistoryManager));
                     }
                     if ui.small_button("Navigator").clicked() {
-                        post_panel_action =
-                            Some(SidebarAction::OpenTool(ToolPaneState::navigator_surface()));
+                        post_host_actions
+                            .push(WorkbenchHostAction::OpenTool(ToolPaneState::navigator_surface()));
                     }
                 });
                 ui.separator();
 
-                if !projection.navigator_groups.is_empty() {
+                if host_shows_graph_scope(&host_layout) && !projection.navigator_groups.is_empty() {
                     ui.heading("Navigator");
                     for group in &projection.navigator_groups {
                         let header = egui::CollapsingHeader::new(
                             RichText::new(&group.title).small().strong(),
                         )
-                        .id_salt(("workbench_sidebar_navigator", &group.title))
+                        .id_salt(("workbench_host_navigator", &group.title))
                         .default_open(!matches!(
                             group.section,
                             WorkbenchNavigatorSection::Recent | WorkbenchNavigatorSection::Imported
@@ -1190,12 +1716,12 @@ pub(crate) fn render_workbench_sidebar(
                                     RichText::new(label).small(),
                                 );
                                 if response.double_clicked() {
-                                    post_panel_action = Some(SidebarAction::ActivateNode {
+                                    post_host_actions.push(WorkbenchHostAction::ActivateNode {
                                         node_key: member.node_key,
                                         row_key: member.row_key.clone(),
                                     });
                                 } else if response.clicked() {
-                                    post_panel_action = Some(SidebarAction::SelectNode {
+                                    post_host_actions.push(WorkbenchHostAction::SelectNode {
                                         node_key: member.node_key,
                                         row_key: member.row_key.clone(),
                                     });
@@ -1206,35 +1732,244 @@ pub(crate) fn render_workbench_sidebar(
                     ui.separator();
                 }
 
-                ui.label(RichText::new("Open Panes").small().strong());
-                egui::ScrollArea::vertical()
-                    .id_salt("sidebar_pane_list")
-                    .show(ui, |ui| {
-                        for entry in &projection.pane_entries {
-                            render_pane_row(ui, entry, &mut post_panel_action);
-                        }
-                        ui.add_space(4.0);
-                        egui::CollapsingHeader::new(RichText::new("Tile Structure").small().weak())
-                            .id_salt("workbench_sidebar_tile_structure")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                if let Some(root) = projection.tree_root.as_ref() {
-                                    render_tree_node(ui, root, 0, &mut post_panel_action);
-                                }
-                            });
-                    });
+                if host_shows_workbench_scope(&host_layout) {
+                    ui.label(RichText::new("Open Panes").small().strong());
+                    egui::ScrollArea::vertical()
+                        .id_salt(("workbench_host_pane_list", index))
+                        .show(ui, |ui| {
+                            for entry in &projection.pane_entries {
+                                render_pane_row(ui, entry, &mut post_host_actions);
+                            }
+                            ui.add_space(4.0);
+                            egui::CollapsingHeader::new(RichText::new("Tile Structure").small().weak())
+                                .id_salt(("workbench_host_tile_structure", index))
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    if let Some(root) = projection.tree_root.as_ref() {
+                                        render_tree_node(ui, root, 0, &mut post_host_actions);
+                                    }
+                                });
+                        });
+                }
             });
-        });
+        };
+        match host_layout.form_factor {
+            WorkbenchHostFormFactor::Sidebar => {
+                let side_panel = match host_layout.anchor_edge {
+                    AnchorEdge::Left => SidePanel::left(panel_id),
+                    AnchorEdge::Right => SidePanel::right(panel_id),
+                    AnchorEdge::Top | AnchorEdge::Bottom => SidePanel::right(panel_id),
+                };
+                side_panel
+                    .resizable(host_layout.resizable)
+                    .default_width(host_panel_default_extent)
+                    .min_width(HOST_PANEL_MAX_FLOOR)
+                    .max_width(host_panel_max_extent)
+                    .show(ctx, |ui| {
+                        show_host_contents_with_cross_axis_margins(ui, &host_layout, |ui| {
+                            show_host_contents(ui);
+                        });
+                    });
+            }
+            WorkbenchHostFormFactor::Toolbar => {
+                let top_bottom_panel = match host_layout.anchor_edge {
+                    AnchorEdge::Top => egui::TopBottomPanel::top(panel_id),
+                    AnchorEdge::Bottom => egui::TopBottomPanel::bottom(panel_id),
+                    AnchorEdge::Left | AnchorEdge::Right => egui::TopBottomPanel::top(panel_id),
+                };
+                top_bottom_panel
+                    .resizable(host_layout.resizable)
+                    .default_height(host_panel_default_extent)
+                    .min_height(HOST_PANEL_MAX_FLOOR)
+                    .max_height(host_panel_max_extent)
+                    .show(ctx, |ui| {
+                        show_host_contents_with_cross_axis_margins(ui, &host_layout, |ui| {
+                            show_host_contents(ui);
+                        });
+                    });
+            }
+        }
 
-    if let Some(action) = post_panel_action {
-        apply_sidebar_action(action, graph_app, tiles_tree);
+        if let Some(rect) = rendered_rect {
+            let actual_extent = match host_layout.form_factor {
+                WorkbenchHostFormFactor::Sidebar => rect.width(),
+                WorkbenchHostFormFactor::Toolbar => rect.height(),
+            };
+            if (actual_extent - host_panel_default_extent).abs() > 2.0 {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
+                    byte_len: host_layout.host.to_string().len(),
+                });
+            }
+        }
+    }
+
+    for action in post_host_actions {
+        apply_workbench_host_action(action, graph_app, tiles_tree);
     }
 
     projection
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum SidebarAction {
+fn render_host_config_controls(
+    ui: &mut egui::Ui,
+    host_layout: &WorkbenchHostLayout,
+    missing_hosts: &[SurfaceHostId],
+    actions: &mut Vec<WorkbenchHostAction>,
+) {
+    let overlay_spec =
+        configuring_overlay_spec(true).expect("configuring overlays should exist in config mode");
+    ui.label(RichText::new("Layout Config").small().strong());
+    ui.horizontal_wrapped(|ui| {
+        for anchor_edge in overlay_spec.edge_targets.iter().copied() {
+            let selected = host_layout.anchor_edge == anchor_edge;
+            if ui
+                .selectable_label(selected, format!("Drop {:?}", anchor_edge))
+                .clicked()
+            {
+                actions.push(WorkbenchHostAction::SetLayoutConstraintDraft {
+                    surface_host: host_layout.host.clone(),
+                    constraint: anchored_constraint_for_host_layout(
+                        host_layout,
+                        anchor_edge,
+                        host_layout.size_fraction,
+                        host_layout.cross_axis_margin_start_px,
+                        host_layout.cross_axis_margin_end_px,
+                        host_layout.resizable,
+                    ),
+                });
+            }
+        }
+        if overlay_spec.has_unconstrain_target && ui.small_button("Float").clicked() {
+            actions.push(WorkbenchHostAction::SetLayoutConstraintDraft {
+                surface_host: host_layout.host.clone(),
+                constraint: WorkbenchLayoutConstraint::Unconstrained,
+            });
+        }
+    });
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new("Scope").small());
+        for scope in [
+            NavigatorHostScope::Auto,
+            NavigatorHostScope::Both,
+            NavigatorHostScope::GraphOnly,
+            NavigatorHostScope::WorkbenchOnly,
+        ] {
+            let selected = host_layout.configured_scope == scope;
+            if ui
+                .selectable_label(selected, host_scope_label(scope))
+                .clicked()
+            {
+                actions.push(WorkbenchHostAction::SetNavigatorHostScope {
+                    surface_host: host_layout.host.clone(),
+                    scope,
+                });
+            }
+        }
+    });
+
+    if overlay_spec.has_size_slider {
+        let mut size_fraction = host_layout.size_fraction;
+        if ui
+            .add(
+                egui::Slider::new(
+                    &mut size_fraction,
+                    HOST_PANEL_MIN_FRACTION..=HOST_PANEL_MAX_FRACTION,
+                )
+                .text("Size"),
+            )
+            .changed()
+        {
+            actions.push(WorkbenchHostAction::SetLayoutConstraintDraft {
+                surface_host: host_layout.host.clone(),
+                constraint: anchored_constraint_for_host_layout(
+                    host_layout,
+                    host_layout.anchor_edge,
+                    size_fraction,
+                    host_layout.cross_axis_margin_start_px,
+                    host_layout.cross_axis_margin_end_px,
+                    host_layout.resizable,
+                ),
+            });
+        }
+    }
+
+    let mut start_margin = host_layout.cross_axis_margin_start_px;
+    let mut end_margin = host_layout.cross_axis_margin_end_px;
+    let mut resizable = host_layout.resizable;
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new("Margins").small());
+        let mut margin_changed = false;
+        if overlay_spec
+            .margin_handle_labels
+            .first()
+            .is_some_and(|label| {
+                ui.add(
+                    egui::DragValue::new(&mut start_margin)
+                        .speed(1.0)
+                        .range(0.0..=HOST_PANEL_MARGIN_MAX)
+                        .prefix(format!("{label} ")),
+                )
+                .changed()
+            })
+        {
+            margin_changed = true;
+        }
+        if overlay_spec
+            .margin_handle_labels
+            .get(1)
+            .is_some_and(|label| {
+                ui.add(
+                    egui::DragValue::new(&mut end_margin)
+                        .speed(1.0)
+                        .range(0.0..=HOST_PANEL_MARGIN_MAX)
+                        .prefix(format!("{label} ")),
+                )
+                .changed()
+            })
+        {
+            margin_changed = true;
+        }
+        if margin_changed || ui.checkbox(&mut resizable, "Resizable").changed() {
+            actions.push(WorkbenchHostAction::SetLayoutConstraintDraft {
+                surface_host: host_layout.host.clone(),
+                constraint: anchored_constraint_for_host_layout(
+                    host_layout,
+                    host_layout.anchor_edge,
+                    host_layout.size_fraction,
+                    start_margin,
+                    end_margin,
+                    resizable,
+                ),
+            });
+        }
+    });
+
+    if !missing_hosts.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Add host").small());
+            for host in missing_hosts {
+                if ui.small_button(host_display_name(host)).clicked() {
+                    actions.push(WorkbenchHostAction::SetLayoutConstraintDraft {
+                        surface_host: host.clone(),
+                        constraint: WorkbenchLayoutConstraint::AnchoredSplit {
+                            surface_host: host.clone(),
+                            anchor_edge: default_anchor_edge_for_host(host),
+                            anchor_size_fraction: HOST_PANEL_MAX_FRACTION * 0.75,
+                            cross_axis_margin_start_px: 0.0,
+                            cross_axis_margin_end_px: 0.0,
+                            resizable: true,
+                        },
+                    });
+                }
+            }
+        });
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum WorkbenchHostAction {
     FocusPane(PaneId),
     SelectNode {
         node_key: NodeKey,
@@ -1251,6 +1986,22 @@ enum SidebarAction {
     DismissNodePane(PaneId),
     OpenTool(ToolPaneState),
     SetWorkbenchPinned(bool),
+    SetLayoutConstraintDraft {
+        surface_host: SurfaceHostId,
+        constraint: WorkbenchLayoutConstraint,
+    },
+    CommitLayoutConstraintDraft(SurfaceHostId),
+    DiscardLayoutConstraintDraft(SurfaceHostId),
+    SetSurfaceConfigMode {
+        surface_host: SurfaceHostId,
+        mode: UxConfigMode,
+    },
+    SetNavigatorHostScope {
+        surface_host: SurfaceHostId,
+        scope: NavigatorHostScope,
+    },
+    SetFirstUsePolicy(SurfaceFirstUsePolicy),
+    SuppressFirstUsePromptForSession(SurfaceHostId),
     SaveCurrentFrame,
     PruneEmptyFrames,
     RestoreFrame(String),
@@ -1269,13 +2020,13 @@ fn render_tree_node(
     ui: &mut egui::Ui,
     node: &WorkbenchChromeNode,
     depth: usize,
-    action: &mut Option<SidebarAction>,
+    actions: &mut Vec<WorkbenchHostAction>,
 ) {
     match node {
         WorkbenchChromeNode::Pane(entry) => {
             ui.add_space((depth as f32) * 10.0);
             ui.horizontal(|ui| {
-                let compact_title = compact_sidebar_text(&entry.title);
+                let compact_title = compact_host_panel_text(&entry.title);
                 let text = if entry.is_active {
                     RichText::new(&compact_title).strong()
                 } else {
@@ -1285,15 +2036,15 @@ fn render_tree_node(
                     .selectable_label(entry.is_active, text)
                     .on_hover_text(&entry.title);
                 if response.clicked() {
-                    *action = Some(SidebarAction::FocusPane(entry.pane_id));
+                    actions.push(WorkbenchHostAction::FocusPane(entry.pane_id));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
-                        *action = Some(match entry.kind {
+                        actions.push(match entry.kind {
                             WorkbenchPaneKind::Node { .. } => {
-                                SidebarAction::DismissNodePane(entry.pane_id)
+                                WorkbenchHostAction::DismissNodePane(entry.pane_id)
                             }
-                            _ => SidebarAction::ClosePane(entry.pane_id),
+                            _ => WorkbenchHostAction::ClosePane(entry.pane_id),
                         });
                     }
                     if ui
@@ -1301,7 +2052,7 @@ fn render_tree_node(
                         .on_hover_text("Split vertically")
                         .clicked()
                     {
-                        *action = Some(SidebarAction::SplitPane(
+                        actions.push(WorkbenchHostAction::SplitPane(
                             entry.pane_id,
                             SplitDirection::Vertical,
                         ));
@@ -1311,7 +2062,7 @@ fn render_tree_node(
                         .on_hover_text("Split horizontally")
                         .clicked()
                     {
-                        *action = Some(SidebarAction::SplitPane(
+                        actions.push(WorkbenchHostAction::SplitPane(
                             entry.pane_id,
                             SplitDirection::Horizontal,
                         ));
@@ -1319,7 +2070,7 @@ fn render_tree_node(
                 });
             });
             if let Some(subtitle) = &entry.subtitle {
-                let compact_subtitle = compact_sidebar_text(subtitle);
+                let compact_subtitle = compact_host_panel_text(subtitle);
                 ui.add_space((depth as f32) * 10.0 + 2.0);
                 ui.label(RichText::new(compact_subtitle).small().weak())
                     .on_hover_text(subtitle);
@@ -1352,13 +2103,13 @@ fn render_tree_node(
             label,
             children,
         } => {
-            let compact_label = compact_sidebar_text(label);
+            let compact_label = compact_host_panel_text(label);
             let header = egui::CollapsingHeader::new(RichText::new(compact_label).small().strong())
-                .id_salt(("workbench_sidebar_container", tile_id))
+                .id_salt(("workbench_host_container", tile_id))
                 .default_open(true);
             header.show(ui, |ui| {
                 for child in children {
-                    render_tree_node(ui, child, depth + 1, action);
+                    render_tree_node(ui, child, depth + 1, actions);
                 }
             });
             ui.add_space(4.0);
@@ -1369,10 +2120,10 @@ fn render_tree_node(
 fn render_pane_row(
     ui: &mut egui::Ui,
     entry: &WorkbenchPaneEntry,
-    action: &mut Option<SidebarAction>,
+    actions: &mut Vec<WorkbenchHostAction>,
 ) {
     ui.horizontal(|ui| {
-        let compact_title = compact_sidebar_text(&entry.title);
+        let compact_title = compact_host_panel_text(&entry.title);
         let text = if entry.is_active {
             RichText::new(&compact_title).strong()
         } else {
@@ -1385,15 +2136,15 @@ fn render_pane_row(
             response
         };
         if response.clicked() {
-            *action = Some(SidebarAction::FocusPane(entry.pane_id));
+            actions.push(WorkbenchHostAction::FocusPane(entry.pane_id));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
-                *action = Some(match entry.kind {
+                actions.push(match entry.kind {
                     WorkbenchPaneKind::Node { .. } => {
-                        SidebarAction::DismissNodePane(entry.pane_id)
+                        WorkbenchHostAction::DismissNodePane(entry.pane_id)
                     }
-                    _ => SidebarAction::ClosePane(entry.pane_id),
+                    _ => WorkbenchHostAction::ClosePane(entry.pane_id),
                 });
             }
             if ui
@@ -1401,7 +2152,7 @@ fn render_pane_row(
                 .on_hover_text("Split vertically")
                 .clicked()
             {
-                *action = Some(SidebarAction::SplitPane(
+                actions.push(WorkbenchHostAction::SplitPane(
                     entry.pane_id,
                     SplitDirection::Vertical,
                 ));
@@ -1411,7 +2162,7 @@ fn render_pane_row(
                 .on_hover_text("Split horizontally")
                 .clicked()
             {
-                *action = Some(SidebarAction::SplitPane(
+                actions.push(WorkbenchHostAction::SplitPane(
                     entry.pane_id,
                     SplitDirection::Horizontal,
                 ));
@@ -1421,16 +2172,16 @@ fn render_pane_row(
     ui.add_space(2.0);
 }
 
-fn apply_sidebar_action(
-    action: SidebarAction,
+fn apply_workbench_host_action(
+    action: WorkbenchHostAction,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) {
     match action {
-        SidebarAction::FocusPane(pane_id) => {
+        WorkbenchHostAction::FocusPane(pane_id) => {
             let _ = tile_view_ops::focus_pane(tiles_tree, pane_id);
         }
-        SidebarAction::SelectNode { node_key, row_key } => {
+        WorkbenchHostAction::SelectNode { node_key, row_key } => {
             if let Some(row_key) = row_key {
                 graph_app.set_navigator_selected_rows([row_key]);
             }
@@ -1445,7 +2196,7 @@ fn apply_sidebar_action(
                     .request_camera_command_for_view(Some(view_id), CameraCommand::FitSelection);
             }
         }
-        SidebarAction::ActivateNode { node_key, row_key } => {
+        WorkbenchHostAction::ActivateNode { node_key, row_key } => {
             if let Some(row_key) = row_key {
                 graph_app.set_navigator_selected_rows([row_key]);
             }
@@ -1471,13 +2222,10 @@ fn apply_sidebar_action(
                 } else {
                     // Pre-warmed node (lifecycle Active/Warm but no tile present):
                     // focus the graph canvas and fit the selection rather than opening a tile.
-                    let graph_view_id = tiles_tree
-                        .tiles
-                        .iter()
-                        .find_map(|(_, tile)| match tile {
-                            Tile::Pane(TileKind::Graph(r)) => Some(r.graph_view_id),
-                            _ => None,
-                        });
+                    let graph_view_id = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+                        Tile::Pane(TileKind::Graph(r)) => Some(r.graph_view_id),
+                        _ => None,
+                    });
                     if let Some(view_id) = graph_view_id {
                         tiles_tree.make_active(|_, tile| {
                             matches!(tile, Tile::Pane(TileKind::Graph(r)) if r.graph_view_id == view_id)
@@ -1490,38 +2238,74 @@ fn apply_sidebar_action(
                 }
             }
         }
-        SidebarAction::SplitPane(source_pane, direction) => {
+        WorkbenchHostAction::SplitPane(source_pane, direction) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::SplitPane {
                 source_pane,
                 direction,
             });
         }
-        SidebarAction::ClosePane(pane) => {
+        WorkbenchHostAction::ClosePane(pane) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::ClosePane {
                 pane,
                 restore_previous_focus: true,
             });
         }
-        SidebarAction::DismissNodePane(pane) => {
+        WorkbenchHostAction::DismissNodePane(pane) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::DismissTile { pane });
         }
-        SidebarAction::OpenTool(kind) => {
+        WorkbenchHostAction::OpenTool(kind) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane { kind });
         }
-        SidebarAction::SetWorkbenchPinned(pinned) => {
-            graph_app.set_workbench_sidebar_pinned(pinned);
+        WorkbenchHostAction::SetWorkbenchPinned(pinned) => {
+            graph_app.set_workbench_host_pinned(pinned);
         }
-        SidebarAction::SaveCurrentFrame => {
+        WorkbenchHostAction::SetLayoutConstraintDraft {
+            surface_host,
+            constraint,
+        } => {
+            graph_app.set_workbench_layout_constraint_draft(surface_host, constraint);
+        }
+        WorkbenchHostAction::CommitLayoutConstraintDraft(surface_host) => {
+            graph_app.commit_workbench_layout_constraint_draft(&surface_host);
+        }
+        WorkbenchHostAction::DiscardLayoutConstraintDraft(surface_host) => {
+            graph_app.discard_workbench_layout_constraint_draft(&surface_host);
+        }
+        WorkbenchHostAction::SetSurfaceConfigMode { surface_host, mode } => {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetSurfaceConfigMode {
+                surface_host,
+                mode,
+            });
+        }
+        WorkbenchHostAction::SetNavigatorHostScope {
+            surface_host,
+            scope,
+        } => {
+            graph_app.set_navigator_host_scope(surface_host, scope);
+        }
+        WorkbenchHostAction::SetFirstUsePolicy(policy) => {
+            if policy.prompt_shown && policy.outcome.is_none() {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_UX_FIRST_USE_PROMPT_SHOWN,
+                    byte_len: policy.surface_host.to_string().len(),
+                });
+            }
+            graph_app.set_surface_first_use_policy(policy);
+        }
+        WorkbenchHostAction::SuppressFirstUsePromptForSession(surface_host) => {
+            graph_app.suppress_first_use_prompt_for_session(surface_host);
+        }
+        WorkbenchHostAction::SaveCurrentFrame => {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            graph_app.request_save_frame_snapshot_named(format!("workspace:sidebar-{now}"));
+            graph_app.request_save_frame_snapshot_named(format!("workspace:workbench-host-{now}"));
         }
-        SidebarAction::PruneEmptyFrames => {
+        WorkbenchHostAction::PruneEmptyFrames => {
             graph_app.request_prune_empty_frames();
         }
-        SidebarAction::RestoreFrame(name) => {
+        WorkbenchHostAction::RestoreFrame(name) => {
             graph_app.request_restore_frame_snapshot_named(name);
         }
     }
@@ -1719,10 +2503,24 @@ fn render_frame_pin_controls(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::workbench_layout_policy::NavigatorHostId;
     use crate::services::persistence::types::LogEntry;
+    #[cfg(feature = "diagnostics")]
+    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState, ToolPaneRef};
     use egui_tiles::Tiles;
+    use tempfile::TempDir;
     use uuid::Uuid;
+
+    #[cfg(feature = "diagnostics")]
+    fn channel_count(snapshot: &serde_json::Value, channel: &str) -> u64 {
+        snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(channel))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+    }
 
     #[test]
     fn projection_is_graph_only_when_tree_has_only_graph_panes() {
@@ -1731,24 +2529,29 @@ mod tests {
         app.ensure_graph_view_registered(graph_view);
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
-        let tree = Tree::new("workbench_sidebar_graph_only", root, tiles);
+        let tree = Tree::new("workbench_host_graph_only", root, tiles);
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
         assert_eq!(projection.layer_state, WorkbenchLayerState::GraphOnly);
         assert_eq!(projection.chrome_policy, ChromeExposurePolicy::GraphOnly);
+        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Right);
+        assert_eq!(
+            projection.host_layout.form_factor,
+            WorkbenchHostFormFactor::Sidebar
+        );
         assert!(!projection.visible());
     }
 
     #[test]
-    fn projection_reports_graph_overlay_without_sidebar() {
+    fn projection_reports_graph_overlay_without_host() {
         let graph_view = GraphViewId::new();
         let mut app = GraphBrowserApp::new_for_testing();
         app.ensure_graph_view_registered(graph_view);
         app.workspace.chrome_ui.show_command_palette = true;
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
-        let tree = Tree::new("workbench_sidebar_graph_overlay", root, tiles);
+        let tree = Tree::new("workbench_host_graph_overlay", root, tiles);
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
@@ -1764,23 +2567,467 @@ mod tests {
     }
 
     #[test]
-    fn projection_stays_visible_when_sidebar_is_pinned() {
+    fn projection_stays_visible_when_host_is_pinned() {
         let graph_view = GraphViewId::new();
         let mut app = GraphBrowserApp::new_for_testing();
         app.ensure_graph_view_registered(graph_view);
-        app.set_workbench_sidebar_pinned(true);
+        app.set_workbench_host_pinned(true);
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
-        let tree = Tree::new("workbench_sidebar_pinned", root, tiles);
+        let tree = Tree::new("workbench_host_pinned", root, tiles);
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
         assert_eq!(projection.layer_state, WorkbenchLayerState::WorkbenchPinned);
         assert_eq!(
             projection.chrome_policy,
-            ChromeExposurePolicy::GraphPlusWorkbenchSidebarPinned
+            ChromeExposurePolicy::GraphPlusWorkbenchHostPinned
+        );
+        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Right);
+        assert_eq!(
+            projection.host_layout.form_factor,
+            WorkbenchHostFormFactor::Sidebar
         );
         assert!(projection.visible());
+    }
+
+    #[test]
+    fn projection_uses_runtime_layout_constraint_for_toolbar_host_geometry() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.set_workbench_host_pinned(true);
+        app.set_workbench_layout_constraint(
+            SurfaceHostId::Navigator(NavigatorHostId::Right),
+            WorkbenchLayoutConstraint::AnchoredSplit {
+                surface_host: SurfaceHostId::Navigator(NavigatorHostId::Right),
+                anchor_edge: AnchorEdge::Top,
+                anchor_size_fraction: 0.18,
+                cross_axis_margin_start_px: 24.0,
+                cross_axis_margin_end_px: 16.0,
+                resizable: false,
+            },
+        );
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let tree = Tree::new("workbench_host_toolbar_constraint", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(
+            projection.host_layout.host,
+            SurfaceHostId::Navigator(NavigatorHostId::Right)
+        );
+        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Top);
+        assert_eq!(
+            projection.host_layout.form_factor,
+            WorkbenchHostFormFactor::Toolbar
+        );
+        assert_eq!(projection.host_layout.size_fraction, 0.18);
+        assert_eq!(projection.host_layout.cross_axis_margin_start_px, 24.0);
+        assert_eq!(projection.host_layout.cross_axis_margin_end_px, 16.0);
+        assert!(!projection.host_layout.resizable);
+    }
+
+    #[test]
+    fn first_use_prompt_visibility_respects_terminal_outcomes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+
+        assert!(first_use_prompt_visible(&app, &host));
+
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::ConfigureNow),
+        });
+        assert!(first_use_prompt_visible(&app, &host));
+
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::RememberedConstraint(
+                WorkbenchLayoutConstraint::anchored_split(host.clone(), AnchorEdge::Top, 0.2),
+            )),
+        });
+        assert!(!first_use_prompt_visible(&app, &host));
+
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::Discarded),
+        });
+        assert!(!first_use_prompt_visible(&app, &host));
+
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::Dismissed),
+        });
+        assert!(!first_use_prompt_visible(&app, &host));
+
+        app.suppress_first_use_prompt_for_session(host.clone());
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::ConfigureNow),
+        });
+        assert!(!first_use_prompt_visible(&app, &host));
+    }
+
+    #[test]
+    fn first_use_prompt_visibility_hides_when_constraint_is_already_persisted() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+        app.set_workbench_layout_constraint(
+            host.clone(),
+            WorkbenchLayoutConstraint::anchored_split(host.clone(), AnchorEdge::Right, 0.2),
+        );
+
+        assert!(!first_use_prompt_visible(&app, &host));
+    }
+
+    #[test]
+    fn configuring_overlay_spec_matches_spec_and_is_hidden_when_locked() {
+        let locked = configuring_overlay_spec(false);
+        assert!(locked.is_none());
+
+        let configuring =
+            configuring_overlay_spec(true).expect("configuring overlays should exist");
+        assert_eq!(
+            configuring.edge_targets,
+            vec![
+                AnchorEdge::Top,
+                AnchorEdge::Bottom,
+                AnchorEdge::Left,
+                AnchorEdge::Right,
+            ]
+        );
+        assert!(configuring.has_unconstrain_target);
+        assert!(configuring.has_size_slider);
+        assert_eq!(configuring.margin_handle_labels, vec!["Start", "End"]);
+    }
+
+    #[test]
+    fn projection_collects_multiple_navigator_host_layouts_in_anchor_priority_order() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.set_workbench_host_pinned(true);
+        app.set_workbench_layout_constraint(
+            SurfaceHostId::Navigator(NavigatorHostId::Bottom),
+            WorkbenchLayoutConstraint::AnchoredSplit {
+                surface_host: SurfaceHostId::Navigator(NavigatorHostId::Bottom),
+                anchor_edge: AnchorEdge::Bottom,
+                anchor_size_fraction: 0.12,
+                cross_axis_margin_start_px: 0.0,
+                cross_axis_margin_end_px: 0.0,
+                resizable: true,
+            },
+        );
+        app.set_workbench_layout_constraint(
+            SurfaceHostId::Navigator(NavigatorHostId::Left),
+            WorkbenchLayoutConstraint::AnchoredSplit {
+                surface_host: SurfaceHostId::Navigator(NavigatorHostId::Left),
+                anchor_edge: AnchorEdge::Left,
+                anchor_size_fraction: 0.16,
+                cross_axis_margin_start_px: 8.0,
+                cross_axis_margin_end_px: 10.0,
+                resizable: false,
+            },
+        );
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let tree = Tree::new("workbench_host_multi_host_layouts", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(projection.host_layouts.len(), 2);
+        assert_eq!(
+            projection.host_layouts[0].host,
+            SurfaceHostId::Navigator(NavigatorHostId::Bottom)
+        );
+        assert_eq!(projection.host_layouts[0].anchor_edge, AnchorEdge::Bottom);
+        assert_eq!(
+            projection.host_layouts[1].host,
+            SurfaceHostId::Navigator(NavigatorHostId::Left)
+        );
+        assert_eq!(projection.host_layouts[1].anchor_edge, AnchorEdge::Left);
+    }
+
+    #[test]
+    fn projection_preserves_independent_scope_settings_for_multiple_hosts() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.set_workbench_host_pinned(true);
+
+        let top_host = SurfaceHostId::Navigator(NavigatorHostId::Top);
+        let bottom_host = SurfaceHostId::Navigator(NavigatorHostId::Bottom);
+        app.set_navigator_host_scope(top_host.clone(), NavigatorHostScope::GraphOnly);
+        app.set_navigator_host_scope(bottom_host.clone(), NavigatorHostScope::WorkbenchOnly);
+        app.set_workbench_layout_constraint(
+            top_host.clone(),
+            WorkbenchLayoutConstraint::anchored_split(top_host, AnchorEdge::Top, 0.14),
+        );
+        app.set_workbench_layout_constraint(
+            bottom_host.clone(),
+            WorkbenchLayoutConstraint::anchored_split(bottom_host, AnchorEdge::Bottom, 0.16),
+        );
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let tree = Tree::new("workbench_host_multi_scope_layouts", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+        assert_eq!(projection.host_layouts.len(), 2);
+        assert_eq!(
+            projection.host_layouts[0].resolved_scope,
+            NavigatorHostScope::GraphOnly
+        );
+        assert_eq!(
+            projection.host_layouts[1].resolved_scope,
+            NavigatorHostScope::WorkbenchOnly
+        );
+    }
+
+    #[test]
+    fn session_only_first_use_follow_up_clears_terminal_outcome_but_keeps_active_draft() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Top);
+        let draft_constraint = WorkbenchLayoutConstraint::AnchoredSplit {
+            surface_host: host.clone(),
+            anchor_edge: AnchorEdge::Left,
+            anchor_size_fraction: 0.21,
+            cross_axis_margin_start_px: 18.0,
+            cross_axis_margin_end_px: 12.0,
+            resizable: true,
+        };
+
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::ConfigureNow),
+        });
+        app.set_workbench_layout_constraint_draft(host.clone(), draft_constraint.clone());
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_session_only_follow_up", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetFirstUsePolicy(SurfaceFirstUsePolicy {
+                surface_host: host.clone(),
+                prompt_shown: true,
+                outcome: None,
+            }),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SuppressFirstUsePromptForSession(host.clone()),
+            &mut app,
+            &mut tree,
+        );
+
+        let policy = app
+            .workbench_profile()
+            .first_use_policies
+            .get(&host)
+            .expect("first-use policy should exist");
+        assert_eq!(policy.outcome, None);
+        assert_eq!(
+            app.workbench_layout_constraint_draft_for_host(&host),
+            Some(&draft_constraint)
+        );
+        assert!(app.is_first_use_prompt_suppressed_for_session(&host));
+    }
+
+    #[test]
+    fn navigator_reconfiguration_drag_across_axis_preserves_scope_and_commits_margins() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Top);
+
+        app.set_navigator_host_scope(host.clone(), NavigatorHostScope::GraphOnly);
+        app.set_workbench_surface_config_mode(UxConfigMode::Configuring {
+            surface_host: host.clone(),
+        });
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let mut tree = Tree::new("workbench_host_reconfigure_across_axis", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetLayoutConstraintDraft {
+                surface_host: host.clone(),
+                constraint: WorkbenchLayoutConstraint::AnchoredSplit {
+                    surface_host: host.clone(),
+                    anchor_edge: AnchorEdge::Left,
+                    anchor_size_fraction: 0.22,
+                    cross_axis_margin_start_px: 20.0,
+                    cross_axis_margin_end_px: 14.0,
+                    resizable: true,
+                },
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        let draft_constraint = app
+            .workbench_layout_constraint_draft_for_host(&host)
+            .cloned()
+            .expect("configuring drag should create a draft constraint");
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Left);
+        assert_eq!(
+            projection.host_layout.form_factor,
+            WorkbenchHostFormFactor::Sidebar
+        );
+        assert_eq!(projection.host_layout.cross_axis_margin_start_px, 20.0);
+        assert_eq!(projection.host_layout.cross_axis_margin_end_px, 14.0);
+        assert_eq!(
+            projection.host_layout.resolved_scope,
+            NavigatorHostScope::GraphOnly
+        );
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::CommitLayoutConstraintDraft(host.clone()),
+            &mut app,
+            &mut tree,
+        );
+        app.set_workbench_surface_config_mode(UxConfigMode::Locked);
+
+        assert!(
+            app.workbench_layout_constraint_draft_for_host(&host)
+                .is_none()
+        );
+        assert_eq!(
+            app.workbench_profile().layout_constraints.get(&host),
+            Some(&draft_constraint)
+        );
+        assert_eq!(
+            app.navigator_host_scope(&host),
+            NavigatorHostScope::GraphOnly
+        );
+    }
+
+    #[test]
+    fn navigator_first_use_flow_persists_reconfigured_host_across_restart() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().to_path_buf();
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Top);
+
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        assert!(first_use_prompt_visible(&app, &host));
+
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::ConfigureNow),
+        });
+        app.set_workbench_surface_config_mode(UxConfigMode::Configuring {
+            surface_host: host.clone(),
+        });
+        app.set_navigator_host_scope(host.clone(), NavigatorHostScope::GraphOnly);
+        app.set_workbench_layout_constraint_draft(
+            host.clone(),
+            WorkbenchLayoutConstraint::AnchoredSplit {
+                surface_host: host.clone(),
+                anchor_edge: AnchorEdge::Left,
+                anchor_size_fraction: 0.22,
+                cross_axis_margin_start_px: 20.0,
+                cross_axis_margin_end_px: 14.0,
+                resizable: true,
+            },
+        );
+        app.set_workbench_surface_config_mode(UxConfigMode::Locked);
+        assert!(
+            app.workbench_layout_constraint_draft_for_host(&host)
+                .is_some()
+        );
+
+        let remembered_constraint = app
+            .workbench_layout_constraint_for_host(&host)
+            .cloned()
+            .expect("draft should still be active");
+        app.commit_workbench_layout_constraint_draft(&host);
+        app.set_surface_first_use_policy(SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: Some(FirstUseOutcome::RememberedConstraint(
+                remembered_constraint.clone(),
+            )),
+        });
+        drop(app);
+
+        let reopened = GraphBrowserApp::new_from_dir(path);
+        let reopened_constraint = reopened
+            .workbench_profile()
+            .layout_constraints
+            .get(&host)
+            .expect("remembered navigator host should restore after restart");
+        assert_eq!(reopened_constraint, &remembered_constraint);
+        assert_eq!(
+            reopened.navigator_host_scope(&host),
+            NavigatorHostScope::GraphOnly
+        );
+        assert!(!first_use_prompt_visible(&reopened, &host));
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let tree = Tree::new("workbench_host_restart_projection", root, tiles);
+        let projection = WorkbenchChromeProjection::from_tree(&reopened, &tree, None);
+        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Left);
+        assert_eq!(
+            projection.host_layout.form_factor,
+            WorkbenchHostFormFactor::Sidebar
+        );
+        assert_eq!(projection.host_layout.cross_axis_margin_start_px, 20.0);
+        assert_eq!(projection.host_layout.cross_axis_margin_end_px, 14.0);
+        assert_eq!(
+            projection.host_layout.resolved_scope,
+            NavigatorHostScope::GraphOnly
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn set_first_use_policy_emits_prompt_shown_only_for_visible_prompt_state() {
+        let mut diagnostics = DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("first_use_prompt_shown", root, tiles);
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetFirstUsePolicy(SurfaceFirstUsePolicy {
+                surface_host: host.clone(),
+                prompt_shown: true,
+                outcome: None,
+            }),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetFirstUsePolicy(SurfaceFirstUsePolicy {
+                surface_host: host,
+                prompt_shown: true,
+                outcome: Some(FirstUseOutcome::AcceptDefault),
+            }),
+            &mut app,
+            &mut tree,
+        );
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert_eq!(
+            channel_count(&snapshot, CHANNEL_UX_FIRST_USE_PROMPT_SHOWN),
+            1
+        );
     }
 
     #[cfg(feature = "diagnostics")]
@@ -1798,7 +3045,7 @@ mod tests {
         let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
         let tool = tiles.insert_pane(TileKind::Tool(ToolPaneRef::new(ToolPaneState::Settings)));
         let root = tiles.insert_tab_tile(vec![graph, node, tool]);
-        let tree = Tree::new("workbench_sidebar_visible", root, tiles);
+        let tree = Tree::new("workbench_host_visible", root, tiles);
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
@@ -1828,7 +3075,7 @@ mod tests {
         let left_tabs = tiles.insert_tab_tile(vec![graph, left]);
         let right_tabs = tiles.insert_tab_tile(vec![right]);
         let root = tiles.insert_horizontal_tile(vec![left_tabs, right_tabs]);
-        let tree = Tree::new("workbench_sidebar_hierarchy", root, tiles);
+        let tree = Tree::new("workbench_host_hierarchy", root, tiles);
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
@@ -1877,7 +3124,7 @@ mod tests {
         let left_tabs = tiles.insert_tab_tile(vec![graph, left]);
         let right_tabs = tiles.insert_tab_tile(vec![right]);
         let root = tiles.insert_horizontal_tile(vec![left_tabs, right_tabs]);
-        let tree = Tree::new("workbench_sidebar_navigator_groups", root, tiles);
+        let tree = Tree::new("workbench_host_navigator_groups", root, tiles);
 
         app.sync_named_workbench_frame_graph_representation("workspace-alpha", &tree);
 
@@ -1911,7 +3158,7 @@ mod tests {
         let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
         let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(unrelated_key)));
         let root = tiles.insert_tab_tile(vec![graph, node]);
-        let tree = Tree::new("workbench_sidebar_unrelated", root, tiles);
+        let tree = Tree::new("workbench_host_unrelated", root, tiles);
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
@@ -1944,7 +3191,7 @@ mod tests {
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
         let root = tiles.insert_tab_tile(vec![graph]);
-        let tree = Tree::new("workbench_sidebar_imported", root, tiles);
+        let tree = Tree::new("workbench_host_imported", root, tiles);
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
@@ -1974,10 +3221,10 @@ mod tests {
 
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
-        let mut tree = Tree::new("workbench_sidebar_select_offscreen", root, tiles);
+        let mut tree = Tree::new("workbench_host_select_offscreen", root, tiles);
 
-        apply_sidebar_action(
-            SidebarAction::SelectNode {
+        apply_workbench_host_action(
+            WorkbenchHostAction::SelectNode {
                 node_key,
                 row_key: Some("node:test".to_string()),
             },
@@ -2009,10 +3256,10 @@ mod tests {
 
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
-        let mut tree = Tree::new("workbench_sidebar_select_onscreen", root, tiles);
+        let mut tree = Tree::new("workbench_host_select_onscreen", root, tiles);
 
-        apply_sidebar_action(
-            SidebarAction::SelectNode {
+        apply_workbench_host_action(
+            WorkbenchHostAction::SelectNode {
                 node_key,
                 row_key: Some("node:test".to_string()),
             },
@@ -2039,11 +3286,11 @@ mod tests {
         let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
         let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(live_node)));
         let root = tiles.insert_tab_tile(vec![graph, node]);
-        let mut tree = Tree::new("workbench_sidebar_activate_live", root, tiles);
+        let mut tree = Tree::new("workbench_host_activate_live", root, tiles);
         let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
 
-        apply_sidebar_action(
-            SidebarAction::ActivateNode {
+        apply_workbench_host_action(
+            WorkbenchHostAction::ActivateNode {
                 node_key: live_node,
                 row_key: Some("node:live".to_string()),
             },
@@ -2089,11 +3336,11 @@ mod tests {
             ),
         )));
         let root = tiles.insert_tab_tile(vec![graph, other_node]);
-        let mut tree = Tree::new("workbench_sidebar_activate_cold", root, tiles);
+        let mut tree = Tree::new("workbench_host_activate_cold", root, tiles);
         let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_))));
 
-        apply_sidebar_action(
-            SidebarAction::SelectNode {
+        apply_workbench_host_action(
+            WorkbenchHostAction::SelectNode {
                 node_key: cold_node,
                 row_key: Some("node:cold".to_string()),
             },
@@ -2108,8 +3355,8 @@ mod tests {
 
         app.clear_pending_camera_command();
 
-        apply_sidebar_action(
-            SidebarAction::ActivateNode {
+        apply_workbench_host_action(
+            WorkbenchHostAction::ActivateNode {
                 node_key: cold_node,
                 row_key: Some("node:cold".to_string()),
             },
@@ -2269,8 +3516,7 @@ mod tests {
 
         // Build a tree with a tile for warm_node only.
         let mut tiles = Tiles::default();
-        let warm_pane_tile =
-            tiles.insert_pane(TileKind::Node(NodePaneState::for_node(warm_node)));
+        let warm_pane_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(warm_node)));
         let root = tiles.insert_tab_tile(vec![warm_pane_tile]);
         let tree = Tree::new("roster_cold_peer", root, tiles);
 
@@ -2284,19 +3530,29 @@ mod tests {
 
         let roster = build_active_graphlet_roster(&app, &tree, active_pane, None);
 
-        assert_eq!(roster.len(), 2, "roster should include warm_node and cold_node");
+        assert_eq!(
+            roster.len(),
+            2,
+            "roster should include warm_node and cold_node"
+        );
 
         let cold_entry = roster
             .iter()
             .find(|e| e.node_key == cold_node)
             .expect("cold_node must appear in roster");
-        assert!(cold_entry.is_cold, "cold_node entry must have is_cold = true");
+        assert!(
+            cold_entry.is_cold,
+            "cold_node entry must have is_cold = true"
+        );
 
         let warm_entry = roster
             .iter()
             .find(|e| e.node_key == warm_node)
             .expect("warm_node must appear in roster");
-        assert!(!warm_entry.is_cold, "warm_node entry must have is_cold = false");
+        assert!(
+            !warm_entry.is_cold,
+            "warm_node entry must have is_cold = false"
+        );
     }
 
     #[test]
@@ -2335,8 +3591,7 @@ mod tests {
         }]);
 
         let mut tiles = Tiles::default();
-        let warm_pane_tile =
-            tiles.insert_pane(TileKind::Node(NodePaneState::for_node(warm_node)));
+        let warm_pane_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(warm_node)));
         let root = tiles.insert_tab_tile(vec![warm_pane_tile]);
         let tree = Tree::new("roster_view_override", root, tiles);
 
@@ -2393,8 +3648,7 @@ mod tests {
             .navigator_groups
             .iter()
             .find(|g| {
-                g.section == WorkbenchNavigatorSection::Workbench
-                    && g.title.contains("alpha-frame")
+                g.section == WorkbenchNavigatorSection::Workbench && g.title.contains("alpha-frame")
             })
             .expect("arrangement navigator group for alpha-frame");
 

@@ -14,8 +14,8 @@ use super::edge_style_registry::{
     EdgeStyleToken, ThemeEdgeTokens,
 };
 use super::{
-    ContainmentSubKind, EdgeFamily, EdgeKey, EdgePayload, Graph, GraphDirection, GraphIndex,
-    Node, NodeKey, NodeLifecycle, RelationSelector, SemanticSubKind,
+    ContainmentSubKind, EdgeFamily, EdgeKey, EdgePayload, Graph, GraphDirection, GraphIndex, Node,
+    NodeKey, NodeLifecycle, RelationSelector, SemanticSubKind,
 };
 use egui::epaint::{CircleShape, CubicBezierShape, TextShape};
 use egui::{
@@ -425,7 +425,12 @@ impl GraphNodeShape {
         ));
         let badge_pos = Pos2::new(badge_rect.min.x + padding.x, badge_rect.min.y + padding.y);
         shapes.push(
-            TextShape::new(badge_pos, badge_galley, self.chrome_theme.workspace_badge_text).into(),
+            TextShape::new(
+                badge_pos,
+                badge_galley,
+                self.chrome_theme.workspace_badge_text,
+            )
+            .into(),
         );
     }
 
@@ -503,11 +508,7 @@ impl GraphNodeShape {
         if self.semantic_badge_overflow > 0 {
             let overflow_text = format!("+{}", self.semantic_badge_overflow);
             let galley = ctx.ctx.fonts_mut(|f| {
-                f.layout_no_wrap(
-                    overflow_text,
-                    font,
-                    self.chrome_theme.semantic_badge_text,
-                )
+                f.layout_no_wrap(overflow_text, font, self.chrome_theme.semantic_badge_text)
             });
             let padding = Vec2::new(4.0 * scale, 2.0 * scale);
             let badge_size = galley.size() + padding * 2.0;
@@ -609,8 +610,7 @@ impl GraphNodeShape {
     ) {
         let dash_count = 10;
         let dash_span = std::f32::consts::TAU / dash_count as f32 * 0.5;
-        let ghost_stroke_color =
-            Color32::from_rgba_unmultiplied(180, 180, 180, 100);
+        let ghost_stroke_color = Color32::from_rgba_unmultiplied(180, 180, 180, 100);
         for dash in 0..dash_count {
             let base = dash as f32 * std::f32::consts::TAU / dash_count as f32;
             let start = base;
@@ -689,13 +689,15 @@ impl GraphNodeShape {
 
     fn projected_color(&self) -> Option<Color32> {
         if self.selection_role == SelectionVisualRole::Primary {
-            return Some(self.apply_ghost_opacity(
-                self.color
-                    .map(|color| self.apply_archive_tint(color))
-                    .unwrap_or_else(|| {
-                        self.apply_archive_tint(default_graph_node_selection_color())
-                    }),
-            ));
+            return Some(
+                self.apply_ghost_opacity(
+                    self.color
+                        .map(|color| self.apply_archive_tint(color))
+                        .unwrap_or_else(|| {
+                            self.apply_archive_tint(default_graph_node_selection_color())
+                        }),
+                ),
+            );
         }
         if self.is_crashed {
             return Some(
@@ -2443,7 +2445,12 @@ mod tests {
         state.graph.node_mut(primary).unwrap().display_mut().color = Some(themed_selection);
 
         assert_eq!(
-            state.graph.node(primary).unwrap().display().projected_color(),
+            state
+                .graph
+                .node(primary)
+                .unwrap()
+                .display()
+                .projected_color(),
             Some(themed_selection)
         );
     }
@@ -2468,6 +2475,9 @@ mod tests {
 
         state.apply_node_chrome_theme(chrome);
 
-        assert_eq!(state.graph.node(key).unwrap().display().chrome_theme, chrome);
+        assert_eq!(
+            state.graph.node(key).unwrap().display().chrome_theme,
+            chrome
+        );
     }
 }

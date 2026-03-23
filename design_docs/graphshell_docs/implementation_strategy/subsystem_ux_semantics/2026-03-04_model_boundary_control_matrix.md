@@ -10,7 +10,8 @@
 
 - `GraphId` = durable graph/content truth boundary.
 - `GraphViewId` = scoped view-state boundary (camera/lens/selection/filter memory).
-- Graph Bar = graph-scope chrome that names and switches graph-owned targets above workbench hosting.
+- graph-scoped Navigator host = chrome surface that names and switches
+   graph-owned targets above workbench hosting.
 - file tree = graph-backed hierarchical projection (navigation surface only).
 - workbench = arrangement boundary (pane/tile/frame hosting only).
 

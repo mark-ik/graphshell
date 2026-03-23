@@ -63,8 +63,9 @@ Shared-surface note:
 - Focus preservation must be deterministic when a semantic target still exists.
 - If a target disappears, fallback focus must follow a documented policy.
 - Top-level region cycling must be deterministic and complete.
-- Shared top-level surfaces such as Graph Bar, Workbench Sidebar/Navigator, and
-  settings rails participate in the same deterministic region/focus policy.
+- Shared top-level surfaces such as graph-scoped and workbench-scoped
+  Navigator hosts, and settings rails participate in the same deterministic
+  region/focus policy.
 
 ### 3.3 Action Routing
 

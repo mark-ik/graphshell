@@ -1434,6 +1434,8 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::SetPanePresentationMode { .. }
         | WorkbenchIntent::PromoteEphemeralPane { .. }
         | WorkbenchIntent::SplitPane { .. }
+        | WorkbenchIntent::ApplyLayoutConstraint { .. }
+        | WorkbenchIntent::SetSurfaceConfigMode { .. }
         | WorkbenchIntent::DetachNodeToSplit { .. }
         | WorkbenchIntent::OpenNodeInPane { .. }
         | WorkbenchIntent::ReconcileGraphletTiles { .. }

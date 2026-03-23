@@ -22,8 +22,8 @@ use winit::dpi::PhysicalSize;
 
 use crate::prefs::AppPreferences;
 use crate::shell::desktop::host::window::{
-    EmbedderWindow, EmbedderWindowId, MIN_WINDOW_INNER_SIZE, PlatformWindow,
-    PlatformWindowDialogs, PlatformWindowOps, PlatformWindowRendering, PlatformWindowSignals,
+    EmbedderWindow, EmbedderWindowId, MIN_WINDOW_INNER_SIZE, PlatformWindow, PlatformWindowDialogs,
+    PlatformWindowOps, PlatformWindowRendering, PlatformWindowSignals,
 };
 
 pub struct HeadlessWindow {

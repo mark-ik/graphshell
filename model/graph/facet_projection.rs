@@ -190,9 +190,9 @@ mod tests {
     use euclid::default::Point2D;
 
     use super::*;
+    use crate::model::graph::Graph;
     use crate::model::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
     use crate::model::graph::filter::facet_keys;
-    use crate::model::graph::Graph;
 
     fn build_node(graph: &mut Graph, url: &str) -> NodeKey {
         let GraphDeltaResult::NodeAdded(key) = apply_graph_delta(

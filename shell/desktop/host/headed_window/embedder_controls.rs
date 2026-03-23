@@ -19,11 +19,17 @@ pub(super) fn show_embedder_control(
     match embedder_control {
         EmbedderControl::SelectElement(prompt) => {
             let offset = window.gui.borrow().toolbar_height();
-            window.add_dialog(webview_id, Dialog::new_select_element_dialog(prompt, offset));
+            window.add_dialog(
+                webview_id,
+                Dialog::new_select_element_dialog(prompt, offset),
+            );
         }
         EmbedderControl::ColorPicker(color_picker) => {
             let offset = window.gui.borrow().toolbar_height();
-            window.add_dialog(webview_id, Dialog::new_color_picker_dialog(color_picker, offset));
+            window.add_dialog(
+                webview_id,
+                Dialog::new_color_picker_dialog(color_picker, offset),
+            );
         }
         EmbedderControl::InputMethod(input_method_control) => {
             window.visible_input_methods.borrow_mut().push(control_id);
@@ -124,9 +130,6 @@ pub(super) fn show_http_authentication_dialog(
     );
 }
 
-pub(super) fn dismiss_embedder_controls_for_webview(
-    window: &HeadedWindow,
-    webview_id: WebViewId,
-) {
+pub(super) fn dismiss_embedder_controls_for_webview(window: &HeadedWindow, webview_id: WebViewId) {
     window.dialogs.borrow_mut().remove(&webview_id);
 }

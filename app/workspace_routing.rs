@@ -1,6 +1,6 @@
 use super::*;
-use crate::graph::{ArrangementSubKind, NodeKey, RelationSelector};
 use crate::graph::graphlet;
+use crate::graph::{ArrangementSubKind, NodeKey, RelationSelector};
 use crate::util::VersoAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

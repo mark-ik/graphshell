@@ -37,8 +37,7 @@ pub(crate) const ACTION_GRAPH_SELECTION_WARM_SELECT: &str = "graph:selection_war
 /// Retract all durable graphlet edges (`UserGrouped` and `FrameMember`) between
 /// the selected node and its graphlet peers, removing it from the graphlet.
 /// Lifecycle is unchanged; semantic history edges (Hyperlink, History) are not touched.
-pub(crate) const ACTION_GRAPH_NODE_REMOVE_FROM_GRAPHLET: &str =
-    "graph:node_remove_from_graphlet";
+pub(crate) const ACTION_GRAPH_NODE_REMOVE_FROM_GRAPHLET: &str = "graph:node_remove_from_graphlet";
 pub(crate) const ACTION_GRAPH_NODE_COPY_URL: &str = "graph:node_copy_url";
 pub(crate) const ACTION_GRAPH_NODE_COPY_TITLE: &str = "graph:node_copy_title";
 pub(crate) const ACTION_GRAPH_EDGE_CREATE: &str = "graph:edge_create";
@@ -873,10 +872,9 @@ fn execute_graph_node_remove_from_graphlet_action(
                     RelationSelector::Semantic(SemanticSubKind::UserGrouped),
                 ));
             }
-            if edge
-                .weight()
-                .has_relation(RelationSelector::Arrangement(ArrangementSubKind::FrameMember))
-            {
+            if edge.weight().has_relation(RelationSelector::Arrangement(
+                ArrangementSubKind::FrameMember,
+            )) {
                 selectors.push((
                     edge.source(),
                     edge.target(),
