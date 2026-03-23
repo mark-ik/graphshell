@@ -58,6 +58,7 @@ pub(super) fn collect_lasso_action(
     enabled: bool,
     metadata_id: egui::Id,
     lasso_binding: CanvasLassoBinding,
+    visible_graph_rects: &[egui::Rect],
 ) -> LassoGestureResult {
     let presentation = active_presentation_profile(app);
     let (start_id, moved_id) = lasso_state_ids(metadata_id);
@@ -73,7 +74,6 @@ pub(super) fn collect_lasso_action(
         };
     }
 
-    let graph_rect = ui.max_rect();
     let (pointer_pos, pressed, down, released, ctrl, shift, alt) = ui.input(|i| {
         let (pressed, down, released) = match lasso_binding {
             CanvasLassoBinding::RightDrag => (
@@ -100,7 +100,7 @@ pub(super) fn collect_lasso_action(
 
     if pressed
         && let Some(pos) = pointer_pos
-        && graph_rect.contains(pos)
+        && visible_graph_rects.iter().any(|rect| rect.contains(pos))
     {
         ui.ctx().data_mut(|d| {
             d.insert_persisted(start_id, pos);

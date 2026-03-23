@@ -281,9 +281,52 @@ pub(super) fn viewport_culled_graph(
         .graph_runtime
         .graph_view_frames
         .get(&view_id)?;
-    let canvas_rect = canvas_rect_from_view_frame(ui.max_rect(), *frame)?;
+    let screen_rect = effective_graph_screen_rect(ui.max_rect(), app)?;
+    let canvas_rect = canvas_rect_from_view_frame(screen_rect, *frame)?;
 
     viewport_culled_graph_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
+}
+
+pub(super) fn graph_visible_screen_rects(
+    screen_rect: egui::Rect,
+    app: &GraphBrowserApp,
+) -> Vec<egui::Rect> {
+    let Some(geometry) = app
+        .workspace
+        .graph_runtime
+        .workbench_navigation_geometry
+        .as_ref()
+    else {
+        return vec![screen_rect];
+    };
+
+    let mut visible_rects = geometry
+        .visible_rects_or_content()
+        .into_iter()
+        .map(|visible_rect| visible_rect.intersect(screen_rect))
+        .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0)
+        .collect::<Vec<_>>();
+
+    if visible_rects.is_empty() && screen_rect.width() > 0.0 && screen_rect.height() > 0.0 {
+        visible_rects.push(screen_rect);
+    }
+
+    visible_rects
+}
+
+pub(super) fn effective_graph_screen_rect(
+    screen_rect: egui::Rect,
+    app: &GraphBrowserApp,
+) -> Option<egui::Rect> {
+    graph_visible_screen_rects(screen_rect, app)
+        .into_iter()
+        .max_by(|left, right| {
+            let left_area = left.width() * left.height();
+            let right_area = right.width() * right.height();
+            left_area
+                .partial_cmp(&right_area)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
 
 pub(super) fn canvas_rect_from_view_frame(

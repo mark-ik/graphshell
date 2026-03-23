@@ -124,7 +124,13 @@ fn render_floating_pane_overlays(
         _ => None,
     })?;
 
-    let viewport = ctx.available_rect();
+    let viewport = graph_app
+        .workspace
+        .graph_runtime
+        .workbench_navigation_geometry
+        .as_ref()
+        .map(|geometry| geometry.primary_visible_rect())
+        .unwrap_or_else(|| ctx.available_rect());
     let size = if floating_state.viewer_id_override.is_some() {
         egui::vec2(viewport.width() * 0.5, viewport.height() * 0.5)
     } else {
@@ -891,7 +897,13 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 sequence: 0,
                 active_tile_count: active_tiles_for_diag.len(),
                 focused_node_present,
-                viewport_rect: ctx.available_rect(),
+                viewport_rect: graph_app
+                    .workspace
+                    .graph_runtime
+                    .workbench_navigation_geometry
+                    .as_ref()
+                    .map(|geometry| geometry.primary_visible_rect())
+                    .unwrap_or_else(|| ctx.available_rect()),
                 hierarchy: tile_hierarchy_lines(tiles_tree, graph_app),
                 tiles,
             },

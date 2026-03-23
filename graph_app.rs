@@ -210,7 +210,9 @@ mod storage_interop;
 
 #[path = "app/workspace_state.rs"]
 mod workspace_state;
-pub use workspace_state::{ChromeUiState, GraphViewRuntimeState, WorkbenchSessionState};
+pub use workspace_state::{
+    ChromeUiState, GraphViewRuntimeState, WorkbenchNavigationGeometry, WorkbenchSessionState,
+};
 
 #[path = "app/intent_phases.rs"]
 mod intent_phases;
@@ -847,6 +849,7 @@ impl GraphBrowserApp {
                     graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                     graph_view_frames: HashMap::new(),
                     graph_view_canvas_rects: HashMap::new(),
+                    workbench_navigation_geometry: None,
                     focused_view: None,
                     graph_reader_state: GraphReaderState::default(),
                     camera: Camera::new(),
@@ -989,6 +992,7 @@ impl GraphBrowserApp {
                     graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                     graph_view_frames: HashMap::new(),
                     graph_view_canvas_rects: HashMap::new(),
+                    workbench_navigation_geometry: None,
                     focused_view: None,
                     graph_reader_state: GraphReaderState::default(),
                     camera: Camera::new(),

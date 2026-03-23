@@ -11,7 +11,8 @@ use uuid::Uuid;
 use crate::app::workbench_layout_policy::{AnchorEdge, FirstUseOutcome, NavigatorHostId};
 use crate::app::{
     CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, NavigatorHostScope,
-    SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent, WorkbenchLayoutConstraint,
+    SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent,
+    WorkbenchLayoutConstraint, WorkbenchNavigationGeometry,
 };
 use crate::graph::{ArrangementSubKind, NodeKey};
 use crate::services::persistence::types::LogEntry;
@@ -80,6 +81,98 @@ fn show_host_contents_with_cross_axis_margins(
             });
         }
     }
+}
+
+fn host_uses_overlay_layout(host_layout: &WorkbenchHostLayout) -> bool {
+    host_layout.cross_axis_margin_start_px > 0.0 || host_layout.cross_axis_margin_end_px > 0.0
+}
+
+fn host_panel_extent(host_layout: &WorkbenchHostLayout, available_rect: egui::Rect) -> f32 {
+    let (axis_extent, min_extent) = match host_layout.form_factor {
+        WorkbenchHostFormFactor::Sidebar => (available_rect.width(), HOST_PANEL_MAX_FLOOR),
+        WorkbenchHostFormFactor::Toolbar => (available_rect.height(), HOST_PANEL_MAX_FLOOR),
+    };
+    let max_extent = (axis_extent * HOST_PANEL_MAX_FRACTION).max(min_extent);
+    (axis_extent * host_layout.size_fraction).clamp(min_extent, max_extent)
+}
+
+fn clamped_cross_axis_margins(
+    available_extent: f32,
+    start_margin: f32,
+    end_margin: f32,
+) -> (f32, f32) {
+    let available_extent = available_extent.max(0.0);
+    let max_total_margin = (available_extent - 1.0).max(0.0);
+    let requested_total_margin = (start_margin.max(0.0) + end_margin.max(0.0)).max(0.0);
+    if requested_total_margin <= max_total_margin || requested_total_margin <= f32::EPSILON {
+        return (start_margin.max(0.0), end_margin.max(0.0));
+    }
+
+    let scale = max_total_margin / requested_total_margin;
+    (start_margin.max(0.0) * scale, end_margin.max(0.0) * scale)
+}
+
+fn host_overlay_rect(
+    host_layout: &WorkbenchHostLayout,
+    available_rect: egui::Rect,
+) -> Option<egui::Rect> {
+    if !host_uses_overlay_layout(host_layout) {
+        return None;
+    }
+
+    let host_extent = host_panel_extent(host_layout, available_rect);
+    match host_layout.form_factor {
+        WorkbenchHostFormFactor::Sidebar => {
+            let (start_margin, end_margin) = clamped_cross_axis_margins(
+                available_rect.height(),
+                host_layout.cross_axis_margin_start_px,
+                host_layout.cross_axis_margin_end_px,
+            );
+            let top = available_rect.top() + start_margin;
+            let bottom = available_rect.bottom() - end_margin;
+            let (left, right) = match host_layout.anchor_edge {
+                AnchorEdge::Left => (available_rect.left(), available_rect.left() + host_extent),
+                AnchorEdge::Right | AnchorEdge::Top | AnchorEdge::Bottom => {
+                    (available_rect.right() - host_extent, available_rect.right())
+                }
+            };
+            Some(egui::Rect::from_min_max(
+                egui::pos2(left, top),
+                egui::pos2(right, bottom.max(top + 1.0)),
+            ))
+        }
+        WorkbenchHostFormFactor::Toolbar => {
+            let (start_margin, end_margin) = clamped_cross_axis_margins(
+                available_rect.width(),
+                host_layout.cross_axis_margin_start_px,
+                host_layout.cross_axis_margin_end_px,
+            );
+            let left = available_rect.left() + start_margin;
+            let right = available_rect.right() - end_margin;
+            let (top, bottom) = match host_layout.anchor_edge {
+                AnchorEdge::Bottom => {
+                    (available_rect.bottom() - host_extent, available_rect.bottom())
+                }
+                AnchorEdge::Top | AnchorEdge::Left | AnchorEdge::Right => {
+                    (available_rect.top(), available_rect.top() + host_extent)
+                }
+            };
+            Some(egui::Rect::from_min_max(
+                egui::pos2(left, top),
+                egui::pos2(right.max(left + 1.0), bottom),
+            ))
+        }
+    }
+}
+
+fn update_workbench_navigation_geometry(
+    graph_app: &mut GraphBrowserApp,
+    content_rect: egui::Rect,
+    occluding_host_rects: Vec<egui::Rect>,
+) {
+    graph_app.workspace.graph_runtime.workbench_navigation_geometry = Some(
+        WorkbenchNavigationGeometry::from_content_rect(content_rect, occluding_host_rects),
+    );
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1370,6 +1463,7 @@ pub(crate) fn render_workbench_host(
     let projection =
         WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, active_toolbar_pane);
     if !projection.visible() {
+        graph_app.workspace.graph_runtime.workbench_navigation_geometry = None;
         return projection;
     }
 
@@ -1394,22 +1488,24 @@ pub(crate) fn render_workbench_host(
     let mut post_host_actions = Vec::new();
     let host_layouts = projection.host_layouts.clone();
     let missing_hosts = missing_navigator_hosts(&host_layouts);
+    let mut overlay_occlusions = Vec::new();
 
     for (index, host_layout) in host_layouts.iter().cloned().enumerate() {
+        let host_available_rect = ctx.available_rect();
         let host_panel_max_extent = match host_layout.form_factor {
             WorkbenchHostFormFactor::Sidebar => {
-                (ctx.content_rect().width() * HOST_PANEL_MAX_FRACTION).max(HOST_PANEL_MAX_FLOOR)
+                (host_available_rect.width() * HOST_PANEL_MAX_FRACTION).max(HOST_PANEL_MAX_FLOOR)
             }
             WorkbenchHostFormFactor::Toolbar => {
-                (ctx.content_rect().height() * HOST_PANEL_MAX_FRACTION).max(HOST_PANEL_MAX_FLOOR)
+                (host_available_rect.height() * HOST_PANEL_MAX_FRACTION).max(HOST_PANEL_MAX_FLOOR)
             }
         };
         let host_panel_default_extent = (match host_layout.form_factor {
             WorkbenchHostFormFactor::Sidebar => {
-                ctx.content_rect().width() * host_layout.size_fraction
+                host_available_rect.width() * host_layout.size_fraction
             }
             WorkbenchHostFormFactor::Toolbar => {
-                ctx.content_rect().height() * host_layout.size_fraction
+                host_available_rect.height() * host_layout.size_fraction
             }
         })
         .clamp(HOST_PANEL_MAX_FLOOR, host_panel_max_extent);
@@ -1753,40 +1849,62 @@ pub(crate) fn render_workbench_host(
                 }
             });
         };
-        match host_layout.form_factor {
-            WorkbenchHostFormFactor::Sidebar => {
-                let side_panel = match host_layout.anchor_edge {
-                    AnchorEdge::Left => SidePanel::left(panel_id),
-                    AnchorEdge::Right => SidePanel::right(panel_id),
-                    AnchorEdge::Top | AnchorEdge::Bottom => SidePanel::right(panel_id),
-                };
-                side_panel
-                    .resizable(host_layout.resizable)
-                    .default_width(host_panel_default_extent)
-                    .min_width(HOST_PANEL_MAX_FLOOR)
-                    .max_width(host_panel_max_extent)
-                    .show(ctx, |ui| {
-                        show_host_contents_with_cross_axis_margins(ui, &host_layout, |ui| {
+        if let Some(overlay_rect) = host_overlay_rect(&host_layout, host_available_rect) {
+            overlay_occlusions.push(overlay_rect);
+            egui::Area::new(egui::Id::new(panel_id))
+                .order(egui::Order::Foreground)
+                .fixed_pos(overlay_rect.min)
+                .show(ctx, |ui| {
+                    ui.set_min_size(overlay_rect.size());
+                    ui.set_max_size(overlay_rect.size());
+                    egui::Frame::new()
+                        .fill(ui.visuals().panel_fill)
+                        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui| {
+                            ui.set_width(overlay_rect.width());
+                            ui.set_height(overlay_rect.height());
                             show_host_contents(ui);
                         });
-                    });
-            }
-            WorkbenchHostFormFactor::Toolbar => {
-                let top_bottom_panel = match host_layout.anchor_edge {
-                    AnchorEdge::Top => egui::TopBottomPanel::top(panel_id),
-                    AnchorEdge::Bottom => egui::TopBottomPanel::bottom(panel_id),
-                    AnchorEdge::Left | AnchorEdge::Right => egui::TopBottomPanel::top(panel_id),
-                };
-                top_bottom_panel
-                    .resizable(host_layout.resizable)
-                    .default_height(host_panel_default_extent)
-                    .min_height(HOST_PANEL_MAX_FLOOR)
-                    .max_height(host_panel_max_extent)
-                    .show(ctx, |ui| {
-                        show_host_contents_with_cross_axis_margins(ui, &host_layout, |ui| {
-                            show_host_contents(ui);
+                });
+        } else {
+            match host_layout.form_factor {
+                WorkbenchHostFormFactor::Sidebar => {
+                    let side_panel = match host_layout.anchor_edge {
+                        AnchorEdge::Left => SidePanel::left(panel_id),
+                        AnchorEdge::Right => SidePanel::right(panel_id),
+                        AnchorEdge::Top | AnchorEdge::Bottom => SidePanel::right(panel_id),
+                    };
+                    side_panel
+                        .resizable(host_layout.resizable)
+                        .default_width(host_panel_default_extent)
+                        .min_width(HOST_PANEL_MAX_FLOOR)
+                        .max_width(host_panel_max_extent)
+                        .show(ctx, |ui| {
+                            show_host_contents_with_cross_axis_margins(ui, &host_layout, |ui| {
+                                show_host_contents(ui);
+                            });
                         });
-                    });
+                }
+                WorkbenchHostFormFactor::Toolbar => {
+                    let top_bottom_panel = match host_layout.anchor_edge {
+                        AnchorEdge::Top => egui::TopBottomPanel::top(panel_id),
+                        AnchorEdge::Bottom => egui::TopBottomPanel::bottom(panel_id),
+                        AnchorEdge::Left | AnchorEdge::Right => {
+                            egui::TopBottomPanel::top(panel_id)
+                        }
+                    };
+                    top_bottom_panel
+                        .resizable(host_layout.resizable)
+                        .default_height(host_panel_default_extent)
+                        .min_height(HOST_PANEL_MAX_FLOOR)
+                        .max_height(host_panel_max_extent)
+                        .show(ctx, |ui| {
+                            show_host_contents_with_cross_axis_margins(ui, &host_layout, |ui| {
+                                show_host_contents(ui);
+                            });
+                        });
+                }
             }
         }
 
@@ -1803,6 +1921,8 @@ pub(crate) fn render_workbench_host(
             }
         }
     }
+
+    update_workbench_navigation_geometry(graph_app, ctx.available_rect(), overlay_occlusions);
 
     for action in post_host_actions {
         apply_workbench_host_action(action, graph_app, tiles_tree);
@@ -2627,6 +2747,71 @@ mod tests {
         assert_eq!(projection.host_layout.cross_axis_margin_start_px, 24.0);
         assert_eq!(projection.host_layout.cross_axis_margin_end_px, 16.0);
         assert!(!projection.host_layout.resizable);
+    }
+
+    #[test]
+    fn host_overlay_layout_is_enabled_only_when_cross_axis_margins_are_present() {
+        let host = WorkbenchHostLayout::default_for_host(
+            SurfaceHostId::Navigator(NavigatorHostId::Right),
+            false,
+        );
+        assert!(!host_uses_overlay_layout(&host));
+
+        let with_margins = WorkbenchHostLayout {
+            cross_axis_margin_start_px: 18.0,
+            ..host
+        };
+        assert!(host_uses_overlay_layout(&with_margins));
+    }
+
+    #[test]
+    fn host_overlay_rect_for_sidebar_respects_vertical_margins() {
+        let host = WorkbenchHostLayout {
+            host: SurfaceHostId::Navigator(NavigatorHostId::Right),
+            anchor_edge: AnchorEdge::Right,
+            form_factor: WorkbenchHostFormFactor::Sidebar,
+            configured_scope: NavigatorHostScope::Both,
+            resolved_scope: NavigatorHostScope::Both,
+            size_fraction: 0.2,
+            cross_axis_margin_start_px: 20.0,
+            cross_axis_margin_end_px: 30.0,
+            resizable: true,
+        };
+        let rect = host_overlay_rect(
+            &host,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1000.0, 800.0)),
+        )
+        .expect("sidebar host with margins should use overlay rect");
+
+        assert_eq!(rect.min.y, 20.0);
+        assert_eq!(rect.max.y, 770.0);
+        assert_eq!(rect.min.x, 800.0);
+        assert_eq!(rect.max.x, 1000.0);
+    }
+
+    #[test]
+    fn host_overlay_rect_for_toolbar_respects_horizontal_margins() {
+        let host = WorkbenchHostLayout {
+            host: SurfaceHostId::Navigator(NavigatorHostId::Top),
+            anchor_edge: AnchorEdge::Top,
+            form_factor: WorkbenchHostFormFactor::Toolbar,
+            configured_scope: NavigatorHostScope::Both,
+            resolved_scope: NavigatorHostScope::Both,
+            size_fraction: 0.2,
+            cross_axis_margin_start_px: 40.0,
+            cross_axis_margin_end_px: 60.0,
+            resizable: true,
+        };
+        let rect = host_overlay_rect(
+            &host,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1200.0, 500.0)),
+        )
+        .expect("toolbar host with margins should use overlay rect");
+
+        assert_eq!(rect.min.x, 40.0);
+        assert_eq!(rect.max.x, 1140.0);
+        assert_eq!(rect.min.y, 0.0);
+        assert_eq!(rect.max.y, 180.0);
     }
 
     #[test]

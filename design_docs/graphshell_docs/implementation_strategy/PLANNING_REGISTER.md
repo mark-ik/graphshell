@@ -508,6 +508,29 @@ These issues resolve the architectural gap identified in §0.2. Each is a discre
 **Lane**: `lane:embedder-debt` (`#90`)
 **Labels**: `architecture`, `lane:embedder-debt`, `diag`
 
+#### Issue: Visible Navigation Geometry Consumer Parity (child of `lane:navigation-geometry`)
+
+**Title**: Make graph/input/compositor consumers honor visible navigation geometry when overlay-form Navigator hosts are present
+
+**Scope**:
+1. Introduce a runtime-carried `WorkbenchNavigationGeometry` model that distinguishes the logical navigation-region remainder from overlay-host occluding rects.
+2. Publish visible navigation geometry from workbench host layout/render so overlay-form Navigator hosts with cross-axis margins no longer expose dead content strips.
+3. Route compositor viewport culling, floating overlay placement, and compositor frame diagnostics through visible navigation geometry rather than a single raw available rect.
+4. Route graph input consumers through the same geometry contract: wheel capture, hover resolution, lasso start gating, edge/background click gating, and graph-view canvas rect bookkeeping.
+5. Document the temporary adapter rule for single-rect consumers: they may use the largest visible navigation sub-rect until the canonical multi-rect pane/render contract lands.
+6. Add focused tests covering overlay-occluded geometry splitting, graph visible-region clipping, and compositor non-culling when content is visible in any derived rect.
+
+**Done gate**:
+- Overlay-form Navigator hosts with cross-axis margins do not leave stale or non-live strips behind in graph or workbench content regions.
+- Graph hover/click/lasso/wheel gating and graph-view canvas rect updates respect visible navigation geometry rather than the raw navigation-region remainder.
+- Compositor viewport culling and frame diagnostics respect the visible rect set or the documented single-rect adapter path.
+- `workbench_layout_policy_spec.md` explicitly distinguishes logical navigation region from visible navigation geometry.
+- `cargo check` and focused geometry/culling tests pass.
+
+**Hotspots**: `shell/desktop/ui/workbench_host.rs`, `app/workspace_state.rs`, `render/mod.rs`, `render/canvas_visuals.rs`, `render/canvas_input.rs`, `shell/desktop/workbench/tile_compositor.rs`, `shell/desktop/workbench/tile_render_pass.rs`
+**Lane**: `lane:navigation-geometry`
+**Labels**: `architecture`, `ui`, `render`, `lane:navigation-geometry`
+
 ### 0.7 Terminology Extensions
 
 The following terms are proposed additions to `TERMINOLOGY.md` for the architecture described in this section. They are consistent with existing canonical terminology and fill gaps exposed by the compositor analysis.
@@ -960,6 +983,7 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
 | `lane:viewer-platform` (`#92`) | Universal content execution + real embedded viewers + Wry foundation | Prospective | `viewer/2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `tile_behavior.rs`, `mods/native/verso/mod.rs`, `Cargo.toml` | Closes spec/code drift around viewer support and `viewer:wry`. |
+| `lane:navigation-geometry` | Overlay-derived visible navigation geometry, graph/input/compositor clipping parity, and later multi-rect pane/render contract | Prospective | `workbench/workbench_layout_policy_spec.md`, `aspect_render/frame_assembly_and_compositor_spec.md`, `shell/desktop/ui/workbench_host.rs`, `render/mod.rs`, `shell/desktop/workbench/tile_compositor.rs` | First slice keeps the current one-pane model but makes visible-region consumers honor overlay host occlusions; later slice promotes that geometry into a canonical multi-rect pane/render contract. |
 | `lane:diagnostics` (`#94`) | AnalyzerRegistry, in-pane TestHarness, invariant/health surfacing | Prospective | `SUBSYSTEM_DIAGNOSTICS.md`, diagnostics runtime/pane code | Leverage multiplier for all other lanes. |
 | `lane:subsystem-hardening` (`#96`) | Storage/history/security closure slices | Prospective | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md` | Can be split into sublanes once issue volume grows. |
 | `lane:test-infra` (`#97`) | T1/T2 scaling, `test-utils`, scenario binary, CI split | Prospective | `2026-02-26_test_infrastructure_improvement_plan.md`, `mod_loader.rs`, `Cargo.toml` | Prefer infra-only PRs to reduce merge risk. |

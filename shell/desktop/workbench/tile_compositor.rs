@@ -477,8 +477,10 @@ fn differential_fallback_channel(reason: DifferentialComposeReason) -> &'static 
     }
 }
 
-fn should_cull_tile_content(tile_rect: egui::Rect, viewport_rect: egui::Rect) -> bool {
-    tile_rect.width() <= 0.0 || tile_rect.height() <= 0.0 || !tile_rect.intersects(viewport_rect)
+fn should_cull_tile_content(tile_rect: egui::Rect, viewport_rects: &[egui::Rect]) -> bool {
+    tile_rect.width() <= 0.0
+        || tile_rect.height() <= 0.0
+        || !viewport_rects.iter().any(|viewport_rect| tile_rect.intersects(*viewport_rect))
 }
 
 fn should_degrade_for_gpu_pressure(
@@ -958,7 +960,14 @@ pub(crate) fn composite_active_node_pane_webviews(
     .with_tile_drag_active(tile_drag_active);
     let mut active_composited_nodes = HashSet::new();
     let mut composited_counters = CompositedPassCounters::default();
-    let viewport_rect = ctx.viewport_rect();
+    let fallback_viewport = [ctx.viewport_rect()];
+    let viewport_rects = graph_app
+        .workspace
+        .graph_runtime
+        .workbench_navigation_geometry
+        .as_ref()
+        .map(|geometry| geometry.visible_rects_or_content())
+        .unwrap_or_else(|| fallback_viewport.to_vec());
     let frame_index = COMPOSITOR_ACTIVITY_FRAME_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let mut frame_activity = CompositorFrameActivitySummary {
         active_tile_keys: Vec::new(),
@@ -979,7 +988,7 @@ pub(crate) fn composite_active_node_pane_webviews(
         let render_mode = semantic.render_mode;
         let interaction_render_mode = interaction_ui.effective_interaction_render_mode(render_mode);
 
-        if should_cull_tile_content(tile_rect, viewport_rect) {
+        if should_cull_tile_content(tile_rect, &viewport_rects) {
             if render_mode == TileRenderMode::NativeOverlay {
                 sync_native_overlay_for_tile(node_key, tile_rect, false);
             }
@@ -2567,7 +2576,7 @@ mod tests {
         let viewport_rect =
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
 
-        assert!(should_cull_tile_content(tile_rect, viewport_rect));
+        assert!(should_cull_tile_content(tile_rect, &[viewport_rect]));
     }
 
     #[test]
@@ -2576,7 +2585,20 @@ mod tests {
         let viewport_rect =
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
 
-        assert!(!should_cull_tile_content(tile_rect, viewport_rect));
+        assert!(!should_cull_tile_content(tile_rect, &[viewport_rect]));
+    }
+
+    #[test]
+    fn should_not_cull_tile_content_when_visible_in_any_navigation_region_rect() {
+        let tile_rect =
+            egui::Rect::from_min_max(egui::pos2(340.0, 8.0), egui::pos2(380.0, 32.0));
+        let viewport_rects = [
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 40.0)),
+            egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),
+            egui::Rect::from_min_max(egui::pos2(0.0, 260.0), egui::pos2(400.0, 300.0)),
+        ];
+
+        assert!(!should_cull_tile_content(tile_rect, &viewport_rects));
     }
 
     #[test]

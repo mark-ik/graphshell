@@ -139,6 +139,19 @@ pub enum NavigatorHostId {
 - A `WorkbenchLayoutConstraint::AnchoredSplit` removes the matched host from
     arrangement-graph-driven layout and places it against the named edge.
 - The remaining workbench area becomes the **navigation region** — the canvas where content tiles are arranged normally.
+- If a Navigator host uses cross-axis margins such that its rendered chrome is
+        realized as an overlay rather than a pure edge-reserved split, the
+        navigation region remains the semantic remainder of the workbench frame, but
+        the host's rendered rect creates an **occluding host rect** inside that
+        remainder.
+- Render/input consumers must therefore distinguish between:
+        - the **navigation region** as the logical content-routing region after
+            anchored constraints are applied, and
+        - the **visible navigation geometry** as the interactable/renderable subset
+            after overlay-form host occlusions are subtracted.
+- Graph hover/click/lasso hit-testing, graph-view canvas rect bookkeeping,
+        compositor viewport culling, and diagnostics minimaps must honor visible
+        navigation geometry rather than assuming the full remainder rect is live.
 - Multiple constraints are allowed, but they must not produce overlapping anchor
     regions. If two hosts claim incompatible space, the policy evaluator emits
     `CHANNEL_UX_LAYOUT_CONSTRAINT_CONFLICT` and falls back to `Unconstrained` for
@@ -159,6 +172,35 @@ When evaluating which surface occupies which region:
 1. `AnchoredSplit` constraints are applied in order: Top → Bottom → Left → Right.
 2. After all constraints are applied, the remaining area is the navigation region.
 3. `Unconstrained` surfaces participate in the navigation region's arrangement graph layout.
+
+### 3.4 Overlay-Occluded Navigation Geometry
+
+The layout policy's canonical output is still the navigation region remainder
+after anchored hosts are applied. However, Navigator hosts with cross-axis
+margins may render as explicit overlay rects inside that remainder so that the
+exposed strips continue to belong to the graph/workbench surface rather than
+being consumed as dead panel padding.
+
+This creates a second derived geometry contract:
+
+- **Navigation region** = logical remainder after anchored constraints.
+- **Visible navigation geometry** = navigation region minus any overlay-form
+  host occluding rects.
+
+Normative rules:
+
+1. Layout policy remains host-keyed and edge-first; overlay occlusion is a
+    render-time projection of an already valid host constraint, not a new
+    constraint type.
+2. Consumers that make visibility or interactability decisions must prefer the
+    visible navigation geometry over the raw navigation-region remainder.
+3. Consumers that still require a single rect may temporarily use the largest
+    visible navigation sub-rect, but that is an adapter rule rather than the
+    long-term canonical contract.
+4. A future render-contract rewrite may promote visible navigation geometry to a
+    first-class multi-rect pane contract; until then, overlay-host occlusion is
+    the authoritative explanation for why the semantic navigation region and the
+    interactable visible region may differ.
 
 ---
 
@@ -542,6 +584,8 @@ The feature is complete when:
 11. Multiple Navigator hosts can coexist on different edges with independent scope settings.
 12. Dragging a Navigator host across axes converts toolbar/sidebar form by default while preserving scope.
 13. The Navigator first-use flow (described in §9.5) works end-to-end: prompt → config mode → drag to edge → adjust margins → commit → persisted across restart.
+14. Overlay-form Navigator hosts with cross-axis margins do not leave stale or non-live content strips behind: graph hit-testing, lasso start gating, graph canvas bookkeeping, and compositor viewport culling all honor visible navigation geometry.
+15. Diagnostics and developer-facing viewport summaries may distinguish between logical navigation-region remainder and visible navigation geometry when overlay-form hosts are present.
 
 ---
 

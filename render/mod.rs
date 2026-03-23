@@ -60,8 +60,9 @@ use canvas_overlays::{
 #[cfg(test)]
 use canvas_visuals::filtered_graph_for_search;
 use canvas_visuals::{
-    apply_search_node_visuals, canvas_rect_from_view_frame, filtered_graph_for_visible_nodes,
-    viewport_culled_graph, visible_nodes_for_view_filters,
+    apply_search_node_visuals, canvas_rect_from_view_frame, effective_graph_screen_rect,
+    filtered_graph_for_visible_nodes, graph_visible_screen_rects, viewport_culled_graph,
+    visible_nodes_for_view_filters,
 };
 use graph_info::{draw_graph_info, requested_layout_algorithm_id, should_apply_layout_algorithm};
 #[cfg(test)]
@@ -521,7 +522,11 @@ pub fn render_graph_in_ui_collect_actions(
     // Intercept wheel input before GraphView renders so parent scroll handling
     // cannot consume the delta first.
     let graph_rect = ui.max_rect();
-    if ui.rect_contains_pointer(graph_rect) {
+    let visible_graph_rects = graph_visible_screen_rects(graph_rect, app);
+    let pointer_in_visible_graph_region = ui
+        .input(|i| i.pointer.latest_pos())
+        .is_some_and(|pointer| visible_graph_rects.iter().any(|rect| rect.contains(pointer)));
+    if pointer_in_visible_graph_region {
         let mut captured_wheel_zoom = false;
         ui.input_mut(|input| {
             let scroll_delta = if input.smooth_scroll_delta.y.abs() > f32::EPSILON {
@@ -609,17 +614,19 @@ pub fn render_graph_in_ui_collect_actions(
         .map(|v| v.lens.physics.graph_physics_extensions());
     apply_graph_physics_extensions(app, physics_extensions);
 
-    app.workspace.graph_runtime.hovered_graph_node = app
-        .workspace
-        .graph_runtime
-        .egui_state
-        .as_ref()
-        .and_then(|state| {
-            state
-                .graph
-                .hovered_node()
-                .and_then(|idx| state.get_key(idx))
-        });
+    app.workspace.graph_runtime.hovered_graph_node = pointer_in_visible_graph_region.then(|| {
+        app.workspace
+            .graph_runtime
+            .egui_state
+            .as_ref()
+            .and_then(|state| {
+                state
+                    .graph
+                    .hovered_node()
+                    .and_then(|idx| state.get_key(idx))
+            })
+    })
+    .flatten();
     // Match egui_graphs' internal MetadataFrame storage key exactly.
     // egui_graphs calls data.insert_persisted(Id::new(frame.get_id()), frame) where
     // get_id() returns Id::new("egui_graphs_metadata_") — so the stored key is
@@ -632,9 +639,11 @@ pub fn render_graph_in_ui_collect_actions(
         !radial_open,
         metadata_id,
         app.lasso_binding_preference(),
+        &visible_graph_rects,
     );
 
-    if ui.input(|i| i.pointer.secondary_clicked())
+    if pointer_in_visible_graph_region
+        && ui.input(|i| i.pointer.secondary_clicked())
         && !lasso.suppress_context_menu
         && let Some(target) = app.workspace.graph_runtime.hovered_graph_node
     {
@@ -646,7 +655,8 @@ pub fn render_graph_in_ui_collect_actions(
             ui.input(|i| i.pointer.latest_pos()),
         );
     }
-    if ui.input(|i| i.pointer.primary_clicked())
+    if pointer_in_visible_graph_region
+        && ui.input(|i| i.pointer.primary_clicked())
         && let Some(target) = app.workspace.graph_runtime.hovered_graph_node
         && let Some(pointer) = ui.input(|i| i.pointer.latest_pos())
         && let Some(state) = app.workspace.graph_runtime.egui_state.as_ref()
@@ -706,11 +716,18 @@ pub fn render_graph_in_ui_collect_actions(
             .graph_runtime
             .graph_view_frames
             .insert(view_id, frame);
-        if let Some(canvas_rect) = canvas_rect_from_view_frame(ui.max_rect(), frame) {
+        if let Some(screen_rect) = effective_graph_screen_rect(ui.max_rect(), app)
+            && let Some(canvas_rect) = canvas_rect_from_view_frame(screen_rect, frame)
+        {
             app.workspace
                 .graph_runtime
                 .graph_view_canvas_rects
                 .insert(view_id, canvas_rect);
+        } else {
+            app.workspace
+                .graph_runtime
+                .graph_view_canvas_rects
+                .remove(&view_id);
         }
     }
 
@@ -726,7 +743,8 @@ pub fn render_graph_in_ui_collect_actions(
     ) {
         actions.push(keyboard_action);
     }
-    let edge_click_eligible = ui.input(|i| i.pointer.primary_clicked())
+    let edge_click_eligible = pointer_in_visible_graph_region
+        && ui.input(|i| i.pointer.primary_clicked())
         && app.workspace.graph_runtime.hovered_graph_node.is_none()
         && !radial_open
         && lasso.action.is_none();
@@ -737,7 +755,7 @@ pub fn render_graph_in_ui_collect_actions(
     let graph_handled_primary_click = actions.iter().any(action_handles_primary_click);
     let clear_selection_on_background_click = ui.input(|i| {
         should_clear_selection_on_background_click(
-            i.pointer.primary_clicked(),
+            pointer_in_visible_graph_region && i.pointer.primary_clicked(),
             i.modifiers,
             app.workspace.graph_runtime.hovered_graph_node,
             graph_handled_primary_click,
@@ -1814,6 +1832,54 @@ mod tests {
             false,
             false,
         ));
+    }
+
+    #[test]
+    fn visible_graph_screen_rects_clip_to_navigation_geometry() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let screen_rect =
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
+        app.workspace.graph_runtime.workbench_navigation_geometry = Some(
+            crate::app::WorkbenchNavigationGeometry::from_content_rect(
+                screen_rect,
+                vec![egui::Rect::from_min_max(
+                    egui::pos2(320.0, 40.0),
+                    egui::pos2(400.0, 260.0),
+                )],
+            ),
+        );
+
+        let visible_rects = graph_visible_screen_rects(screen_rect, &app);
+
+        assert_eq!(visible_rects.len(), 3);
+        assert!(visible_rects.contains(&egui::Rect::from_min_max(
+            egui::pos2(0.0, 40.0),
+            egui::pos2(320.0, 260.0),
+        )));
+    }
+
+    #[test]
+    fn effective_graph_screen_rect_prefers_largest_visible_navigation_region() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let screen_rect =
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
+        app.workspace.graph_runtime.workbench_navigation_geometry = Some(
+            crate::app::WorkbenchNavigationGeometry::from_content_rect(
+                screen_rect,
+                vec![egui::Rect::from_min_max(
+                    egui::pos2(320.0, 40.0),
+                    egui::pos2(400.0, 260.0),
+                )],
+            ),
+        );
+
+        assert_eq!(
+            effective_graph_screen_rect(screen_rect, &app),
+            Some(egui::Rect::from_min_max(
+                egui::pos2(0.0, 40.0),
+                egui::pos2(320.0, 260.0),
+            )),
+        );
     }
 
     #[test]

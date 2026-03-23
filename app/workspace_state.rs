@@ -4,6 +4,7 @@
 
 //! Typed sub-state structs extracted from `GraphWorkspace`.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -28,6 +29,102 @@ use super::{
     SurfaceHostId, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, UxConfigMode,
     ViewDimension, WorkbenchIntent, WorkbenchLayoutConstraint, WorkbenchProfile,
 };
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorkbenchNavigationGeometry {
+    /// Rect available to the workbench after reserved panels have been applied.
+    pub content_rect: egui::Rect,
+
+    /// Visible workbench rects after subtracting overlay-only host occlusions.
+    pub visible_rects: Vec<egui::Rect>,
+
+    /// Host rects that visually occlude the workbench without shrinking `content_rect`.
+    pub occluding_host_rects: Vec<egui::Rect>,
+}
+
+impl WorkbenchNavigationGeometry {
+    pub(crate) fn from_content_rect(
+        content_rect: egui::Rect,
+        occluding_host_rects: Vec<egui::Rect>,
+    ) -> Self {
+        let mut visible_rects = vec![content_rect];
+
+        for occlusion in occluding_host_rects.iter().copied() {
+            let mut next_visible_rects = Vec::new();
+            for visible_rect in visible_rects {
+                next_visible_rects.extend(subtract_rect(visible_rect, occlusion));
+            }
+            visible_rects = next_visible_rects;
+        }
+
+        visible_rects.retain(|rect| rect_has_area(*rect));
+
+        Self {
+            content_rect,
+            visible_rects,
+            occluding_host_rects,
+        }
+    }
+
+    pub(crate) fn primary_visible_rect(&self) -> egui::Rect {
+        self.visible_rects
+            .iter()
+            .copied()
+            .max_by(|left, right| {
+                rect_area(*left)
+                    .partial_cmp(&rect_area(*right))
+                    .unwrap_or(Ordering::Equal)
+            })
+            .unwrap_or(self.content_rect)
+    }
+
+    pub(crate) fn visible_rects_or_content(&self) -> Vec<egui::Rect> {
+        if self.visible_rects.is_empty() {
+            vec![self.content_rect]
+        } else {
+            self.visible_rects.clone()
+        }
+    }
+}
+
+fn subtract_rect(base: egui::Rect, occlusion: egui::Rect) -> Vec<egui::Rect> {
+    if !rect_has_area(base) || !base.intersects(occlusion) {
+        return vec![base];
+    }
+
+    let overlap = base.intersect(occlusion);
+    if !rect_has_area(overlap) {
+        return vec![base];
+    }
+
+    let mut remainder = Vec::with_capacity(4);
+    let top = egui::Rect::from_min_max(base.min, egui::pos2(base.max.x, overlap.top()));
+    let bottom = egui::Rect::from_min_max(egui::pos2(base.min.x, overlap.bottom()), base.max);
+    let left = egui::Rect::from_min_max(
+        egui::pos2(base.left(), overlap.top()),
+        egui::pos2(overlap.left(), overlap.bottom()),
+    );
+    let right = egui::Rect::from_min_max(
+        egui::pos2(overlap.right(), overlap.top()),
+        egui::pos2(base.right(), overlap.bottom()),
+    );
+
+    for rect in [top, bottom, left, right] {
+        if rect_has_area(rect) {
+            remainder.push(rect);
+        }
+    }
+
+    remainder
+}
+
+fn rect_has_area(rect: egui::Rect) -> bool {
+    rect.width() > 0.0 && rect.height() > 0.0
+}
+
+fn rect_area(rect: egui::Rect) -> f32 {
+    rect.width().max(0.0) * rect.height().max(0.0)
+}
 
 /// View-layer runtime state: physics, selection, views, search, history, rendering.
 pub struct GraphViewRuntimeState {
@@ -89,6 +186,9 @@ pub struct GraphViewRuntimeState {
 
     /// Last rendered graph-canvas rect per visible graph view, expressed in graph space.
     pub graph_view_canvas_rects: HashMap<GraphViewId, egui::Rect>,
+
+    /// Computed visible workbench region after reserved panels and host overlays.
+    pub workbench_navigation_geometry: Option<WorkbenchNavigationGeometry>,
 
     /// The currently focused graph view (target for keyboard zoom/pan).
     pub focused_view: Option<GraphViewId>,
@@ -286,6 +386,41 @@ impl WorkbenchSessionState {
     pub(crate) fn on_node_deleted(&mut self, node_id: Uuid) {
         self.node_last_active_workspace.remove(&node_id);
         self.node_workspace_membership.remove(&node_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WorkbenchNavigationGeometry;
+
+    #[test]
+    fn workbench_navigation_geometry_splits_content_around_overlay_sidebar() {
+        let content_rect =
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
+        let overlay_rect =
+            egui::Rect::from_min_max(egui::pos2(320.0, 40.0), egui::pos2(400.0, 260.0));
+
+        let geometry =
+            WorkbenchNavigationGeometry::from_content_rect(content_rect, vec![overlay_rect]);
+
+        assert_eq!(geometry.occluding_host_rects, vec![overlay_rect]);
+        assert_eq!(geometry.visible_rects.len(), 3);
+        assert!(geometry.visible_rects.contains(&egui::Rect::from_min_max(
+            egui::pos2(0.0, 0.0),
+            egui::pos2(400.0, 40.0),
+        )));
+        assert!(geometry.visible_rects.contains(&egui::Rect::from_min_max(
+            egui::pos2(0.0, 260.0),
+            egui::pos2(400.0, 300.0),
+        )));
+        assert!(geometry.visible_rects.contains(&egui::Rect::from_min_max(
+            egui::pos2(0.0, 40.0),
+            egui::pos2(320.0, 260.0),
+        )));
+        assert_eq!(
+            geometry.primary_visible_rect(),
+            egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),
+        );
     }
 }
 

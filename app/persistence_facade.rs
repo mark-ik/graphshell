@@ -475,6 +475,7 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.views.clear();
         self.workspace.graph_runtime.graph_view_frames.clear();
         self.workspace.graph_runtime.graph_view_canvas_rects.clear();
+        self.workspace.graph_runtime.workbench_navigation_geometry = None;
         self.workspace.domain.notes.clear();
         self.set_workspace_focused_view_with_transition(None);
         self.workspace
@@ -553,6 +554,7 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.views.clear();
         self.workspace.graph_runtime.graph_view_frames.clear();
         self.workspace.graph_runtime.graph_view_canvas_rects.clear();
+        self.workspace.graph_runtime.workbench_navigation_geometry = None;
         self.set_workspace_focused_view_with_transition(None);
         self.workspace.domain.next_placeholder_id = next_placeholder_id;
         self.workspace.graph_runtime.egui_state = None;
