@@ -41,7 +41,6 @@ mod registries;
 #[cfg(not(target_os = "android"))]
 #[path = "graph_resources.rs"]
 mod resources;
-mod webdriver;
 
 pub mod platform {
     #[cfg(target_os = "macos")]

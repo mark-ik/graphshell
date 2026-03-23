@@ -1,8 +1,12 @@
 # Embedder Decomposition Plan (Revised)
 
 **Date:** 2026-02-21 (revision of 2026-02-20 plan)
-**Status:** Active — Stages 1-6 complete; Stage 7 optional/future
+**Status:** Completed / Historical — Stages 1-6 complete; Stage 7 remains optional/future
 **Relates to:** Architectural Concerns doc §8 (Monolithic UI)
+
+**Closure update (2026-03-22):**
+- The remaining host/embedder follow-through that continued after the original lane closure has landed: `headed_window` helper extraction, `WebDriverRuntime`, `GamepadRuntime`, `EmbedderWindow` internal service splits, and narrower `RunningAppState` bookkeeping.
+- This document should now be read as the execution record for the decomposition effort rather than as an active plan.
 
 **Coordination note (2026-02-26):** Stage 4 decomposition should follow the foundation-first sequencing in `2026-02-26_composited_viewer_pass_contract.md` Appendix A and `PLANNING_REGISTER.md` §0.10. Specifically, compositor pass-order correctness + GL-state diagnostics hardening should land before UX-expansion slices that increase render-path complexity.
 

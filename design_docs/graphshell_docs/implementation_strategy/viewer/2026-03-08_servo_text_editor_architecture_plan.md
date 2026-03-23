@@ -8,7 +8,7 @@
 
 - `2026-02-24_universal_content_model_plan.md` — Viewer selection and content model alignment
 - `2026-02-23_wry_integration_strategy.md` — Viewer trait integration model and backend boundaries
-- `../aspect_render/2026-02-20_embedder_decomposition_plan.md` — Runtime/lifecycle decomposition baseline
+- `../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md` — Historical runtime/lifecycle decomposition baseline
 - `../../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md` — Core extraction constraints and wasm-clean principles
 - `../../../TERMINOLOGY.md` — Canonical terms and boundary definitions
 

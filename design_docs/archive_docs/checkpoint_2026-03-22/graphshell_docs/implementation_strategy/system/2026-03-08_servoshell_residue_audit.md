@@ -1,13 +1,17 @@
 # Servoshell Residue Audit
 
 **Date**: 2026-03-08
-**Status**: Active — findings not yet actioned
+**Status**: Historical audit — findings substantially actioned; retained as pre-remediation record
 **Scope**: `shell/desktop/` — host, platform, and UI layers
 **Related**:
 - `2026-03-08_graph_app_decomposition_plan.md`
 - `../technical_architecture/ARCHITECTURAL_CONCERNS.md`
 - `../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md`
 - `../viewer/2026-02-26_composited_viewer_pass_contract.md`
+
+**Historical note (2026-03-22)**:
+- This audit captured the state of the shell layer before the debt-clear and embedder decomposition follow-through landed.
+- It is no longer an active source of open findings. Use it as a historical explanation of why the cleanup work was necessary, not as a current-state inventory.
 
 ---
 

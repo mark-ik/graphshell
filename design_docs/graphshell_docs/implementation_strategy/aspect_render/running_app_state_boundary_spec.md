@@ -2,11 +2,11 @@
 
 **Date:** 2026-03-12  
 **Status:** Canonical ownership contract  
-**Priority:** Stage 4b / Embedder decomposition unblocker
+**Priority:** Canonical ownership contract; Stage 4b implemented
 
 **Related docs:**
 
-- [`2026-02-20_embedder_decomposition_plan.md`](./2026-02-20_embedder_decomposition_plan.md)
+- [`archived embedder decomposition plan`](../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md)
 - [`../viewer/node_lifecycle_and_runtime_reconcile_spec.md`](../viewer/node_lifecycle_and_runtime_reconcile_spec.md)
 - [`../viewer/webview_lifecycle_and_crash_recovery_spec.md`](../viewer/webview_lifecycle_and_crash_recovery_spec.md)
 - [`../subsystem_focus/focus_and_region_navigation_spec.md`](../subsystem_focus/focus_and_region_navigation_spec.md)
@@ -68,14 +68,15 @@ The current file owns or coordinates these families of state:
 ### 3.2 Host-facing service ownership
 
 - pending create requests and tokens for deferred webview creation
-- webdriver channels and response bookkeeping
-- gamepad provider access and pending gamepad UI commands
+- webdriver transport/runtime service ownership and response bookkeeping
+- gamepad runtime service ownership and pending gamepad UI commands
+- stable-image screenshot/output coordination
 - app preferences needed by host/runtime coordination
 
 ### 3.3 Event-queue ownership
 
 - pending graph semantic events emitted from windows / delegates / embedder callbacks
-- pending webdriver responses and pending host-UI commands
+- pending webdriver responses and pending host-UI commands, whether stored directly or behind host runtime helpers
 
 Normative rule:
 
@@ -221,15 +222,16 @@ Normative rule for future extraction:
 - if a field or method exists only to satisfy embedder/runtime mechanics independent of graphshell policy, it should move toward `EmbedderCore`,
 - if a field or method exists to bridge host runtime into graphshell application semantics, it may remain on `RunningAppState`.
 
-Stage 4b target:
+Current result after Stage 4b follow-through:
 
-- `RunningAppState` becomes thinner, not more globally authoritative.
+- `RunningAppState` is thinner and delegates pure host/runtime mechanics to `EmbedderCore`, `WebDriverRuntime`, `GamepadRuntime`, and narrower helper stores.
+- It remains a host/runtime coordinator rather than a globally authoritative app state container.
 
 ---
 
 ## 10. Decomposition Rules for Stage 4b
 
-When continuing the split:
+When continuing follow-on cleanup beyond Stage 4b:
 
 1. do not change semantic callback ordering as part of ownership refactors,
 2. preserve `GraphSemanticEvent` as the callback-to-runtime boundary,
@@ -237,11 +239,11 @@ When continuing the split:
 4. extract pure embedder mechanics before extracting cross-layer coordination,
 5. keep host/runtime service tables explicit rather than burying them in mixed utility modules.
 
-Recommended extraction ordering:
+Historical extraction ordering that has now landed:
 
 1. isolate additional pure window/embedder utilities,
-2. isolate webdriver transport helpers if they can move without breaking the host boundary,
-3. isolate gamepad bridge helpers if they remain host/runtime-only,
+2. isolate webdriver transport helpers without breaking the host boundary,
+3. isolate gamepad bridge helpers as host/runtime-only services,
 4. keep semantic-event emission/drain behavior stable through each step.
 
 ---
@@ -267,8 +269,8 @@ Required coverage:
 
 ## 12. Acceptance Criteria
 
-- [ ] `RunningAppState` is documented as a host/runtime coordinator, not as canonical application state.
-- [ ] direct graph/reducer mutation from host callbacks remains forbidden and test-covered.
-- [ ] `GraphSemanticEvent` remains the canonical callback boundary.
-- [ ] pending create requests, webdriver coordination, and gamepad bridging remain explicitly owned.
-- [ ] Stage 4b extraction work can classify fields/methods against this boundary without rediscovering ownership from source each time.
+- [x] `RunningAppState` is documented as a host/runtime coordinator, not as canonical application state.
+- [x] direct graph/reducer mutation from host callbacks remains forbidden and test-covered.
+- [x] `GraphSemanticEvent` remains the canonical callback boundary.
+- [x] pending create requests, webdriver coordination, and gamepad bridging remain explicitly owned.
+- [x] Stage 4b extraction work can classify fields/methods against this boundary without rediscovering ownership from source each time.

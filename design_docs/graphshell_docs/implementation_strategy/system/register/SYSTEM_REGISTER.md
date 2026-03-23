@@ -15,7 +15,7 @@
 - [../control_panel_spec.md](../control_panel_spec.md) (`ControlPanel` component spec)
 - [../signal_bus_spec.md](../signal_bus_spec.md) (`SignalBus` / signal-routing component spec)
 - [../coop_session_spec.md](../coop_session_spec.md) (`Coop` host-led co-presence contract; distinct from device sync)
-- [../aspect_render/2026-02-20_embedder_decomposition_plan.md](../aspect_render/2026-02-20_embedder_decomposition_plan.md) (embedder decomposition context)
+- [archived embedder decomposition plan](../../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md) (embedder decomposition context)
 - [../2026-02-21_lifecycle_intent_model.md](../2026-02-21_lifecycle_intent_model.md) (intent schema and reducer boundary)
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry architecture and provider wiring)
 - [../../PLANNING_REGISTER.md](../../PLANNING_REGISTER.md) (cross-subsystem sequencing / backlog)
@@ -705,7 +705,7 @@ fn graceful_shutdown_drains_joinset_before_exit() { ... }
 
 ## References
 
-- [2026-02-20_embedder_decomposition_plan.md](../../aspect_render/2026-02-20_embedder_decomposition_plan.md) — Stage 5 overview
+- [archived embedder decomposition plan](../../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md) — Stage 5 overview
 - [2026-02-21_lifecycle_intent_model.md](../2026-02-21_lifecycle_intent_model.md) — Intent schema and lifecycle state machine
 - [2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) — The Register architecture and provider wiring
 - [PLANNING_REGISTER.md](../../PLANNING_REGISTER.md) — sequencing and backlog for Register/runtime follow-ups

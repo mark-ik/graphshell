@@ -4,7 +4,7 @@
 **Status:** Active / canonical
 **Short label:** `system_architecture`
 **Related docs:**
-- [2026-02-20_embedder_decomposition_plan.md](../aspect_render/2026-02-20_embedder_decomposition_plan.md) (embedder/runtime decomposition)
+- [archived embedder decomposition plan](../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md) (embedder/runtime decomposition history)
 - [2026-02-21_lifecycle_intent_model.md](./2026-02-21_lifecycle_intent_model.md) (intent and reducer boundary)
 - [2026-02-22_registry_layer_plan.md](./2026-02-22_registry_layer_plan.md) (registry ecosystem and capability model)
 - [2026-02-24_universal_content_model_plan.md](../viewer/2026-02-24_universal_content_model_plan.md) (content model and identity surface)

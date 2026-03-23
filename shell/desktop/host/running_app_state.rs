@@ -6,7 +6,6 @@
 
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::ops::Deref;
 use std::rc::Rc;
 #[cfg(all(
@@ -15,23 +14,20 @@ use std::rc::Rc;
 ))]
 use std::time::Instant;
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
-use euclid::Rect;
-use image::{DynamicImage, ImageFormat, RgbaImage};
+use image::{DynamicImage, ImageFormat};
 #[cfg(all(
     any(coverage, llvm_pgo),
     any(target_os = "android", target_env = "ohos")
 ))]
 use libc::c_char;
-use log::{error, info, warn};
+use log::{error, info};
 use servo::{
-    AllowOrDenyRequest, AuthenticationRequest, CSSPixel, ConsoleLogLevel, CreateNewWebViewRequest,
+    AllowOrDenyRequest, AuthenticationRequest, ConsoleLogLevel, CreateNewWebViewRequest,
     DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId, EventLoopWaker,
-    GamepadHapticEffectType, GenericSender, InputEvent, InputEventId, InputEventResult, JSValue,
-    LoadStatus, MediaSessionEvent, PermissionRequest, PrefValue, Preferences,
-    ScreenshotCaptureError, Servo, ServoDelegate, ServoError, TraversalId, UserContentManager,
-    WebDriverCommandMsg, WebDriverJSResult, WebDriverLoadStatus, WebDriverScriptCommand,
-    WebDriverSenders, WebView, WebViewDelegate, WebViewId, pref,
+    GamepadHapticEffectType, GenericSender, InputEventId, InputEventResult, LoadStatus,
+    MediaSessionEvent, PermissionRequest, PrefValue, Preferences, Servo, ServoDelegate,
+    ServoError, TraversalId, UserContentManager, WebDriverLoadStatus, WebView, WebViewDelegate,
+    WebViewId, pref,
 };
 use url::Url;
 
@@ -47,17 +43,21 @@ pub(crate) use crate::shell::desktop::host::gamepad::AppGamepadProvider;
     feature = "gamepad",
     not(any(target_os = "android", target_env = "ohos"))
 ))]
-use crate::shell::desktop::host::gamepad::{GamepadDispatch, GamepadUiCommand};
+use crate::shell::desktop::host::gamepad::GamepadUiCommand;
+#[cfg(all(
+    feature = "gamepad",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
+use crate::shell::desktop::host::gamepad_runtime::GamepadRuntime;
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, GraphSemanticEvent, PlatformWindow, WebViewCreationContext,
 };
+use crate::shell::desktop::host::webdriver_runtime::WebDriverRuntime;
 #[cfg(all(
     feature = "diagnostics",
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent, SpanPhase};
-use crate::webdriver::WebDriverEmbedderControls;
-
 #[cfg(all(
     any(coverage, llvm_pgo),
     any(target_os = "android", target_env = "ohos")
@@ -123,53 +123,106 @@ struct PendingCreateRequest {
     request: CreateNewWebViewRequest,
 }
 
+struct PendingCreateStore {
+    requests: RefCell<HashMap<PendingCreateToken, PendingCreateRequest>>,
+    next_token: Cell<u64>,
+}
+
+impl Default for PendingCreateStore {
+    fn default() -> Self {
+        Self {
+            requests: Default::default(),
+            next_token: Cell::new(1),
+        }
+    }
+}
+
+impl PendingCreateStore {
+    fn store(&self, request: CreateNewWebViewRequest) -> PendingCreateToken {
+        let token = PendingCreateToken::new(self.next_token.get());
+        self.next_token.set(self.next_token.get().saturating_add(1));
+        self.requests
+            .borrow_mut()
+            .insert(token, PendingCreateRequest { request });
+        token
+    }
+
+    fn take(&self, token: PendingCreateToken) -> Option<CreateNewWebViewRequest> {
+        self.requests
+            .borrow_mut()
+            .remove(&token)
+            .map(|entry| entry.request)
+    }
+}
+
+#[derive(Default)]
+struct StableImageOutput {
+    achieved: Rc<Cell<bool>>,
+}
+
+impl StableImageOutput {
+    fn has_achieved_stable_image(&self) -> bool {
+        self.achieved.get()
+    }
+
+    fn maybe_request_screenshot(&self, prefs: &AppPreferences, webview: WebView) {
+        let output_path = prefs.output_image_path.clone();
+        if !prefs.exit_after_stable_image && output_path.is_none() {
+            return;
+        }
+
+        if self.achieved.get() {
+            return;
+        }
+
+        let achieved = self.achieved.clone();
+        webview.take_screenshot(None, move |image| {
+            achieved.set(true);
+
+            let Some(output_path) = output_path else {
+                return;
+            };
+
+            let image = match image {
+                Ok(image) => image,
+                Err(error) => {
+                    error!("Could not take screenshot: {error:?}");
+                    return;
+                }
+            };
+
+            let image_format = ImageFormat::from_path(&output_path).unwrap_or(ImageFormat::Png);
+            if let Err(error) =
+                DynamicImage::ImageRgba8(image).save_with_format(output_path, image_format)
+            {
+                error!("Failed to save screenshot: {error}.");
+            }
+        });
+    }
+}
+
 pub(crate) struct RunningAppState {
-    /// The gamepad provider, used for handling gamepad events and set on each WebView.
-    /// May be `None` if gamepad support is disabled or failed to initialize.
+    /// Host-side gamepad coordination and haptics state.
     #[cfg(all(
         feature = "gamepad",
         not(any(target_os = "android", target_env = "ohos"))
     ))]
-    gamepad_provider: Option<Rc<AppGamepadProvider>>,
+    gamepad: GamepadRuntime,
 
-    /// The [`WebDriverSenders`] used to reply to pending WebDriver requests.
-    pub(crate) webdriver_senders: RefCell<WebDriverSenders>,
-
-    /// When running in WebDriver mode, [`WebDriverEmbedderControls`] is a virtual container
-    /// for all embedder controls. This overrides the normal behavior where these controls
-    /// are shown in the GUI or not processed at all in headless mode.
-    pub(crate) webdriver_embedder_controls: WebDriverEmbedderControls,
-
-    /// A [`HashMap`] of pending WebDriver events. It is the WebDriver embedder's responsibility
-    /// to inform the WebDriver server when the event has been fully handled. This map is used
-    /// to report back to WebDriver when that happens.
-    pub(crate) pending_webdriver_events: RefCell<HashMap<InputEventId, Sender<()>>>,
-
-    /// A [`Receiver`] for receiving commands from a running WebDriver server, if WebDriver
-    /// was enabled.
-    pub(crate) webdriver_receiver: Option<Receiver<WebDriverCommandMsg>>,
+    /// Host-side WebDriver coordination and transport state.
+    webdriver: WebDriverRuntime,
 
     /// Graphshell-specific preferences created during startup of the application.
     pub(crate) app_preferences: AppPreferences,
 
-    /// Whether or not the application has achieved stable image output. This is used
-    /// for the `exit_after_stable_image` option.
-    pub(crate) achieved_stable_image: Rc<Cell<bool>>,
-
     /// The [`UserContentManager`] for all `WebView`s created.
     pub(crate) user_content_manager: Rc<UserContentManager>,
 
+    /// Host-side screenshot/output capture state for stable-image workflows.
+    stable_image_output: StableImageOutput,
+
     /// Owned Servo child-create requests waiting for reconcile-time acceptance.
-    pending_create_requests: RefCell<HashMap<PendingCreateToken, PendingCreateRequest>>,
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    pending_gamepad_ui_commands: RefCell<Vec<GamepadUiCommand>>,
-
-    /// Monotonic token source for accepted child-create requests.
-    next_pending_create_token: Cell<u64>,
+    pending_create_store: PendingCreateStore,
 
     /// Whether or not program exit has been triggered. This means that all windows
     /// will be destroyed and shutdown will start at the end of the current event loop.
@@ -244,7 +297,10 @@ mod tests {
         let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
         window.set_input_target(Some(InputTarget::Host));
 
-        assert_eq!(resolve_gamepad_content_webview_id(&window), None);
+        assert_eq!(
+            crate::shell::desktop::host::gamepad_runtime::resolve_content_webview_id(&window),
+            None
+        );
     }
 }
 
@@ -264,16 +320,16 @@ impl RunningAppState {
         servo.set_delegate(Rc::new(GraphshellServoDelegate));
         let embedder_core = EmbedderCore::new(servo);
 
-        let webdriver_receiver = app_preferences.webdriver_port.get().map(|port| {
-            let (embedder_sender, embedder_receiver) = unbounded();
-            webdriver_server::start_server(
-                port,
-                embedder_sender,
-                event_loop_waker,
-                default_preferences,
-            );
-            embedder_receiver
-        });
+        let webdriver = WebDriverRuntime::new(
+            app_preferences.webdriver_port.get(),
+            event_loop_waker,
+            default_preferences,
+        );
+        #[cfg(all(
+            feature = "gamepad",
+            not(any(target_os = "android", target_env = "ohos"))
+        ))]
+        let gamepad = GamepadRuntime::new(gamepad_provider);
 
         let experimental_preferences_enabled =
             Cell::new(app_preferences.experimental_preferences_enabled);
@@ -283,20 +339,11 @@ impl RunningAppState {
                 feature = "gamepad",
                 not(any(target_os = "android", target_env = "ohos"))
             ))]
-            gamepad_provider,
-            webdriver_senders: RefCell::default(),
-            webdriver_embedder_controls: Default::default(),
-            pending_webdriver_events: Default::default(),
-            webdriver_receiver,
+            gamepad,
+            webdriver,
             app_preferences,
-            achieved_stable_image: Default::default(),
-            pending_create_requests: Default::default(),
-            #[cfg(all(
-                feature = "gamepad",
-                not(any(target_os = "android", target_env = "ohos"))
-            ))]
-            pending_gamepad_ui_commands: Default::default(),
-            next_pending_create_token: Cell::new(1),
+            stable_image_output: Default::default(),
+            pending_create_store: Default::default(),
             exit_scheduled: Default::default(),
             user_content_manager,
             experimental_preferences_enabled,
@@ -352,20 +399,8 @@ impl RunningAppState {
             .webview_by_id(webview_id)
     }
 
-    pub(crate) fn webdriver_receiver(&self) -> Option<&Receiver<WebDriverCommandMsg>> {
-        self.webdriver_receiver.as_ref()
-    }
-
     pub(crate) fn servo(&self) -> &Servo {
         self.embedder_core.servo()
-    }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    pub(crate) fn gamepad_provider(&self) -> Option<Rc<AppGamepadProvider>> {
-        self.gamepad_provider.clone()
     }
 
     pub(crate) fn schedule_exit(&self) {
@@ -404,23 +439,14 @@ impl RunningAppState {
         &self,
         request: CreateNewWebViewRequest,
     ) -> PendingCreateToken {
-        let token = PendingCreateToken::new(self.next_pending_create_token.get());
-        self.next_pending_create_token
-            .set(self.next_pending_create_token.get().saturating_add(1));
-        self.pending_create_requests
-            .borrow_mut()
-            .insert(token, PendingCreateRequest { request });
-        token
+        self.pending_create_store.store(request)
     }
 
     pub(crate) fn take_pending_create_request(
         &self,
         token: PendingCreateToken,
     ) -> Option<CreateNewWebViewRequest> {
-        self.pending_create_requests
-            .borrow_mut()
-            .remove(&token)
-            .map(|entry| entry.request)
+        self.pending_create_store.take(token)
     }
 
     #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
@@ -476,7 +502,7 @@ impl RunningAppState {
         self: &Rc<Self>,
         create_platform_window: Option<&dyn Fn(Url) -> Rc<dyn PlatformWindow>>,
     ) -> bool {
-        self.handle_webdriver_messages(create_platform_window);
+        self.webdriver.handle_messages(self, create_platform_window);
 
         #[cfg(all(
             feature = "gamepad",
@@ -524,7 +550,9 @@ impl RunningAppState {
             window.update_and_request_repaint_if_necessary(self);
         }
 
-        if self.app_preferences.exit_after_stable_image && self.achieved_stable_image.get() {
+        if self.app_preferences.exit_after_stable_image
+            && self.stable_image_output.has_achieved_stable_image()
+        {
             self.schedule_exit();
         }
 
@@ -560,156 +588,10 @@ impl RunningAppState {
         self.window_for_webview_id(webview_id).platform_window()
     }
 
-    /// If we are exiting after achieving a stable image or we want to save the display of the
-    /// [`WebView`] to an image file, request a screenshot of the [`WebView`].
+    /// If configured, request a screenshot of the [`WebView`] for stable-image workflows.
     fn maybe_request_screenshot(&self, webview: WebView) {
-        let output_path = self.app_preferences.output_image_path.clone();
-        if !self.app_preferences.exit_after_stable_image && output_path.is_none() {
-            return;
-        }
-
-        // Never request more than a single screenshot for now.
-        let achieved_stable_image = self.achieved_stable_image.clone();
-        if achieved_stable_image.get() {
-            return;
-        }
-
-        webview.take_screenshot(None, move |image| {
-            achieved_stable_image.set(true);
-
-            let Some(output_path) = output_path else {
-                return;
-            };
-
-            let image = match image {
-                Ok(image) => image,
-                Err(error) => {
-                    error!("Could not take screenshot: {error:?}");
-                    return;
-                }
-            };
-
-            let image_format = ImageFormat::from_path(&output_path).unwrap_or(ImageFormat::Png);
-            if let Err(error) =
-                DynamicImage::ImageRgba8(image).save_with_format(output_path, image_format)
-            {
-                error!("Failed to save screenshot: {error}.");
-            }
-        });
-    }
-
-    pub(crate) fn set_pending_traversal(
-        &self,
-        traversal_id: TraversalId,
-        sender: GenericSender<WebDriverLoadStatus>,
-    ) {
-        self.webdriver_senders
-            .borrow_mut()
-            .pending_traversals
-            .insert(traversal_id, sender);
-    }
-
-    pub(crate) fn set_load_status_sender(
-        &self,
-        webview_id: WebViewId,
-        sender: GenericSender<WebDriverLoadStatus>,
-    ) {
-        self.webdriver_senders
-            .borrow_mut()
-            .load_status_senders
-            .insert(webview_id, sender);
-    }
-
-    fn remove_load_status_sender(&self, webview_id: WebViewId) {
-        self.webdriver_senders
-            .borrow_mut()
-            .load_status_senders
-            .remove(&webview_id);
-    }
-
-    fn set_script_command_interrupt_sender(
-        &self,
-        sender: Option<GenericSender<WebDriverJSResult>>,
-    ) {
-        self.webdriver_senders
-            .borrow_mut()
-            .script_evaluation_interrupt_sender = sender;
-    }
-
-    pub(crate) fn handle_webdriver_input_event(
-        &self,
-        webview_id: WebViewId,
-        input_event: InputEvent,
-        response_sender: Option<Sender<()>>,
-    ) {
-        if let Some(webview) = self.webview_by_id(webview_id) {
-            let event_id = webview.notify_input_event(input_event);
-            if let Some(response_sender) = response_sender {
-                self.pending_webdriver_events
-                    .borrow_mut()
-                    .insert(event_id, response_sender);
-            }
-        } else {
-            error!("Could not find WebView ({webview_id:?}) for WebDriver event: {input_event:?}");
-        };
-    }
-
-    pub(crate) fn handle_webdriver_screenshot(
-        &self,
-        webview_id: WebViewId,
-        rect: Option<Rect<f32, CSSPixel>>,
-        result_sender: Sender<Result<RgbaImage, ScreenshotCaptureError>>,
-    ) {
-        if let Some(webview) = self.webview_by_id(webview_id) {
-            let rect = rect.map(|rect| rect.to_box2d().into());
-            webview.take_screenshot(rect, move |result| {
-                if let Err(error) = result_sender.send(result) {
-                    warn!("Failed to send response to TakeScreenshot: {error}");
-                }
-            });
-        } else if let Err(error) =
-            result_sender.send(Err(ScreenshotCaptureError::WebViewDoesNotExist))
-        {
-            error!("Failed to send response to TakeScreenshot: {error}");
-        }
-    }
-
-    pub(crate) fn handle_webdriver_script_command(&self, script_command: &WebDriverScriptCommand) {
-        match script_command {
-            WebDriverScriptCommand::ExecuteScriptWithCallback(_webview_id, response_sender) => {
-                // Give embedder a chance to interrupt the script command.
-                // Webdriver only handles 1 script command at a time, so we can
-                // safely set a new interrupt sender and remove the previous one here.
-                self.set_script_command_interrupt_sender(Some(response_sender.clone()));
-            }
-            WebDriverScriptCommand::AddLoadStatusSender(webview_id, load_status_sender) => {
-                self.set_load_status_sender(*webview_id, load_status_sender.clone());
-            }
-            WebDriverScriptCommand::RemoveLoadStatusSender(webview_id) => {
-                self.remove_load_status_sender(*webview_id);
-            }
-            _ => {
-                self.set_script_command_interrupt_sender(None);
-            }
-        }
-    }
-
-    pub(crate) fn handle_webdriver_load_url(
-        &self,
-        webview_id: WebViewId,
-        url: Url,
-        load_status_sender: GenericSender<WebDriverLoadStatus>,
-    ) {
-        let Some(webview) = self.webview_by_id(webview_id) else {
-            return;
-        };
-
-        self.platform_window_for_webview_id(webview_id)
-            .dismiss_embedder_controls_for_webview(webview_id);
-
-        info!("Loading URL in webview {}: {}", webview_id, url);
-        self.set_load_status_sender(webview_id, load_status_sender);
-        webview.load(url);
+        self.stable_image_output
+            .maybe_request_screenshot(&self.app_preferences, webview);
     }
 
     #[cfg(all(
@@ -717,25 +599,7 @@ impl RunningAppState {
         not(any(target_os = "android", target_env = "ohos"))
     ))]
     pub(crate) fn handle_gamepad_events(&self) {
-        let Some(gamepad_provider) = self.gamepad_provider.as_ref() else {
-            return;
-        };
-        let focused_webview = self.focused_window().and_then(|window| {
-            let webview_id = resolve_gamepad_content_webview_id(&window)?;
-            window.webview_by_id(webview_id)
-        });
-        for dispatch in gamepad_provider.handle_gamepad_events() {
-            match dispatch {
-                GamepadDispatch::Ui(command) => {
-                    self.pending_gamepad_ui_commands.borrow_mut().push(command);
-                }
-                GamepadDispatch::Content(event) => {
-                    if let Some(webview) = focused_webview.as_ref() {
-                        webview.notify_input_event(InputEvent::Gamepad(event));
-                    }
-                }
-            }
-        }
+        self.gamepad.handle_events(self.focused_window());
     }
 
     #[cfg(all(
@@ -743,43 +607,13 @@ impl RunningAppState {
         not(any(target_os = "android", target_env = "ohos"))
     ))]
     pub(crate) fn take_pending_gamepad_ui_commands(&self) -> Vec<GamepadUiCommand> {
-        std::mem::take(&mut *self.pending_gamepad_ui_commands.borrow_mut())
+        self.gamepad.take_pending_ui_commands()
     }
 
     pub(crate) fn handle_focused(&self, window: Rc<EmbedderWindow>) {
         self.embedder_core.focus_window(window);
     }
 
-    /// Interrupt any ongoing WebDriver-based script evaluation.
-    ///
-    /// From <https://w3c.github.io/webdriver/#dfn-execute-a-function-body>:
-    /// > The rules to execute a function body are as follows. The algorithm returns
-    /// > an ECMAScript completion record.
-    /// >
-    /// > If at any point during the algorithm a user prompt appears, immediately return
-    /// > Completion { Type: normal, Value: null, Target: empty }, but continue to run the
-    /// >  other steps of this algorithm in parallel.
-    fn interrupt_webdriver_script_evaluation(&self) {
-        if let Some(sender) = &self
-            .webdriver_senders
-            .borrow()
-            .script_evaluation_interrupt_sender
-        {
-            sender.send(Ok(JSValue::Null)).unwrap_or_else(|err| {
-                info!(
-                    "Notify dialog appear failed. Maybe the channel to webdriver is closed: {err}"
-                );
-            });
-        }
-    }
-}
-
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-fn resolve_gamepad_content_webview_id(window: &EmbedderWindow) -> Option<WebViewId> {
-    window.targeted_input_webview_id()
 }
 
 impl WebViewCreationContext for RunningAppState {
@@ -836,11 +670,7 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
     }
 
     fn notify_traversal_complete(&self, _webview: WebView, traversal_id: TraversalId) {
-        let mut webdriver_state = self.webdriver_senders.borrow_mut();
-        if let Entry::Occupied(entry) = webdriver_state.pending_traversals.entry(traversal_id) {
-            let sender = entry.remove();
-            let _ = sender.send(WebDriverLoadStatus::Complete);
-        }
+        self.webdriver.complete_traversal(traversal_id);
     }
 
     fn request_move_to(&self, webview: WebView, new_position: DeviceIntPoint) {
@@ -886,9 +716,7 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
     ) {
         self.platform_window_for_webview_id(webview.id())
             .notify_input_event_handled(&webview, id, result);
-        if let Some(response_sender) = self.pending_webdriver_events.borrow_mut().remove(&id) {
-            let _ = response_sender.send(());
-        }
+        self.webdriver.finish_input_event(id);
     }
 
     fn notify_cursor_changed(&self, webview: WebView, cursor: servo::Cursor) {
@@ -902,12 +730,7 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
 
         if status == LoadStatus::Complete {
             window.notify_load_status_complete(webview.clone());
-            if let Some(sender) = self
-                .webdriver_senders
-                .borrow_mut()
-                .load_status_senders
-                .remove(&webview.id())
-            {
+            if let Some(sender) = self.webdriver.take_load_status_sender(webview.id()) {
                 let _ = sender.send(WebDriverLoadStatus::Complete);
             }
             self.maybe_request_screenshot(webview);
@@ -949,14 +772,8 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
         effect_type: GamepadHapticEffectType,
         effect_complete_callback: Box<dyn FnOnce(bool)>,
     ) {
-        match self.gamepad_provider.as_ref() {
-            Some(gamepad_provider) => {
-                gamepad_provider.play_haptic_effect(index, effect_type, effect_complete_callback);
-            }
-            None => {
-                effect_complete_callback(false);
-            }
-        }
+        self.gamepad
+            .play_haptic_effect(index, effect_type, effect_complete_callback);
     }
 
     #[cfg(all(
@@ -969,30 +786,19 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
         index: usize,
         haptic_stop_callback: Box<dyn FnOnce(bool)>,
     ) {
-        let stopped = match self.gamepad_provider.as_ref() {
-            Some(gamepad_provider) => gamepad_provider.stop_haptic_effect(index),
-            None => false,
-        };
-        haptic_stop_callback(stopped);
+        self.gamepad.stop_haptic_effect(index, haptic_stop_callback);
     }
 
     fn show_embedder_control(&self, webview: WebView, embedder_control: EmbedderControl) {
         if self.app_preferences.webdriver_port.get().is_some() {
             if matches!(&embedder_control, EmbedderControl::SimpleDialog(..)) {
-                self.interrupt_webdriver_script_evaluation();
+                self.webdriver.interrupt_script_evaluation();
 
                 // Dialogs block the page load, so need need to notify WebDriver
-                if let Some(sender) = self
-                    .webdriver_senders
-                    .borrow_mut()
-                    .load_status_senders
-                    .get(&webview.id())
-                {
-                    let _ = sender.send(WebDriverLoadStatus::Blocked);
-                };
+                self.webdriver.block_load_status_if_any(webview.id());
             }
 
-            self.webdriver_embedder_controls
+            self.webdriver
                 .show_embedder_control(webview.id(), embedder_control);
             return;
         }
@@ -1003,7 +809,7 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
 
     fn hide_embedder_control(&self, webview: WebView, embedder_control_id: EmbedderControlId) {
         if self.app_preferences.webdriver_port.get().is_some() {
-            self.webdriver_embedder_controls
+            self.webdriver
                 .hide_embedder_control(webview.id(), embedder_control_id);
             return;
         }

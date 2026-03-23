@@ -2,12 +2,12 @@
 
 **Date**: 2026-02-28
 **Status**: Canonical interaction contract
-**Priority**: Active (Stages 1–3 complete; Stage 4 in progress)
+**Priority**: Active (Stages 1–4 complete; Stage 4b implemented)
 
 **Related**:
 
 - `ASPECT_RENDER.md`
-- `2026-02-20_embedder_decomposition_plan.md`
+- `../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md`
 - `../PLANNING_REGISTER.md` §0, §0.10
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../../TERMINOLOGY.md` — `CompositorAdapter`, `TileRenderMode`, `Composition Pass`, `Surface Composition Contract`
@@ -109,7 +109,7 @@ Callbacks are unregistered at viewer detachment time. A tile with no registered 
 
 ## 5. Embedder Decomposition Seam Contract
 
-The current `RunningAppState` monolith conflates embedder and app-layer responsibilities. The decomposition boundary is:
+The historical `RunningAppState` monolith conflated embedder and app-layer responsibilities. The decomposition boundary is:
 
 | `EmbedderCore` (embedder responsibility) | `RunningAppState` (app-layer responsibility) |
 |------------------------------------------|---------------------------------------------|
@@ -131,9 +131,9 @@ The current `RunningAppState` monolith conflates embedder and app-layer responsi
 | 2 | Complete | Toolbar decomposition (7 focused submodules) |
 | 3 | Complete | `CompositorAdapter` extraction (wraps rendering paths `EmbedderCore` exposes) |
 | 4a | ✅ Complete | `shell/desktop/ui/gui.rs` frame orchestration isolated from workbench layout driving |
-| 4b | Planned | `EmbedderCore` split from `RunningAppState`; lifecycle intent boundary closure |
+| 4b | ✅ Complete | `EmbedderCore`/`RunningAppState` boundary closure plus host-runtime service extraction (`WebDriverRuntime`, `GamepadRuntime`, `EmbedderWindow` internal service splits) |
 
-**Stage 4 sequencing constraint**: Compositor pass-order correctness and GL-state diagnostics hardening must land before Stage 4b decomposition work that increases render-path complexity. See `viewer/2026-02-26_composited_viewer_pass_contract.md` Appendix A.
+**Historical Stage 4 sequencing note**: Compositor pass-order correctness and GL-state diagnostics hardening landed before the Stage 4b decomposition follow-through. See `viewer/2026-02-26_composited_viewer_pass_contract.md` Appendix A for the sequencing rationale.
 
 ---
 

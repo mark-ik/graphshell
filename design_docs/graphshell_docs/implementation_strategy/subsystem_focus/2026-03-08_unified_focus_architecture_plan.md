@@ -9,7 +9,7 @@
 - `focus_and_region_navigation_spec.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
-- `../system/2026-03-08_servoshell_debtclear_plan.md`
+- `../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/system/2026-03-08_servoshell_debtclear_plan.md`
 
 ---
 

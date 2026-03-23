@@ -9,7 +9,7 @@
 - `security_and_access_control_spec.md`
 - `../subsystem_storage/storage_and_persistence_integrity_spec.md`
 - `../subsystem_mods/SUBSYSTEM_MODS.md`
-- `../system/2026-03-08_servoshell_residue_audit.md`
+- `../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/system/2026-03-08_servoshell_residue_audit.md`
 
 ---
 

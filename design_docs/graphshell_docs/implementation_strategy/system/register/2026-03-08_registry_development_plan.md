@@ -268,5 +268,5 @@ The Register layer is considered complete when all of the following are true:
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) — canonical Register hub and routing policy
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) — registry ecosystem and ownership model
 - [../../../PLANNING_REGISTER.md](../../../PLANNING_REGISTER.md) — cross-subsystem execution register
-- [../2026-03-08_servoshell_debtclear_plan.md](../2026-03-08_servoshell_debtclear_plan.md) — servoshell debt clearance (RendererRegistry dependency)
+- [archived servoshell debt-clear plan](../../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/system/2026-03-08_servoshell_debtclear_plan.md) — servoshell debt clearance history (RendererRegistry dependency)
 - [../2026-03-08_graph_app_decomposition_plan.md](../2026-03-08_graph_app_decomposition_plan.md) — graph_app decomposition (canvas/layout registry dependency)

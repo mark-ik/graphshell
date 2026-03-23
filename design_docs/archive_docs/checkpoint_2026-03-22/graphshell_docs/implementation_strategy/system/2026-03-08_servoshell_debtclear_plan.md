@@ -1,12 +1,16 @@
 # Servoshell Debt Clearance Plan
 
 **Date**: 2026-03-08
-**Status**: Active — Phases 1-4 complete
+**Status**: Completed / Historical — lane closed; retained as implementation record
 **Scope**: `shell/desktop/` host, platform, and UI layers
 **Prerequisite reading**:
 - `2026-03-08_servoshell_residue_audit.md` — the findings this plan addresses
 - `../viewer/2026-02-26_composited_viewer_pass_contract.md` — render pipeline contract
 - `../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md`
+
+**Closure update (2026-03-22)**:
+- The remaining Stage 4b-style host/embedder follow-through has landed in code after the lane closure recorded in `PLANNING_REGISTER.md`: `headed_window` helper extraction, dedicated `WebDriverRuntime` and `GamepadRuntime` services, `EmbedderWindow` internal decomposition into projection/UI-signal/graph-event/runtime state helpers, and thinner `RunningAppState` bookkeeping for pending-create and stable-image output flows.
+- This document should now be read as the implementation history for servoshell inheritance retirement, not as an active execution plan.
 
 **Execution update (2026-03-09)**:
 - Phase 2 host-open inversion is now live for Ctrl+T, child `request_create_new(...)`, and bootstrap `open_window(...)`.
@@ -23,7 +27,7 @@
 - Stage 4G dialog anchoring is complete: focused-pane projection now stamps dialog ownership as `DialogOwner::Pane(...)`, host dialog entry points resolve pane-owned dialog targets before falling back to a renderer, and dialog lookup no longer depends on a global focused-input renderer fallback.
 - Validation: `scripts/dev/smoke-matrix.ps1 quick` passed after the Stage 2E cleanup, after the Stage 3A conversions, and after the desktop wrapper/state removal.
 - Validation: `scripts/dev/smoke-matrix.ps1 quick` also passed after the Stage 4B/4F routed-command cleanup and again after the Stage 4C gamepad routing changes.
-- Current execution target: validate and close Phase 4 follow-through work as new debt-clear residue appears.
+- Historical note: the execution target above has been completed; subsequent residue cleanup has been folded into normal host/embedder architecture work.
 
 ---
 

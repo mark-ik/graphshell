@@ -100,10 +100,7 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         window: &EmbedderWindow,
     ) -> bool {
         let newest = window
-            .webview_collection
-            .borrow()
-            .newest()
-            .map(|wv| wv.id());
+            .newest_webview_id();
         let (Some(webview_id), _) =
             resolve_input_target_webview_id(window.explicit_input_webview_id(), newest)
         else {
@@ -403,11 +400,7 @@ impl App {
     fn input_target_webview_id(&self) -> Option<WebViewId> {
         let window = self.window();
         let preferred = window.explicit_input_webview_id();
-        let newest = window
-            .webview_collection
-            .borrow()
-            .newest()
-            .map(|wv| wv.id());
+        let newest = window.newest_webview_id();
         let (resolved, used_fallback) = resolve_input_target_webview_id(preferred, newest);
         if used_fallback {
             self.warn_input_target_fallback_once_per_interval();

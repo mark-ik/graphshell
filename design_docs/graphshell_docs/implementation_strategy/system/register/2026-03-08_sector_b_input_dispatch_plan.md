@@ -10,7 +10,7 @@
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `InputRegistry`, `ActionRegistry`, `RendererRegistry` (new)
 **Specs:** [input_registry_spec.md](input_registry_spec.md), [action_registry_spec.md](action_registry_spec.md)
-**Execution note:** `RendererRegistry` Phase B1 is landed as part of [../2026-03-08_servoshell_debtclear_plan.md](../2026-03-08_servoshell_debtclear_plan.md) Phases 1–2. Sector B2/B3 remain follow-on registry work, with initial typed/context-aware keyboard resolution now landed for the current toolbar and graph-view enter path.
+**Execution note:** `RendererRegistry` Phase B1 is landed as part of the [archived servoshell debt-clear plan](../../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/system/2026-03-08_servoshell_debtclear_plan.md) Phases 1–2. Sector B2/B3 remain follow-on registry work, with initial typed/context-aware keyboard resolution now landed for the current toolbar and graph-view enter path.
 
 ---
 
@@ -444,6 +444,6 @@ pub enum ActionCapability {
 - [input_registry_spec.md](input_registry_spec.md)
 - [action_registry_spec.md](action_registry_spec.md)
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) — two-authority model
-- [../2026-03-08_servoshell_debtclear_plan.md](../2026-03-08_servoshell_debtclear_plan.md) — RendererRegistry requirement
+- [archived servoshell debt-clear plan](../../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/system/2026-03-08_servoshell_debtclear_plan.md) — RendererRegistry requirement
 - [../2026-02-24_control_ui_ux_plan.md](../2026-02-24_control_ui_ux_plan.md) — gamepad/radial menu spec
 - [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md) — master index

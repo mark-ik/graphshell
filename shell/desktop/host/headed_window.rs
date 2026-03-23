@@ -13,7 +13,7 @@ use std::env;
 use std::rc::Rc;
 use std::time::Duration;
 
-use euclid::{Angle, Length, Point2D, Rect, Rotation3D, Scale, Size2D, UnknownUnit, Vector3D};
+use euclid::{Length, Point2D, Rect, Scale, Size2D};
 use keyboard_types::ShortcutMatcher;
 use log::{debug, info, warn};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
@@ -22,7 +22,7 @@ use servo::{
     AuthenticationRequest, Cursor, DeviceIndependentIntRect, DeviceIndependentPixel,
     DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint, EmbedderControl,
     EmbedderControlId, GenericSender, ImeEvent, InputEvent, InputEventId, InputEventResult,
-    InputMethodControl, JSValue, JavaScriptEvaluationError, Key, KeyState, KeyboardEvent,
+    InputMethodControl, JSValue, JavaScriptEvaluationError, Key, KeyboardEvent,
     Modifiers, MouseButton as ServoMouseButton, MouseButtonAction, MouseButtonEvent,
     MouseLeftViewportEvent, MouseMoveEvent, NamedKey, OffscreenRenderingContext, PermissionRequest,
     RenderingContext, ScreenGeometry, Theme, TouchEvent, TouchEventType, TouchId,
@@ -35,9 +35,7 @@ use winit::event::{
     ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
 };
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
-use winit::keyboard::{
-    Key as LogicalKey, KeyCode, ModifiersState, NamedKey as WinitNamedKey, PhysicalKey,
-};
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::WindowAttributesExtWayland;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -68,6 +66,9 @@ use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION
 use crate::shell::desktop::ui::dialog::Dialog;
 use crate::shell::desktop::ui::gui::Gui;
 
+mod embedder_controls;
+mod xr;
+
 pub(crate) const INITIAL_WINDOW_TITLE: &str = "Graphshell";
 
 pub struct HeadedWindow {
@@ -82,7 +83,7 @@ pub struct HeadedWindow {
     inner_size: Cell<PhysicalSize<u32>>,
     fullscreen: Cell<bool>,
     device_pixel_ratio_override: Option<f32>,
-    xr_window_poses: RefCell<Vec<Rc<XRWindowPose>>>,
+    xr_window_poses: RefCell<Vec<Rc<xr::XRWindowPose>>>,
     modifiers_state: Cell<ModifiersState>,
     /// The `RenderingContext` of Servo itself. This is used to render Servo results
     /// temporarily until they can be blitted into the egui scene.
@@ -1824,23 +1825,7 @@ impl PlatformWindow for HeadedWindow {
 
     #[cfg(feature = "webxr")]
     fn new_glwindow(&self, event_loop: &ActiveEventLoop) -> Rc<dyn servo::webxr::GlWindow> {
-        let size = self.winit_window.outer_size();
-
-        let window_attr = winit::window::Window::default_attributes()
-            .with_title("Graphshell XR".to_string())
-            .with_inner_size(size)
-            .with_visible(false);
-
-        let winit_window = event_loop
-            .create_window(window_attr)
-            .expect("Failed to create window.");
-
-        let pose = Rc::new(XRWindowPose {
-            xr_rotation: Cell::new(Rotation3D::identity()),
-            xr_translation: Cell::new(Vector3D::zero()),
-        });
-        self.xr_window_poses.borrow_mut().push(pose.clone());
-        Rc::new(XRWindow { winit_window, pose })
+        xr::new_glwindow(self, event_loop)
     }
 
     fn rendering_context(&self) -> Rc<dyn RenderingContext> {
@@ -1896,81 +1881,11 @@ impl PlatformWindow for HeadedWindow {
     }
 
     fn show_embedder_control(&self, webview_id: WebViewId, embedder_control: EmbedderControl) {
-        let control_id = embedder_control.id();
-        match embedder_control {
-            EmbedderControl::SelectElement(prompt) => {
-                let offset = self.gui.borrow().toolbar_height();
-                self.add_dialog(
-                    webview_id,
-                    Dialog::new_select_element_dialog(prompt, offset),
-                );
-            }
-            EmbedderControl::ColorPicker(color_picker) => {
-                let offset = self.gui.borrow().toolbar_height();
-                self.add_dialog(
-                    webview_id,
-                    Dialog::new_color_picker_dialog(color_picker, offset),
-                );
-            }
-            EmbedderControl::InputMethod(input_method_control) => {
-                self.visible_input_methods.borrow_mut().push(control_id);
-                self.show_ime(input_method_control);
-            }
-            EmbedderControl::FilePicker(file_picker) => {
-                self.add_dialog(webview_id, Dialog::new_file_dialog(file_picker));
-            }
-            EmbedderControl::SimpleDialog(simple_dialog) => match simple_dialog {
-                servo::SimpleDialog::Prompt(mut prompt_dialog) => {
-                    let bridge_response = {
-                        let mut gui = self.gui.borrow_mut();
-                        gui.try_handle_nip07_prompt(webview_id, prompt_dialog.message())
-                    };
-                    if let Some(response_json) = bridge_response {
-                        prompt_dialog.set_current_value(&response_json);
-                        prompt_dialog.confirm();
-                    } else {
-                        self.add_dialog(
-                            webview_id,
-                            Dialog::new_simple_dialog(servo::SimpleDialog::Prompt(prompt_dialog)),
-                        );
-                    }
-                }
-                other => self.add_dialog(webview_id, Dialog::new_simple_dialog(other)),
-            },
-            EmbedderControl::ContextMenu(prompt) => {
-                let mut gui = self.gui.borrow_mut();
-                let offset = gui.toolbar_height();
-                let graphshell_anchor = [
-                    prompt.position().min.x as f32,
-                    (prompt.position().min.y + offset.0 as i32) as f32,
-                ];
-                if gui.node_key_for_webview_id(webview_id).is_some() {
-                    gui.request_context_command_surface_for_webview(webview_id, graphshell_anchor);
-                    drop(gui);
-                    self.winit_window.request_redraw();
-                } else {
-                    drop(gui);
-                    self.add_dialog(
-                        webview_id,
-                        Dialog::new_context_menu(webview_id, prompt, offset),
-                    );
-                }
-            }
-        }
+        embedder_controls::show_embedder_control(self, webview_id, embedder_control);
     }
 
     fn hide_embedder_control(&self, webview_id: WebViewId, embedder_control_id: EmbedderControlId) {
-        {
-            let mut visible_input_methods = self.visible_input_methods.borrow_mut();
-            if let Some(index) = visible_input_methods
-                .iter()
-                .position(|visible_id| *visible_id == embedder_control_id)
-            {
-                visible_input_methods.remove(index);
-                self.winit_window.set_ime_allowed(false);
-            }
-        }
-        self.remove_dialog(webview_id, embedder_control_id);
+        embedder_controls::hide_embedder_control(self, webview_id, embedder_control_id);
     }
 
     fn show_bluetooth_device_dialog(
@@ -1979,17 +1894,16 @@ impl PlatformWindow for HeadedWindow {
         devices: Vec<String>,
         response_sender: GenericSender<Option<String>>,
     ) {
-        self.add_dialog(
+        embedder_controls::show_bluetooth_device_dialog(
+            self,
             webview_id,
-            Dialog::new_device_selection_dialog(devices, response_sender),
+            devices,
+            response_sender,
         );
     }
 
     fn show_permission_dialog(&self, webview_id: WebViewId, permission_request: PermissionRequest) {
-        self.add_dialog(
-            webview_id,
-            Dialog::new_permission_request_dialog(permission_request),
-        );
+        embedder_controls::show_permission_dialog(self, webview_id, permission_request);
     }
 
     fn show_http_authentication_dialog(
@@ -1997,14 +1911,15 @@ impl PlatformWindow for HeadedWindow {
         webview_id: WebViewId,
         authentication_request: AuthenticationRequest,
     ) {
-        self.add_dialog(
+        embedder_controls::show_http_authentication_dialog(
+            self,
             webview_id,
-            Dialog::new_authentication_dialog(authentication_request),
+            authentication_request,
         );
     }
 
     fn dismiss_embedder_controls_for_webview(&self, webview_id: WebViewId) {
-        self.dialogs.borrow_mut().remove(&webview_id);
+        embedder_controls::dismiss_embedder_controls_for_webview(self, webview_id);
     }
 
     fn show_console_message(&self, level: servo::ConsoleLogLevel, message: &str) {
@@ -2045,120 +1960,6 @@ fn load_icon(icon_bytes: &[u8]) -> Icon {
         (rgba, width, height)
     };
     Icon::from_rgba(icon_rgba, icon_width, icon_height).expect("Failed to load icon")
-}
-
-#[cfg(feature = "webxr")]
-struct XRWindow {
-    winit_window: winit::window::Window,
-    pose: Rc<XRWindowPose>,
-}
-
-struct XRWindowPose {
-    xr_rotation: Cell<Rotation3D<f32, UnknownUnit, UnknownUnit>>,
-    xr_translation: Cell<Vector3D<f32, UnknownUnit>>,
-}
-
-#[cfg(feature = "webxr")]
-impl servo::webxr::GlWindow for XRWindow {
-    fn get_render_target(
-        &self,
-        device: &mut surfman::Device,
-        _context: &mut surfman::Context,
-    ) -> servo::webxr::GlWindowRenderTarget {
-        self.winit_window.set_visible(true);
-        let window_handle = self
-            .winit_window
-            .window_handle()
-            .expect("could not get window handle from window");
-        let size = self.winit_window.inner_size();
-        let size = Size2D::new(size.width as i32, size.height as i32);
-        let native_widget = device
-            .connection()
-            .create_native_widget_from_window_handle(window_handle, size)
-            .expect("Failed to create native widget");
-        servo::webxr::GlWindowRenderTarget::NativeWidget(native_widget)
-    }
-
-    fn get_rotation(&self) -> Rotation3D<f32, UnknownUnit, UnknownUnit> {
-        self.pose.xr_rotation.get()
-    }
-
-    fn get_translation(&self) -> Vector3D<f32, UnknownUnit> {
-        self.pose.xr_translation.get()
-    }
-
-    fn get_mode(&self) -> servo::webxr::GlWindowMode {
-        use servo::pref;
-        if pref!(dom_webxr_glwindow_red_cyan) {
-            servo::webxr::GlWindowMode::StereoRedCyan
-        } else if pref!(dom_webxr_glwindow_left_right) {
-            servo::webxr::GlWindowMode::StereoLeftRight
-        } else if pref!(dom_webxr_glwindow_spherical) {
-            servo::webxr::GlWindowMode::Spherical
-        } else if pref!(dom_webxr_glwindow_cubemap) {
-            servo::webxr::GlWindowMode::Cubemap
-        } else {
-            servo::webxr::GlWindowMode::Blit
-        }
-    }
-
-    fn display_handle(&self) -> raw_window_handle::DisplayHandle<'_> {
-        self.winit_window
-            .display_handle()
-            .expect("Every window should have a display handle")
-    }
-}
-
-impl XRWindowPose {
-    fn handle_xr_translation(&self, input: &KeyboardEvent) {
-        if input.event.state != KeyState::Down {
-            return;
-        }
-        const NORMAL_TRANSLATE: f32 = 0.1;
-        const QUICK_TRANSLATE: f32 = 1.0;
-        let mut x = 0.0;
-        let mut z = 0.0;
-        match input.event.key {
-            Key::Character(ref k) => match &**k {
-                "w" => z = -NORMAL_TRANSLATE,
-                "W" => z = -QUICK_TRANSLATE,
-                "s" => z = NORMAL_TRANSLATE,
-                "S" => z = QUICK_TRANSLATE,
-                "a" => x = -NORMAL_TRANSLATE,
-                "A" => x = -QUICK_TRANSLATE,
-                "d" => x = NORMAL_TRANSLATE,
-                "D" => x = QUICK_TRANSLATE,
-                _ => return,
-            },
-            _ => return,
-        };
-        let (old_x, old_y, old_z) = self.xr_translation.get().to_tuple();
-        let vec = Vector3D::new(x + old_x, old_y, z + old_z);
-        self.xr_translation.set(vec);
-    }
-
-    fn handle_xr_rotation(&self, input: &KeyEvent, modifiers: ModifiersState) {
-        if input.state != ElementState::Pressed {
-            return;
-        }
-        let mut x = 0.0;
-        let mut y = 0.0;
-        match input.logical_key {
-            LogicalKey::Named(WinitNamedKey::ArrowUp) => x = 1.0,
-            LogicalKey::Named(WinitNamedKey::ArrowDown) => x = -1.0,
-            LogicalKey::Named(WinitNamedKey::ArrowLeft) => y = 1.0,
-            LogicalKey::Named(WinitNamedKey::ArrowRight) => y = -1.0,
-            _ => return,
-        };
-        if modifiers.shift_key() {
-            x *= 10.0;
-            y *= 10.0;
-        }
-        let x: Rotation3D<_, UnknownUnit, UnknownUnit> = Rotation3D::around_x(Angle::degrees(x));
-        let y: Rotation3D<_, UnknownUnit, UnknownUnit> = Rotation3D::around_y(Angle::degrees(y));
-        let rotation = self.xr_rotation.get().then(&x).then(&y);
-        self.xr_rotation.set(rotation);
-    }
 }
 
 #[derive(Default)]

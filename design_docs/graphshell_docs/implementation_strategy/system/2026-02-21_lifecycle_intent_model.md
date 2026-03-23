@@ -124,5 +124,5 @@ This section is authoritative about lifecycle mutation semantics. It is not inte
 
 ## References
 
-- [2026-02-20_embedder_decomposition_plan.md](../aspect_render/2026-02-20_embedder_decomposition_plan.md) — Main decomposition plan that uses this model
+- [archived embedder decomposition plan](../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md) — Historical decomposition plan that used this model
 - [ARCHITECTURAL_OVERVIEW.md](../technical_architecture/ARCHITECTURAL_OVERVIEW.md) — Current architecture summary for lifecycle integration context

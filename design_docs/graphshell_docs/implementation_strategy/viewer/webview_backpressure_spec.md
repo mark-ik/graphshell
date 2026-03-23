@@ -8,7 +8,7 @@
 
 - [`node_lifecycle_and_runtime_reconcile_spec.md`](./node_lifecycle_and_runtime_reconcile_spec.md)
 - [`webview_lifecycle_and_crash_recovery_spec.md`](./webview_lifecycle_and_crash_recovery_spec.md)
-- [`../aspect_render/2026-02-20_embedder_decomposition_plan.md`](../aspect_render/2026-02-20_embedder_decomposition_plan.md)
+- [`archived embedder decomposition plan`](../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md)
 - [`../../technical_architecture/2026-03-12_specification_coverage_register.md`](../../technical_architecture/2026-03-12_specification_coverage_register.md)
 
 ---
