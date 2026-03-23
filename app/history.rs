@@ -174,6 +174,21 @@ impl super::GraphBrowserApp {
             | super::GraphMutation::CreateNodeAtUrl { .. }
             | super::GraphMutation::CreateNodeAtUrlAndOpen { .. } => true,
             super::GraphMutation::RemoveSelectedNodes => !self.focused_selection().is_empty(),
+            super::GraphMutation::MarkTombstoneForSelected => {
+                self.focused_selection().iter().any(|key| {
+                    self.workspace
+                        .domain
+                        .graph
+                        .get_node(*key)
+                        .is_some_and(|n| n.lifecycle != crate::graph::NodeLifecycle::Tombstone)
+                })
+            }
+            super::GraphMutation::RestoreGhostNode { key } => self
+                .workspace
+                .domain
+                .graph
+                .get_node(key)
+                .is_some_and(|n| n.lifecycle == crate::graph::NodeLifecycle::Tombstone),
             super::GraphMutation::ClearGraph => self.workspace.domain.graph.node_count() > 0,
             super::GraphMutation::CreateUserGroupedEdge { from, to, .. } => {
                 self.would_create_user_grouped_edge(from, to)

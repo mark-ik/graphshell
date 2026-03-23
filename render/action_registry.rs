@@ -181,6 +181,8 @@ pub enum ActionId {
     NodeMoveToActivePane,
     NodeWarmSelect,
     NodeRemoveFromGraphlet,
+    /// Soft-delete selected nodes → Ghost Node (Tombstone lifecycle).
+    NodeMarkTombstone,
     NodeCopyUrl,
     NodeCopyTitle,
     NodeRenderAuto,
@@ -192,8 +194,11 @@ pub enum ActionId {
     EdgeRemoveUser,
     // Graph actions
     GraphFit,
+    GraphFitGraphlet,
     GraphCycleFocusRegion,
     GraphTogglePhysics,
+    /// Toggle per-view ghost node (tombstone) visibility.
+    GraphToggleGhostNodes,
     GraphPhysicsConfig,
     GraphCommandPalette,
     GraphRadialMenu,
@@ -226,6 +231,7 @@ impl ActionId {
             Self::EdgeConnectBoth => &[input_action::graph::EDGE_CONNECT_BOTH],
             Self::EdgeRemoveUser => &[input_action::graph::EDGE_REMOVE_USER],
             Self::GraphFit => &[],
+            Self::GraphFitGraphlet => &[],
             Self::GraphTogglePhysics => &[input_action::graph::TOGGLE_PHYSICS],
             Self::GraphPhysicsConfig => &[input_action::workbench::OPEN_PHYSICS_SETTINGS],
             Self::GraphCommandPalette => &[input_action::graph::COMMAND_PALETTE_OPEN],
@@ -265,6 +271,7 @@ impl ActionId {
             Self::NodeMoveToActivePane => "node:move_to_active_pane",
             Self::NodeWarmSelect => "node:warm_select",
             Self::NodeRemoveFromGraphlet => "node:remove_from_graphlet",
+            Self::NodeMarkTombstone => "node:mark_tombstone",
             Self::NodeCopyUrl => "node:copy_url",
             Self::NodeCopyTitle => "node:copy_title",
             Self::NodeRenderAuto => "node:render_auto",
@@ -274,8 +281,10 @@ impl ActionId {
             Self::EdgeConnectBoth => "edge:connect_both",
             Self::EdgeRemoveUser => "edge:remove_user",
             Self::GraphFit => "graph:fit",
+            Self::GraphFitGraphlet => "graph:fit_graphlet",
             Self::GraphCycleFocusRegion => "graph:cycle_focus_region",
             Self::GraphTogglePhysics => "graph:toggle_physics",
+            Self::GraphToggleGhostNodes => "graph:toggle_ghost_nodes",
             Self::GraphPhysicsConfig => "graph:physics_config",
             Self::GraphCommandPalette => "workbench:command_palette_open",
             Self::GraphRadialMenu => "workbench:radial_menu_open",
@@ -316,6 +325,7 @@ impl ActionId {
             Self::NodeMoveToActivePane => "Move",
             Self::NodeWarmSelect => "Open Cold",
             Self::NodeRemoveFromGraphlet => "Leave Group",
+            Self::NodeMarkTombstone => "Ghost",
             Self::NodeCopyUrl => "Copy URL",
             Self::NodeCopyTitle => "Copy Title",
             Self::NodeRenderAuto => "Auto",
@@ -325,8 +335,10 @@ impl ActionId {
             Self::EdgeConnectBoth => "Both",
             Self::EdgeRemoveUser => "Remove",
             Self::GraphFit => "Fit",
+            Self::GraphFitGraphlet => "Fit Graphlet",
             Self::GraphCycleFocusRegion => "Focus",
             Self::GraphTogglePhysics => "Physics",
+            Self::GraphToggleGhostNodes => "Ghosts",
             Self::GraphPhysicsConfig => "Config",
             Self::GraphCommandPalette => "Cmd",
             Self::GraphRadialMenu => "Radial",
@@ -367,6 +379,7 @@ impl ActionId {
             Self::NodeMoveToActivePane => "Move Node to Active Pane",
             Self::NodeWarmSelect => "Open Cold Selection as Tiles",
             Self::NodeRemoveFromGraphlet => "Remove from Graphlet",
+            Self::NodeMarkTombstone => "Ghost Selected Node(s)",
             Self::NodeCopyUrl => "Copy Node URL",
             Self::NodeCopyTitle => "Copy Node Title",
             Self::NodeRenderAuto => "Render With Auto",
@@ -376,8 +389,10 @@ impl ActionId {
             Self::EdgeConnectBoth => "Connect Both Directions",
             Self::EdgeRemoveUser => "Remove User Edge",
             Self::GraphFit => "Fit Graph to Screen",
+            Self::GraphFitGraphlet => "Fit Graphlet to Screen",
             Self::GraphCycleFocusRegion => "Cycle Focus Region",
             Self::GraphTogglePhysics => "Toggle Physics Simulation",
+            Self::GraphToggleGhostNodes => "Toggle Ghost Node Visibility",
             Self::GraphPhysicsConfig => "Open Physics Settings",
             Self::GraphCommandPalette => "Open Command Palette",
             Self::GraphRadialMenu => "Open Radial Palette",
@@ -422,13 +437,16 @@ impl ActionId {
             | Self::NodeRenderWebView
             | Self::NodeRenderWry
             | Self::NodeWarmSelect
-            | Self::NodeRemoveFromGraphlet => ActionCategory::Node,
+            | Self::NodeRemoveFromGraphlet
+            | Self::NodeMarkTombstone => ActionCategory::Node,
             Self::EdgeConnectPair | Self::EdgeConnectBoth | Self::EdgeRemoveUser => {
                 ActionCategory::Edge
             }
             Self::GraphFit
+            | Self::GraphFitGraphlet
             | Self::GraphCycleFocusRegion
             | Self::GraphTogglePhysics
+            | Self::GraphToggleGhostNodes
             | Self::GraphPhysicsConfig
             | Self::GraphCommandPalette
             | Self::GraphRadialMenu
@@ -493,12 +511,15 @@ fn all_action_ids() -> &'static [ActionId] {
         NodeRenderWry,
         NodeWarmSelect,
         NodeRemoveFromGraphlet,
+        NodeMarkTombstone,
         EdgeConnectPair,
         EdgeConnectBoth,
         EdgeRemoveUser,
         GraphFit,
+        GraphFitGraphlet,
         GraphCycleFocusRegion,
         GraphTogglePhysics,
+        GraphToggleGhostNodes,
         GraphPhysicsConfig,
         GraphCommandPalette,
         GraphRadialMenu,
@@ -606,13 +627,16 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         ),
         (NodeWarmSelect, node_ops_enabled),
         (NodeRemoveFromGraphlet, node_ops_enabled),
+        (NodeMarkTombstone, node_ops_enabled),
         // Edge
         (EdgeConnectPair, pair_enabled),
         (EdgeConnectBoth, pair_enabled),
         (EdgeRemoveUser, pair_enabled),
         // Graph
         (GraphFit, true),
+        (GraphFitGraphlet, true),
         (GraphTogglePhysics, true),
+        (GraphToggleGhostNodes, true),
         (GraphPhysicsConfig, true),
         (GraphCommandPalette, true),
         (WorkbenchGroupSelectedTiles, true),

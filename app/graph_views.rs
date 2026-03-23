@@ -1139,6 +1139,11 @@ pub struct GraphViewState {
     /// computation and projection-aware workbench routing.
     #[serde(default)]
     pub edge_projection_override: Option<EdgeProjectionState>,
+    /// Per-view ghost node visibility.  When `true`, nodes in
+    /// `NodeLifecycle::Tombstone` state are rendered as faint ghost nodes.
+    /// Defaults to `false` (tombstoned nodes are hidden from the render pass).
+    #[serde(default)]
+    pub tombstones_visible: bool,
 }
 
 impl std::fmt::Debug for GraphViewState {
@@ -1174,6 +1179,7 @@ impl Clone for GraphViewState {
             egui_state: None,
             active_filter: self.active_filter.clone(),
             edge_projection_override: self.edge_projection_override.clone(),
+            tombstones_visible: self.tombstones_visible,
         }
     }
 }
@@ -1199,6 +1205,7 @@ impl GraphViewState {
             egui_state: None,
             active_filter: None,
             edge_projection_override: None,
+            tombstones_visible: false,
         }
     }
 

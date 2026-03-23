@@ -153,6 +153,7 @@ pub enum ViewAction {
     RequestZoomOut,
     RequestZoomReset,
     RequestZoomToSelected,
+    RequestZoomToGraphlet,
     ReheatPhysics,
     UpdateSelection {
         keys: Vec<NodeKey>,
@@ -281,6 +282,13 @@ pub enum GraphMutation {
         mode: PendingTileOpenMode,
     },
     RemoveSelectedNodes,
+    /// Soft-delete selected nodes: transitions them to `NodeLifecycle::Tombstone`
+    /// (Ghost Node state) instead of removing them from the graph.
+    MarkTombstoneForSelected,
+    /// Restore a single Ghost Node from `NodeLifecycle::Tombstone → Cold`.
+    RestoreGhostNode {
+        key: NodeKey,
+    },
     ClearGraph,
     SetNodeUrl {
         key: NodeKey,
@@ -434,6 +442,8 @@ pub enum RuntimeEvent {
 #[derive(Debug, Clone)]
 pub enum GraphIntent {
     TogglePhysics,
+    /// Toggle per-view ghost node (tombstone) visibility.
+    ToggleGhostNodes,
     ToggleCameraPositionFitLock,
     ToggleCameraZoomFitLock,
     RequestFitToScreen,
@@ -441,6 +451,7 @@ pub enum GraphIntent {
     RequestZoomOut,
     RequestZoomReset,
     RequestZoomToSelected,
+    RequestZoomToGraphlet,
     ReheatPhysics,
     ToggleHelpPanel,
     ToggleCommandPalette,
@@ -502,6 +513,10 @@ pub enum GraphIntent {
         request: HostOpenRequest,
     },
     RemoveSelectedNodes,
+    MarkTombstoneForSelected,
+    RestoreGhostNode {
+        key: NodeKey,
+    },
     ClearGraph,
     SelectNode {
         key: NodeKey,
@@ -822,6 +837,8 @@ impl GraphIntent {
             | Self::CreateNodeAtUrl { .. }
             | Self::CreateNodeAtUrlAndOpen { .. }
             | Self::RemoveSelectedNodes
+            | Self::MarkTombstoneForSelected
+            | Self::RestoreGhostNode { .. }
             | Self::ClearGraph
             | Self::SetNodeUrl { .. }
             | Self::TagNode { .. }
@@ -841,6 +858,7 @@ impl GraphIntent {
             | Self::UpdateNodeMimeHint { .. }
             | Self::UpdateNodeAddressKind { .. } => WorkspaceGrantRequirement::ReadWrite,
             Self::TogglePhysics
+            | Self::ToggleGhostNodes
             | Self::ToggleCameraPositionFitLock
             | Self::ToggleCameraZoomFitLock
             | Self::RequestFitToScreen
@@ -848,6 +866,7 @@ impl GraphIntent {
             | Self::RequestZoomOut
             | Self::RequestZoomReset
             | Self::RequestZoomToSelected
+            | Self::RequestZoomToGraphlet
             | Self::ReheatPhysics
             | Self::ToggleHelpPanel
             | Self::ToggleCommandPalette
@@ -1009,6 +1028,7 @@ impl From<ViewAction> for GraphIntent {
             ViewAction::RequestZoomOut => Self::RequestZoomOut,
             ViewAction::RequestZoomReset => Self::RequestZoomReset,
             ViewAction::RequestZoomToSelected => Self::RequestZoomToSelected,
+            ViewAction::RequestZoomToGraphlet => Self::RequestZoomToGraphlet,
             ViewAction::ReheatPhysics => Self::ReheatPhysics,
             ViewAction::UpdateSelection { keys, mode } => Self::UpdateSelection { keys, mode },
             ViewAction::SelectAll => Self::SelectAll,
@@ -1095,6 +1115,8 @@ impl From<GraphMutation> for GraphIntent {
                 mode,
             },
             GraphMutation::RemoveSelectedNodes => Self::RemoveSelectedNodes,
+            GraphMutation::MarkTombstoneForSelected => Self::MarkTombstoneForSelected,
+            GraphMutation::RestoreGhostNode { key } => Self::RestoreGhostNode { key },
             GraphMutation::ClearGraph => Self::ClearGraph,
             GraphMutation::SetNodeUrl { key, new_url } => Self::SetNodeUrl { key, new_url },
             GraphMutation::TagNode { key, tag } => Self::TagNode { key, tag },
@@ -1271,6 +1293,7 @@ impl GraphIntent {
             Self::RequestZoomOut => Some(ViewAction::RequestZoomOut),
             Self::RequestZoomReset => Some(ViewAction::RequestZoomReset),
             Self::RequestZoomToSelected => Some(ViewAction::RequestZoomToSelected),
+            Self::RequestZoomToGraphlet => Some(ViewAction::RequestZoomToGraphlet),
             Self::ReheatPhysics => Some(ViewAction::ReheatPhysics),
             Self::UpdateSelection { keys, mode } => Some(ViewAction::UpdateSelection {
                 keys: keys.clone(),
@@ -1377,6 +1400,10 @@ impl GraphIntent {
             }),
             Self::AcceptHostOpenRequest { .. } => None,
             Self::RemoveSelectedNodes => Some(GraphMutation::RemoveSelectedNodes),
+            Self::MarkTombstoneForSelected => Some(GraphMutation::MarkTombstoneForSelected),
+            Self::RestoreGhostNode { key } => {
+                Some(GraphMutation::RestoreGhostNode { key: *key })
+            }
             Self::ClearGraph => Some(GraphMutation::ClearGraph),
             Self::SetNodeUrl { key, new_url } => Some(GraphMutation::SetNodeUrl {
                 key: *key,

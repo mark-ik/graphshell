@@ -182,6 +182,7 @@ fn disabled_action_reason(
         ActionId::NodePinSelected
         | ActionId::NodeUnpinSelected
         | ActionId::NodeDelete
+        | ActionId::NodeMarkTombstone
         | ActionId::NodeChooseFrame
         | ActionId::NodeAddToFrame
         | ActionId::NodeAddConnectedToFrame
@@ -646,6 +647,7 @@ pub(crate) fn execute_action(
             .into(),
         ),
         ActionId::NodeDelete => intents.push(GraphMutation::RemoveSelectedNodes.into()),
+        ActionId::NodeMarkTombstone => intents.push(GraphMutation::MarkTombstoneForSelected.into()),
         ActionId::NodeChooseFrame => {
             if let Some(key) = open_target
                 && !app.frames_for_node_key(key).is_empty()
@@ -765,10 +767,12 @@ pub(crate) fn execute_action(
             }
         }
         ActionId::GraphFit => intents.push(ViewAction::RequestFitToScreen.into()),
+        ActionId::GraphFitGraphlet => intents.push(ViewAction::RequestZoomToGraphlet.into()),
         ActionId::GraphCycleFocusRegion => {
             app.enqueue_workbench_intent(WorkbenchIntent::CycleFocusRegion);
         }
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
+        ActionId::GraphToggleGhostNodes => intents.push(GraphIntent::ToggleGhostNodes),
         ActionId::GraphPhysicsConfig => {
             registries::phase3_publish_settings_route_requested(
                 &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),

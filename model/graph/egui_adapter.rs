@@ -137,6 +137,9 @@ pub struct GraphNodeShape {
     is_pinned: bool,
     #[serde(default)]
     is_crashed: bool,
+    /// Ghost node: tombstoned node rendered as a faint dashed placeholder.
+    #[serde(default)]
+    is_ghost: bool,
     #[serde(default)]
     selection_role: SelectionVisualRole,
     #[serde(default = "default_graph_node_focus_ring_color")]
@@ -179,6 +182,7 @@ impl From<NodeProps<Node>> for GraphNodeShape {
             is_clip: false,
             is_pinned: node_props.payload.is_pinned,
             is_crashed: false,
+            is_ghost: false,
             selection_role: if node_props.selected {
                 SelectionVisualRole::Primary
             } else {
@@ -222,6 +226,10 @@ impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeSha
             .into(),
         );
         self.push_clip_ring(circle_center, circle_radius, &mut res);
+        if self.is_ghost {
+            // Spec §3.1: ghost nodes use a dashed border at reduced opacity.
+            self.push_ghost_dashed_ring(circle_center, circle_radius, &mut res);
+        }
 
         if let Some(texture_id) = self.ensure_favicon_texture(ctx) {
             let size = Vec2::splat(circle_radius * 1.5);
@@ -375,6 +383,10 @@ impl GraphNodeShape {
 
     fn set_crashed(&mut self, crashed: bool) {
         self.is_crashed = crashed;
+    }
+
+    pub(crate) fn set_ghost(&mut self, ghost: bool) {
+        self.is_ghost = ghost;
     }
 
     fn push_workspace_membership_badge(
@@ -587,6 +599,36 @@ impl GraphNodeShape {
         }
     }
 
+    /// Ghost node dashed border ring (spec §3.1): reduced-opacity dashed circle
+    /// outline drawn just outside the node circle.
+    fn push_ghost_dashed_ring(
+        &self,
+        circle_center: Pos2,
+        circle_radius: f32,
+        shapes: &mut Vec<Shape>,
+    ) {
+        let dash_count = 10;
+        let dash_span = std::f32::consts::TAU / dash_count as f32 * 0.5;
+        let ghost_stroke_color =
+            Color32::from_rgba_unmultiplied(180, 180, 180, 100);
+        for dash in 0..dash_count {
+            let base = dash as f32 * std::f32::consts::TAU / dash_count as f32;
+            let start = base;
+            let end = base + dash_span;
+            let points = (0..=6)
+                .map(|idx| {
+                    let t = idx as f32 / 6.0;
+                    let angle = start + (end - start) * t;
+                    Pos2::new(
+                        circle_center.x + (circle_radius + 2.5) * angle.cos(),
+                        circle_center.y + (circle_radius + 2.5) * angle.sin(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            shapes.push(Shape::line(points, Stroke::new(1.5, ghost_stroke_color)));
+        }
+    }
+
     fn push_secondary_selection_halo(
         &self,
         circle_center: Pos2,
@@ -647,18 +689,21 @@ impl GraphNodeShape {
 
     fn projected_color(&self) -> Option<Color32> {
         if self.selection_role == SelectionVisualRole::Primary {
-            return Some(
+            return Some(self.apply_ghost_opacity(
                 self.color
                     .map(|color| self.apply_archive_tint(color))
                     .unwrap_or_else(|| {
                         self.apply_archive_tint(default_graph_node_selection_color())
                     }),
-            );
+            ));
         }
         if self.is_crashed {
-            return Some(self.apply_archive_tint(Color32::from_rgb(205, 112, 82)));
+            return Some(
+                self.apply_ghost_opacity(self.apply_archive_tint(Color32::from_rgb(205, 112, 82))),
+            );
         }
-        self.color.map(|color| self.apply_archive_tint(color))
+        self.color
+            .map(|color| self.apply_ghost_opacity(self.apply_archive_tint(color)))
     }
 
     fn effective_stroke(&self, ctx: &DrawContext) -> Stroke {
@@ -699,6 +744,15 @@ impl GraphNodeShape {
     fn apply_archive_tint(&self, color: Color32) -> Color32 {
         if self.is_archived {
             color.linear_multiply(0.45)
+        } else {
+            color
+        }
+    }
+
+    fn apply_ghost_opacity(&self, color: Color32) -> Color32 {
+        if self.is_ghost {
+            // Spec §3.1: reduced opacity 0.25–0.35 for ghost nodes.
+            Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 80)
         } else {
             color
         }
@@ -1618,6 +1672,9 @@ impl EguiGraphState {
                         .iter()
                         .any(|tag| crate::graph::badge::is_clip_tag(tag)),
                 );
+                egui_node
+                    .display_mut()
+                    .set_ghost(node.lifecycle == NodeLifecycle::Tombstone);
             }
         }
         state

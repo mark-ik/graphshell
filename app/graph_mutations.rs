@@ -1418,6 +1418,63 @@ impl GraphBrowserApp {
         self.sanitize_pending_frame_import_commands();
     }
 
+    /// Soft-delete selected nodes: transitions them to `NodeLifecycle::Tombstone`
+    /// (Ghost Node) without removing them from the graph.  Webview resources are
+    /// freed; the node remains structurally present for topology preservation.
+    pub fn mark_tombstone_for_selected(&mut self) {
+        use crate::graph::NodeLifecycle;
+        let nodes: Vec<NodeKey> = self.focused_selection().iter().copied().collect();
+        for key in nodes {
+            let already_tombstone = self
+                .workspace
+                .domain
+                .graph
+                .get_node(key)
+                .is_some_and(|n| n.lifecycle == NodeLifecycle::Tombstone);
+            if already_tombstone {
+                continue;
+            }
+            // Free webview resources like a cold demotion.
+            if let Some(webview_id) = self
+                .workspace
+                .graph_runtime
+                .node_to_webview
+                .get(&key)
+                .copied()
+            {
+                let _ = self.unmap_webview(webview_id);
+            }
+            self.remove_active_node(key);
+            self.remove_warm_cache_node(key);
+            self.workspace
+                .domain
+                .graph
+                .set_node_lifecycle(key, NodeLifecycle::Tombstone);
+        }
+        self.clear_selection();
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    /// Restore a single Ghost Node from `NodeLifecycle::Tombstone → Cold`.
+    /// The node retains its preserved position and edges.
+    pub fn restore_ghost_node(&mut self, key: NodeKey) {
+        use crate::graph::NodeLifecycle;
+        let is_tombstone = self
+            .workspace
+            .domain
+            .graph
+            .get_node(key)
+            .is_some_and(|n| n.lifecycle == NodeLifecycle::Tombstone);
+        if !is_tombstone {
+            return;
+        }
+        self.workspace
+            .domain
+            .graph
+            .set_node_lifecycle(key, NodeLifecycle::Cold);
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
     pub fn get_single_selected_node(&self) -> Option<NodeKey> {
         let selected = self.focused_selection();
         if selected.len() == 1 {

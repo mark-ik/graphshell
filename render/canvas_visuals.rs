@@ -307,12 +307,19 @@ pub(super) fn node_bounds_for_selection(
     app: &GraphBrowserApp,
     selection: &crate::app::SelectionState,
 ) -> Option<(f32, f32, f32, f32)> {
+    node_bounds_for_keys(app, selection.iter().copied())
+}
+
+pub(super) fn node_bounds_for_keys(
+    app: &GraphBrowserApp,
+    keys: impl Iterator<Item = crate::graph::NodeKey>,
+) -> Option<(f32, f32, f32, f32)> {
     let mut min_x = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
     let mut min_y = f32::INFINITY;
     let mut max_y = f32::NEG_INFINITY;
 
-    for key in selection.iter().copied() {
+    for key in keys {
         if let Some(position) = app.domain_graph().node_projected_position(key) {
             min_x = min_x.min(position.x);
             max_x = max_x.max(position.x);
@@ -392,11 +399,41 @@ pub(super) fn visible_nodes_for_view_filters(
         && search_query_active)
         .then(|| search_matches.clone());
 
-    match (facet_matches, search_filter_matches) {
-        (Some(facet), Some(search)) => Some(facet.intersection(&search).copied().collect()),
-        (Some(facet), None) => Some(facet),
-        (None, Some(search)) => Some(search),
-        (None, None) => None,
+    let tombstones_hidden = app
+        .workspace
+        .graph_runtime
+        .views
+        .get(&view_id)
+        .is_some_and(|v| !v.tombstones_visible);
+    let tombstone_filter: Option<HashSet<NodeKey>> = tombstones_hidden.then(|| {
+        app.domain_graph()
+            .nodes()
+            .filter(|(_, node)| node.lifecycle != NodeLifecycle::Tombstone)
+            .map(|(key, _)| key)
+            .collect()
+    });
+
+    match (facet_matches, search_filter_matches, tombstone_filter) {
+        (Some(facet), Some(search), Some(tombs)) => Some(
+            facet
+                .intersection(&search)
+                .copied()
+                .filter(|k| tombs.contains(k))
+                .collect(),
+        ),
+        (Some(facet), Some(search), None) => {
+            Some(facet.intersection(&search).copied().collect())
+        }
+        (Some(facet), None, Some(tombs)) => {
+            Some(facet.intersection(&tombs).copied().collect())
+        }
+        (None, Some(search), Some(tombs)) => {
+            Some(search.intersection(&tombs).copied().collect())
+        }
+        (Some(facet), None, None) => Some(facet),
+        (None, Some(search), None) => Some(search),
+        (None, None, Some(tombs)) => Some(tombs),
+        (None, None, None) => None,
     }
 }
 

@@ -6901,3 +6901,102 @@ fn opening_radial_menu_closes_other_capture_surfaces() {
     assert!(!app.workspace.chrome_ui.show_command_palette);
     assert!(!app.workspace.chrome_ui.show_context_palette);
 }
+
+// ── Ghost Node (Tombstone lifecycle) scenario tests ───────────────────────────
+
+#[test]
+fn mark_tombstone_transitions_selected_node_to_tombstone() {
+    use crate::graph::NodeLifecycle;
+
+    let mut app = GraphBrowserApp::new_for_testing();
+    let key = app
+        .workspace
+        .domain
+        .graph
+        .add_node("ghost-me".to_string(), euclid::default::Point2D::new(0.0, 0.0));
+
+    // Select then ghost.
+    app.apply_reducer_intents([GraphIntent::SelectNode {
+        key,
+        multi_select: false,
+    }]);
+    app.apply_reducer_intents([GraphIntent::MarkTombstoneForSelected]);
+
+    assert_eq!(
+        app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
+        NodeLifecycle::Tombstone,
+        "node should be Tombstone after MarkTombstoneForSelected"
+    );
+    // Selection must be cleared after tombstoning.
+    assert!(
+        app.focused_selection().is_empty(),
+        "selection should be cleared after tombstoning"
+    );
+}
+
+#[test]
+fn restore_ghost_node_transitions_tombstone_to_cold() {
+    use crate::graph::NodeLifecycle;
+
+    let mut app = GraphBrowserApp::new_for_testing();
+    let key = app
+        .workspace
+        .domain
+        .graph
+        .add_node("restore-me".to_string(), euclid::default::Point2D::new(0.0, 0.0));
+
+    // Ghost the node first.
+    app.apply_reducer_intents([GraphIntent::SelectNode {
+        key,
+        multi_select: false,
+    }]);
+    app.apply_reducer_intents([GraphIntent::MarkTombstoneForSelected]);
+    assert_eq!(
+        app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
+        NodeLifecycle::Tombstone
+    );
+
+    // Restore it.
+    app.apply_reducer_intents([GraphIntent::RestoreGhostNode { key }]);
+    assert_eq!(
+        app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
+        NodeLifecycle::Cold,
+        "node should be Cold after RestoreGhostNode"
+    );
+}
+
+#[test]
+fn toggle_ghost_nodes_flips_tombstones_visible_on_focused_view() {
+    use crate::app::GraphViewState;
+
+    let mut app = GraphBrowserApp::new_for_testing();
+    let view_id = GraphViewId::new();
+    app.workspace
+        .graph_runtime
+        .views
+        .insert(view_id, GraphViewState::new_with_id(view_id, "TestView"));
+    app.set_workspace_focused_view_with_transition(Some(view_id));
+
+    let initial = app
+        .workspace
+        .graph_runtime
+        .views
+        .get(&view_id)
+        .map(|v| v.tombstones_visible)
+        .unwrap_or(false);
+
+    app.apply_reducer_intents([GraphIntent::ToggleGhostNodes]);
+
+    let after_toggle = app
+        .workspace
+        .graph_runtime
+        .views
+        .get(&view_id)
+        .map(|v| v.tombstones_visible)
+        .unwrap_or(false);
+
+    assert_ne!(
+        initial, after_toggle,
+        "ToggleGhostNodes should flip tombstones_visible"
+    );
+}

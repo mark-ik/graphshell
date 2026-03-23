@@ -84,6 +84,17 @@ impl GraphBrowserApp {
                 self.toggle_physics();
                 true
             }
+            GraphIntent::ToggleGhostNodes => {
+                if let Some(view_id) = self.workspace.graph_runtime.focused_view {
+                    if let Some(view) =
+                        self.workspace.graph_runtime.views.get_mut(&view_id)
+                    {
+                        view.tombstones_visible = !view.tombstones_visible;
+                        self.workspace.graph_runtime.egui_state_dirty = true;
+                    }
+                }
+                true
+            }
             GraphIntent::TraverseBack => {
                 let target = BrowserCommandTarget::ChromeProjection {
                     fallback_node: self.focused_selection().primary(),
@@ -601,6 +612,8 @@ impl GraphBrowserApp {
                 let _ = self.create_note_for_node(key, title);
             }
             GraphIntent::RemoveSelectedNodes => self.remove_selected_nodes(),
+            GraphIntent::MarkTombstoneForSelected => self.mark_tombstone_for_selected(),
+            GraphIntent::RestoreGhostNode { key } => self.restore_ghost_node(key),
             GraphIntent::ClearGraph => self.clear_graph(),
             GraphIntent::SelectNode { key, multi_select } => {
                 self.select_node(key, multi_select);
@@ -906,6 +919,7 @@ impl GraphBrowserApp {
             | GraphIntent::RequestZoomOut
             | GraphIntent::RequestZoomReset
             | GraphIntent::RequestZoomToSelected
+            | GraphIntent::RequestZoomToGraphlet
             | GraphIntent::ReheatPhysics
             | GraphIntent::UpdateSelection { .. }
             | GraphIntent::SelectAll
@@ -937,6 +951,7 @@ impl GraphBrowserApp {
             }
             // Runtime lifecycle intents are handled in phase 3.
             GraphIntent::TogglePhysics
+            | GraphIntent::ToggleGhostNodes
             | GraphIntent::TraverseBack
             | GraphIntent::TraverseForward
             | GraphIntent::EnterGraphViewLayoutManager

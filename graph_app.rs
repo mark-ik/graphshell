@@ -361,6 +361,10 @@ pub enum KeyboardZoomRequest {
 pub enum CameraCommand {
     Fit,
     FitSelection,
+    /// Fit the camera to the graphlet containing the primary selected node.
+    /// Falls back to `FitSelection` when no selection exists, or `Fit` when
+    /// the graphlet cannot be resolved.
+    FitGraphlet,
     SetZoom(f32),
 }
 
@@ -1652,6 +1656,14 @@ impl GraphBrowserApp {
                 }
                 true
             }
+            ViewAction::RequestZoomToGraphlet => {
+                if self.camera_position_fit_locked() || self.camera_zoom_fit_locked() {
+                    self.request_fit_to_screen();
+                } else {
+                    self.request_camera_command(CameraCommand::FitGraphlet);
+                }
+                true
+            }
             ViewAction::ReheatPhysics => {
                 self.workspace.graph_runtime.physics.base.is_running = true;
                 self.workspace.graph_runtime.drag_release_frames_remaining = 0;
@@ -1862,6 +1874,8 @@ impl GraphBrowserApp {
                 | GraphIntent::CreateNodeAtUrlAndOpen { .. }
                 | GraphIntent::AcceptHostOpenRequest { .. }
                 | GraphIntent::RemoveSelectedNodes
+                | GraphIntent::MarkTombstoneForSelected
+                | GraphIntent::RestoreGhostNode { .. }
                 | GraphIntent::ClearGraph
                 | GraphIntent::CreateUserGroupedEdge { .. }
                 | GraphIntent::DeleteImportRecord { .. }
