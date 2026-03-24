@@ -18,7 +18,7 @@ use super::tile_kind::TileKind;
 use super::tile_post_render;
 use super::tile_runtime;
 use super::tile_view_ops::{self, TileOpenMode};
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{GraphBrowserApp, GraphIntent, VisibleNavigationRegionSet};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{
@@ -113,10 +113,11 @@ fn infer_floating_target_context(
 }
 
 fn floating_overlay_rect_for_visible_regions(
-    visible_regions: &[egui::Rect],
+    visible_regions: &VisibleNavigationRegionSet,
     enlarged_for_viewer_override: bool,
 ) -> Option<egui::Rect> {
     visible_regions
+        .as_slice()
         .iter()
         .copied()
         .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0)
@@ -178,8 +179,8 @@ fn render_floating_pane_overlays(
         .graph_runtime
         .workbench_navigation_geometry
         .as_ref()
-        .map(|geometry| geometry.visible_rects_or_content())
-        .unwrap_or_else(|| vec![ctx.available_rect()]);
+        .map(|geometry| geometry.visible_region_set_or_content())
+        .unwrap_or_else(|| VisibleNavigationRegionSet::singleton(ctx.available_rect()));
     let rect = floating_overlay_rect_for_visible_regions(
         &visible_regions,
         floating_state.viewer_id_override.is_some(),
@@ -940,7 +941,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 }
             })
             .collect();
-        let (content_rect, visible_rects, occluding_host_rects) = graph_app
+        let (content_rect, visible_regions, occluding_host_rects) = graph_app
             .workspace
             .graph_runtime
             .workbench_navigation_geometry
@@ -948,13 +949,17 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             .map(|geometry| {
                 (
                     geometry.content_rect,
-                    geometry.visible_rects_or_content(),
+                    geometry.visible_region_set_or_content(),
                     geometry.occluding_host_rects.clone(),
                 )
             })
             .unwrap_or_else(|| {
                 let content_rect = ctx.available_rect();
-                (content_rect, vec![content_rect], Vec::new())
+                (
+                    content_rect,
+                    VisibleNavigationRegionSet::singleton(content_rect),
+                    Vec::new(),
+                )
             });
         diagnostics_state.push_frame(
             crate::shell::desktop::runtime::diagnostics::CompositorFrameSample {
@@ -962,7 +967,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 active_tile_count: active_tiles_for_diag.len(),
                 focused_node_present,
                 content_rect,
-                visible_rects,
+                visible_rects: visible_regions.to_vec(),
                 occluding_host_rects,
                 hierarchy: tile_hierarchy_lines(tiles_tree, graph_app),
                 tiles,
@@ -1024,11 +1029,11 @@ mod tests {
     #[test]
     fn floating_overlay_rect_prefers_largest_fitting_visible_region() {
         let rect = floating_overlay_rect_for_visible_regions(
-            &[
+            &VisibleNavigationRegionSet::from_rects(vec![
                 egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 40.0)),
                 egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),
                 egui::Rect::from_min_max(egui::pos2(0.0, 260.0), egui::pos2(400.0, 300.0)),
-            ],
+            ]),
             false,
         )
         .expect("expected a floating overlay rect");
@@ -1042,10 +1047,10 @@ mod tests {
     #[test]
     fn floating_overlay_rect_clamps_to_small_visible_region() {
         let rect = floating_overlay_rect_for_visible_regions(
-            &[egui::Rect::from_min_max(
+            &VisibleNavigationRegionSet::from_rects(vec![egui::Rect::from_min_max(
                 egui::pos2(10.0, 10.0),
                 egui::pos2(180.0, 120.0),
-            )],
+            )]),
             true,
         )
         .expect("expected a floating overlay rect");

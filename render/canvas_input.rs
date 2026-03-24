@@ -5,7 +5,7 @@
 //! Canvas input handling: lasso gesture, keyboard traversal, and egui_graphs
 //! event → GraphAction conversion.
 
-use crate::app::{GraphBrowserApp, SelectionUpdateMode};
+use crate::app::{GraphBrowserApp, SelectionUpdateMode, VisibleNavigationRegionSet};
 use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::render::GraphAction;
@@ -58,7 +58,7 @@ pub(super) fn collect_lasso_action(
     enabled: bool,
     metadata_id: egui::Id,
     lasso_binding: CanvasLassoBinding,
-    visible_graph_rects: &[egui::Rect],
+    visible_graph_regions: &VisibleNavigationRegionSet,
 ) -> LassoGestureResult {
     let presentation = active_presentation_profile(app);
     let (start_id, moved_id) = lasso_state_ids(metadata_id);
@@ -100,7 +100,7 @@ pub(super) fn collect_lasso_action(
 
     if pressed
         && let Some(pos) = pointer_pos
-        && visible_graph_rects.iter().any(|rect| rect.contains(pos))
+        && visible_graph_regions.contains_point(pos)
     {
         ui.ctx().data_mut(|d| {
             d.insert_persisted(start_id, pos);

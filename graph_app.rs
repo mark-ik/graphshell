@@ -211,7 +211,8 @@ mod storage_interop;
 #[path = "app/workspace_state.rs"]
 mod workspace_state;
 pub use workspace_state::{
-    ChromeUiState, GraphViewRuntimeState, WorkbenchNavigationGeometry, WorkbenchSessionState,
+    ChromeUiState, GraphViewRuntimeState, VisibleNavigationRegionSet,
+    WorkbenchNavigationGeometry, WorkbenchSessionState,
 };
 
 #[path = "app/intent_phases.rs"]

@@ -522,10 +522,10 @@ pub fn render_graph_in_ui_collect_actions(
     // Intercept wheel input before GraphView renders so parent scroll handling
     // cannot consume the delta first.
     let graph_rect = ui.max_rect();
-    let visible_graph_rects = graph_visible_screen_rects(graph_rect, app);
+    let visible_graph_regions = graph_visible_screen_rects(graph_rect, app);
     let pointer_in_visible_graph_region = ui
         .input(|i| i.pointer.latest_pos())
-        .is_some_and(|pointer| visible_graph_rects.iter().any(|rect| rect.contains(pointer)));
+        .is_some_and(|pointer| visible_graph_regions.contains_point(pointer));
     if pointer_in_visible_graph_region {
         let mut captured_wheel_zoom = false;
         ui.input_mut(|input| {
@@ -639,7 +639,7 @@ pub fn render_graph_in_ui_collect_actions(
         !radial_open,
         metadata_id,
         app.lasso_binding_preference(),
-        &visible_graph_rects,
+        &visible_graph_regions,
     );
 
     if pointer_in_visible_graph_region
@@ -1849,10 +1849,10 @@ mod tests {
             ),
         );
 
-        let visible_rects = graph_visible_screen_rects(screen_rect, &app);
+        let visible_regions = graph_visible_screen_rects(screen_rect, &app);
 
-        assert_eq!(visible_rects.len(), 3);
-        assert!(visible_rects.contains(&egui::Rect::from_min_max(
+        assert_eq!(visible_regions.len(), 3);
+        assert!(visible_regions.contains_rect(egui::Rect::from_min_max(
             egui::pos2(0.0, 40.0),
             egui::pos2(320.0, 260.0),
         )));

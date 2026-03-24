@@ -5,7 +5,7 @@
 //! Canvas visual helpers: presentation profiles, lifecycle colours, viewport
 //! culling, search-hit colouring, and adjacency-set computation.
 
-use crate::app::{GraphBrowserApp, GraphViewId, SearchDisplayMode};
+use crate::app::{GraphBrowserApp, GraphViewId, SearchDisplayMode, VisibleNavigationRegionSet};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::model::graph::filter::{FacetExpr, FilterEvaluationSummary, evaluate_filter_result};
 use crate::registries::domain::presentation::PresentationProfile;
@@ -290,28 +290,23 @@ pub(super) fn viewport_culled_graph(
 pub(super) fn graph_visible_screen_rects(
     screen_rect: egui::Rect,
     app: &GraphBrowserApp,
-) -> Vec<egui::Rect> {
+) -> VisibleNavigationRegionSet {
     let Some(geometry) = app
         .workspace
         .graph_runtime
         .workbench_navigation_geometry
         .as_ref()
     else {
-        return vec![screen_rect];
+        return VisibleNavigationRegionSet::singleton(screen_rect);
     };
 
-    let mut visible_rects = geometry
-        .visible_rects_or_content()
-        .into_iter()
-        .map(|visible_rect| visible_rect.intersect(screen_rect))
-        .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0)
-        .collect::<Vec<_>>();
+    let visible_regions = geometry.visible_region_set_or_content().clipped_to(screen_rect);
 
-    if visible_rects.is_empty() && screen_rect.width() > 0.0 && screen_rect.height() > 0.0 {
-        visible_rects.push(screen_rect);
+    if visible_regions.is_empty() && screen_rect.width() > 0.0 && screen_rect.height() > 0.0 {
+        VisibleNavigationRegionSet::singleton(screen_rect)
+    } else {
+        visible_regions
     }
-
-    visible_rects
 }
 
 pub(super) fn effective_graph_screen_rect(
@@ -319,14 +314,7 @@ pub(super) fn effective_graph_screen_rect(
     app: &GraphBrowserApp,
 ) -> Option<egui::Rect> {
     graph_visible_screen_rects(screen_rect, app)
-        .into_iter()
-        .max_by(|left, right| {
-            let left_area = left.width() * left.height();
-            let right_area = right.width() * right.height();
-            left_area
-                .partial_cmp(&right_area)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+        .largest_rect()
 }
 
 pub(super) fn canvas_rect_from_view_frame(

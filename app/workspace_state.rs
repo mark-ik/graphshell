@@ -30,12 +30,75 @@ use super::{
 };
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct VisibleNavigationRegionSet {
+    rects: Vec<egui::Rect>,
+}
+
+impl VisibleNavigationRegionSet {
+    pub(crate) fn from_rects(rects: Vec<egui::Rect>) -> Self {
+        Self {
+            rects: rects.into_iter().filter(|rect| rect_has_area(*rect)).collect(),
+        }
+    }
+
+    pub(crate) fn singleton(rect: egui::Rect) -> Self {
+        Self::from_rects(vec![rect])
+    }
+
+    pub(crate) fn as_slice(&self) -> &[egui::Rect] {
+        &self.rects
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.rects.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.rects.is_empty()
+    }
+
+    pub(crate) fn contains_rect(&self, rect: egui::Rect) -> bool {
+        self.rects.contains(&rect)
+    }
+
+    pub(crate) fn contains_point(&self, point: egui::Pos2) -> bool {
+        self.rects.iter().any(|rect| rect.contains(point))
+    }
+
+    pub(crate) fn intersects_rect(&self, rect: egui::Rect) -> bool {
+        self.rects.iter().any(|region| region.intersects(rect))
+    }
+
+    pub(crate) fn clipped_to(&self, clip_rect: egui::Rect) -> Self {
+        Self::from_rects(
+            self.rects
+                .iter()
+                .copied()
+                .map(|rect| rect.intersect(clip_rect))
+                .collect(),
+        )
+    }
+
+    pub(crate) fn largest_rect(&self) -> Option<egui::Rect> {
+        self.rects.iter().copied().max_by(|left, right| {
+            rect_area(*left)
+                .partial_cmp(&rect_area(*right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    }
+
+    pub(crate) fn to_vec(&self) -> Vec<egui::Rect> {
+        self.rects.clone()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct WorkbenchNavigationGeometry {
     /// Rect available to the workbench after reserved panels have been applied.
     pub content_rect: egui::Rect,
 
     /// Visible workbench rects after subtracting overlay-only host occlusions.
-    pub visible_rects: Vec<egui::Rect>,
+    pub visible_regions: VisibleNavigationRegionSet,
 
     /// Host rects that visually occlude the workbench without shrinking `content_rect`.
     pub occluding_host_rects: Vec<egui::Rect>,
@@ -56,20 +119,18 @@ impl WorkbenchNavigationGeometry {
             visible_rects = next_visible_rects;
         }
 
-        visible_rects.retain(|rect| rect_has_area(*rect));
-
         Self {
             content_rect,
-            visible_rects,
+            visible_regions: VisibleNavigationRegionSet::from_rects(visible_rects),
             occluding_host_rects,
         }
     }
 
-    pub(crate) fn visible_rects_or_content(&self) -> Vec<egui::Rect> {
-        if self.visible_rects.is_empty() {
-            vec![self.content_rect]
+    pub(crate) fn visible_region_set_or_content(&self) -> VisibleNavigationRegionSet {
+        if self.visible_regions.is_empty() {
+            VisibleNavigationRegionSet::singleton(self.content_rect)
         } else {
-            self.visible_rects.clone()
+            self.visible_regions.clone()
         }
     }
 }
@@ -391,28 +452,20 @@ mod tests {
             WorkbenchNavigationGeometry::from_content_rect(content_rect, vec![overlay_rect]);
 
         assert_eq!(geometry.occluding_host_rects, vec![overlay_rect]);
-        assert_eq!(geometry.visible_rects.len(), 3);
-        assert!(geometry.visible_rects.contains(&egui::Rect::from_min_max(
+        assert_eq!(geometry.visible_regions.len(), 3);
+        assert!(geometry.visible_regions.contains_rect(egui::Rect::from_min_max(
             egui::pos2(0.0, 0.0),
             egui::pos2(400.0, 40.0),
         )));
-        assert!(geometry.visible_rects.contains(&egui::Rect::from_min_max(
+        assert!(geometry.visible_regions.contains_rect(egui::Rect::from_min_max(
             egui::pos2(0.0, 260.0),
             egui::pos2(400.0, 300.0),
         )));
-        assert!(geometry.visible_rects.contains(&egui::Rect::from_min_max(
+        assert!(geometry.visible_regions.contains_rect(egui::Rect::from_min_max(
             egui::pos2(0.0, 40.0),
             egui::pos2(320.0, 260.0),
         )));
-        let largest_rect = geometry
-            .visible_rects
-            .iter()
-            .copied()
-            .max_by(|left, right| {
-                (left.width() * left.height())
-                    .partial_cmp(&(right.width() * right.height()))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+        let largest_rect = geometry.visible_regions.largest_rect();
         assert_eq!(
             largest_rect,
             Some(egui::Rect::from_min_max(
