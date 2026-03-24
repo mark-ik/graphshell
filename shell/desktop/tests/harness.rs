@@ -6,6 +6,7 @@ use euclid::Point2D;
 use serde_json::Value;
 
 use crate::app::{GraphBrowserApp, GraphViewId};
+use crate::app::VisibleNavigationRegionSet;
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{
     CompositorFrameSample, CompositorTileSample, DiagnosticsState, HierarchySample,
@@ -106,7 +107,7 @@ impl TestRegistry {
             active_tile_count,
             focused_node_present,
             content_rect,
-            visible_rects: vec![content_rect],
+            visible_regions: VisibleNavigationRegionSet::singleton(content_rect),
             occluding_host_rects: Vec::new(),
             hierarchy,
             tiles,

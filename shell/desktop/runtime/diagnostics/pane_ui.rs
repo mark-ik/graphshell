@@ -1188,7 +1188,7 @@ impl DiagnosticsState {
                     )
                 };
 
-                for visible_rect in &last.visible_rects {
+                for visible_rect in last.visible_regions.as_slice() {
                     painter.rect_filled(
                         map_rect(*visible_rect),
                         2.0,

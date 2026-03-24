@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde_json::{Value, json};
 
-use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
+use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, VisibleNavigationRegionSet};
 use crate::graph::NodeKey;
 use crate::registries::atomic::diagnostics as diagnostics_registry;
 use crate::services::persistence::GraphStore;
@@ -228,7 +228,7 @@ pub(crate) struct CompositorFrameSample {
     pub(crate) active_tile_count: usize,
     pub(crate) focused_node_present: bool,
     pub(crate) content_rect: egui::Rect,
-    pub(crate) visible_rects: Vec<egui::Rect>,
+    pub(crate) visible_regions: VisibleNavigationRegionSet,
     pub(crate) occluding_host_rects: Vec<egui::Rect>,
     pub(crate) hierarchy: Vec<HierarchySample>,
     pub(crate) tiles: Vec<CompositorTileSample>,
@@ -2670,7 +2670,7 @@ impl DiagnosticsState {
                     "active_tile_count": frame.active_tile_count,
                     "focused_node_present": frame.focused_node_present,
                     "content_rect": rect_json(frame.content_rect),
-                    "visible_rects": frame.visible_rects.iter().map(|rect| rect_json(*rect)).collect::<Vec<_>>(),
+                    "visible_rects": frame.visible_regions.as_slice().iter().map(|rect| rect_json(*rect)).collect::<Vec<_>>(),
                     "occluding_host_rects": frame.occluding_host_rects.iter().map(|rect| rect_json(*rect)).collect::<Vec<_>>(),
                     "hierarchy": hierarchy,
                     "tiles": tiles,
@@ -3583,10 +3583,10 @@ mod tests {
             active_tile_count: 1,
             focused_node_present: true,
             content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 80.0)),
-            visible_rects: vec![egui::Rect::from_min_max(
+            visible_regions: VisibleNavigationRegionSet::from_rects(vec![egui::Rect::from_min_max(
                 egui::pos2(0.0, 0.0),
                 egui::pos2(100.0, 80.0),
-            )],
+            )]),
             occluding_host_rects: Vec::new(),
             hierarchy: vec![HierarchySample {
                 line: "* TileId(1) Node Viewer NodeKey(1)".to_string(),
@@ -3724,10 +3724,10 @@ mod tests {
             active_tile_count: 1,
             focused_node_present: true,
             content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(120.0, 100.0)),
-            visible_rects: vec![egui::Rect::from_min_max(
+            visible_regions: VisibleNavigationRegionSet::from_rects(vec![egui::Rect::from_min_max(
                 egui::pos2(0.0, 0.0),
                 egui::pos2(120.0, 100.0),
-            )],
+            )]),
             occluding_host_rects: Vec::new(),
             hierarchy: vec![HierarchySample {
                 line: "* TileId(2) Node Viewer NodeKey(7)".to_string(),
@@ -4113,10 +4113,10 @@ Object {
             active_tile_count: 1,
             focused_node_present: false,
             content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 10.0)),
-            visible_rects: vec![egui::Rect::from_min_max(
+            visible_regions: VisibleNavigationRegionSet::from_rects(vec![egui::Rect::from_min_max(
                 egui::pos2(0.0, 0.0),
                 egui::pos2(10.0, 10.0),
-            )],
+            )]),
             occluding_host_rects: Vec::new(),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
@@ -4155,10 +4155,10 @@ Object {
             active_tile_count: 1,
             focused_node_present: true,
             content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(12.0, 12.0)),
-            visible_rects: vec![egui::Rect::from_min_max(
+            visible_regions: VisibleNavigationRegionSet::from_rects(vec![egui::Rect::from_min_max(
                 egui::pos2(0.0, 0.0),
                 egui::pos2(12.0, 12.0),
-            )],
+            )]),
             occluding_host_rects: Vec::new(),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
@@ -4211,10 +4211,10 @@ Object {
             active_tile_count: 1,
             focused_node_present: true,
             content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(12.0, 12.0)),
-            visible_rects: vec![egui::Rect::from_min_max(
+            visible_regions: VisibleNavigationRegionSet::from_rects(vec![egui::Rect::from_min_max(
                 egui::pos2(0.0, 0.0),
                 egui::pos2(12.0, 12.0),
-            )],
+            )]),
             occluding_host_rects: Vec::new(),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
@@ -4276,10 +4276,10 @@ Object {
             active_tile_count: 1,
             focused_node_present: true,
             content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(24.0, 24.0)),
-            visible_rects: vec![egui::Rect::from_min_max(
+            visible_regions: VisibleNavigationRegionSet::from_rects(vec![egui::Rect::from_min_max(
                 egui::pos2(0.0, 0.0),
                 egui::pos2(24.0, 24.0),
-            )],
+            )]),
             occluding_host_rects: Vec::new(),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
@@ -4323,11 +4323,11 @@ Object {
             active_tile_count: 0,
             focused_node_present: false,
             content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0)),
-            visible_rects: vec![
+            visible_regions: VisibleNavigationRegionSet::from_rects(vec![
                 egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 40.0)),
                 egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),
                 egui::Rect::from_min_max(egui::pos2(0.0, 260.0), egui::pos2(400.0, 300.0)),
-            ],
+            ]),
             occluding_host_rects: vec![egui::Rect::from_min_max(
                 egui::pos2(320.0, 40.0),
                 egui::pos2(400.0, 260.0),

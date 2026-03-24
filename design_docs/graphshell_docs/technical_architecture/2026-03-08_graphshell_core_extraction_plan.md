@@ -5,11 +5,17 @@
 # `graphshell-core` Extraction Plan
 
 **Date**: 2026-03-08
+**Updated**: 2026-03-23
 **Status**: Design / Planning
 **Scope**: Extract the identity, authority, and mutation kernel of graphshell into a WASM-clean
 crate (`graphshell-core`) that compiles to `wasm32-unknown-unknown` with zero errors and has no
 knowledge of egui, wgpu, Servo, or any platform I/O. This crate is the shared foundation for the
 desktop app, iOS/Android apps, browser extensions (Firefox/Chrome), and Verse server-side nodes.
+
+**2026-03-23 update**: Added §X (Extension Host Architecture), §Y (Mobile Host Architecture),
+binding-framework wrapper crate design (§8a), WAL replay performance acceptance criterion (Step 7),
+`GraphSemanticEvent` naming conflict prerequisite (Step 4), and `Address::File` mobile semantics
+note (§5.5). See §11 for updated open questions.
 
 **Related docs**:
 
@@ -34,18 +40,22 @@ function coherently?* If the answer is no, it belongs in core.
 
 **Target deployment contexts**:
 
-| Context | How core is used |
-| --- | --- |
-| Desktop app (Linux/macOS/Windows) | Native dependency; host adds egui, wgpu, Servo, iroh |
-| iOS / Android app | Native dependency via UniFFI or `cdylib`; host adds platform UI |
-| Firefox / Chrome extension | Compiled to WASM; host adds browser DOM APIs |
-| Browser tab (WASM) | Compiled to WASM; host adds web UI framework |
-| Verse server-side node | Native or WASM; host adds libp2p/iroh networking |
-| Headless test harness | Native; no host UI at all |
+| Context | How core is used | Binding layer | Sync path |
+| --- | --- | --- | --- |
+| Desktop app (Linux/macOS/Windows) | Native dependency; host adds egui, wgpu, Servo, iroh | Direct Rust dep | iroh-docs (QUIC) + Nostr relay |
+| iOS / Android app | Native dependency; host adds platform UI | `graphshell-core-uniffi` (UniFFI / `cdylib`) | Nostr relay; iroh when available |
+| Firefox / Chrome extension | Compiled to WASM; host adds browser DOM APIs | `graphshell-core-wasm` (wasm-bindgen) | Nostr relay only (see §X) |
+| Browser tab (WASM) | Compiled to WASM; host adds web UI framework | `graphshell-core-wasm` (wasm-bindgen) | Nostr relay only |
+| Verse server-side node | Native or WASM; host adds libp2p/iroh networking | Direct Rust dep or `wasm32-wasi` | iroh / libp2p |
+| Headless test harness | Native; no host UI at all | Direct Rust dep | None |
 
 The WASM compilation constraint is the mechanical enforcement mechanism. If `graphshell-core`
 compiles to `wasm32-unknown-unknown` with zero errors, it is definitionally free of platform
 dependencies. This is better than any code review.
+
+`wasm-bindgen` and UniFFI annotations must **not** appear in `graphshell-core` itself — they live
+in thin wrapper crates (`graphshell-core-wasm`, `graphshell-core-uniffi`) that re-export the core
+public API with the appropriate binding attributes. See §8a.
 
 ---
 
@@ -262,6 +272,17 @@ single-threaded and pure; no atomics or locks required.
 | `serde` + `serde_json` | Yes | Used for snapshot/event serialization |
 | `indexmap` | Yes | If used in graph internals |
 
+### 5.5 `Address::File` — mobile sandbox semantics
+
+On iOS and Android, filesystem access is sandboxed and app-specific. `PathBuf` compiles on both
+WASM and mobile targets and is valid in WAL entries and snapshots. However, an absolute
+`PathBuf` captured on desktop cannot be resolved on mobile: the path does not exist.
+
+**Rule**: Mobile hosts treat `Address::File` and `Address::Directory` as display-only (show path
+as label, do not attempt to open). A future `Address::AppSandboxFile { relative: PathBuf }`
+variant may be introduced to carry paths portable within an app container — deferred until the
+mobile host exists in code.
+
 ---
 
 ## 6. Headless Physics Engine
@@ -459,6 +480,87 @@ The gate is self-enforcing.
 
 ---
 
+## 8a. Binding-Framework Wrapper Crates
+
+`wasm-bindgen` and UniFFI cannot coexist in the same crate:
+
+- `#[wasm_bindgen]` attributes emit JS glue code that breaks `cdylib` builds targeting iOS/Android.
+- `#[uniffi::export]` attributes do not compile on `wasm32` targets.
+
+Both frameworks are therefore excluded from `graphshell-core`. Two thin wrapper crates re-export
+the core public API with the appropriate binding attributes:
+
+```
+graphshell-core/          ← zero bindgen, zero UniFFI; CI-gated on wasm32-unknown-unknown
+graphshell-core-wasm/     ← wasm-bindgen exports; targets browser extensions and browser tabs
+graphshell-core-uniffi/   ← UniFFI exports; targets iOS (Swift) and Android (Kotlin)
+```
+
+### `graphshell-core-wasm`
+
+```toml
+# graphshell-core-wasm/Cargo.toml
+[package]
+name = "graphshell-core-wasm"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+graphshell-core = { path = "../graphshell-core" }
+wasm-bindgen    = "0.2"
+serde-wasm-bindgen = "0.6"
+```
+
+Exports are thin `#[wasm_bindgen]` wrappers that accept/return JS-compatible types and delegate
+entirely to `graphshell-core`. No logic lives here. Example:
+
+```rust
+#[wasm_bindgen]
+pub fn apply_intent(state: &mut WasmWorkspace, intent_json: &str) -> Result<(), JsValue> {
+    let intent: GraphIntent = serde_json::from_str(intent_json)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    state.inner.apply_intent(intent);
+    Ok(())
+}
+```
+
+Intents cross the WASM boundary as JSON strings — the same serialization format used by the WAL.
+This means the extension JS host and the desktop Rust host share the same wire format for all
+mutations, at no extra design cost.
+
+CI gate for this crate:
+
+```yaml
+- name: wasm-bindgen build
+  run: wasm-pack build graphshell-core-wasm --target bundler
+```
+
+### `graphshell-core-uniffi`
+
+```toml
+# graphshell-core-uniffi/Cargo.toml
+[package]
+name = "graphshell-core-uniffi"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+graphshell-core = { path = "../graphshell-core" }
+uniffi          = { version = "0.28", features = ["build"] }
+```
+
+UniFFI UDL or proc-macro annotations live here, not in `graphshell-core`. The binding surface is
+designed for the Swift/Kotlin API ergonomics of the mobile host, not for the Rust API ergonomics
+of `graphshell-core` itself. These two concerns are kept separate by design.
+
+CI gate: a `cargo build --target aarch64-apple-ios` check is added when the iOS host crate exists.
+
+---
+
 ## 9. Sequencing and Prerequisites
 
 Steps must be completed in order. Each is a prerequisite for the next.
@@ -498,7 +600,15 @@ field. `ContentRenderer::can_render()` hook is not required at this step.
 Create the crate. Move all components from §2 into the module layout defined in §7. Host crate
 depends on `graphshell-core` as a path dependency initially.
 
-**Effort**: Large. **Gate**: After Steps 1–3.
+**Prerequisite — `GraphSemanticEvent` naming conflict**: The current `GraphSemanticEvent` in
+`shell/desktop/host/window.rs` is a Servo/webview lifecycle event bus (`UrlChanged`,
+`WebViewCrashed`, `HistoryChanged`, `HostOpenRequest`). The plan's `GraphSemanticEvent` is a
+domain event type that crosses from core to host. These are different types with the same name.
+Before Step 4 lands, the desktop-shell type must be renamed (e.g. `ServoLifecycleEvent` or
+`WebViewEvent`) to clear the namespace for the core domain event type. Doing this during Step 4
+would create a conflict that blocks the host crate from compiling during the migration.
+
+**Effort**: Large. **Gate**: After Steps 1–3 and the `GraphSemanticEvent` rename.
 
 ### Step 5 — Coop authority and snapshot in core
 
@@ -519,6 +629,13 @@ Move NIP-84 event struct, clip node type, `nostr_event_id` field, and URL normal
 Move WAL log entry types, `GraphSnapshot`, and `GraphDelta` into
 `graphshell-core/src/persistence/`. fjall storage and iroh-docs transport remain in the host.
 
+**Additional acceptance criterion (extension host)**: WAL replay — reconstructing a
+`GraphWorkspace` by replaying a WAL log entry-by-entry — must complete in under 200ms for a
+1,000-entry log on a reference device. This is a correctness requirement for the Chrome MV3
+extension host, which must replay WAL from IndexedDB on every service worker activation before
+handling any intent. A replay that exceeds the activation window produces a lost-update. A
+benchmark test must be added alongside the schema migration.
+
 **Effort**: Medium. **Gate**: After Step 4.
 
 ### Step 8 — Headless physics engine in core
@@ -537,16 +654,165 @@ After UDC Phase 2 (`SemanticGravity` force), replace the O(N²) pair loop with t
 
 ---
 
-## 10. Acceptance Criteria
+## 10. Extension Host Architecture
+
+This section describes how a Firefox/Chrome browser extension host consumes `graphshell-core-wasm`
+and what constraints shape the extension-specific parts of the design. These constraints must be
+reflected in the sequencing and acceptance criteria of Steps 4–8.
+
+### 10.1 Execution contexts
+
+A browser extension has two distinct JS execution contexts with different capabilities:
+
+| Context | WASM | DOM access | Persistence | Notes |
+| --- | --- | --- | --- | --- |
+| Background service worker (MV3) / background page (MV2) | Yes | No | IndexedDB, `chrome.storage` | WASM core lives here |
+| Content script (injected into pages) | No | Yes | None directly | Sends messages to background |
+
+The WASM core (`graphshell-core-wasm`) loads and runs exclusively in the background worker.
+Content scripts interact with the core only via the extension messaging API
+(`chrome.runtime.sendMessage` / `browser.runtime.sendMessage`).
+
+### 10.2 Clip operation message flow
+
+```
+Content script
+  │  Captures: URL, title, selected text (DOM access)
+  │  chrome.runtime.sendMessage({ type: "clip", url, title, selection, nostr_pubkey })
+  ▼
+Background worker
+  │  Receives message
+  │  Generates NodeId = crypto.randomUUID()  ← host generates UUID, never core
+  │  Calls: apply_intent(workspace, JSON.stringify({
+  │    AddNode: { id: nodeId, address: { Http: url }, title }
+  │  }))
+  │  Constructs NIP-84 kind 9802 event from clip schema (core serializes; host signs)
+  │  Signs via window.nostr (NIP-07) or injected signer
+  │  Publishes to Nostr relay via fetch()
+  │  Writes WAL entry to IndexedDB
+  ▼
+Response sent back to content script (confirmation / node ID)
+```
+
+All `GraphIntent` variants cross the JS↔WASM boundary as JSON strings, matching the WAL
+serialization format. No Rust types are exposed directly to JS.
+
+### 10.3 Chrome MV3 service worker ephemerality
+
+Chrome MV3 service workers are terminated after approximately 30 seconds of inactivity. The
+in-memory `GraphWorkspace` is lost on termination. On the next activation, the worker must
+reconstruct state from the persisted WAL before handling any intent.
+
+**Consequences for Step 7**:
+
+1. Every WAL entry must be written to IndexedDB before the intent response is returned to the
+   content script. Fire-and-forget WAL writes are not safe — a worker termination between intent
+   application and WAL write produces a lost update.
+2. WAL replay must complete inside the service worker activation window. See Step 7 acceptance
+   criterion (200ms / 1,000 entries).
+3. WAL compaction (snapshotting) is required to bound replay time. The `GraphSnapshot` type in
+   core must be snapshotable at any point, not only at explicit user save actions.
+
+Firefox WebExtensions use a persistent background page by default (no ephemerality), but should
+be designed to tolerate the same constraint for MV3 compatibility.
+
+### 10.4 Sync: relay-only constraint
+
+Browser extensions cannot open UDP sockets. iroh uses native QUIC over UDP and is therefore
+unavailable in the extension context. The extension sync path is **Nostr-relay-only**:
+
+- Mutations are published as NIP-84 `kind 9802` events or equivalent WAL-replay events.
+- The extension subscribes to the relay for events matching its pubkey to receive updates from
+  the desktop app.
+- There is no direct P2P channel between the extension and desktop — the relay is the broker.
+
+This is a permanent architectural constraint for the extension host, not a temporary limitation.
+The desktop app's iroh sync path and the extension's relay sync path converge at the Nostr relay:
+both publish and consume the same event types.
+
+**Implication for Step 6**: The NIP-84 publication schema must be sufficient for full WAL replay,
+not just clip publication. The relay event format is the extension's only durable sync channel.
+
+### 10.5 UUID generation asymmetry
+
+The desktop Rust host generates `NodeId` values via `Uuid::new_v4()`. The extension JS host
+generates them via `crypto.randomUUID()`. Both produce UUID v4 strings in the same canonical
+format (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`, lowercase, hyphenated).
+
+**Required acceptance test (Step 2)**: A roundtrip test — JS-generated UUID string → WASM core
+`NodeId` → WAL entry serialized as JSON → deserialized in a native Rust test → same `Uuid` value.
+This must be an explicit test in the Step 2 PR, not assumed.
+
+---
+
+## 11. Mobile Host Architecture
+
+This section describes how iOS and Android thin clients consume `graphshell-core-uniffi` and what
+constraints are specific to the mobile deployment context.
+
+### 11.1 Binding layer
+
+iOS and Android apps consume `graphshell-core` via the `graphshell-core-uniffi` wrapper crate
+(see §8a). UniFFI generates Swift bindings for iOS and Kotlin bindings for Android from a shared
+Rust implementation. The `graphshell-core` API is designed for Rust ergonomics first; the
+UniFFI UDL or proc-macro layer in `graphshell-core-uniffi` adapts it to Swift/Kotlin ergonomics.
+
+No UniFFI attributes appear in `graphshell-core` itself.
+
+### 11.2 Threading model
+
+`wasm32-unknown-unknown` is single-threaded. iOS and Android are multi-threaded. The physics
+`step()` function is pure and stateless, which means it can be called from any thread on mobile.
+`GraphWorkspace` mutations must be serialized to a single thread (the "core thread") to preserve
+the single-writer contract.
+
+The mobile host is responsible for this serialization. Core makes no threading guarantees beyond
+"safe to call from one thread at a time."
+
+### 11.3 `Address::File` sandbox constraint
+
+See §5.5. Mobile hosts must treat `Address::File` and `Address::Directory` as display-only.
+Attempting to resolve these addresses on mobile will fail or access incorrect paths. The mobile
+renderer for a `File` node must show the path as a label and offer an "unavailable on this device"
+affordance rather than attempting to open it.
+
+### 11.4 Sync path
+
+Mobile hosts can use the Nostr relay sync path (same as the extension) and, where native
+networking is available, the iroh-docs sync path. iroh compiles for iOS and Android as a native
+dependency — it does not require WASM. The mobile host may therefore offer both relay and direct
+P2P sync, unlike the extension host.
+
+### 11.5 WAL persistence
+
+Mobile hosts use platform-native storage (CoreData, SQLite, or a bundled key-value store) for WAL
+persistence. The WAL entry types from `graphshell-core/src/persistence/wal.rs` are the canonical
+serialization format — the mobile storage layer is an adapter that reads and writes these types.
+No mobile-specific WAL schema variant is introduced.
+
+---
+
+## 12. Acceptance Criteria
 
 ### Core compilation (Steps 4+)
 
 1. `cargo build -p graphshell-core --target wasm32-unknown-unknown` passes with zero errors.
 2. No import of `egui`, `wgpu`, `servo`, `iroh`, `libp2p`, or any OS-dependent crate in core.
 3. `apply_intents()` is in core; every `GraphIntent` variant is handled.
-4. `GraphSemanticEvent` is the only type crossing from core to host at the domain event boundary.
+4. The core domain `GraphSemanticEvent` is the only type crossing from core to host at the domain
+   event boundary. The desktop Servo lifecycle event type has been renamed (see Step 4 prerequisite)
+   and does not conflict.
 5. `Uuid::new_v4()` is never called inside core — all IDs are passed in by the host.
 6. `graphshell` (host crate) compiles and all existing tests pass after extraction.
+7. `wasm-pack build graphshell-core-wasm --target bundler` succeeds (after §8a wrapper crate
+   is created).
+8. No `#[wasm_bindgen]` or `#[uniffi::export]` attributes appear anywhere in `graphshell-core`.
+
+### UUID roundtrip (Step 2)
+
+1. A JS-generated UUID string (`crypto.randomUUID()` format) round-trips through the WASM core:
+   WASM `NodeId` → WAL entry JSON → deserialized in native Rust → byte-identical `Uuid` value.
+   (See §10.5.)
 
 ### Physics engine (Step 8)
 
@@ -576,30 +842,41 @@ After UDC Phase 2 (`SemanticGravity` force), replace the O(N²) pair loop with t
 
 ---
 
-## 11. Open Questions
+## 13. Open Questions
 
 1. **WASM target variant for Verse server-side**: `wasm32-unknown-unknown` (most restrictive) vs.
    `wasm32-wasi` (allows OS-like syscalls). The CI gate uses `wasm32-unknown-unknown`; Verse
    server nodes may target WASI for access to clocks and file I/O. Consider a second gate for
    `wasm32-wasi` once the Verse deployment target is confirmed.
 
-2. **UniFFI / `cdylib` for iOS/Android**: iOS and Android apps will consume `graphshell-core`
-   via a C ABI (`cdylib`) or UniFFI bindings. The module layout in §7 should be designed with
-   UniFFI attribute placement in mind (`#[uniffi::export]` on public API surfaces). No action
-   required before Step 4; track as a pre-mobile design review.
-
-3. **`GraphWorkspace` split**: `GraphBrowserApp` currently holds both graph state and UI state.
+2. **`GraphWorkspace` split**: `GraphBrowserApp` currently holds both graph state and UI state.
    The extraction must cleanly separate them: `GraphWorkspace` in core owns pure graph state;
    `GraphBrowserApp` in the host owns everything else and holds a `GraphWorkspace`. Circular
    dependency risk must be reviewed at Step 4.
 
-4. **Snapshot versioning**: WAL log entry types in core must be versioned for forward/backward
-   compatibility between app versions and across platforms. A schema version field on
-   `GraphSnapshot` is the minimum requirement. Design deferred to Step 7.
+3. **Snapshot versioning and cross-platform forward compatibility**: WAL log entry types in core
+   must be versioned for forward/backward compatibility between app versions and across platforms.
+   The extension will have a different release cadence than the desktop app. A `schema_version`
+   field on `GraphSnapshot` is the minimum. `#[serde(default)]` on new fields handles additive
+   changes; removed fields need explicit migration. Design deferred to Step 7.
 
-5. **`serde_json` vs. `postcard` for snapshot serialization**: `serde_json` is human-readable and
-   debuggable but larger over the wire. `postcard` is compact and fast but not human-readable.
-   For iroh-docs sync, compactness matters. Decision deferred to Step 7.
+4. **`serde_json` vs. `postcard` for snapshot serialization**: `serde_json` is human-readable,
+   debuggable, and required for the Nostr relay sync path (Nostr event content is always JSON).
+   `postcard` is compact and fast but incompatible with the relay path. A likely outcome is
+   `serde_json` for WAL entries that travel via relay, and optionally `postcard` for iroh-docs
+   binary blobs. Decision deferred to Step 7 but constrained by §10.4.
+
+5. **Relay event format for full WAL replay**: §X.4 states the relay event format must be
+   sufficient for full WAL replay, not just clip publication. This requires deciding how non-clip
+   mutations (edge creation, node rename, tag operations) are encoded as Nostr events. A
+   dedicated event kind (e.g. `kind 30078` application-specific data, or a custom kind) is likely
+   needed for generic WAL entries. Design required before Step 6.
+
+6. **`graphshell-core-wasm` JS API surface**: The `apply_intent` JSON-string interface described
+   in §8a is the minimal design. As the extension matures, higher-level query methods
+   (`get_node`, `neighbors_of`, `snapshot_json`) will be needed. The JS API surface of
+   `graphshell-core-wasm` should be specified before the extension host is built, not discovered
+   incrementally. Track as a pre-extension design review.
 
 ---
 

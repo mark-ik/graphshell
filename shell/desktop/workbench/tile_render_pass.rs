@@ -967,7 +967,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 active_tile_count: active_tiles_for_diag.len(),
                 focused_node_present,
                 content_rect,
-                visible_rects: visible_regions.to_vec(),
+                visible_regions,
                 occluding_host_rects,
                 hierarchy: tile_hierarchy_lines(tiles_tree, graph_app),
                 tiles,
