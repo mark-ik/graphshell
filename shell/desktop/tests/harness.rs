@@ -97,7 +97,7 @@ impl TestRegistry {
         &mut self,
         active_tile_count: usize,
         focused_node_present: bool,
-        viewport_rect: egui::Rect,
+        content_rect: egui::Rect,
         hierarchy: Vec<HierarchySample>,
         tiles: Vec<CompositorTileSample>,
     ) {
@@ -105,7 +105,9 @@ impl TestRegistry {
             sequence: self.frame_sequence,
             active_tile_count,
             focused_node_present,
-            viewport_rect,
+            content_rect,
+            visible_rects: vec![content_rect],
+            occluding_host_rects: Vec::new(),
             hierarchy,
             tiles,
         });

@@ -892,18 +892,30 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 }
             })
             .collect();
+        let (content_rect, visible_rects, occluding_host_rects) = graph_app
+            .workspace
+            .graph_runtime
+            .workbench_navigation_geometry
+            .as_ref()
+            .map(|geometry| {
+                (
+                    geometry.content_rect,
+                    geometry.visible_rects_or_content(),
+                    geometry.occluding_host_rects.clone(),
+                )
+            })
+            .unwrap_or_else(|| {
+                let content_rect = ctx.available_rect();
+                (content_rect, vec![content_rect], Vec::new())
+            });
         diagnostics_state.push_frame(
             crate::shell::desktop::runtime::diagnostics::CompositorFrameSample {
                 sequence: 0,
                 active_tile_count: active_tiles_for_diag.len(),
                 focused_node_present,
-                viewport_rect: graph_app
-                    .workspace
-                    .graph_runtime
-                    .workbench_navigation_geometry
-                    .as_ref()
-                    .map(|geometry| geometry.primary_visible_rect())
-                    .unwrap_or_else(|| ctx.available_rect()),
+                content_rect,
+                visible_rects,
+                occluding_host_rects,
                 hierarchy: tile_hierarchy_lines(tiles_tree, graph_app),
                 tiles,
             },

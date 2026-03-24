@@ -1168,19 +1168,15 @@ impl DiagnosticsState {
                     egui::Stroke::new(1.0, egui::Color32::from_gray(120)),
                     egui::StrokeKind::Inside,
                 );
-                let viewport = last.viewport_rect;
-                let viewport_w = viewport.width().max(1.0);
-                let viewport_h = viewport.height().max(1.0);
-                for tile in &last.tiles {
-                    let rel_min_x =
-                        ((tile.rect.min.x - viewport.min.x) / viewport_w).clamp(0.0, 1.0);
-                    let rel_max_x =
-                        ((tile.rect.max.x - viewport.min.x) / viewport_w).clamp(0.0, 1.0);
-                    let rel_min_y =
-                        ((tile.rect.min.y - viewport.min.y) / viewport_h).clamp(0.0, 1.0);
-                    let rel_max_y =
-                        ((tile.rect.max.y - viewport.min.y) / viewport_h).clamp(0.0, 1.0);
-                    let r = egui::Rect::from_min_max(
+                let content_rect = last.content_rect;
+                let content_w = content_rect.width().max(1.0);
+                let content_h = content_rect.height().max(1.0);
+                let map_rect = |source: egui::Rect| {
+                    let rel_min_x = ((source.min.x - content_rect.min.x) / content_w).clamp(0.0, 1.0);
+                    let rel_max_x = ((source.max.x - content_rect.min.x) / content_w).clamp(0.0, 1.0);
+                    let rel_min_y = ((source.min.y - content_rect.min.y) / content_h).clamp(0.0, 1.0);
+                    let rel_max_y = ((source.max.y - content_rect.min.y) / content_h).clamp(0.0, 1.0);
+                    egui::Rect::from_min_max(
                         egui::pos2(
                             minimap_rect.left() + minimap_rect.width() * rel_min_x,
                             minimap_rect.top() + minimap_rect.height() * rel_min_y,
@@ -1189,7 +1185,32 @@ impl DiagnosticsState {
                             minimap_rect.left() + minimap_rect.width() * rel_max_x,
                             minimap_rect.top() + minimap_rect.height() * rel_max_y,
                         ),
+                    )
+                };
+
+                for visible_rect in &last.visible_rects {
+                    painter.rect_filled(
+                        map_rect(*visible_rect),
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(110, 190, 255, 32),
                     );
+                }
+                for occlusion_rect in &last.occluding_host_rects {
+                    let mapped_rect = map_rect(*occlusion_rect);
+                    painter.rect_filled(
+                        mapped_rect,
+                        2.0,
+                        egui::Color32::from_rgba_unmultiplied(255, 215, 0, 56),
+                    );
+                    painter.rect_stroke(
+                        mapped_rect,
+                        2.0,
+                        egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 215, 0)),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                for tile in &last.tiles {
+                    let r = map_rect(tile.rect);
                     painter.rect_stroke(
                         r,
                         2.0,

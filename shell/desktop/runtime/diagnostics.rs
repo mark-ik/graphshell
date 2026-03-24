@@ -227,9 +227,18 @@ pub(crate) struct CompositorFrameSample {
     pub(crate) sequence: u64,
     pub(crate) active_tile_count: usize,
     pub(crate) focused_node_present: bool,
-    pub(crate) viewport_rect: egui::Rect,
+    pub(crate) content_rect: egui::Rect,
+    pub(crate) visible_rects: Vec<egui::Rect>,
+    pub(crate) occluding_host_rects: Vec<egui::Rect>,
     pub(crate) hierarchy: Vec<HierarchySample>,
     pub(crate) tiles: Vec<CompositorTileSample>,
+}
+
+fn rect_json(rect: egui::Rect) -> Value {
+    json!({
+        "min": {"x": rect.min.x, "y": rect.min.y},
+        "max": {"x": rect.max.x, "y": rect.max.y},
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -2660,10 +2669,9 @@ impl DiagnosticsState {
                     "sequence": frame.sequence,
                     "active_tile_count": frame.active_tile_count,
                     "focused_node_present": frame.focused_node_present,
-                    "viewport_rect": {
-                        "min": {"x": frame.viewport_rect.min.x, "y": frame.viewport_rect.min.y},
-                        "max": {"x": frame.viewport_rect.max.x, "y": frame.viewport_rect.max.y},
-                    },
+                    "content_rect": rect_json(frame.content_rect),
+                    "visible_rects": frame.visible_rects.iter().map(|rect| rect_json(*rect)).collect::<Vec<_>>(),
+                    "occluding_host_rects": frame.occluding_host_rects.iter().map(|rect| rect_json(*rect)).collect::<Vec<_>>(),
                     "hierarchy": hierarchy,
                     "tiles": tiles,
                 })
@@ -3574,7 +3582,12 @@ mod tests {
             sequence: 7,
             active_tile_count: 1,
             focused_node_present: true,
-            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 80.0)),
+            content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 80.0)),
+            visible_rects: vec![egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(100.0, 80.0),
+            )],
+            occluding_host_rects: Vec::new(),
             hierarchy: vec![HierarchySample {
                 line: "* TileId(1) Node Viewer NodeKey(1)".to_string(),
                 node_key: Some(node_key),
@@ -3619,6 +3632,9 @@ mod tests {
             snapshot["compositor_frames"][0]["sequence"].as_u64(),
             Some(1)
         );
+        assert!(snapshot["compositor_frames"][0]["content_rect"].is_object());
+        assert!(snapshot["compositor_frames"][0]["visible_rects"].is_array());
+        assert!(snapshot["compositor_frames"][0]["occluding_host_rects"].is_array());
         assert_eq!(
             snapshot["recent_intents"].as_array().map(|v| v.len()),
             Some(1)
@@ -3707,7 +3723,12 @@ mod tests {
             sequence: 88,
             active_tile_count: 1,
             focused_node_present: true,
-            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(120.0, 100.0)),
+            content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(120.0, 100.0)),
+            visible_rects: vec![egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(120.0, 100.0),
+            )],
+            occluding_host_rects: Vec::new(),
             hierarchy: vec![HierarchySample {
                 line: "* TileId(2) Node Viewer NodeKey(7)".to_string(),
                 node_key: Some(node_key),
@@ -4091,7 +4112,12 @@ Object {
             sequence: 1,
             active_tile_count: 1,
             focused_node_present: false,
-            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 10.0)),
+            content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 10.0)),
+            visible_rects: vec![egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(10.0, 10.0),
+            )],
+            occluding_host_rects: Vec::new(),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
                 pane_id: "pane:test-9".to_string(),
@@ -4128,7 +4154,12 @@ Object {
             sequence: 1,
             active_tile_count: 1,
             focused_node_present: true,
-            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(12.0, 12.0)),
+            content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(12.0, 12.0)),
+            visible_rects: vec![egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(12.0, 12.0),
+            )],
+            occluding_host_rects: Vec::new(),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
                 pane_id: "pane:test-12".to_string(),
@@ -4179,7 +4210,12 @@ Object {
             sequence: 8,
             active_tile_count: 1,
             focused_node_present: true,
-            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(12.0, 12.0)),
+            content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(12.0, 12.0)),
+            visible_rects: vec![egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(12.0, 12.0),
+            )],
+            occluding_host_rects: Vec::new(),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
                 pane_id: "pane:test-21".to_string(),
@@ -4239,7 +4275,12 @@ Object {
             sequence: 3,
             active_tile_count: 1,
             focused_node_present: true,
-            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(24.0, 24.0)),
+            content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(24.0, 24.0)),
+            visible_rects: vec![egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(24.0, 24.0),
+            )],
+            occluding_host_rects: Vec::new(),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
                 pane_id: "pane:test-17".to_string(),
@@ -4271,6 +4312,47 @@ Object {
         assert_eq!(
             snapshot["compositor_frames"][0]["tiles"][0]["estimated_content_bytes"].as_u64(),
             Some(4_096)
+        );
+    }
+
+    #[test]
+    fn snapshot_json_includes_visible_navigation_geometry_fields() {
+        let mut state = DiagnosticsState::new();
+        state.push_frame(CompositorFrameSample {
+            sequence: 13,
+            active_tile_count: 0,
+            focused_node_present: false,
+            content_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0)),
+            visible_rects: vec![
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 40.0)),
+                egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),
+                egui::Rect::from_min_max(egui::pos2(0.0, 260.0), egui::pos2(400.0, 300.0)),
+            ],
+            occluding_host_rects: vec![egui::Rect::from_min_max(
+                egui::pos2(320.0, 40.0),
+                egui::pos2(400.0, 260.0),
+            )],
+            hierarchy: vec![],
+            tiles: vec![],
+        });
+        state.force_drain_for_tests();
+
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(
+            snapshot["compositor_frames"][0]["visible_rects"]
+                .as_array()
+                .map(|value| value.len()),
+            Some(3)
+        );
+        assert_eq!(
+            snapshot["compositor_frames"][0]["occluding_host_rects"]
+                .as_array()
+                .map(|value| value.len()),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_frames"][0]["content_rect"]["max"]["x"].as_f64(),
+            Some(400.0)
         );
     }
 
