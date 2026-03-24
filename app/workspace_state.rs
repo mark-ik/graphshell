@@ -4,7 +4,6 @@
 
 //! Typed sub-state structs extracted from `GraphWorkspace`.
 
-use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -64,18 +63,6 @@ impl WorkbenchNavigationGeometry {
             visible_rects,
             occluding_host_rects,
         }
-    }
-
-    pub(crate) fn primary_visible_rect(&self) -> egui::Rect {
-        self.visible_rects
-            .iter()
-            .copied()
-            .max_by(|left, right| {
-                rect_area(*left)
-                    .partial_cmp(&rect_area(*right))
-                    .unwrap_or(Ordering::Equal)
-            })
-            .unwrap_or(self.content_rect)
     }
 
     pub(crate) fn visible_rects_or_content(&self) -> Vec<egui::Rect> {
@@ -417,9 +404,21 @@ mod tests {
             egui::pos2(0.0, 40.0),
             egui::pos2(320.0, 260.0),
         )));
+        let largest_rect = geometry
+            .visible_rects
+            .iter()
+            .copied()
+            .max_by(|left, right| {
+                (left.width() * left.height())
+                    .partial_cmp(&(right.width() * right.height()))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
         assert_eq!(
-            geometry.primary_visible_rect(),
-            egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),
+            largest_rect,
+            Some(egui::Rect::from_min_max(
+                egui::pos2(0.0, 40.0),
+                egui::pos2(320.0, 260.0),
+            )),
         );
     }
 }

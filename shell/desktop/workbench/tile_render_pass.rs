@@ -91,6 +91,10 @@ enum FloatingOverlayAction {
     Dismiss,
 }
 
+const FLOATING_OVERLAY_MIN_WIDTH: f32 = 220.0;
+const FLOATING_OVERLAY_MIN_HEIGHT: f32 = 140.0;
+const FLOATING_OVERLAY_REGION_MARGIN: f32 = 12.0;
+
 fn infer_floating_target_context(
     tiles_tree: &Tree<TileKind>,
 ) -> crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext {
@@ -106,6 +110,51 @@ fn infer_floating_target_context(
         }
         _ => crate::shell::desktop::workbench::pane_model::FloatingPaneTargetTileContext::BareGraph,
     }
+}
+
+fn floating_overlay_rect_for_visible_regions(
+    visible_regions: &[egui::Rect],
+    enlarged_for_viewer_override: bool,
+) -> Option<egui::Rect> {
+    visible_regions
+        .iter()
+        .copied()
+        .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0)
+        .map(|region| {
+            let padded_region = region.shrink2(egui::vec2(
+                FLOATING_OVERLAY_REGION_MARGIN,
+                FLOATING_OVERLAY_REGION_MARGIN,
+            ));
+            let usable_region = if padded_region.width() > 0.0 && padded_region.height() > 0.0 {
+                padded_region
+            } else {
+                region
+            };
+            let fraction = if enlarged_for_viewer_override { 0.5 } else { 0.38 };
+            let width = (usable_region.width() * fraction)
+                .clamp(FLOATING_OVERLAY_MIN_WIDTH.min(usable_region.width()), usable_region.width());
+            let height = (usable_region.height() * fraction).clamp(
+                FLOATING_OVERLAY_MIN_HEIGHT.min(usable_region.height()),
+                usable_region.height(),
+            );
+            let rect = egui::Rect::from_center_size(
+                usable_region.center(),
+                egui::vec2(width, height),
+            );
+            let score = rect.width() * rect.height();
+            (score, usable_region.width() * usable_region.height(), rect)
+        })
+        .max_by(|left, right| {
+            left.0
+                .partial_cmp(&right.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    left.1
+                        .partial_cmp(&right.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        })
+        .map(|(_, _, rect)| rect)
 }
 
 fn render_floating_pane_overlays(
@@ -124,19 +173,18 @@ fn render_floating_pane_overlays(
         _ => None,
     })?;
 
-    let viewport = graph_app
+    let visible_regions = graph_app
         .workspace
         .graph_runtime
         .workbench_navigation_geometry
         .as_ref()
-        .map(|geometry| geometry.primary_visible_rect())
-        .unwrap_or_else(|| ctx.available_rect());
-    let size = if floating_state.viewer_id_override.is_some() {
-        egui::vec2(viewport.width() * 0.5, viewport.height() * 0.5)
-    } else {
-        egui::vec2(viewport.width() * 0.38, viewport.height() * 0.38)
-    };
-    let rect = egui::Rect::from_center_size(viewport.center(), size);
+        .map(|geometry| geometry.visible_rects_or_content())
+        .unwrap_or_else(|| vec![ctx.available_rect()]);
+    let rect = floating_overlay_rect_for_visible_regions(
+        &visible_regions,
+        floating_state.viewer_id_override.is_some(),
+    )
+    .unwrap_or_else(|| egui::Rect::from_center_size(ctx.available_rect().center(), egui::vec2(280.0, 180.0)));
     let title = graph_app
         .domain_graph()
         .get_node(floating_state.node)
@@ -971,5 +1019,40 @@ mod tests {
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when tile render pass focus hint changes"
         );
+    }
+
+    #[test]
+    fn floating_overlay_rect_prefers_largest_fitting_visible_region() {
+        let rect = floating_overlay_rect_for_visible_regions(
+            &[
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 40.0)),
+                egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),
+                egui::Rect::from_min_max(egui::pos2(0.0, 260.0), egui::pos2(400.0, 300.0)),
+            ],
+            false,
+        )
+        .expect("expected a floating overlay rect");
+
+        assert!(rect.center().x <= 320.0);
+        assert!(rect.center().y >= 40.0 && rect.center().y <= 260.0);
+        assert!(rect.width() <= 320.0);
+        assert!(rect.height() <= 220.0);
+    }
+
+    #[test]
+    fn floating_overlay_rect_clamps_to_small_visible_region() {
+        let rect = floating_overlay_rect_for_visible_regions(
+            &[egui::Rect::from_min_max(
+                egui::pos2(10.0, 10.0),
+                egui::pos2(180.0, 120.0),
+            )],
+            true,
+        )
+        .expect("expected a floating overlay rect");
+
+        assert!(rect.left() >= 10.0);
+        assert!(rect.right() <= 180.0);
+        assert!(rect.top() >= 10.0);
+        assert!(rect.bottom() <= 120.0);
     }
 }

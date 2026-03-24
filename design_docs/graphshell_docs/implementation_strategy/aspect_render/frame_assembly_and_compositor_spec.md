@@ -76,25 +76,23 @@ TileRenderMode =
 | `EmbeddedEgui` | Render via normal egui widget tree | Render affordances as egui overlays |
 | `Placeholder` | Render fallback surface (loading indicator, error state, empty state) | Render affordances over fallback |
 
-### 3.2 Navigation Geometry Adapter Note
+### 3.2 Navigation Geometry Transition Note
 
-The canonical pane/render contract in this spec is still single-rect per tile and
-single-rect for compositor diagnostics summaries. However, workbench layout policy
-may derive **visible navigation geometry** that differs from the logical
-navigation-region remainder when overlay-form Navigator hosts occlude part of the
-workbench surface.
+Workbench layout policy may derive **visible navigation geometry** that differs
+from the logical navigation-region remainder when overlay-form Navigator hosts
+occlude part of the workbench surface.
 
-Current adapter rule:
+Current runtime rule:
 
-1. Consumers that can operate on multiple visible rects, such as viewport culling,
-  should honor the full visible navigation rect set.
-2. Consumers that still require a single viewport rect, such as some floating
-  overlay placement and frame-summary diagnostics, may temporarily use the
-  largest visible navigation sub-rect.
-3. This is an adapter for the current architecture, not a redefinition of the
-  long-term pane/render contract. A future multi-rect pane contract should
-  replace this fallback once the render architecture is promoted beyond the
-  current single-rect assumptions.
+1. Runtime consumers that make visibility or placement decisions should honor the
+   full visible navigation rect set rather than collapsing immediately to one
+   fallback rect.
+2. This includes viewport culling, diagnostics geometry summaries, and floating
+   overlay placement.
+3. The remaining future work is not consumer parity but promotion of multi-rect
+   navigation geometry into a first-class pane/render contract, so the canonical
+   render model itself no longer speaks in single-rect terms where a derived
+   visible region set is the real authority.
 
 See `workbench_layout_policy_spec.md` §3.4 for the authoritative definition of
 logical navigation region versus visible navigation geometry.
