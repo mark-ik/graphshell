@@ -5,6 +5,7 @@
 use super::*;
 use crate::shell::desktop::ui::dialog::DialogCommand;
 use crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest;
+use crate::shell::desktop::ui::workbench_host::{WorkbenchChromeProjection, WorkbenchLayerState};
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 
@@ -137,8 +138,6 @@ pub(crate) fn run_post_render_phase<FActive>(
         }
     }
 
-    let has_node_panes = tile_runtime::has_any_node_panes(tiles_tree);
-    let is_graph_view = !has_node_panes;
     let preview_mode_active = history_preview_mode_active(graph_app);
 
     *toolbar_height = Length::new(ctx.available_rect().min.y);
@@ -185,39 +184,67 @@ pub(crate) fn run_post_render_phase<FActive>(
     }
 
     let mut post_render_intents = Vec::new();
-    if is_graph_view || has_node_panes {
-        let search_matches: HashSet<NodeKey> = graph_search_matches.iter().copied().collect();
-        let active_search_match =
-            active_graph_search_match(graph_search_matches, graph_search_active_match_index);
-        post_render_intents.extend(tile_render_pass::run_tile_render_pass(TileRenderPassArgs {
-            ctx,
-            graph_app,
-            window,
-            tiles_tree,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            graph_search_matches: &search_matches,
-            active_search_match,
-            graph_search_filter_mode,
-            search_query_active,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            responsive_webviews,
-            webview_creation_backpressure,
-            focused_node_hint,
-            graph_surface_focused,
-            suppress_runtime_side_effects: preview_mode_active,
-            focus_ring_node_key,
-            focus_ring_started_at,
-            focus_ring_duration,
-            control_panel,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
-            #[cfg(feature = "diagnostics")]
-            runtime_focus_inspector,
-        }));
+    let search_matches: HashSet<NodeKey> = graph_search_matches.iter().copied().collect();
+    let active_search_match =
+        active_graph_search_match(graph_search_matches, graph_search_active_match_index);
+    let layer_state =
+        WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, window.focused_pane()).layer_state;
+
+    if matches!(
+        layer_state,
+        WorkbenchLayerState::WorkbenchActive | WorkbenchLayerState::WorkbenchPinned
+    ) {
+        egui::SidePanel::right("workbench_area")
+            .frame(egui::Frame::new().fill(egui::Color32::from_rgb(20, 20, 25)))
+            .show(ctx, |ui| {
+                post_render_intents.extend(tile_render_pass::run_tile_render_pass_in_ui(
+                    ui,
+                    TileRenderPassArgs {
+                        ctx,
+                        graph_app,
+                        window,
+                        tiles_tree,
+                        tile_rendering_contexts,
+                        tile_favicon_textures,
+                        graph_search_matches: &search_matches,
+                        active_search_match,
+                        graph_search_filter_mode,
+                        search_query_active,
+                        app_state,
+                        rendering_context,
+                        window_rendering_context,
+                        responsive_webviews,
+                        webview_creation_backpressure,
+                        focused_node_hint,
+                        graph_surface_focused,
+                        suppress_runtime_side_effects: preview_mode_active,
+                        focus_ring_node_key,
+                        focus_ring_started_at,
+                        focus_ring_duration,
+                        control_panel,
+                        #[cfg(feature = "diagnostics")]
+                        diagnostics_state,
+                        #[cfg(feature = "diagnostics")]
+                        runtime_focus_inspector,
+                    },
+                ));
+            });
     }
+
+    egui::CentralPanel::default()
+        .frame(egui::Frame::new().fill(egui::Color32::from_rgb(20, 20, 25)))
+        .show(ctx, |ui| {
+            post_render_intents.extend(tile_render_pass::render_primary_graph_in_ui(
+                ui,
+                graph_app,
+                tiles_tree,
+                &search_matches,
+                active_search_match,
+                graph_search_filter_mode,
+                search_query_active,
+            ));
+        });
+
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
     render::render_help_panel(ctx, graph_app);

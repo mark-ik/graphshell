@@ -1,4 +1,38 @@
 use super::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const MAX_EMBEDDED_IMAGE_TEXTURES: usize = 64;
+
+#[derive(Clone)]
+struct EmbeddedImageTextureCacheEntry {
+    content_hash: u64,
+    last_access_tick: u64,
+    handle: egui::TextureHandle,
+}
+
+static EMBEDDED_IMAGE_TEXTURE_ACCESS_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+    static EMBEDDED_IMAGE_TEXTURES: RefCell<HashMap<NodeKey, EmbeddedImageTextureCacheEntry>> =
+        RefCell::new(HashMap::new());
+}
+
+fn prune_embedded_image_texture_cache(
+    textures: &mut HashMap<NodeKey, EmbeddedImageTextureCacheEntry>,
+) {
+    while textures.len() > MAX_EMBEDDED_IMAGE_TEXTURES {
+        let Some(evict_key) = textures
+            .iter()
+            .min_by_key(|(_, entry)| entry.last_access_tick)
+            .map(|(key, _)| *key)
+        else {
+            break;
+        };
+        textures.remove(&evict_key);
+    }
+}
 
 impl<'a> GraphshellTileBehavior<'a> {
     pub(super) fn render_graph_pane(
@@ -154,14 +188,21 @@ fn render_node_pane_impl(
 
     if matches!(
         effective_viewer_id.as_str(),
-        "viewer:plaintext" | "viewer:markdown"
+        "viewer:plaintext" | "viewer:markdown" | "viewer:csv"
     ) {
         ui.label(format!("{}", node_url));
         ui.separator();
         match load_plaintext_content_for_node(&node_url) {
             Ok(PlaintextContent::Text(content)) => {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    if effective_viewer_id.as_str() == "viewer:markdown" {
+                    let markdown_mode = effective_viewer_id.as_str() == "viewer:markdown"
+                        || node_mime_hint.as_deref() == Some("text/markdown")
+                        || node_mime_hint.as_deref() == Some("text/x-markdown")
+                        || node_url
+                            .rsplit_once('.')
+                            .map(|(_, ext)| ext.eq_ignore_ascii_case("md"))
+                            .unwrap_or(false);
+                    if markdown_mode {
                         render_markdown_embedded(ui, &content);
                     } else {
                         let mut read_only = content;
@@ -190,6 +231,62 @@ fn render_node_pane_impl(
                 ui.small(error);
             }
         }
+        return;
+    }
+
+    if effective_viewer_id.as_str() == "viewer:image" {
+        ui.label(format!("{}", node_url));
+        ui.separator();
+        match render_embedded_image(ui, node_key, &node_url) {
+            Ok(()) => {}
+            Err(error) => {
+                ui.small(error);
+            }
+        }
+        return;
+    }
+
+    if effective_viewer_id.as_str() == "viewer:directory" {
+        ui.label(format!("{}", node_url));
+        ui.separator();
+        match render_directory_view(behavior, ui, node_key, &node_url) {
+            Ok(()) => {}
+            Err(error) => {
+                ui.small(error);
+            }
+        }
+        return;
+    }
+
+    if matches!(
+        effective_viewer_id.as_str(),
+        "viewer:fallback" | "viewer:metadata"
+    ) {
+        ui.colored_label(
+            egui::Color32::from_rgb(220, 180, 60),
+            "No dedicated viewer is available for this content yet.",
+        );
+        ui.label(format!("URL: {}", node_url));
+        if let Some(mime_hint) = node_mime_hint.as_deref() {
+            ui.small(format!("Detected content type: {mime_hint}"));
+        } else {
+            ui.small("Detected content type: unknown");
+        }
+        ui.small(
+            "Recovery: switch to WebView for compatibility content, or keep this node as a graph-backed placeholder until a native viewer lands.",
+        );
+        ui.horizontal(|ui| {
+            if ui.button("Use WebView").clicked() {
+                request_viewer_backend_swap(
+                    behavior.graph_app,
+                    state,
+                    Some(ViewerId::new("viewer:webview")),
+                );
+            }
+            if ui.button("Clear Viewer Override").clicked() {
+                request_viewer_backend_swap(behavior.graph_app, state, None);
+            }
+        });
         return;
     }
 
@@ -400,6 +497,126 @@ fn render_node_pane_impl(
             rect
         );
     }
+}
+
+fn render_embedded_image(ui: &mut egui::Ui, node_key: NodeKey, url: &str) -> Result<(), String> {
+    let path = guarded_file_path_from_node_url(url)?;
+    let bytes = std::fs::read(&path)
+        .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
+    let image = image::load_from_memory(&bytes)
+        .map_err(|err| format!("Failed to decode image '{}': {err}", path.display()))?
+        .to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+    let image_hash = hash_bytes(&bytes);
+    let access_tick = EMBEDDED_IMAGE_TEXTURE_ACCESS_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    let handle = EMBEDDED_IMAGE_TEXTURES.with(|textures| {
+        let mut textures = textures.borrow_mut();
+        if let Some(entry) = textures.get_mut(&node_key)
+            && entry.content_hash == image_hash
+        {
+            entry.last_access_tick = access_tick;
+            return entry.handle.clone();
+        }
+
+        let handle = ui.ctx().load_texture(
+            format!("embedded-image-{node_key:?}-{image_hash}"),
+            color_image,
+            Default::default(),
+        );
+        textures.insert(
+            node_key,
+            EmbeddedImageTextureCacheEntry {
+                content_hash: image_hash,
+                last_access_tick: access_tick,
+                handle: handle.clone(),
+            },
+        );
+        prune_embedded_image_texture_cache(&mut textures);
+        handle
+    });
+
+    let available = ui.available_size();
+    let image_size = egui::Vec2::new(size[0] as f32, size[1] as f32);
+    let scale = ((available.x / image_size.x).min(available.y / image_size.y)).max(0.1);
+    let desired = if available.x.is_finite() && available.y.is_finite() {
+        if scale < 1.0 {
+            image_size * scale
+        } else {
+            image_size
+        }
+    } else {
+        image_size
+    };
+
+    egui::ScrollArea::both().show(ui, |ui| {
+        ui.add(egui::Image::new((handle.id(), desired)));
+        ui.small(format!("{} x {}", size[0], size[1]));
+    });
+    Ok(())
+}
+
+fn render_directory_view(
+    behavior: &mut GraphshellTileBehavior<'_>,
+    ui: &mut egui::Ui,
+    node_key: NodeKey,
+    url: &str,
+) -> Result<(), String> {
+    let path = guarded_file_path_from_node_url(url)?;
+    let read_dir = std::fs::read_dir(&path)
+        .map_err(|err| format!("Failed to read directory '{}': {err}", path.display()))?;
+
+    let mut entries = read_dir
+        .filter_map(|entry| entry.ok())
+        .map(|entry| {
+            let entry_path = entry.path();
+            let is_dir = entry_path.is_dir();
+            let display_name = entry.file_name().to_string_lossy().into_owned();
+            (display_name, entry_path, is_dir)
+        })
+        .collect::<Vec<_>>();
+
+    entries.sort_by(|left, right| left.0.to_lowercase().cmp(&right.0.to_lowercase()));
+
+    if let Some(parent) = path.parent() {
+        if ui.button("..").clicked() {
+            if let Ok(parent_url) = url::Url::from_file_path(parent) {
+                behavior.queue_post_render_intent(GraphIntent::SetNodeUrl {
+                    key: node_key,
+                    new_url: parent_url.to_string(),
+                });
+            }
+        }
+    }
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for (display_name, entry_path, is_dir) in entries {
+            let label = if is_dir {
+                format!("[dir] {display_name}")
+            } else {
+                display_name
+            };
+            if ui.button(label).clicked()
+                && let Ok(entry_url) = url::Url::from_file_path(&entry_path)
+            {
+                behavior.queue_post_render_intent(GraphIntent::SetNodeUrl {
+                    key: node_key,
+                    new_url: entry_url.to_string(),
+                });
+            }
+        }
+    });
+
+    Ok(())
+}
+
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn render_node_history_panel(

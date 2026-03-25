@@ -858,8 +858,8 @@ impl Gui {
             self.toolbar_state.show_clear_data_confirm,
         );
         debug_assert!(
-            self.tiles_tree.root().is_some(),
-            "tile tree root must exist before rendering"
+            self.tiles_tree.root().is_some() || self.tiles_tree.tiles.is_empty(),
+            "tile tree root must exist before rendering when the workbench tree is non-empty"
         );
         let Self {
             rendering_context,

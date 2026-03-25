@@ -89,8 +89,37 @@ fn file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
         .map_err(|_| "Could not convert file:// URL to local path.".to_string())
 }
 
-fn load_plaintext_content_for_node(url: &str) -> Result<PlaintextContent, String> {
+fn ensure_local_file_access_allowed(path: &PathBuf) -> Result<(), String> {
+    let Some(home_dir) = dirs::home_dir() else {
+        return Err("Home directory unavailable; local file access is blocked.".to_string());
+    };
+
+    let canonical_home = home_dir
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve home directory '{}': {err}", home_dir.display()))?;
+    let canonical_path = path
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve '{}': {err}", path.display()))?;
+
+    if canonical_path.starts_with(&canonical_home) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Access denied for '{}'. Embedded file viewers currently allow only paths inside '{}'.",
+            canonical_path.display(),
+            canonical_home.display()
+        ))
+    }
+}
+
+fn guarded_file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
     let path = file_path_from_node_url(url)?;
+    ensure_local_file_access_allowed(&path)?;
+    Ok(path)
+}
+
+fn load_plaintext_content_for_node(url: &str) -> Result<PlaintextContent, String> {
+    let path = guarded_file_path_from_node_url(url)?;
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     Ok(decode_plaintext_content(&bytes))
@@ -210,6 +239,27 @@ fn render_markdown_embedded(ui: &mut Ui, markdown: &str) {
         } else {
             ui.label(line);
         }
+    }
+}
+
+#[cfg(test)]
+mod file_access_guard_tests {
+    use super::{ensure_local_file_access_allowed, guarded_file_path_from_node_url};
+
+    #[test]
+    fn file_access_guard_allows_paths_inside_home_directory() {
+        let home = dirs::home_dir().expect("home directory should exist for this test");
+        assert!(ensure_local_file_access_allowed(&home).is_ok());
+    }
+
+    #[test]
+    fn file_access_guard_rejects_missing_file_urls_before_read() {
+        let home = dirs::home_dir().expect("home directory should exist for this test");
+        let url = url::Url::from_file_path(home.join("graphshell_missing_ucc_guard_test.txt"))
+            .expect("file URL should build");
+
+        let result = guarded_file_path_from_node_url(url.as_str());
+        assert!(result.is_err());
     }
 }
 

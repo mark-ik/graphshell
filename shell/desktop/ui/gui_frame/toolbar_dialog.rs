@@ -11,16 +11,18 @@ use winit::window::Window;
 
 use super::super::dialog_panels::{self, DialogPanelsArgs};
 use super::super::nav_targeting;
+use super::super::navigator_context;
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_status_sync;
 use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthorityState};
+use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
-use crate::shell::desktop::ui::workbench_host;
+use crate::shell::desktop::ui::workbench_host::{self, WorkbenchLayerState};
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
@@ -104,18 +106,53 @@ pub(crate) fn handle_toolbar_dialog_phase(
     );
     let focused_content_status =
         webview_status_sync::focused_content_status(focused_toolbar_node, graph_app, window);
-    let workbench_projection = workbench_host::render_workbench_host(
-        ctx,
-        graph_app,
-        window,
-        tiles_tree,
-        focused_toolbar_node,
-        &focused_content_status,
-        active_toolbar_pane,
-        location_dirty,
-    );
-    let is_graph_view = matches!(
+    let navigator_ctx = navigator_context::compute_navigator_context(graph_app);
+    let shell_layout_pass = ShellLayoutPass::new(ctx);
+    let workbench_projection = shell_layout_pass.render_workbench(|| {
+        workbench_host::render_workbench_host(
+            ctx,
+            graph_app,
+            window,
+            tiles_tree,
+            focused_toolbar_node,
+            &focused_content_status,
+            active_toolbar_pane,
+            location_dirty,
+        )
+    });
+    let toolbar_output = shell_layout_pass.render_command_bar(
         workbench_projection.layer_state,
+        |workbench_layer_state: WorkbenchLayerState| {
+            toolbar_ui::render_toolbar_ui(ToolbarUiInput {
+                ctx,
+                winit_window,
+                state,
+                graph_app,
+                window,
+                tiles_tree,
+                navigator_ctx: &navigator_ctx,
+                focused_toolbar_node,
+                active_toolbar_pane,
+                workbench_layer_state,
+                focused_content_status: &focused_content_status,
+                local_widget_focus,
+                can_go_back,
+                can_go_forward,
+                location,
+                location_dirty,
+                location_submitted,
+                focus_location_field_for_search,
+                show_clear_data_confirm,
+                omnibar_search_session,
+                frame_intents,
+                #[cfg(feature = "diagnostics")]
+                diagnostics_state,
+            })
+        },
+    );
+    let shell_layout = shell_layout_pass.finish(workbench_projection, toolbar_output);
+    let is_graph_view = matches!(
+        shell_layout.projection.layer_state,
         workbench_host::WorkbenchLayerState::GraphOnly
             | workbench_host::WorkbenchLayerState::GraphOverlayActive
     );
@@ -123,30 +160,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         graph_app.workspace.graph_runtime.hovered_graph_node = None;
     }
 
-    let toolbar_output = toolbar_ui::render_toolbar_ui(ToolbarUiInput {
-        ctx,
-        winit_window,
-        state,
-        graph_app,
-        window,
-        tiles_tree,
-        focused_toolbar_node,
-        active_toolbar_pane,
-        workbench_layer_state: workbench_projection.layer_state,
-        focused_content_status: &focused_content_status,
-        local_widget_focus,
-        can_go_back,
-        can_go_forward,
-        location,
-        location_dirty,
-        location_submitted,
-        focus_location_field_for_search,
-        show_clear_data_confirm,
-        omnibar_search_session,
-        frame_intents,
-        #[cfg(feature = "diagnostics")]
-        diagnostics_state,
-    });
+    let toolbar_output = shell_layout.toolbar_output;
 
     dialog_panels::render_dialog_panels(DialogPanelsArgs {
         ctx,
