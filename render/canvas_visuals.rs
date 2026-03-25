@@ -430,12 +430,8 @@ pub(super) fn visible_nodes_for_view_filters(
         && search_query_active)
         .then(|| search_matches.clone());
 
-    let tombstones_hidden = app
-        .workspace
-        .graph_runtime
-        .views
-        .get(&view_id)
-        .is_some_and(|v| !v.tombstones_visible);
+    let view_state = app.workspace.graph_runtime.views.get(&view_id);
+    let tombstones_hidden = view_state.is_some_and(|v| !v.tombstones_visible);
     let tombstone_filter: Option<HashSet<NodeKey>> = tombstones_hidden.then(|| {
         app.domain_graph()
             .nodes()
@@ -443,23 +439,31 @@ pub(super) fn visible_nodes_for_view_filters(
             .map(|(key, _)| key)
             .collect()
     });
+    let graphlet_mask: Option<HashSet<NodeKey>> = view_state
+        .and_then(|v| v.graphlet_node_mask.clone());
 
-    match (facet_matches, search_filter_matches, tombstone_filter) {
-        (Some(facet), Some(search), Some(tombs)) => Some(
-            facet
-                .intersection(&search)
-                .copied()
-                .filter(|k| tombs.contains(k))
-                .collect(),
-        ),
-        (Some(facet), Some(search), None) => Some(facet.intersection(&search).copied().collect()),
-        (Some(facet), None, Some(tombs)) => Some(facet.intersection(&tombs).copied().collect()),
-        (None, Some(search), Some(tombs)) => Some(search.intersection(&tombs).copied().collect()),
-        (Some(facet), None, None) => Some(facet),
-        (None, Some(search), None) => Some(search),
-        (None, None, Some(tombs)) => Some(tombs),
-        (None, None, None) => None,
+    // Intersect all active filters.  Each `Some` constrains the visible set.
+    intersect_filters([facet_matches, search_filter_matches, tombstone_filter, graphlet_mask])
+}
+
+/// Intersect an array of optional node-set filters.
+///
+/// - `None` entries are ignored (no constraint from that filter).
+/// - A single `Some` set is returned as-is.
+/// - Multiple `Some` sets are intersected.
+/// - If all entries are `None`, returns `None` (no filter active).
+fn intersect_filters<const N: usize>(
+    filters: [Option<HashSet<NodeKey>>; N],
+) -> Option<HashSet<NodeKey>> {
+    let mut result: Option<HashSet<NodeKey>> = None;
+    for filter in filters {
+        let Some(set) = filter else { continue };
+        result = Some(match result {
+            None => set,
+            Some(acc) => acc.intersection(&set).copied().collect(),
+        });
     }
+    result
 }
 
 #[cfg(test)]

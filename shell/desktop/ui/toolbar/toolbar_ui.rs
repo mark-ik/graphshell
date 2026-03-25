@@ -60,6 +60,7 @@ use crate::shell::desktop::runtime::registries::lens::{LENS_ID_DEFAULT, LENS_ID_
 use crate::shell::desktop::runtime::registries::physics_profile::{
     PHYSICS_PROFILE_GAS, PHYSICS_PROFILE_LIQUID, PHYSICS_PROFILE_SOLID,
 };
+use crate::shell::desktop::ui::navigator_context::NavigatorContextProjection;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 const WORKSPACE_PIN_NAME: &str = "workspace:pin:space";
@@ -166,6 +167,7 @@ pub(crate) struct Input<'a> {
     pub graph_app: &'a mut GraphBrowserApp,
     pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a Tree<TileKind>,
+    pub navigator_ctx: &'a NavigatorContextProjection,
     pub focused_toolbar_node: Option<NodeKey>,
     pub active_toolbar_pane: Option<PaneId>,
     pub workbench_layer_state: WorkbenchLayerState,
@@ -188,6 +190,7 @@ pub(crate) struct Output {
     pub toggle_tile_view_requested: bool,
     pub open_selected_mode_after_submit: Option<ToolbarOpenMode>,
     pub toolbar_visible: bool,
+    pub command_bar_rect: Option<egui::Rect>,
 }
 
 pub(crate) type ToolbarUiInput<'a> = Input<'a>;
@@ -323,42 +326,32 @@ fn render_fullscreen_origin_strip(
         });
 }
 
-fn render_graph_view_tabs(
+/// Render the graph view tab strip from the Navigator context projection.
+///
+/// Navigator owns the content (view list, active view); Shell renders it here.
+/// Single view: shows a compact "View: {name}" label (no tab strip needed).
+/// Multiple views: renders selectable tab labels from `navigator_ctx.extra_views`.
+fn render_navigator_view_tabs(
     ui: &mut egui::Ui,
-    graph_app: &GraphBrowserApp,
+    navigator_ctx: &NavigatorContextProjection,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
-    let focused = graph_app.workspace.graph_runtime.focused_view;
-    let mut views: Vec<(GraphViewId, String)> = graph_app
-        .workspace
-        .graph_runtime
-        .views
-        .iter()
-        .map(|(id, view)| {
-            let name = view.name.trim().to_string();
-            let label = if name.is_empty() {
-                "Graph".to_string()
-            } else {
-                name
-            };
-            (*id, label)
-        })
-        .collect();
-    // Stable order so tabs don't shuffle on each frame.
-    views.sort_by_key(|(id, _)| id.as_uuid());
-
-    if views.len() <= 1 {
-        // Single view: show plain label, no tab strip needed.
-        let label = views
-            .first()
+    if navigator_ctx.extra_views.is_empty() {
+        // Single view or no views: show a compact label.
+        let label = navigator_ctx
+            .active_view
+            .as_ref()
             .map(|(_, name)| format!("View: {name}"))
             .unwrap_or_else(|| "View: Graph".to_string());
         ui.label(label);
     } else {
-        for (view_id, label) in views {
-            let is_focused = focused == Some(view_id);
-            if ui.selectable_label(is_focused, &label).clicked() && !is_focused {
-                frame_intents.push(GraphIntent::FocusGraphView { view_id });
+        // Multi-view: render the active tab first, then the rest.
+        if let Some((_view_id, label)) = &navigator_ctx.active_view {
+            let _ = ui.selectable_label(true, label.as_str());
+        }
+        for (view_id, label) in &navigator_ctx.extra_views {
+            if ui.selectable_label(false, label.as_str()).clicked() {
+                frame_intents.push(GraphIntent::FocusGraphView { view_id: *view_id });
             }
         }
     }
@@ -545,6 +538,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         graph_app,
         window,
         tiles_tree,
+        navigator_ctx,
         focused_toolbar_node,
         active_toolbar_pane,
         workbench_layer_state,
@@ -569,6 +563,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
             toggle_tile_view_requested: false,
             open_selected_mode_after_submit: None,
             toolbar_visible: false,
+            command_bar_rect: None,
         };
     }
 
@@ -582,13 +577,13 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let frame = egui::Frame::default()
         .fill(ctx.style().visuals.window_fill)
         .inner_margin(4.0);
-    TopBottomPanel::top("graph_bar")
+    let command_bar_response = TopBottomPanel::top("shell_command_bar")
         .frame(frame)
         .exact_height(TOOLBAR_HEIGHT)
         .show(ctx, |ui| {
             ui.columns(3, |columns| {
                 columns[0].horizontal_wrapped(|ui| {
-                    render_graph_view_tabs(ui, graph_app, frame_intents);
+                    render_navigator_view_tabs(ui, navigator_ctx, frame_intents);
                     render_wry_compat_button(
                         ui,
                         graph_app,
@@ -648,6 +643,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                         local_widget_focus,
                         has_node_panes,
                         is_graph_view,
+                        navigator_ctx,
                         location,
                         location_dirty,
                         location_submitted,
@@ -689,5 +685,6 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         toggle_tile_view_requested,
         open_selected_mode_after_submit,
         toolbar_visible: true,
+        command_bar_rect: Some(command_bar_response.response.rect),
     }
 }

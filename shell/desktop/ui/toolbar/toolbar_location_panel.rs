@@ -2,6 +2,7 @@ use super::toolbar_location_dropdown;
 use super::*;
 use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 use crate::shell::desktop::ui::gui_state::toolbar_location_input_id;
+use crate::shell::desktop::ui::navigator_context::NavigatorContextProjection;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
 const LOCATION_INPUT_HINT_TEXT: &str = "Search or enter address";
@@ -63,6 +64,7 @@ pub(super) fn render_location_search_panel(
     local_widget_focus: &mut Option<LocalFocusTarget>,
     has_node_panes: bool,
     is_graph_view: bool,
+    navigator_ctx: &NavigatorContextProjection,
     location: &mut String,
     location_dirty: &mut bool,
     location_submitted: &mut bool,
@@ -72,6 +74,110 @@ pub(super) fn render_location_search_panel(
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
 ) {
     let location_id = toolbar_location_input_id(active_toolbar_pane);
+
+    // Display mode: no active search session and field not focused from last frame.
+    // Show Navigator breadcrumb. Clicking any token or the scope badge enters input mode.
+    let field_has_focus = ctx.memory(|m| m.has_focus(location_id));
+    let in_input_mode = field_has_focus || omnibar_search_session.is_some();
+
+    if !in_input_mode {
+        let available_width = ui.available_width().max(160.0);
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(available_width, LOCATION_INPUT_HEIGHT),
+            egui::Sense::click(),
+        );
+        if ui.is_rect_visible(rect) {
+            let visuals = ui.visuals();
+            let bg = visuals.extreme_bg_color;
+            let stroke = visuals.widgets.noninteractive.bg_stroke;
+            ui.painter().rect(rect, egui::CornerRadius::same(4), bg, stroke, egui::StrokeKind::Inside);
+
+            // Render breadcrumb tokens left-to-right inside the rect, then scope_badge on right
+            let inner_margin = 6.0;
+            let mut cursor_x = rect.left() + inner_margin;
+            let text_y = rect.center().y;
+            let font_id = egui::FontId::proportional(13.0);
+            let text_color = visuals.text_color();
+            let sep_color = visuals.weak_text_color();
+
+            if let Some(breadcrumb) = &navigator_ctx.breadcrumb {
+                for (i, token) in breadcrumb.tokens.iter().enumerate() {
+                    if i > 0 {
+                        // separator " › "
+                        let sep = " › ";
+                        let sep_galley = ui.painter().layout_no_wrap(
+                            sep.to_string(),
+                            font_id.clone(),
+                            sep_color,
+                        );
+                        ui.painter().galley(
+                            egui::pos2(cursor_x, text_y - sep_galley.size().y / 2.0),
+                            sep_galley.clone(),
+                            sep_color,
+                        );
+                        cursor_x += sep_galley.size().x;
+                    }
+                    let galley = ui.painter().layout_no_wrap(
+                        token.label.clone(),
+                        font_id.clone(),
+                        text_color,
+                    );
+                    ui.painter().galley(
+                        egui::pos2(cursor_x, text_y - galley.size().y / 2.0),
+                        galley.clone(),
+                        text_color,
+                    );
+                    cursor_x += galley.size().x;
+                }
+            } else {
+                // No breadcrumb — show hint text
+                let hint_galley = ui.painter().layout_no_wrap(
+                    LOCATION_INPUT_HINT_TEXT.to_string(),
+                    font_id.clone(),
+                    sep_color,
+                );
+                ui.painter().galley(
+                    egui::pos2(cursor_x, text_y - hint_galley.size().y / 2.0),
+                    hint_galley,
+                    sep_color,
+                );
+            }
+
+            // Scope badge on the right
+            if let Some(badge) = &navigator_ctx.scope_badge {
+                let badge_galley =
+                    ui.painter()
+                        .layout_no_wrap(badge.clone(), font_id.clone(), sep_color);
+                let badge_x = rect.right() - inner_margin - badge_galley.size().x;
+                if badge_x > cursor_x + 4.0 {
+                    ui.painter().galley(
+                        egui::pos2(badge_x, text_y - badge_galley.size().y / 2.0),
+                        badge_galley,
+                        sep_color,
+                    );
+                }
+            }
+        }
+        if response.clicked() || focus_location_field_for_search {
+            ctx.memory_mut(|m| m.request_focus(location_id));
+        }
+        // Still check keyboard shortcut even in display mode
+        if ui.input(|i| {
+            if cfg!(target_os = "macos") {
+                i.clone().consume_key(Modifiers::COMMAND, Key::L)
+            } else {
+                i.clone().consume_key(Modifiers::COMMAND, Key::L)
+                    || i.clone().consume_key(Modifiers::ALT, Key::D)
+            }
+        }) {
+            ctx.memory_mut(|m| m.request_focus(location_id));
+            *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
+                pane_id: active_toolbar_pane,
+            });
+        }
+        return;
+    }
+
     let location_field = ui.add_sized(
         [ui.available_width().max(160.0), LOCATION_INPUT_HEIGHT],
         egui::TextEdit::singleline(location)

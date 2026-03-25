@@ -1144,6 +1144,14 @@ pub struct GraphViewState {
     /// Defaults to `false` (tombstoned nodes are hidden from the render pass).
     #[serde(default)]
     pub tombstones_visible: bool,
+    /// Optional graphlet node-set mask.  When `Some`, the render pass restricts
+    /// visible nodes to this set (intersected with any other active filters).
+    ///
+    /// Used by `GraphCanvasHostCtx::NavigatorSpecialty` views to show only the
+    /// members of the derived graphlet.  Cleared when the specialty view closes.
+    /// Not persisted (`skip`) — derived from graphlet state each session.
+    #[serde(skip)]
+    pub graphlet_node_mask: Option<std::collections::HashSet<crate::graph::NodeKey>>,
 }
 
 impl std::fmt::Debug for GraphViewState {
@@ -1180,6 +1188,8 @@ impl Clone for GraphViewState {
             active_filter: self.active_filter.clone(),
             edge_projection_override: self.edge_projection_override.clone(),
             tombstones_visible: self.tombstones_visible,
+            // graphlet_node_mask is session-derived; not cloned across views
+            graphlet_node_mask: None,
         }
     }
 }
@@ -1206,6 +1216,7 @@ impl GraphViewState {
             active_filter: None,
             edge_projection_override: None,
             tombstones_visible: false,
+            graphlet_node_mask: None,
         }
     }
 

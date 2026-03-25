@@ -554,10 +554,13 @@ fn static_viewer_id(viewer_id: &str) -> Option<&'static str> {
         "viewer:wry" => Some("viewer:wry"),
         "viewer:plaintext" => Some("viewer:plaintext"),
         "viewer:markdown" => Some("viewer:markdown"),
+        "viewer:image" => Some("viewer:image"),
+        "viewer:directory" => Some("viewer:directory"),
         "viewer:pdf" => Some("viewer:pdf"),
         "viewer:csv" => Some("viewer:csv"),
         "viewer:settings" => Some("viewer:settings"),
         "viewer:metadata" => Some("viewer:metadata"),
+        "viewer:fallback" => Some("viewer:fallback"),
         _ => None,
     }
 }

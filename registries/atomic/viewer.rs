@@ -221,7 +221,7 @@ impl ViewerRegistry {
         // back to the web renderer. Use plaintext only if the configured fallback
         // is the composited viewer; otherwise respect the registry's own fallback.
         let fallback = match crate::graph::address_kind_from_url(uri) {
-            crate::graph::AddressKind::File | crate::graph::AddressKind::Custom
+            crate::graph::AddressKind::File | crate::graph::AddressKind::Unknown
                 if self.fallback_viewer_id == "viewer:webview" =>
             {
                 "viewer:plaintext"
@@ -256,10 +256,12 @@ impl ViewerRegistry {
         match kind {
             // HTTP/HTTPS: use the registry's configured default (normally viewer:webview).
             crate::graph::AddressKind::Http => self.fallback_viewer_id,
-            // Local files and custom schemes: plaintext is the safe fallback.
-            crate::graph::AddressKind::File | crate::graph::AddressKind::Custom => {
-                "viewer:plaintext"
-            }
+            // Local files and unknown/non-web schemes: plaintext is the safe fallback.
+            crate::graph::AddressKind::File
+            | crate::graph::AddressKind::Unknown
+            | crate::graph::AddressKind::Data
+            | crate::graph::AddressKind::GraphshellClip
+            | crate::graph::AddressKind::Directory => "viewer:plaintext",
         }
     }
 
@@ -549,10 +551,10 @@ mod tests {
     }
 
     #[test]
-    fn select_for_custom_scheme_no_mime_routes_to_plaintext_fallback() {
+    fn select_for_unknown_scheme_no_mime_routes_to_plaintext_fallback() {
         let registry = ViewerRegistry::default();
         assert_eq!(
-            registry.select_for(None, AddressKind::Custom),
+            registry.select_for(None, AddressKind::Unknown),
             "viewer:plaintext"
         );
     }

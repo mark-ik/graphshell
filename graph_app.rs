@@ -211,7 +211,7 @@ mod storage_interop;
 #[path = "app/workspace_state.rs"]
 mod workspace_state;
 pub use workspace_state::{
-    ChromeUiState, GraphViewRuntimeState, VisibleNavigationRegionSet,
+    ChromeUiState, GraphViewRuntimeState, NavigatorSpecialtyView, VisibleNavigationRegionSet,
     WorkbenchNavigationGeometry, WorkbenchSessionState,
 };
 
@@ -919,6 +919,7 @@ impl GraphBrowserApp {
                     edge_projection: EdgeProjectionState::default(),
                     pending_app_commands: VecDeque::new(),
                     pending_host_create_tokens: HashMap::new(),
+                    navigator_specialty_views: HashMap::new(),
                 },
                 chrome_ui: ChromeUiState {
                     history_manager_tab: HistoryManagerTab::Timeline,
@@ -1062,6 +1063,7 @@ impl GraphBrowserApp {
                     edge_projection: EdgeProjectionState::default(),
                     pending_app_commands: VecDeque::new(),
                     pending_host_create_tokens: HashMap::new(),
+                    navigator_specialty_views: HashMap::new(),
                 },
                 chrome_ui: ChromeUiState {
                     history_manager_tab: HistoryManagerTab::Timeline,

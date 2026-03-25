@@ -545,8 +545,104 @@ impl GraphBrowserApp {
                 self.apply_open_node_workspace_routed(key, prefer_workspace);
                 true
             }
+            GraphIntent::SetNavigatorSpecialtyView { host, kind } => {
+                self.apply_set_navigator_specialty_view(host, kind);
+                true
+            }
             _ => false,
         }
+    }
+
+    /// Activate or clear a Navigator specialty graphlet view for the given host.
+    ///
+    /// When `kind` is `Some`, derives a graphlet anchored at the current primary
+    /// selection, allocates a transient `GraphViewId`, stores the member mask in
+    /// `graphlet_node_mask` on that view's state, and records the specialty view
+    /// under `navigator_specialty_views[host]`.
+    ///
+    /// When `kind` is `None`, removes the specialty view entry and clears the
+    /// associated `graphlet_node_mask`.
+    fn apply_set_navigator_specialty_view(
+        &mut self,
+        host: SurfaceHostId,
+        kind: Option<crate::graph::GraphletKind>,
+    ) {
+        let Some(graphlet_kind) = kind else {
+            // Clear specialty view: clean up the masked view state then remove entry.
+            if let Some(sv) = self
+                .workspace
+                .workbench_session
+                .navigator_specialty_views
+                .remove(&host)
+            {
+                if let Some(view_state) = self
+                    .workspace
+                    .graph_runtime
+                    .views
+                    .get_mut(&sv.view_id)
+                {
+                    view_state.graphlet_node_mask = None;
+                }
+            }
+            return;
+        };
+
+        // Use the current primary selection as the graphlet anchor.
+        let anchors: Vec<NodeKey> = self
+            .focused_selection()
+            .primary()
+            .into_iter()
+            .collect();
+
+        if anchors.is_empty() {
+            // Cannot derive a graphlet without at least one anchor.
+            return;
+        }
+
+        let spec = crate::graph::GraphletSpec {
+            kind: graphlet_kind.clone(),
+            anchors,
+            scope: crate::graph::GraphletScope::Unbounded,
+            selectors: vec![],
+            ranking: None,
+        };
+        let resolved = crate::graph::derive_graphlet(&self.workspace.domain.graph, spec);
+        let member_set: std::collections::HashSet<NodeKey> =
+            resolved.members.into_iter().collect();
+
+        // Re-use the existing specialty view's GraphViewId if present (avoids
+        // churning the view registry every time the selection changes).
+        let view_id = self
+            .workspace
+            .workbench_session
+            .navigator_specialty_views
+            .get(&host)
+            .map(|sv| sv.view_id)
+            .unwrap_or_else(GraphViewId::new);
+
+        // Register the view in the runtime views map if not already present.
+        self.ensure_graph_view_registered(view_id);
+
+        // Write the graphlet mask into the view state.
+        if let Some(view_state) = self
+            .workspace
+            .graph_runtime
+            .views
+            .get_mut(&view_id)
+        {
+            view_state.graphlet_node_mask = Some(member_set);
+        }
+
+        self.workspace
+            .workbench_session
+            .navigator_specialty_views
+            .insert(
+                host,
+                NavigatorSpecialtyView {
+                    kind: graphlet_kind,
+                    view_id,
+                },
+            );
     }
 
     /// Phase 4: canonical graph and domain mutations.
@@ -881,8 +977,17 @@ impl GraphBrowserApp {
                         crate::graph::AddressKind::File => {
                             crate::services::persistence::types::PersistedAddressKind::File
                         }
-                        crate::graph::AddressKind::Custom => {
-                            crate::services::persistence::types::PersistedAddressKind::Custom
+                        crate::graph::AddressKind::Data => {
+                            crate::services::persistence::types::PersistedAddressKind::Data
+                        }
+                        crate::graph::AddressKind::GraphshellClip => {
+                            crate::services::persistence::types::PersistedAddressKind::GraphshellClip
+                        }
+                        crate::graph::AddressKind::Directory => {
+                            crate::services::persistence::types::PersistedAddressKind::Directory
+                        }
+                        crate::graph::AddressKind::Unknown => {
+                            crate::services::persistence::types::PersistedAddressKind::Unknown
                         }
                     };
                     store.log_mutation(&LogEntry::UpdateNodeAddressKind {
@@ -1000,7 +1105,8 @@ impl GraphBrowserApp {
             | GraphIntent::Noop
             | GraphIntent::OpenNodeFrameRouted { .. }
             | GraphIntent::OpenNodeWorkspaceRouted { .. }
-            | GraphIntent::FocusGraphView { .. } => {
+            | GraphIntent::FocusGraphView { .. }
+            | GraphIntent::SetNavigatorSpecialtyView { .. } => {
                 unreachable!("runtime lifecycle intents are handled in phase 3")
             }
         }

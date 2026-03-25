@@ -28,6 +28,7 @@ use super::{
     SurfaceHostId, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, UxConfigMode,
     ViewDimension, WorkbenchIntent, WorkbenchLayoutConstraint, WorkbenchProfile,
 };
+use crate::graph::GraphletKind;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VisibleNavigationRegionSet {
@@ -427,6 +428,21 @@ pub struct WorkbenchSessionState {
 
     /// Accepted child-webview create requests awaiting reconcile-time renderer creation.
     pub(crate) pending_host_create_tokens: HashMap<NodeKey, PendingCreateToken>,
+
+    /// Active Navigator specialty graphlet kind per Navigator host, keyed by
+    /// `SurfaceHostId`. When present the host renders a scoped graphlet graph
+    /// canvas instead of (or alongside) its normal navigator content.
+    /// `None` means no specialty view is active for that host.
+    pub(crate) navigator_specialty_views: HashMap<SurfaceHostId, NavigatorSpecialtyView>,
+}
+
+/// Runtime state for an active Navigator specialty graphlet view.
+#[derive(Debug, Clone)]
+pub struct NavigatorSpecialtyView {
+    /// Graphlet kind driving this specialty view.
+    pub kind: GraphletKind,
+    /// The derived `GraphViewId` that holds the graphlet-masked view state.
+    pub view_id: GraphViewId,
 }
 
 impl WorkbenchSessionState {

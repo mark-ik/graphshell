@@ -14,7 +14,7 @@ use crate::app::{
     SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent,
     WorkbenchLayoutConstraint, WorkbenchNavigationGeometry,
 };
-use crate::graph::{ArrangementSubKind, NodeKey};
+use crate::graph::{ArrangementSubKind, GraphletKind, NodeKey};
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -1787,7 +1787,118 @@ pub(crate) fn render_workbench_host(
                             .push(WorkbenchHostAction::OpenTool(ToolPaneState::navigator_surface()));
                     }
                 });
+                // Specialty graphlet view controls.
+                let active_specialty = graph_app
+                    .workspace
+                    .workbench_session
+                    .navigator_specialty_views
+                    .get(&host_layout.host)
+                    .cloned();
+                ui.horizontal_wrapped(|ui| {
+                    let ego_active = matches!(
+                        active_specialty,
+                        Some(ref sv) if matches!(sv.kind, GraphletKind::Ego { .. })
+                    );
+                    let ego_label = if ego_active { "★ Ego" } else { "Ego view" };
+                    if ui
+                        .small_button(ego_label)
+                        .on_hover_text("Derive ego-graphlet from selection and show in this host")
+                        .clicked()
+                    {
+                        let kind = if ego_active {
+                            None
+                        } else {
+                            Some(GraphletKind::Ego { radius: 1 })
+                        };
+                        post_host_actions.push(WorkbenchHostAction::SetNavigatorSpecialtyView {
+                            host: host_layout.host.clone(),
+                            kind,
+                        });
+                    }
+                    if active_specialty.is_some() {
+                        if ui
+                            .small_button("✕ Clear view")
+                            .on_hover_text("Clear specialty graphlet view")
+                            .clicked()
+                        {
+                            post_host_actions.push(WorkbenchHostAction::SetNavigatorSpecialtyView {
+                                host: host_layout.host.clone(),
+                                kind: None,
+                            });
+                        }
+                    }
+                });
                 ui.separator();
+
+                // Specialty graphlet view panel — rendered when a specialty view
+                // is active for this host.
+                if let Some(sv) = graph_app
+                    .workspace
+                    .workbench_session
+                    .navigator_specialty_views
+                    .get(&host_layout.host)
+                    .cloned()
+                {
+                    let kind_label = navigator_specialty_kind_label(&sv.kind);
+                    ui.heading(format!("Specialty: {kind_label}"));
+                    // Count members from the graphlet_node_mask on the view state.
+                    let member_count = graph_app
+                        .workspace
+                        .graph_runtime
+                        .views
+                        .get(&sv.view_id)
+                        .and_then(|vs| vs.graphlet_node_mask.as_ref())
+                        .map(|mask| mask.len())
+                        .unwrap_or(0);
+                    ui.label(
+                        RichText::new(format!("{member_count} member(s)"))
+                            .small()
+                            .weak(),
+                    );
+                    // List graphlet members as selectable labels.
+                    if let Some(mask) = graph_app
+                        .workspace
+                        .graph_runtime
+                        .views
+                        .get(&sv.view_id)
+                        .and_then(|vs| vs.graphlet_node_mask.clone())
+                    {
+                        let mut member_keys: Vec<NodeKey> = mask.into_iter().collect();
+                        member_keys.sort_by_key(|k| k.index());
+                        for member_key in member_keys {
+                            let title = graph_app
+                                .domain_graph()
+                                .get_node(member_key)
+                                .and_then(|n| {
+                                    if n.title.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(n.title.clone())
+                                    }
+                                })
+                                .unwrap_or_else(|| format!("node:{}", member_key.index()));
+                            let is_selected = graph_app
+                                .focused_selection()
+                                .contains(&member_key);
+                            let response = ui.selectable_label(
+                                is_selected,
+                                RichText::new(compact_host_panel_text(&title)).small(),
+                            );
+                            if response.double_clicked() {
+                                post_host_actions.push(WorkbenchHostAction::ActivateNode {
+                                    node_key: member_key,
+                                    row_key: None,
+                                });
+                            } else if response.clicked() {
+                                post_host_actions.push(WorkbenchHostAction::SelectNode {
+                                    node_key: member_key,
+                                    row_key: None,
+                                });
+                            }
+                        }
+                    }
+                    ui.separator();
+                }
 
                 if host_shows_graph_scope(&host_layout) && !projection.navigator_groups.is_empty() {
                     ui.heading("Navigator");
@@ -2125,6 +2236,25 @@ enum WorkbenchHostAction {
     SaveCurrentFrame,
     PruneEmptyFrames,
     RestoreFrame(String),
+    /// Set or clear a graphlet specialty view on a Navigator host.
+    SetNavigatorSpecialtyView {
+        host: SurfaceHostId,
+        kind: Option<GraphletKind>,
+    },
+}
+
+fn navigator_specialty_kind_label(kind: &GraphletKind) -> &'static str {
+    match kind {
+        GraphletKind::Ego { .. } => "Ego",
+        GraphletKind::Corridor => "Corridor",
+        GraphletKind::Component => "Component",
+        GraphletKind::Loop => "Loop",
+        GraphletKind::Frontier => "Frontier",
+        GraphletKind::Facet => "Facet",
+        GraphletKind::Session => "Session",
+        GraphletKind::Bridge => "Bridge",
+        GraphletKind::WorkbenchCorrespondence => "Workbench",
+    }
 }
 
 fn layer_state_label(layer_state: WorkbenchLayerState) -> &'static str {
@@ -2427,6 +2557,12 @@ fn apply_workbench_host_action(
         }
         WorkbenchHostAction::RestoreFrame(name) => {
             graph_app.request_restore_frame_snapshot_named(name);
+        }
+        WorkbenchHostAction::SetNavigatorSpecialtyView { host, kind } => {
+            graph_app.apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView {
+                host,
+                kind,
+            }]);
         }
     }
 }
