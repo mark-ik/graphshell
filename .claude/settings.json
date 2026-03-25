@@ -11,7 +11,14 @@
       "Bash(git -C /c/Users/mark_/Code/source/repos/graphshell log --oneline -5)",
       "Bash(git -C /c/Users/mark_/Code/source/repos/graphshell log --oneline --all -- shell/desktop/ui/gui/focus_state.rs)",
       "Bash(git -C /c/Users/mark_/Code/source/repos/graphshell stash)",
-      "Bash(wc -l /c/Users/mark_/Code/source/repos/graphshell/*.rs)"
+      "Bash(wc -l /c/Users/mark_/Code/source/repos/graphshell/*.rs)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git apply:*)",
+      "Bash(git add:*)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }
