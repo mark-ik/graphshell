@@ -578,6 +578,9 @@ pub struct ChromeUiState {
     /// Persisted default theme selection for workspace appearance controls.
     pub(crate) default_registry_theme_id: Option<String>,
 
+    /// User preference for theme mode: follow OS, always light, or always dark.
+    pub(crate) theme_mode: crate::app::ThemeMode,
+
     /// Active filter for the mixed history timeline All tab.
     pub mixed_timeline_filter: crate::services::persistence::types::HistoryTimelineFilter,
 }

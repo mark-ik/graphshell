@@ -1,11 +1,10 @@
 use crate::app::{
-    ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent, SettingsToolPage,
+    ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent, SettingsToolPage, ThemeMode,
     WorkbenchIntent,
 };
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
-use crate::shell::desktop::runtime::registries::theme::{THEME_ID_DARK, THEME_ID_LIGHT};
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
@@ -30,11 +29,19 @@ fn open_settings_page(
     );
 }
 
-fn theme_toggle_details(current_theme_id: Option<&str>) -> (&'static str, &'static str) {
-    if current_theme_id == Some(THEME_ID_DARK) {
-        ("Switch to Light Theme", THEME_ID_LIGHT)
-    } else {
-        ("Switch to Dark Theme", THEME_ID_DARK)
+fn theme_mode_toggle_label(mode: ThemeMode) -> &'static str {
+    match mode {
+        ThemeMode::System => "Theme: System (follows OS)",
+        ThemeMode::Light => "Theme: Light",
+        ThemeMode::Dark => "Theme: Dark",
+    }
+}
+
+fn theme_mode_next(mode: ThemeMode) -> ThemeMode {
+    match mode {
+        ThemeMode::System => ThemeMode::Light,
+        ThemeMode::Light => ThemeMode::Dark,
+        ThemeMode::Dark => ThemeMode::System,
     }
 }
 
@@ -106,20 +113,18 @@ pub(super) fn render_settings_menu(
 
             ui.separator();
             ui.label("Appearance");
-            let active_theme = crate::shell::desktop::runtime::registries::phase3_describe_theme(
-                graph_app.default_registry_theme_id(),
-            );
+            let current_mode = graph_app.theme_mode();
             ui.label(
-                egui::RichText::new(format!("Active theme: {}", active_theme.display_name))
+                egui::RichText::new(theme_mode_toggle_label(current_mode))
                     .small()
                     .color(theme_tokens.radial_chrome_text),
             );
-            let (toggle_label, toggle_theme_id) =
-                theme_toggle_details(Some(active_theme.resolved_id.as_str()));
-            if ui.button(toggle_label).clicked() {
-                frame_intents.push(GraphIntent::SetTheme {
-                    theme_id: toggle_theme_id.to_string(),
-                });
+            let next_mode = theme_mode_next(current_mode);
+            if ui
+                .button(format!("Switch to: {}", theme_mode_toggle_label(next_mode)))
+                .clicked()
+            {
+                graph_app.set_theme_mode(next_mode);
                 ui.close();
             }
 
@@ -226,22 +231,21 @@ pub(super) fn render_settings_menu(
 
 #[cfg(test)]
 mod tests {
-    use super::{context_command_surface_label, theme_toggle_details};
-    use crate::app::ContextCommandSurfacePreference;
-    use crate::shell::desktop::runtime::registries::theme::{THEME_ID_DARK, THEME_ID_LIGHT};
+    use super::{context_command_surface_label, theme_mode_next, theme_mode_toggle_label};
+    use crate::app::{ContextCommandSurfacePreference, ThemeMode};
 
     #[test]
-    fn theme_toggle_switches_dark_theme_to_light() {
-        let (label, target) = theme_toggle_details(Some(THEME_ID_DARK));
-        assert_eq!(label, "Switch to Light Theme");
-        assert_eq!(target, THEME_ID_LIGHT);
+    fn theme_mode_cycles_system_to_light_to_dark_and_back() {
+        assert_eq!(theme_mode_next(ThemeMode::System), ThemeMode::Light);
+        assert_eq!(theme_mode_next(ThemeMode::Light), ThemeMode::Dark);
+        assert_eq!(theme_mode_next(ThemeMode::Dark), ThemeMode::System);
     }
 
     #[test]
-    fn theme_toggle_switches_non_dark_theme_to_dark() {
-        let (label, target) = theme_toggle_details(Some(THEME_ID_LIGHT));
-        assert_eq!(label, "Switch to Dark Theme");
-        assert_eq!(target, THEME_ID_DARK);
+    fn theme_mode_toggle_labels_are_non_empty() {
+        for mode in [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark] {
+            assert!(!theme_mode_toggle_label(mode).is_empty());
+        }
     }
 
     #[test]

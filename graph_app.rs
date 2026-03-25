@@ -193,7 +193,7 @@ mod startup_persistence;
 
 #[path = "app/settings_persistence.rs"]
 mod settings_persistence;
-pub use settings_persistence::SettingsToolPage;
+pub use settings_persistence::{SettingsToolPage, ThemeMode};
 
 #[path = "app/workbench_layout_policy.rs"]
 pub(crate) mod workbench_layout_policy;
@@ -772,6 +772,7 @@ impl GraphBrowserApp {
         "workspace:settings-registry-physics-id";
     pub const SETTINGS_REGISTRY_THEME_ID_NAME: &'static str =
         "workspace:settings-registry-theme-id";
+    pub const SETTINGS_THEME_MODE_NAME: &'static str = "workspace:settings-theme-mode";
     pub const SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME: &'static str =
         "workspace:settings-workbench-surface-profile-id";
     pub const SETTINGS_CANVAS_PROFILE_ID_NAME: &'static str =
@@ -952,6 +953,7 @@ impl GraphBrowserApp {
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
                     default_registry_theme_id: None,
+                    theme_mode: crate::app::ThemeMode::System,
                     mixed_timeline_filter:
                         crate::services::persistence::types::HistoryTimelineFilter::default(),
                 },
@@ -1095,6 +1097,7 @@ impl GraphBrowserApp {
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
                     default_registry_theme_id: None,
+                    theme_mode: crate::app::ThemeMode::System,
                     mixed_timeline_filter:
                         crate::services::persistence::types::HistoryTimelineFilter::default(),
                 },

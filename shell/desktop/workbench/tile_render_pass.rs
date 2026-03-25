@@ -72,6 +72,68 @@ fn primary_graph_view_id(graph_app: &GraphBrowserApp, tiles_tree: &Tree<TileKind
         .unwrap_or_default()
 }
 
+/// Render a specialty graphlet canvas for a Navigator host using a specific
+/// `view_id` (whose `graphlet_node_mask` already constrains visible nodes).
+/// Search filtering is not applied — the graphlet mask is the scope.
+/// Returns intents produced by user interaction with the canvas.
+pub(crate) fn render_specialty_graph_in_ui(
+    ui: &mut egui::Ui,
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    view_id: crate::app::GraphViewId,
+) -> Vec<GraphIntent> {
+    let empty_matches: HashSet<NodeKey> = HashSet::new();
+    let actions = render::render_graph_in_ui_collect_actions(
+        ui,
+        graph_app,
+        view_id,
+        &empty_matches,
+        None,
+        crate::app::SearchDisplayMode::Highlight,
+        false,
+    );
+    let multi_select_modifier = ui.input(|i| i.modifiers.ctrl);
+    let mut post_render_intents = Vec::new();
+    let mut pending_open_nodes = Vec::new();
+    let mut passthrough_actions = Vec::new();
+
+    for action in actions {
+        match action {
+            GraphAction::FocusNode(key) => {
+                post_render_intents.push(GraphIntent::OpenNodeFrameRouted {
+                    key,
+                    prefer_frame: None,
+                });
+            }
+            GraphAction::FocusNodeSplit(key) => {
+                if let Some(primary) = graph_app.focused_selection().primary()
+                    && primary != key
+                {
+                    post_render_intents.push(GraphIntent::CreateUserGroupedEdge {
+                        from: primary,
+                        to: key,
+                        label: None,
+                    });
+                }
+                post_render_intents.push(GraphIntent::SelectNode {
+                    key,
+                    multi_select: multi_select_modifier,
+                });
+                pending_open_nodes.push((key, TileOpenMode::SplitHorizontal));
+            }
+            other => passthrough_actions.push(other),
+        }
+    }
+
+    post_render_intents.extend(render::intents_from_graph_actions(passthrough_actions));
+    for (node_key, mode) in pending_open_nodes {
+        tile_view_ops::open_or_focus_node_pane_with_mode(tiles_tree, graph_app, node_key, mode);
+    }
+    render::sync_graph_positions_from_layout(graph_app);
+    render::render_graph_info_in_ui(ui, graph_app, view_id);
+    post_render_intents
+}
+
 pub(crate) fn render_primary_graph_in_ui(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,

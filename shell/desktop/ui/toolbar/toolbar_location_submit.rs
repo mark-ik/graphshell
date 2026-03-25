@@ -94,7 +94,7 @@ pub(super) fn handle_location_submit(
                     }
                 }
 
-                if let Some(session) = omnibar_search_session.as_ref()
+                if let Some(session) = omnibar_search_session.as_mut()
                     && !session.matches.is_empty()
                     && let Some(active_match) = session.matches.get(session.active_index).cloned()
                 {
@@ -107,6 +107,8 @@ pub(super) fn handle_location_submit(
                         frame_intents,
                         open_selected_mode_after_submit,
                     );
+                    // Advance to the next result so repeated Enter cycles through matches.
+                    session.active_index = (session.active_index + 1) % session.matches.len();
                 }
                 *location_dirty = true;
                 handled_omnibar_search = true;

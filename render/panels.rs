@@ -2373,32 +2373,43 @@ fn render_settings_surface_in_ui_with_control_panel(
                 }
                 SettingsToolPage::Appearance => {
                     ui.label("Theme");
-                    let current_dark = matches!(
-                        app.default_registry_theme_id(),
-                        Some(crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK)
-                    );
-                    let mut dark_mode = current_dark;
+                    let mut current_mode = app.theme_mode();
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut dark_mode, false, "Light");
-                        ui.radio_value(&mut dark_mode, true, "Dark");
+                        ui.radio_value(
+                            &mut current_mode,
+                            crate::app::ThemeMode::System,
+                            "System",
+                        );
+                        ui.radio_value(
+                            &mut current_mode,
+                            crate::app::ThemeMode::Light,
+                            "Light",
+                        );
+                        ui.radio_value(
+                            &mut current_mode,
+                            crate::app::ThemeMode::Dark,
+                            "Dark",
+                        );
                     });
-                    if dark_mode != current_dark {
-                        if dark_mode {
-                            app.set_default_registry_theme_id(Some(
-                                crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK,
-                            ));
-                        } else {
-                            app.set_default_registry_theme_id(Some(
-                                crate::shell::desktop::runtime::registries::theme::THEME_ID_LIGHT,
-                            ));
-                        }
+                    if current_mode != app.theme_mode() {
+                        app.set_theme_mode(current_mode);
                     }
                     themed_secondary_small_label(
                         ui,
                         phase3_resolve_active_theme(app.default_registry_theme_id())
                             .tokens
                             .radial_chrome_text,
-                        "Theme mode is persisted through the workspace settings model.",
+                        match current_mode {
+                            crate::app::ThemeMode::System => {
+                                "Theme follows the OS dark/light preference."
+                            }
+                            crate::app::ThemeMode::Light => {
+                                "Light theme is pinned regardless of OS preference."
+                            }
+                            crate::app::ThemeMode::Dark => {
+                                "Dark theme is pinned regardless of OS preference."
+                            }
+                        },
                     );
 
                     ui.separator();

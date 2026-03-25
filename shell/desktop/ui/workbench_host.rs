@@ -25,6 +25,7 @@ use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::tile_render_pass;
 use crate::shell::desktop::workbench::tile_view_ops;
 use crate::util::CoordBridge;
 use crate::util::VersoAddress;
@@ -1510,7 +1511,16 @@ pub(crate) fn render_workbench_host(
         })
         .clamp(HOST_PANEL_MAX_FLOOR, host_panel_max_extent);
         let panel_id = host_panel_id(&host_layout.host);
+        let specialty_canvas_area_id =
+            egui::Id::new(("navigator_specialty_canvas", &panel_id));
         let mut rendered_rect = None;
+        let specialty_view_id = graph_app
+            .workspace
+            .workbench_session
+            .navigator_specialty_views
+            .get(&host_layout.host)
+            .map(|sv| sv.view_id);
+        let mut specialty_canvas_rect: Option<egui::Rect> = None;
         let mut show_host_contents = |ui: &mut egui::Ui| {
             rendered_rect = Some(ui.max_rect());
             ui.vertical(|ui| {
@@ -1841,63 +1851,13 @@ pub(crate) fn render_workbench_host(
                 {
                     let kind_label = navigator_specialty_kind_label(&sv.kind);
                     ui.heading(format!("Specialty: {kind_label}"));
-                    // Count members from the graphlet_node_mask on the view state.
-                    let member_count = graph_app
-                        .workspace
-                        .graph_runtime
-                        .views
-                        .get(&sv.view_id)
-                        .and_then(|vs| vs.graphlet_node_mask.as_ref())
-                        .map(|mask| mask.len())
-                        .unwrap_or(0);
-                    ui.label(
-                        RichText::new(format!("{member_count} member(s)"))
-                            .small()
-                            .weak(),
-                    );
-                    // List graphlet members as selectable labels.
-                    if let Some(mask) = graph_app
-                        .workspace
-                        .graph_runtime
-                        .views
-                        .get(&sv.view_id)
-                        .and_then(|vs| vs.graphlet_node_mask.clone())
-                    {
-                        let mut member_keys: Vec<NodeKey> = mask.into_iter().collect();
-                        member_keys.sort_by_key(|k| k.index());
-                        for member_key in member_keys {
-                            let title = graph_app
-                                .domain_graph()
-                                .get_node(member_key)
-                                .and_then(|n| {
-                                    if n.title.trim().is_empty() {
-                                        None
-                                    } else {
-                                        Some(n.title.clone())
-                                    }
-                                })
-                                .unwrap_or_else(|| format!("node:{}", member_key.index()));
-                            let is_selected = graph_app
-                                .focused_selection()
-                                .contains(&member_key);
-                            let response = ui.selectable_label(
-                                is_selected,
-                                RichText::new(compact_host_panel_text(&title)).small(),
-                            );
-                            if response.double_clicked() {
-                                post_host_actions.push(WorkbenchHostAction::ActivateNode {
-                                    node_key: member_key,
-                                    row_key: None,
-                                });
-                            } else if response.clicked() {
-                                post_host_actions.push(WorkbenchHostAction::SelectNode {
-                                    node_key: member_key,
-                                    row_key: None,
-                                });
-                            }
-                        }
-                    }
-                    ui.separator();
+                    // Reserve the remaining panel space for the graph canvas.
+                    // The actual canvas is rendered in an egui::Area after the
+                    // panel show returns so we have &mut GraphBrowserApp.
+                    let canvas_size = ui.available_size();
+                    let (canvas_alloc_rect, _response) =
+                        ui.allocate_exact_size(canvas_size, egui::Sense::hover());
+                    specialty_canvas_rect = Some(canvas_alloc_rect);
                 }
 
                 if host_shows_graph_scope(&host_layout) && !projection.navigator_groups.is_empty() {
@@ -2017,6 +1977,22 @@ pub(crate) fn render_workbench_host(
                         });
                 }
             }
+        }
+
+        // Render the specialty graphlet canvas as an overlay Area once we have
+        // &mut GraphBrowserApp again (after the panel show closure completes).
+        if let (Some(canvas_rect), Some(view_id)) = (specialty_canvas_rect, specialty_view_id) {
+            let canvas_area_id = specialty_canvas_area_id;
+            egui::Area::new(canvas_area_id)
+                .order(egui::Order::Foreground)
+                .fixed_pos(canvas_rect.min)
+                .show(ctx, |ui| {
+                    ui.set_min_size(canvas_rect.size());
+                    ui.set_max_size(canvas_rect.size());
+                    let intents =
+                        tile_render_pass::render_specialty_graph_in_ui(ui, graph_app, tiles_tree, view_id);
+                    graph_app.apply_reducer_intents(intents);
+                });
         }
 
         if let Some(rect) = rendered_rect {

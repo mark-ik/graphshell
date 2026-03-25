@@ -1,5 +1,23 @@
 use super::*;
 
+/// User preference for how the application theme is selected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemeMode {
+    /// Follow the OS dark/light preference (default).
+    #[default]
+    System,
+    /// Always use the light theme.
+    Light,
+    /// Always use the dark theme.
+    Dark,
+}
+
+impl_display_from_str!(ThemeMode {
+    ThemeMode::System => "system",
+    ThemeMode::Light => "light",
+    ThemeMode::Dark => "dark",
+});
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsToolPage {
     #[default]
@@ -515,6 +533,44 @@ impl GraphBrowserApp {
         );
     }
 
+    /// Set the theme mode preference and apply it immediately.
+    ///
+    /// - `System`: clears the explicit theme ID and lets `WindowEvent::ThemeChanged` drive
+    ///   the active theme. The runtime theme is not changed here — the next OS event will
+    ///   apply the correct theme. If the OS preference is already known the caller should
+    ///   call `apply_system_theme_preference` directly.
+    /// - `Light` / `Dark`: sets the explicit theme ID and applies it now.
+    pub fn set_theme_mode(&mut self, mode: ThemeMode) {
+        self.workspace.chrome_ui.theme_mode = mode;
+        self.save_workspace_layout_json(
+            Self::SETTINGS_THEME_MODE_NAME,
+            &mode.to_string(),
+        );
+        let follows_system = mode == ThemeMode::System;
+        crate::shell::desktop::runtime::registries::phase3_set_theme_follows_system(follows_system);
+        match mode {
+            ThemeMode::System => {
+                // Clear explicit override — runtime will follow OS events.
+                self.workspace.chrome_ui.default_registry_theme_id = None;
+                self.save_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME, "");
+            }
+            ThemeMode::Light => {
+                self.set_default_registry_theme_id(Some(
+                    crate::shell::desktop::runtime::registries::theme::THEME_ID_LIGHT,
+                ));
+            }
+            ThemeMode::Dark => {
+                self.set_default_registry_theme_id(Some(
+                    crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK,
+                ));
+            }
+        }
+    }
+
+    pub fn theme_mode(&self) -> ThemeMode {
+        self.workspace.chrome_ui.theme_mode
+    }
+
     pub fn default_registry_lens_id(&self) -> Option<&str> {
         self.workspace.chrome_ui.default_registry_lens_id.as_deref()
     }
@@ -715,19 +771,34 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_PHYSICS_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
+        // Load theme mode first; it governs how the explicit theme id is used.
+        let loaded_theme_mode = self
+            .load_workspace_layout_json(Self::SETTINGS_THEME_MODE_NAME)
+            .and_then(|raw| raw.parse::<ThemeMode>().ok())
+            .unwrap_or(ThemeMode::System);
+        self.workspace.chrome_ui.theme_mode = loaded_theme_mode;
+        crate::shell::desktop::runtime::registries::phase3_set_theme_follows_system(
+            loaded_theme_mode == ThemeMode::System,
+        );
+
         self.workspace.chrome_ui.default_registry_theme_id = self
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
-        if let Some(theme_id) = self
-            .workspace
-            .chrome_ui
-            .default_registry_theme_id
-            .as_deref()
-        {
-            let resolution =
-                crate::shell::desktop::runtime::registries::phase3_set_active_theme(theme_id);
-            self.workspace.chrome_ui.default_registry_theme_id = Some(resolution.resolved_id);
+        // Only apply the persisted explicit theme when mode is not System.
+        // System mode relies on WindowEvent::ThemeChanged to set the active theme.
+        if loaded_theme_mode != ThemeMode::System {
+            if let Some(theme_id) = self
+                .workspace
+                .chrome_ui
+                .default_registry_theme_id
+                .as_deref()
+            {
+                let resolution =
+                    crate::shell::desktop::runtime::registries::phase3_set_active_theme(theme_id);
+                self.workspace.chrome_ui.default_registry_theme_id =
+                    Some(resolution.resolved_id);
+            }
         }
         let canvas_profile_id = self
             .load_workspace_layout_json(Self::SETTINGS_CANVAS_PROFILE_ID_NAME)

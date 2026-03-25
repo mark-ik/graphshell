@@ -431,6 +431,9 @@ pub(crate) struct RegistryRuntime {
     workbench_surface: Mutex<WorkbenchSurfaceRegistry>,
     pub(crate) knowledge: KnowledgeRegistry,
     mod_registry: Mutex<ModRegistry>,
+    /// When `true` (default), `WindowEvent::ThemeChanged` drives the active theme.
+    /// Set to `false` when the user pins an explicit Light or Dark mode preference.
+    theme_follows_system: std::sync::atomic::AtomicBool,
 }
 
 struct DynamicRegistrySurfaces {
@@ -1045,13 +1048,24 @@ impl RegistryRuntime {
         resolution
     }
 
-    fn apply_system_theme_preference(&self, prefers_dark: bool) -> ThemeResolution {
+    fn apply_system_theme_preference(&self, prefers_dark: bool) -> Option<ThemeResolution> {
+        if !self
+            .theme_follows_system
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return None;
+        }
         let requested = if prefers_dark {
             theme::THEME_ID_DARK
         } else {
             theme::THEME_ID_LIGHT
         };
-        self.set_active_theme(requested)
+        Some(self.set_active_theme(requested))
+    }
+
+    fn set_theme_follows_system(&self, follows: bool) {
+        self.theme_follows_system
+            .store(follows, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn build_provider_wired_registries(
@@ -1110,6 +1124,7 @@ impl RegistryRuntime {
             workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
             mod_registry: Mutex::new(ModRegistry::new()),
+            theme_follows_system: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
@@ -3063,8 +3078,12 @@ pub(crate) fn phase3_resolve_active_theme(theme_id: Option<&str>) -> ThemeResolu
     runtime().resolve_active_theme(theme_id)
 }
 
-pub(crate) fn phase3_apply_system_theme_preference(prefers_dark: bool) -> ThemeResolution {
+pub(crate) fn phase3_apply_system_theme_preference(prefers_dark: bool) -> Option<ThemeResolution> {
     runtime().apply_system_theme_preference(prefers_dark)
+}
+
+pub(crate) fn phase3_set_theme_follows_system(follows: bool) {
+    runtime().set_theme_follows_system(follows);
 }
 
 pub(crate) fn phase3_describe_theme(theme_id: Option<&str>) -> ThemeCapability {

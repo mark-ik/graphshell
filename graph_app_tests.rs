@@ -7004,3 +7004,97 @@ fn toggle_ghost_nodes_flips_tombstones_visible_on_focused_view() {
         "ToggleGhostNodes should flip tombstones_visible"
     );
 }
+
+#[test]
+fn set_navigator_specialty_view_creates_view_with_graphlet_mask() {
+    use crate::app::workbench_layout_policy::{NavigatorHostId, SurfaceHostId};
+    use crate::graph::GraphletKind;
+
+    let mut app = GraphBrowserApp::new_for_testing();
+    // Add two nodes and select one as the primary selection anchor.
+    let anchor = app.add_node_and_sync("https://a.example/".to_string(), Point2D::new(0.0, 0.0));
+    let _peer = app.add_node_and_sync("https://b.example/".to_string(), Point2D::new(1.0, 0.0));
+    app.apply_reducer_intents([GraphIntent::SelectNode {
+        key: anchor,
+        multi_select: false,
+    }]);
+
+    let host = SurfaceHostId::Navigator(NavigatorHostId::Left);
+    app.apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView {
+        host: host.clone(),
+        kind: Some(GraphletKind::Ego { radius: 1 }),
+    }]);
+
+    let sv = app
+        .workspace
+        .workbench_session
+        .navigator_specialty_views
+        .get(&host)
+        .cloned();
+    assert!(sv.is_some(), "specialty view should be registered for host");
+    let sv = sv.unwrap();
+    assert!(
+        matches!(sv.kind, GraphletKind::Ego { .. }),
+        "specialty view kind should be Ego"
+    );
+    let mask = app
+        .workspace
+        .graph_runtime
+        .views
+        .get(&sv.view_id)
+        .and_then(|v| v.graphlet_node_mask.as_ref());
+    assert!(mask.is_some(), "graphlet_node_mask should be set on the view");
+    assert!(
+        mask.unwrap().contains(&anchor),
+        "anchor node should be in the graphlet mask"
+    );
+}
+
+#[test]
+fn clear_navigator_specialty_view_removes_entry_and_mask() {
+    use crate::app::workbench_layout_policy::{NavigatorHostId, SurfaceHostId};
+    use crate::graph::GraphletKind;
+
+    let mut app = GraphBrowserApp::new_for_testing();
+    let anchor = app.add_node_and_sync("https://c.example/".to_string(), Point2D::new(0.0, 0.0));
+    app.apply_reducer_intents([GraphIntent::SelectNode {
+        key: anchor,
+        multi_select: false,
+    }]);
+
+    let host = SurfaceHostId::Navigator(NavigatorHostId::Left);
+    app.apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView {
+        host: host.clone(),
+        kind: Some(GraphletKind::Ego { radius: 1 }),
+    }]);
+    let view_id = app
+        .workspace
+        .workbench_session
+        .navigator_specialty_views
+        .get(&host)
+        .map(|sv| sv.view_id)
+        .expect("specialty view should exist before clearing");
+
+    app.apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView {
+        host: host.clone(),
+        kind: None,
+    }]);
+
+    assert!(
+        !app.workspace
+            .workbench_session
+            .navigator_specialty_views
+            .contains_key(&host),
+        "specialty view entry should be removed after clearing"
+    );
+    let mask_after_clear = app
+        .workspace
+        .graph_runtime
+        .views
+        .get(&view_id)
+        .and_then(|v| v.graphlet_node_mask.as_ref());
+    assert!(
+        mask_after_clear.is_none(),
+        "graphlet_node_mask should be cleared from the view"
+    );
+}
