@@ -26,7 +26,10 @@ pub enum PersistedAddressKind {
     #[default]
     Http,
     File,
-    Custom,
+    Data,
+    GraphshellClip,
+    Directory,
+    Unknown,
 }
 
 /// Persisted per-node session fidelity state.
@@ -986,8 +989,20 @@ mod tests {
                 ArchivedPersistedAddressKind::File,
             ),
             (
-                PersistedAddressKind::Custom,
-                ArchivedPersistedAddressKind::Custom,
+                PersistedAddressKind::Data,
+                ArchivedPersistedAddressKind::Data,
+            ),
+            (
+                PersistedAddressKind::GraphshellClip,
+                ArchivedPersistedAddressKind::GraphshellClip,
+            ),
+            (
+                PersistedAddressKind::Directory,
+                ArchivedPersistedAddressKind::Directory,
+            ),
+            (
+                PersistedAddressKind::Unknown,
+                ArchivedPersistedAddressKind::Unknown,
             ),
         ] {
             let entry = LogEntry::UpdateNodeAddressKind {
@@ -1013,7 +1028,10 @@ mod tests {
         for kind in [
             PersistedAddressKind::Http,
             PersistedAddressKind::File,
-            PersistedAddressKind::Custom,
+            PersistedAddressKind::Data,
+            PersistedAddressKind::GraphshellClip,
+            PersistedAddressKind::Directory,
+            PersistedAddressKind::Unknown,
         ] {
             let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&kind).unwrap();
             let archived =
@@ -1021,7 +1039,12 @@ mod tests {
             let expected = match kind {
                 PersistedAddressKind::Http => ArchivedPersistedAddressKind::Http,
                 PersistedAddressKind::File => ArchivedPersistedAddressKind::File,
-                PersistedAddressKind::Custom => ArchivedPersistedAddressKind::Custom,
+                PersistedAddressKind::Data => ArchivedPersistedAddressKind::Data,
+                PersistedAddressKind::GraphshellClip => {
+                    ArchivedPersistedAddressKind::GraphshellClip
+                }
+                PersistedAddressKind::Directory => ArchivedPersistedAddressKind::Directory,
+                PersistedAddressKind::Unknown => ArchivedPersistedAddressKind::Unknown,
             };
             assert_eq!(*archived, expected);
         }

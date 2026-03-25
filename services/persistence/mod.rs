@@ -1979,8 +1979,17 @@ impl GraphStore {
                                     types::ArchivedPersistedAddressKind::File => {
                                         crate::graph::AddressKind::File
                                     }
-                                    types::ArchivedPersistedAddressKind::Custom => {
-                                        crate::graph::AddressKind::Custom
+                                    types::ArchivedPersistedAddressKind::Data => {
+                                        crate::graph::AddressKind::Data
+                                    }
+                                    types::ArchivedPersistedAddressKind::GraphshellClip => {
+                                        crate::graph::AddressKind::GraphshellClip
+                                    }
+                                    types::ArchivedPersistedAddressKind::Directory => {
+                                        crate::graph::AddressKind::Directory
+                                    }
+                                    types::ArchivedPersistedAddressKind::Unknown => {
+                                        crate::graph::AddressKind::Unknown
                                     }
                                 },
                             },

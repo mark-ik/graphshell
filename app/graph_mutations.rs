@@ -1639,8 +1639,17 @@ impl GraphBrowserApp {
                     crate::graph::AddressKind::File => {
                         crate::services::persistence::types::PersistedAddressKind::File
                     }
-                    crate::graph::AddressKind::Custom => {
-                        crate::services::persistence::types::PersistedAddressKind::Custom
+                    crate::graph::AddressKind::Data => {
+                        crate::services::persistence::types::PersistedAddressKind::Data
+                    }
+                    crate::graph::AddressKind::GraphshellClip => {
+                        crate::services::persistence::types::PersistedAddressKind::GraphshellClip
+                    }
+                    crate::graph::AddressKind::Directory => {
+                        crate::services::persistence::types::PersistedAddressKind::Directory
+                    }
+                    crate::graph::AddressKind::Unknown => {
+                        crate::services::persistence::types::PersistedAddressKind::Unknown
                     }
                 };
                 store.log_mutation(&LogEntry::UpdateNodeAddressKind {

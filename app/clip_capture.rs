@@ -210,7 +210,7 @@ impl GraphBrowserApp {
         let _ = graph.set_node_title(clip_key, clip_title);
         let _ = graph.insert_node_tag(clip_key, Self::TAG_CLIP.to_string());
         let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
-        let _ = graph.set_node_address_kind(clip_key, AddressKind::Custom);
+        let _ = graph.set_node_address_kind(clip_key, AddressKind::GraphshellClip);
         let _ = graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
         self.workspace.graph_runtime.semantic_index_dirty = true;
         let _ = self.assert_relation_and_sync(

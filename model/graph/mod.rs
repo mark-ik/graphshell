@@ -189,20 +189,42 @@ pub enum AddressKind {
     Http,
     /// Local filesystem path (`file://` URL).
     File,
-    /// Any other scheme; renderer selected by `ViewerRegistry`.
-    Custom,
+    /// Inline data URL payload.
+    Data,
+    /// Graphshell clip-address route (`verso://clip/...` or legacy `graphshell://clip/...`).
+    GraphshellClip,
+    /// Local filesystem directory path.
+    Directory,
+    /// Any other or unresolved scheme.
+    Unknown,
 }
 
 /// Infer `AddressKind` from a URL scheme.
 pub(crate) fn address_kind_from_url(url: &str) -> AddressKind {
     let lower = url.to_ascii_lowercase();
-    if lower.starts_with("file://") {
-        AddressKind::File
-    } else if lower.starts_with("http://") || lower.starts_with("https://") {
+    if lower.starts_with("http://") || lower.starts_with("https://") {
         AddressKind::Http
+    } else if lower.starts_with("data:") {
+        AddressKind::Data
+    } else if lower.starts_with("verso://clip/") || lower.starts_with("graphshell://clip/") {
+        AddressKind::GraphshellClip
+    } else if lower.starts_with("file://") {
+        if file_url_uses_directory_syntax(url) {
+            AddressKind::Directory
+        } else {
+            AddressKind::File
+        }
     } else {
-        AddressKind::Custom
+        AddressKind::Unknown
     }
+}
+
+fn file_url_uses_directory_syntax(url: &str) -> bool {
+    // AddressKind classification must be deterministic from URL semantics alone,
+    // independent of local filesystem state.
+    url::Url::parse(url)
+        .ok()
+        .is_some_and(|parsed| parsed.path().ends_with('/'))
 }
 
 pub(crate) fn cached_host_from_url(url: &str) -> Option<String> {
@@ -2903,7 +2925,10 @@ impl Graph {
                 address_kind: match node.address_kind {
                     AddressKind::Http => PersistedAddressKind::Http,
                     AddressKind::File => PersistedAddressKind::File,
-                    AddressKind::Custom => PersistedAddressKind::Custom,
+                    AddressKind::Data => PersistedAddressKind::Data,
+                    AddressKind::GraphshellClip => PersistedAddressKind::GraphshellClip,
+                    AddressKind::Directory => PersistedAddressKind::Directory,
+                    AddressKind::Unknown => PersistedAddressKind::Unknown,
                 },
             })
             .collect();
@@ -3170,7 +3195,10 @@ impl Graph {
                 node.address_kind = match pnode.address_kind {
                     PersistedAddressKind::Http => AddressKind::Http,
                     PersistedAddressKind::File => AddressKind::File,
-                    PersistedAddressKind::Custom => AddressKind::Custom,
+                    PersistedAddressKind::Data => AddressKind::Data,
+                    PersistedAddressKind::GraphshellClip => AddressKind::GraphshellClip,
+                    PersistedAddressKind::Directory => AddressKind::Directory,
+                    PersistedAddressKind::Unknown => AddressKind::Unknown,
                 };
                 if let Some(session) = &pnode.session_state {
                     node.history_entries = session.history_entries.clone();
@@ -4524,14 +4552,37 @@ mod tests {
     }
 
     #[test]
-    fn address_kind_from_url_custom() {
+    fn address_kind_from_url_data_clip_directory_and_unknown() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should build");
+        let dir_url = url::Url::from_directory_path(temp_dir.path())
+            .expect("directory URL should build")
+            .to_string();
+
+        assert_eq!(address_kind_from_url("data:text/plain,hello"), AddressKind::Data);
+        assert_eq!(
+            address_kind_from_url("verso://clip/clip-123"),
+            AddressKind::GraphshellClip
+        );
+        assert_eq!(address_kind_from_url(&dir_url), AddressKind::Directory);
         assert_eq!(
             address_kind_from_url("gemini://gemini.circumlunar.space/"),
-            AddressKind::Custom
+            AddressKind::Unknown
         );
         assert_eq!(
             address_kind_from_url("ftp://files.example.com/"),
-            AddressKind::Custom
+            AddressKind::Unknown
+        );
+    }
+
+    #[test]
+    fn address_kind_from_url_file_directory_classification_is_syntax_based() {
+        assert_eq!(
+            address_kind_from_url("file:///tmp/sample-dir/"),
+            AddressKind::Directory
+        );
+        assert_eq!(
+            address_kind_from_url("file:///tmp/sample-dir"),
+            AddressKind::File
         );
     }
 

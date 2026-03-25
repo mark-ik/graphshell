@@ -5831,11 +5831,11 @@ fn update_node_address_kind_intent_sets_kind_on_node() {
 
     app.apply_reducer_intents([GraphIntent::UpdateNodeAddressKind {
         key,
-        kind: crate::graph::AddressKind::Custom,
+        kind: crate::graph::AddressKind::Unknown,
     }]);
 
     let node = app.workspace.domain.graph.get_node(key).unwrap();
-    assert_eq!(node.address_kind, crate::graph::AddressKind::Custom);
+    assert_eq!(node.address_kind, crate::graph::AddressKind::Unknown);
 }
 
 #[test]
