@@ -4,7 +4,7 @@
 
 # NAVIGATOR — Domain Spec
 
-**Date**: 2026-03-17
+**Date**: 2026-03-25
 **Status**: Canonical / Active
 **Scope**: Navigator as a first-class domain with its own authority boundary,
 projection rules, and interaction contract.
@@ -15,24 +15,24 @@ projection rules, and interaction contract.
 - [navigator_interaction_contract.md](navigator_interaction_contract.md) — click grammar, selection, reveal, dismiss
 - [navigator_projection_spec.md](navigator_projection_spec.md) — section model, projection sources, refresh triggers
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — workbench domain (arrangement and activation authority)
-- [../canvas/CANVAS.md](../canvas/CANVAS.md) — graph canvas domain (truth and context authority)
+- [../canvas/CANVAS.md](../canvas/CANVAS.md) — Graph domain at the canvas surface (truth and context authority)
 - [../../TERMINOLOGY.md](../../TERMINOLOGY.md) — canonical term definitions
 
 ---
 
 ## 1. What the Navigator Is
 
-The Navigator is a **projection surface**.
+The Navigator is a **projection and navigation domain**.
 
 It reads from graph truth and workbench arrangement state. It does not own
-either. It presents a structured, navigable view of the objects and arrangements
-the user is working with, and it routes user interactions back to the correct
-authority.
+either. It turns graph truth into navigable local worlds: graphlets, paths,
+components, loop views, scoped search results, breadcrumbs, sectioned context,
+and other purpose-driven projections. It routes user interactions back to the
+correct authority.
 
 The Navigator is not a second data model. It is not a sidebar version of the
-workbench. It is a view — one that the user can use to locate, select, activate,
-and route graph-backed objects without needing to find them on the graph canvas
-or open the correct workbench frame first.
+Workbench. It is the domain that answers: what local world is the user
+traversing right now?
 
 ---
 
@@ -64,10 +64,18 @@ The Navigator therefore gets its own domain directory and canonical spec.
 
 The Navigator domain owns:
 
+- **Graphlet derivation** — deriving local graph worlds from anchors, filters,
+  graph algorithms, and traversal context
 - **Projection rules** — which objects appear in which sections, under what
   conditions, in what order
 - **Section model** — the named sections (Recent, Frames, Graph, Relations,
   etc.) and their projection sources
+- **Purpose-driven specialty layouts** — radial, path/corridor, component,
+  atlas, timeline, hierarchical, and other navigation-oriented graph-bearing
+  presentations when they serve orientation better than a list or tree
+- **Cross-surface verb adaptation** — how shared verbs such as `select`,
+  `activate`, `reveal`, and `scope` are expressed in Navigator grammar without
+  changing the underlying authority boundary
 - **Interaction contract** — click grammar (single-click = select, double-click
   = activate), reveal rules, dismiss routing, command applicability
 - **Selection propagation** — how Navigator interactions set and read global
@@ -76,6 +84,8 @@ The Navigator domain owns:
   (not persisted as graph truth)
 - **Filter/search model** — local filter semantics that do not mutate
   underlying truth
+- **Context-aware search** — graphlet-scoped and relation-aware search behavior
+  that uses graph context rather than raw global text matching alone
 - **Shared chrome security projection** — focused-node trust and origin
   permission summaries rendered in Navigator chrome from security/runtime truth
 - **Refresh triggers** — which graph and workbench state changes cause the
@@ -91,9 +101,15 @@ The Navigator explicitly does not own:
 - **Node lifecycle** (active / warm / cold) — owned by the runtime lifecycle
   subsystem
 - **Tile tree structure or frame layout** — owned by workbench arrangement
+- **Surface arrangement** — host placement, edge anchoring, and split geometry
+  are workbench layout state, not Navigator projection state
 - **Which node is open in which pane** — owned by workbench session state
 - **Routing decisions** (which pane to open a node in) — owned by workbench
   routing
+- **Durable graph mutation** — creating, deleting, or rewiring graph truth is
+  graph authority, not Navigator authority
+- **Promotion of derived graphlets into durable graph truth** — Navigator may
+  request or suggest this; Graph owns whether it becomes truth
 - **Persist/delete operations** — the Navigator may route these intents;
   it does not execute them
 
@@ -104,46 +120,80 @@ state.
 
 ---
 
-## 5. The Three-Domain Model
+## 5. The Five-Domain Model
 
-These three domains form the coherent application model:
+These five domains form the coherent application model:
 
 | Domain | Is | Owns | Does Not Own |
 |--------|----|------|--------------|
-| **Graph** | Truth | Node identity, relations, provenance, durable state | Where or how nodes are displayed |
-| **Workbench** | Arrangement and activation | Tile tree, frame layout, pane lifecycle, routing | What a node is or what its graph relations mean |
-| **Navigator** | Projection and control | Projection rules, section model, interaction contract, selection propagation | Node identity, arrangement structure, routing execution |
+| **Shell** | Host + app-level control | command dispatch, top-level composition, settings surfaces, subsystem control, app-scope chrome | graph truth, arrangement, projection rules, content rendering |
+| **Graph** | Truth + analysis + management | node identity, relations, provenance, durable state, algorithmic analysis, graph enrichment | where or how nodes are arranged in the workbench |
+| **Navigator** | Projection + navigation | graphlet derivation, projection rules, interaction contract, selection propagation, scoped search, specialty navigation layouts | node identity, arrangement structure, system settings |
+| **Workbench** | Arrangement + activation | tile tree, frame layout, pane lifecycle, routing | what a node is or what its graph relations mean |
+| **Viewer** | Realization | backend selection, fallback policy, render strategy, content-specific interaction | graph truth, arrangement structure, system settings |
 
-A node is one durable object. All three domains agree on what that object is.
-The Navigator shows it, the Workbench hosts it, the Graph stores it.
+A node is one durable object. All five domains agree on what that object is.
+Graph stores it and lets you manage its relationships. Navigator derives the
+current navigable local world. Workbench hosts detailed work. Viewer realizes
+requested facets. Shell exposes and orchestrates the system that makes the
+others possible.
+
+See `../shell/SHELL.md` for the Shell domain spec and
+`../canvas/CANVAS.md §2.2` for the Canvas interactive management workspace.
 
 ---
 
-## 6. Interaction Invariants
+## 6. Cross-Surface Verb Mapping
+
+The unified view model is easiest to keep consistent when the major user verbs
+are named once and then mapped into each surface.
+
+| Verb | Navigator expression | Authority |
+|--------|----|------|
+| `select` | row selection, keyboard move, single-click | shared graph selection truth |
+| `activate` | double-click row, Enter on selected node, open command | workbench routing / activation |
+| `reveal` | scroll row into view, ask graph view to reveal selected node | projection-local effect; may require workbench host activation |
+| `scope` | local filter, section switch, explicit graph/workbench scope host setting | projection state |
+| `arrange` | host placement, sidebar edge, frame/tile geometry | workbench layout authority |
+| `mutate` | create/delete/retag/rewire node truth | graph mutation authority |
+
+The practical rule is simple: Navigator may *express* all of these verbs in UI,
+but it only *owns* projection-local aspects of `reveal` and `scope`. The rest
+are routed to the authority that owns them.
+
+---
+
+## 7. Interaction Invariants
 
 These invariants hold across graph canvas, workbench, and navigator. If any
 surface violates one, it is a bug, not a design choice.
 
 ### I1 — Identity invariant
+
 A node is one object with one identity. Selecting, activating, or dismissing
 it on any surface targets the same underlying node. There is no "graph copy"
 and "navigator copy."
 
 ### I2 — State separation invariant
+
 Existence, visibility, selection, and activation are four distinct states.
 None implies another except by explicit intent:
+
 - A node can exist without being visible in the current graph view.
 - It can be visible without being selected.
 - It can be selected without being activated (open in a pane).
 - It can be activated without being the primary selection.
 
 ### I3 — Selection propagation invariant
+
 Selecting a node on any surface sets graph selection truth. Surfaces project
 that truth — they do not own their own selection copy. If the Navigator and
 the graph canvas show different nodes as selected, one of them is wrong.
 
 ### I4 — Click grammar invariant
+
 Across all surfaces:
+
 - **Single-click** = select / give focus
 - **Double-click** = activate / open
 - This applies to node rows in the Navigator, node objects on the graph canvas,
@@ -152,14 +202,30 @@ Across all surfaces:
   expands/collapses them.
 
 ### I5 — Reveal invariant
-Reveal (scrolling the graph canvas to show a node) is a side effect of
-selection, not a guaranteed consequence. Reveal happens only when:
-- the graph canvas is currently visible, and
-- the selected node is outside the current viewport.
+
+Reveal is a local orientation effect, not a second form of selection truth.
+It may be triggered by selection or by an explicit "reveal" command, but it
+never changes graph identity by itself.
+
+Examples:
+
+- Navigator reveal = scroll the relevant row into view or expand enough local
+  structure to show it
+- Graph reveal = move the viewport enough to show the selected node
+- Workbench reveal = foreground the pane or host that already contains the node
 
 Reveal does not change selection, activation, or graph structure.
 
-### I6 — Dismiss / delete invariant
+### I6 — Scope invariant
+
+Navigator-local filters, collapsed sections, and temporary neighborhood
+projections are scope state, not graph truth.
+
+Only explicit scope handoff should cross surfaces. Ad hoc local filtering in one
+Navigator host must not silently rewrite the scope of every other graph surface.
+
+### I7 — Dismiss / delete invariant
+
 - **Dismiss** = remove a node from its current surface context (tile, frame,
   view). The node still exists. Dismiss is recoverable.
 - **Delete** = remove the node from graph truth. The node no longer exists.
@@ -168,14 +234,15 @@ Reveal does not change selection, activation, or graph structure.
 The Navigator may offer dismiss actions for nodes in arrangement contexts.
 It must not offer delete as an equivalent or fallback to dismiss.
 
-### I7 — Command applicability invariant
+### I8 — Command applicability invariant
+
 A command is available only if it validly applies to every object in the
 current selection set. The Navigator must not silently narrow the target
 to a subset or fall back to a single implicit primary target.
 
 ---
 
-## 7. Section Model (Canonical)
+## 8. Section Model (Canonical)
 
 Each Navigator section has a single projection source. Sections do not share
 truth — a node may appear in multiple sections, but each appearance is
@@ -194,7 +261,35 @@ membership as its own truth.
 
 ---
 
-## 8. Projection Sources and Authority
+## 8A. Graphlets And Specialty Presentations
+
+Navigator graphlets are first-class navigation objects.
+
+Useful graphlet forms include:
+
+- ego graphlets,
+- corridor/path graphlets,
+- component graphlets,
+- loop/SCC graphlets,
+- frontier graphlets,
+- facet-filtered graphlets,
+- session graphlets,
+- bridge graphlets,
+- Workbench-correspondence graphlets.
+
+Navigator may present those graphlets through different local forms:
+
+- tree or list when hierarchy is clearer than space,
+- radial or corridor graph layouts when spatial relation is the point,
+- timeline or hierarchical layouts when traversal or dependency structure is the point,
+- atlas/component views when shell- or session-level overview is needed.
+
+This is why Navigator is not thin. It owns navigation-oriented projection semantics,
+not merely breadcrumb UI.
+
+---
+
+## 9. Projection Sources and Authority
 
 | Navigator reads from | Authority | How |
 |---------------------|-----------|-----|
@@ -215,7 +310,7 @@ flags.
 
 ---
 
-## 9. Refresh Triggers
+## 10. Refresh Triggers
 
 The Navigator projection rebuilds or updates when:
 
@@ -236,12 +331,13 @@ than polling or UI-local caches.
 
 ---
 
-## 10. Relationship to the Workbench Domain
+## 11. Relationship to the Workbench Domain
 
 The Workbench domain previously claimed the "Workbench Sidebar" as its own.
 That claim is superseded by this spec.
 
 Updated boundary:
+
 - **Workbench** owns the sidebar's *chrome container* (the layout slot, its
   resize handle, its show/hide toggle) and the routing decisions that happen
   when a Navigator action requires opening a pane.
@@ -253,7 +349,7 @@ chrome hosts the graph view slot; the graph domain owns what renders inside it.
 
 The `WORKBENCH.md` sidebar ownership claim is updated to reflect this split.
 
-## 10A. Security and Permission Exposure Contract
+## 11A. Security and Permission Exposure Contract
 
 The Navigator is the canonical shared chrome surface for node-scoped trust and
 origin-scoped permission visibility.
@@ -284,7 +380,7 @@ Scope implications:
 The Navigator does not own permission grants or trust evaluation. It projects
 them and routes the user to the authority that does.
 
-## 10B. Focused Content Control Contract
+## 11B. Focused Content Control Contract
 
 The Navigator is also the canonical shared chrome surface for focused
 node-backed page controls that are neither graph controls nor generic app
@@ -324,7 +420,7 @@ or disappear entirely. Placeholder chrome is not required.
 
 ---
 
-## 11. Navigator Scope and Form Factor
+## 12. Navigator Scope and Form Factor
 
 **Date**: 2026-03-22
 

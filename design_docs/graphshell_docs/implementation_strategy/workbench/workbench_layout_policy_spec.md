@@ -43,7 +43,7 @@ This spec defines:
 ## 2. Definitions
 
 **Surface role**: The semantic identity of a workbench surface family — e.g.
-`Navigator`, `DiagnosticsPane`, `FacetRail`. Distinct from tile identity
+`Navigator`, `GraphCanvas`, `DiagnosticsPane`, `FacetRail`. Distinct from tile identity
 (which is a `NodeKey`) and pane position (which is a UI coordinate). Surface
 roles map to `UxDomainIdentity` variants in the UxTree.
 
@@ -115,6 +115,7 @@ pub enum AnchorEdge {
 /// names the semantic family; `SurfaceHostId` names the concrete host instance.
 pub enum SurfaceRole {
     Navigator,
+    GraphCanvas(GraphViewId),
     DiagnosticsPane,
     FacetRail,
     /// Named custom surface (for future extension).
@@ -161,6 +162,9 @@ pub enum NavigatorHostId {
     mutations.
 - Anchor splits are **semantically persistent**: if the surface is temporarily
     hidden, re-opening it restores it to its constrained position.
+- `SurfaceRole::GraphCanvas(GraphViewId)` is the same rule applied to graph
+    views: a graph view may participate in ordinary arrangement flow or be
+    anchored like any other surface role.
 - For Navigator hosts, cross-axis margins are part of the persisted layout.
     Top/bottom toolbars may therefore have adjustable left/right margins, and
     left/right sidebars may have adjustable top/bottom margins.
@@ -194,10 +198,12 @@ Normative rules:
     constraint type.
 2. Consumers that make visibility or interactability decisions must prefer the
     visible navigation geometry over the raw navigation-region remainder.
-3. Consumers that still require a single rect may temporarily use the largest
-    visible navigation sub-rect, but that is an adapter rule rather than the
-    long-term canonical contract.
-4. A future render-contract rewrite may promote visible navigation geometry to a
+3. Any legacy consumer that still requires a single rect may temporarily use
+    the largest visible navigation sub-rect, but that is an adapter rule rather
+    than the long-term canonical contract.
+4. Runtime graph/input/compositor/diagnostics consumers should treat the visible
+    navigation geometry as authoritative today.
+5. Remaining future work is promotion of visible navigation geometry into a
     first-class multi-rect pane contract; until then, overlay-host occlusion is
     the authoritative explanation for why the semantic navigation region and the
     interactable visible region may differ.
@@ -531,6 +537,25 @@ Multi-host example:
 Both hosts remain in sync on shared Navigator semantics while differing in
 scope and anchor layout.
 
+### 9.6 Graph Canvas as a First-Class Surface
+
+The unified view model makes one additional implication explicit: graph views
+are not special-cased background regions. A graph view is a surface that may be
+either:
+
+- unconstrained and routed like any other workbench tile, or
+- constrained to an edge as an always-visible orientation surface.
+
+Examples that should be canonical-valid under this layout system:
+
+- graph canvas anchored left, content tiles in the remainder
+- graph canvas fullscreen, Navigator overlaid as a constrained host
+- two graph views in normal arrangement flow while a third graph view is
+  edge-anchored as a persistent overview
+
+This does not change graph authority. It only means `arrange` for graph views is
+owned by the same layout policy that already arranges other surface hosts.
+
 ---
 
 ## 10. Command Surface Integration
@@ -586,6 +611,7 @@ The feature is complete when:
 13. The Navigator first-use flow (described in §9.5) works end-to-end: prompt → config mode → drag to edge → adjust margins → commit → persisted across restart.
 14. Overlay-form Navigator hosts with cross-axis margins do not leave stale or non-live content strips behind: graph hit-testing, lasso start gating, graph canvas bookkeeping, and compositor viewport culling all honor visible navigation geometry.
 15. Diagnostics and developer-facing viewport summaries may distinguish between logical navigation-region remainder and visible navigation geometry when overlay-form hosts are present.
+16. A `GraphCanvas(GraphViewId)` surface can be constrained or unconstrained using the same policy machinery without requiring a separate hardcoded window region.
 
 ---
 
@@ -596,7 +622,7 @@ This spec depends on:
 - `workbench_profile_and_workflow_composition_spec.md` — `WorkbenchProfile` shape (specced)
 - `frame_persistence_format_spec.md` — persistence layer (specced)
 - `../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md` — historical background only
-- `../navigator/NAVIGATOR.md §11` — Navigator multi-host canonical model
+- `../navigator/NAVIGATOR.md §12` — Navigator multi-host canonical model
 
 Recommended implementation order:
 

@@ -6,6 +6,8 @@
 **Scope**: Reconcile the canonical UX Semantics subsystem contract with the actual runtime state of UxTree projection, dispatch diagnostics, and still-partial bridge/harness closure. Also catalogs high-leverage extensions that the live UxTree projection unlocks.
 
 **Related**:
+- `../../technical_architecture/unified_view_model.md`
+- `../../technical_architecture/domain_interaction_scenarios.md`
 - `SUBSYSTEM_UX_SEMANTICS.md`
 - `ux_tree_and_probe_spec.md`
 - `ux_event_dispatch_spec.md`
@@ -18,6 +20,8 @@
 ## 1. Why This Plan Exists
 
 The UX Semantics subsystem is no longer "not implemented," but it is also not yet the fully closed platform the docs describe.
+
+That closure work now needs to be understood against the five-domain model: Shell host, Graph truth, Navigator projection, Workbench arrangement, Viewer realization. The UxTree is one semantic projection over those domains, not a replacement for their ownership boundaries.
 
 Today, the repo has:
 

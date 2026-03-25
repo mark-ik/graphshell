@@ -7,7 +7,7 @@
 
 ## Core Identity
 
-* **Graphshell**: The product name. A local-first, spatial browser. The graph is the persistent substrate; the workbench is the structural presentation layer; the Navigator, rendered through one or more Navigator hosts, projects graph relations into a readable tree. See `design_docs/graphshell_docs/implementation_strategy/canvas/2026-03-14_graph_relation_families.md` for the relation family model that supersedes the legacy "file-tree" metaphor.
+* **Graphshell**: The product name. A local-first, spatial browser. Shell is the unconditional application host; Graph is the canonical truth domain; Navigator projects graph truth into navigable local worlds; Workbench is the invoked arrangement system; Viewer realizes requested content. See `design_docs/graphshell_docs/implementation_strategy/canvas/2026-03-14_graph_relation_families.md` for the relation family model that supersedes the legacy "file-tree" metaphor.
 * **Spatial Graph Browser**: The user-facing description of the interface. It emphasizes the force-directed graph and tiling window manager.
 * **Knowledge User Agent**: The architectural philosophy. Unlike a passive "User Agent" that just renders what servers send, Graphshell actively crawls, indexes, cleans, and stores data on the user's behalf.
 * **Verso**: A native mod and user agent component packaging (1) Servo/Wry web rendering and (2) local peer-to-peer collaboration via iroh. An homage to Servo. The private, fast, device-local layer.
@@ -15,26 +15,27 @@
 
 ## Tile Tree Architecture
 
-The layout system is built on `egui_tiles`. Every visible surface is a node in a recursive **Tile Tree**.
+The layout system is built on `egui_tiles`, but the Tile Tree is a **Workbench** structure rather than the whole application substrate. Not every visible surface is a tile.
 
 ### Projection Rule
 
 Graphshell intentionally keeps **graph identity terms** separate from **workbench presentation terms**.
 
-- A **Node** is graph-semantic identity/state.
-- A **Tile** is the workbench presentation/container that hosts a node-bearing or graph-view-bearing leaf.
-- A **Graphlet** is the graph-semantic connected component produced by an active
-  edge projection. It is projection-derived rather than a permanently fixed
-  durable object.
-- A **Tile Group** is the workbench presentation of a graphlet-aligned or
+* A **Node** is graph-semantic identity/state.
+* A **Tile** is the workbench presentation/container that hosts a node-bearing or graph-view-bearing leaf.
+* A **Graphlet** is a meaningful bounded graph subset produced by an active
+    edge projection, filter, algorithm, or traversal rule. Graphlets are usually
+    projection-derived rather than permanently fixed durable objects, though a
+    graphlet may later be promoted into a named saved structure.
+* A **Tile Group** is the workbench presentation of a graphlet-aligned or
   graphlet-adjacent arrangement. A tile group may be explicitly **linked** to a
   graphlet definition or **detached** as an arrangement snapshot.
 
 Canonical projection law:
 
-- nodes **project as tiles** in workbench chrome
-- graphlets **project as tile groups** in workbench chrome
-- frames **project as frames** across graph, navigator, and workbench presentations
+* nodes **project as tiles** in workbench chrome
+* graphlets **project as tile groups** in workbench chrome
+* frames **project as frames** across graph, navigator, and workbench presentations
 
 This is a presentation correspondence, not a term collapse. A node can exist without a tile; a tile is not the canonical owner of node identity.
 
@@ -129,7 +130,8 @@ This is a presentation correspondence, not a term collapse. A node can exist wit
 
 ## Interface Components
 
-*   **Omnibar**: The primary global navigation/input bar for location, search, and command entry. It typically lives in a graph-scoped toolbar Navigator host, but host edge and form factor are layout policy rather than semantic ownership. See `graphshell_docs/implementation_strategy/navigator/NAVIGATOR.md §11`.
+*   **Shell**: The system-oriented command interpretation and control domain. The Shell translates user intent into operations dispatched to the correct authority (graph intents to Graph, workbench intents to Workbench, scope signals to Navigator). It owns command dispatch, top-level composition, aspect exposure, settings surfaces, subsystem control, and app-scope chrome. The Shell is also the application's only host and the orchestration boundary for user intent and app-level control; it is not the semantic owner of graph truth, pane truth, or content truth. Canonical doc: `graphshell_docs/implementation_strategy/shell/SHELL.md`.
+*   **Omnibar**: The primary global navigation/input bar for location, search, and command entry. The omnibar straddles the Shell/Navigator boundary: the Shell owns its input/command interpretation and dispatch side; the Navigator owns the contextual graph-position breadcrumb display within it. It typically lives in a graph-scoped toolbar Navigator host, but host edge and form factor are layout policy rather than semantic ownership. See `graphshell_docs/implementation_strategy/navigator/NAVIGATOR.md §11`.
 *   **Navigator Host**: An edge-mounted chrome host that renders Navigator semantics. Each host has an anchor edge, form factor, scope, and cross-axis margins. Hosts may project graph scope, workbench scope, both, or auto-switch behavior. Canonical doc: `graphshell_docs/implementation_strategy/navigator/NAVIGATOR.md §11`.
 *   **Graph-scoped Navigator Host**: A Navigator host currently projecting graph scope, such as active graph/view identity, graph commands, and graph-level status. This replaces the older assumption that one fixed top bar owns all graph chrome.
 *   **Workbench-scoped Navigator Host**: A Navigator host currently projecting workbench scope, such as frame/tree structure, arrangement controls, and focused-content chrome. This replaces the older assumption that one fixed sidebar owns all workbench chrome.
@@ -139,7 +141,7 @@ This is a presentation correspondence, not a term collapse. A node can exist wit
 *   **History Manager**: The canonical non-modal history surface with Timeline and Dissolved tabs, backed by traversal archive keyspaces.
 *   **Settings Pane**: A tool pane that aggregates configuration and controls across registries, subsystems, and app-level preferences. A settings pane may host subsystem-specific sections or summon dedicated subsystem panes.
 *   **Control Panel**: The async coordination/process host for background workers and intent producers within The Register. In architectural terms it is an **Aspect** (runtime coordination concern), not a UI Surface. It supervises worker lifecycles and intent ingress, but does not own or render panes/surfaces directly; subsystem UI appears through dedicated tool/subsystem panes. Code-level: `ControlPanel` (supervised by `RegistryRuntime`).
-*   **Lens**: A named configuration composing a Layout, Theme, Physics Profile, and Filter(s). Defines how the graph *looks* and *moves*.
+*   **Lens**: A named configuration composing a Layout, Theme, Physics Profile, and Filter(s). Defines how the graph *looks* and *moves*. Do not reuse **Lens** as a substitute term for Viewer, graph projection, pane identity, or domain naming.
 *   **Command Palette**: A modifiable context menu that serves as an accessible interface for executing Actions.
 *   **The Register**: See *Registry Architecture* section below for the canonical definition (this interface-components mention is intentionally a cross-reference only to avoid duplicate-definition drift).
 *   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View/Frame pane. Camera semantics and interaction policy are Graph-owned; concrete camera state is stored per view in workbench/view state, can be persisted with that view state, and is hydrated into runtime render state when the view is live. Camera is never a single global layout authority.
@@ -238,13 +240,13 @@ Node lifecycle follows a four-state model: `Active → Warm → Cold → Tombsto
     *   `LensCompositor` (composes Layout + Presentation + Knowledge + Filters; enforces domain sequencing during resolution)
 *   **Domain sequencing principle**: Resolve layout first (structure + interaction), then presentation (style + motion parameters).
 *   **Domain / Aspect / Surface / Subsystem distinction**:
-    *   `Domain` answers what class of behavior is being resolved (layout/presentation/input) and in what order.
-    *   `Aspect` is the synthesized runtime system oriented to a task family using registry/domain capabilities (may be headless or UI-backed).
+    *   `Domain` answers what class of behavior is being resolved and in what order. The four application-level domains are Canvas (truth + analysis + management), Workbench (arrangement + activation), Navigator (projection + navigation), and Shell (command interpretation + system control). Registry-level domains (layout, presentation, input) define evaluation order within the register.
+    *   `Aspect` is the synthesized runtime system oriented to a task family using registry/domain capabilities (may be headless or UI-backed). The Shell domain is the surface through which aspects are exposed to users for observation and control.
     *   `Surface` is the UI presentation through which users interact with or observe a domain/aspect/subsystem.
     *   `Subsystem` is a cross-cutting guarantee framework (diagnostics, accessibility, focus, security, storage, history) applied across domains/aspects/surfaces.
 *   **Doc folder conventions** — implementation_strategy sub-folders use the following category prefixes:
     *   `subsystem_*` — a cross-cutting guarantee subsystem (diagnostics, accessibility, focus, security, storage, history, mods, ux_semantics).
-    *   `canvas/`, `workbench/`, `viewer/` — Layout Domain feature areas (no prefix; canonical registry names are sufficient).
+    *   `canvas/`, `workbench/`, `viewer/`, `navigator/`, `shell/` — Domain feature areas (no prefix; canonical domain names are sufficient).
     *   `aspect_*` — an Aspect (command, control, input, render).
     Plans and specs for prospective or unimplemented features stay in their category folder; removal requires explicit deferral or abandonment note, not just absence of implementation.
 *   **Semantic gap principle**: On each architecture change, ask: "Is there a semantic gap that maps cleanly to technical, architectural, or design concerns and should become an explicit registry/domain boundary?"
@@ -353,10 +355,11 @@ These terms have canonical meaning in graphshell and must be used precisely in c
 **Degradation rule**: when a sharing relationship ends (host goes offline, Coop session closes), the counterparty's local snapshot is their fallback. They own their copy; they do not own the live link. Publishing is the only path to durable URL-stable identity for an annotation beyond the session.
 
 **Usage notes**:
-- Use "share" for Coop node visibility (`SetCoopShareVisibility`), Device Sync (`WorkspaceGrant`), and Verso bilateral sync.
-- Use "publish" for Nostr event emission, Verse community blob submission, and wallet relay export.
-- Avoid "shared" as a modifier for data that has been published — prefer "published" or "community-visible."
-- In UI copy: "Share with session" / "Publish to Nostr" / "Publish to community" — never "share to relay."
+
+* Use "share" for Coop node visibility (`SetCoopShareVisibility`), Device Sync (`WorkspaceGrant`), and Verso bilateral sync.
+* Use "publish" for Nostr event emission, Verse community blob submission, and wallet relay export.
+* Avoid "shared" as a modifier for data that has been published — prefer "published" or "community-visible."
+* In UI copy: "Share with session" / "Publish to Nostr" / "Publish to community" — never "share to relay."
 
 ### Identity & Trust
 

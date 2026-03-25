@@ -1,14 +1,12 @@
 # Graphlet Projection and Binding Spec
 
-**Date**: 2026-03-22
+**Date**: 2026-03-25
 **Status**: Canonical / Active
-**Scope**: Defines what a graphlet is under edge filtering, how graphlet
-projection scopes compose, how workbench tile groups bind to graphlets, and
-when the user must be warned before a selector change rewrites graphlet
-structure.
+**Scope**: Defines how Workbench tile groups bind to canonically defined graphlets, how graphlet projection scopes compose for arrangement workflows, and when the user must be warned before a selector change rewrites linked graphlet structure.
 
 **Related**:
 
+- `../../technical_architecture/graphlet_model.md` — canonical graphlet semantics across domains
 - `../canvas/multi_view_pane_spec.md`
 - `workbench_frame_tile_interaction_spec.md`
 - `workbench_layout_policy_spec.md`
@@ -22,45 +20,28 @@ structure.
 ## 1. Purpose
 
 Graphshell already distinguishes graph truth from workbench presentation, but
-the graphlet contract needs one more layer of precision:
+Workbench still needs a precise answer for how arrangements relate to graphlets:
 
-- a graphlet is not a permanently fixed durable object
-- graphlet membership depends on which edge families/selectors are currently
-  active
-- that active projection may differ by graph, by graph view, or by an explicit
-  node selection
-- a workbench tile group may either stay linked to that graphlet definition or
-  detach and persist as an arrangement snapshot
+- graphlet membership depends on which selectors and derivation rules are active,
+- Workbench must consume graphlets without redefining them,
+- a tile group may either stay linked to a graphlet definition or detach and persist as an arrangement snapshot.
 
-This spec makes that model explicit so graph filtering, graph-view isolation,
-Navigator projection, and workbench grouping all speak the same language.
+This spec makes the binding model explicit so graph filtering, Navigator projection, and Workbench grouping all speak the same language.
 
 ---
 
 ## 2. Canonical Graphlet Definition
 
-A **graphlet** is the weakly connected component reachable from one or more seed
-nodes under an active edge projection.
+The canonical graphlet definition lives in `../../technical_architecture/graphlet_model.md`.
 
-Graphlet membership is therefore:
+For Workbench purposes, the important constraints are:
 
-- **projection-derived**, not independently stored
-- **scope-sensitive**, because different scopes may activate different edge
-  selectors
-- **recomputable**, because changing the active selectors may split, merge, or
-  otherwise reshape the component
+- graphlets are projection-derived unless explicitly promoted elsewhere,
+- graphlets are scope-sensitive and recomputable,
+- graphlets are not synonymous with tile groups or frames,
+- Workbench may bind to a graphlet, but does not become the owner of graphlet truth.
 
-A graphlet is not synonymous with:
-
-- a tile group
-- a frame
-- a saved view
-- a fixed durable edge allowlist
-
-Durable edges such as `UserGrouped` and `ArrangementRelation(FrameMember)` may
-participate in graphlet computation, but they do not monopolize it. Traversal,
-semantic, containment, imported, or provenance selectors may also contribute
-when the active projection includes them.
+When this spec discusses graphlets, it is discussing graphlets as consumed by Workbench binding and routing.
 
 ---
 
@@ -105,19 +86,19 @@ Meaning:
 
 ### 3.3 Scope Semantics
 
-**Graph default**
+#### Graph default
 
 - Sets the default edge projection for a `GraphId`.
 - Affects graph views that have not declared their own override.
 - Does not implicitly overwrite a graph-view or selection override.
 
-**Graph view override**
+#### Graph view override
 
 - Applies only to the target `GraphViewId`.
 - May produce graphlets different from sibling graph views over the same graph.
 - Must not mutate other graph views' graphlet projections.
 
-**Selection override**
+#### Selection override
 
 - Applies only to the selected nodes and the workflow launched from them.
 - This is the contract behind "multi-select some nodes, turn on History or
@@ -196,8 +177,8 @@ This should be legible in UI copy. For example:
 
 Graphlet projection and workbench arrangement are separate concerns.
 
-- The **graphlet** answers: "which nodes belong to this connected component
-  under the active edge projection?"
+- The **graphlet** answers: "which nodes and edges belong to the currently
+   resolved meaningful graph subset under the active derivation rules?"
 - The **tile group** answers: "which panes are currently arranged together in
   the workbench, and how?"
 

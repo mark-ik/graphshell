@@ -76,7 +76,7 @@ TileRenderMode =
 | `EmbeddedEgui` | Render via normal egui widget tree | Render affordances as egui overlays |
 | `Placeholder` | Render fallback surface (loading indicator, error state, empty state) | Render affordances over fallback |
 
-### 3.2 Navigation Geometry Transition Note
+### 3.2 Navigation Geometry Contract Note
 
 Workbench layout policy may derive **visible navigation geometry** that differs
 from the logical navigation-region remainder when overlay-form Navigator hosts
@@ -89,10 +89,12 @@ Current runtime rule:
    fallback rect.
 2. This includes viewport culling, diagnostics geometry summaries, and floating
    overlay placement.
-3. The remaining future work is not consumer parity but promotion of multi-rect
-   navigation geometry into a first-class pane/render contract, so the canonical
-   render model itself no longer speaks in single-rect terms where a derived
-   visible region set is the real authority.
+3. Graph/input consumers follow the same rule via the runtime-carried typed
+   visible-region contract.
+4. The remaining follow-on work is promotion of visible navigation geometry into
+   a first-class pane/render contract so the canonical render model itself no
+   longer speaks in single-rect terms where a derived visible region set is the
+   real authority.
 
 See `workbench_layout_policy_spec.md` §3.4 for the authoritative definition of
 logical navigation region versus visible navigation geometry.

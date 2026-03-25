@@ -7,7 +7,11 @@ interaction model for Graphshell's split chrome and hosting paradigm
 (Navigator hosts + graph surfaces + contextual Workbench tile tree).
 
 **Related**:
+
 - `TERMINOLOGY.md` — canonical vocabulary
+- `../technical_architecture/unified_view_model.md` — five-domain architecture model
+- `../technical_architecture/graphlet_model.md` — canonical graphlet semantics across surfaces
+- `../technical_architecture/domain_interaction_scenarios.md` — end-to-end collaboration flows across Shell, Graph, Navigator, Workbench, and Viewer
 - `subsystem_ux_semantics/ux_tree_and_probe_spec.md` — UxTree construction contracts
 - `subsystem_ux_semantics/SUBSYSTEM_UX_SEMANTICS.md` — subsystem overview
 - `2026-02-26_composited_viewer_pass_contract.md` — surface composition
@@ -47,9 +51,12 @@ architecture to define a coherent UX target that:
 
 Hierarchy note:
 
+- Shell is the application's only host.
 - a graph-scoped Navigator host names and steers graph-owned targets (`GraphId`, `GraphViewId`)
 - the graph/workbench surfaces below it render or host contextual leaves for that target
 - the workbench tile tree is therefore a contextual presentation structure, not a peer semantic owner beside the graph
+
+The more complete operating model is now the five-domain split: Shell hosts, Graph owns truth, Navigator owns projection/navigation, Workbench owns arrangement, and Viewer owns realization.
 
 ---
 

@@ -9,6 +9,8 @@
 **Doc role**: Canonical subsystem implementation guide
 **Research basis**: `../../2026-03-01_automated_ux_testing_research.md`
 **Related**:
+- `../../technical_architecture/unified_view_model.md` — Shell host + five-domain architecture model
+- `../../technical_architecture/domain_interaction_scenarios.md` — end-to-end examples of cross-domain routing and surface collaboration
 - `../subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md` (UxTree maps to AccessKit nodes — one tree, two consumers)
 - `../subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md` (UxViolation events routed through diagnostics channels)
 - `../subsystem_diagnostics/2026-02-26_test_infrastructure_improvement_plan.md` (T1/T2 infrastructure — Phase 0 prerequisite)
@@ -22,9 +24,12 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 Hierarchy note:
 
+- Shell is the application's only host and remains above all projected surfaces.
 - the default graph-scoped Navigator host names graph-owned targets (`GraphId`, `GraphViewId`) one UI level above workbench hosting
 - the workbench tile tree is a contextual hosting structure for the active branch's leaves
 - `UxTree` must preserve that distinction in its semantic projection instead of making tile hosting look like semantic ownership
+
+For UxTree purposes, this means semantic projection should remain legible across the five domains rather than flattening them into a single tree of apparent ownership.
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6):
 - **WCAG 2.2 Level AA** — S9 (32 dp minimum hit targets → SC 2.5.8), N2 (dismiss reachability → SC 2.4.11), AccessKit mapping invariants; UxTree structural invariants are behavioral implementations of WCAG requirements

@@ -19,6 +19,12 @@
 
 These types are **host-only**. They are not WASM-clean and do not belong in `graphshell-core`. The pipeline that uses them runs in the desktop host.
 
+This spec defines backend/render-target contracts, not a replacement taxonomy
+for viewer identity. `EngineTarget` answers "how should this adapted content be
+realized by the runtime?" It does not answer "what canonical viewer class is
+this?" The Viewer domain remains the authority for viewer identity and
+selection semantics.
+
 This spec closes open concern O4 from `ARCHITECTURAL_CONCERNS.md`.
 
 ---
@@ -118,6 +124,16 @@ The pipeline selects an `EngineTarget` based on the following ordered rules:
 | 4 | Source is `SimpleDocument` and Servo compilation fails or is unavailable | `NativeReader` (deterministic low-surface fallback) |
 
 `ServoHtml` is the preferred target for all pipeline-routed content. `WryWebview` is not a general target for `SimpleDocument` sources.
+
+Interpretation:
+
+- `EngineTarget` is a backend choice underneath viewer policy.
+- `ServoHtml` and `NativeReader` are two realization paths for adapted
+  rich-document content.
+- `WryWebview` is the compatibility backend for eligible raw web content, not a
+  canonical answer for arbitrary adapted document sources.
+- A user-facing `Render With` command may expose backend choices, but those
+  choices still sit under the canonical viewer taxonomy defined in `VIEWER.md`.
 
 ### 3.2 `RenderPolicy` defaults by source
 

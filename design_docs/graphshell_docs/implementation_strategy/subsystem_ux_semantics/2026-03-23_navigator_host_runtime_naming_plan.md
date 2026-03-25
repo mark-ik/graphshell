@@ -7,7 +7,7 @@
 **Related**:
 
 - `2026-03-13_chrome_scope_split_plan.md`
-- `../navigator/NAVIGATOR.md §11`
+- `../navigator/NAVIGATOR.md §12`
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../workbench/workbench_layout_policy_spec.md`
 - `../../../../shell/desktop/ui/workbench_host.rs`

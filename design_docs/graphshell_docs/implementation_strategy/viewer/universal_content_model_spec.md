@@ -30,6 +30,24 @@ This spec defines the canonical contracts for:
 7. **Security and sandboxing** — file permissions and network isolation for non-Servo viewers.
 8. **Core/host split** — which types belong in `graphshell-core` vs. the desktop host.
 
+### 1.1 Selection Policy Context
+
+This spec inherits the Viewer domain's **Servo-first rich document policy** from
+`VIEWER.md`.
+
+Interpretation for UCM:
+
+- if content can be rendered faithfully through Servo directly, or adapted into
+  a rich-document form that Servo can render well, Viewer selection should
+  prefer Servo first,
+- if content is better served by a content-native renderer, UCM should select
+  that renderer directly rather than stretching Servo beyond its natural role.
+
+This means UCM is not trying to make Servo a universal renderer for every file
+type. It is trying to use Servo aggressively where a rich document engine is
+the best fit, while preserving dedicated viewers for content types that want
+specialized treatment.
+
 ---
 
 ## 2. Node Content Fields Contract

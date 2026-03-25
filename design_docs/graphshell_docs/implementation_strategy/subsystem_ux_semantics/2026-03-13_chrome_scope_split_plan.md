@@ -10,7 +10,7 @@ graph-scoped toolbar Navigator host plus a workbench-scoped sidebar Navigator
 host, but host count, edge, and form factor are layout policy rather than fixed
 surface types.
 
-**Alignment note (2026-03-23)**: `../navigator/NAVIGATOR.md §11` is the
+**Alignment note (2026-03-23)**: `../navigator/NAVIGATOR.md §12` is the
 canonical source for Navigator host count, scope, anchor edge, and form factor.
 This document remains the execution-plan source for how graph/workbench/pane
 controls project into those hosts, and for the derived `WorkbenchLayerState`,
@@ -41,7 +41,7 @@ flat bar containing controls from three distinct semantic scopes:
 | Current location | Actual authority |
 |-----------------|-----------------|
 | Back / Forward / Reload | Pane/viewer — per-focused-node |
-| Omnibar / location field | Graph — cross-node navigation |
+| Omnibar / location field | Graph — cross-node navigation plus stable graph-position projection |
 | Frame pin / recall (P+/P-/W+/W-) | Workbench — tile-tree structure |
 | View toggle (Graph ↔ Detail) | Workbench — tile-tree visibility |
 | Settings menu | App — global preferences |
@@ -112,6 +112,20 @@ semantics surface in the desktop chrome.
   of those signals surface as graph-scoped host chips versus
   workbench-scoped host row/header badges.
 
+### 2.2 Shared Verb Mapping
+
+The shared verbs from the unified view model apply here as a chrome-filtering
+rule:
+
+- `select` and `scope` belong naturally in graph-scoped chrome
+- `activate` and `arrange` often route through workbench-scoped chrome
+- `reveal` is a local orientation effect and may appear in either host
+- `mutate` only belongs in chrome when the control explicitly targets durable
+  graph truth
+
+Chrome should therefore expose the verb at the scope that owns it rather than
+promoting pane-local or workbench-local controls into graph-global chrome.
+
 ---
 
 ## 3. Target Architecture: Default Desktop Host Layout
@@ -174,7 +188,7 @@ based on what tiles are open.
 
 | Control | Intent | Notes |
 | --- | --- | --- |
-| Omnibar | Navigation + search | Cross-node, cross-graph. Already the correct scope |
+| Omnibar | Navigation + search | Cross-node, cross-graph. Also carries stable graph-position context: active scope token first, then canonical containment ancestry when available |
 
 **Right cluster — ambient state + overflow:**
 
@@ -188,6 +202,22 @@ based on what tiles are open.
 | Semantic depth badge | `ToggleSemanticDepthView` | On/off badge chip |
 | Sync / Verse badge | Verse peer presence | Dot expands on click to peer list, `SyncNow`, trust controls |
 | Overflow (⋯) | Settings launcher, diagnostics export, clear data, help | Menu; settings acts as a launcher/router into page-backed settings surfaces rather than a dump of inline toggles (see §4.2) |
+
+**Omnibar path rule**
+
+The graph-position context shown in the Omnibar should not be based on arbitrary
+graph shortest path. Shortest path is valuable for explicit graph explanation
+commands, but chrome breadcrumbs must remain stable as unrelated graph edges
+change.
+
+The canonical order is:
+
+1. active graph/workbench scope token
+2. canonical containment ancestry when it exists
+3. compact fallback to scope root + node address when no containment ancestry exists
+
+Any "show path" or "open path" affordance should be a separate explicit command,
+not a hidden breadcrumbing algorithm.
 
 ### 4.2 Settings and Config Page Routing
 
@@ -253,7 +283,9 @@ all of it into a strip:
 - **Tile group chip**: active tab/tile-group summary, scrollable dropdown to
   jump between groups in the current frame context
 - **Topology token**: compact structural summary such as
-  `Frame A · Group 2 · Split H`; full breadcrumb remains hover/detail affordance
+  `Frame A · Group 2 · Split H`; this is a workbench-structure token, not a
+  graph-position breadcrumb. Full structural breadcrumb remains hover/detail
+  affordance
 
 Frames and tile groups are summarized here because they have broader structural
 or graph-visible meaning. Panes do not, so panes are given the richer, primary

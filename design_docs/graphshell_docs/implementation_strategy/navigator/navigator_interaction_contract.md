@@ -10,6 +10,7 @@ resolves between graph and workbench presentations.
 
 - [NAVIGATOR.md](NAVIGATOR.md) — Navigator domain spec and authority boundaries
 - [navigator_backlog_pack.md](navigator_backlog_pack.md) — implementation backlog
+- `../../technical_architecture/graphlet_model.md`
 - `../workbench/graphlet_projection_binding_spec.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
@@ -66,8 +67,11 @@ routing:
 - graph-view override
 - graph default
 
-Compatibility fallback to durable `UserGrouped` + `FrameMember` graphlets is
-allowed during migration, but it is not the intended long-term authority.
+During migration, some projections may still be reconstructed from durable
+relation families such as `UserGrouped` and `FrameMember`, but those carriers
+are implementation inputs, not the canonical graphlet definition. Navigator
+authority should converge on the graphlet model defined in
+`../../technical_architecture/graphlet_model.md`.
 
 Bare panes with no container-backed node representation (e.g. graph-view panes
 not belonging to any graphlet) do **not** appear as Navigator rows, even if they

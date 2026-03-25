@@ -1,6 +1,6 @@
 # Workbench / Frame / Tile Interaction Spec
 
-**Date**: 2026-02-27  
+**Date**: 2026-03-25  
 **Status**: Canonical interaction contract (UX baseline aligned)  
 **Priority**: Immediate implementation guidance
 
@@ -24,6 +24,7 @@
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../system/register/SYSTEM_REGISTER.md`
 - `../technical_architecture/GRAPHSHELL_AS_BROWSER.md`
+- `../technical_architecture/graphlet_model.md`
 - `../../TERMINOLOGY.md`
 - `../design/KEYBINDINGS.md`
 
@@ -53,9 +54,10 @@ Normative workbench contracts use: intent, trigger, preconditions, semantic resu
 - Physics presets are not camera modes.
 - "File tree" is a legacy alias — use **Navigator** in new code and docs.
 - Node and Tile are not synonyms: a node is graph identity; a tile is its workbench presentation/container.
-- Graphlet and Tile Group are not synonyms: a graphlet is a connected component
-  under an active edge projection; a tile group is its workbench
-  presentation/container and may be either linked to that graphlet or detached.
+- Graphlet and Tile Group are not synonyms: a graphlet is a bounded, meaningful
+  graph subset as defined in `../technical_architecture/graphlet_model.md`; a
+  tile group is its workbench presentation/container and may be either linked
+  to that graphlet or detached.
 - `MagneticZone` is a legacy alias only — use `Frame`, `Frame membership`, or `Frame-affinity region`. The visual canvas backdrop for a frame's member nodes is informally called a frame-affinity region; the term `MagneticZone` must not appear in new code or docs. See `graph_first_frame_semantics_spec.md §3` and `../../TERMINOLOGY.md` Legacy section.
 - `CloseFrameHandle` is non-destructive: it removes the workbench handle only, preserving the graph frame identity and all membership edges. `DeleteFrame` is destructive and requires explicit confirmation. `Ctrl+W` on a frame context maps to `CloseFrameHandle`. See `graph_first_frame_semantics_spec.md §4.2`.
 
@@ -258,7 +260,7 @@ Create and select persistent arrangement contexts for the active graph.
 **Core controls**: Workbench chrome exposes explicit `Create Tile` and
 `Create Frame` actions. In the desktop default, these actions live in the
 Navigator (workbench-scope) header and/or frame overflow affordances.
-See `../navigator/NAVIGATOR.md §11` for the Navigator host/scope/form-factor
+See `../navigator/NAVIGATOR.md §12` for the Navigator host/scope/form-factor
 model. A workbench-scoped Navigator host may appear as a sidebar or toolbar,
 and multiple hosts may coexist. A frame chip/dropdown summarizes frame order
 and active frame, while any workbench-scoped body/tree host shows the full pane

@@ -28,8 +28,10 @@
 
     a UI projection over your graph and workbench state
 
-- Sidebar: full hierarchical tree — nodes, graphlets, frames, open tiles, cold members included. Automatically scopable to the graph or workbench, or includes both
-- Toolbar: compact version of the sidebar for when you want the gutter space back
+- Sidebar: full hierarchical tree — nodes, graphlets, frames, open tiles, cold members included
+- Toolbar: compact version of the sidebar for when you want the gutter space back. Top or bottom
+- Each automatically scopes to the graph or workbench depending on focus
+- Or you can split the responsibilities to run both toolbar and sidebar, one managing the graph, and one managing the workbench
 
 
 ## Commands (done, description pending)

@@ -1,6 +1,6 @@
-# WORKBENCH — Layout Domain Feature Area
+# WORKBENCH — Domain Spec
 
-**Date**: 2026-02-28
+**Date**: 2026-03-25
 **Status**: Architectural domain feature note
 **Priority**: Immediate architecture clarification
 
@@ -16,13 +16,14 @@
 - `../canvas/frame_graph_representation_spec.md` — how Frames render as spatial minimap bounding boxes on the graph canvas
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §3.5)):
+
 - **WCAG 2.2 Level AA** — tile/pane interactive elements must meet SC 2.5.8 minimum target size; focus order within the tile tree must follow SC 2.4.3; focus appearance must meet SC 2.4.11
 
 ---
 
 ## 1. Purpose
 
-This note defines the **Workbench** as an architectural subsystem of Graphshell.
+This note defines the **Workbench** as an architectural domain of Graphshell.
 
 It exists to make one boundary explicit:
 
@@ -35,11 +36,11 @@ It exists to make one boundary explicit:
 Recent runtime/workbench alignment landed in code:
 
 - Navigator projection carriers now use canonical `Navigator*` naming at the app/runtime boundary.
-	Legacy `FileTree*` intent variants and adapters were removed from active intent paths.
+  Legacy `FileTree*` intent variants and adapters were removed from active intent paths.
 - Containment projection rows are graph-backed from `ContainmentRelation` edges (not ad hoc URL-only projection).
-	Derived containment relations are refreshed on node-set and URL-change deltas.
+  Derived containment relations are refreshed on node-set and URL-change deltas.
 - Node-pane workbench surfaces now expose collapsible per-node `Node History` and `Node Audit`
-	sections, backed by history-query helpers.
+  sections, backed by history-query helpers.
 
 These changes tighten the Workbench/Canvas boundary: Workbench hosts and projects,
 while graph/history truth stays in graph + persistence carriers.
@@ -59,13 +60,14 @@ The Workbench owns arrangement interaction/session mutation truth and presentati
 - visible arrangement context
 - workbench-level focus handoff
 - workbench-owned host layout chrome for Navigator surfaces (host bounds, resize handles, show/hide toggles), while Navigator content grammar remains owned by the Navigator domain; see `../navigator/NAVIGATOR.md`
+- graph-bearing pane hosting for graph surfaces that participate in arrangement flow without changing Graph authority
 
 The Workbench is the canonical owner of where content is shown and how session
 arrangement is structurally realized.
 
-It is not the owner of graph identity, graph topology, or graph semantic truth.
+It is not the owner of graph identity, graph topology, graph semantic truth, or viewer backend policy.
 
-**Chrome visibility** is governed by `WorkbenchLayerState` (`GraphOnly`, `GraphOverlayActive`, `WorkbenchActive`, `WorkbenchPinned`) — a derived state machine computed each frame. Navigator hosts may expose graph scope, workbench scope, or both depending on host configuration and the active layer state. Workbench-owned chrome determines when each host is visible and how much edge space it occupies, while Navigator semantics determine what each visible host projects. See `subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md §7–8` and `../navigator/NAVIGATOR.md §11`.
+**Chrome visibility** is governed by `WorkbenchLayerState` (`GraphOnly`, `GraphOverlayActive`, `WorkbenchActive`, `WorkbenchPinned`) — a derived state machine computed each frame. Navigator hosts may expose graph scope, workbench scope, or both depending on host configuration and the active layer state. Workbench-owned chrome determines when each host is visible and how much edge space it occupies, while Navigator semantics determine what each visible host projects. See `subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md §7–8` and `../navigator/NAVIGATOR.md §12`.
 
 **Frame membership** is graph-backed: frame/tile-group membership is stored as `ArrangementRelation` edges in the graph, not as workbench-only data structures. The workbench reads these edges to render the tile tree and navigator. Mutating durable frame membership emits `GraphIntent`s that assert or retract `ArrangementRelation` edges, while session-only tile/split structure remains under workbench mutation authority until promoted. See `canvas/2026-03-14_graph_relation_families.md §2.4`.
 
@@ -117,8 +119,9 @@ That means:
 - graph topology
 - graph selection truth
 - graph semantic camera target meaning
+- graphlet truth or graphlet derivation rules
 
-Those belong to the Canvas domain feature area.
+Those belong to the Graph and Navigator domains.
 
 ---
 
@@ -136,7 +139,7 @@ Examples:
 - focus existing node presentation
 - route a graph action into a tile or frame
 
-The Canvas provides semantic routing intent.
+The Graph domain provides semantic routing intent.
 The Workbench decides and maintains the destination structure.
 
 ### 5.2 Workbench -> Viewer bridge
@@ -173,11 +176,28 @@ The Workbench applies them to arrangement behavior and focus/transition policy.
 - The Workbench must never redefine graph identity.
 - Closing or moving a tile must not delete or mutate graph truth.
 - The Graph subsystem may request where content should go, but the Workbench owns how that destination is structurally realized.
+- A graph-bearing pane hosted by Workbench is still Graph-owned in truth and Navigator-owned in projection intent where applicable.
 - Framework layout crates may compute geometry, but they must not become the semantic owner of routing, focus, or lifecycle policy.
 
 ---
 
-## 7. Practical Reading
+## 7. The Five-Domain Model
+
+Workbench is one of five application-level domains:
+
+| Domain | Is | Owns |
+|--------|----|------|
+| **Shell** | Host + app-level control | top-level composition, command/control surfaces, ambient status |
+| **Graph** | Truth + analysis + management | node/edge identity, graph-space interaction, graph analysis |
+| **Navigator** | Projection + navigation | graphlet derivation, scoped search, breadcrumb/context projection |
+| **Workbench** | Arrangement + activation | panes, frames, splits, tab strips, overlays, staging |
+| **Viewer** | Realization | backend choice, fallback policy, render strategy |
+
+Workbench makes detailed work structurally explicit. It is not the universal substrate of the app.
+
+---
+
+## 8. Practical Reading
 
 If a behavior answers:
 

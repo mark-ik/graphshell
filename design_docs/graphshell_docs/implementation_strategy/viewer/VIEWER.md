@@ -45,6 +45,86 @@ It exists to keep one boundary explicit:
 
 ---
 
+## 2A. Servo-First Rich Document Policy
+
+Graphshell is **Servo-first for rich document rendering**, not Servo-only for
+all content rendering.
+
+This policy exists to make one product/design choice explicit:
+
+- if content can be faithfully adapted into constrained HTML or otherwise fits
+  Servo's strengths as a rich document renderer, Viewer should prefer Servo
+  first,
+- if content does not fit Servo naturally, Viewer should route to a
+  content-native renderer rather than forcing Servo to act like a universal
+  do-everything backend.
+
+Practical interpretation:
+
+- Servo is the preferred path for web content and adapted rich-document content
+  such as reader-mode output, Gemini text rendered as HTML, markdown/read-only
+  document adaptation, and similar block-structured content that benefits from
+  document layout, links, styling, and clipping.
+- Native or embedded viewers remain the preferred path for content types where
+  document adaptation would be artificial, lossy, or operationally heavier than
+  a dedicated renderer: plain text editing, image viewing, PDF-specific
+  workflows, directory browsing, audio playback, and other specialized content
+  surfaces.
+- Wry is a compatibility web backend and fallback path, not a replacement for
+  Servo's role as the primary rich-document renderer.
+
+This is a **selection-policy principle**, not a claim that Servo should absorb
+all renderer responsibilities. Viewer owns the decision about where Servo is the
+right tool and where a content-native viewer is the right tool.
+
+---
+
+## 2B. Canonical Viewer Taxonomy
+
+To keep renderer planning coherent, Graphshell distinguishes between three
+different layers:
+
+- **Viewer identity**: the user-facing or policy-facing content surface, such as
+  `viewer:webview`, `viewer:text-editor`, `viewer:image`, or
+  `viewer:directory`
+- **Engine target**: the backend render package used to realize a viewer path,
+  such as Servo-rendered HTML, Wry-hosted web content, or native-reader block
+  rendering
+- **Content adaptation**: the transformation layer that turns source material
+  into a renderable form, such as `SimpleDocument`
+
+These layers must not be collapsed into one vocabulary.
+
+Canonical viewer families:
+
+- **Rich-document/web viewer**
+  - `viewer:webview` is the primary rich-document viewer surface
+  - it prefers Servo-first paths for web and adapted rich-document content
+- **Document-native viewers**
+  - `viewer:plaintext`
+  - `viewer:text-editor`
+  - `viewer:image`
+  - `viewer:pdf`
+  - `viewer:directory`
+  - `viewer:audio`
+- **Internal/tool viewers**
+  - settings, diagnostics, history, and other app-owned surfaces
+- **Fallback viewer**
+  - explicit placeholder or unsupported-content state
+
+Interpretation rules:
+
+- `viewer:markdown` is not required as a separate canonical viewer if markdown
+  is already well-served by `viewer:plaintext`, `viewer:text-editor`, or the
+  Servo-first rich-document adaptation pipeline.
+- `ServoHtml`, `WryWebview`, and `NativeReader` are engine-target/backend terms,
+  not the preferred top-level user-facing viewer taxonomy.
+- Wry remains a compatibility backend path for web-class content; it should not
+  expand the canonical viewer set by itself unless Graphshell intentionally
+  exposes a user-visible compatibility mode.
+
+---
+
 ## 3. Cross-Domain / Cross-Subsystem Policy Layer
 
 Physics/motion presets (`Liquid`, `Gas`, `Solid` — see `../canvas/layout_behaviors_and_physics_spec.md`) may influence presentation feel and motion emphasis, but Viewer still owns visual fallback and visible degradation behavior. These presets do not own graph camera policy or camera-lock semantics.

@@ -33,9 +33,13 @@ Filesystem ingest is blocked until common file/document viewer coverage is opera
 
 Required viewer readiness baseline:
 
-1. `viewer:plaintext` and `viewer:markdown` are fully active.
-2. `viewer:pdf` and `viewer:csv` are active in node-pane paths (not selection-only placeholders).
-3. A baseline non-web binary fallback path exists (`viewer:metadata` or equivalent explicit fallback behavior).
+1. `viewer:plaintext` is fully active, and markdown has a real read path through
+   `viewer:plaintext`, `viewer:text-editor`, or the Servo-first rich-document
+   adaptation pipeline.
+2. `viewer:pdf` and `viewer:image` are active in node-pane paths (not
+   selection-only placeholders).
+3. A baseline non-web fallback path exists (`viewer:fallback` or equivalent
+   explicit unsupported-content behavior).
 4. File access safety contract is enforced (`FilePermissionGuard` and address-kind mapping remain
    authoritative). `FilePermissionGuard` is defined in UCM Step 9
    (`2026-02-24_universal_content_model_plan.md`); that step must reach its done gate before

@@ -13,9 +13,18 @@ graph truth and workbench arrangement state.
 
 - [NAVIGATOR.md](NAVIGATOR.md) — Navigator domain spec and authority boundaries
 - [navigator_interaction_contract.md](navigator_interaction_contract.md) — canonical Navigator click grammar and graph/workbench resolution rules
+- [../../technical_architecture/graphlet_model.md](../../technical_architecture/graphlet_model.md) — canonical graphlet semantics consumed by Navigator projection
+- [../../technical_architecture/domain_interaction_scenarios.md](../../technical_architecture/domain_interaction_scenarios.md) — canonical cross-domain scenario IDs (`DI01`-`DI06`)
+- [../domain_interaction_acceptance_matrix.md](../domain_interaction_acceptance_matrix.md) — compact review matrix for cross-domain scenario evidence
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — workbench domain ownership and arrangement authority
 - [../workbench/graph_first_frame_semantics_spec.md](../workbench/graph_first_frame_semantics_spec.md) — graph/workbench frame semantics
 - [../canvas/graph_backlog_pack.md](../canvas/graph_backlog_pack.md) — graph-side backlog dependencies used by Navigator projections
+
+## Tracker mapping
+
+- Hub issue: #306 (`Hub: five-domain architecture adoption — Shell host, graphlet model, cross-domain scenarios`)
+- Primary implementation issue: #304 (`Adopt the canonical graphlet model across Navigator and Workbench`)
+- Review/evidence issue: #305 (`Operationalize cross-domain scenario IDs and acceptance evidence`)
 
 ---
 
@@ -55,21 +64,29 @@ full milestone closure receipt (`NV25`).
 
 ## Wave 2
 
-11. `NV11` Navigator Reveal Rule. Depends: `NV07`, `NV08`. Done gate: reveal-on-select only happens when the graph is visible and the selected node is offscreen.
-12. `NV12` Navigator Multi-Selection Semantics. Depends: `NV07`. Done gate: `Ctrl+Click`, range/toggle behavior, and row focus rules are explicit.
-13. `NV13` Navigator Command Applicability Audit. Depends: `NV07`, `NV12`. Done gate: navigator-invoked commands obey the same "valid for every selected object" rule.
-14. `NV14` Navigator Recents Contract. Depends: `NV04`, `NV08`. Done gate: `Recent` is a recency-sorted projection with clear entry/exit semantics.
-15. `NV15` Navigator Arrangement Projection Contract. Depends: `NV04`, `NV09`. Done gate: frames, tiles, and graphlets project consistently as expandable arrangement objects.
-16. `NV16` Navigator Search / Filter Model. Depends: `NV04`, `NV10`. Done gate: local filter/search semantics are explicit and do not mutate underlying truth.
-17. `NV17` Navigator Dismiss / Open Actions Audit. Depends: `NV06`, `NV13`. Done gate: Navigator row actions route through graph/workbench carriers instead of direct callsites.
-18. `NV18` Navigator Edge / Relation Surfacing Policy. Depends: `NV04`, `NV15`. Done gate: relation families shown in Navigator are explicit and tied to shared graph relation-family rules.
-19. `NV19` Navigator Empty / Degraded State Contract. Depends: `NV10`, `NV16`. Done gate: no-data, filtered-empty, and projection-error states are distinct and diagnosable.
-20. `NV20` Navigator Accessibility and Keyboard Model. Depends: `NV03`, `NV06`, `NV12`. Done gate: keyboard navigation, row focus, expand/collapse, and activate are specified.
+1. `NV11` Navigator Reveal Rule. Depends: `NV07`, `NV08`. Done gate: reveal-on-select only happens when the graph is visible and the selected node is offscreen.
+2. `NV12` Navigator Multi-Selection Semantics. Depends: `NV07`. Done gate: `Ctrl+Click`, range/toggle behavior, and row focus rules are explicit.
+3. `NV13` Navigator Command Applicability Audit. Depends: `NV07`, `NV12`. Done gate: navigator-invoked commands obey the same "valid for every selected object" rule.
+4. `NV14` Navigator Recents Contract. Depends: `NV04`, `NV08`. Done gate: `Recent` is a recency-sorted projection with clear entry/exit semantics.
+5. `NV15` Navigator Arrangement Projection Contract. Depends: `NV04`, `NV09`. Done gate: frames, tiles, and canonically defined graphlets project consistently as expandable arrangement objects.
+6. `NV16` Navigator Search / Filter Model. Depends: `NV04`, `NV10`. Done gate: local filter/search semantics are explicit and do not mutate underlying truth.
+7. `NV17` Navigator Dismiss / Open Actions Audit. Depends: `NV06`, `NV13`. Done gate: Navigator row actions route through graph/workbench carriers instead of direct callsites.
+8. `NV18` Navigator Edge / Relation Surfacing Policy. Depends: `NV04`, `NV15`. Done gate: relation families shown in Navigator are explicit and tied to shared graph relation-family rules.
+9. `NV19` Navigator Empty / Degraded State Contract. Depends: `NV10`, `NV16`. Done gate: no-data, filtered-empty, and projection-error states are distinct and diagnosable.
+10. `NV20` Navigator Accessibility and Keyboard Model. Depends: `NV03`, `NV06`, `NV12`. Done gate: keyboard navigation, row focus, expand/collapse, and activate are specified.
 
 ## Wave 3
 
-21. `NV21` Navigator Diagnostics Pack. Depends: `NV10`, `NV19`, `NV20`. Done gate: invalid row targets, stale projection entries, and routing failures emit diagnostics.
-22. `NV22` Navigator Scenario Test Matrix. Depends: `NV06`-`NV21`. Done gate: tests/spec scenarios cover row-type clicks, selection, reveal, recents, search/filter, and arrangement rows.
-23. `NV23` Workbench-Navigator Contract Sync Pass. Depends: `WB25`, `NV22`. Done gate: workbench pane/focus semantics and Navigator projection semantics no longer contradict each other.
-24. `NV24` Graph-Navigator Contract Sync Pass. Depends: `NV04`, `NV18`, graph backlog equivalents. Done gate: Navigator sections and graph relation/view semantics align.
-25. `NV25` Navigator Milestone Closure Receipt. Depends: `NV01`-`NV24`. Done gate: one closure doc states what another agent can now safely build on for sections, click grammar, routing, and projection behavior.
+1. `NV21` Navigator Diagnostics Pack. Depends: `NV10`, `NV19`, `NV20`. Done gate: invalid row targets, stale projection entries, and routing failures emit diagnostics.
+2. `NV22` Navigator Scenario Test Matrix. Depends: `NV06`-`NV21`. Done gate: tests/spec scenarios cover row-type clicks, selection, reveal, recents, search/filter, and arrangement rows.
+3. `NV23` Workbench-Navigator Contract Sync Pass. Depends: `WB25`, `NV22`. Done gate: workbench pane/focus semantics and Navigator projection semantics no longer contradict each other.
+4. `NV24` Graph-Navigator Contract Sync Pass. Depends: `NV04`, `NV18`, graph backlog equivalents. Done gate: Navigator sections and graph relation/view semantics align.
+5. `NV25` Navigator Milestone Closure Receipt. Depends: `NV01`-`NV24`. Done gate: one closure doc states what another agent can now safely build on for sections, click grammar, routing, and projection behavior.
+
+---
+
+## Scenario Track
+
+- `NVS01` `DI01` Graph-first local exploration parity. Depends: `NV06`, `NV10`, `NV16`. Done gate: selection -> ego graphlet -> frontier transition flow is implemented or evidenced without Navigator absorbing graph truth.
+- `NVS02` `DI02` Corridor transition parity. Depends: `NV08`, `NV18`, `NV24`. Done gate: anchor selection -> corridor graphlet -> graph/path emphasis flow is coherent and evidenced against the canonical scenario.
+- `NVS03` `DI05` Shell overview graphlet reorientation handoff. Depends: `NV17`, `NV21`, `NV23`. Done gate: a Shell overview handoff back into Navigator graphlet context is explicit, routed, and diagnosable.

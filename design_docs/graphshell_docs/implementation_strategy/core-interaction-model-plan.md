@@ -367,7 +367,7 @@ signal paths.
 **Updated 2026-03-22**: The two-surface chrome split (Graph Bar + Workbench
 Sidebar as fixed separate surfaces) described in
 `subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` is superseded
-by the unified Navigator model. See `navigator/NAVIGATOR.md §11` for the
+by the unified Navigator model. See `navigator/NAVIGATOR.md §12` for the
 canonical model.
 
 Summary: there is one Navigator surface with two orthogonal settings — form
@@ -604,7 +604,7 @@ correctly.
 4. Implement navigator arrangement projection: NV15.
 5. Implement cross-surface diagnostics: G43, WB24, NV21.
 6. Implement unified Navigator chrome with scope/form-factor configuration
-   per `navigator/NAVIGATOR.md §11`. The chrome scope split plan
+   per `navigator/NAVIGATOR.md §12`. The chrome scope split plan
    (`2026-03-13_chrome_scope_split_plan.md`) remains a valid execution
    reference for the controls involved, but the target surface model is the
    unified Navigator, not two fixed bars.

@@ -82,11 +82,25 @@ The current baseline viewer set is:
 
 - `viewer:webview`
 - `viewer:plaintext`
-- `viewer:markdown`
+- `viewer:text-editor`
+- `viewer:image`
+- `viewer:directory`
+- `viewer:fallback`
 
 Special route:
 
 - `viewer:settings` resolves to internal settings or tool-surface behavior rather than a generic content viewer.
+
+Notes:
+
+- `viewer:webview` is the primary rich-document/web surface and follows the
+  Servo-first rich document policy defined in `VIEWER.md`.
+- `viewer:markdown` is not treated as a required separate baseline viewer class.
+  Markdown may be rendered by `viewer:plaintext`, `viewer:text-editor`, or
+  through the rich-document adaptation pipeline, depending on intent and
+  selection policy.
+- `viewer:pdf` and `viewer:audio` are planned feature-gated viewers, but are
+  not required to define the baseline semantics of the viewer system.
 
 ### 2.3 Ownership model
 
