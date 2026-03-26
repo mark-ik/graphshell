@@ -37,15 +37,18 @@ impl PhysicsProfile {
         }
     }
 
-    pub(crate) fn graph_physics_extensions(&self) -> GraphPhysicsExtensionConfig {
+    /// Build the physics extension config, gating frame-affinity by the
+    /// canvas-level `zones_enabled` flag (spec §4.3).
+    ///
+    /// `zones_enabled` comes from `CanvasSurfaceProfile::zones_enabled()`,
+    /// resolved via `phase3_resolve_active_canvas_profile()` at the render callsite.
+    pub(crate) fn graph_physics_extensions(&self, zones_enabled: bool) -> GraphPhysicsExtensionConfig {
         GraphPhysicsExtensionConfig {
             degree_repulsion: self.degree_repulsion,
             domain_clustering: self.domain_clustering,
             semantic_clustering: self.semantic_clustering,
             semantic_strength: self.semantic_strength,
-            // Frame-affinity force is gated by CanvasRegistry.zones_enabled (§4.3).
-            // Defaulting to false until the registry gate is wired in a follow-on slice.
-            frame_affinity: false,
+            frame_affinity: zones_enabled,
         }
     }
 
@@ -216,11 +219,15 @@ mod tests {
             auto_pause: true,
         };
 
-        let extensions = profile.graph_physics_extensions();
+        let extensions = profile.graph_physics_extensions(false);
 
         assert!(!extensions.degree_repulsion);
         assert!(extensions.domain_clustering);
         assert!(extensions.semantic_clustering);
         assert_eq!(extensions.semantic_strength, 0.23);
+        assert!(!extensions.frame_affinity);
+
+        let extensions_zones = profile.graph_physics_extensions(true);
+        assert!(extensions_zones.frame_affinity);
     }
 }

@@ -62,6 +62,15 @@ impl CanvasRegistry {
             profile.navigation.keyboard_pan_step = step.clamp(1.0, 200.0);
         })
     }
+
+    /// Enable or disable frame-affinity backdrop rendering and soft-force.
+    ///
+    /// Spec: `layout_behaviors_and_physics_spec.md §4.3`
+    pub(crate) fn set_frame_affinity_enabled(&mut self, enabled: bool) -> CanvasSurfaceResolution {
+        self.update_active_profile(|profile| {
+            profile.style.frame_affinity_enabled = enabled;
+        })
+    }
 }
 
 #[cfg(test)]
@@ -91,5 +100,17 @@ mod tests {
             CanvasLassoBinding::ShiftLeftDrag
         );
         assert_eq!(registry.active_profile_id(), CANVAS_PROFILE_DEFAULT);
+    }
+
+    #[test]
+    fn canvas_registry_frame_affinity_toggle_reflects_in_profile() {
+        let mut registry = CanvasRegistry::default();
+        assert!(!registry.active_profile_snapshot().zones_enabled());
+
+        let enabled = registry.set_frame_affinity_enabled(true);
+        assert!(enabled.profile.zones_enabled());
+
+        let disabled = registry.set_frame_affinity_enabled(false);
+        assert!(!disabled.profile.zones_enabled());
     }
 }

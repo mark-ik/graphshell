@@ -150,7 +150,38 @@ pub(super) fn draw_frame_affinity_backdrops(
             egui::Stroke::new(1.5, stroke_color),
             egui::StrokeKind::Outside,
         );
+
+        // Frame label — rendered at top-left of the backdrop rect.
+        if let Some(label) = frame_anchor_label(app, region.frame_anchor) {
+            let label_pos = backdrop_rect.left_top() + egui::Vec2::new(6.0, 4.0);
+            painter.text(
+                label_pos,
+                egui::Align2::LEFT_TOP,
+                label,
+                egui::FontId::proportional(11.0),
+                egui::Color32::from_rgba_unmultiplied(
+                    region.color.r(),
+                    region.color.g(),
+                    region.color.b(),
+                    180,
+                ),
+            );
+        }
     }
+}
+
+/// Return the display label for a frame anchor node.
+///
+/// Prefers the node's title; falls back to the URL host segment.
+fn frame_anchor_label(app: &GraphBrowserApp, anchor: crate::graph::NodeKey) -> Option<String> {
+    let node = app.domain_graph().get_node(anchor)?;
+    if !node.title.is_empty() && node.title != node.url {
+        return Some(node.title.clone());
+    }
+    // Fall back to URL host segment
+    servo::ServoUrl::parse(&node.url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
 }
 
 pub(super) fn draw_highlighted_edge_overlay(

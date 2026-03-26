@@ -117,6 +117,12 @@ pub(crate) struct CanvasInteractionPolicy {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasStylePolicy {
     pub(crate) labels_always: bool,
+    /// When `true`, frame-affinity backdrop regions are rendered and the
+    /// soft centroid-attraction force is applied for frame members.
+    ///
+    /// Spec: `layout_behaviors_and_physics_spec.md §4.3`
+    #[serde(default)]
+    pub(crate) frame_affinity_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -154,6 +160,13 @@ pub(crate) struct CanvasSurfaceProfile {
 }
 
 impl CanvasSurfaceProfile {
+    /// Whether frame-affinity backdrop rendering and soft-force are active.
+    ///
+    /// Spec: `layout_behaviors_and_physics_spec.md §4.3`
+    pub(crate) fn zones_enabled(&self) -> bool {
+        self.style.frame_affinity_enabled
+    }
+
     pub(crate) fn should_capture_wheel_zoom(&self, ctrl_pressed: bool) -> bool {
         !self.navigation.wheel_zoom_requires_ctrl || ctrl_pressed
     }
@@ -231,6 +244,7 @@ impl Default for CanvasRegistry {
                 },
                 style: CanvasStylePolicy {
                     labels_always: true,
+                    frame_affinity_enabled: false,
                 },
                 performance: CanvasPerformancePolicy {
                     viewport_culling_enabled: true,
@@ -262,6 +276,18 @@ mod tests {
         );
         assert!(resolution.profile.navigation.zoom_and_pan_enabled);
         assert!(resolution.profile.performance.viewport_culling_enabled);
+        // Frame-affinity is off by default — must be explicitly enabled.
+        assert!(!resolution.profile.zones_enabled());
+    }
+
+    #[test]
+    fn canvas_surface_profile_zones_enabled_reflects_style_flag() {
+        let mut profile = CanvasRegistry::default()
+            .resolve(CANVAS_PROFILE_DEFAULT)
+            .profile;
+        assert!(!profile.zones_enabled());
+        profile.style.frame_affinity_enabled = true;
+        assert!(profile.zones_enabled());
     }
 
     #[test]
@@ -318,6 +344,7 @@ mod tests {
                 },
                 style: CanvasStylePolicy {
                     labels_always: false,
+                    frame_affinity_enabled: false,
                 },
                 performance: CanvasPerformancePolicy {
                     viewport_culling_enabled: true,
@@ -418,6 +445,7 @@ mod tests {
                 },
                 style: CanvasStylePolicy {
                     labels_always: true,
+                    frame_affinity_enabled: false,
                 },
                 performance: CanvasPerformancePolicy {
                     viewport_culling_enabled: true,

@@ -362,6 +362,8 @@ pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &s
 pub(crate) const CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED: &str =
     "registry.workbench_surface.profile_activated";
 pub(crate) const CHANNEL_CANVAS_PROFILE_ACTIVATED: &str = "registry.canvas.profile_activated";
+pub(crate) const CHANNEL_CANVAS_FRAME_AFFINITY_CHANGED: &str =
+    "registry.canvas.frame_affinity_changed";
 pub(crate) const CHANNEL_PHYSICS_PROFILE_ACTIVATED: &str = "registry.physics_profile.activated";
 pub(crate) const CHANNEL_LAYOUT_COMPUTE_STARTED: &str = "registry.layout.compute_started";
 pub(crate) const CHANNEL_LAYOUT_COMPUTE_SUCCEEDED: &str = "registry.layout.compute_succeeded";
@@ -1348,6 +1350,27 @@ impl RegistryRuntime {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_CANVAS_PROFILE_ACTIVATED,
             byte_len: step.round().max(1.0) as usize,
+        });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::CanvasProfileChanged {
+                new_profile_id: resolution.resolved_id.clone(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+        resolution
+    }
+
+    fn set_canvas_frame_affinity_enabled(&self, enabled: bool) -> CanvasSurfaceResolution {
+        let resolution = self
+            .canvas
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_frame_affinity_enabled(enabled);
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_CANVAS_FRAME_AFFINITY_CHANGED,
+            byte_len: if enabled { 1 } else { 0 },
         });
         self.publish_signal(SignalEnvelope::new(
             SignalKind::RegistryEvent(RegistryEventSignal::CanvasProfileChanged {
@@ -3061,6 +3084,13 @@ pub(crate) fn phase3_set_active_canvas_lasso_binding(
 
 pub(crate) fn phase3_set_active_canvas_keyboard_pan_step(step: f32) -> CanvasSurfaceResolution {
     runtime().set_active_canvas_keyboard_pan_step(step)
+}
+
+/// Enable or disable frame-affinity backdrop rendering and soft centroid-attraction force.
+///
+/// Spec: `layout_behaviors_and_physics_spec.md §4.3`
+pub(crate) fn phase3_set_canvas_frame_affinity_enabled(enabled: bool) -> CanvasSurfaceResolution {
+    runtime().set_canvas_frame_affinity_enabled(enabled)
 }
 
 pub(crate) fn phase3_resolve_active_physics_profile()

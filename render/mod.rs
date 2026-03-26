@@ -560,8 +560,15 @@ pub fn render_graph_in_ui_collect_actions(
         }
     }
 
-    // Render frame-affinity backdrops below nodes (uses previous-frame MetadataFrame).
-    draw_frame_affinity_backdrops(ui, app, graph_view_metadata_id(None));
+    // Resolve canvas zone policy once — used for both backdrop rendering and force gating.
+    let canvas_zones_enabled = crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
+        .profile
+        .zones_enabled();
+
+    // Render frame-affinity backdrops below nodes when zones are enabled.
+    if canvas_zones_enabled {
+        draw_frame_affinity_backdrops(ui, app, graph_view_metadata_id(None));
+    }
 
     // Render the graph (nested scope for mutable borrow)
     let response = {
@@ -605,13 +612,13 @@ pub fn render_graph_in_ui_collect_actions(
         app.workspace.graph_runtime.physics = new_physics;
     }
 
-    // Apply semantic clustering forces if enabled (UDC Phase 2)
+    // Apply semantic clustering and frame-affinity forces (UDC Phase 2 + lane:layout-semantics).
     let physics_extensions = app
         .workspace
         .graph_runtime
         .views
         .get(&view_id)
-        .map(|v| v.lens.physics.graph_physics_extensions());
+        .map(|v| v.lens.physics.graph_physics_extensions(canvas_zones_enabled));
     apply_graph_physics_extensions(app, physics_extensions);
 
     app.workspace.graph_runtime.hovered_graph_node = pointer_in_visible_graph_region
