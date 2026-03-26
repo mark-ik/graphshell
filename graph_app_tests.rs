@@ -5490,6 +5490,171 @@ fn suggest_node_tags_intent_stores_display_only_suggestions_and_prunes_on_tag_co
     assert!(app.node_has_canonical_tag(key, "udc:519.6"));
 }
 
+// ---------------------------------------------------------------------------
+// Faceted filter — spec §9 acceptance criteria
+// "Reducer owns filter truth": UI submits intent; reducer result drives visible
+// projection. "Filtering does not mutate graph truth": node/edge identity and
+// lifecycle unchanged across apply/clear.
+// Source: faceted_filter_surface_spec.md §9
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_set_view_filter_intent_applies_filter_to_view() {
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let view_id = GraphViewId::new();
+    app.workspace
+        .graph_runtime
+        .views
+        .insert(view_id, GraphViewState::new_with_id(view_id, "Filter"));
+
+    let a = app.add_node_and_sync("https://a.test/".into(), Point2D::new(0.0, 0.0));
+    let b = app.add_node_and_sync("https://b.test/".into(), Point2D::new(10.0, 0.0));
+
+    // Tag only node `a`
+    app.apply_reducer_intents([GraphIntent::TagNode {
+        key: a,
+        tag: "starred".to_string(),
+    }]);
+
+    let expr = crate::model::graph::filter::parse_omnibar_facet_token("facet:udc_classes=starred")
+        .unwrap();
+
+    app.apply_reducer_intents([GraphIntent::SetViewFilter {
+        view_id,
+        expr: Some(expr.clone()),
+    }]);
+
+    // active_filter is set on the view
+    assert!(
+        app.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .unwrap()
+            .active_filter
+            .is_some()
+    );
+
+    // evaluate against domain graph: `a` matches, `b` does not
+    let summary =
+        crate::model::graph::filter::evaluate_filter_result(app.domain_graph(), &expr);
+    let matched: std::collections::HashSet<_> =
+        summary.result.matched_nodes.iter().copied().collect();
+    assert!(matched.contains(&a), "tagged node must match the filter");
+    assert!(!matched.contains(&b), "untagged node must not match the filter");
+}
+
+#[test]
+fn test_clear_view_filter_intent_removes_active_filter() {
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let view_id = GraphViewId::new();
+    app.workspace
+        .graph_runtime
+        .views
+        .insert(view_id, GraphViewState::new_with_id(view_id, "Filter"));
+
+    let _a = app.add_node_and_sync("https://a.test/".into(), Point2D::new(0.0, 0.0));
+
+    let expr =
+        crate::model::graph::filter::parse_omnibar_facet_token("facet:lifecycle").unwrap();
+
+    app.apply_reducer_intents([GraphIntent::SetViewFilter {
+        view_id,
+        expr: Some(expr),
+    }]);
+    assert!(
+        app.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .unwrap()
+            .active_filter
+            .is_some()
+    );
+
+    app.apply_reducer_intents([GraphIntent::ClearViewFilter { view_id }]);
+
+    assert!(
+        app.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .unwrap()
+            .active_filter
+            .is_none(),
+        "ClearViewFilter must remove the active filter from the view"
+    );
+}
+
+#[test]
+fn test_set_view_filter_does_not_mutate_graph_node_identity() {
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let view_id = GraphViewId::new();
+    app.workspace
+        .graph_runtime
+        .views
+        .insert(view_id, GraphViewState::new_with_id(view_id, "Filter"));
+
+    let node = app.add_node_and_sync("https://identity.test/".into(), Point2D::new(0.0, 0.0));
+    let url_before = app
+        .workspace
+        .domain
+        .graph
+        .get_node(node)
+        .unwrap()
+        .url
+        .clone();
+    let lifecycle_before = app
+        .workspace
+        .domain
+        .graph
+        .get_node(node)
+        .unwrap()
+        .lifecycle;
+
+    let expr =
+        crate::model::graph::filter::parse_omnibar_facet_token("facet:lifecycle=Active").unwrap();
+
+    app.apply_reducer_intents([GraphIntent::SetViewFilter {
+        view_id,
+        expr: Some(expr),
+    }]);
+    app.apply_reducer_intents([GraphIntent::ClearViewFilter { view_id }]);
+
+    let url_after = app
+        .workspace
+        .domain
+        .graph
+        .get_node(node)
+        .unwrap()
+        .url
+        .clone();
+    let lifecycle_after = app
+        .workspace
+        .domain
+        .graph
+        .get_node(node)
+        .unwrap()
+        .lifecycle;
+
+    assert_eq!(
+        url_before, url_after,
+        "filter apply/clear must not mutate node URL"
+    );
+    assert_eq!(
+        lifecycle_before, lifecycle_after,
+        "filter apply/clear must not mutate node lifecycle"
+    );
+    assert_eq!(
+        app.workspace.domain.graph.node_count(),
+        1,
+        "filter apply/clear must not add or remove nodes"
+    );
+}
+
 #[test]
 fn test_set_view_lens_preserves_direct_values_when_lens_id_missing() {
     let mut app = GraphBrowserApp::new_for_testing();
