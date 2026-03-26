@@ -378,6 +378,10 @@ pub(crate) const CHANNEL_WORKFLOW_ACTIVATED: &str = "registry.workflow.activated
 pub(crate) const CHANNEL_KNOWLEDGE_INDEX_UPDATED: &str = "registry.knowledge.index_updated";
 pub(crate) const CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN: &str =
     "registry.knowledge.tag_validation_warn";
+pub(crate) const CHANNEL_KNOWLEDGE_PLACEMENT_ANCHOR_SELECTED: &str =
+    "registry.knowledge.placement_anchor_selected";
+pub(crate) const CHANNEL_KNOWLEDGE_CLASSIFICATION_CLUSTERING_APPLIED: &str =
+    "registry.knowledge.classification_clustering_applied";
 pub(crate) const CHANNEL_INDEX_SEARCH: &str = "registry.index.search";
 
 pub(crate) const CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE: &str = "system:task_budget:backpressure";

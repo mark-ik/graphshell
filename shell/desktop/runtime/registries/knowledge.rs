@@ -1,5 +1,5 @@
 use crate::app::GraphBrowserApp;
-use crate::graph::NodeKey;
+use crate::graph::{ClassificationScheme, ClassificationStatus, NodeKey};
 
 #[cfg(test)]
 pub(crate) use crate::registries::atomic::knowledge::CompactCode;
@@ -12,6 +12,11 @@ pub(crate) struct SemanticReconcileReport {
     pub(crate) indexed_nodes: usize,
     pub(crate) removed_stale_tags: usize,
     pub(crate) changed: bool,
+    /// Number of nodes whose semantic index entry was enriched (at least
+    /// partially) from `NodeClassification` records rather than only tags.
+    /// When non-zero these nodes participate in semantic placement and gravity
+    /// even if they carry no explicit UDC tag.
+    pub(crate) classification_enriched_nodes: usize,
 }
 
 pub fn reconcile_semantics(
@@ -23,6 +28,7 @@ pub fn reconcile_semantics(
             indexed_nodes: app.workspace.graph_runtime.semantic_index.len(),
             removed_stale_tags: 0,
             changed: false,
+            classification_enriched_nodes: 0,
         };
     }
 
@@ -30,12 +36,33 @@ pub fn reconcile_semantics(
     let removed_stale_tags = 0;
 
     let mut rebuilt_index = std::collections::HashMap::new();
+    let mut classification_enriched_nodes = 0usize;
     for (key, node) in app.workspace.domain.graph.nodes() {
         let mut codes = Vec::new();
+        // Index UDC tags directly.
         for tag in &node.tags {
             if let Some(code) = registry.parse(tag) {
                 codes.push(code);
             }
+        }
+        // Also index accepted/verified UDC classifications so that nodes
+        // classified via the knowledge-capture pipeline (rather than explicit
+        // tag application) participate in semantic placement and clustering.
+        let codes_before = codes.len();
+        for classification in &node.classifications {
+            if matches!(
+                classification.status,
+                ClassificationStatus::Accepted | ClassificationStatus::Verified
+            ) && matches!(classification.scheme, ClassificationScheme::Udc)
+                && !node.tags.contains(&classification.value)
+            {
+                if let Some(code) = registry.parse(&classification.value) {
+                    codes.push(code);
+                }
+            }
+        }
+        if codes.len() > codes_before {
+            classification_enriched_nodes += 1;
         }
         if !codes.is_empty() {
             rebuilt_index.insert(key, SemanticClassVector::from_codes(codes));
@@ -46,10 +73,20 @@ pub fn reconcile_semantics(
     app.workspace.graph_runtime.semantic_index = rebuilt_index;
     app.workspace.graph_runtime.semantic_index_dirty = false;
 
+    if changed && classification_enriched_nodes > 0 {
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: super::CHANNEL_KNOWLEDGE_CLASSIFICATION_CLUSTERING_APPLIED,
+                byte_len: classification_enriched_nodes,
+            },
+        );
+    }
+
     SemanticReconcileReport {
         indexed_nodes: app.workspace.graph_runtime.semantic_index.len(),
         removed_stale_tags,
         changed,
+        classification_enriched_nodes,
     }
 }
 
@@ -117,7 +154,16 @@ pub fn suggest_placement_anchor(
         a.1.total_cmp(&b.1)
             .then_with(|| a.0.index().cmp(&b.0.index()))
     });
-    ranked.first().map(|(key, _)| *key)
+    let anchor = ranked.first().map(|(key, _)| *key);
+    if anchor.is_some() {
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: super::CHANNEL_KNOWLEDGE_PLACEMENT_ANCHOR_SELECTED,
+                byte_len: key.index(),
+            },
+        );
+    }
+    anchor
 }
 
 fn semantic_vector_distance(
@@ -162,6 +208,7 @@ mod tests {
 
         assert!(report.changed);
         assert_eq!(report.indexed_nodes, 1);
+        assert_eq!(report.classification_enriched_nodes, 0);
         assert!(!app.workspace.graph_runtime.semantic_index_dirty);
         let index = app
             .workspace
@@ -177,6 +224,106 @@ mod tests {
         let report = reconcile_semantics(&mut app, &registry);
         assert_eq!(report.removed_stale_tags, 0);
         assert!(app.workspace.domain.graph.get_node(stale).is_none());
+    }
+
+    #[test]
+    fn reconcile_indexes_accepted_udc_classification_without_matching_tag() {
+        use crate::graph::{
+            ClassificationProvenance, ClassificationScheme, ClassificationStatus, NodeClassification,
+        };
+
+        let registry = KnowledgeRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.add_node_and_sync(
+            "https://example.com/math-classified".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        // Add a classification but no matching tag.
+        app.workspace.domain.graph.add_node_classification(
+            key,
+            NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:51".to_string(),
+                label: Some("Mathematics".to_string()),
+                confidence: 1.0,
+                provenance: ClassificationProvenance::UserAuthored,
+                status: ClassificationStatus::Accepted,
+                primary: true,
+            },
+        );
+        app.workspace.graph_runtime.semantic_index_dirty = true;
+
+        let report = reconcile_semantics(&mut app, &registry);
+
+        assert!(report.changed);
+        assert_eq!(report.indexed_nodes, 1);
+        assert_eq!(report.classification_enriched_nodes, 1);
+        let index = app
+            .workspace
+            .graph_runtime
+            .semantic_index
+            .get(&key)
+            .expect("node should be in semantic index");
+        assert_eq!(index.classes, vec![CompactCode(vec![5, 1])]);
+    }
+
+    #[test]
+    fn classification_enriched_node_gets_semantic_placement_anchor() {
+        use crate::graph::{
+            ClassificationProvenance, ClassificationScheme, ClassificationStatus, NodeClassification,
+        };
+
+        let registry = KnowledgeRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        // Node A: has a UDC tag for mathematics.
+        let math_tagged = app.add_node_and_sync(
+            "https://example.com/math-tagged".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(math_tagged, "udc:51".to_string());
+
+        // Node B: classified as mathematics via NodeClassification, no tag.
+        let math_classified = app.add_node_and_sync(
+            "https://example.com/math-classified".to_string(),
+            euclid::default::Point2D::new(50.0, 0.0),
+        );
+        app.workspace.domain.graph.add_node_classification(
+            math_classified,
+            NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:519.6".to_string(),
+                label: Some("Computational mathematics".to_string()),
+                confidence: 1.0,
+                provenance: ClassificationProvenance::InheritedFromSource,
+                status: ClassificationStatus::Accepted,
+                primary: true,
+            },
+        );
+
+        // Node C: tagged as music — semantically distant.
+        let music = app.add_node_and_sync(
+            "https://example.com/music".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(music, "udc:78".to_string());
+
+        app.workspace.graph_runtime.semantic_index_dirty = true;
+        let _ = reconcile_semantics(&mut app, &registry);
+
+        // B (classified math) should anchor to A (tagged math), not C (music).
+        assert_eq!(
+            suggest_placement_anchor(&app, &registry, math_classified),
+            Some(math_tagged)
+        );
     }
 
     #[test]
