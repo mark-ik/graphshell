@@ -139,7 +139,12 @@ pub(crate) fn derive_graphlet(graph: &Graph, spec: GraphletSpec) -> ResolvedGrap
     } else {
         Vec::new()
     };
-    ResolvedGraphlet { spec, members, edges, frontier }
+    ResolvedGraphlet {
+        spec,
+        members,
+        edges,
+        frontier,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +220,11 @@ fn derive_ego(
 
 /// Shortest undirected path between anchors[0] and anchors[1].
 /// Returns the path nodes, or just anchors if no path exists.
-fn derive_corridor(graph: &Graph, anchors: &[NodeKey], selectors: &[RelationSelector]) -> Vec<NodeKey> {
+fn derive_corridor(
+    graph: &Graph,
+    anchors: &[NodeKey],
+    selectors: &[RelationSelector],
+) -> Vec<NodeKey> {
     if anchors.len() < 2 {
         return anchors.to_vec();
     }
@@ -333,7 +342,10 @@ fn apply_scope(graph: &Graph, members: Vec<NodeKey>, spec: &GraphletSpec) -> Vec
         }
         GraphletScope::NodeSet(allowed) => {
             let allowed_set: HashSet<NodeKey> = allowed.iter().copied().collect();
-            members.into_iter().filter(|n| allowed_set.contains(n)).collect()
+            members
+                .into_iter()
+                .filter(|n| allowed_set.contains(n))
+                .collect()
         }
     }
 }

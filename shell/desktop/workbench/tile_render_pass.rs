@@ -18,7 +18,9 @@ use super::tile_kind::TileKind;
 use super::tile_post_render;
 use super::tile_runtime;
 use super::tile_view_ops::{self, TileOpenMode};
-use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, SearchDisplayMode, VisibleNavigationRegionSet};
+use crate::app::{
+    GraphBrowserApp, GraphIntent, GraphViewId, SearchDisplayMode, VisibleNavigationRegionSet,
+};
 use crate::graph::NodeKey;
 use crate::render::{self, GraphAction};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
@@ -68,7 +70,15 @@ pub(crate) struct TileRenderPassArgs<'a> {
 fn primary_graph_view_id(graph_app: &GraphBrowserApp, tiles_tree: &Tree<TileKind>) -> GraphViewId {
     tile_view_ops::active_graph_view_id(tiles_tree)
         .or(graph_app.workspace.graph_runtime.focused_view)
-        .or_else(|| graph_app.workspace.graph_runtime.views.keys().next().copied())
+        .or_else(|| {
+            graph_app
+                .workspace
+                .graph_runtime
+                .views
+                .keys()
+                .next()
+                .copied()
+        })
         .unwrap_or_default()
 }
 
@@ -459,7 +469,11 @@ pub(crate) fn run_tile_render_pass_in_ui(
             Some(egui_tiles::Tile::Container(_)) => "Container",
             None => "Missing",
         };
-        log::debug!("tile_render_pass: active tile {:?} label={}", tile_id, tile_label);
+        log::debug!(
+            "tile_render_pass: active tile {:?} label={}",
+            tile_id,
+            tile_label
+        );
     }
 
     let visible_node_panes = active_tiles
@@ -830,17 +844,21 @@ fn floating_overlay_rect_for_visible_regions(
             } else {
                 region
             };
-            let fraction = if enlarged_for_viewer_override { 0.5 } else { 0.38 };
-            let width = (usable_region.width() * fraction)
-                .clamp(FLOATING_OVERLAY_MIN_WIDTH.min(usable_region.width()), usable_region.width());
+            let fraction = if enlarged_for_viewer_override {
+                0.5
+            } else {
+                0.38
+            };
+            let width = (usable_region.width() * fraction).clamp(
+                FLOATING_OVERLAY_MIN_WIDTH.min(usable_region.width()),
+                usable_region.width(),
+            );
             let height = (usable_region.height() * fraction).clamp(
                 FLOATING_OVERLAY_MIN_HEIGHT.min(usable_region.height()),
                 usable_region.height(),
             );
-            let rect = egui::Rect::from_center_size(
-                usable_region.center(),
-                egui::vec2(width, height),
-            );
+            let rect =
+                egui::Rect::from_center_size(usable_region.center(), egui::vec2(width, height));
             let score = rect.width() * rect.height();
             (score, usable_region.width() * usable_region.height(), rect)
         })
@@ -884,7 +902,9 @@ fn render_floating_pane_overlays(
         &visible_regions,
         floating_state.viewer_id_override.is_some(),
     )
-    .unwrap_or_else(|| egui::Rect::from_center_size(ctx.available_rect().center(), egui::vec2(280.0, 180.0)));
+    .unwrap_or_else(|| {
+        egui::Rect::from_center_size(ctx.available_rect().center(), egui::vec2(280.0, 180.0))
+    });
     let title = graph_app
         .domain_graph()
         .get_node(floating_state.node)

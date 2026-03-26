@@ -575,12 +575,7 @@ impl GraphBrowserApp {
                 .navigator_specialty_views
                 .remove(&host)
             {
-                if let Some(view_state) = self
-                    .workspace
-                    .graph_runtime
-                    .views
-                    .get_mut(&sv.view_id)
-                {
+                if let Some(view_state) = self.workspace.graph_runtime.views.get_mut(&sv.view_id) {
                     view_state.graphlet_node_mask = None;
                 }
             }
@@ -588,11 +583,7 @@ impl GraphBrowserApp {
         };
 
         // Use the current primary selection as the graphlet anchor.
-        let anchors: Vec<NodeKey> = self
-            .focused_selection()
-            .primary()
-            .into_iter()
-            .collect();
+        let anchors: Vec<NodeKey> = self.focused_selection().primary().into_iter().collect();
 
         if anchors.is_empty() {
             // Cannot derive a graphlet without at least one anchor.
@@ -607,8 +598,7 @@ impl GraphBrowserApp {
             ranking: None,
         };
         let resolved = crate::graph::derive_graphlet(&self.workspace.domain.graph, spec);
-        let member_set: std::collections::HashSet<NodeKey> =
-            resolved.members.into_iter().collect();
+        let member_set: std::collections::HashSet<NodeKey> = resolved.members.into_iter().collect();
 
         // Re-use the existing specialty view's GraphViewId if present (avoids
         // churning the view registry every time the selection changes).
@@ -624,12 +614,7 @@ impl GraphBrowserApp {
         self.ensure_graph_view_registered(view_id);
 
         // Write the graphlet mask into the view state.
-        if let Some(view_state) = self
-            .workspace
-            .graph_runtime
-            .views
-            .get_mut(&view_id)
-        {
+        if let Some(view_state) = self.workspace.graph_runtime.views.get_mut(&view_id) {
             view_state.graphlet_node_mask = Some(member_set);
         }
 
@@ -883,7 +868,10 @@ impl GraphBrowserApp {
                 }
             }
             // --- Classification intents (Stage A enrichment) ---
-            GraphIntent::AssignClassification { key, classification } => {
+            GraphIntent::AssignClassification {
+                key,
+                classification,
+            } => {
                 self.workspace
                     .domain
                     .graph
@@ -913,15 +901,12 @@ impl GraphBrowserApp {
                 }
             }
             GraphIntent::AcceptClassification { key, scheme, value } => {
-                self.workspace
-                    .domain
-                    .graph
-                    .set_node_classification_status(
-                        key,
-                        &scheme,
-                        &value,
-                        crate::model::graph::ClassificationStatus::Accepted,
-                    );
+                self.workspace.domain.graph.set_node_classification_status(
+                    key,
+                    &scheme,
+                    &value,
+                    crate::model::graph::ClassificationStatus::Accepted,
+                );
                 if let Some(store) = &mut self.services.persistence {
                     if let Some(node) = self.workspace.domain.graph.get_node(key) {
                         store.log_mutation(&LogEntry::UpdateClassificationStatus {
@@ -934,15 +919,12 @@ impl GraphBrowserApp {
                 }
             }
             GraphIntent::RejectClassification { key, scheme, value } => {
-                self.workspace
-                    .domain
-                    .graph
-                    .set_node_classification_status(
-                        key,
-                        &scheme,
-                        &value,
-                        crate::model::graph::ClassificationStatus::Rejected,
-                    );
+                self.workspace.domain.graph.set_node_classification_status(
+                    key,
+                    &scheme,
+                    &value,
+                    crate::model::graph::ClassificationStatus::Rejected,
+                );
                 if let Some(store) = &mut self.services.persistence {
                     if let Some(node) = self.workspace.domain.graph.get_node(key) {
                         store.log_mutation(&LogEntry::UpdateClassificationStatus {

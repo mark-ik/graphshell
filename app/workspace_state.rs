@@ -38,7 +38,10 @@ pub struct VisibleNavigationRegionSet {
 impl VisibleNavigationRegionSet {
     pub(crate) fn from_rects(rects: Vec<egui::Rect>) -> Self {
         Self {
-            rects: rects.into_iter().filter(|rect| rect_has_area(*rect)).collect(),
+            rects: rects
+                .into_iter()
+                .filter(|rect| rect_has_area(*rect))
+                .collect(),
         }
     }
 
@@ -459,8 +462,7 @@ mod tests {
 
     #[test]
     fn workbench_navigation_geometry_splits_content_around_overlay_sidebar() {
-        let content_rect =
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
+        let content_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
         let overlay_rect =
             egui::Rect::from_min_max(egui::pos2(320.0, 40.0), egui::pos2(400.0, 260.0));
 
@@ -469,18 +471,30 @@ mod tests {
 
         assert_eq!(geometry.occluding_host_rects, vec![overlay_rect]);
         assert_eq!(geometry.visible_regions.len(), 3);
-        assert!(geometry.visible_regions.contains_rect(egui::Rect::from_min_max(
-            egui::pos2(0.0, 0.0),
-            egui::pos2(400.0, 40.0),
-        )));
-        assert!(geometry.visible_regions.contains_rect(egui::Rect::from_min_max(
-            egui::pos2(0.0, 260.0),
-            egui::pos2(400.0, 300.0),
-        )));
-        assert!(geometry.visible_regions.contains_rect(egui::Rect::from_min_max(
-            egui::pos2(0.0, 40.0),
-            egui::pos2(320.0, 260.0),
-        )));
+        assert!(
+            geometry
+                .visible_regions
+                .contains_rect(egui::Rect::from_min_max(
+                    egui::pos2(0.0, 0.0),
+                    egui::pos2(400.0, 40.0),
+                ))
+        );
+        assert!(
+            geometry
+                .visible_regions
+                .contains_rect(egui::Rect::from_min_max(
+                    egui::pos2(0.0, 260.0),
+                    egui::pos2(400.0, 300.0),
+                ))
+        );
+        assert!(
+            geometry
+                .visible_regions
+                .contains_rect(egui::Rect::from_min_max(
+                    egui::pos2(0.0, 40.0),
+                    egui::pos2(320.0, 260.0),
+                ))
+        );
         let largest_rect = geometry.visible_regions.largest_rect();
         assert_eq!(
             largest_rect,

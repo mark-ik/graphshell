@@ -94,9 +94,12 @@ fn ensure_local_file_access_allowed(path: &PathBuf) -> Result<(), String> {
         return Err("Home directory unavailable; local file access is blocked.".to_string());
     };
 
-    let canonical_home = home_dir
-        .canonicalize()
-        .map_err(|err| format!("Failed to resolve home directory '{}': {err}", home_dir.display()))?;
+    let canonical_home = home_dir.canonicalize().map_err(|err| {
+        format!(
+            "Failed to resolve home directory '{}': {err}",
+            home_dir.display()
+        )
+    })?;
     let canonical_path = path
         .canonicalize()
         .map_err(|err| format!("Failed to resolve '{}': {err}", path.display()))?;

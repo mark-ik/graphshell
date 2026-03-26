@@ -1172,10 +1172,14 @@ impl DiagnosticsState {
                 let content_w = content_rect.width().max(1.0);
                 let content_h = content_rect.height().max(1.0);
                 let map_rect = |source: egui::Rect| {
-                    let rel_min_x = ((source.min.x - content_rect.min.x) / content_w).clamp(0.0, 1.0);
-                    let rel_max_x = ((source.max.x - content_rect.min.x) / content_w).clamp(0.0, 1.0);
-                    let rel_min_y = ((source.min.y - content_rect.min.y) / content_h).clamp(0.0, 1.0);
-                    let rel_max_y = ((source.max.y - content_rect.min.y) / content_h).clamp(0.0, 1.0);
+                    let rel_min_x =
+                        ((source.min.x - content_rect.min.x) / content_w).clamp(0.0, 1.0);
+                    let rel_max_x =
+                        ((source.max.x - content_rect.min.x) / content_w).clamp(0.0, 1.0);
+                    let rel_min_y =
+                        ((source.min.y - content_rect.min.y) / content_h).clamp(0.0, 1.0);
+                    let rel_max_y =
+                        ((source.max.y - content_rect.min.y) / content_h).clamp(0.0, 1.0);
                     egui::Rect::from_min_max(
                         egui::pos2(
                             minimap_rect.left() + minimap_rect.width() * rel_min_x,

@@ -405,14 +405,7 @@ pub enum ClassificationStatus {
 ///
 /// Multiple records can coexist; at most one should have `primary: true` per scheme.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Archive,
-    Serialize,
-    Deserialize,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, Clone, PartialEq, Archive, Serialize, Deserialize, serde::Serialize, serde::Deserialize,
 )]
 pub struct NodeClassification {
     pub scheme: ClassificationScheme,
@@ -4817,7 +4810,10 @@ mod tests {
             .expect("directory URL should build")
             .to_string();
 
-        assert_eq!(address_kind_from_url("data:text/plain,hello"), AddressKind::Data);
+        assert_eq!(
+            address_kind_from_url("data:text/plain,hello"),
+            AddressKind::Data
+        );
         assert_eq!(
             address_kind_from_url("verso://clip/clip-123"),
             AddressKind::GraphshellClip

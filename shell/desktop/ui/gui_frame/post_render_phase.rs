@@ -5,9 +5,9 @@
 use super::*;
 use crate::shell::desktop::ui::dialog::DialogCommand;
 use crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest;
-use crate::shell::desktop::ui::workbench_host::{WorkbenchChromeProjection, WorkbenchLayerState};
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
+use crate::shell::desktop::ui::workbench_host::{WorkbenchChromeProjection, WorkbenchLayerState};
 
 fn open_preferred_context_command_surface_for_webview_target(
     ctx: &egui::Context,
@@ -188,7 +188,8 @@ pub(crate) fn run_post_render_phase<FActive>(
     let active_search_match =
         active_graph_search_match(graph_search_matches, graph_search_active_match_index);
     let layer_state =
-        WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, window.focused_pane()).layer_state;
+        WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, window.focused_pane())
+            .layer_state;
 
     if matches!(
         layer_state,

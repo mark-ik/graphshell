@@ -542,10 +542,7 @@ impl GraphBrowserApp {
     /// - `Light` / `Dark`: sets the explicit theme ID and applies it now.
     pub fn set_theme_mode(&mut self, mode: ThemeMode) {
         self.workspace.chrome_ui.theme_mode = mode;
-        self.save_workspace_layout_json(
-            Self::SETTINGS_THEME_MODE_NAME,
-            &mode.to_string(),
-        );
+        self.save_workspace_layout_json(Self::SETTINGS_THEME_MODE_NAME, &mode.to_string());
         let follows_system = mode == ThemeMode::System;
         crate::shell::desktop::runtime::registries::phase3_set_theme_follows_system(follows_system);
         match mode {
@@ -796,8 +793,7 @@ impl GraphBrowserApp {
             {
                 let resolution =
                     crate::shell::desktop::runtime::registries::phase3_set_active_theme(theme_id);
-                self.workspace.chrome_ui.default_registry_theme_id =
-                    Some(resolution.resolved_id);
+                self.workspace.chrome_ui.default_registry_theme_id = Some(resolution.resolved_id);
             }
         }
         let canvas_profile_id = self

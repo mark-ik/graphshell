@@ -5,8 +5,8 @@ use egui_tiles::{Tiles, Tree};
 use euclid::Point2D;
 use serde_json::Value;
 
-use crate::app::{GraphBrowserApp, GraphViewId};
 use crate::app::VisibleNavigationRegionSet;
+use crate::app::{GraphBrowserApp, GraphViewId};
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{
     CompositorFrameSample, CompositorTileSample, DiagnosticsState, HierarchySample,

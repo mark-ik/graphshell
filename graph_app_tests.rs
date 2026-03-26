@@ -5537,12 +5537,14 @@ fn test_set_view_filter_intent_applies_filter_to_view() {
     );
 
     // evaluate against domain graph: `a` matches, `b` does not
-    let summary =
-        crate::model::graph::filter::evaluate_filter_result(app.domain_graph(), &expr);
+    let summary = crate::model::graph::filter::evaluate_filter_result(app.domain_graph(), &expr);
     let matched: std::collections::HashSet<_> =
         summary.result.matched_nodes.iter().copied().collect();
     assert!(matched.contains(&a), "tagged node must match the filter");
-    assert!(!matched.contains(&b), "untagged node must not match the filter");
+    assert!(
+        !matched.contains(&b),
+        "untagged node must not match the filter"
+    );
 }
 
 #[test]
@@ -5557,8 +5559,7 @@ fn test_clear_view_filter_intent_removes_active_filter() {
 
     let _a = app.add_node_and_sync("https://a.test/".into(), Point2D::new(0.0, 0.0));
 
-    let expr =
-        crate::model::graph::filter::parse_omnibar_facet_token("facet:lifecycle").unwrap();
+    let expr = crate::model::graph::filter::parse_omnibar_facet_token("facet:lifecycle").unwrap();
 
     app.apply_reducer_intents([GraphIntent::SetViewFilter {
         view_id,
@@ -5607,13 +5608,7 @@ fn test_set_view_filter_does_not_mutate_graph_node_identity() {
         .unwrap()
         .url
         .clone();
-    let lifecycle_before = app
-        .workspace
-        .domain
-        .graph
-        .get_node(node)
-        .unwrap()
-        .lifecycle;
+    let lifecycle_before = app.workspace.domain.graph.get_node(node).unwrap().lifecycle;
 
     let expr =
         crate::model::graph::filter::parse_omnibar_facet_token("facet:lifecycle=Active").unwrap();
@@ -5632,13 +5627,7 @@ fn test_set_view_filter_does_not_mutate_graph_node_identity() {
         .unwrap()
         .url
         .clone();
-    let lifecycle_after = app
-        .workspace
-        .domain
-        .graph
-        .get_node(node)
-        .unwrap()
-        .lifecycle;
+    let lifecycle_after = app.workspace.domain.graph.get_node(node).unwrap().lifecycle;
 
     assert_eq!(
         url_before, url_after,
@@ -5763,7 +5752,12 @@ fn test_unassign_classification_intent_removes_record() {
         },
     }]);
     assert_eq!(
-        app.workspace.domain.graph.node_classifications(node).unwrap().len(),
+        app.workspace
+            .domain
+            .graph
+            .node_classifications(node)
+            .unwrap()
+            .len(),
         1
     );
 
@@ -5773,7 +5767,12 @@ fn test_unassign_classification_intent_removes_record() {
         value: "udc:51".to_string(),
     }]);
     assert!(
-        app.workspace.domain.graph.node_classifications(node).unwrap().is_empty(),
+        app.workspace
+            .domain
+            .graph
+            .node_classifications(node)
+            .unwrap()
+            .is_empty(),
         "UnassignClassification must remove the matching record"
     );
 }
@@ -5813,7 +5812,11 @@ fn test_classification_survives_snapshot_roundtrip() {
         .graph
         .node_classifications(key)
         .unwrap();
-    assert_eq!(classifications.len(), 1, "classification must survive restart");
+    assert_eq!(
+        classifications.len(),
+        1,
+        "classification must survive restart"
+    );
     assert_eq!(classifications[0].value, "udc:519.6");
     assert_eq!(
         classifications[0].status,
@@ -7375,7 +7378,10 @@ fn set_navigator_specialty_view_creates_view_with_graphlet_mask() {
         .views
         .get(&sv.view_id)
         .and_then(|v| v.graphlet_node_mask.as_ref());
-    assert!(mask.is_some(), "graphlet_node_mask should be set on the view");
+    assert!(
+        mask.is_some(),
+        "graphlet_node_mask should be set on the view"
+    );
     assert!(
         mask.unwrap().contains(&anchor),
         "anchor node should be in the graphlet mask"

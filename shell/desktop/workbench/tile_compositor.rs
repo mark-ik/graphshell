@@ -477,7 +477,10 @@ fn differential_fallback_channel(reason: DifferentialComposeReason) -> &'static 
     }
 }
 
-fn should_cull_tile_content(tile_rect: egui::Rect, viewport_regions: &VisibleNavigationRegionSet) -> bool {
+fn should_cull_tile_content(
+    tile_rect: egui::Rect,
+    viewport_regions: &VisibleNavigationRegionSet,
+) -> bool {
     tile_rect.width() <= 0.0
         || tile_rect.height() <= 0.0
         || !viewport_regions.intersects_rect(tile_rect)
@@ -2595,8 +2598,7 @@ mod tests {
 
     #[test]
     fn should_not_cull_tile_content_when_visible_in_any_navigation_region_rect() {
-        let tile_rect =
-            egui::Rect::from_min_max(egui::pos2(340.0, 8.0), egui::pos2(380.0, 32.0));
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(340.0, 8.0), egui::pos2(380.0, 32.0));
         let viewport_regions = VisibleNavigationRegionSet::from_rects(vec![
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 40.0)),
             egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),

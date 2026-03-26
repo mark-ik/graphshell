@@ -2,12 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use egui::{Pos2, Rect, Vec2};
 use crate::graph::GraphletKind;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::ToolbarUiOutput;
-use crate::shell::desktop::ui::workbench_host::{
-    WorkbenchChromeProjection, WorkbenchLayerState,
-};
+use crate::shell::desktop::ui::workbench_host::{WorkbenchChromeProjection, WorkbenchLayerState};
+use egui::{Pos2, Rect, Vec2};
 
 /// The hosting context for a graph canvas render unit.
 ///
@@ -113,9 +111,9 @@ impl<'a> ShellLayoutPass<'a> {
         toolbar_output: ToolbarUiOutput,
     ) -> ShellLayoutRenderOutput {
         let mut slot_rects = ShellSlotRects {
-            command_bar: toolbar_output.command_bar_rect.unwrap_or_else(|| {
-                Rect::from_min_size(Pos2::ZERO, Vec2::ZERO)
-            }),
+            command_bar: toolbar_output
+                .command_bar_rect
+                .unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, Vec2::ZERO)),
             ..ShellSlotRects::default()
         };
         if matches!(

@@ -48,8 +48,7 @@ pub(super) fn restore_startup_session_frame_if_available(
     ) && let Ok((mut restored_tree, _)) = {
         persistence_ops::apply_workbench_profile_from_bundle(graph_app, &bundle);
         persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
-    }
-    {
+    } {
         normalize_graph_only_workbench_tree(&mut restored_tree);
         if restored_tree.root().is_some() {
             if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {

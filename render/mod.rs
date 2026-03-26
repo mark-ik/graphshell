@@ -614,19 +614,20 @@ pub fn render_graph_in_ui_collect_actions(
         .map(|v| v.lens.physics.graph_physics_extensions());
     apply_graph_physics_extensions(app, physics_extensions);
 
-    app.workspace.graph_runtime.hovered_graph_node = pointer_in_visible_graph_region.then(|| {
-        app.workspace
-            .graph_runtime
-            .egui_state
-            .as_ref()
-            .and_then(|state| {
-                state
-                    .graph
-                    .hovered_node()
-                    .and_then(|idx| state.get_key(idx))
-            })
-    })
-    .flatten();
+    app.workspace.graph_runtime.hovered_graph_node = pointer_in_visible_graph_region
+        .then(|| {
+            app.workspace
+                .graph_runtime
+                .egui_state
+                .as_ref()
+                .and_then(|state| {
+                    state
+                        .graph
+                        .hovered_node()
+                        .and_then(|idx| state.get_key(idx))
+                })
+        })
+        .flatten();
     // Match egui_graphs' internal MetadataFrame storage key exactly.
     // egui_graphs calls data.insert_persisted(Id::new(frame.get_id()), frame) where
     // get_id() returns Id::new("egui_graphs_metadata_") — so the stored key is
@@ -1837,17 +1838,15 @@ mod tests {
     #[test]
     fn visible_graph_screen_rects_clip_to_navigation_geometry() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let screen_rect =
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
-        app.workspace.graph_runtime.workbench_navigation_geometry = Some(
-            crate::app::WorkbenchNavigationGeometry::from_content_rect(
+        let screen_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
+        app.workspace.graph_runtime.workbench_navigation_geometry =
+            Some(crate::app::WorkbenchNavigationGeometry::from_content_rect(
                 screen_rect,
                 vec![egui::Rect::from_min_max(
                     egui::pos2(320.0, 40.0),
                     egui::pos2(400.0, 260.0),
                 )],
-            ),
-        );
+            ));
 
         let visible_regions = graph_visible_screen_rects(screen_rect, &app);
 
@@ -1861,17 +1860,15 @@ mod tests {
     #[test]
     fn effective_graph_screen_rect_prefers_largest_visible_navigation_region() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let screen_rect =
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
-        app.workspace.graph_runtime.workbench_navigation_geometry = Some(
-            crate::app::WorkbenchNavigationGeometry::from_content_rect(
+        let screen_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
+        app.workspace.graph_runtime.workbench_navigation_geometry =
+            Some(crate::app::WorkbenchNavigationGeometry::from_content_rect(
                 screen_rect,
                 vec![egui::Rect::from_min_max(
                     egui::pos2(320.0, 40.0),
                     egui::pos2(400.0, 260.0),
                 )],
-            ),
-        );
+            ));
 
         assert_eq!(
             effective_graph_screen_rect(screen_rect, &app),

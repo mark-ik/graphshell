@@ -11,8 +11,8 @@ use uuid::Uuid;
 use crate::app::workbench_layout_policy::{AnchorEdge, FirstUseOutcome, NavigatorHostId};
 use crate::app::{
     CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, NavigatorHostScope,
-    SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent,
-    WorkbenchLayoutConstraint, WorkbenchNavigationGeometry,
+    SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent, WorkbenchLayoutConstraint,
+    WorkbenchNavigationGeometry,
 };
 use crate::graph::{ArrangementSubKind, GraphletKind, NodeKey};
 use crate::services::persistence::types::LogEntry;
@@ -151,9 +151,10 @@ fn host_overlay_rect(
             let left = available_rect.left() + start_margin;
             let right = available_rect.right() - end_margin;
             let (top, bottom) = match host_layout.anchor_edge {
-                AnchorEdge::Bottom => {
-                    (available_rect.bottom() - host_extent, available_rect.bottom())
-                }
+                AnchorEdge::Bottom => (
+                    available_rect.bottom() - host_extent,
+                    available_rect.bottom(),
+                ),
                 AnchorEdge::Top | AnchorEdge::Left | AnchorEdge::Right => {
                     (available_rect.top(), available_rect.top() + host_extent)
                 }
@@ -171,9 +172,13 @@ fn update_workbench_navigation_geometry(
     content_rect: egui::Rect,
     occluding_host_rects: Vec<egui::Rect>,
 ) {
-    graph_app.workspace.graph_runtime.workbench_navigation_geometry = Some(
-        WorkbenchNavigationGeometry::from_content_rect(content_rect, occluding_host_rects),
-    );
+    graph_app
+        .workspace
+        .graph_runtime
+        .workbench_navigation_geometry = Some(WorkbenchNavigationGeometry::from_content_rect(
+        content_rect,
+        occluding_host_rects,
+    ));
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1464,7 +1469,10 @@ pub(crate) fn render_workbench_host(
     let projection =
         WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, active_toolbar_pane);
     if !projection.visible() {
-        graph_app.workspace.graph_runtime.workbench_navigation_geometry = None;
+        graph_app
+            .workspace
+            .graph_runtime
+            .workbench_navigation_geometry = None;
         return projection;
     }
 
@@ -1511,8 +1519,7 @@ pub(crate) fn render_workbench_host(
         })
         .clamp(HOST_PANEL_MAX_FLOOR, host_panel_max_extent);
         let panel_id = host_panel_id(&host_layout.host);
-        let specialty_canvas_area_id =
-            egui::Id::new(("navigator_specialty_canvas", &panel_id));
+        let specialty_canvas_area_id = egui::Id::new(("navigator_specialty_canvas", &panel_id));
         let mut rendered_rect = None;
         let specialty_view_id = graph_app
             .workspace
@@ -1961,9 +1968,7 @@ pub(crate) fn render_workbench_host(
                     let top_bottom_panel = match host_layout.anchor_edge {
                         AnchorEdge::Top => egui::TopBottomPanel::top(panel_id),
                         AnchorEdge::Bottom => egui::TopBottomPanel::bottom(panel_id),
-                        AnchorEdge::Left | AnchorEdge::Right => {
-                            egui::TopBottomPanel::top(panel_id)
-                        }
+                        AnchorEdge::Left | AnchorEdge::Right => egui::TopBottomPanel::top(panel_id),
                     };
                     top_bottom_panel
                         .resizable(host_layout.resizable)
@@ -1989,8 +1994,9 @@ pub(crate) fn render_workbench_host(
                 .show(ctx, |ui| {
                     ui.set_min_size(canvas_rect.size());
                     ui.set_max_size(canvas_rect.size());
-                    let intents =
-                        tile_render_pass::render_specialty_graph_in_ui(ui, graph_app, tiles_tree, view_id);
+                    let intents = tile_render_pass::render_specialty_graph_in_ui(
+                        ui, graph_app, tiles_tree, view_id,
+                    );
                     graph_app.apply_reducer_intents(intents);
                 });
         }
@@ -2535,10 +2541,8 @@ fn apply_workbench_host_action(
             graph_app.request_restore_frame_snapshot_named(name);
         }
         WorkbenchHostAction::SetNavigatorSpecialtyView { host, kind } => {
-            graph_app.apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView {
-                host,
-                kind,
-            }]);
+            graph_app
+                .apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView { host, kind }]);
         }
     }
 }

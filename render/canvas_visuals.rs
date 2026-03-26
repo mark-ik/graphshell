@@ -300,7 +300,9 @@ pub(super) fn graph_visible_screen_rects(
         return VisibleNavigationRegionSet::singleton(screen_rect);
     };
 
-    let visible_regions = geometry.visible_region_set_or_content().clipped_to(screen_rect);
+    let visible_regions = geometry
+        .visible_region_set_or_content()
+        .clipped_to(screen_rect);
 
     if visible_regions.is_empty() && screen_rect.width() > 0.0 && screen_rect.height() > 0.0 {
         VisibleNavigationRegionSet::singleton(screen_rect)
@@ -313,8 +315,7 @@ pub(super) fn effective_graph_screen_rect(
     screen_rect: egui::Rect,
     app: &GraphBrowserApp,
 ) -> Option<egui::Rect> {
-    graph_visible_screen_rects(screen_rect, app)
-        .largest_rect()
+    graph_visible_screen_rects(screen_rect, app).largest_rect()
 }
 
 pub(super) fn canvas_rect_from_view_frame(
@@ -439,11 +440,16 @@ pub(super) fn visible_nodes_for_view_filters(
             .map(|(key, _)| key)
             .collect()
     });
-    let graphlet_mask: Option<HashSet<NodeKey>> = view_state
-        .and_then(|v| v.graphlet_node_mask.clone());
+    let graphlet_mask: Option<HashSet<NodeKey>> =
+        view_state.and_then(|v| v.graphlet_node_mask.clone());
 
     // Intersect all active filters.  Each `Some` constrains the visible set.
-    intersect_filters([facet_matches, search_filter_matches, tombstone_filter, graphlet_mask])
+    intersect_filters([
+        facet_matches,
+        search_filter_matches,
+        tombstone_filter,
+        graphlet_mask,
+    ])
 }
 
 /// Intersect an array of optional node-set filters.
