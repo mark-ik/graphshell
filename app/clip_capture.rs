@@ -3,6 +3,9 @@ use euclid::default::Point2D;
 
 use crate::app::{GraphBrowserApp, RendererId};
 use crate::graph::{AddressKind, NodeKey};
+use crate::model::graph::{
+    ClassificationProvenance, ClassificationStatus, NodeClassification,
+};
 
 const CLIP_EDGE_LABEL: &str = "clip-source";
 const CLIP_TITLE_FALLBACK: &str = "Clipped element";
@@ -206,13 +209,56 @@ impl GraphBrowserApp {
         let clip_url = clip_data_url(build_clip_document(capture).as_str());
         let clip_key = self.add_node_and_sync(clip_url, clip_position);
         let clip_title = resolved_clip_title(capture);
+        // Stage C: collect source classifications before mutating graph
+        let inherited_classifications: Vec<NodeClassification> = self
+            .workspace
+            .domain
+            .graph
+            .node_classifications(source_key)
+            .map(|cs| {
+                cs.iter()
+                    .filter(|c| {
+                        matches!(
+                            c.status,
+                            ClassificationStatus::Accepted | ClassificationStatus::Verified
+                        )
+                    })
+                    .map(|c| NodeClassification {
+                        provenance: ClassificationProvenance::InheritedFromSource,
+                        status: ClassificationStatus::Suggested,
+                        primary: false,
+                        ..c.clone()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let graph = &mut self.workspace.domain.graph;
         let _ = graph.set_node_title(clip_key, clip_title);
         let _ = graph.insert_node_tag(clip_key, Self::TAG_CLIP.to_string());
         let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
         let _ = graph.set_node_address_kind(clip_key, AddressKind::GraphshellClip);
         let _ = graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
+        for inherited in &inherited_classifications {
+            graph.add_node_classification(clip_key, inherited.clone());
+        }
+
         self.workspace.graph_runtime.semantic_index_dirty = true;
+
+        // Journal inherited classifications to WAL
+        if let Some(store) = &mut self.services.persistence {
+            if let Some(node) = self.workspace.domain.graph.get_node(clip_key) {
+                let node_id = node.id.to_string();
+                for c in &inherited_classifications {
+                    store.log_mutation(
+                        &crate::services::persistence::types::LogEntry::AssignClassification {
+                            node_id: node_id.clone(),
+                            classification: c.clone(),
+                        },
+                    );
+                }
+            }
+        }
         let _ = self.assert_relation_and_sync(
             source_key,
             clip_key,
@@ -539,5 +585,77 @@ mod tests {
             .filter(|edge| edge.from == source_key && clip_keys.contains(&edge.to))
             .count();
         assert_eq!(clip_edges, 2);
+    }
+
+    #[test]
+    fn clip_node_inherits_source_classifications_with_inherited_provenance() {
+        // Spec: graph_enrichment_plan.md §Stage C done gate —
+        // "at least one end-to-end import or clip path produces visible enrichment"
+        // "inherited metadata is marked with provenance"
+        use crate::app::GraphIntent;
+        use crate::model::graph::{
+            ClassificationProvenance, ClassificationScheme, ClassificationStatus,
+            NodeClassification,
+        };
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source_key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://example.com".to_string(), Point2D::new(10.0, 20.0));
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, source_key);
+
+        // Give the source an accepted classification
+        app.apply_reducer_intents([GraphIntent::AssignClassification {
+            key: source_key,
+            classification: NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:51".to_string(),
+                label: Some("Mathematics".to_string()),
+                confidence: 1.0,
+                provenance: ClassificationProvenance::UserAuthored,
+                status: ClassificationStatus::Accepted,
+                primary: true,
+            },
+        }]);
+
+        let clip_key = app
+            .create_clip_node_from_capture(&ClipCaptureData {
+                webview_id,
+                source_url: "https://example.com".to_string(),
+                page_title: Some("Example".to_string()),
+                clip_title: "Section".to_string(),
+                outer_html: "<section><p>text</p></section>".to_string(),
+                text_excerpt: "text".to_string(),
+                tag_name: "section".to_string(),
+                href: None,
+                image_url: None,
+                dom_path: None,
+            })
+            .expect("clip capture should succeed");
+
+        let classifications = app
+            .workspace
+            .domain
+            .graph
+            .node_classifications(clip_key)
+            .expect("clip node should exist");
+
+        assert_eq!(classifications.len(), 1, "clip should inherit one classification");
+        let c = &classifications[0];
+        assert_eq!(c.value, "udc:51");
+        assert_eq!(
+            c.provenance,
+            ClassificationProvenance::InheritedFromSource,
+            "inherited classification must carry InheritedFromSource provenance"
+        );
+        assert_eq!(
+            c.status,
+            ClassificationStatus::Suggested,
+            "inherited classification must be Suggested (not auto-accepted)"
+        );
+        assert!(!c.primary, "inherited classification must not be primary");
     }
 }

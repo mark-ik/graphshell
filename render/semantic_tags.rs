@@ -653,7 +653,7 @@ pub(super) fn render_classification_chips(
     chips: &[ClassificationChip],
 ) {
     use crate::app::GraphIntent;
-    use crate::graph::{ClassificationScheme, ClassificationStatus};
+    use crate::graph::ClassificationScheme;
     let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
 
     ui.horizontal_wrapped(|ui| {

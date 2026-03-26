@@ -5825,6 +5825,78 @@ fn test_classification_survives_snapshot_roundtrip() {
     assert!(classifications[0].primary);
 }
 
+// ---------------------------------------------------------------------------
+// Stage C: capture and ingestion path tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tag_node_udc_prefix_creates_classification_with_user_authored_provenance() {
+    // Spec: graph_enrichment_plan.md §Stage C done gate —
+    // "UDC assignment works through label-first search" and
+    // "inherited metadata is marked with provenance".
+    let mut app = GraphBrowserApp::new_for_testing();
+    let node = app.add_node_and_sync("https://example.com/".into(), Point2D::new(0.0, 0.0));
+
+    app.apply_reducer_intents([GraphIntent::TagNode {
+        key: node,
+        tag: "udc:519.6".to_string(),
+    }]);
+
+    let classifications = app
+        .workspace
+        .domain
+        .graph
+        .node_classifications(node)
+        .expect("node should exist");
+
+    assert_eq!(classifications.len(), 1, "one classification should be created");
+    let c = &classifications[0];
+    assert_eq!(c.value, "udc:519.6");
+    assert_eq!(
+        c.scheme,
+        crate::model::graph::ClassificationScheme::Udc,
+        "scheme must be Udc"
+    );
+    assert_eq!(
+        c.provenance,
+        crate::model::graph::ClassificationProvenance::UserAuthored,
+        "user-applied tag must carry UserAuthored provenance"
+    );
+    assert_eq!(
+        c.status,
+        crate::model::graph::ClassificationStatus::Accepted,
+        "user-applied tag must be Accepted status"
+    );
+    assert_eq!(c.confidence, 1.0);
+    // First classification on the node should be primary
+    assert!(c.primary, "first classification should be primary");
+}
+
+#[test]
+fn test_tag_node_udc_does_not_duplicate_classification_if_already_present() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let node = app.add_node_and_sync("https://example.com/".into(), Point2D::new(0.0, 0.0));
+
+    // Apply the same tag twice
+    app.apply_reducer_intents([GraphIntent::TagNode {
+        key: node,
+        tag: "udc:519.6".to_string(),
+    }]);
+    app.apply_reducer_intents([GraphIntent::TagNode {
+        key: node,
+        tag: "udc:519.6".to_string(),
+    }]);
+
+    let classifications = app
+        .workspace
+        .domain
+        .graph
+        .node_classifications(node)
+        .expect("node should exist");
+    assert_eq!(classifications.len(), 1, "duplicate TagNode must not duplicate classification");
+}
+
+
 #[test]
 fn test_set_view_lens_preserves_direct_values_when_lens_id_missing() {
     let mut app = GraphBrowserApp::new_for_testing();

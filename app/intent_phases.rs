@@ -805,6 +805,61 @@ impl GraphBrowserApp {
                     {
                         self.workspace.graph_runtime.semantic_index_dirty = true;
                     }
+                    // Stage C: when a udc:-prefixed tag is applied, also create a
+                    // durable NodeClassification record with provenance so the enrichment
+                    // is visible in the inspector and queryable via FacetExpr.
+                    // Only emit if not already classified with this value to avoid duplication.
+                    if let Some(udc_code) = normalized_tag.strip_prefix("udc:") {
+                        let already_classified = self
+                            .workspace
+                            .domain
+                            .graph
+                            .node_classifications(key)
+                            .is_some_and(|cs| cs.iter().any(|c| c.value == normalized_tag));
+                        if !already_classified {
+                            let label = match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(udc_code) {
+                                crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                                    display_label, ..
+                                } => Some(display_label),
+                                _ => None,
+                            };
+                            self.workspace.domain.graph.add_node_classification(
+                                key,
+                                crate::model::graph::NodeClassification {
+                                    scheme: crate::model::graph::ClassificationScheme::Udc,
+                                    value: normalized_tag.clone(),
+                                    label,
+                                    confidence: 1.0,
+                                    provenance: crate::model::graph::ClassificationProvenance::UserAuthored,
+                                    status: crate::model::graph::ClassificationStatus::Accepted,
+                                    primary: self
+                                        .workspace
+                                        .domain
+                                        .graph
+                                        .node_classifications(key)
+                                        .is_some_and(|cs| cs.is_empty()),
+                                },
+                            );
+                            // Journal the classification so it survives restart
+                            if let Some(store) = &mut self.services.persistence {
+                                if let Some(node) = self.workspace.domain.graph.get_node(key) {
+                                    if let Some(c) = self
+                                        .workspace
+                                        .domain
+                                        .graph
+                                        .node_classifications(key)
+                                        .and_then(|cs| cs.iter().find(|c| c.value == normalized_tag))
+                                        .cloned()
+                                    {
+                                        store.log_mutation(&LogEntry::AssignClassification {
+                                            node_id: node.id.to_string(),
+                                            classification: c,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if let Some(suggestions) = self
                         .workspace
                         .graph_runtime
