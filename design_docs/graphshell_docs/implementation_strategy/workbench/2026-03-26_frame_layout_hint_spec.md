@@ -73,11 +73,33 @@ corresponds to one tab in the frame's tile group.
 
 ```rust
 pub enum FrameLayoutHint {
-    /// Two members side by side (50 % / 50 %).
-    SplitVertical { left: NodeKey, right: NodeKey },
+    /// Two members split equally (50 % / 50 %).
+    ///
+    /// `orientation` controls the split axis:
+    ///   - `Vertical`   — split line is vertical; panels are side by side.
+    ///   - `Horizontal` — split line is horizontal; panels are stacked.
+    SplitHalf {
+        first:       NodeKey,
+        second:      NodeKey,
+        orientation: SplitOrientation,
+    },
 
-    /// Two members stacked top-to-bottom (50 % / 50 %).
-    SplitHorizontal { top: NodeKey, bottom: NodeKey },
+    /// Three members split equally (33 % / 33 % / 33 %).
+    ///
+    /// All three members are peers — no dominant panel. Named after the
+    /// three-fold pamphlet format.
+    ///
+    /// `orientation` controls whether the panels are columns (`Vertical`)
+    /// or rows (`Horizontal`).
+    ///
+    /// Example — Vertical:
+    /// ┌──────┬──────┬──────┐
+    /// │  [0] │  [1] │  [2] │
+    /// └──────┴──────┴──────┘
+    SplitPamphlet {
+        members:     [NodeKey; 3],
+        orientation: SplitOrientation,
+    },
 
     /// Three members: one dominant pane (50 %) and two wing panes (25 % each).
     ///
@@ -107,6 +129,14 @@ pub enum FrameLayoutHint {
     },
 }
 
+/// Split axis for `SplitHalf` and `SplitPamphlet`.
+pub enum SplitOrientation {
+    /// Split line is vertical — panels are side by side (columns).
+    Vertical,
+    /// Split line is horizontal — panels are stacked (rows).
+    Horizontal,
+}
+
 /// Which edge the dominant pane occupies in a `SplitTriptych`.
 pub enum DominantEdge {
     Left,
@@ -118,12 +148,16 @@ pub enum DominantEdge {
 
 #### Split taxonomy at a glance
 
-| Type | Members | Dominant pane | Wing panes |
-|------|---------|---------------|------------|
-| `SplitVertical` | 2 | — (equal) | — |
-| `SplitHorizontal` | 2 | — (equal) | — |
-| `SplitTriptych` | 3 | 50 % | 25 % + 25 % |
-| `SplitQuartered` | 4 | — (equal) | — |
+| Type | Members | Layout | Hierarchy |
+|------|---------|--------|-----------|
+| `SplitHalf` | 2 | 50 % / 50 % | Equal |
+| `SplitPamphlet` | 3 | 33 % / 33 % / 33 % | Equal |
+| `SplitTriptych` | 3 | 50 % / 25 % / 25 % | Dominant + wings |
+| `SplitQuartered` | 4 | 25 % each | Equal |
+
+`SplitHalf` and `SplitPamphlet` each carry a `SplitOrientation` (columns or
+rows). `SplitTriptych` encodes its orientation implicitly in `dominant_edge`
+(Left/Right → vertical split axis; Top/Bottom → horizontal split axis).
 
 The natural member count per split type creates gentle UX pressure to keep
 frames small without requiring a hard policy limit (see §8).
@@ -335,7 +369,8 @@ frames without requiring a hard policy limit:
 
 | Split type | Slots | Offer shown when |
 |------------|-------|-----------------|
-| `SplitVertical` / `SplitHorizontal` | 2 | frame has ≥ 2 members |
+| `SplitHalf` | 2 | frame has ≥ 2 members |
+| `SplitPamphlet` | 3 | frame has ≥ 3 members |
 | `SplitTriptych` | 3 | frame has ≥ 3 members |
 | `SplitQuartered` | 4 | frame has ≥ 4 members |
 
@@ -352,7 +387,8 @@ The frame bounding-box minimap (defined in `frame_graph_representation_spec.md`)
 gains a **split-type indicator** when the frame carries layout hints:
 
 - A small icon in the frame backdrop header area shows the dominant split type:
-  vertical bar, horizontal bar, triptych-L, quad grid.
+  half-bar (vertical or horizontal), pamphlet columns, pamphlet rows,
+  triptych-T, quad grid.
 - When multiple hints exist, the icon shows the count ("2 splits").
 - When no hints exist, no split indicator is shown.
 
@@ -368,7 +404,7 @@ the graph.
 
 - Add `layout_hints: Vec<FrameLayoutHint>` and `split_offer_suppressed: bool`
   to `GraphFrame`.
-- Add `FrameLayoutHint` and `DominantEdge` enums.
+- Add `FrameLayoutHint`, `SplitOrientation`, and `DominantEdge` enums.
 - Add WAL `LogEntry` variants: `RecordFrameLayoutHint`, `RemoveFrameLayoutHint`,
   `SetFrameSplitOfferSuppressed`.
 - WAL replay handlers for all three.
@@ -436,5 +472,7 @@ a frame without hints shows none.
 | Select frame → Navigator highlight | Test: select frame backdrop → tile group highlighted in Navigator (if open) |
 | Focus tile group → graph highlight | Test: focus tile group → frame backdrop highlighted on canvas |
 | Natural cap — no hard limit | Test: frame with 6 members opens without error; split offer not shown |
-| Opt-out wing collapses triptych | Test: remove one wing from SplitTriptych → hint becomes SplitVertical/Horizontal |
-| Split indicator on canvas | Test: frame with SplitTriptych hint → triptych-L icon visible in backdrop |
+| Opt-out wing collapses triptych | Test: remove one wing from SplitTriptych → hint becomes SplitHalf |
+| SplitHalf orientation preserved | Test: record SplitHalf Horizontal → reopen → panels stacked, not side by side |
+| SplitPamphlet orientation preserved | Test: record SplitPamphlet Vertical → reopen → three equal columns |
+| Split indicator on canvas | Test: frame with SplitTriptych hint → triptych-T icon visible in backdrop |
