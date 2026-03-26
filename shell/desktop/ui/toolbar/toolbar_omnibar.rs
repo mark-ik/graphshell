@@ -118,13 +118,13 @@ pub(super) fn searchpage_template_for_provider(provider: SearchProviderKind) -> 
 }
 
 pub(super) fn spawn_provider_suggestion_request(
+    control_panel: &mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     provider: SearchProviderKind,
     query: &str,
     runtime_caches: crate::shell::desktop::runtime::caches::RuntimeCaches,
 ) -> Receiver<ProviderSuggestionFetchOutcome> {
-    let (tx, rx) = crossbeam_channel::bounded(1);
     let query = query.to_string();
-    thread::spawn(move || {
+    control_panel.spawn_blocking_host_request("omnibar_provider_suggestions", move || {
         let outcome = match fetch_provider_search_suggestions(provider, &query, &runtime_caches) {
             Ok(suggestions) => ProviderSuggestionFetchOutcome {
                 matches: suggestions
@@ -138,9 +138,8 @@ pub(super) fn spawn_provider_suggestion_request(
                 status: ProviderSuggestionStatus::Failed(error),
             },
         };
-        let _ = tx.send(outcome);
-    });
-    rx
+        outcome
+    })
 }
 
 fn fetch_provider_search_suggestions(

@@ -17,6 +17,7 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_status_sync;
+use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthorityState};
 use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
@@ -31,6 +32,7 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) winit_window: &'a Window,
     pub(crate) state: &'a RunningAppState,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
+    pub(crate) control_panel: &'a mut ControlPanel,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) active_toolbar_pane: Option<PaneId>,
@@ -70,6 +72,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         winit_window,
         state,
         graph_app,
+        control_panel,
         window,
         tiles_tree,
         active_toolbar_pane,
@@ -128,6 +131,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
                 winit_window,
                 state,
                 graph_app,
+                control_panel,
                 window,
                 tiles_tree,
                 navigator_ctx: &navigator_ctx,

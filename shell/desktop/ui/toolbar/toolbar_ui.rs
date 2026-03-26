@@ -10,10 +10,10 @@ use egui_tiles::Tree;
 use euclid::default::Point2D;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::thread;
 use std::time::{Duration, Instant};
 use winit::window::Window;
 
+use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
@@ -165,6 +165,7 @@ pub(crate) struct Input<'a> {
     pub winit_window: &'a Window,
     pub state: &'a RunningAppState,
     pub graph_app: &'a mut GraphBrowserApp,
+    pub control_panel: &'a mut ControlPanel,
     pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a Tree<TileKind>,
     pub navigator_ctx: &'a NavigatorContextProjection,
@@ -536,6 +537,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         winit_window,
         state,
         graph_app,
+        control_panel,
         window,
         tiles_tree,
         navigator_ctx,
@@ -636,6 +638,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                         ctx,
                         state,
                         graph_app,
+                        control_panel,
                         window,
                         tiles_tree,
                         focused_toolbar_node,

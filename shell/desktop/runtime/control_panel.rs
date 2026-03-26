@@ -17,6 +17,7 @@
 //! dedicated runtime bus type is implemented here yet.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -563,6 +564,46 @@ impl ControlPanel {
         log::debug!("control_panel: agent spawned ({agent_name}, {agent_id})");
     }
 
+    /// Spawn a short-lived Shell/Register-owned task under the same
+    /// supervision boundary as longer-lived background workers.
+    pub(crate) fn spawn_supervised_task<F>(&mut self, label: &'static str, task: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.workers.spawn(task);
+        log::debug!("control_panel: supervised task spawned ({label})");
+    }
+
+    /// Run a blocking host request under ControlPanel supervision and return a
+    /// single-result mailbox that can be polled safely from the UI frame loop.
+    pub(crate) fn spawn_blocking_host_request<T, F>(
+        &mut self,
+        label: &'static str,
+        work: F,
+    ) -> crossbeam_channel::Receiver<T>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        let cancel = self.cancel.child_token();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.spawn_supervised_task(label, async move {
+            if cancel.is_cancelled() {
+                return;
+            }
+
+            let result = tokio::task::spawn_blocking(work).await;
+            if cancel.is_cancelled() {
+                return;
+            }
+
+            if let Ok(value) = result {
+                let _ = tx.send(value);
+            }
+        });
+        rx
+    }
+
     pub(crate) fn spawn_registered_agent(
         &mut self,
         agent_id: &str,
@@ -986,6 +1027,26 @@ mod tests {
         panel.shutdown().await;
 
         assert!(cancelled.load(Ordering::SeqCst));
+        assert_eq!(panel.worker_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn spawn_blocking_host_request_is_supervised_and_returns_result() {
+        let mut panel = ControlPanel::new(None);
+
+        let rx = panel.spawn_blocking_host_request("test_blocking_request", || 42usize);
+        tokio::task::yield_now().await;
+
+        assert_eq!(panel.worker_count(), 1);
+        let value = tokio::task::spawn_blocking(move || {
+            rx.recv_timeout(Duration::from_secs(2))
+                .expect("blocking host request should return a value")
+        })
+        .await
+        .expect("join should succeed");
+        assert_eq!(value, 42);
+
+        panel.shutdown().await;
         assert_eq!(panel.worker_count(), 0);
     }
 

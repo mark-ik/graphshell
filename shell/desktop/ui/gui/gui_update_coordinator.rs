@@ -116,6 +116,7 @@ impl Gui {
             winit_window,
             state,
             graph_app,
+            control_panel,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             window,
@@ -306,6 +307,7 @@ impl Gui {
             winit_window,
             state,
             graph_app,
+            control_panel,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             window,
@@ -341,6 +343,7 @@ impl Gui {
             winit_window,
             state,
             graph_app,
+            control_panel,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             window,

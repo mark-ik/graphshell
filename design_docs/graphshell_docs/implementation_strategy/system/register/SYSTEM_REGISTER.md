@@ -96,6 +96,9 @@ Implemented:
 - Runtime-owned theme activation, built-in theme descriptors, and tokenized command/radial surfaces
 - Register-owned `AgentRegistry` with `ControlPanel` supervision and built-in `agent:tag_suggester`
   signal-driven suggestion ingress
+- Shell-owned omnibar provider suggestion fetches now route through
+  `ControlPanel`-supervised host requests and return to the frame loop through
+  an explicit mailbox instead of detached toolbar threads
 
 Cross-system leverage already available:
 
@@ -114,7 +117,8 @@ Gaps / active architectural work:
   registry-owned through `LayoutRegistry` + `app/graph_layout.rs`; remaining work here is
   stabilization, not missing authority structure
 - Omnibar suggestion-dropdown UI still has a legacy local candidate pipeline; only the submit/action
-  path is currently unified through `IndexRegistry`
+  path is currently unified through `IndexRegistry`; provider-fetch execution is now supervised, but
+  candidate synthesis/ranking policy is still partly local to Shell UI code
 - `index:timeline` remains future history work; the provider shape is planned, but no live timeline
   index source exists yet
 - `ModRegistry` still lacks a real WASM host / intent bridge, so Sector G is not fully closed
@@ -213,6 +217,10 @@ consistent**.
 - **Do not bypass `ControlPanel` for background intent producers.** All
   background tasks that produce current reducer-carrier values must go through
   `ControlPanel`'s supervised worker model, not spawn independent threads.
+- **Do not bypass `ControlPanel` for Shell-owned short-lived background
+  requests.** Ephemeral UI-triggered work such as omnibar/provider lookups
+  should use supervised host requests and frame-bound mailbox ingestion, not
+  raw detached threads hidden in UI modules.
 
 Carrier interpretation note:
 

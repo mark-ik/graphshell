@@ -52,6 +52,12 @@ It is a process host, not a hidden second reducer.
 - The reducer remains synchronous and testable.
 - Background failures must degrade explicitly through diagnostics or structured intents.
 - `ControlPanel` does not own registries; it coordinates work around them.
+- Short-lived host requests initiated from Shell/UI surfaces still count as
+  background work and should use the same supervision boundary rather than raw
+  detached threads.
+- When a background task needs to update UI-visible Shell state directly, it
+  should return through an explicit mailbox/result channel that Shell drains at
+  frame boundaries.
 
 ## Planned Extensions
 

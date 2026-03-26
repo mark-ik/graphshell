@@ -36,6 +36,7 @@ pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     pub(super) winit_window: &'a Window,
     pub(super) state: &'a RunningAppState,
     pub(super) graph_app: &'a mut GraphBrowserApp,
+    pub(super) control_panel: &'a mut ControlPanel,
     #[cfg(feature = "diagnostics")]
     pub(super) diagnostics_state: &'a mut diagnostics::DiagnosticsState,
     pub(super) window: &'a EmbedderWindow,

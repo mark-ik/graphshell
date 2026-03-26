@@ -321,7 +321,28 @@ Shell switches to input mode and the `breadcrumb` region collapses to just the
 Navigator does not own the input field, completion list, or dispatch logic.
 Shell does not own the breadcrumb content. The seam is the struct.
 
-### 5.3 CommandBar target resolution
+### 5.3 CommandBar host-thread contract
+
+`CommandBar` is a **Shell host-thread surface** even when it depends on
+background data.
+
+The threading contract is:
+
+1. input state, mode switches, and completion-list presentation are Shell-owned
+   frame-loop state
+2. Navigator contributes only frame-readable context projection
+   (`NavigatorContextProjection`)
+3. any background provider fetch, index lookup, or remote suggestion request
+   must run under Shell/Register supervision (`ControlPanel` or equivalent),
+   not via ad hoc toolbar-owned detached threads
+4. background results are ingested by Shell at frame boundaries through an
+   explicit mailbox/receiver owned by the current omnibar session
+
+This keeps the omnibar aligned with the broader Shell-as-host rule:
+Shell owns the widget, focus, and visible state; background runtime work only
+feeds it through explicit host-owned seams.
+
+### 5.4 CommandBar target resolution
 
 The `CommandBar` may show controls whose action target depends on the currently
 focused surface, especially per-pane Viewer controls. That target resolution is
@@ -353,7 +374,7 @@ This rule is Shell-owned and evaluated once per frame before rendering the
 `CommandBar`. Viewer-targeted controls must read from this resolved target
 rather than re-deriving focus inside toolbar code.
 
-### 5.4 Controls currently in `graph_bar` — redistribution
+### 5.5 Controls currently in `graph_bar` — redistribution
 
 `toolbar_ui.rs:render_toolbar` currently renders these in `graph_bar` in a
 single `TopBottomPanel`:

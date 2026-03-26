@@ -57,6 +57,7 @@ pub(super) fn render_location_search_panel(
     ctx: &egui::Context,
     state: &RunningAppState,
     graph_app: &mut GraphBrowserApp,
+    control_panel: &mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
     focused_toolbar_node: Option<NodeKey>,
@@ -90,7 +91,13 @@ pub(super) fn render_location_search_panel(
             let visuals = ui.visuals();
             let bg = visuals.extreme_bg_color;
             let stroke = visuals.widgets.noninteractive.bg_stroke;
-            ui.painter().rect(rect, egui::CornerRadius::same(4), bg, stroke, egui::StrokeKind::Inside);
+            ui.painter().rect(
+                rect,
+                egui::CornerRadius::same(4),
+                bg,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
 
             // Render breadcrumb tokens left-to-right inside the rect, then scope_badge on right
             let inner_margin = 6.0;
@@ -385,6 +392,7 @@ pub(super) fn render_location_search_panel(
                 ));
             } else {
                 session.provider_rx = Some(spawn_provider_suggestion_request(
+                    control_panel,
                     provider,
                     &provider_query,
                     graph_app.workspace.graph_runtime.runtime_caches.clone(),

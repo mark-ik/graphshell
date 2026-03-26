@@ -17,6 +17,7 @@ use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
+use crate::shell::desktop::runtime::control_panel::ControlPanel;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -502,6 +503,7 @@ pub(super) fn run_toolbar_phase(
     winit_window: &Window,
     state: &RunningAppState,
     graph_app: &mut GraphBrowserApp,
+    control_panel: &mut ControlPanel,
     #[cfg(feature = "diagnostics")] diagnostics_state: &mut diagnostics::DiagnosticsState,
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
@@ -530,6 +532,7 @@ pub(super) fn run_toolbar_phase(
             winit_window,
             state,
             graph_app,
+            control_panel,
             window,
             tiles_tree,
             active_toolbar_pane: window.focused_pane(),

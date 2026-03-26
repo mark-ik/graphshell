@@ -252,6 +252,41 @@ Shell determines presentation context and routing.
 
 ---
 
+### 8.5 Shell host execution boundary
+
+Shell is not only the composition host; it is also the **host-thread
+authority** for frame-bound user-visible state.
+
+The required split is:
+
+- **Shell host thread / frame loop**:
+  top-level panel composition, focus resolution, command-bar rendering, input
+  dispatch, accessibility tree publication, UX-tree projection publication, and
+  ingestion of background results into user-visible state
+- **Register / ControlPanel supervised tasks**:
+  network requests, protocol probes, indexing, sync workers, provider
+  suggestion fetches, and other background/runtime work
+- **Boundary rule**:
+  background work returns through explicit mailboxes or intent/signal channels
+  that Shell drains at frame boundaries; background tasks do not directly
+  mutate Shell-owned UI state
+
+This means accessibility, UX-tree, and top-level diagnostics presentation
+remain frame-projected host concerns even when their data sources depend on
+background runtime activity. They are not independent UI threads.
+
+Short-lived UI-triggered background work still counts as background work. A
+provider-suggestion fetch initiated by the omnibar should run under
+`ControlPanel` supervision and return a mailbox result to Shell, not launch an
+ad hoc detached thread from toolbar code.
+
+The only acceptable exceptions are **pre-host bootstrap** tasks that occur
+before the Shell host/runtime boundary exists at all (for example, startup
+initialization done before `Gui`/Shell is live). Those exceptions should remain
+rare and explicitly documented.
+
+---
+
 ## 9. Architectural Rules
 
 - The Shell must never derive system truth from UI state. It reads from
