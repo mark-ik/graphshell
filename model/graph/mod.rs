@@ -308,6 +308,126 @@ pub struct NodeImportProvenance {
     pub source_label: String,
 }
 
+// ---------------------------------------------------------------------------
+// Node classification — Stage A durable enrichment schema
+// Spec: graph_enrichment_plan.md §§ Core Data Model, Stage A
+// ---------------------------------------------------------------------------
+
+/// Classification scheme identifier (spec §Core Data Model).
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub enum ClassificationScheme {
+    /// Universal Decimal Classification (primary semantic taxonomy).
+    #[default]
+    Udc,
+    /// Content-kind classification (page, article, repo, …).
+    ContentKind,
+    /// Custom namespaced scheme (e.g. `"myns:custom"`).
+    Custom(String),
+}
+
+/// Origin of a classification or tag.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub enum ClassificationProvenance {
+    /// Explicitly authored by the user.
+    #[default]
+    UserAuthored,
+    /// Imported from an external data source (bookmarks, history, file, …).
+    Imported,
+    /// Inherited from a source/parent node relationship.
+    InheritedFromSource,
+    /// Derived by the knowledge registry (UDC lookup, content analysis, …).
+    RegistryDerived,
+    /// Proposed by an agent/model; not yet accepted by the user.
+    AgentSuggested,
+    /// Synced from the community/Verse network.
+    CommunitySynced,
+}
+
+/// Lifecycle status of a classification record.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub enum ClassificationStatus {
+    /// User has explicitly accepted this classification.
+    Accepted,
+    /// Proposed but not yet reviewed (e.g. agent-suggested).
+    #[default]
+    Suggested,
+    /// User has explicitly rejected this classification.
+    Rejected,
+    /// Verified by an authoritative external source.
+    Verified,
+    /// Imported from an external record without explicit user review.
+    Imported,
+}
+
+/// A single provenance-bearing classification record on a node (spec §Core Data Model).
+///
+/// Multiple records can coexist; at most one should have `primary: true` per scheme.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct NodeClassification {
+    pub scheme: ClassificationScheme,
+    /// Scheme-specific classification value (e.g. `"udc:519.6"`, `"article"`).
+    pub value: String,
+    /// Human-readable label resolved from the scheme (e.g. `"Computational mathematics"`).
+    pub label: Option<String>,
+    /// Confidence score in `[0.0, 1.0]`; `1.0` for user-authored.
+    pub confidence: f32,
+    pub provenance: ClassificationProvenance,
+    pub status: ClassificationStatus,
+    /// Whether this is the primary presentation classification for its scheme.
+    pub primary: bool,
+}
+
 #[derive(
     Debug,
     Clone,
@@ -477,6 +597,12 @@ pub struct Node {
     /// Derived external import provenance for this node.
     pub import_provenance: Vec<NodeImportProvenance>,
 
+    /// Durable provenance-bearing classification records for this node.
+    ///
+    /// Spec: `graph_enrichment_plan.md §Core Data Model` — carries scheme, value,
+    /// label, confidence, provenance, and status for each classification.
+    pub classifications: Vec<NodeClassification>,
+
     /// Whether this node's position is pinned (doesn't move with physics)
     pub is_pinned: bool,
 
@@ -569,6 +695,7 @@ impl Node {
             tags: HashSet::new(),
             tag_presentation: NodeTagPresentationState::default(),
             import_provenance: Vec::new(),
+            classifications: Vec::new(),
             is_pinned: false,
             last_visited: std::time::SystemTime::now(),
             history_entries: Vec::new(),
@@ -1577,6 +1704,7 @@ impl Graph {
             tags: HashSet::new(),
             tag_presentation: NodeTagPresentationState::default(),
             import_provenance: Vec::new(),
+            classifications: Vec::new(),
             is_pinned: false,
             last_visited: now,
             history_entries: Vec::new(),
@@ -1759,6 +1887,100 @@ impl Graph {
     pub(crate) fn node_import_provenance(&self, key: NodeKey) -> Option<&[NodeImportProvenance]> {
         self.get_node(key)
             .map(|node| node.import_provenance.as_slice())
+    }
+
+    // --- Classification accessors (Stage A) ---
+
+    pub(crate) fn node_classifications(&self, key: NodeKey) -> Option<&[NodeClassification]> {
+        self.get_node(key)
+            .map(|node| node.classifications.as_slice())
+    }
+
+    /// Add a classification record to a node.
+    ///
+    /// Deduplicates by `(scheme, value)`. Returns `true` if the record was inserted.
+    pub(crate) fn add_node_classification(
+        &mut self,
+        key: NodeKey,
+        classification: NodeClassification,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        let already_exists = node
+            .classifications
+            .iter()
+            .any(|c| c.scheme == classification.scheme && c.value == classification.value);
+        if already_exists {
+            return false;
+        }
+        node.classifications.push(classification);
+        true
+    }
+
+    /// Remove all classification records matching `(scheme, value)`.
+    ///
+    /// Returns `true` if at least one record was removed.
+    pub(crate) fn remove_node_classification(
+        &mut self,
+        key: NodeKey,
+        scheme: &ClassificationScheme,
+        value: &str,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        let before = node.classifications.len();
+        node.classifications
+            .retain(|c| !(c.scheme == *scheme && c.value == value));
+        node.classifications.len() < before
+    }
+
+    /// Update the `status` of a classification record identified by `(scheme, value)`.
+    ///
+    /// Returns `true` if a matching record was found and updated.
+    pub(crate) fn set_node_classification_status(
+        &mut self,
+        key: NodeKey,
+        scheme: &ClassificationScheme,
+        value: &str,
+        status: ClassificationStatus,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        let mut found = false;
+        for c in node.classifications.iter_mut() {
+            if c.scheme == *scheme && c.value == value {
+                c.status = status.clone();
+                found = true;
+            }
+        }
+        found
+    }
+
+    /// Promote a classification record to primary for its scheme; demotes all others.
+    ///
+    /// Returns `true` if a matching record was found.
+    pub(crate) fn set_node_primary_classification(
+        &mut self,
+        key: NodeKey,
+        scheme: &ClassificationScheme,
+        value: &str,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        let mut found = false;
+        for c in node.classifications.iter_mut() {
+            if c.scheme == *scheme {
+                c.primary = c.value == value;
+                if c.value == value {
+                    found = true;
+                }
+            }
+        }
+        found
     }
 
     pub(crate) fn import_records(&self) -> &[ImportRecord] {
@@ -2921,6 +3143,7 @@ impl Graph {
                     scroll_y: node.session_scroll.map(|(_, y)| y),
                     form_draft: node.session_form_draft.clone(),
                 }),
+                classifications: node.classifications.clone(),
                 mime_hint: node.mime_hint.clone(),
                 address_kind: match node.address_kind {
                     AddressKind::Http => PersistedAddressKind::Http,
@@ -3180,6 +3403,7 @@ impl Graph {
                 node.tags = pnode.tags.iter().cloned().collect();
                 node.tag_presentation = pnode.tag_presentation.clone();
                 node.import_provenance = pnode.import_provenance.clone();
+                node.classifications = pnode.classifications.clone();
                 node.is_pinned = pnode.is_pinned;
                 node.history_entries = pnode.history_entries.clone();
                 node.history_index = pnode
@@ -3993,6 +4217,7 @@ mod tests {
                 session_state: None,
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
+                classifications: Vec::new(),
             }],
             edges: vec![PersistedEdge {
                 from_node_id: Uuid::new_v4().to_string(),
@@ -4050,6 +4275,7 @@ mod tests {
                     session_state: None,
                     mime_hint: None,
                     address_kind: PersistedAddressKind::Http,
+                    classifications: Vec::new(),
                 },
                 PersistedNode {
                     node_id: Uuid::new_v4().to_string(),
@@ -4073,6 +4299,7 @@ mod tests {
                     session_state: None,
                     mime_hint: None,
                     address_kind: PersistedAddressKind::Http,
+                    classifications: Vec::new(),
                 },
             ],
             edges: vec![],
@@ -4149,6 +4376,7 @@ mod tests {
                 }),
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
+                classifications: Vec::new(),
             }],
             edges: vec![],
             import_records: vec![],
@@ -4196,6 +4424,7 @@ mod tests {
                 }),
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
+                classifications: Vec::new(),
             }],
             edges: vec![],
             import_records: vec![],
@@ -4236,6 +4465,7 @@ mod tests {
                 session_state: None,
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
+                classifications: Vec::new(),
             }],
             edges: vec![],
             import_records: vec![],
@@ -4275,6 +4505,35 @@ mod tests {
                 source_label: "Firefox bookmarks".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn test_snapshot_roundtrip_preserves_classifications() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+
+        let classification = NodeClassification {
+            scheme: ClassificationScheme::Udc,
+            value: "udc:519.6".to_string(),
+            label: Some("Computational mathematics".to_string()),
+            confidence: 0.9,
+            provenance: ClassificationProvenance::UserAuthored,
+            status: ClassificationStatus::Accepted,
+            primary: true,
+        };
+        assert!(graph.add_node_classification(key, classification.clone()));
+
+        let restored = Graph::from_snapshot(&graph.to_snapshot());
+        let (_, node) = restored.get_node_by_url("https://example.com").unwrap();
+        assert_eq!(node.classifications.len(), 1);
+        let c = &node.classifications[0];
+        assert_eq!(c.scheme, ClassificationScheme::Udc);
+        assert_eq!(c.value, "udc:519.6");
+        assert_eq!(c.label.as_deref(), Some("Computational mathematics"));
+        assert!((c.confidence - 0.9).abs() < 1e-6);
+        assert_eq!(c.provenance, ClassificationProvenance::UserAuthored);
+        assert_eq!(c.status, ClassificationStatus::Accepted);
+        assert!(c.primary);
     }
 
     #[test]

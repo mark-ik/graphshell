@@ -6,7 +6,9 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::graph::{ImportRecord, NodeImportProvenance, badge::NodeTagPresentationState};
+use crate::graph::{
+    ImportRecord, NodeClassification, NodeImportProvenance, badge::NodeTagPresentationState,
+};
 
 /// Address type hint for persistence (mirrors `AddressKind` in the graph model).
 #[derive(
@@ -73,6 +75,9 @@ pub struct PersistedNode {
     pub mime_hint: Option<String>,
     /// Address type hint; inferred from URL scheme.
     pub address_kind: PersistedAddressKind,
+    /// Durable provenance-bearing classification records (Stage A enrichment).
+    #[serde(default)]
+    pub classifications: Vec<NodeClassification>,
 }
 
 #[derive(
@@ -667,6 +672,30 @@ pub enum LogEntry {
         /// Wall-clock time of the event (ms since UNIX epoch).
         timestamp_ms: u64,
     },
+    /// Assign a classification record to a node.
+    AssignClassification {
+        node_id: String,
+        classification: NodeClassification,
+    },
+    /// Remove a classification record from a node by scheme + value.
+    UnassignClassification {
+        node_id: String,
+        scheme: crate::graph::ClassificationScheme,
+        value: String,
+    },
+    /// Update the status of a classification record on a node.
+    UpdateClassificationStatus {
+        node_id: String,
+        scheme: crate::graph::ClassificationScheme,
+        value: String,
+        status: crate::graph::ClassificationStatus,
+    },
+    /// Mark a classification as the primary one for its scheme.
+    SetPrimaryClassification {
+        node_id: String,
+        scheme: crate::graph::ClassificationScheme,
+        value: String,
+    },
 }
 
 #[cfg(test)]
@@ -710,6 +739,7 @@ mod tests {
             }),
             mime_hint: Some("text/html".to_string()),
             address_kind: PersistedAddressKind::Http,
+            classifications: Vec::new(),
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&node).unwrap();
@@ -814,6 +844,7 @@ mod tests {
                 session_state: None,
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
+                classifications: Vec::new(),
             }],
             edges: vec![],
             import_records: vec![ImportRecord {

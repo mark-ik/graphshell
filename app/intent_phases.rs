@@ -882,6 +882,93 @@ impl GraphBrowserApp {
                     }
                 }
             }
+            // --- Classification intents (Stage A enrichment) ---
+            GraphIntent::AssignClassification { key, classification } => {
+                self.workspace
+                    .domain
+                    .graph
+                    .add_node_classification(key, classification.clone());
+                if let Some(store) = &mut self.services.persistence {
+                    if let Some(node) = self.workspace.domain.graph.get_node(key) {
+                        store.log_mutation(&LogEntry::AssignClassification {
+                            node_id: node.id.to_string(),
+                            classification,
+                        });
+                    }
+                }
+            }
+            GraphIntent::UnassignClassification { key, scheme, value } => {
+                self.workspace
+                    .domain
+                    .graph
+                    .remove_node_classification(key, &scheme, &value);
+                if let Some(store) = &mut self.services.persistence {
+                    if let Some(node) = self.workspace.domain.graph.get_node(key) {
+                        store.log_mutation(&LogEntry::UnassignClassification {
+                            node_id: node.id.to_string(),
+                            scheme,
+                            value,
+                        });
+                    }
+                }
+            }
+            GraphIntent::AcceptClassification { key, scheme, value } => {
+                self.workspace
+                    .domain
+                    .graph
+                    .set_node_classification_status(
+                        key,
+                        &scheme,
+                        &value,
+                        crate::model::graph::ClassificationStatus::Accepted,
+                    );
+                if let Some(store) = &mut self.services.persistence {
+                    if let Some(node) = self.workspace.domain.graph.get_node(key) {
+                        store.log_mutation(&LogEntry::UpdateClassificationStatus {
+                            node_id: node.id.to_string(),
+                            scheme,
+                            value,
+                            status: crate::model::graph::ClassificationStatus::Accepted,
+                        });
+                    }
+                }
+            }
+            GraphIntent::RejectClassification { key, scheme, value } => {
+                self.workspace
+                    .domain
+                    .graph
+                    .set_node_classification_status(
+                        key,
+                        &scheme,
+                        &value,
+                        crate::model::graph::ClassificationStatus::Rejected,
+                    );
+                if let Some(store) = &mut self.services.persistence {
+                    if let Some(node) = self.workspace.domain.graph.get_node(key) {
+                        store.log_mutation(&LogEntry::UpdateClassificationStatus {
+                            node_id: node.id.to_string(),
+                            scheme,
+                            value,
+                            status: crate::model::graph::ClassificationStatus::Rejected,
+                        });
+                    }
+                }
+            }
+            GraphIntent::SetPrimaryClassification { key, scheme, value } => {
+                self.workspace
+                    .domain
+                    .graph
+                    .set_node_primary_classification(key, &scheme, &value);
+                if let Some(store) = &mut self.services.persistence {
+                    if let Some(node) = self.workspace.domain.graph.get_node(key) {
+                        store.log_mutation(&LogEntry::SetPrimaryClassification {
+                            node_id: node.id.to_string(),
+                            scheme,
+                            value,
+                        });
+                    }
+                }
+            }
             GraphIntent::SuggestNodeTags { key, suggestions } => {
                 if self.workspace.domain.graph.get_node(key).is_none() {
                     return;

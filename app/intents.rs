@@ -574,6 +574,35 @@ pub enum GraphIntent {
         key: NodeKey,
         tag: String,
     },
+    /// Assign a provenance-bearing classification record to a node (Stage A enrichment).
+    AssignClassification {
+        key: NodeKey,
+        classification: crate::model::graph::NodeClassification,
+    },
+    /// Remove a classification record by `(scheme, value)` identity.
+    UnassignClassification {
+        key: NodeKey,
+        scheme: crate::model::graph::ClassificationScheme,
+        value: String,
+    },
+    /// Accept a previously `Suggested` classification (updates status to `Accepted`).
+    AcceptClassification {
+        key: NodeKey,
+        scheme: crate::model::graph::ClassificationScheme,
+        value: String,
+    },
+    /// Reject a classification (updates status to `Rejected`; record is retained for audit).
+    RejectClassification {
+        key: NodeKey,
+        scheme: crate::model::graph::ClassificationScheme,
+        value: String,
+    },
+    /// Promote a classification to primary for its scheme.
+    SetPrimaryClassification {
+        key: NodeKey,
+        scheme: crate::model::graph::ClassificationScheme,
+        value: String,
+    },
     SuggestNodeTags {
         key: NodeKey,
         suggestions: Vec<String>,
@@ -852,6 +881,11 @@ impl GraphIntent {
             | Self::SetNodeUrl { .. }
             | Self::TagNode { .. }
             | Self::UntagNode { .. }
+            | Self::AssignClassification { .. }
+            | Self::UnassignClassification { .. }
+            | Self::AcceptClassification { .. }
+            | Self::RejectClassification { .. }
+            | Self::SetPrimaryClassification { .. }
             | Self::CreateUserGroupedEdge { .. }
             | Self::DeleteImportRecord { .. }
             | Self::SuppressImportRecordMembership { .. }
@@ -1419,6 +1453,11 @@ impl GraphIntent {
                 key: *key,
                 tag: tag.clone(),
             }),
+            Self::AssignClassification { .. }
+            | Self::UnassignClassification { .. }
+            | Self::AcceptClassification { .. }
+            | Self::RejectClassification { .. }
+            | Self::SetPrimaryClassification { .. } => None,
             Self::CreateUserGroupedEdge { from, to, label } => {
                 Some(GraphMutation::CreateUserGroupedEdge {
                     from: *from,

@@ -5655,6 +5655,173 @@ fn test_set_view_filter_does_not_mutate_graph_node_identity() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Node classification intents — Stage A enrichment spec
+// "tags/classifications survive restart and replay; reducer-only mutation
+// boundary is enforced"
+// Source: graph_enrichment_plan.md §Stage A
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_assign_classification_intent_adds_record() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let node = app.add_node_and_sync("https://example.com/".into(), Point2D::new(0.0, 0.0));
+
+    app.apply_reducer_intents([GraphIntent::AssignClassification {
+        key: node,
+        classification: crate::model::graph::NodeClassification {
+            scheme: crate::model::graph::ClassificationScheme::Udc,
+            value: "udc:519.6".to_string(),
+            label: Some("Computational mathematics".to_string()),
+            confidence: 1.0,
+            provenance: crate::model::graph::ClassificationProvenance::UserAuthored,
+            status: crate::model::graph::ClassificationStatus::Accepted,
+            primary: true,
+        },
+    }]);
+
+    let classifications = app
+        .workspace
+        .domain
+        .graph
+        .node_classifications(node)
+        .unwrap();
+    assert_eq!(classifications.len(), 1);
+    assert_eq!(classifications[0].value, "udc:519.6");
+    assert_eq!(
+        classifications[0].status,
+        crate::model::graph::ClassificationStatus::Accepted
+    );
+}
+
+#[test]
+fn test_accept_reject_classification_intent_updates_status() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let node = app.add_node_and_sync("https://example.com/".into(), Point2D::new(0.0, 0.0));
+
+    app.apply_reducer_intents([GraphIntent::AssignClassification {
+        key: node,
+        classification: crate::model::graph::NodeClassification {
+            scheme: crate::model::graph::ClassificationScheme::Udc,
+            value: "udc:51".to_string(),
+            label: None,
+            confidence: 0.8,
+            provenance: crate::model::graph::ClassificationProvenance::AgentSuggested,
+            status: crate::model::graph::ClassificationStatus::Suggested,
+            primary: false,
+        },
+    }]);
+
+    // Accept it
+    app.apply_reducer_intents([GraphIntent::AcceptClassification {
+        key: node,
+        scheme: crate::model::graph::ClassificationScheme::Udc,
+        value: "udc:51".to_string(),
+    }]);
+    assert_eq!(
+        app.workspace
+            .domain
+            .graph
+            .node_classifications(node)
+            .unwrap()[0]
+            .status,
+        crate::model::graph::ClassificationStatus::Accepted
+    );
+
+    // Reject it
+    app.apply_reducer_intents([GraphIntent::RejectClassification {
+        key: node,
+        scheme: crate::model::graph::ClassificationScheme::Udc,
+        value: "udc:51".to_string(),
+    }]);
+    assert_eq!(
+        app.workspace
+            .domain
+            .graph
+            .node_classifications(node)
+            .unwrap()[0]
+            .status,
+        crate::model::graph::ClassificationStatus::Rejected
+    );
+}
+
+#[test]
+fn test_unassign_classification_intent_removes_record() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let node = app.add_node_and_sync("https://example.com/".into(), Point2D::new(0.0, 0.0));
+
+    app.apply_reducer_intents([GraphIntent::AssignClassification {
+        key: node,
+        classification: crate::model::graph::NodeClassification {
+            scheme: crate::model::graph::ClassificationScheme::Udc,
+            value: "udc:51".to_string(),
+            label: None,
+            confidence: 1.0,
+            provenance: crate::model::graph::ClassificationProvenance::UserAuthored,
+            status: crate::model::graph::ClassificationStatus::Accepted,
+            primary: false,
+        },
+    }]);
+    assert_eq!(
+        app.workspace.domain.graph.node_classifications(node).unwrap().len(),
+        1
+    );
+
+    app.apply_reducer_intents([GraphIntent::UnassignClassification {
+        key: node,
+        scheme: crate::model::graph::ClassificationScheme::Udc,
+        value: "udc:51".to_string(),
+    }]);
+    assert!(
+        app.workspace.domain.graph.node_classifications(node).unwrap().is_empty(),
+        "UnassignClassification must remove the matching record"
+    );
+}
+
+#[test]
+fn test_classification_survives_snapshot_roundtrip() {
+    use tempfile::TempDir;
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().to_path_buf();
+
+    let mut app = GraphBrowserApp::new_from_dir(path.clone());
+    let node = app.add_node_and_sync("https://persist.test/".into(), Point2D::new(0.0, 0.0));
+    app.apply_reducer_intents([GraphIntent::AssignClassification {
+        key: node,
+        classification: crate::model::graph::NodeClassification {
+            scheme: crate::model::graph::ClassificationScheme::Udc,
+            value: "udc:519.6".to_string(),
+            label: Some("Computational mathematics".to_string()),
+            confidence: 0.95,
+            provenance: crate::model::graph::ClassificationProvenance::UserAuthored,
+            status: crate::model::graph::ClassificationStatus::Accepted,
+            primary: true,
+        },
+    }]);
+    drop(app);
+
+    let reopened = GraphBrowserApp::new_from_dir(path);
+    let (key, _) = reopened
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://persist.test/")
+        .expect("node should survive restart");
+    let classifications = reopened
+        .workspace
+        .domain
+        .graph
+        .node_classifications(key)
+        .unwrap();
+    assert_eq!(classifications.len(), 1, "classification must survive restart");
+    assert_eq!(classifications[0].value, "udc:519.6");
+    assert_eq!(
+        classifications[0].status,
+        crate::model::graph::ClassificationStatus::Accepted
+    );
+    assert!(classifications[0].primary);
+}
+
 #[test]
 fn test_set_view_lens_preserves_direct_values_when_lens_id_missing() {
     let mut app = GraphBrowserApp::new_for_testing();

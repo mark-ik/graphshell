@@ -1921,6 +1921,11 @@ impl GraphBrowserApp {
                 | GraphIntent::ExecuteEdgeCommand { .. }
                 | GraphIntent::TagNode { .. }
                 | GraphIntent::UntagNode { .. }
+                | GraphIntent::AssignClassification { .. }
+                | GraphIntent::UnassignClassification { .. }
+                | GraphIntent::AcceptClassification { .. }
+                | GraphIntent::RejectClassification { .. }
+                | GraphIntent::SetPrimaryClassification { .. }
                 | GraphIntent::UpdateNodeMimeHint { .. }
                 | GraphIntent::UpdateNodeAddressKind { .. }
         ) {

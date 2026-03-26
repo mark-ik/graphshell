@@ -2001,6 +2001,167 @@ impl GraphStore {
                 ArchivedLogEntry::NavigateNode { .. } => {}
                 // AppendNodeAuditEvent is audit metadata only; no graph state change.
                 ArchivedLogEntry::AppendNodeAuditEvent { .. } => {}
+                ArchivedLogEntry::AssignClassification {
+                    node_id,
+                    classification,
+                } => {
+                    let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        use crate::graph::{
+                            ArchivedClassificationProvenance, ArchivedClassificationScheme,
+                            ArchivedClassificationStatus, ClassificationProvenance,
+                            ClassificationScheme, ClassificationStatus, NodeClassification,
+                        };
+                        let scheme = match &classification.scheme {
+                            ArchivedClassificationScheme::Udc => ClassificationScheme::Udc,
+                            ArchivedClassificationScheme::ContentKind => {
+                                ClassificationScheme::ContentKind
+                            }
+                            ArchivedClassificationScheme::Custom(s) => {
+                                ClassificationScheme::Custom(s.to_string())
+                            }
+                        };
+                        let provenance = match &classification.provenance {
+                            ArchivedClassificationProvenance::UserAuthored => {
+                                ClassificationProvenance::UserAuthored
+                            }
+                            ArchivedClassificationProvenance::Imported => {
+                                ClassificationProvenance::Imported
+                            }
+                            ArchivedClassificationProvenance::InheritedFromSource => {
+                                ClassificationProvenance::InheritedFromSource
+                            }
+                            ArchivedClassificationProvenance::RegistryDerived => {
+                                ClassificationProvenance::RegistryDerived
+                            }
+                            ArchivedClassificationProvenance::AgentSuggested => {
+                                ClassificationProvenance::AgentSuggested
+                            }
+                            ArchivedClassificationProvenance::CommunitySynced => {
+                                ClassificationProvenance::CommunitySynced
+                            }
+                        };
+                        let status = match &classification.status {
+                            ArchivedClassificationStatus::Accepted => {
+                                ClassificationStatus::Accepted
+                            }
+                            ArchivedClassificationStatus::Suggested => {
+                                ClassificationStatus::Suggested
+                            }
+                            ArchivedClassificationStatus::Rejected => {
+                                ClassificationStatus::Rejected
+                            }
+                            ArchivedClassificationStatus::Verified => {
+                                ClassificationStatus::Verified
+                            }
+                            ArchivedClassificationStatus::Imported => {
+                                ClassificationStatus::Imported
+                            }
+                        };
+                        let confidence: f32 = classification.confidence.into();
+                        graph.add_node_classification(
+                            key,
+                            NodeClassification {
+                                scheme,
+                                value: classification.value.to_string(),
+                                label: classification.label.as_ref().map(|s| s.to_string()),
+                                confidence,
+                                provenance,
+                                status,
+                                primary: classification.primary,
+                            },
+                        );
+                    }
+                }
+                ArchivedLogEntry::UnassignClassification {
+                    node_id,
+                    scheme,
+                    value,
+                } => {
+                    let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        use crate::graph::{ArchivedClassificationScheme, ClassificationScheme};
+                        let scheme = match scheme {
+                            ArchivedClassificationScheme::Udc => ClassificationScheme::Udc,
+                            ArchivedClassificationScheme::ContentKind => {
+                                ClassificationScheme::ContentKind
+                            }
+                            ArchivedClassificationScheme::Custom(s) => {
+                                ClassificationScheme::Custom(s.to_string())
+                            }
+                        };
+                        graph.remove_node_classification(key, &scheme, value.as_str());
+                    }
+                }
+                ArchivedLogEntry::UpdateClassificationStatus {
+                    node_id,
+                    scheme,
+                    value,
+                    status,
+                } => {
+                    let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        use crate::graph::{
+                            ArchivedClassificationScheme, ArchivedClassificationStatus,
+                            ClassificationScheme, ClassificationStatus,
+                        };
+                        let scheme = match scheme {
+                            ArchivedClassificationScheme::Udc => ClassificationScheme::Udc,
+                            ArchivedClassificationScheme::ContentKind => {
+                                ClassificationScheme::ContentKind
+                            }
+                            ArchivedClassificationScheme::Custom(s) => {
+                                ClassificationScheme::Custom(s.to_string())
+                            }
+                        };
+                        let status = match status {
+                            ArchivedClassificationStatus::Accepted => {
+                                ClassificationStatus::Accepted
+                            }
+                            ArchivedClassificationStatus::Suggested => {
+                                ClassificationStatus::Suggested
+                            }
+                            ArchivedClassificationStatus::Rejected => {
+                                ClassificationStatus::Rejected
+                            }
+                            ArchivedClassificationStatus::Verified => {
+                                ClassificationStatus::Verified
+                            }
+                            ArchivedClassificationStatus::Imported => {
+                                ClassificationStatus::Imported
+                            }
+                        };
+                        graph.set_node_classification_status(key, &scheme, value.as_str(), status);
+                    }
+                }
+                ArchivedLogEntry::SetPrimaryClassification {
+                    node_id,
+                    scheme,
+                    value,
+                } => {
+                    let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        use crate::graph::{ArchivedClassificationScheme, ClassificationScheme};
+                        let scheme = match scheme {
+                            ArchivedClassificationScheme::Udc => ClassificationScheme::Udc,
+                            ArchivedClassificationScheme::ContentKind => {
+                                ClassificationScheme::ContentKind
+                            }
+                            ArchivedClassificationScheme::Custom(s) => {
+                                ClassificationScheme::Custom(s.to_string())
+                            }
+                        };
+                        graph.set_node_primary_classification(key, &scheme, value.as_str());
+                    }
+                }
             }
         }
     }
