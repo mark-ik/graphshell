@@ -131,7 +131,7 @@ impl GraphBrowserApp {
             .collect()
     }
 
-    fn outgoing_membership_nodes(&self, container_key: NodeKey) -> Vec<NodeKey> {
+    pub(crate) fn outgoing_membership_nodes(&self, container_key: NodeKey) -> Vec<NodeKey> {
         let mut member_keys = self
             .outgoing_membership_relations(container_key)
             .into_iter()

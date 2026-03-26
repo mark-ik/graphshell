@@ -16,8 +16,8 @@
 - [system/register/2026-03-17_matrix_core_type_sketch.md](system/register/2026-03-17_matrix_core_type_sketch.md) - Rust-facing type sketch for `MatrixCoreRegistry`, supervised worker commands, normalized Matrix events, and bounded proposal routing.
 - [system/2026-03-17_runtime_task_budget.md](system/2026-03-17_runtime_task_budget.md) - Async worker priority tiers, concurrency envelope, suspension/resume policy, and diagnostics channels for the ControlPanel multi-worker runtime (pre-design backlog note).
 - [../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md](../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md) - Archived completion plan: tile tree as projection of arrangement graph truth (all phases shipped 2026-03-21).
-- [canvas/2026-03-21_edge_family_and_provenance_expansion_plan.md](canvas/2026-03-21_edge_family_and_provenance_expansion_plan.md) - Active plan for relation vocabulary expansion: keeps the current family model, adds a dedicated Provenance family, and broadens prototype edge sub-kinds before worrying about backwards compatibility.
-- [canvas/2026-03-21_edge_payload_type_sketch.md](canvas/2026-03-21_edge_payload_type_sketch.md) - Rust-facing companion sketch for the edge vocabulary plan: replaces the overloaded `EdgeType` carrier with family-specific assertion enums, explicit traversal events, and typed Imported/Provenance payloads.
+- [graph/2026-03-21_edge_family_and_provenance_expansion_plan.md](graph/2026-03-21_edge_family_and_provenance_expansion_plan.md) - Active plan for relation vocabulary expansion: keeps the current family model, adds a dedicated Provenance family, and broadens prototype edge sub-kinds before worrying about backwards compatibility.
+- [graph/2026-03-21_edge_payload_type_sketch.md](graph/2026-03-21_edge_payload_type_sketch.md) - Rust-facing companion sketch for the edge vocabulary plan: replaces the overloaded `EdgeType` carrier with family-specific assertion enums, explicit traversal events, and typed Imported/Provenance payloads.
 - [../technical_architecture/unified_view_model.md](../technical_architecture/unified_view_model.md) - Architecture principle: Shell is the only host; Graph, Navigator, Workbench, and Viewer are peer domains; graph-bearing surfaces may appear in multiple domains without collapsing ownership.
 - [../technical_architecture/graphlet_model.md](../technical_architecture/graphlet_model.md) - Canonical graphlet semantics consumed by Navigator projection, Workbench binding, and shell overview flows.
 - [../technical_architecture/domain_interaction_scenarios.md](../technical_architecture/domain_interaction_scenarios.md) - End-to-end scenarios clarifying how the five domains cooperate during graph-first, Navigator-first, Workbench-heavy, and interruption flows.
@@ -796,15 +796,15 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
 1. **lane:roadmap (docs/planning, merge-safe default lane)**
   - Queue reconciled (2026-02-26): `#11`, `#12`, `#13`, `#14`, `#18` closed as completed adoption/planning slices.
   - Remaining open roadmap queue item: `#19` (`TwoD↔ThreeD` `ViewDimension` hotswitch; still deferred/blocked).
-  - Active docs-only execution guide for blocked-state parallel work: `design_docs/graphshell_docs/implementation_strategy/canvas/2026-02-27_roadmap_lane_19_readiness_plan.md`.
+  - Active docs-only execution guide for blocked-state parallel work: `design_docs/graphshell_docs/implementation_strategy/graph/2026-02-27_roadmap_lane_19_readiness_plan.md`.
   - Low conflict risk with runtime/render hot files; preferred background lane while no critical hotfix override is active
 
   **Roadmap lane quick status (checklist style)**
-  - `#19` remains **blocked** until prerequisites in `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` are closed.
+  - `#19` remains **blocked** until prerequisites in `graph/2026-02-27_roadmap_lane_19_readiness_plan.md` are closed.
   - While blocked, roadmap work stays **docs-only** and confined to `design_docs/**`.
-  - `R1` checklist is tracked below; `R2` acceptance contract draft: `design_docs/graphshell_docs/implementation_strategy/canvas/2026-02-27_viewdimension_acceptance_contract.md`.
+  - `R1` checklist is tracked below; `R2` acceptance contract draft: `design_docs/graphshell_docs/implementation_strategy/graph/2026-02-27_viewdimension_acceptance_contract.md`.
   - `R3` terminology alignment is complete in `design_docs/TERMINOLOGY.md` (`ViewDimension`, `ThreeDMode`, `ZSource`, `Derived Z Positions`, `Dimension Degradation Rule`).
-  - `R4` issue-stack seeding is complete at docs level in `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` (`R4.1`..`R4.4` templates).
+  - `R4` issue-stack seeding is complete at docs level in `graph/2026-02-27_roadmap_lane_19_readiness_plan.md` (`R4.1`..`R4.4` templates).
   - Move `#19` to implementation-ready only after explicit evidence links exist for each prerequisite closure.
 
   **`#19` prerequisite readiness checklist (R1)**

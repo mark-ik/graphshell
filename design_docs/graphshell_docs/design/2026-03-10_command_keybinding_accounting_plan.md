@@ -14,7 +14,7 @@
 - `command_semantics_matrix.md` (D1)
 - `../implementation_strategy/aspect_command/command_surface_interaction_spec.md`
 - `../implementation_strategy/aspect_command/ASPECT_COMMAND.md`
-- `../implementation_strategy/canvas/graph_node_edge_interaction_spec.md`
+- `../implementation_strategy/graph/graph_node_edge_interaction_spec.md`
 - `../implementation_strategy/system/register/2026-03-08_sector_e_workbench_surface_plan.md`
 
 ---

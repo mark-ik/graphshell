@@ -18,7 +18,7 @@ graph truth and workbench arrangement state.
 - [../domain_interaction_acceptance_matrix.md](../domain_interaction_acceptance_matrix.md) — compact review matrix for cross-domain scenario evidence
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — workbench domain ownership and arrangement authority
 - [../workbench/graph_first_frame_semantics_spec.md](../workbench/graph_first_frame_semantics_spec.md) — graph/workbench frame semantics
-- [../canvas/graph_backlog_pack.md](../canvas/graph_backlog_pack.md) — graph-side backlog dependencies used by Navigator projections
+- [../graph/graph_backlog_pack.md](../graph/graph_backlog_pack.md) — graph-side backlog dependencies used by Navigator projections
 
 ## Tracker mapping
 

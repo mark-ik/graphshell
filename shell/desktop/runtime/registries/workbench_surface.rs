@@ -370,7 +370,9 @@ impl WorkbenchSurfaceRegistry {
             WorkbenchIntent::OpenSettingsUrl { url } => {
                 handle_open_settings_url_intent(graph_app, tiles_tree, url)
             }
-            WorkbenchIntent::OpenFrameUrl { url } => handle_open_frame_url_intent(graph_app, url),
+            WorkbenchIntent::OpenFrameUrl { url, focus_node } => {
+                handle_open_frame_url_intent(graph_app, tiles_tree, url, focus_node)
+            }
             WorkbenchIntent::OpenToolUrl { url } => {
                 handle_open_tool_url_intent(graph_app, tiles_tree, url)
             }
@@ -733,9 +735,11 @@ fn handle_open_settings_url_intent(
 
 fn handle_open_frame_url_intent(
     graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
     url: String,
+    focus_node: Option<crate::graph::NodeKey>,
 ) -> Option<WorkbenchIntent> {
-    route_ops::handle_open_frame_url_intent(graph_app, url)
+    route_ops::handle_open_frame_url_intent(graph_app, tiles_tree, url, focus_node)
 }
 
 fn handle_open_tool_url_intent(

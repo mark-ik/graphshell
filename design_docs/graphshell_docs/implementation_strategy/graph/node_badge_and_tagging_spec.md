@@ -6,7 +6,7 @@
 
 **Related**:
 
-- `CANVAS.md`
+- `GRAPH.md`
 - `graph_node_edge_interaction_spec.md`
 - `semantic_tagging_and_knowledge_spec.md`
 - `faceted_filter_surface_spec.md`

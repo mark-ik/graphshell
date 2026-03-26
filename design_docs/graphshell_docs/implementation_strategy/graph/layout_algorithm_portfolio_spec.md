@@ -6,7 +6,7 @@
 
 **Related**:
 
-- `CANVAS.md`
+- `GRAPH.md`
 - `layout_behaviors_and_physics_spec.md`
 - `graph_node_edge_interaction_spec.md`
 - `../2026-03-01_ux_migration_design_spec.md`

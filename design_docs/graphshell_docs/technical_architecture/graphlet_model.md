@@ -7,7 +7,7 @@
 **Related**:
 
 - `unified_view_model.md` — five-domain model and graph-bearing surfaces
-- `../implementation_strategy/canvas/petgraph_algorithm_utilization_spec.md` — petgraph-backed graphlet intelligence
+- `../implementation_strategy/graph/petgraph_algorithm_utilization_spec.md` — petgraph-backed graphlet intelligence
 - `../implementation_strategy/navigator/NAVIGATOR.md` — Navigator domain responsibilities
 - `../implementation_strategy/workbench/graphlet_projection_binding_spec.md` — Workbench binding and linked/detached arrangement behavior
 - `../implementation_strategy/workbench/WORKBENCH.md` — Workbench arrangement authority

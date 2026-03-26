@@ -240,6 +240,24 @@ impl GraphBrowserApp {
             .contains(surface_host)
     }
 
+    pub fn dismiss_frame_split_offer_for_session(&mut self, frame_name: impl Into<String>) {
+        self.workspace
+            .workbench_session
+            .session_dismissed_frame_split_offers
+            .insert(frame_name.into());
+    }
+
+    pub fn is_frame_split_offer_dismissed_for_session(&self, frame_name: &str) -> bool {
+        self.workspace
+            .workbench_session
+            .session_dismissed_frame_split_offers
+            .contains(frame_name)
+    }
+
+    pub fn selected_frame_name(&self) -> Option<&str> {
+        self.workspace.graph_runtime.selected_frame_name.as_deref()
+    }
+
     pub fn primary_navigator_surface_host(&self) -> SurfaceHostId {
         if let UxConfigMode::Configuring { surface_host } =
             &self.workspace.workbench_session.ux_config_mode

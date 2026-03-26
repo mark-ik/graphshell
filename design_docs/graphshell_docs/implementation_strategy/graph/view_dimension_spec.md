@@ -6,7 +6,7 @@
 
 **Related**:
 
-- `CANVAS.md`
+- `GRAPH.md`
 - `graph_node_edge_interaction_spec.md`
 - `2026-02-27_viewdimension_acceptance_contract.md`
 - `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md`

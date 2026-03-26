@@ -67,6 +67,24 @@ fn active_theme_tokens(
     .tokens
 }
 
+fn resolve_frame_context_member(app: &GraphBrowserApp, frame_name: &str) -> Option<NodeKey> {
+    app.arrangement_projection_groups()
+        .into_iter()
+        .find(|group| {
+            group.sub_kind == crate::graph::ArrangementSubKind::FrameMember
+                && group.id == frame_name
+        })
+        .and_then(|group| group.member_keys.into_iter().next())
+}
+
+fn resolve_frame_context_suppressed(app: &GraphBrowserApp, frame_name: &str) -> bool {
+    let frame_url = VersoAddress::frame(frame_name.to_string()).to_string();
+    app.domain_graph()
+        .get_node_by_url(&frame_url)
+        .and_then(|(frame_key, _)| app.domain_graph().frame_split_offer_suppressed(frame_key))
+        .unwrap_or(false)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum SearchPaletteScope {
     CurrentTarget,
@@ -95,7 +113,9 @@ impl SearchPaletteScope {
 
 fn scope_ready(scope: SearchPaletteScope, action_context: &ActionContext) -> bool {
     match scope {
-        SearchPaletteScope::CurrentTarget => action_context.target_node.is_some(),
+        SearchPaletteScope::CurrentTarget => {
+            action_context.target_node.is_some() || action_context.target_frame_name.is_some()
+        }
         SearchPaletteScope::ActivePane => action_context.focused_pane_available,
         SearchPaletteScope::ActiveGraph | SearchPaletteScope::Workbench => true,
     }
@@ -115,7 +135,18 @@ fn scope_allows_action(
             matches!(
                 entry.id.category(),
                 ActionCategory::Node | ActionCategory::Edge
-            )
+            ) || (action_context.target_frame_name.is_some()
+                && matches!(
+                    entry.id,
+                    ActionId::FrameSelect
+                        | ActionId::FrameOpen
+                        | ActionId::FrameOpenAsSplit
+                        | ActionId::FrameRename
+                        | ActionId::FrameSettings
+                        | ActionId::FrameSuppressSplitOffer
+                        | ActionId::FrameDelete
+                        | ActionId::FrameEnableSplitOffer
+                ))
         }
         SearchPaletteScope::ActivePane => !matches!(entry.id, ActionId::PersistOpenHub),
         SearchPaletteScope::ActiveGraph => {
@@ -221,6 +252,26 @@ fn disabled_action_reason(
                 None
             }
         }
+        ActionId::FrameSelect
+        | ActionId::FrameOpen
+        | ActionId::FrameOpenAsSplit
+        | ActionId::FrameRename
+        | ActionId::FrameSettings
+        | ActionId::FrameSuppressSplitOffer
+        | ActionId::FrameDelete
+        | ActionId::FrameEnableSplitOffer => {
+            if action_context.target_frame_name.is_none() {
+                Some(
+                    "Requires a targeted frame. Right-click a frame backdrop or frame tab chip first.",
+                )
+            } else if matches!(action_id, ActionId::FrameOpen | ActionId::FrameOpenAsSplit)
+                && action_context.target_frame_member.is_none()
+            {
+                Some("Frame has no resolvable member tile to open yet.")
+            } else {
+                None
+            }
+        }
         ActionId::WorkbenchUnlockSurfaceLayout => {
             if action_context.layout_surface_target_ambiguous {
                 Some(
@@ -228,7 +279,7 @@ fn disabled_action_reason(
                 )
             } else if !action_context.layout_surface_host_available {
                 Some(
-                    "No layout-configurable Navigator host is available in the current workbench context.",
+                    "Layout host unavailable. Open or pin a Navigator host in the current workbench context first.",
                 )
             } else if action_context.layout_surface_configuring {
                 Some(
@@ -245,7 +296,7 @@ fn disabled_action_reason(
                 )
             } else if !action_context.layout_surface_host_available {
                 Some(
-                    "No layout-configurable Navigator host is available in the current workbench context.",
+                    "Layout host unavailable. Open or pin a Navigator host in the current workbench context first.",
                 )
             } else if !action_context.layout_surface_configuring {
                 Some("Surface layout is already locked. Unlock a Navigator host first.")
@@ -260,7 +311,7 @@ fn disabled_action_reason(
                 )
             } else if !action_context.layout_surface_host_available {
                 Some(
-                    "No layout-configurable Navigator host is available in the current workbench context.",
+                    "Layout host unavailable. Open or pin a Navigator host in the current workbench context first.",
                 )
             } else if !action_context.layout_surface_configuring
                 && !action_context.layout_surface_has_draft
@@ -366,11 +417,13 @@ pub fn render_command_palette_panel(
 
     let pair_context = super::resolve_pair_command_context(app, hovered_node, focused_pane_node);
     let source_context = super::resolve_source_node_context(app, hovered_node, focused_pane_node);
+    let frame_context = app.pending_frame_context_target().map(str::to_string);
     let focused_selection = app.focused_selection().clone();
     let any_selected = !focused_selection.is_empty();
     let graph_node_count = app.domain_graph().node_count();
-    let contextual_mode =
-        app.workspace.chrome_ui.show_context_palette || app.pending_node_context_target().is_some();
+    let contextual_mode = app.workspace.chrome_ui.show_context_palette
+        || app.pending_node_context_target().is_some()
+        || frame_context.is_some();
     let contextual_anchor = app.workspace.chrome_ui.context_palette_anchor;
     let search_query_id = egui::Id::new("command_palette_search_query");
     let search_scope_id = egui::Id::new("command_palette_search_scope");
@@ -432,6 +485,13 @@ pub fn render_command_palette_panel(
 
         let action_context = ActionContext {
             target_node: source_context,
+            target_frame_member: frame_context
+                .as_deref()
+                .and_then(|frame_name| resolve_frame_context_member(app, frame_name)),
+            target_frame_split_offer_suppressed: frame_context
+                .as_deref()
+                .is_some_and(|frame_name| resolve_frame_context_suppressed(app, frame_name)),
+            target_frame_name: frame_context.clone(),
             pair_context,
             any_selected,
             focused_pane_available: focused_pane_node.is_some(),
@@ -760,6 +820,7 @@ pub(crate) fn execute_action_with_layout_target(
 ) {
     let focused_selection = app.focused_selection().clone();
     let open_target = source_context.or_else(|| focused_selection.primary());
+    let frame_target = app.pending_frame_context_target().map(str::to_string);
     let active_layout_surface_host =
         layout_surface_target_host.or_else(|| app.targetable_navigator_surface_host());
 
@@ -943,6 +1004,79 @@ pub(crate) fn execute_action_with_layout_target(
             app.enqueue_workbench_intent(WorkbenchIntent::OpenCommandPalette);
         }
         ActionId::GraphRadialMenu => intents.push(GraphIntent::ToggleRadialMenu),
+        ActionId::FrameSelect => {
+            if let Some(frame_name) = frame_target {
+                intents.push(
+                    ViewAction::UpdateSelection {
+                        keys: Vec::new(),
+                        mode: crate::app::SelectionUpdateMode::Replace,
+                    }
+                    .into(),
+                );
+                intents.push(
+                    ViewAction::SetSelectedFrame {
+                        frame_name: Some(frame_name),
+                    }
+                    .into(),
+                );
+            }
+        }
+        ActionId::FrameOpen | ActionId::FrameOpenAsSplit => {
+            if let Some(frame_name) = frame_target
+                && let Some(member_key) = resolve_frame_context_member(app, &frame_name)
+            {
+                intents.push(
+                    ViewAction::SetSelectedFrame {
+                        frame_name: Some(frame_name.clone()),
+                    }
+                    .into(),
+                );
+                intents.push(GraphIntent::OpenNodeFrameRouted {
+                    key: member_key,
+                    prefer_frame: Some(frame_name),
+                });
+            }
+        }
+        ActionId::FrameRename => {
+            if let Some(frame_name) = frame_target {
+                app.set_workbench_host_pinned(true);
+                intents.push(
+                    ViewAction::SetSelectedFrame {
+                        frame_name: Some(frame_name),
+                    }
+                    .into(),
+                );
+            }
+        }
+        ActionId::FrameSettings => {
+            if let Some(frame_name) = frame_target {
+                app.set_workbench_host_pinned(true);
+                intents.push(
+                    ViewAction::SetSelectedFrame {
+                        frame_name: Some(frame_name),
+                    }
+                    .into(),
+                );
+            }
+        }
+        ActionId::FrameSuppressSplitOffer | ActionId::FrameEnableSplitOffer => {
+            if let Some(frame_name) = frame_target {
+                let frame_url = VersoAddress::frame(frame_name.clone()).to_string();
+                if let Some((frame_key, _)) = app.domain_graph().get_node_by_url(&frame_url) {
+                    intents.push(GraphIntent::SetFrameSplitOfferSuppressed {
+                        frame: frame_key,
+                        suppressed: matches!(action_id, ActionId::FrameSuppressSplitOffer),
+                    });
+                }
+            }
+        }
+        ActionId::FrameDelete => {
+            if let Some(frame_name) = frame_target
+                && let Err(error) = app.delete_workspace_layout(&frame_name)
+            {
+                log::warn!("command palette failed to delete frame '{frame_name}': {error}");
+            }
+        }
         ActionId::WorkbenchUnlockSurfaceLayout => {
             if let Some(active_layout_surface_host) = active_layout_surface_host {
                 app.enqueue_workbench_intent(WorkbenchIntent::SetSurfaceConfigMode {
@@ -1156,6 +1290,9 @@ mod tests {
     fn default_action_context() -> ActionContext {
         ActionContext {
             target_node: None,
+            target_frame_name: None,
+            target_frame_member: None,
+            target_frame_split_offer_suppressed: false,
             pair_context: None,
             any_selected: false,
             focused_pane_available: false,

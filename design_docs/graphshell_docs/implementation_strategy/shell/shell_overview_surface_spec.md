@@ -11,7 +11,7 @@
 - `../../technical_architecture/graphlet_model.md` — graphlet semantics used by the overview
 - `../navigator/NAVIGATOR.md` — Navigator projection domain
 - `../workbench/WORKBENCH.md` — Workbench arrangement authority
-- `../canvas/CANVAS.md` — Graph domain at the canvas surface
+- `../graph/GRAPH.md` — Graph domain spec; the canvas is its primary rendered surface
 
 ---
 

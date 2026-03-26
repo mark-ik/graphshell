@@ -6,7 +6,7 @@
 
 **Related**:
 
-- `CANVAS.md`
+- `GRAPH.md`
 - `layout_algorithm_portfolio_spec.md`
 - `graph_node_edge_interaction_spec.md`
 - `2026-02-24_layout_behaviors_plan.md`

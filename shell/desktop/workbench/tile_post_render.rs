@@ -21,6 +21,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_LAYOUT_OVERLAP_DETECTED, CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
     CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
 };
+use crate::shell::desktop::ui::persistence_ops;
 
 pub(crate) struct TileRenderOutputs {
     pub(crate) pending_open_nodes: Vec<PendingOpenNode>,
@@ -203,6 +204,9 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         &tab_group_nodes_after,
         &tab_drag_stopped_nodes,
     ));
+    post_render_intents.extend(
+        persistence_ops::frame_layout_sync_intents_for_current_frame(graph_app, tiles_tree),
+    );
 
     TileRenderOutputs {
         pending_open_nodes,

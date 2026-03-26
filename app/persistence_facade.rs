@@ -289,9 +289,108 @@ impl GraphBrowserApp {
             .workbench_session
             .node_workspace_membership
             .retain(|_, memberships| !memberships.is_empty());
+        if self
+            .workspace
+            .workbench_session
+            .current_workspace_name
+            .as_deref()
+            == Some(name)
+        {
+            self.workspace.workbench_session.current_workspace_name = None;
+        }
+        if self.workspace.graph_runtime.selected_frame_name.as_deref() == Some(name) {
+            self.workspace.graph_runtime.selected_frame_name = None;
+        }
+        self.workspace
+            .workbench_session
+            .session_dismissed_frame_split_offers
+            .remove(name);
+        if self.pending_frame_context_target() == Some(name) {
+            self.set_pending_frame_context_target(None);
+        }
         self.workspace.graph_runtime.egui_state_dirty = true;
         crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
             "frame_snapshot_deleted",
+        );
+        Ok(())
+    }
+
+    /// Rename a persisted frame layout and keep graph/runtime references aligned.
+    pub fn rename_workspace_layout(&mut self, from: &str, to: &str) -> Result<(), String> {
+        let from = from.trim();
+        let to = to.trim();
+        if from.is_empty() || to.is_empty() {
+            return Err("Frame names cannot be empty".to_string());
+        }
+        if from == to {
+            return Ok(());
+        }
+        if Self::is_reserved_workspace_layout_name(from)
+            || Self::is_reserved_workspace_layout_name(to)
+        {
+            return Err("Cannot rename reserved workspace layouts".to_string());
+        }
+        if self.load_workspace_layout_json(to).is_some() {
+            return Err(format!("A frame named '{to}' already exists"));
+        }
+
+        let layout_json = self
+            .load_workspace_layout_json(from)
+            .ok_or_else(|| format!("No persisted frame named '{from}'"))?;
+        let was_current_workspace = self
+            .workspace
+            .workbench_session
+            .current_workspace_name
+            .as_deref()
+            == Some(from);
+        let was_selected_frame =
+            self.workspace.graph_runtime.selected_frame_name.as_deref() == Some(from);
+        let had_session_split_dismissal = self
+            .workspace
+            .workbench_session
+            .session_dismissed_frame_split_offers
+            .contains(from);
+        let mut bundle: crate::shell::desktop::ui::persistence_ops::PersistedWorkspace =
+            serde_json::from_str(&layout_json).map_err(|e| e.to_string())?;
+        bundle.name = to.to_string();
+        let renamed_json = serde_json::to_string_pretty(&bundle).map_err(|e| e.to_string())?;
+        self.save_workspace_layout_json(to, &renamed_json);
+        self.delete_workspace_layout(from)?;
+
+        for (_, workspace_name) in self
+            .workspace
+            .workbench_session
+            .node_last_active_workspace
+            .values_mut()
+        {
+            if workspace_name == from {
+                *workspace_name = to.to_string();
+            }
+        }
+        for memberships in self
+            .workspace
+            .workbench_session
+            .node_workspace_membership
+            .values_mut()
+        {
+            if memberships.remove(from) {
+                memberships.insert(to.to_string());
+            }
+        }
+        if was_current_workspace {
+            self.workspace.workbench_session.current_workspace_name = Some(to.to_string());
+        }
+        if was_selected_frame {
+            self.workspace.graph_runtime.selected_frame_name = Some(to.to_string());
+        }
+        if had_session_split_dismissal {
+            self.workspace
+                .workbench_session
+                .session_dismissed_frame_split_offers
+                .insert(to.to_string());
+        }
+        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+            "frame_snapshot_renamed",
         );
         Ok(())
     }
@@ -472,6 +571,7 @@ impl GraphBrowserApp {
             .workbench_session
             .node_workspace_membership
             .clear();
+        self.workspace.workbench_session.current_workspace_name = None;
         self.workspace.graph_runtime.views.clear();
         self.workspace.graph_runtime.graph_view_frames.clear();
         self.workspace.graph_runtime.graph_view_canvas_rects.clear();
@@ -591,6 +691,7 @@ impl GraphBrowserApp {
             .workbench_session
             .node_workspace_membership
             .clear();
+        self.workspace.workbench_session.current_workspace_name = None;
         self.workspace
             .workbench_session
             .current_workspace_is_synthesized = false;

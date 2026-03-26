@@ -148,6 +148,7 @@ impl GraphBrowserApp {
         if self.workspace.domain.graph.get_node(key).is_none() {
             return;
         }
+        self.workspace.graph_runtime.selected_frame_name = None;
         self.select_in_focused_view(key, multi_select);
     }
 
@@ -165,6 +166,7 @@ impl GraphBrowserApp {
         keys: Vec<NodeKey>,
         mode: SelectionUpdateMode,
     ) {
+        self.workspace.graph_runtime.selected_frame_name = None;
         let previous_primary = self.focused_selection().primary();
         let scope = self.current_selection_scope();
         self.current_selection_mut().update_many(keys, mode);

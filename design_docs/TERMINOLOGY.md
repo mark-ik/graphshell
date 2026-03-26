@@ -7,7 +7,7 @@
 
 ## Core Identity
 
-* **Graphshell**: The product name. A local-first, spatial browser. Shell is the unconditional application host; Graph is the canonical truth domain; Navigator projects graph truth into navigable local worlds; Workbench is the invoked arrangement system; Viewer realizes requested content. See `design_docs/graphshell_docs/implementation_strategy/canvas/2026-03-14_graph_relation_families.md` for the relation family model that supersedes the legacy "file-tree" metaphor.
+* **Graphshell**: The product name. A local-first, spatial browser. Shell is the unconditional application host; Graph is the canonical truth domain; Navigator projects graph truth into navigable local worlds; Workbench is the invoked arrangement system; Viewer realizes requested content. See `design_docs/graphshell_docs/implementation_strategy/graph/2026-03-14_graph_relation_families.md` for the relation family model that supersedes the legacy "file-tree" metaphor.
 * **Spatial Graph Browser**: The user-facing description of the interface. It emphasizes the force-directed graph and tiling window manager.
 * **Knowledge User Agent**: The architectural philosophy. Unlike a passive "User Agent" that just renders what servers send, Graphshell actively crawls, indexes, cleans, and stores data on the user's behalf.
 * **Verso**: A native mod and user agent component packaging (1) Servo/Wry web rendering and (2) local peer-to-peer collaboration via iroh. An homage to Servo. The private, fast, device-local layer.
@@ -240,13 +240,13 @@ Node lifecycle follows a four-state model: `Active → Warm → Cold → Tombsto
     *   `LensCompositor` (composes Layout + Presentation + Knowledge + Filters; enforces domain sequencing during resolution)
 *   **Domain sequencing principle**: Resolve layout first (structure + interaction), then presentation (style + motion parameters).
 *   **Domain / Aspect / Surface / Subsystem distinction**:
-    *   `Domain` answers what class of behavior is being resolved and in what order. The four application-level domains are Canvas (truth + analysis + management), Workbench (arrangement + activation), Navigator (projection + navigation), and Shell (command interpretation + system control). Registry-level domains (layout, presentation, input) define evaluation order within the register.
+    *   `Domain` answers what class of behavior is being resolved and in what order. The four application-level domains are Graph (truth + analysis + management), Workbench (arrangement + activation), Navigator (projection + navigation), and Shell (command interpretation + system control). Registry-level domains (layout, presentation, input) define evaluation order within the register.
     *   `Aspect` is the synthesized runtime system oriented to a task family using registry/domain capabilities (may be headless or UI-backed). The Shell domain is the surface through which aspects are exposed to users for observation and control.
     *   `Surface` is the UI presentation through which users interact with or observe a domain/aspect/subsystem.
     *   `Subsystem` is a cross-cutting guarantee framework (diagnostics, accessibility, focus, security, storage, history) applied across domains/aspects/surfaces.
 *   **Doc folder conventions** — implementation_strategy sub-folders use the following category prefixes:
     *   `subsystem_*` — a cross-cutting guarantee subsystem (diagnostics, accessibility, focus, security, storage, history, mods, ux_semantics).
-    *   `canvas/`, `workbench/`, `viewer/`, `navigator/`, `shell/` — Domain feature areas (no prefix; canonical domain names are sufficient).
+    *   `graph/`, `workbench/`, `viewer/`, `navigator/`, `shell/` — Domain feature areas (no prefix; canonical domain names are sufficient). `canvas` remains the surface term for where graph content is rendered, not the domain/folder name.
     *   `aspect_*` — an Aspect (command, control, input, render).
     Plans and specs for prospective or unimplemented features stay in their category folder; removal requires explicit deferral or abandonment note, not just absence of implementation.
 *   **Semantic gap principle**: On each architecture change, ask: "Is there a semantic gap that maps cleanly to technical, architectural, or design concerns and should become an explicit registry/domain boundary?"

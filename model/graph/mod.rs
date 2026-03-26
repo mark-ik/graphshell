@@ -55,6 +55,12 @@ use self::badge::NodeTagPresentationState;
 /// Stable node handle (petgraph NodeIndex — survives other deletions)
 pub type NodeKey = NodeIndex;
 
+/// Durable member reference used by frame layout hints.
+///
+/// `NodeKey` is process-local and not stable across restart, so persistent frame
+/// layout metadata uses the member node's stable UUID string instead.
+pub type FrameLayoutNodeId = String;
+
 /// Graph backend direction type exposed for adapter integration.
 pub(crate) type GraphDirection = Directed;
 
@@ -96,6 +102,79 @@ where
         let bytes = field.deserialize(deserializer)?;
         Ok(Uuid::from_bytes(bytes))
     }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq, Eq))]
+pub enum SplitOrientation {
+    Vertical,
+    Horizontal,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq, Eq))]
+pub enum DominantEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq, Eq))]
+pub enum FrameLayoutHint {
+    SplitHalf {
+        first: FrameLayoutNodeId,
+        second: FrameLayoutNodeId,
+        orientation: SplitOrientation,
+    },
+    SplitPamphlet {
+        members: [FrameLayoutNodeId; 3],
+        orientation: SplitOrientation,
+    },
+    SplitTriptych {
+        dominant: FrameLayoutNodeId,
+        dominant_edge: DominantEdge,
+        wings: [FrameLayoutNodeId; 2],
+    },
+    SplitQuartered {
+        top_left: FrameLayoutNodeId,
+        top_right: FrameLayoutNodeId,
+        bottom_left: FrameLayoutNodeId,
+        bottom_right: FrameLayoutNodeId,
+    },
 }
 
 struct Point2DAsTuple;
@@ -646,6 +725,12 @@ pub struct Node {
     /// WAL entry `UpdateNodeAddressKind`.
     pub address_kind: AddressKind,
 
+    /// Durable split arrangement annotations for frame-anchor nodes.
+    pub frame_layout_hints: Vec<FrameLayoutHint>,
+
+    /// Durable opt-out for split-offer affordances on frame-anchor nodes.
+    pub frame_split_offer_suppressed: bool,
+
     /// Webview lifecycle state
     pub lifecycle: NodeLifecycle,
 }
@@ -703,6 +788,8 @@ impl Node {
             session_form_draft: None,
             mime_hint: None,
             address_kind: AddressKind::Http,
+            frame_layout_hints: Vec::new(),
+            frame_split_offer_suppressed: false,
             lifecycle: NodeLifecycle::Cold,
         }
     }
@@ -1712,6 +1799,8 @@ impl Graph {
             session_form_draft: None,
             mime_hint: detect_mime(&url, None),
             address_kind: address_kind_from_url(&url),
+            frame_layout_hints: Vec::new(),
+            frame_split_offer_suppressed: false,
             lifecycle: NodeLifecycle::Cold,
         });
 
@@ -1842,6 +1931,70 @@ impl Graph {
         }
         node.is_pinned = is_pinned;
         true
+    }
+
+    pub(crate) fn append_frame_layout_hint(&mut self, key: NodeKey, hint: FrameLayoutHint) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        node.frame_layout_hints.push(hint);
+        true
+    }
+
+    pub(crate) fn remove_frame_layout_hint_at(&mut self, key: NodeKey, hint_index: usize) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if hint_index >= node.frame_layout_hints.len() {
+            return false;
+        }
+        node.frame_layout_hints.remove(hint_index);
+        true
+    }
+
+    pub(crate) fn move_frame_layout_hint(
+        &mut self,
+        key: NodeKey,
+        from_index: usize,
+        to_index: usize,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if from_index >= node.frame_layout_hints.len()
+            || to_index >= node.frame_layout_hints.len()
+            || from_index == to_index
+        {
+            return false;
+        }
+        let hint = node.frame_layout_hints.remove(from_index);
+        node.frame_layout_hints.insert(to_index, hint);
+        true
+    }
+
+    pub(crate) fn set_frame_split_offer_suppressed(
+        &mut self,
+        key: NodeKey,
+        suppressed: bool,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.frame_split_offer_suppressed == suppressed {
+            return false;
+        }
+        node.frame_split_offer_suppressed = suppressed;
+        true
+    }
+
+    pub(crate) fn frame_layout_hints(&self, key: NodeKey) -> Option<&[FrameLayoutHint]> {
+        self.get_node(key)
+            .map(|node| node.frame_layout_hints.as_slice())
+    }
+
+    pub(crate) fn frame_split_offer_suppressed(&self, key: NodeKey) -> Option<bool> {
+        self.get_node(key)
+            .map(|node| node.frame_split_offer_suppressed)
     }
 
     pub(crate) fn insert_node_tag(&mut self, key: NodeKey, tag: String) -> bool {
@@ -3146,6 +3299,8 @@ impl Graph {
                     AddressKind::Directory => PersistedAddressKind::Directory,
                     AddressKind::Unknown => PersistedAddressKind::Unknown,
                 },
+                frame_layout_hints: node.frame_layout_hints.clone(),
+                frame_split_offer_suppressed: node.frame_split_offer_suppressed,
             })
             .collect();
 
@@ -3417,6 +3572,8 @@ impl Graph {
                     PersistedAddressKind::Directory => AddressKind::Directory,
                     PersistedAddressKind::Unknown => AddressKind::Unknown,
                 };
+                node.frame_layout_hints = pnode.frame_layout_hints.clone();
+                node.frame_split_offer_suppressed = pnode.frame_split_offer_suppressed;
                 if let Some(session) = &pnode.session_state {
                     node.history_entries = session.history_entries.clone();
                     node.history_index = session
@@ -4211,6 +4368,8 @@ mod tests {
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
                 classifications: Vec::new(),
+                frame_layout_hints: Vec::new(),
+                frame_split_offer_suppressed: false,
             }],
             edges: vec![PersistedEdge {
                 from_node_id: Uuid::new_v4().to_string(),
@@ -4269,6 +4428,8 @@ mod tests {
                     mime_hint: None,
                     address_kind: PersistedAddressKind::Http,
                     classifications: Vec::new(),
+                    frame_layout_hints: Vec::new(),
+                    frame_split_offer_suppressed: false,
                 },
                 PersistedNode {
                     node_id: Uuid::new_v4().to_string(),
@@ -4293,6 +4454,8 @@ mod tests {
                     mime_hint: None,
                     address_kind: PersistedAddressKind::Http,
                     classifications: Vec::new(),
+                    frame_layout_hints: Vec::new(),
+                    frame_split_offer_suppressed: false,
                 },
             ],
             edges: vec![],
@@ -4370,6 +4533,8 @@ mod tests {
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
                 classifications: Vec::new(),
+                frame_layout_hints: Vec::new(),
+                frame_split_offer_suppressed: false,
             }],
             edges: vec![],
             import_records: vec![],
@@ -4418,6 +4583,8 @@ mod tests {
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
                 classifications: Vec::new(),
+                frame_layout_hints: Vec::new(),
+                frame_split_offer_suppressed: false,
             }],
             edges: vec![],
             import_records: vec![],
@@ -4459,6 +4626,8 @@ mod tests {
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
                 classifications: Vec::new(),
+                frame_layout_hints: Vec::new(),
+                frame_split_offer_suppressed: false,
             }],
             edges: vec![],
             import_records: vec![],
@@ -5005,5 +5174,92 @@ mod tests {
             "#pin",
             Some(crate::graph::badge::BadgeIcon::Emoji("🔬".to_string()))
         ));
+    }
+
+    #[test]
+    fn frame_layout_metadata_survives_snapshot_roundtrip() {
+        let mut graph = Graph::new();
+        let frame = graph.add_node("verso://frame/demo".to_string(), Point2D::new(0.0, 0.0));
+        let first = graph.add_node("https://first.example".to_string(), Point2D::new(1.0, 0.0));
+        let second = graph.add_node("https://second.example".to_string(), Point2D::new(2.0, 0.0));
+        let first_id = graph.get_node(first).unwrap().id.to_string();
+        let second_id = graph.get_node(second).unwrap().id.to_string();
+
+        assert!(graph.append_frame_layout_hint(
+            frame,
+            FrameLayoutHint::SplitHalf {
+                first: first_id.clone(),
+                second: second_id.clone(),
+                orientation: SplitOrientation::Horizontal,
+            },
+        ));
+        assert!(graph.set_frame_split_offer_suppressed(frame, true));
+
+        let restored = Graph::from_snapshot(&graph.to_snapshot());
+        let (restored_frame, _) = restored.get_node_by_url("verso://frame/demo").unwrap();
+        let hints = restored.frame_layout_hints(restored_frame).unwrap();
+
+        assert_eq!(hints.len(), 1);
+        assert_eq!(
+            hints[0],
+            FrameLayoutHint::SplitHalf {
+                first: first_id,
+                second: second_id,
+                orientation: SplitOrientation::Horizontal,
+            }
+        );
+        assert_eq!(
+            restored.frame_split_offer_suppressed(restored_frame),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn frame_layout_hint_move_reorders_hints() {
+        let mut graph = Graph::new();
+        let frame = graph.add_node("verso://frame/demo".to_string(), Point2D::new(0.0, 0.0));
+        let first = graph.add_node("https://first.example".to_string(), Point2D::new(1.0, 0.0));
+        let second = graph.add_node("https://second.example".to_string(), Point2D::new(2.0, 0.0));
+        let third = graph.add_node("https://third.example".to_string(), Point2D::new(3.0, 0.0));
+        let first_id = graph.get_node(first).unwrap().id.to_string();
+        let second_id = graph.get_node(second).unwrap().id.to_string();
+        let third_id = graph.get_node(third).unwrap().id.to_string();
+
+        assert!(graph.append_frame_layout_hint(
+            frame,
+            FrameLayoutHint::SplitHalf {
+                first: first_id.clone(),
+                second: second_id.clone(),
+                orientation: SplitOrientation::Vertical,
+            },
+        ));
+        assert!(graph.append_frame_layout_hint(
+            frame,
+            FrameLayoutHint::SplitHalf {
+                first: second_id.clone(),
+                second: third_id.clone(),
+                orientation: SplitOrientation::Horizontal,
+            },
+        ));
+
+        assert!(graph.move_frame_layout_hint(frame, 1, 0));
+        let hints = graph.frame_layout_hints(frame).unwrap();
+        assert_eq!(
+            hints[0],
+            FrameLayoutHint::SplitHalf {
+                first: second_id.clone(),
+                second: third_id,
+                orientation: SplitOrientation::Horizontal,
+            }
+        );
+        assert_eq!(
+            hints[1],
+            FrameLayoutHint::SplitHalf {
+                first: first_id,
+                second: second_id.clone(),
+                orientation: SplitOrientation::Vertical,
+            }
+        );
+        assert!(!graph.move_frame_layout_hint(frame, 1, 1));
     }
 }

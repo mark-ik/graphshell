@@ -16,7 +16,10 @@
       "Bash(git checkout:*)",
       "Bash(git apply:*)",
       "Bash(git add:*)",
-      "Bash(grep -rn 'struct PersistedNode' c:/Users/mark_/Code/source/repos/graphshell/ --include=*.rs)"
+      "Bash(grep -rn 'struct PersistedNode' c:/Users/mark_/Code/source/repos/graphshell/ --include=*.rs)",
+      "Bash(git commit:*)",
+      "Bash(grep -rn OpenFrameUrl c:/Users/mark_/Code/source/repos/graphshell/ --include=*.rs)",
+      "Bash(grep -rn \"apply_arrangement_snapshot\\\\|ArrangementSnapshot\" c:/Users/mark_/Code/source/repos/graphshell/ --include=*.rs)"
     ],
     "additionalDirectories": [
       "\\tmp"

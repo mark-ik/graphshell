@@ -112,6 +112,7 @@ fn category_context_score(category: ActionCategory, action_context: &ActionConte
             }
             score
         }
+        ActionCategory::Graph if action_context.target_frame_name.is_some() => 320,
         ActionCategory::Graph => 80,
         ActionCategory::Persistence => 70,
     }
@@ -202,6 +203,14 @@ pub enum ActionId {
     GraphPhysicsConfig,
     GraphCommandPalette,
     GraphRadialMenu,
+    FrameSelect,
+    FrameOpen,
+    FrameOpenAsSplit,
+    FrameRename,
+    FrameSettings,
+    FrameSuppressSplitOffer,
+    FrameDelete,
+    FrameEnableSplitOffer,
     WorkbenchUnlockSurfaceLayout,
     WorkbenchLockSurfaceLayout,
     WorkbenchRememberLayoutPreference,
@@ -291,6 +300,14 @@ impl ActionId {
             Self::GraphPhysicsConfig => "graph:physics_config",
             Self::GraphCommandPalette => "workbench:command_palette_open",
             Self::GraphRadialMenu => "workbench:radial_menu_open",
+            Self::FrameSelect => "frame:select",
+            Self::FrameOpen => "frame:open",
+            Self::FrameOpenAsSplit => "frame:open_as_split",
+            Self::FrameRename => "frame:rename",
+            Self::FrameSettings => "frame:settings",
+            Self::FrameSuppressSplitOffer => "frame:suppress_split_offer",
+            Self::FrameDelete => "frame:delete",
+            Self::FrameEnableSplitOffer => "frame:enable_split_offer",
             Self::WorkbenchUnlockSurfaceLayout => "workbench:unlock_surface_layout",
             Self::WorkbenchLockSurfaceLayout => "workbench:lock_surface_layout",
             Self::WorkbenchRememberLayoutPreference => "workbench:remember_layout_preference",
@@ -348,6 +365,14 @@ impl ActionId {
             Self::GraphPhysicsConfig => "Config",
             Self::GraphCommandPalette => "Cmd",
             Self::GraphRadialMenu => "Radial",
+            Self::FrameSelect => "Select F",
+            Self::FrameOpen => "Open F",
+            Self::FrameOpenAsSplit => "Split F",
+            Self::FrameRename => "Rename F",
+            Self::FrameSettings => "F Settings",
+            Self::FrameSuppressSplitOffer => "Suppress",
+            Self::FrameDelete => "Delete F",
+            Self::FrameEnableSplitOffer => "Re-enable",
             Self::WorkbenchUnlockSurfaceLayout => "Unlock",
             Self::WorkbenchLockSurfaceLayout => "Lock",
             Self::WorkbenchRememberLayoutPreference => "Remember",
@@ -405,6 +430,14 @@ impl ActionId {
             Self::GraphPhysicsConfig => "Open Physics Settings",
             Self::GraphCommandPalette => "Open Command Palette",
             Self::GraphRadialMenu => "Open Radial Palette",
+            Self::FrameSelect => "Select Frame",
+            Self::FrameOpen => "Open Frame",
+            Self::FrameOpenAsSplit => "Open Frame As Split",
+            Self::FrameRename => "Rename Frame",
+            Self::FrameSettings => "Open Frame Settings",
+            Self::FrameSuppressSplitOffer => "Suppress Split Offer",
+            Self::FrameDelete => "Delete Frame",
+            Self::FrameEnableSplitOffer => "Re-enable Split Offer",
             Self::WorkbenchUnlockSurfaceLayout => "Unlock Surface Layout",
             Self::WorkbenchLockSurfaceLayout => "Lock Surface Layout",
             Self::WorkbenchRememberLayoutPreference => "Remember Layout Preference",
@@ -462,6 +495,14 @@ impl ActionId {
             | Self::GraphPhysicsConfig
             | Self::GraphCommandPalette
             | Self::GraphRadialMenu
+            | Self::FrameSelect
+            | Self::FrameOpen
+            | Self::FrameOpenAsSplit
+            | Self::FrameRename
+            | Self::FrameSettings
+            | Self::FrameSuppressSplitOffer
+            | Self::FrameDelete
+            | Self::FrameEnableSplitOffer
             | Self::WorkbenchUnlockSurfaceLayout
             | Self::WorkbenchLockSurfaceLayout
             | Self::WorkbenchRememberLayoutPreference
@@ -538,6 +579,14 @@ fn all_action_ids() -> &'static [ActionId] {
         GraphPhysicsConfig,
         GraphCommandPalette,
         GraphRadialMenu,
+        FrameSelect,
+        FrameOpen,
+        FrameOpenAsSplit,
+        FrameRename,
+        FrameSettings,
+        FrameSuppressSplitOffer,
+        FrameDelete,
+        FrameEnableSplitOffer,
         WorkbenchUnlockSurfaceLayout,
         WorkbenchLockSurfaceLayout,
         WorkbenchRememberLayoutPreference,
@@ -579,6 +628,12 @@ pub struct ActionContext {
     /// Primary target node, if any (right-click target, hovered node, etc.).
     /// `None` means global scope — the full action list is returned.
     pub target_node: Option<NodeKey>,
+    /// Primary target frame, if any (frame backdrop or frame tab affordance).
+    pub target_frame_name: Option<String>,
+    /// Representative frame member used for open-as-frame operations.
+    pub target_frame_member: Option<NodeKey>,
+    /// Whether the target frame currently suppresses split offers.
+    pub target_frame_split_offer_suppressed: bool,
     /// Whether a valid source–target pair exists (for edge actions).
     pub pair_context: Option<(NodeKey, NodeKey)>,
     /// Whether at least one node is selected.
@@ -627,6 +682,7 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
     use ActionId::*;
 
     let node_ops_enabled = context.any_selected || context.target_node.is_some();
+    let frame_ops_enabled = context.target_frame_name.is_some();
     let pair_enabled = context.pair_context.is_some();
 
     let all: &[(ActionId, bool)] = &[
@@ -667,6 +723,27 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (GraphToggleGhostNodes, true),
         (GraphPhysicsConfig, true),
         (GraphCommandPalette, true),
+        (GraphRadialMenu, true),
+        (FrameSelect, frame_ops_enabled),
+        (
+            FrameOpen,
+            frame_ops_enabled && context.target_frame_member.is_some(),
+        ),
+        (
+            FrameOpenAsSplit,
+            frame_ops_enabled && context.target_frame_member.is_some(),
+        ),
+        (FrameRename, frame_ops_enabled),
+        (FrameSettings, frame_ops_enabled),
+        (
+            FrameSuppressSplitOffer,
+            frame_ops_enabled && !context.target_frame_split_offer_suppressed,
+        ),
+        (FrameDelete, frame_ops_enabled),
+        (
+            FrameEnableSplitOffer,
+            frame_ops_enabled && context.target_frame_split_offer_suppressed,
+        ),
         (
             WorkbenchUnlockSurfaceLayout,
             context.layout_surface_host_available && !context.layout_surface_configuring,
@@ -765,6 +842,9 @@ mod tests {
     fn default_context() -> ActionContext {
         ActionContext {
             target_node: None,
+            target_frame_name: None,
+            target_frame_member: None,
+            target_frame_split_offer_suppressed: false,
             pair_context: None,
             any_selected: false,
             focused_pane_available: false,
@@ -988,12 +1068,98 @@ mod tests {
     fn test_graph_actions_always_enabled() {
         let ctx = default_context();
         let entries = list_actions_for_context(&ctx);
-        for entry in entries
-            .iter()
-            .filter(|e| matches!(e.id.category(), ActionCategory::Graph))
-        {
+        for entry in entries.iter().filter(|e| {
+            matches!(e.id.category(), ActionCategory::Graph)
+                && !matches!(
+                    e.id,
+                    ActionId::FrameSelect
+                        | ActionId::FrameOpen
+                        | ActionId::FrameOpenAsSplit
+                        | ActionId::FrameRename
+                        | ActionId::FrameSettings
+                        | ActionId::FrameSuppressSplitOffer
+                        | ActionId::FrameDelete
+                        | ActionId::FrameEnableSplitOffer
+                )
+        }) {
             assert!(entry.enabled, "{:?} should always be enabled", entry.id);
         }
+    }
+
+    #[test]
+    fn frame_actions_enable_against_targeted_frame_context() {
+        let entries = list_actions_for_context(&ActionContext {
+            target_frame_name: Some("workspace-alpha".to_string()),
+            target_frame_member: Some(NodeKey::new(7)),
+            target_frame_split_offer_suppressed: false,
+            ..default_context()
+        });
+
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameSelect)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameOpen)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameOpenAsSplit)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameRename)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameSuppressSplitOffer)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameDelete)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameEnableSplitOffer)
+                .is_some_and(|entry| !entry.enabled)
+        );
+    }
+
+    #[test]
+    fn frame_enable_action_is_only_enabled_when_frame_offer_is_suppressed() {
+        let entries = list_actions_for_context(&ActionContext {
+            target_frame_name: Some("workspace-alpha".to_string()),
+            target_frame_member: Some(NodeKey::new(7)),
+            target_frame_split_offer_suppressed: true,
+            ..default_context()
+        });
+
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameEnableSplitOffer)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.id == ActionId::FrameSuppressSplitOffer)
+                .is_some_and(|entry| !entry.enabled)
+        );
     }
 
     #[test]

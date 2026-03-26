@@ -229,7 +229,8 @@ mod tests {
     #[test]
     fn reconcile_indexes_accepted_udc_classification_without_matching_tag() {
         use crate::graph::{
-            ClassificationProvenance, ClassificationScheme, ClassificationStatus, NodeClassification,
+            ClassificationProvenance, ClassificationScheme, ClassificationStatus,
+            NodeClassification,
         };
 
         let registry = KnowledgeRegistry::default();
@@ -270,7 +271,8 @@ mod tests {
     #[test]
     fn classification_enriched_node_gets_semantic_placement_anchor() {
         use crate::graph::{
-            ClassificationProvenance, ClassificationScheme, ClassificationStatus, NodeClassification,
+            ClassificationProvenance, ClassificationScheme, ClassificationStatus,
+            NodeClassification,
         };
 
         let registry = KnowledgeRegistry::default();

@@ -596,6 +596,9 @@ pub enum WorkbenchIntent {
     },
     OpenFrameUrl {
         url: String,
+        /// Optional: the frame member node that should be made active in
+        /// the tile group after opening.  `None` defaults to the first member.
+        focus_node: Option<crate::graph::NodeKey>,
     },
     OpenToolUrl {
         url: String,
@@ -882,6 +885,7 @@ impl GraphBrowserApp {
                     suggested_semantic_tags: HashMap::new(),
                     hovered_graph_node: None,
                     highlighted_graph_edge: None,
+                    selected_frame_name: None,
                     navigator_projection_state: NavigatorProjectionState::default(),
                     selected_tab_nodes: HashSet::new(),
                     tab_selection_anchor: None,
@@ -908,6 +912,7 @@ impl GraphBrowserApp {
                     workspace_activation_seq: 0,
                     node_last_active_workspace: HashMap::new(),
                     node_workspace_membership: HashMap::new(),
+                    current_workspace_name: None,
                     current_workspace_is_synthesized: false,
                     workspace_has_unsaved_changes: false,
                     unsaved_workspace_prompt_warned: false,
@@ -917,6 +922,7 @@ impl GraphBrowserApp {
                     draft_layout_constraints: HashMap::new(),
                     ux_config_mode: UxConfigMode::Locked,
                     session_suppressed_first_use_prompts: HashSet::new(),
+                    session_dismissed_frame_split_offers: HashSet::new(),
                     edge_projection: EdgeProjectionState::default(),
                     pending_app_commands: VecDeque::new(),
                     pending_host_create_tokens: HashMap::new(),
@@ -1027,6 +1033,7 @@ impl GraphBrowserApp {
                     suggested_semantic_tags: HashMap::new(),
                     hovered_graph_node: None,
                     highlighted_graph_edge: None,
+                    selected_frame_name: None,
                     navigator_projection_state: NavigatorProjectionState::default(),
                     selected_tab_nodes: HashSet::new(),
                     tab_selection_anchor: None,
@@ -1053,6 +1060,7 @@ impl GraphBrowserApp {
                     workspace_activation_seq: 0,
                     node_last_active_workspace: HashMap::new(),
                     node_workspace_membership: HashMap::new(),
+                    current_workspace_name: None,
                     current_workspace_is_synthesized: false,
                     workspace_has_unsaved_changes: false,
                     unsaved_workspace_prompt_warned: false,
@@ -1062,6 +1070,7 @@ impl GraphBrowserApp {
                     draft_layout_constraints: HashMap::new(),
                     ux_config_mode: UxConfigMode::Locked,
                     session_suppressed_first_use_prompts: HashSet::new(),
+                    session_dismissed_frame_split_offers: HashSet::new(),
                     edge_projection: EdgeProjectionState::default(),
                     pending_app_commands: VecDeque::new(),
                     pending_host_create_tokens: HashMap::new(),
@@ -1758,6 +1767,17 @@ impl GraphBrowserApp {
                 }
                 true
             }
+            ViewAction::SetSelectedFrame { frame_name } => {
+                let previous = self.workspace.graph_runtime.selected_frame_name.clone();
+                self.workspace.graph_runtime.selected_frame_name = frame_name;
+                if self.workspace.graph_runtime.selected_frame_name != previous {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                }
+                true
+            }
             ViewAction::SetNodeFormDraft { key, form_draft } => {
                 if !self.workspace.chrome_ui.form_draft_capture_enabled {
                     return true;
@@ -1928,6 +1948,10 @@ impl GraphBrowserApp {
                 | GraphIntent::SetPrimaryClassification { .. }
                 | GraphIntent::UpdateNodeMimeHint { .. }
                 | GraphIntent::UpdateNodeAddressKind { .. }
+                | GraphIntent::RecordFrameLayoutHint { .. }
+                | GraphIntent::RemoveFrameLayoutHint { .. }
+                | GraphIntent::MoveFrameLayoutHint { .. }
+                | GraphIntent::SetFrameSplitOfferSuppressed { .. }
         ) {
             // Any graph mutation starts a fresh unsaved-change episode for
             // workspace-switch prompt gating.

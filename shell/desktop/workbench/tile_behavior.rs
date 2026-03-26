@@ -33,7 +33,7 @@ use crate::shell::desktop::runtime::registries::{
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, ViewerId};
-use crate::util::truncate_with_ellipsis;
+use crate::util::{VersoAddress, truncate_with_ellipsis};
 
 use super::selection_range::inclusive_index_range;
 use super::tile_kind::TileKind;
@@ -54,6 +54,89 @@ const PLAINTEXT_HEX_PREVIEW_BYTES: usize = 4096;
 enum PlaintextContent {
     Text(String),
     HexPreview(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NodeFrameSplitOfferCandidate {
+    frame_name: String,
+    hint_count: usize,
+}
+
+fn frame_names_for_node(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Vec<String> {
+    let mut frame_names = graph_app.sorted_frames_for_node_key(node_key);
+    for group in graph_app.arrangement_projection_groups() {
+        if group.sub_kind == crate::graph::ArrangementSubKind::FrameMember
+            && group.member_keys.contains(&node_key)
+            && !frame_names.contains(&group.id)
+        {
+            frame_names.push(group.id);
+        }
+    }
+    frame_names
+}
+
+fn frame_key_for_name(graph_app: &GraphBrowserApp, frame_name: &str) -> Option<NodeKey> {
+    let frame_url = VersoAddress::frame(frame_name.to_string()).to_string();
+    graph_app
+        .domain_graph()
+        .get_node_by_url(&frame_url)
+        .map(|(frame_key, _)| frame_key)
+}
+
+fn frame_split_offer_suppressed_for_name(graph_app: &GraphBrowserApp, frame_name: &str) -> bool {
+    frame_key_for_name(graph_app, frame_name)
+        .and_then(|frame_key| {
+            graph_app
+                .domain_graph()
+                .frame_split_offer_suppressed(frame_key)
+        })
+        .unwrap_or(false)
+}
+
+fn primary_frame_name_for_node(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Option<String> {
+    let frame_names = frame_names_for_node(graph_app, node_key);
+    if let Some(current_frame_name) = graph_app.current_frame_name()
+        && frame_names.iter().any(|name| name == current_frame_name)
+    {
+        return Some(current_frame_name.to_string());
+    }
+    frame_names.into_iter().next()
+}
+
+fn node_frame_split_offer_candidate(
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+) -> Option<NodeFrameSplitOfferCandidate> {
+    for frame_name in frame_names_for_node(graph_app, node_key) {
+        if graph_app.current_frame_name() == Some(frame_name.as_str())
+            || graph_app.is_frame_split_offer_dismissed_for_session(&frame_name)
+        {
+            continue;
+        }
+
+        let Some(frame_key) = frame_key_for_name(graph_app, &frame_name) else {
+            continue;
+        };
+        if graph_app
+            .domain_graph()
+            .frame_split_offer_suppressed(frame_key)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let Some(hints) = graph_app.domain_graph().frame_layout_hints(frame_key) else {
+            continue;
+        };
+        if hints.is_empty() {
+            continue;
+        }
+
+        return Some(NodeFrameSplitOfferCandidate {
+            frame_name,
+            hint_count: hints.len(),
+        });
+    }
+    None
 }
 
 fn decode_plaintext_content(bytes: &[u8]) -> PlaintextContent {

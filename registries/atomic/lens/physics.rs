@@ -42,7 +42,10 @@ impl PhysicsProfile {
     ///
     /// `zones_enabled` comes from `CanvasSurfaceProfile::zones_enabled()`,
     /// resolved via `phase3_resolve_active_canvas_profile()` at the render callsite.
-    pub(crate) fn graph_physics_extensions(&self, zones_enabled: bool) -> GraphPhysicsExtensionConfig {
+    pub(crate) fn graph_physics_extensions(
+        &self,
+        zones_enabled: bool,
+    ) -> GraphPhysicsExtensionConfig {
         GraphPhysicsExtensionConfig {
             degree_repulsion: self.degree_repulsion,
             domain_clustering: self.domain_clustering,

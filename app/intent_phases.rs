@@ -55,6 +55,13 @@ impl GraphBrowserApp {
                 });
                 true
             }
+            GraphIntent::OpenFrameTileGroup { url, focus_node } => {
+                self.enqueue_workbench_intent(WorkbenchIntent::OpenFrameUrl {
+                    url: url.clone(),
+                    focus_node: *focus_node,
+                });
+                true
+            }
             GraphIntent::ToggleHelpPanel => {
                 self.enqueue_workbench_intent(WorkbenchIntent::ToggleHelpPanel);
                 true
@@ -830,7 +837,8 @@ impl GraphBrowserApp {
                                     value: normalized_tag.clone(),
                                     label,
                                     confidence: 1.0,
-                                    provenance: crate::model::graph::ClassificationProvenance::UserAuthored,
+                                    provenance:
+                                        crate::model::graph::ClassificationProvenance::UserAuthored,
                                     status: crate::model::graph::ClassificationStatus::Accepted,
                                     primary: self
                                         .workspace
@@ -848,7 +856,9 @@ impl GraphBrowserApp {
                                         .domain
                                         .graph
                                         .node_classifications(key)
-                                        .and_then(|cs| cs.iter().find(|c| c.value == normalized_tag))
+                                        .and_then(|cs| {
+                                            cs.iter().find(|c| c.value == normalized_tag)
+                                        })
                                         .cloned()
                                     {
                                         store.log_mutation(&LogEntry::AssignClassification {
@@ -1120,6 +1130,114 @@ impl GraphBrowserApp {
                     });
                 }
             }
+            GraphIntent::RecordFrameLayoutHint { frame, hint } => {
+                let frame_id = self
+                    .workspace
+                    .domain
+                    .graph
+                    .get_node(frame)
+                    .map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = self
+                    .apply_graph_delta_and_sync(GraphDelta::AppendFrameLayoutHint {
+                        key: frame,
+                        hint: hint.clone(),
+                    })
+                else {
+                    unreachable!("frame layout hint delta must return NodeMetadataUpdated");
+                };
+                if updated
+                    && let Some(store) = &mut self.services.persistence
+                    && let Some(frame_id) = frame_id
+                {
+                    store.log_mutation(&LogEntry::RecordFrameLayoutHint {
+                        frame_id: frame_id.to_string(),
+                        hint,
+                    });
+                }
+            }
+            GraphIntent::RemoveFrameLayoutHint { frame, hint_index } => {
+                let frame_id = self
+                    .workspace
+                    .domain
+                    .graph
+                    .get_node(frame)
+                    .map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = self
+                    .apply_graph_delta_and_sync(GraphDelta::RemoveFrameLayoutHint {
+                        key: frame,
+                        hint_index,
+                    })
+                else {
+                    unreachable!("frame layout hint removal delta must return NodeMetadataUpdated");
+                };
+                if updated
+                    && let Some(store) = &mut self.services.persistence
+                    && let Some(frame_id) = frame_id
+                {
+                    store.log_mutation(&LogEntry::RemoveFrameLayoutHint {
+                        frame_id: frame_id.to_string(),
+                        hint_index,
+                    });
+                }
+            }
+            GraphIntent::MoveFrameLayoutHint {
+                frame,
+                from_index,
+                to_index,
+            } => {
+                let frame_id = self
+                    .workspace
+                    .domain
+                    .graph
+                    .get_node(frame)
+                    .map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = self
+                    .apply_graph_delta_and_sync(GraphDelta::MoveFrameLayoutHint {
+                        key: frame,
+                        from_index,
+                        to_index,
+                    })
+                else {
+                    unreachable!("frame layout hint move delta must return NodeMetadataUpdated");
+                };
+                if updated
+                    && let Some(store) = &mut self.services.persistence
+                    && let Some(frame_id) = frame_id
+                {
+                    store.log_mutation(&LogEntry::MoveFrameLayoutHint {
+                        frame_id: frame_id.to_string(),
+                        from_index,
+                        to_index,
+                    });
+                }
+            }
+            GraphIntent::SetFrameSplitOfferSuppressed { frame, suppressed } => {
+                let frame_id = self
+                    .workspace
+                    .domain
+                    .graph
+                    .get_node(frame)
+                    .map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = self
+                    .apply_graph_delta_and_sync(GraphDelta::SetFrameSplitOfferSuppressed {
+                        key: frame,
+                        suppressed,
+                    })
+                else {
+                    unreachable!(
+                        "frame split offer suppression delta must return NodeMetadataUpdated"
+                    );
+                };
+                if updated
+                    && let Some(store) = &mut self.services.persistence
+                    && let Some(frame_id) = frame_id
+                {
+                    store.log_mutation(&LogEntry::SetFrameSplitOfferSuppressed {
+                        frame_id: frame_id.to_string(),
+                        suppressed,
+                    });
+                }
+            }
             GraphIntent::ClearHistoryTimeline
             | GraphIntent::ClearHistoryDissolved
             | GraphIntent::AutoCurateHistoryTimeline { .. }
@@ -1155,6 +1273,7 @@ impl GraphBrowserApp {
             | GraphIntent::SetZoom { .. }
             | GraphIntent::SetHighlightedEdge { .. }
             | GraphIntent::ClearHighlightedEdge
+            | GraphIntent::SetSelectedFrame { .. }
             | GraphIntent::SetNodeFormDraft { .. }
             | GraphIntent::SetNodeThumbnail { .. }
             | GraphIntent::SetNodeFavicon { .. }
@@ -1230,7 +1349,8 @@ impl GraphBrowserApp {
             | GraphIntent::OpenNodeFrameRouted { .. }
             | GraphIntent::OpenNodeWorkspaceRouted { .. }
             | GraphIntent::FocusGraphView { .. }
-            | GraphIntent::SetNavigatorSpecialtyView { .. } => {
+            | GraphIntent::SetNavigatorSpecialtyView { .. }
+            | GraphIntent::OpenFrameTileGroup { .. } => {
                 unreachable!("runtime lifecycle intents are handled in phase 3")
             }
         }

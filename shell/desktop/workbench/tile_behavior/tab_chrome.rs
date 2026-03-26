@@ -69,8 +69,22 @@ fn render_tab_ui_impl(
     let close_btn_left_padding = 4.0;
     let icon_size = 16.0;
     let icon_spacing = 6.0;
+    let chip_spacing = 6.0;
     let x_margin = behavior.tab_title_spacing(ui.visuals());
     let workbench_surface = registries::phase3_resolve_active_workbench_surface_profile();
+    let node_key_for_tab = match tiles.get(tile_id) {
+        Some(Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+        ))) => Some(state.node),
+        Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
+        _ => None,
+    };
+    let frame_chip_label = node_key_for_tab
+        .and_then(|node_key| primary_frame_name_for_node(behavior.graph_app, node_key));
+    let split_offer = node_key_for_tab.and_then(|node_key| {
+        node_frame_split_offer_candidate(behavior.graph_app, node_key)
+            .filter(|candidate| frame_chip_label.as_deref() != Some(candidate.frame_name.as_str()))
+    });
 
     let (title_text, favicon_texture) = match tiles.get(tile_id) {
         Some(Tile::Pane(TileKind::Pane(
@@ -185,15 +199,44 @@ fn render_tab_ui_impl(
         f32::INFINITY,
         font_id,
     );
+    let chip_font_id = egui::FontId::proportional(10.0);
+    let chip_galley = frame_chip_label.as_ref().map(|frame_name| {
+        ui.painter().layout_no_wrap(
+            format!("Frame {frame_name}"),
+            chip_font_id.clone(),
+            ui.visuals().selection.stroke.color,
+        )
+    });
+    let offer_galley = split_offer.as_ref().map(|candidate| {
+        ui.painter().layout_no_wrap(
+            if candidate.hint_count == 1 {
+                "Split".to_string()
+            } else {
+                format!("Split {}", candidate.hint_count)
+            },
+            chip_font_id.clone(),
+            egui::Color32::from_rgb(210, 225, 240),
+        )
+    });
 
     let icon_width = if favicon_texture.is_some() {
         icon_size + icon_spacing
     } else {
         0.0
     };
+    let chip_width = chip_galley
+        .as_ref()
+        .map(|galley| galley.size().x + 10.0 + chip_spacing)
+        .unwrap_or(0.0);
+    let offer_width = offer_galley
+        .as_ref()
+        .map(|galley| galley.size().x + 10.0 + chip_spacing)
+        .unwrap_or(0.0);
     let button_width = galley.size().x
         + 2.0 * x_margin
         + icon_width
+        + chip_width
+        + offer_width
         + f32::from(state.closable) * (close_btn_left_padding + close_btn_size.x);
     let (_, tab_rect) = ui.allocate_space(vec2(button_width, ui.available_height()));
 
@@ -391,6 +434,96 @@ fn render_tab_ui_impl(
                 egui::Color32::WHITE,
             );
             text_rect.min.x += icon_size + icon_spacing;
+        }
+        if let Some(frame_name) = frame_chip_label.as_ref()
+            && let Some(chip_galley) = chip_galley.as_ref()
+        {
+            let chip_size = chip_galley.size() + egui::vec2(10.0, 4.0);
+            let chip_rect = egui::Rect::from_min_size(
+                egui::pos2(text_rect.min.x, tab_rect.center().y - chip_size.y * 0.5),
+                chip_size,
+            );
+            let chip_id = ui.auto_id_with(("frame_chip", tile_id));
+            let chip_response = ui
+                .interact(chip_rect, chip_id, Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            ui.painter().rect(
+                chip_rect,
+                egui::CornerRadius::same(6),
+                egui::Color32::from_rgba_unmultiplied(70, 110, 150, 40),
+                Stroke::new(1.0, ui.visuals().selection.stroke.color),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter().galley(
+                chip_rect.center() - chip_galley.size() * 0.5,
+                chip_galley.clone(),
+                ui.visuals().selection.stroke.color,
+            );
+            if chip_response.clicked() {
+                behavior.queue_post_render_intent(ViewAction::SetSelectedFrame {
+                    frame_name: Some(frame_name.clone()),
+                });
+            }
+            if chip_response.secondary_clicked() {
+                behavior.graph_app.set_pending_node_context_target(None);
+                behavior
+                    .graph_app
+                    .set_pending_frame_context_target(Some(frame_name.clone()));
+                match behavior.graph_app.context_command_surface_preference() {
+                    crate::app::ContextCommandSurfacePreference::RadialPalette => {
+                        if let Some(pointer) = ui.input(|i| i.pointer.latest_pos()) {
+                            ui.ctx().data_mut(|d| {
+                                d.insert_persisted(egui::Id::new("radial_menu_center"), pointer);
+                            });
+                        }
+                        if !behavior.graph_app.workspace.chrome_ui.show_radial_menu {
+                            behavior
+                                .graph_app
+                                .enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+                        }
+                    }
+                    crate::app::ContextCommandSurfacePreference::ContextPalette => {
+                        behavior.graph_app.set_context_palette_anchor(
+                            ui.input(|i| i.pointer.latest_pos().map(|pos| [pos.x, pos.y])),
+                        );
+                        behavior.graph_app.open_context_palette();
+                    }
+                }
+            }
+            text_rect.min.x = chip_rect.max.x + chip_spacing;
+        }
+        if let Some(candidate) = split_offer.as_ref()
+            && let Some(offer_galley) = offer_galley.as_ref()
+            && let Some(node_key) = node_key_for_tab
+        {
+            let offer_size = offer_galley.size() + egui::vec2(10.0, 4.0);
+            let offer_rect = egui::Rect::from_min_size(
+                egui::pos2(text_rect.min.x, tab_rect.center().y - offer_size.y * 0.5),
+                offer_size,
+            );
+            let offer_id = ui.auto_id_with(("frame_split_offer", tile_id));
+            let offer_response = ui
+                .interact(offer_rect, offer_id, Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            ui.painter().rect(
+                offer_rect,
+                egui::CornerRadius::same(6),
+                egui::Color32::from_rgba_unmultiplied(40, 90, 120, 55),
+                Stroke::new(1.0, egui::Color32::from_rgb(120, 200, 255)),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter().galley(
+                offer_rect.center() - offer_galley.size() * 0.5,
+                offer_galley.clone(),
+                egui::Color32::from_rgb(210, 225, 240),
+            );
+            if offer_response.clicked() {
+                behavior.queue_post_render_intent(GraphIntent::OpenNodeFrameRouted {
+                    key: node_key,
+                    prefer_frame: Some(candidate.frame_name.clone()),
+                });
+            }
+            text_rect.min.x = offer_rect.max.x + chip_spacing;
         }
 
         let text_color = behavior.tab_text_color(ui.visuals(), tiles, tile_id, state);

@@ -9,14 +9,14 @@
 - `../system/register/PLANNING_REGISTER.md`
 - `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `2026-02-28_ux_contract_register.md`
-- `../canvas/graph_node_edge_interaction_spec.md`
+- `../graph/graph_node_edge_interaction_spec.md`
 - `WORKBENCH.md`
-- `../canvas/CANVAS.md`
+- `../graph/GRAPH.md`
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` — WorkbenchLayerState, ChromeExposurePolicy, and graph/workbench Navigator scope exposure
-- `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation edges backing frame/tile membership; Navigator projection sections
+- `../graph/2026-03-14_graph_relation_families.md` — ArrangementRelation edges backing frame/tile membership; Navigator projection sections
 - `graph_first_frame_semantics_spec.md` — canonical cross-tree semantics for Frame lifecycle, `CloseFrameHandle` vs `DeleteFrame`, and workbench-to-graph membership sync
 - `graphlet_projection_binding_spec.md`
 - `workbench_layout_policy_spec.md` — surface-role layout constraints, `UxConfigMode`, `WorkbenchLayoutPolicyEvaluator`

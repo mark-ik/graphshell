@@ -326,6 +326,9 @@ pub struct GraphViewRuntimeState {
     /// Explicit highlighted edge in graph view (for edge-search targeting).
     pub highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
 
+    /// Selected frame identity from graph-canvas backdrop interaction.
+    pub selected_frame_name: Option<String>,
+
     /// Graph-owned hierarchical projection runtime state for navigator.
     pub navigator_projection_state: NavigatorProjectionState,
 
@@ -395,6 +398,9 @@ pub struct WorkbenchSessionState {
     /// UUID-keyed frame membership index (runtime-derived from persisted layouts).
     pub(crate) node_workspace_membership: HashMap<Uuid, BTreeSet<String>>,
 
+    /// Name of the currently loaded named frame/workspace, if any.
+    pub(crate) current_workspace_name: Option<String>,
+
     /// True while current tile tree was synthesized without a named restore context.
     pub(crate) current_workspace_is_synthesized: bool,
 
@@ -421,6 +427,9 @@ pub struct WorkbenchSessionState {
 
     /// Hosts whose first-use prompt should remain hidden for the current session only.
     pub(crate) session_suppressed_first_use_prompts: HashSet<SurfaceHostId>,
+
+    /// Frames whose split-offer affordance was dismissed for the current session only.
+    pub(crate) session_dismissed_frame_split_offers: HashSet<String>,
 
     /// Graph-wide default relation projection for graphlet computation and
     /// projection-aware workbench routing.

@@ -3,9 +3,7 @@ use euclid::default::Point2D;
 
 use crate::app::{GraphBrowserApp, RendererId};
 use crate::graph::{AddressKind, NodeKey};
-use crate::model::graph::{
-    ClassificationProvenance, ClassificationStatus, NodeClassification,
-};
+use crate::model::graph::{ClassificationProvenance, ClassificationStatus, NodeClassification};
 
 const CLIP_EDGE_LABEL: &str = "clip-source";
 const CLIP_TITLE_FALLBACK: &str = "Clipped element";
@@ -643,7 +641,11 @@ mod tests {
             .node_classifications(clip_key)
             .expect("clip node should exist");
 
-        assert_eq!(classifications.len(), 1, "clip should inherit one classification");
+        assert_eq!(
+            classifications.len(),
+            1,
+            "clip should inherit one classification"
+        );
         let c = &classifications[0];
         assert_eq!(c.value, "udc:51");
         assert_eq!(

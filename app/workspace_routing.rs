@@ -235,6 +235,7 @@ impl GraphBrowserApp {
 
     /// Mark the current frame context as synthesized from runtime actions.
     pub fn mark_current_workspace_synthesized(&mut self) {
+        self.workspace.workbench_session.current_workspace_name = None;
         self.workspace
             .workbench_session
             .current_workspace_is_synthesized = true;
@@ -321,6 +322,7 @@ impl GraphBrowserApp {
             .saturating_add(1);
         let seq = self.workspace.workbench_session.workspace_activation_seq;
         let workspace_name = workspace_name.to_string();
+        self.workspace.workbench_session.current_workspace_name = Some(workspace_name.clone());
         for key in nodes {
             let Some(node) = self.workspace.domain.graph.get_node(key) else {
                 continue;
@@ -355,6 +357,17 @@ impl GraphBrowserApp {
         nodes: impl IntoIterator<Item = NodeKey>,
     ) {
         self.note_workspace_activated(frame_name, nodes);
+    }
+
+    pub fn current_workspace_name(&self) -> Option<&str> {
+        self.workspace
+            .workbench_session
+            .current_workspace_name
+            .as_deref()
+    }
+
+    pub fn current_frame_name(&self) -> Option<&str> {
+        self.current_workspace_name()
     }
 
     /// Initialize membership index from desktop-layer workspace scan.
@@ -551,6 +564,27 @@ impl GraphBrowserApp {
 
         if let Some(target) = target {
             self.enqueue_app_command(AppCommand::NodeContextTarget { target });
+        }
+    }
+
+    /// Current explicit frame context target for command-surface actions.
+    pub fn pending_frame_context_target(&self) -> Option<&str> {
+        match self.pending_app_command(|command| {
+            matches!(command, AppCommand::FrameContextTarget { .. })
+        })? {
+            AppCommand::FrameContextTarget { frame_name } => Some(frame_name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Set/clear explicit frame context target for command-surface actions.
+    pub fn set_pending_frame_context_target(&mut self, frame_name: Option<String>) {
+        let _ = self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::FrameContextTarget { .. })
+        });
+
+        if let Some(frame_name) = frame_name {
+            self.enqueue_app_command(AppCommand::FrameContextTarget { frame_name });
         }
     }
 

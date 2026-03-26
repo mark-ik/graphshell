@@ -1072,6 +1072,153 @@ pub(crate) fn dismiss_floating_panes(tiles_tree: &mut Tree<TileKind>) {
     remove_all_floating_panes(tiles_tree);
 }
 
+/// Open all members of a frame as a tile group, or focus the existing group.
+///
+/// Implements the frame → tile-group 1:1 cardinality contract:
+/// if a tabs container already holds tiles for any member of `frame_anchor`,
+/// that container is treated as the frame's tile group and is focused instead
+/// of creating a second group.
+///
+/// If `focus_key` is `Some`, the tile for that node is made active within
+/// the group after opening/focusing.
+pub(crate) fn open_or_focus_frame_tile_group(
+    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    frame_anchor: NodeKey,
+    focus_key: Option<NodeKey>,
+) {
+    let member_keys = graph_app.outgoing_membership_nodes(frame_anchor);
+    if member_keys.is_empty() {
+        log::debug!(
+            "tile_view_ops: open_or_focus_frame_tile_group: frame anchor {:?} has no members",
+            frame_anchor
+        );
+        return;
+    }
+    let focus_key = focus_key.unwrap_or(member_keys[0]);
+
+    // 1:1 cardinality: find an existing tabs container that already holds
+    // a tile for any member of this frame anchor.
+    let existing_group_id = find_frame_tile_group(tiles_tree, &member_keys);
+
+    if let Some(group_id) = existing_group_id {
+        // Focus the group container, then focus the specific member's tile.
+        let _ = tiles_tree.make_active(|tile_id, _| tile_id == group_id);
+        focus_member_tile_in_group(tiles_tree, group_id, focus_key);
+        log::debug!(
+            "tile_view_ops: focused existing frame tile group {:?} for anchor {:?}",
+            group_id,
+            frame_anchor
+        );
+        return;
+    }
+
+    // Create new tabs container with one tile per member.
+    let member_tile_ids: Vec<TileId> = member_keys
+        .iter()
+        .map(|&key| tiles_tree.tiles.insert_pane(TileKind::Node(key.into())))
+        .collect();
+
+    let group_id = tiles_tree.tiles.insert_tab_tile(member_tile_ids.clone());
+
+    // Focus the desired member tile within the new group.
+    if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(group_id) {
+        if let Some(&focus_tile_id) = member_keys
+            .iter()
+            .zip(member_tile_ids.iter())
+            .find_map(|(&key, tile_id)| (key == focus_key).then_some(tile_id))
+        {
+            tabs.set_active(focus_tile_id);
+        }
+    }
+
+    // Insert the group into the tree.
+    let Some(root_id) = tiles_tree.root() else {
+        tiles_tree.root = Some(group_id);
+        tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+        log::debug!(
+            "tile_view_ops: opened new frame tile group {:?} for anchor {:?} (was empty tree)",
+            group_id,
+            frame_anchor
+        );
+        return;
+    };
+
+    match tiles_tree.tiles.get_mut(root_id) {
+        Some(Tile::Container(Container::Tabs(tabs))) => {
+            tabs.add_child(group_id);
+            tabs.set_active(group_id);
+        }
+        _ => {
+            let tabs_root = tiles_tree
+                .tiles
+                .insert_tab_tile(vec![root_id, group_id]);
+            tiles_tree.root = Some(tabs_root);
+            let _ = tiles_tree.make_active(|tile_id, _| tile_id == group_id);
+        }
+    }
+
+    tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+    log::debug!(
+        "tile_view_ops: opened new frame tile group {:?} for anchor {:?}",
+        group_id,
+        frame_anchor
+    );
+}
+
+/// Find a tabs container that holds tiles for any member of this frame.
+///
+/// Iterates over all member keys and returns the parent `TileId` of the first
+/// non-floating pane that is a direct child of a `Container::Tabs`.
+fn find_frame_tile_group(tiles_tree: &Tree<TileKind>, member_keys: &[NodeKey]) -> Option<TileId> {
+    for &member_key in member_keys {
+        let Some(member_tile_id) = tiles_tree.tiles.iter().find_map(|(tile_id, tile)| {
+            matches!(tile, Tile::Pane(kind) if tile_matches_node(kind, member_key) && !kind.is_floating())
+                .then_some(*tile_id)
+        }) else {
+            continue;
+        };
+        let Some(parent_id) = tiles_tree.tiles.parent_of(member_tile_id) else {
+            continue;
+        };
+        if matches!(
+            tiles_tree.tiles.get(parent_id),
+            Some(Tile::Container(Container::Tabs(_)))
+        ) {
+            return Some(parent_id);
+        }
+    }
+    None
+}
+
+/// Focus the tile for `focus_key` within the given tabs container.
+fn focus_member_tile_in_group(
+    tiles_tree: &mut Tree<TileKind>,
+    group_id: TileId,
+    focus_key: NodeKey,
+) {
+    let focus_tile_id = tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(tile_id, tile)| {
+            if let Tile::Pane(kind) = tile {
+                if tile_matches_node(kind, focus_key)
+                    && !kind.is_floating()
+                    && tiles_tree.tiles.parent_of(*tile_id) == Some(group_id)
+                {
+                    return Some(*tile_id);
+                }
+            }
+            None
+        });
+    let Some(focus_tile_id) = focus_tile_id else {
+        return;
+    };
+    if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(group_id) {
+        tabs.set_active(focus_tile_id);
+    }
+}
+
 pub(crate) fn detach_node_pane_to_split(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -1436,5 +1583,119 @@ mod tests {
 
         assert!(cycle_focus_region(&mut tree));
         assert_eq!(active_region_name(&tree), Some("graph"));
+    }
+
+    /// Helper: create an app with a frame anchor having `n` members.
+    ///
+    /// Returns `(app, frame_anchor_key, [member_key_0, ..., member_key_n-1])`.
+    fn make_frame_with_members(
+        n: usize,
+    ) -> (GraphBrowserApp, crate::graph::NodeKey, Vec<crate::graph::NodeKey>) {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let member_keys: Vec<crate::graph::NodeKey> = (0..n)
+            .map(|i| {
+                app.add_node_and_sync(
+                    format!("https://example.com/member-{i}"),
+                    euclid::default::Point2D::new(i as f32, 0.0),
+                )
+            })
+            .collect();
+
+        // Build a temporary tile tree containing all member nodes and use
+        // the high-level bridge method to register the frame in the graph.
+        let mut setup_tiles = Tiles::default();
+        let tile_ids: Vec<_> = member_keys
+            .iter()
+            .map(|&key| setup_tiles.insert_pane(TileKind::Node(key.into())))
+            .collect();
+        let root = if tile_ids.len() == 1 {
+            tile_ids[0]
+        } else {
+            setup_tiles.insert_tab_tile(tile_ids)
+        };
+        let setup_tree = Tree::new("frame_setup", root, setup_tiles);
+        let frame_anchor =
+            app.sync_named_workbench_frame_graph_representation("test-frame", &setup_tree);
+        (app, frame_anchor, member_keys)
+    }
+
+    #[test]
+    fn open_frame_tile_group_creates_tabs_container_for_all_members() {
+        let (app, frame_anchor, member_keys) = make_frame_with_members(2);
+        let graph_view = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(graph_pane(graph_view));
+        let mut tree = Tree::new("frame_group_create", root, tiles);
+
+        open_or_focus_frame_tile_group(&mut tree, &app, frame_anchor, None);
+
+        // Both member node panes must exist.
+        assert_eq!(count_node_panes(&tree), 2);
+
+        // Exactly one tabs container holds both member tiles.
+        let group_id = find_frame_tile_group(&tree, &member_keys);
+        assert!(group_id.is_some(), "expected a tabs container for frame members");
+
+        let group_id = group_id.unwrap();
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tree.tiles.get(group_id) {
+            assert_eq!(tabs.children.len(), 2);
+        } else {
+            panic!("expected a Tabs container for the frame tile group");
+        }
+    }
+
+    #[test]
+    fn open_frame_tile_group_focuses_existing_group_on_second_call() {
+        let (app, frame_anchor, member_keys) = make_frame_with_members(2);
+        let graph_view = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(graph_pane(graph_view));
+        let mut tree = Tree::new("frame_group_idempotent", root, tiles);
+
+        open_or_focus_frame_tile_group(&mut tree, &app, frame_anchor, None);
+        let node_pane_count_after_first = count_node_panes(&tree);
+        let group_id_after_first = find_frame_tile_group(&tree, &member_keys);
+
+        open_or_focus_frame_tile_group(&mut tree, &app, frame_anchor, None);
+        let node_pane_count_after_second = count_node_panes(&tree);
+        let group_id_after_second = find_frame_tile_group(&tree, &member_keys);
+
+        // Second call must not create new panes — 1:1 cardinality.
+        assert_eq!(
+            node_pane_count_after_first, node_pane_count_after_second,
+            "second call must not duplicate frame members"
+        );
+        assert_eq!(node_pane_count_after_second, 2);
+
+        // The frame tile group container is the same object both times.
+        assert!(group_id_after_first.is_some(), "frame tile group must exist after first call");
+        assert_eq!(
+            group_id_after_first, group_id_after_second,
+            "expected the same frame tile group after two calls (1:1 cardinality)"
+        );
+    }
+
+    #[test]
+    fn open_frame_tile_group_with_focus_key_makes_correct_tile_active() {
+        let (app, frame_anchor, member_keys) = make_frame_with_members(2);
+        let focus_key = member_keys[1]; // Focus the second member.
+        let graph_view = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(graph_pane(graph_view));
+        let mut tree = Tree::new("frame_group_focus", root, tiles);
+
+        open_or_focus_frame_tile_group(&mut tree, &app, frame_anchor, Some(focus_key));
+
+        // The active tile should be the pane for focus_key.
+        let active_is_focus_key = tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Node(state))) if state.node == focus_key
+            )
+        });
+        assert!(
+            active_is_focus_key,
+            "the focused member's tile should be active"
+        );
     }
 }

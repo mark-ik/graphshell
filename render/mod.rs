@@ -55,7 +55,7 @@ use canvas_input::{
 };
 use canvas_overlays::{
     draw_frame_affinity_backdrops, draw_highlighted_edge_overlay, draw_hovered_edge_tooltip,
-    draw_hovered_node_tooltip, edge_endpoints_at_pointer,
+    draw_hovered_node_tooltip, edge_endpoints_at_pointer, frame_anchor_at_pointer,
 };
 #[cfg(test)]
 use canvas_visuals::filtered_graph_for_search;
@@ -150,6 +150,10 @@ pub use radial_menu::render_radial_command_menu;
 /// graph interactions testable without an egui rendering context.
 pub enum GraphAction {
     FocusNode(NodeKey),
+    FocusFrame {
+        frame_name: String,
+        member_key: NodeKey,
+    },
     FocusNodeSplit(NodeKey),
     DragStart,
     DragEnd(NodeKey, Point2D<f32>),
@@ -158,6 +162,7 @@ pub enum GraphAction {
         key: NodeKey,
         multi_select: bool,
     },
+    SelectFrame(String),
     LassoSelect {
         keys: Vec<NodeKey>,
         mode: SelectionUpdateMode,
@@ -189,11 +194,13 @@ fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
         action,
         GraphAction::FocusNode(_)
+            | GraphAction::FocusFrame { .. }
             | GraphAction::FocusNodeSplit(_)
             | GraphAction::DragStart
             | GraphAction::DragEnd(_, _)
             | GraphAction::MoveNode(_, _)
             | GraphAction::SelectNode { .. }
+            | GraphAction::SelectFrame(_)
             | GraphAction::LassoSelect { .. }
             | GraphAction::SetHighlightedEdge { .. }
     )
@@ -235,6 +242,7 @@ fn handle_hovered_node_secondary_click(
     match app.context_command_surface_preference() {
         crate::app::ContextCommandSurfacePreference::RadialPalette => {
             app.set_pending_node_context_target(None);
+            app.set_pending_frame_context_target(None);
             if app.pending_transient_surface_return_target().is_none() {
                 app.set_pending_transient_surface_return_target(Some(
                     crate::app::ToolSurfaceReturnTarget::Graph(view_id),
@@ -251,6 +259,46 @@ fn handle_hovered_node_secondary_click(
         }
         crate::app::ContextCommandSurfacePreference::ContextPalette => {
             app.set_pending_node_context_target(Some(target));
+            app.set_pending_frame_context_target(None);
+            if app.pending_command_surface_return_target().is_none() {
+                app.set_pending_command_surface_return_target(Some(
+                    crate::app::ToolSurfaceReturnTarget::Graph(view_id),
+                ));
+            }
+            app.set_context_palette_anchor(pointer.map(|pos| [pos.x, pos.y]));
+            app.open_context_palette();
+        }
+    }
+}
+
+fn handle_frame_backdrop_secondary_click(
+    ctx: &egui::Context,
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    frame_name: String,
+    pointer: Option<egui::Pos2>,
+) {
+    match app.context_command_surface_preference() {
+        crate::app::ContextCommandSurfacePreference::RadialPalette => {
+            app.set_pending_node_context_target(None);
+            app.set_pending_frame_context_target(Some(frame_name));
+            if app.pending_transient_surface_return_target().is_none() {
+                app.set_pending_transient_surface_return_target(Some(
+                    crate::app::ToolSurfaceReturnTarget::Graph(view_id),
+                ));
+            }
+            if !app.workspace.chrome_ui.show_radial_menu {
+                app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+            }
+            if let Some(pointer) = pointer {
+                ctx.data_mut(|d| {
+                    d.insert_persisted(egui::Id::new("radial_menu_center"), pointer);
+                });
+            }
+        }
+        crate::app::ContextCommandSurfacePreference::ContextPalette => {
+            app.set_pending_node_context_target(None);
+            app.set_pending_frame_context_target(Some(frame_name));
             if app.pending_command_surface_return_target().is_none() {
                 app.set_pending_command_surface_return_target(Some(
                     crate::app::ToolSurfaceReturnTarget::Graph(view_id),
@@ -561,9 +609,10 @@ pub fn render_graph_in_ui_collect_actions(
     }
 
     // Resolve canvas zone policy once — used for both backdrop rendering and force gating.
-    let canvas_zones_enabled = crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
-        .profile
-        .zones_enabled();
+    let canvas_zones_enabled =
+        crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
+            .profile
+            .zones_enabled();
 
     // Render frame-affinity backdrops below nodes when zones are enabled.
     if canvas_zones_enabled {
@@ -613,12 +662,11 @@ pub fn render_graph_in_ui_collect_actions(
     }
 
     // Apply semantic clustering and frame-affinity forces (UDC Phase 2 + lane:layout-semantics).
-    let physics_extensions = app
-        .workspace
-        .graph_runtime
-        .views
-        .get(&view_id)
-        .map(|v| v.lens.physics.graph_physics_extensions(canvas_zones_enabled));
+    let physics_extensions = app.workspace.graph_runtime.views.get(&view_id).map(|v| {
+        v.lens
+            .physics
+            .graph_physics_extensions(canvas_zones_enabled)
+    });
     apply_graph_physics_extensions(app, physics_extensions);
 
     app.workspace.graph_runtime.hovered_graph_node = pointer_in_visible_graph_region
@@ -660,6 +708,21 @@ pub fn render_graph_in_ui_collect_actions(
             app,
             view_id,
             target,
+            ui.input(|i| i.pointer.latest_pos()),
+        );
+    }
+    if pointer_in_visible_graph_region
+        && ui.input(|i| i.pointer.secondary_clicked())
+        && !lasso.suppress_context_menu
+        && app.workspace.graph_runtime.hovered_graph_node.is_none()
+        && let Some(frame_anchor) = frame_anchor_at_pointer(ui, app, metadata_id)
+        && let Some(frame_node) = app.domain_graph().get_node(frame_anchor)
+    {
+        handle_frame_backdrop_secondary_click(
+            ui.ctx(),
+            app,
+            view_id,
+            frame_node.title.clone(),
             ui.input(|i| i.pointer.latest_pos()),
         );
     }
@@ -760,6 +823,42 @@ pub fn render_graph_in_ui_collect_actions(
     {
         actions.push(GraphAction::SetHighlightedEdge { from, to });
     }
+    let frame_backdrop_click_eligible = pointer_in_visible_graph_region
+        && app.workspace.graph_runtime.hovered_graph_node.is_none()
+        && !radial_open
+        && lasso.action.is_none();
+    if frame_backdrop_click_eligible
+        && ui.input(|i| i.pointer.primary_clicked())
+        && let Some(frame_anchor) = frame_anchor_at_pointer(ui, app, metadata_id)
+        && let Some(frame_node) = app.domain_graph().get_node(frame_anchor)
+    {
+        let frame_name = frame_node.title.clone();
+        actions.push(GraphAction::SelectFrame(frame_name));
+    }
+    if frame_backdrop_click_eligible
+        && ui.input(|i| {
+            i.pointer
+                .button_double_clicked(egui::PointerButton::Primary)
+        })
+        && let Some(frame_anchor) = frame_anchor_at_pointer(ui, app, metadata_id)
+        && let Some(frame_node) = app.domain_graph().get_node(frame_anchor)
+    {
+        let frame_name = frame_node.title.clone();
+        if let Some(member_key) = app
+            .arrangement_projection_groups()
+            .into_iter()
+            .find(|group| {
+                group.sub_kind == crate::graph::ArrangementSubKind::FrameMember
+                    && group.container_key == frame_anchor
+            })
+            .and_then(|group| group.member_keys.into_iter().next())
+        {
+            actions.push(GraphAction::FocusFrame {
+                frame_name,
+                member_key,
+            });
+        }
+    }
     let graph_handled_primary_click = actions.iter().any(action_handles_primary_click);
     let clear_selection_on_background_click = ui.input(|i| {
         should_clear_selection_on_background_click(
@@ -800,6 +899,21 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
                     prefer_frame: None,
                 });
             }
+            GraphAction::FocusFrame {
+                frame_name,
+                member_key,
+            } => {
+                intents.push(
+                    ViewAction::SetSelectedFrame {
+                        frame_name: Some(frame_name.clone()),
+                    }
+                    .into(),
+                );
+                intents.push(GraphIntent::OpenFrameTileGroup {
+                    url: crate::util::VersoAddress::frame(&frame_name).to_string(),
+                    focus_node: Some(member_key),
+                });
+            }
             GraphAction::FocusNodeSplit(key) => {
                 intents.push(GraphIntent::SelectNode {
                     key,
@@ -818,6 +932,21 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
             }
             GraphAction::SelectNode { key, multi_select } => {
                 intents.push(GraphIntent::SelectNode { key, multi_select });
+            }
+            GraphAction::SelectFrame(frame_name) => {
+                intents.push(
+                    ViewAction::UpdateSelection {
+                        keys: Vec::new(),
+                        mode: SelectionUpdateMode::Replace,
+                    }
+                    .into(),
+                );
+                intents.push(
+                    ViewAction::SetSelectedFrame {
+                        frame_name: Some(frame_name),
+                    }
+                    .into(),
+                );
             }
             GraphAction::LassoSelect { keys, mode } => {
                 intents.push(ViewAction::UpdateSelection { keys, mode }.into());
@@ -1727,6 +1856,51 @@ mod tests {
     }
 
     #[test]
+    fn test_select_frame_action_maps_to_intent_and_clears_node_selection() {
+        let mut app = test_app();
+        let key = app.add_node_and_sync(
+            "https://example.com/selected".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        app.select_node(key, false);
+
+        let intents = intents_from_graph_actions(vec![GraphAction::SelectFrame(
+            "workspace-alpha".to_string(),
+        )]);
+        app.apply_reducer_intents(intents);
+
+        assert!(app.focused_selection().is_empty());
+        assert_eq!(app.selected_frame_name(), Some("workspace-alpha"));
+    }
+
+    #[test]
+    fn test_focus_frame_action_maps_to_selected_frame_then_open_tile_group() {
+        let member_key = NodeKey::new(9);
+        let expected_url =
+            crate::util::VersoAddress::frame("workspace-alpha").to_string();
+        let intents = intents_from_graph_actions(vec![GraphAction::FocusFrame {
+            frame_name: "workspace-alpha".to_string(),
+            member_key,
+        }]);
+
+        assert_eq!(intents.len(), 2);
+        assert!(matches!(
+            &intents[0],
+            GraphIntent::SetSelectedFrame { frame_name }
+                if frame_name.as_deref() == Some("workspace-alpha")
+        ));
+        assert!(
+            matches!(
+                &intents[1],
+                GraphIntent::OpenFrameTileGroup { url, focus_node }
+                    if url == &expected_url && *focus_node == Some(member_key)
+            ),
+            "expected OpenFrameTileGroup with url={expected_url} and focus_node=Some({member_key:?}), got {:?}",
+            &intents[1]
+        );
+    }
+
+    #[test]
     fn test_set_highlighted_edge_action_maps_to_intent() {
         let mut app = test_app();
         let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
@@ -1761,6 +1935,19 @@ mod tests {
             key: NodeIndex::new(0),
             multi_select: false,
         }];
+
+        assert!(actions.iter().any(action_handles_primary_click));
+    }
+
+    #[test]
+    fn test_primary_click_handler_detects_frame_actions() {
+        let actions = vec![
+            GraphAction::SelectFrame("workspace-alpha".to_string()),
+            GraphAction::FocusFrame {
+                frame_name: "workspace-alpha".to_string(),
+                member_key: NodeKey::new(7),
+            },
+        ];
 
         assert!(actions.iter().any(action_handles_primary_click));
     }
@@ -2232,6 +2419,60 @@ mod tests {
             app.pending_command_surface_return_target(),
             Some(crate::app::ToolSurfaceReturnTarget::Graph(view_id))
         );
+    }
+
+    #[test]
+    fn secondary_click_on_frame_opens_context_palette_when_preferred() {
+        let mut app = test_app();
+        let ctx = egui::Context::default();
+        let view_id = crate::app::GraphViewId::new();
+        app.set_context_command_surface_preference(
+            crate::app::ContextCommandSurfacePreference::ContextPalette,
+        );
+
+        handle_frame_backdrop_secondary_click(
+            &ctx,
+            &mut app,
+            view_id,
+            "workspace-alpha".to_string(),
+            None,
+        );
+
+        assert!(app.workspace.chrome_ui.show_context_palette);
+        assert!(app.workspace.chrome_ui.command_palette_contextual_mode);
+        assert_eq!(app.pending_frame_context_target(), Some("workspace-alpha"));
+        assert_eq!(app.pending_node_context_target(), None);
+    }
+
+    #[test]
+    fn secondary_click_on_frame_opens_radial_palette_when_preferred() {
+        let mut app = test_app();
+        let ctx = egui::Context::default();
+        let view_id = crate::app::GraphViewId::new();
+        let pointer = egui::pos2(88.0, 144.0);
+        app.set_context_command_surface_preference(
+            crate::app::ContextCommandSurfacePreference::RadialPalette,
+        );
+        app.workspace.chrome_ui.show_context_palette = true;
+        app.workspace.chrome_ui.command_palette_contextual_mode = true;
+
+        handle_frame_backdrop_secondary_click(
+            &ctx,
+            &mut app,
+            view_id,
+            "workspace-alpha".to_string(),
+            Some(pointer),
+        );
+
+        assert_eq!(app.pending_frame_context_target(), Some("workspace-alpha"));
+        assert_eq!(app.pending_node_context_target(), None);
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::ToggleRadialMenu]
+        ));
+        let stored_center =
+            ctx.data_mut(|d| d.get_persisted::<egui::Pos2>(egui::Id::new("radial_menu_center")));
+        assert_eq!(stored_center, Some(pointer));
     }
 
     #[test]

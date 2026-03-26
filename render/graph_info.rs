@@ -689,8 +689,8 @@ pub(super) fn selected_node_enrichment_summary(
             })
         });
 
-    use crate::graph::{ClassificationProvenance, ClassificationStatus};
     use super::semantic_tags::ClassificationChip;
+    use crate::graph::{ClassificationProvenance, ClassificationStatus};
     let display_classifications: Vec<ClassificationChip> = app
         .domain_graph()
         .node_classifications(selected_key)

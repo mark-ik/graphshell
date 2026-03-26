@@ -11,7 +11,7 @@
 - `../implementation_strategy/domain_interaction_acceptance_matrix.md` — compact acceptance matrix for PR review and scenario evidence
 - `../implementation_strategy/shell/SHELL.md` — Shell host/orchestration boundary
 - `../implementation_strategy/shell/shell_overview_surface_spec.md` — Shell overview UI
-- `../implementation_strategy/canvas/CANVAS.md` — Graph domain at the canvas surface
+- `../implementation_strategy/graph/GRAPH.md` — Graph domain spec; the canvas is one of its primary surfaces
 - `../implementation_strategy/navigator/NAVIGATOR.md` — Navigator projection/navigation domain
 - `../implementation_strategy/workbench/WORKBENCH.md` — Workbench arrangement/activation domain
 

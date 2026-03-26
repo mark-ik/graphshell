@@ -12,7 +12,7 @@
 - `../implementation_strategy/subsystem_focus/focus_and_region_navigation_spec.md` — Focus and region navigation contract
 - `../implementation_strategy/subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md` — Accessibility subsystem policy
 - `../implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md` — Tile tree interaction contract
-- `../implementation_strategy/canvas/graph_node_edge_interaction_spec.md` — Graph surface interaction contract
+- `../implementation_strategy/graph/graph_node_edge_interaction_spec.md` — Graph surface interaction contract
 - `../implementation_strategy/aspect_command/command_surface_interaction_spec.md` — Command surface interaction contract
 - `2026-02-24_interaction_and_semantic_design_schemes.md` — Lens/physics/semantic design research
 - `../../TERMINOLOGY.md` — Canonical terminology

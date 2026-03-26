@@ -142,6 +142,7 @@ impl GraphBrowserApp {
     pub fn open_command_palette(&mut self) {
         self.workspace.chrome_ui.context_palette_anchor = None;
         self.set_pending_node_context_target(None);
+        self.set_pending_frame_context_target(None);
         self.set_command_surface_visibility(true, false);
     }
 
@@ -165,6 +166,7 @@ impl GraphBrowserApp {
         } else {
             self.workspace.chrome_ui.context_palette_anchor = None;
             self.set_pending_node_context_target(None);
+            self.set_pending_frame_context_target(None);
             self.set_command_surface_visibility(true, false);
         }
     }
@@ -199,6 +201,7 @@ impl GraphBrowserApp {
         }
         self.workspace.chrome_ui.show_radial_menu = false;
         self.set_pending_node_context_target(None);
+        self.set_pending_frame_context_target(None);
         if !self.workspace.chrome_ui.show_command_palette
             && !self.workspace.chrome_ui.show_context_palette
             && !self.workspace.chrome_ui.show_help_panel
@@ -232,6 +235,7 @@ impl GraphBrowserApp {
             self.emit_focus_capture_enter();
         } else {
             self.set_pending_node_context_target(None);
+            self.set_pending_frame_context_target(None);
             self.workspace.chrome_ui.command_palette_contextual_mode = false;
             self.emit_focus_capture_exit();
         }

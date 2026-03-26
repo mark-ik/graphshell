@@ -23,7 +23,10 @@ pub(super) fn workbench_route_intent_for_verso_url(
     let canonical_url = parsed.to_string();
     match parsed {
         VersoAddress::Settings(_) => Some(WorkbenchIntent::OpenSettingsUrl { url: canonical_url }),
-        VersoAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl { url: canonical_url }),
+        VersoAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl {
+            url: canonical_url,
+            focus_node: None,
+        }),
         VersoAddress::TileGroup(_) => None,
         VersoAddress::Tool { .. } => Some(WorkbenchIntent::OpenToolUrl { url: canonical_url }),
         VersoAddress::View(_) => Some(WorkbenchIntent::OpenViewUrl { url: canonical_url }),

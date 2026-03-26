@@ -6,7 +6,7 @@
 
 **Related**:
 
-- `CANVAS.md`
+- `GRAPH.md`
 - `node_badge_and_tagging_spec.md`
 - `layout_behaviors_and_physics_spec.md`
 - `faceted_filter_surface_spec.md`

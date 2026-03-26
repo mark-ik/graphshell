@@ -407,23 +407,51 @@ fn unknown_settings_url_intent_is_not_consumed_by_orchestration_authority() {
 }
 
 #[test]
-fn frame_url_intent_queues_frame_restore_via_orchestration_authority() {
+fn frame_url_intent_opens_frame_tile_group_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
+    // Add two member nodes and register the frame in the graph by syncing
+    // a frame snapshot via a temporary tile tree containing both nodes.
+    let member_a = app.add_node_and_sync(
+        "https://example.com/a".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let member_b = app.add_node_and_sync(
+        "https://example.com/b".to_string(),
+        euclid::default::Point2D::new(1.0, 0.0),
+    );
+    {
+        let mut setup_tiles = Tiles::default();
+        let ta = setup_tiles.insert_pane(TileKind::Node(member_a.into()));
+        let tb = setup_tiles.insert_pane(TileKind::Node(member_b.into()));
+        let root = setup_tiles.insert_tab_tile(vec![ta, tb]);
+        let setup_tree = Tree::new("setup_frame", root, setup_tiles);
+        app.sync_named_workbench_frame_graph_representation("frame-123", &setup_tree);
+    }
+
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenFrameUrl {
         url: crate::util::VersoAddress::frame("frame-123").to_string(),
+        focus_node: None,
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
+    // Intent is consumed (not re-queued).
     assert!(intents.is_empty());
-    assert_eq!(
-        app.take_pending_restore_frame_snapshot_named().as_deref(),
-        Some("frame-123")
-    );
+    // A tabs container with node panes for both frame members is present.
+    assert!(tree.tiles.iter().any(|(_, tile)| matches!(
+        tile,
+        egui_tiles::Tile::Container(egui_tiles::Container::Tabs(_))
+    )));
+    let node_pane_count = tree
+        .tiles
+        .iter()
+        .filter(|(_, tile)| matches!(tile, egui_tiles::Tile::Pane(TileKind::Node(_))))
+        .count();
+    assert_eq!(node_pane_count, 2);
 }
 
 #[test]
@@ -436,13 +464,14 @@ fn invalid_frame_url_intent_is_not_consumed_by_orchestration_authority() {
     let unresolved_url = "verso://frame".to_string();
     let mut intents = vec![WorkbenchIntent::OpenFrameUrl {
         url: unresolved_url.clone(),
+        focus_node: None,
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert_eq!(intents.len(), 1);
     match &intents[0] {
-        WorkbenchIntent::OpenFrameUrl { url } => assert_eq!(url, &unresolved_url),
+        WorkbenchIntent::OpenFrameUrl { url, .. } => assert_eq!(url, &unresolved_url),
         other => panic!("expected unresolved OpenFrameUrl intent, got {other:?}"),
     }
 }

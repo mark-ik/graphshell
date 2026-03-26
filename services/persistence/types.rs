@@ -7,7 +7,8 @@
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::graph::{
-    ImportRecord, NodeClassification, NodeImportProvenance, badge::NodeTagPresentationState,
+    FrameLayoutHint, ImportRecord, NodeClassification, NodeImportProvenance,
+    badge::NodeTagPresentationState,
 };
 
 /// Address type hint for persistence (mirrors `AddressKind` in the graph model).
@@ -78,6 +79,12 @@ pub struct PersistedNode {
     /// Durable provenance-bearing classification records (Stage A enrichment).
     #[serde(default)]
     pub classifications: Vec<NodeClassification>,
+    /// Durable split arrangement annotations for frame-anchor nodes.
+    #[serde(default)]
+    pub frame_layout_hints: Vec<FrameLayoutHint>,
+    /// Durable split-offer suppression for frame-anchor nodes.
+    #[serde(default)]
+    pub frame_split_offer_suppressed: bool,
 }
 
 #[derive(
@@ -650,6 +657,27 @@ pub enum LogEntry {
         node_id: String,
         kind: PersistedAddressKind,
     },
+    /// Append a durable split arrangement hint to a frame anchor.
+    RecordFrameLayoutHint {
+        frame_id: String,
+        hint: FrameLayoutHint,
+    },
+    /// Remove a durable split arrangement hint from a frame anchor by index.
+    RemoveFrameLayoutHint {
+        frame_id: String,
+        hint_index: usize,
+    },
+    /// Reorder a durable split arrangement hint within a frame anchor.
+    MoveFrameLayoutHint {
+        frame_id: String,
+        from_index: usize,
+        to_index: usize,
+    },
+    /// Persist per-frame split-offer suppression.
+    SetFrameSplitOfferSuppressed {
+        frame_id: String,
+        suppressed: bool,
+    },
     /// Record a within-node URL navigation (same node, new address).
     /// Emitted alongside `UpdateNodeUrl` to preserve the from→to transition
     /// in the WAL. Unlike `AppendTraversal` (which records inter-node movement),
@@ -740,6 +768,8 @@ mod tests {
             mime_hint: Some("text/html".to_string()),
             address_kind: PersistedAddressKind::Http,
             classifications: Vec::new(),
+            frame_layout_hints: Vec::new(),
+            frame_split_offer_suppressed: false,
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&node).unwrap();
@@ -845,6 +875,8 @@ mod tests {
                 mime_hint: None,
                 address_kind: PersistedAddressKind::Http,
                 classifications: Vec::new(),
+                frame_layout_hints: Vec::new(),
+                frame_split_offer_suppressed: false,
             }],
             edges: vec![],
             import_records: vec![ImportRecord {
@@ -1051,6 +1083,26 @@ mod tests {
                 }
                 _ => panic!("Expected UpdateNodeAddressKind variant"),
             }
+        }
+    }
+
+    #[test]
+    fn test_record_frame_layout_hint_roundtrip() {
+        let entry = LogEntry::RecordFrameLayoutHint {
+            frame_id: Uuid::new_v4().to_string(),
+            hint: FrameLayoutHint::SplitHalf {
+                first: Uuid::new_v4().to_string(),
+                second: Uuid::new_v4().to_string(),
+                orientation: crate::graph::SplitOrientation::Vertical,
+            },
+        };
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
+        let archived = rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&bytes).unwrap();
+        match archived {
+            ArchivedLogEntry::RecordFrameLayoutHint { frame_id, .. } => {
+                assert!(!frame_id.as_str().is_empty());
+            }
+            _ => panic!("Expected RecordFrameLayoutHint variant"),
         }
     }
 

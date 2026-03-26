@@ -6,7 +6,7 @@
 
 **Related**:
 
-- `CANVAS.md`
+- `GRAPH.md`
 - `graph_node_edge_interaction_spec.md`
 - `2026-02-22_multi_graph_pane_plan.md`
 - `2026-03-05_hybrid_graph_view_overview_atlas_plan.md`

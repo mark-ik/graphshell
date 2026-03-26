@@ -6,8 +6,12 @@
 //! hovered-edge tooltip, and hovered-node tooltip.
 
 use crate::app::GraphBrowserApp;
-use crate::graph::{EdgeFamily, EdgePayload, NodeLifecycle, RelationSelector, SemanticSubKind};
+use crate::graph::{
+    EdgeFamily, EdgePayload, FrameLayoutHint, NodeLifecycle, RelationSelector, SemanticSubKind,
+    SplitOrientation,
+};
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
+use crate::util::VersoAddress;
 use egui::{Stroke, Ui, Vec2};
 use egui_graphs::MetadataFrame;
 use std::collections::BTreeSet;
@@ -80,7 +84,7 @@ pub(super) fn draw_frame_affinity_backdrops(
         .ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
 
-    let Some(egui_state) = app.workspace.graph_runtime.egui_state.as_ref() else {
+    let Some(_egui_state) = app.workspace.graph_runtime.egui_state.as_ref() else {
         return;
     };
 
@@ -90,64 +94,41 @@ pub(super) fn draw_frame_affinity_backdrops(
     ));
 
     for region in &regions {
-        let positions: Vec<egui::Pos2> = region
-            .members
-            .iter()
-            .filter_map(|&key| {
-                let node = egui_state.graph.node(key)?;
-                let canvas_pos = node.location();
-                let screen_pos = meta
-                    .as_ref()
-                    .map(|m| m.canvas_to_screen_pos(canvas_pos))
-                    .unwrap_or(canvas_pos);
-                Some(screen_pos)
-            })
-            .collect();
-
-        if positions.len() < 2 {
+        let Some(backdrop_rect) = frame_affinity_backdrop_rect(app, region, meta.as_ref()) else {
             continue;
-        }
-
-        let (min_x, min_y, max_x, max_y) = positions.iter().fold(
-            (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
-            |(min_x, min_y, max_x, max_y), p| {
-                (
-                    min_x.min(p.x),
-                    min_y.min(p.y),
-                    max_x.max(p.x),
-                    max_y.max(p.y),
-                )
-            },
-        );
-
-        let padding = meta
-            .as_ref()
-            .map(|m| m.canvas_to_screen_size(40.0))
-            .unwrap_or(40.0);
-
-        let backdrop_rect = egui::Rect::from_min_max(
-            egui::Pos2::new(min_x - padding, min_y - padding),
-            egui::Pos2::new(max_x + padding, max_y + padding),
-        );
+        };
 
         let fill = egui::Color32::from_rgba_unmultiplied(
             region.color.r(),
             region.color.g(),
             region.color.b(),
-            30,
+            if frame_anchor_is_selected_or_current(app, region.frame_anchor) {
+                42
+            } else {
+                30
+            },
         );
         let stroke_color = egui::Color32::from_rgba_unmultiplied(
             region.color.r(),
             region.color.g(),
             region.color.b(),
-            80,
+            if frame_anchor_is_selected_or_current(app, region.frame_anchor) {
+                170
+            } else {
+                80
+            },
         );
+        let stroke_width = if frame_anchor_is_selected_or_current(app, region.frame_anchor) {
+            2.5
+        } else {
+            1.5
+        };
 
         painter.rect(
             backdrop_rect,
             egui::CornerRadius::same(8),
             fill,
-            egui::Stroke::new(1.5, stroke_color),
+            egui::Stroke::new(stroke_width, stroke_color),
             egui::StrokeKind::Outside,
         );
 
@@ -167,7 +148,92 @@ pub(super) fn draw_frame_affinity_backdrops(
                 ),
             );
         }
+
+        if let Some(indicator) = frame_anchor_split_indicator(app, region.frame_anchor) {
+            let indicator_padding = egui::vec2(6.0, 3.0);
+            let indicator_galley = painter.layout_no_wrap(
+                indicator,
+                egui::FontId::proportional(10.0),
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220),
+            );
+            let indicator_size = indicator_galley.size() + indicator_padding * 2.0;
+            let indicator_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    backdrop_rect.right() - indicator_size.x - 6.0,
+                    backdrop_rect.top() + 4.0,
+                ),
+                indicator_size,
+            );
+            painter.rect(
+                indicator_rect,
+                egui::CornerRadius::same(6),
+                egui::Color32::from_rgba_unmultiplied(
+                    region.color.r(),
+                    region.color.g(),
+                    region.color.b(),
+                    110,
+                ),
+                egui::Stroke::new(
+                    1.0,
+                    egui::Color32::from_rgba_unmultiplied(
+                        region.color.r(),
+                        region.color.g(),
+                        region.color.b(),
+                        180,
+                    ),
+                ),
+                egui::StrokeKind::Outside,
+            );
+            painter.galley(
+                indicator_rect.center() - indicator_galley.size() * 0.5,
+                indicator_galley,
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220),
+            );
+        }
     }
+}
+
+fn frame_affinity_backdrop_rect(
+    app: &GraphBrowserApp,
+    region: &crate::graph::frame_affinity::FrameAffinityRegion,
+    meta: Option<&MetadataFrame>,
+) -> Option<egui::Rect> {
+    let egui_state = app.workspace.graph_runtime.egui_state.as_ref()?;
+    let positions: Vec<egui::Pos2> = region
+        .members
+        .iter()
+        .filter_map(|&key| {
+            let node = egui_state.graph.node(key)?;
+            let canvas_pos = node.location();
+            let screen_pos = meta
+                .map(|m| m.canvas_to_screen_pos(canvas_pos))
+                .unwrap_or(canvas_pos);
+            Some(screen_pos)
+        })
+        .collect();
+
+    if positions.len() < 2 {
+        return None;
+    }
+
+    let (min_x, min_y, max_x, max_y) = positions.iter().fold(
+        (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+        |(min_x, min_y, max_x, max_y), p| {
+            (
+                min_x.min(p.x),
+                min_y.min(p.y),
+                max_x.max(p.x),
+                max_y.max(p.y),
+            )
+        },
+    );
+
+    let padding = meta.map(|m| m.canvas_to_screen_size(40.0)).unwrap_or(40.0);
+
+    Some(egui::Rect::from_min_max(
+        egui::Pos2::new(min_x - padding, min_y - padding),
+        egui::Pos2::new(max_x + padding, max_y + padding),
+    ))
 }
 
 /// Return the display label for a frame anchor node.
@@ -179,9 +245,88 @@ fn frame_anchor_label(app: &GraphBrowserApp, anchor: crate::graph::NodeKey) -> O
         return Some(node.title.clone());
     }
     // Fall back to URL host segment
-    servo::ServoUrl::parse(&node.url)
-        .ok()
-        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
+    servo::ServoUrl::parse(&node.url).ok().and_then(|u| {
+        u.host_str()
+            .map(|h| h.trim_start_matches("www.").to_string())
+    })
+}
+
+fn frame_layout_hint_indicator(hints: &[FrameLayoutHint]) -> Option<String> {
+    match hints {
+        [] => None,
+        [FrameLayoutHint::SplitHalf { orientation, .. }] => Some(match orientation {
+            SplitOrientation::Vertical => "||".to_string(),
+            SplitOrientation::Horizontal => "=".to_string(),
+        }),
+        [FrameLayoutHint::SplitPamphlet { orientation, .. }] => Some(match orientation {
+            SplitOrientation::Vertical => "|||".to_string(),
+            SplitOrientation::Horizontal => "===".to_string(),
+        }),
+        [FrameLayoutHint::SplitTriptych { .. }] => Some("T".to_string()),
+        [FrameLayoutHint::SplitQuartered { .. }] => Some("2x2".to_string()),
+        _ => Some(format!("{} splits", hints.len())),
+    }
+}
+
+fn frame_anchor_split_indicator(
+    app: &GraphBrowserApp,
+    anchor: crate::graph::NodeKey,
+) -> Option<String> {
+    let hints = app.domain_graph().frame_layout_hints(anchor)?;
+    frame_layout_hint_indicator(hints)
+}
+
+fn frame_anchor_is_current_frame(app: &GraphBrowserApp, anchor: crate::graph::NodeKey) -> bool {
+    let Some(frame_name) = app.current_frame_name() else {
+        return false;
+    };
+    let frame_url = VersoAddress::frame(frame_name.to_string()).to_string();
+    app.domain_graph()
+        .get_node_by_url(&frame_url)
+        .is_some_and(|(frame_key, _)| frame_key == anchor)
+}
+
+fn frame_anchor_is_selected_frame(app: &GraphBrowserApp, anchor: crate::graph::NodeKey) -> bool {
+    let Some(frame_name) = app.selected_frame_name() else {
+        return false;
+    };
+    let frame_url = VersoAddress::frame(frame_name.to_string()).to_string();
+    app.domain_graph()
+        .get_node_by_url(&frame_url)
+        .is_some_and(|(frame_key, _)| frame_key == anchor)
+}
+
+fn frame_anchor_is_selected_or_current(
+    app: &GraphBrowserApp,
+    anchor: crate::graph::NodeKey,
+) -> bool {
+    frame_anchor_is_selected_frame(app, anchor) || frame_anchor_is_current_frame(app, anchor)
+}
+
+pub(super) fn frame_anchor_at_pointer(
+    ui: &Ui,
+    app: &GraphBrowserApp,
+    metadata_id: egui::Id,
+) -> Option<crate::graph::NodeKey> {
+    let pointer = ui.input(|i| i.pointer.latest_pos())?;
+    let regions = crate::graph::frame_affinity::derive_frame_affinity_regions(app.domain_graph());
+    let meta = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
+
+    regions
+        .into_iter()
+        .filter_map(|region| {
+            let rect = frame_affinity_backdrop_rect(app, &region, meta.as_ref())?;
+            rect.contains(pointer)
+                .then_some((region.frame_anchor, rect.width() * rect.height()))
+        })
+        .min_by(|(_, left_area), (_, right_area)| {
+            left_area
+                .partial_cmp(right_area)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(anchor, _)| anchor)
 }
 
 pub(super) fn draw_highlighted_edge_overlay(
@@ -472,4 +617,75 @@ pub(super) fn format_elapsed_ago(elapsed: Duration) -> String {
         return format!("{}d ago", secs / (60 * 60 * 24));
     }
     format!("{}w ago", secs / (60 * 60 * 24 * 7))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{frame_anchor_is_current_frame, frame_layout_hint_indicator};
+    use crate::app::GraphBrowserApp;
+    use crate::graph::{DominantEdge, FrameLayoutHint, SplitOrientation};
+    use euclid::default::Point2D;
+
+    #[test]
+    fn frame_layout_hint_indicator_returns_none_for_empty_hint_list() {
+        assert_eq!(frame_layout_hint_indicator(&[]), None);
+    }
+
+    #[test]
+    fn frame_layout_hint_indicator_returns_triptych_token_for_single_triptych_hint() {
+        let hints = vec![FrameLayoutHint::SplitTriptych {
+            dominant: "dominant".to_string(),
+            dominant_edge: DominantEdge::Left,
+            wings: ["wing-a".to_string(), "wing-b".to_string()],
+        }];
+
+        assert_eq!(frame_layout_hint_indicator(&hints), Some("T".to_string()));
+    }
+
+    #[test]
+    fn frame_layout_hint_indicator_returns_count_when_multiple_hints_exist() {
+        let hints = vec![
+            FrameLayoutHint::SplitHalf {
+                first: "a".to_string(),
+                second: "b".to_string(),
+                orientation: SplitOrientation::Horizontal,
+            },
+            FrameLayoutHint::SplitQuartered {
+                top_left: "a".to_string(),
+                top_right: "b".to_string(),
+                bottom_left: "c".to_string(),
+                bottom_right: "d".to_string(),
+            },
+        ];
+
+        assert_eq!(
+            frame_layout_hint_indicator(&hints),
+            Some("2 splits".to_string())
+        );
+    }
+
+    #[test]
+    fn frame_anchor_is_current_frame_matches_active_frame_anchor() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://active-frame.example".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let mut tiles = egui_tiles::Tiles::default();
+        let node_tile = tiles.insert_pane(
+            crate::shell::desktop::workbench::tile_kind::TileKind::Node(node.into()),
+        );
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let tree = egui_tiles::Tree::new("active_frame_anchor", root, tiles);
+        app.sync_named_workbench_frame_graph_representation("alpha", &tree);
+        app.note_frame_activated("alpha", [node]);
+
+        let frame_url = crate::util::VersoAddress::frame("alpha").to_string();
+        let (frame_key, _) = app
+            .domain_graph()
+            .get_node_by_url(&frame_url)
+            .expect("frame anchor should exist");
+
+        assert!(frame_anchor_is_current_frame(&app, frame_key));
+    }
 }

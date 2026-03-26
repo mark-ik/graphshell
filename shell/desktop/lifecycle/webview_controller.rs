@@ -524,7 +524,7 @@ mod tests {
         let intent = workbench_route_intent_for_verso_url(&frame_url);
         assert!(matches!(
             intent,
-            Some(WorkbenchIntent::OpenFrameUrl { ref url }) if url == &frame_url
+            Some(WorkbenchIntent::OpenFrameUrl { ref url, .. }) if url == &frame_url
         ));
     }
 
@@ -535,7 +535,7 @@ mod tests {
         let intent = workbench_route_intent_for_verso_url(legacy_url);
         assert!(matches!(
             intent,
-            Some(WorkbenchIntent::OpenFrameUrl { ref url }) if url == expected_url
+            Some(WorkbenchIntent::OpenFrameUrl { ref url, .. }) if url == expected_url
         ));
     }
 
@@ -676,7 +676,7 @@ mod tests {
         assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
             workbench_intents.first(),
-            Some(WorkbenchIntent::OpenFrameUrl { url }) if url == "verso://frame/demo-frame"
+            Some(WorkbenchIntent::OpenFrameUrl { url, .. }) if url == "verso://frame/demo-frame"
         ));
     }
 

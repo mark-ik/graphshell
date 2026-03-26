@@ -1836,7 +1836,19 @@ pub fn render_navigator_tool_pane_in_ui(
                             }
                             ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
                         };
-                        ui.collapsing(header, |ui| {
+                        let header_text =
+                            if matches!(group.sub_kind, ArrangementSubKind::FrameMember)
+                                && (app.selected_frame_name() == Some(group.title.as_str())
+                                    || app.current_frame_name() == Some(group.title.as_str()))
+                            {
+                                egui::RichText::new(header)
+                                    .small()
+                                    .strong()
+                                    .color(ui.visuals().selection.stroke.color)
+                            } else {
+                                egui::RichText::new(header)
+                            };
+                        ui.collapsing(header_text, |ui| {
                             for node_key in &group.member_keys {
                                 let row_key = navigator_node_row_key(app, *node_key);
                                 let is_selected = row_key

@@ -46,17 +46,29 @@ pub(super) fn handle_open_settings_url_intent(
 
 pub(super) fn handle_open_frame_url_intent(
     graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
     url: String,
+    focus_node: Option<NodeKey>,
 ) -> Option<WorkbenchIntent> {
     let Some(frame_name) = GraphBrowserApp::resolve_frame_route(&url) else {
         emit_open_decision(
             UxOpenDecisionPath::FrameUrl,
             UxOpenDecisionReason::UnresolvedRoute,
         );
-        return Some(WorkbenchIntent::OpenFrameUrl { url });
+        return Some(WorkbenchIntent::OpenFrameUrl { url, focus_node });
     };
 
-    graph_app.request_restore_frame_snapshot_named(frame_name);
+    // Resolve the frame anchor NodeKey from the frame name.
+    let frame_url = crate::util::VersoAddress::frame(&frame_name).to_string();
+    let Some((frame_anchor, _)) = graph_app.domain_graph().get_node_by_url(&frame_url) else {
+        emit_open_decision(
+            UxOpenDecisionPath::FrameUrl,
+            UxOpenDecisionReason::TargetMissing,
+        );
+        return Some(WorkbenchIntent::OpenFrameUrl { url, focus_node });
+    };
+
+    tile_view_ops::open_or_focus_frame_tile_group(tiles_tree, graph_app, frame_anchor, focus_node);
     emit_event(DiagnosticEvent::MessageReceived {
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,

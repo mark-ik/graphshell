@@ -1724,7 +1724,19 @@ impl EguiGraphState {
             | (GraphDelta::SetNodeFavicon { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (GraphDelta::SetNodeMimeHint { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (GraphDelta::SetNodeAddressKind { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
-            | (GraphDelta::SetNodePinned { .. }, GraphDeltaResult::NodeMetadataUpdated(_)) => {
+            | (GraphDelta::SetNodePinned { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
+            | (
+                GraphDelta::AppendFrameLayoutHint { .. },
+                GraphDeltaResult::NodeMetadataUpdated(_),
+            )
+            | (
+                GraphDelta::RemoveFrameLayoutHint { .. },
+                GraphDeltaResult::NodeMetadataUpdated(_),
+            )
+            | (
+                GraphDelta::SetFrameSplitOfferSuppressed { .. },
+                GraphDeltaResult::NodeMetadataUpdated(_),
+            ) => {
                 self.sync_nodes_from_graph(graph);
             }
             (GraphDelta::RemoveNode { .. }, GraphDeltaResult::NodeRemoved(_))

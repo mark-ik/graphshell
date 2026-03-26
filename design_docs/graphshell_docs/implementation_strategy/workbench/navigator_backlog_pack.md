@@ -14,7 +14,7 @@ graph truth and workbench arrangement state.
 - [navigator_graph_isomorphism_spec.md](navigator_graph_isomorphism_spec.md) - canonical Navigator click grammar and graph/workbench resolution rules
 - [WORKBENCH.md](WORKBENCH.md) - workbench domain ownership and sidebar context
 - [graph_first_frame_semantics_spec.md](graph_first_frame_semantics_spec.md) - graph/workbench frame semantics
-- [../canvas/graph_backlog_pack.md](../canvas/graph_backlog_pack.md) - graph-side backlog dependencies used by Navigator projections
+- [../graph/graph_backlog_pack.md](../graph/graph_backlog_pack.md) - graph-side backlog dependencies used by Navigator projections
 
 ---
 

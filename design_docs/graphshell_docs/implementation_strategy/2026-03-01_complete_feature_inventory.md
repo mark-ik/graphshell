@@ -32,7 +32,7 @@ misreported as complete.
 
 ## GRAPHSHELL — Core Spatial Browser
 
-### Canvas & Graph Data Model
+### Graph Domain & Canvas Surface
 
 | Feature | Status | Notes / Source |
 |---------|--------|----------------|

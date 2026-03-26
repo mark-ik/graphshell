@@ -14,7 +14,9 @@ use crate::app::{
     SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent, WorkbenchLayoutConstraint,
     WorkbenchNavigationGeometry,
 };
-use crate::graph::{ArrangementSubKind, GraphletKind, NodeKey};
+use crate::graph::{
+    ArrangementSubKind, DominantEdge, FrameLayoutHint, GraphletKind, NodeKey, SplitOrientation,
+};
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -242,6 +244,7 @@ pub(crate) struct WorkbenchChromeProjection {
     pub(crate) host_layout: WorkbenchHostLayout,
     pub(crate) host_layouts: Vec<WorkbenchHostLayout>,
     pub(crate) active_pane_title: Option<String>,
+    pub(crate) active_frame_name: Option<String>,
     pub(crate) saved_frame_names: Vec<String>,
     pub(crate) navigator_groups: Vec<WorkbenchNavigatorGroup>,
     pub(crate) pane_entries: Vec<WorkbenchPaneEntry>,
@@ -540,6 +543,7 @@ fn first_use_prompt_visible(graph_app: &GraphBrowserApp, surface_host: &SurfaceH
 pub(crate) struct WorkbenchNavigatorGroup {
     pub(crate) section: WorkbenchNavigatorSection,
     pub(crate) title: String,
+    pub(crate) is_highlighted: bool,
     pub(crate) members: Vec<WorkbenchNavigatorMember>,
 }
 
@@ -656,6 +660,7 @@ impl WorkbenchChromeProjection {
             .iter()
             .find(|entry| entry.is_active)
             .map(|entry| entry.title.clone());
+        let active_frame_name = graph_app.current_frame_name().map(str::to_string);
         let navigator_groups =
             navigator_groups(graph_app, &arrangement_memberships, projection_view_id);
         let tree_root = tiles_tree.root().and_then(|root| {
@@ -675,6 +680,7 @@ impl WorkbenchChromeProjection {
             host_layout,
             host_layouts,
             active_pane_title,
+            active_frame_name,
             saved_frame_names,
             navigator_groups,
             pane_entries,
@@ -778,6 +784,9 @@ fn arrangement_navigator_groups(
                     ArrangementSubKind::TileGroup => format!("Tile Group: {}", group.title),
                     ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
                 },
+                is_highlighted: matches!(group.sub_kind, ArrangementSubKind::FrameMember)
+                    && (graph_app.selected_frame_name() == Some(group.title.as_str())
+                        || graph_app.current_frame_name() == Some(group.title.as_str())),
                 members: member_keys
                     .into_iter()
                     .filter_map(|node_key| navigator_member_for_node(graph_app, node_key, None))
@@ -899,6 +908,7 @@ fn containment_navigator_groups(
                     WorkbenchNavigatorSection::Domain
                 },
                 title,
+                is_highlighted: false,
                 members,
             })
         })
@@ -971,6 +981,7 @@ fn imported_navigator_groups(graph_app: &GraphBrowserApp) -> Vec<WorkbenchNaviga
             Some(WorkbenchNavigatorGroup {
                 section: WorkbenchNavigatorSection::Imported,
                 title,
+                is_highlighted: false,
                 members,
             })
         })
@@ -989,6 +1000,7 @@ fn recent_navigator_group(
     Some(WorkbenchNavigatorGroup {
         section: WorkbenchNavigatorSection::Recent,
         title: "Recent".to_string(),
+        is_highlighted: false,
         members,
     })
 }
@@ -1078,6 +1090,7 @@ fn unrelated_navigator_group(
     Some(WorkbenchNavigatorGroup {
         section: WorkbenchNavigatorSection::Unrelated,
         title: "Unrelated".to_string(),
+        is_highlighted: false,
         members: members
             .into_iter()
             .filter_map(|node_key| navigator_member_for_node(graph_app, node_key, None))
@@ -1381,6 +1394,157 @@ fn graph_view_title(graph_app: &GraphBrowserApp, view_id: GraphViewId) -> String
         .unwrap_or_else(|| "Graph View".to_string())
 }
 
+fn current_frame_group_label(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    tile_id: TileId,
+    child_count: usize,
+) -> Option<String> {
+    (tiles_tree.root() == Some(tile_id))
+        .then(|| graph_app.current_frame_name())
+        .flatten()
+        .map(|frame_name| format!("Frame: {frame_name} ({child_count})"))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FrameSplitOfferCandidate {
+    node_key: NodeKey,
+    frame_name: String,
+    hint_count: usize,
+}
+
+fn frame_split_offer_candidate(graph_app: &GraphBrowserApp) -> Option<FrameSplitOfferCandidate> {
+    let node_key = graph_app.focused_selection().primary()?;
+    let mut frame_names = graph_app.sorted_frames_for_node_key(node_key);
+    for group in graph_app.arrangement_projection_groups() {
+        if group.sub_kind == ArrangementSubKind::FrameMember
+            && group.member_keys.contains(&node_key)
+            && !frame_names.contains(&group.id)
+        {
+            frame_names.push(group.id);
+        }
+    }
+
+    for frame_name in frame_names {
+        if graph_app.current_frame_name() == Some(frame_name.as_str())
+            || graph_app.is_frame_split_offer_dismissed_for_session(&frame_name)
+        {
+            continue;
+        }
+
+        let frame_url = VersoAddress::frame(frame_name.clone()).to_string();
+        let Some((frame_key, _)) = graph_app.domain_graph().get_node_by_url(&frame_url) else {
+            continue;
+        };
+        if graph_app
+            .domain_graph()
+            .frame_split_offer_suppressed(frame_key)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let Some(hints) = graph_app.domain_graph().frame_layout_hints(frame_key) else {
+            continue;
+        };
+        if hints.is_empty() {
+            continue;
+        }
+
+        return Some(FrameSplitOfferCandidate {
+            node_key,
+            frame_name,
+            hint_count: hints.len(),
+        });
+    }
+    None
+}
+
+fn frame_key_for_name(graph_app: &GraphBrowserApp, frame_name: &str) -> Option<NodeKey> {
+    let frame_url = VersoAddress::frame(frame_name.to_string()).to_string();
+    graph_app
+        .domain_graph()
+        .get_node_by_url(&frame_url)
+        .map(|(frame_key, _)| frame_key)
+}
+
+fn frame_layout_hints_for_name(
+    graph_app: &GraphBrowserApp,
+    frame_name: &str,
+) -> Vec<FrameLayoutHint> {
+    frame_key_for_name(graph_app, frame_name)
+        .and_then(|frame_key| graph_app.domain_graph().frame_layout_hints(frame_key))
+        .map(|hints| hints.to_vec())
+        .unwrap_or_default()
+}
+
+fn frame_layout_hint_summary(hint: &FrameLayoutHint) -> String {
+    match hint {
+        FrameLayoutHint::SplitHalf {
+            orientation,
+            first,
+            second,
+        } => {
+            let axis = match orientation {
+                SplitOrientation::Vertical => "side-by-side",
+                SplitOrientation::Horizontal => "stacked",
+            };
+            format!("Half ({axis}): {first}, {second}")
+        }
+        FrameLayoutHint::SplitPamphlet {
+            members,
+            orientation,
+        } => {
+            let axis = match orientation {
+                SplitOrientation::Vertical => "columns",
+                SplitOrientation::Horizontal => "rows",
+            };
+            format!(
+                "Pamphlet ({axis}): {}, {}, {}",
+                members[0], members[1], members[2]
+            )
+        }
+        FrameLayoutHint::SplitTriptych {
+            dominant,
+            dominant_edge,
+            wings,
+        } => {
+            let edge = match dominant_edge {
+                DominantEdge::Left => "left-dominant",
+                DominantEdge::Right => "right-dominant",
+                DominantEdge::Top => "top-dominant",
+                DominantEdge::Bottom => "bottom-dominant",
+            };
+            format!("Triptych ({edge}): {dominant} | {}, {}", wings[0], wings[1])
+        }
+        FrameLayoutHint::SplitQuartered {
+            top_left,
+            top_right,
+            bottom_left,
+            bottom_right,
+        } => format!("Quartered: {top_left}, {top_right}, {bottom_left}, {bottom_right}"),
+    }
+}
+
+fn frame_settings_target_name(
+    graph_app: &GraphBrowserApp,
+    projection: &WorkbenchChromeProjection,
+) -> Option<String> {
+    projection
+        .active_frame_name
+        .clone()
+        .or_else(|| graph_app.selected_frame_name().map(|name| name.to_string()))
+}
+
+fn frame_split_offer_suppressed_for_name(graph_app: &GraphBrowserApp, frame_name: &str) -> bool {
+    frame_key_for_name(graph_app, frame_name)
+        .and_then(|frame_key| {
+            graph_app
+                .domain_graph()
+                .frame_split_offer_suppressed(frame_key)
+        })
+        .unwrap_or(false)
+}
+
 fn build_tree_node(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
@@ -1398,7 +1562,8 @@ fn build_tree_node(
         ))),
         Tile::Container(Container::Tabs(tabs)) => Some(WorkbenchChromeNode::Tabs {
             tile_id,
-            label: format!("Tab Group ({})", tabs.children.len()),
+            label: current_frame_group_label(graph_app, tiles_tree, tile_id, tabs.children.len())
+                .unwrap_or_else(|| format!("Tab Group ({})", tabs.children.len())),
             children: tabs
                 .children
                 .iter()
@@ -1559,6 +1724,193 @@ pub(crate) fn render_workbench_host(
                 });
                 if let Some(active_title) = &projection.active_pane_title {
                     ui.label(RichText::new(active_title).small().weak());
+                }
+                if let Some(active_frame_name) = &projection.active_frame_name {
+                    ui.label(
+                        RichText::new(format!("Frame: {active_frame_name}"))
+                            .small()
+                            .strong(),
+                    );
+                }
+                if let Some(frame_name) = frame_settings_target_name(graph_app, &projection) {
+                    let hints = frame_layout_hints_for_name(graph_app, &frame_name);
+                    let split_offer_suppressed =
+                        frame_split_offer_suppressed_for_name(graph_app, &frame_name);
+                    let rename_field_id =
+                        egui::Id::new("workbench_host_frame_rename").with(frame_name.clone());
+                    let mut rename_value = ui
+                        .ctx()
+                        .data_mut(|data| data.get_persisted::<String>(rename_field_id))
+                        .unwrap_or_else(|| frame_name.clone());
+                    egui::Frame::group(ui.style())
+                        .fill(ui.visuals().faint_bg_color)
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(format!("Frame settings: {frame_name}"))
+                                    .small()
+                                    .strong(),
+                            );
+                            ui.label(
+                                RichText::new(
+                                    if projection.active_frame_name.as_deref()
+                                        == Some(frame_name.as_str())
+                                    {
+                                        "Managing the active frame tile group."
+                                    } else {
+                                        "Managing the frame currently selected on the graph."
+                                    },
+                                )
+                                .small()
+                                .weak(),
+                            );
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new("Name").small().weak());
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut rename_value)
+                                        .desired_width(180.0),
+                                );
+                                let trimmed_name = rename_value.trim().to_string();
+                                if ui.small_button("Reset").clicked() {
+                                    rename_value = frame_name.clone();
+                                }
+                                if ui
+                                    .add_enabled(
+                                        !trimmed_name.is_empty() && trimmed_name != frame_name,
+                                        egui::Button::new("Rename"),
+                                    )
+                                    .clicked()
+                                {
+                                    post_host_actions.push(WorkbenchHostAction::RenameFrame {
+                                        from: frame_name.clone(),
+                                        to: trimmed_name.clone(),
+                                    });
+                                    rename_value = trimmed_name;
+                                }
+                                if ui.small_button("Delete frame").clicked() {
+                                    post_host_actions.push(WorkbenchHostAction::DeleteFrame(
+                                        frame_name.clone(),
+                                    ));
+                                }
+                            });
+                            ui.ctx().data_mut(|data| {
+                                data.insert_persisted(rename_field_id, rename_value.clone());
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                if ui
+                                    .small_button(if split_offer_suppressed {
+                                        "Re-enable split offer"
+                                    } else {
+                                        "Suppress split offer"
+                                    })
+                                    .clicked()
+                                {
+                                    post_host_actions.push(
+                                        WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+                                            frame_name: frame_name.clone(),
+                                            suppressed: !split_offer_suppressed,
+                                        },
+                                    );
+                                }
+                                ui.label(
+                                    RichText::new(if split_offer_suppressed {
+                                        "Split offer suppressed for this frame."
+                                    } else {
+                                        "Split offer currently allowed for this frame."
+                                    })
+                                    .small()
+                                    .weak(),
+                                );
+                            });
+                            if hints.is_empty() {
+                                ui.label(
+                                    RichText::new("No recorded layout hints yet.")
+                                        .small()
+                                        .weak(),
+                                );
+                            } else {
+                                for (index, hint) in hints.iter().enumerate() {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{}. {}",
+                                                index + 1,
+                                                frame_layout_hint_summary(hint)
+                                            ))
+                                            .small(),
+                                        );
+                                        if index > 0 && ui.small_button("Up").clicked() {
+                                            post_host_actions.push(
+                                                WorkbenchHostAction::MoveFrameLayoutHint {
+                                                    frame_name: frame_name.clone(),
+                                                    from_index: index,
+                                                    to_index: index - 1,
+                                                },
+                                            );
+                                        }
+                                        if index + 1 < hints.len()
+                                            && ui.small_button("Down").clicked()
+                                        {
+                                            post_host_actions.push(
+                                                WorkbenchHostAction::MoveFrameLayoutHint {
+                                                    frame_name: frame_name.clone(),
+                                                    from_index: index,
+                                                    to_index: index + 1,
+                                                },
+                                            );
+                                        }
+                                        if ui.small_button("Delete").clicked() {
+                                            post_host_actions.push(
+                                                WorkbenchHostAction::RemoveFrameLayoutHint {
+                                                    frame_name: frame_name.clone(),
+                                                    hint_index: index,
+                                                },
+                                            );
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                }
+                if let Some(split_offer) = frame_split_offer_candidate(graph_app) {
+                    let split_label = if split_offer.hint_count == 1 {
+                        "1 recorded split".to_string()
+                    } else {
+                        format!("{} recorded splits", split_offer.hint_count)
+                    };
+                    egui::Frame::group(ui.style())
+                        .fill(ui.visuals().faint_bg_color)
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Frame '{name}' has {split_label}.",
+                                    name = split_offer.frame_name
+                                ))
+                                .small(),
+                            );
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.small_button("Open as split").clicked() {
+                                    post_host_actions.push(WorkbenchHostAction::OpenFrameAsSplit {
+                                        node_key: split_offer.node_key,
+                                        frame_name: split_offer.frame_name.clone(),
+                                    });
+                                }
+                                if ui.small_button("Not this session").clicked() {
+                                    post_host_actions.push(
+                                        WorkbenchHostAction::DismissFrameSplitOfferForSession(
+                                            split_offer.frame_name.clone(),
+                                        ),
+                                    );
+                                }
+                                if ui.small_button("Never for this frame").clicked() {
+                                    post_host_actions.push(
+                                        WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+                                            frame_name: split_offer.frame_name.clone(),
+                                            suppressed: true,
+                                        },
+                                    );
+                                }
+                            });
+                        });
                 }
                 if first_use_prompt_visible(graph_app, &host_layout.host) {
                     let existing_policy = graph_app
@@ -1780,11 +2132,39 @@ pub(crate) fn render_workbench_host(
                                 return;
                             }
                             for frame_name in &projection.saved_frame_names {
-                                if ui.button(frame_name).clicked() {
-                                    post_host_actions
-                                        .push(WorkbenchHostAction::RestoreFrame(frame_name.clone()));
-                                    ui.close();
-                                }
+                                let split_offer_suppressed =
+                                    frame_split_offer_suppressed_for_name(graph_app, frame_name);
+                                ui.menu_button(frame_name, |ui| {
+                                    if ui.button("Open").clicked() {
+                                        post_host_actions.push(WorkbenchHostAction::RestoreFrame(
+                                            frame_name.clone(),
+                                        ));
+                                        ui.close();
+                                    }
+                                    let toggle_label = if split_offer_suppressed {
+                                        "Re-enable split offer"
+                                    } else {
+                                        "Suppress split offer"
+                                    };
+                                    if ui.button(toggle_label).clicked() {
+                                        post_host_actions.push(
+                                            WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+                                                frame_name: frame_name.clone(),
+                                                suppressed: !split_offer_suppressed,
+                                            },
+                                        );
+                                        ui.close();
+                                    }
+                                    ui.label(
+                                        RichText::new(if split_offer_suppressed {
+                                            "Split offer suppressed"
+                                        } else {
+                                            "Split offer enabled"
+                                        })
+                                        .small()
+                                        .weak(),
+                                    );
+                                });
                             }
                         },
                     );
@@ -1870,9 +2250,14 @@ pub(crate) fn render_workbench_host(
                 if host_shows_graph_scope(&host_layout) && !projection.navigator_groups.is_empty() {
                     ui.heading("Navigator");
                     for group in &projection.navigator_groups {
-                        let header = egui::CollapsingHeader::new(
-                            RichText::new(&group.title).small().strong(),
-                        )
+                        let header = egui::CollapsingHeader::new(if group.is_highlighted {
+                            RichText::new(&group.title)
+                                .small()
+                                .strong()
+                                .color(ui.visuals().selection.stroke.color)
+                        } else {
+                            RichText::new(&group.title).small().strong()
+                        })
                         .id_salt(("workbench_host_navigator", &group.title))
                         .default_open(!matches!(
                             group.section,
@@ -2215,6 +2600,29 @@ enum WorkbenchHostAction {
     },
     SetFirstUsePolicy(SurfaceFirstUsePolicy),
     SuppressFirstUsePromptForSession(SurfaceHostId),
+    OpenFrameAsSplit {
+        node_key: NodeKey,
+        frame_name: String,
+    },
+    DismissFrameSplitOfferForSession(String),
+    SetFrameSplitOfferSuppressed {
+        frame_name: String,
+        suppressed: bool,
+    },
+    RenameFrame {
+        from: String,
+        to: String,
+    },
+    DeleteFrame(String),
+    MoveFrameLayoutHint {
+        frame_name: String,
+        from_index: usize,
+        to_index: usize,
+    },
+    RemoveFrameLayoutHint {
+        frame_name: String,
+        hint_index: usize,
+    },
     SaveCurrentFrame,
     PruneEmptyFrames,
     RestoreFrame(String),
@@ -2526,6 +2934,65 @@ fn apply_workbench_host_action(
         }
         WorkbenchHostAction::SuppressFirstUsePromptForSession(surface_host) => {
             graph_app.suppress_first_use_prompt_for_session(surface_host);
+        }
+        WorkbenchHostAction::OpenFrameAsSplit {
+            node_key,
+            frame_name,
+        } => {
+            graph_app.apply_reducer_intents([GraphIntent::OpenNodeFrameRouted {
+                key: node_key,
+                prefer_frame: Some(frame_name),
+            }]);
+        }
+        WorkbenchHostAction::DismissFrameSplitOfferForSession(frame_name) => {
+            graph_app.dismiss_frame_split_offer_for_session(frame_name);
+        }
+        WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+            frame_name,
+            suppressed,
+        } => {
+            if let Some(frame_key) = frame_key_for_name(graph_app, &frame_name) {
+                graph_app.apply_reducer_intents([GraphIntent::SetFrameSplitOfferSuppressed {
+                    frame: frame_key,
+                    suppressed,
+                }]);
+            }
+        }
+        WorkbenchHostAction::RenameFrame { from, to } => {
+            if let Err(error) = graph_app.rename_workspace_layout(&from, &to) {
+                log::warn!("Failed to rename frame '{from}' -> '{to}': {error}");
+            } else {
+                graph_app.set_pending_frame_context_target(Some(to));
+            }
+        }
+        WorkbenchHostAction::DeleteFrame(frame_name) => {
+            if let Err(error) = graph_app.delete_workspace_layout(&frame_name) {
+                log::warn!("Failed to delete frame '{frame_name}': {error}");
+            }
+        }
+        WorkbenchHostAction::MoveFrameLayoutHint {
+            frame_name,
+            from_index,
+            to_index,
+        } => {
+            if let Some(frame_key) = frame_key_for_name(graph_app, &frame_name) {
+                graph_app.apply_reducer_intents([GraphIntent::MoveFrameLayoutHint {
+                    frame: frame_key,
+                    from_index,
+                    to_index,
+                }]);
+            }
+        }
+        WorkbenchHostAction::RemoveFrameLayoutHint {
+            frame_name,
+            hint_index,
+        } => {
+            if let Some(frame_key) = frame_key_for_name(graph_app, &frame_name) {
+                graph_app.apply_reducer_intents([GraphIntent::RemoveFrameLayoutHint {
+                    frame: frame_key,
+                    hint_index,
+                }]);
+            }
         }
         WorkbenchHostAction::SaveCurrentFrame => {
             let now = std::time::SystemTime::now()
@@ -3405,6 +3872,46 @@ mod tests {
     }
 
     #[test]
+    fn projection_exposes_active_frame_name_for_current_frame_handle() {
+        let node_key = NodeKey::new(1);
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.workbench_session.current_workspace_name = Some("alpha".to_string());
+
+        let mut tiles = Tiles::default();
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+        let root = tiles.insert_tab_tile(vec![node]);
+        let tree = Tree::new("workbench_host_frame_projection", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(projection.active_frame_name.as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn projection_labels_root_tab_group_as_frame_when_current_frame_is_open() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://frame-label.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        app.note_frame_activated("alpha", [node_key]);
+
+        let mut tiles = Tiles::default();
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+        let root = tiles.insert_tab_tile(vec![node]);
+        let tree = Tree::new("workbench_host_frame_label", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        match projection.tree_root.as_ref() {
+            Some(WorkbenchChromeNode::Tabs { label, .. }) => {
+                assert!(label.contains("Frame: alpha"));
+            }
+            other => panic!("expected tabs root, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn projection_includes_arrangement_navigator_groups() {
         let graph_view = GraphViewId::new();
         let mut app = GraphBrowserApp::new_for_testing();
@@ -3441,6 +3948,455 @@ mod tests {
             .expect("arrangement group");
         assert_eq!(arrangement_group.members.len(), 3);
         assert!(arrangement_group.title.contains("workspace-alpha"));
+    }
+
+    #[test]
+    fn projection_highlights_current_frame_navigator_group() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let left_node = app.add_node_and_sync(
+            "https://example.com/current-left".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let right_node = app.add_node_and_sync(
+            "https://example.com/current-right".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let left = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(left_node)));
+        let right = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(right_node)));
+        let root = tiles.insert_tab_tile(vec![graph, left, right]);
+        let tree = Tree::new("workbench_host_current_frame_group", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-alpha", &tree);
+        app.note_frame_activated("workspace-alpha", [left_node, right_node]);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        let arrangement_group = projection
+            .navigator_groups
+            .iter()
+            .find(|group| group.title == "Frame: workspace-alpha")
+            .expect("frame navigator group");
+        assert!(arrangement_group.is_highlighted);
+    }
+
+    #[test]
+    fn projection_highlights_selected_frame_navigator_group() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let left_node = app.add_node_and_sync(
+            "https://example.com/selected-left".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let right_node = app.add_node_and_sync(
+            "https://example.com/selected-right".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let left = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(left_node)));
+        let right = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(right_node)));
+        let root = tiles.insert_tab_tile(vec![graph, left, right]);
+        let tree = Tree::new("workbench_host_selected_frame_group", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-alpha", &tree);
+        app.apply_reducer_intents([GraphIntent::SetSelectedFrame {
+            frame_name: Some("workspace-alpha".to_string()),
+        }]);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        let arrangement_group = projection
+            .navigator_groups
+            .iter()
+            .find(|group| group.title == "Frame: workspace-alpha")
+            .expect("frame navigator group");
+        assert!(arrangement_group.is_highlighted);
+    }
+
+    #[test]
+    fn frame_split_offer_candidate_detects_hinted_frame_for_selected_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/split-offer".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let pane = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![graph, pane]);
+        let tree = Tree::new("workbench_host_split_offer", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-split", &tree);
+        let frame_url = VersoAddress::frame("workspace-split").to_string();
+        let (frame_key, _) = app
+            .domain_graph()
+            .get_node_by_url(&frame_url)
+            .expect("frame anchor should exist");
+        let node_id = app
+            .domain_graph()
+            .get_node(node)
+            .expect("node should exist")
+            .id
+            .to_string();
+        app.apply_reducer_intents([GraphIntent::RecordFrameLayoutHint {
+            frame: frame_key,
+            hint: crate::graph::FrameLayoutHint::SplitHalf {
+                first: node_id.clone(),
+                second: node_id,
+                orientation: crate::graph::SplitOrientation::Vertical,
+            },
+        }]);
+        app.select_node(node, false);
+
+        let candidate = frame_split_offer_candidate(&app).expect("split offer candidate");
+        assert_eq!(candidate.node_key, node);
+        assert_eq!(candidate.frame_name, "workspace-split");
+        assert_eq!(candidate.hint_count, 1);
+    }
+
+    #[test]
+    fn frame_split_offer_candidate_skips_session_dismissed_frame() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/split-dismissed".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let tree = Tree::new("workbench_host_split_offer_dismissed", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-split-dismissed", &tree);
+        let frame_url = VersoAddress::frame("workspace-split-dismissed").to_string();
+        let (frame_key, _) = app
+            .domain_graph()
+            .get_node_by_url(&frame_url)
+            .expect("frame anchor should exist");
+        let node_id = app
+            .domain_graph()
+            .get_node(node)
+            .expect("node should exist")
+            .id
+            .to_string();
+        app.apply_reducer_intents([GraphIntent::RecordFrameLayoutHint {
+            frame: frame_key,
+            hint: crate::graph::FrameLayoutHint::SplitHalf {
+                first: node_id.clone(),
+                second: node_id,
+                orientation: crate::graph::SplitOrientation::Vertical,
+            },
+        }]);
+        app.select_node(node, false);
+        app.dismiss_frame_split_offer_for_session("workspace-split-dismissed");
+
+        assert!(frame_split_offer_candidate(&app).is_none());
+    }
+
+    #[test]
+    fn frame_split_offer_candidate_skips_durably_suppressed_frame() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/split-suppressed".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let tree = Tree::new("workbench_host_split_offer_suppressed", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-split-suppressed", &tree);
+        let frame_key = frame_key_for_name(&app, "workspace-split-suppressed")
+            .expect("frame anchor should exist");
+        let node_id = app
+            .domain_graph()
+            .get_node(node)
+            .expect("node should exist")
+            .id
+            .to_string();
+        app.apply_reducer_intents([
+            GraphIntent::RecordFrameLayoutHint {
+                frame: frame_key,
+                hint: crate::graph::FrameLayoutHint::SplitHalf {
+                    first: node_id.clone(),
+                    second: node_id,
+                    orientation: crate::graph::SplitOrientation::Vertical,
+                },
+            },
+            GraphIntent::SetFrameSplitOfferSuppressed {
+                frame: frame_key,
+                suppressed: true,
+            },
+        ]);
+        app.select_node(node, false);
+
+        assert!(frame_split_offer_candidate(&app).is_none());
+    }
+
+    #[test]
+    fn set_frame_split_offer_suppressed_action_updates_frame_metadata() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/frame-action".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let mut tree = Tree::new("workbench_host_frame_action", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-action-toggle", &tree);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+                frame_name: "workspace-action-toggle".to_string(),
+                suppressed: true,
+            },
+            &mut app,
+            &mut tree,
+        );
+        let frame_key =
+            frame_key_for_name(&app, "workspace-action-toggle").expect("frame anchor should exist");
+        assert_eq!(
+            app.domain_graph().frame_split_offer_suppressed(frame_key),
+            Some(true)
+        );
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+                frame_name: "workspace-action-toggle".to_string(),
+                suppressed: false,
+            },
+            &mut app,
+            &mut tree,
+        );
+        assert_eq!(
+            app.domain_graph().frame_split_offer_suppressed(frame_key),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn move_frame_layout_hint_action_reorders_frame_metadata() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://example.com/frame-a".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://example.com/frame-b".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+        let c = app.add_node_and_sync(
+            "https://example.com/frame-c".to_string(),
+            euclid::default::Point2D::new(200.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let left = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(a)));
+        let middle = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(b)));
+        let right = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(c)));
+        let root = tiles.insert_tab_tile(vec![left, middle, right]);
+        let mut tree = Tree::new("workbench_host_frame_move_hint", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-move-hints", &tree);
+        let frame_key =
+            frame_key_for_name(&app, "workspace-move-hints").expect("frame anchor should exist");
+        let a_id = app.domain_graph().get_node(a).unwrap().id.to_string();
+        let b_id = app.domain_graph().get_node(b).unwrap().id.to_string();
+        let c_id = app.domain_graph().get_node(c).unwrap().id.to_string();
+        app.apply_reducer_intents([
+            GraphIntent::RecordFrameLayoutHint {
+                frame: frame_key,
+                hint: crate::graph::FrameLayoutHint::SplitHalf {
+                    first: a_id.clone(),
+                    second: b_id.clone(),
+                    orientation: crate::graph::SplitOrientation::Vertical,
+                },
+            },
+            GraphIntent::RecordFrameLayoutHint {
+                frame: frame_key,
+                hint: crate::graph::FrameLayoutHint::SplitHalf {
+                    first: b_id.clone(),
+                    second: c_id.clone(),
+                    orientation: crate::graph::SplitOrientation::Horizontal,
+                },
+            },
+        ]);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::MoveFrameLayoutHint {
+                frame_name: "workspace-move-hints".to_string(),
+                from_index: 1,
+                to_index: 0,
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        let hints = app.domain_graph().frame_layout_hints(frame_key).unwrap();
+        assert_eq!(
+            hints[0],
+            crate::graph::FrameLayoutHint::SplitHalf {
+                first: b_id.clone(),
+                second: c_id,
+                orientation: crate::graph::SplitOrientation::Horizontal,
+            }
+        );
+        assert_eq!(
+            hints[1],
+            crate::graph::FrameLayoutHint::SplitHalf {
+                first: a_id,
+                second: b_id.clone(),
+                orientation: crate::graph::SplitOrientation::Vertical,
+            }
+        );
+    }
+
+    #[test]
+    fn remove_frame_layout_hint_action_updates_frame_metadata() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://example.com/frame-remove-a".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://example.com/frame-remove-b".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let left = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(a)));
+        let right = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(b)));
+        let root = tiles.insert_tab_tile(vec![left, right]);
+        let mut tree = Tree::new("workbench_host_frame_remove_hint", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-remove-hint", &tree);
+        let frame_key =
+            frame_key_for_name(&app, "workspace-remove-hint").expect("frame anchor should exist");
+        let a_id = app.domain_graph().get_node(a).unwrap().id.to_string();
+        let b_id = app.domain_graph().get_node(b).unwrap().id.to_string();
+        app.apply_reducer_intents([GraphIntent::RecordFrameLayoutHint {
+            frame: frame_key,
+            hint: crate::graph::FrameLayoutHint::SplitHalf {
+                first: a_id,
+                second: b_id,
+                orientation: crate::graph::SplitOrientation::Vertical,
+            },
+        }]);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::RemoveFrameLayoutHint {
+                frame_name: "workspace-remove-hint".to_string(),
+                hint_index: 0,
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(
+            app.domain_graph()
+                .frame_layout_hints(frame_key)
+                .is_some_and(|hints| hints.is_empty())
+        );
+    }
+
+    #[test]
+    fn rename_frame_action_updates_persisted_layout_and_selected_frame() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(temp_dir.path().to_path_buf());
+        let node = app.add_node_and_sync(
+            "https://example.com/frame-rename".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let mut tree = Tree::new("workbench_host_frame_rename", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-rename-old", &tree);
+        crate::shell::desktop::ui::persistence_ops::save_named_frame_bundle(
+            &mut app,
+            "workspace-rename-old",
+            &tree,
+        )
+        .expect("save frame bundle");
+        app.workspace.graph_runtime.selected_frame_name = Some("workspace-rename-old".to_string());
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::RenameFrame {
+                from: "workspace-rename-old".to_string(),
+                to: "workspace-rename-new".to_string(),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(
+            app.load_workspace_layout_json("workspace-rename-old")
+                .is_none()
+        );
+        assert!(
+            app.load_workspace_layout_json("workspace-rename-new")
+                .is_some()
+        );
+        assert_eq!(app.selected_frame_name(), Some("workspace-rename-new"));
+        assert_eq!(
+            app.pending_frame_context_target(),
+            Some("workspace-rename-new")
+        );
+    }
+
+    #[test]
+    fn delete_frame_action_clears_selected_and_current_frame_state() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(temp_dir.path().to_path_buf());
+        let node = app.add_node_and_sync(
+            "https://example.com/frame-delete".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let mut tree = Tree::new("workbench_host_frame_delete", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-delete-me", &tree);
+        crate::shell::desktop::ui::persistence_ops::save_named_frame_bundle(
+            &mut app,
+            "workspace-delete-me",
+            &tree,
+        )
+        .expect("save frame bundle");
+        app.workspace.workbench_session.current_workspace_name =
+            Some("workspace-delete-me".to_string());
+        app.workspace.graph_runtime.selected_frame_name = Some("workspace-delete-me".to_string());
+        app.set_pending_frame_context_target(Some("workspace-delete-me".to_string()));
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::DeleteFrame("workspace-delete-me".to_string()),
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(
+            app.load_workspace_layout_json("workspace-delete-me")
+                .is_none()
+        );
+        assert_eq!(app.current_workspace_name(), None);
+        assert_eq!(app.selected_frame_name(), None);
+        assert_eq!(app.pending_frame_context_target(), None);
     }
 
     #[test]

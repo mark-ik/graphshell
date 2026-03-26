@@ -1038,12 +1038,12 @@ component specs once initial alignment lands.
 
 | Candidate spec | Why promote | Owning component |
 |---------------|-------------|------------------|
-| **Faceted Filter Surface Spec** | Filter grammar, facet operators, ranking, result surfacing are substantial enough for independent acceptance criteria | Canvas + Command aspects |
+| **Faceted Filter Surface Spec** | Filter grammar, facet operators, ranking, result surfacing are substantial enough for independent acceptance criteria | Graph + Command aspects |
 | **Facet Pane Routing Spec** | Single-node facet rail (`Arrow`/`Enter`) and node-specific pane routing deserves its own input/command/focus contract | Input + Command + Viewer |
 | **Radial Palette Geometry & Overflow Spec** | Ring layout, overflow, and readability constraints need geometry-level invariants and tests | Command aspect |
-| **Graph-First Frame Semantics Spec** | Defines frame identity lifecycle across graph/workbench trees (open/close/delete distinctions and membership sync) | Workbench + Canvas + System |
+| **Graph-First Frame Semantics Spec** | Defines frame identity lifecycle across graph/workbench trees (open/close/delete distinctions and membership sync) | Workbench + Graph + System |
 | **UxTree Convergence Roadmap** | Long-term migration away from framework-owned semantics should be explicitly staged and risk-scoped | UX Semantics subsystem |
-| **Layout Algorithm Portfolio Spec** | Heuristic portfolio, switch strategy, and metric thresholds are larger than UX control mapping | Canvas subsystem |
+| **Layout Algorithm Portfolio Spec** | Heuristic portfolio, switch strategy, and metric thresholds are larger than UX control mapping | Graph domain |
 
 Operational tracker: use `2026-03-01_ux_migration_feature_spec_coverage_matrix.md`
 as the canonical feature-to-spec completeness matrix for this migration.

@@ -61,7 +61,7 @@ This phase is purely mechanical — no judgment, just faithful extraction from e
 
 ### Execution approach
 
-- Start with the ~20 hub/index documents (`SUBSYSTEM_*.md`, `SYSTEM_REGISTER.md`, `system_architecture_spec.md`, `PLANNING_REGISTER.md`, `CANVAS.md`, `WORKBENCH.md`, `VIEWER.md`, `ASPECT_*.md`, registry development plan, etc.) since these summarize and link to their children.
+- Start with the ~20 hub/index documents (`SUBSYSTEM_*.md`, `SYSTEM_REGISTER.md`, `system_architecture_spec.md`, `PLANNING_REGISTER.md`, `GRAPH.md`, `WORKBENCH.md`, `VIEWER.md`, `ASPECT_*.md`, registry development plan, etc.) since these summarize and link to their children.
 - Then process leaf specs, plans, and research docs in subsystem order.
 - Records are accumulated into a single structured file (JSON, TOML, or markdown table).
 

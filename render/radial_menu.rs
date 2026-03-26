@@ -272,8 +272,28 @@ fn build_radial_action_context(
     focused_pane_node: Option<NodeKey>,
     selected_layout_surface_host: Option<SurfaceHostId>,
 ) -> ActionContext {
+    let frame_context = app.pending_frame_context_target().map(str::to_string);
     ActionContext {
         target_node: source_context,
+        target_frame_member: frame_context.as_deref().and_then(|frame_name| {
+            app.arrangement_projection_groups()
+                .into_iter()
+                .find(|group| {
+                    group.sub_kind == crate::graph::ArrangementSubKind::FrameMember
+                        && group.id == frame_name
+                })
+                .and_then(|group| group.member_keys.into_iter().next())
+        }),
+        target_frame_split_offer_suppressed: frame_context.as_deref().is_some_and(|frame_name| {
+            let frame_url = crate::util::VersoAddress::frame(frame_name.to_string()).to_string();
+            app.domain_graph()
+                .get_node_by_url(&frame_url)
+                .and_then(|(frame_key, _)| {
+                    app.domain_graph().frame_split_offer_suppressed(frame_key)
+                })
+                .unwrap_or(false)
+        }),
+        target_frame_name: frame_context,
         pair_context,
         any_selected,
         focused_pane_available: focused_pane_node.is_some(),
@@ -2096,6 +2116,9 @@ mod tests {
     fn scenario_tier1_selection_drives_tier2_option_ring() {
         let ctx = ActionContext {
             target_node: None,
+            target_frame_name: None,
+            target_frame_member: None,
+            target_frame_split_offer_suppressed: false,
             pair_context: None,
             any_selected: false,
             focused_pane_available: false,

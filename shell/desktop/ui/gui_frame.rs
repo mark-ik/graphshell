@@ -49,7 +49,7 @@ use crate::shell::desktop::runtime::registries::{self, CHANNEL_UX_NAVIGATION_TRA
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
-use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+use crate::shell::desktop::workbench::pane_model::{PaneViewState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_invariants;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};

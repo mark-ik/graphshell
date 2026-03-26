@@ -66,6 +66,9 @@ pub enum AppCommand {
     NodeContextTarget {
         target: NodeKey,
     },
+    FrameContextTarget {
+        frame_name: String,
+    },
     ApplyGraphSearch {
         request: GraphSearchRequest,
     },
@@ -172,6 +175,9 @@ pub enum ViewAction {
         to: NodeKey,
     },
     ClearHighlightedEdge,
+    SetSelectedFrame {
+        frame_name: Option<String>,
+    },
     SetNodeFormDraft {
         key: NodeKey,
         form_draft: Option<String>,
@@ -653,6 +659,9 @@ pub enum GraphIntent {
         to: NodeKey,
     },
     ClearHighlightedEdge,
+    SetSelectedFrame {
+        frame_name: Option<String>,
+    },
     SetNodePinned {
         key: NodeKey,
         is_pinned: bool,
@@ -833,6 +842,23 @@ pub enum GraphIntent {
         key: NodeKey,
         kind: crate::graph::AddressKind,
     },
+    RecordFrameLayoutHint {
+        frame: NodeKey,
+        hint: crate::graph::FrameLayoutHint,
+    },
+    RemoveFrameLayoutHint {
+        frame: NodeKey,
+        hint_index: usize,
+    },
+    MoveFrameLayoutHint {
+        frame: NodeKey,
+        from_index: usize,
+        to_index: usize,
+    },
+    SetFrameSplitOfferSuppressed {
+        frame: NodeKey,
+        suppressed: bool,
+    },
     SetNavigatorContainmentRelationSource {
         source: NavigatorContainmentRelationSource,
     },
@@ -857,6 +883,19 @@ pub enum GraphIntent {
     SetNavigatorSpecialtyView {
         host: crate::app::SurfaceHostId,
         kind: Option<crate::graph::GraphletKind>,
+    },
+    /// Bridge intent: open a frame as a tile group in the workbench.
+    ///
+    /// Carries a `verso://frame/<name>` URL and forwards to
+    /// `WorkbenchIntent::OpenFrameUrl` via the workbench bridge phase.
+    /// Use this from canvas input handlers that cannot access `tiles_tree`
+    /// directly (e.g. `intents_from_graph_actions`).
+    ///
+    /// `focus_node` optionally identifies which frame member tile should be
+    /// made active after the group is opened or focused.
+    OpenFrameTileGroup {
+        url: String,
+        focus_node: Option<NodeKey>,
     },
 }
 
@@ -899,7 +938,11 @@ impl GraphIntent {
             | Self::TrustPeer { .. }
             | Self::GrantWorkspaceAccess { .. }
             | Self::UpdateNodeMimeHint { .. }
-            | Self::UpdateNodeAddressKind { .. } => WorkspaceGrantRequirement::ReadWrite,
+            | Self::UpdateNodeAddressKind { .. }
+            | Self::RecordFrameLayoutHint { .. }
+            | Self::RemoveFrameLayoutHint { .. }
+            | Self::MoveFrameLayoutHint { .. }
+            | Self::SetFrameSplitOfferSuppressed { .. } => WorkspaceGrantRequirement::ReadWrite,
             Self::TogglePhysics
             | Self::ToggleGhostNodes
             | Self::ToggleCameraPositionFitLock
@@ -951,6 +994,7 @@ impl GraphIntent {
             | Self::ExecuteEdgeCommand { .. }
             | Self::SetHighlightedEdge { .. }
             | Self::ClearHighlightedEdge
+            | Self::SetSelectedFrame { .. }
             | Self::TogglePrimaryNodePin
             | Self::PromoteNodeToActive { .. }
             | Self::DemoteNodeToCold { .. }
@@ -1001,7 +1045,8 @@ impl GraphIntent {
             | Self::SetNavigatorSelectedRows { .. }
             | Self::SetNavigatorExpandedRows { .. }
             | Self::RebuildNavigatorProjection
-            | Self::SetNavigatorSpecialtyView { .. } => WorkspaceGrantRequirement::None,
+            | Self::SetNavigatorSpecialtyView { .. }
+            | Self::OpenFrameTileGroup { .. } => WorkspaceGrantRequirement::None,
         }
     }
 }
@@ -1082,6 +1127,7 @@ impl From<ViewAction> for GraphIntent {
             ViewAction::SetZoom { zoom } => Self::SetZoom { zoom },
             ViewAction::SetHighlightedEdge { from, to } => Self::SetHighlightedEdge { from, to },
             ViewAction::ClearHighlightedEdge => Self::ClearHighlightedEdge,
+            ViewAction::SetSelectedFrame { frame_name } => Self::SetSelectedFrame { frame_name },
             ViewAction::SetNodeFormDraft { key, form_draft } => {
                 Self::SetNodeFormDraft { key, form_draft }
             }
@@ -1348,6 +1394,9 @@ impl GraphIntent {
                 to: *to,
             }),
             Self::ClearHighlightedEdge => Some(ViewAction::ClearHighlightedEdge),
+            Self::SetSelectedFrame { frame_name } => Some(ViewAction::SetSelectedFrame {
+                frame_name: frame_name.clone(),
+            }),
             Self::SetNodeFormDraft { key, form_draft } => Some(ViewAction::SetNodeFormDraft {
                 key: *key,
                 form_draft: form_draft.clone(),
@@ -1517,6 +1566,10 @@ impl GraphIntent {
                     kind: *kind,
                 })
             }
+            Self::RecordFrameLayoutHint { .. }
+            | Self::RemoveFrameLayoutHint { .. }
+            | Self::MoveFrameLayoutHint { .. }
+            | Self::SetFrameSplitOfferSuppressed { .. } => None,
             _ => None,
         }
     }

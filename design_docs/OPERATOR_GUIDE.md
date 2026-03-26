@@ -157,7 +157,7 @@ If you previously used repo-local `target/windows_target`, `target`, or `target-
 
 Camera/navigation semantic guardrails (for incident prevention and regression triage):
 
-- `design_docs/graphshell_docs/implementation_strategy/canvas/graph_node_edge_interaction_spec.md` §4.0
+- `design_docs/graphshell_docs/implementation_strategy/graph/graph_node_edge_interaction_spec.md` §4.0
 
 ---
 

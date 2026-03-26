@@ -49,7 +49,7 @@ defined in `implementation_strategy/system/system_architecture_spec.md`.
 | Concern | Canonical doc |
 | --- | --- |
 | System authority boundaries and registries | `implementation_strategy/system/system_architecture_spec.md` |
-| Graph/canvas interaction semantics | `implementation_strategy/canvas/graph_node_edge_interaction_spec.md` |
+| Graph/canvas interaction semantics | `implementation_strategy/graph/graph_node_edge_interaction_spec.md` |
 | Traversal model, edge payloads, history manager behavior | `implementation_strategy/subsystem_history/edge_traversal_spec.md` |
 | History subsystem policy and diagnostics expectations | `implementation_strategy/subsystem_history/SUBSYSTEM_HISTORY.md` |
 | Node lifecycle and runtime reconcile | `implementation_strategy/viewer/node_lifecycle_and_runtime_reconcile_spec.md` |

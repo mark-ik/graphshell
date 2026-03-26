@@ -367,6 +367,18 @@ pub(crate) fn build_snapshot_with_rects(
     }
 }
 
+fn current_frame_tab_container_label(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    tile_id: TileId,
+    child_count: usize,
+) -> Option<String> {
+    (tiles_tree.root() == Some(tile_id))
+        .then(|| graph_app.current_frame_name())
+        .flatten()
+        .map(|frame_name| format!("Frame: {frame_name} ({child_count})"))
+}
+
 fn append_workbench_semantics_nodes(
     graph_app: &GraphBrowserApp,
     semantic_nodes: &mut Vec<UxSemanticNode>,
@@ -1227,7 +1239,13 @@ fn push_nodes(
                 ux_node_id: ux_node_id.clone(),
                 parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::TabContainer,
-                label: format!("Tabs ({})", tabs.children.len()),
+                label: current_frame_tab_container_label(
+                    tiles_tree,
+                    graph_app,
+                    tile_id,
+                    tabs.children.len(),
+                )
+                .unwrap_or_else(|| format!("Tabs ({})", tabs.children.len())),
                 state: UxNodeState {
                     focused,
                     selected: false,
@@ -1650,6 +1668,28 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_labels_root_tab_container_as_active_frame_when_frame_handle_is_open() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-frame.example");
+        harness.open_node_tab(node);
+        harness.app.note_frame_activated("alpha", [node]);
+
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+
+        let frame_tabs = snapshot
+            .semantic_nodes
+            .iter()
+            .find(|entry| {
+                entry.role == UxNodeRole::TabContainer && entry.label.contains("Frame: alpha")
+            })
+            .expect("active frame tab container should be labeled explicitly");
+        assert_eq!(
+            frame_tabs.parent_ux_node_id.as_deref(),
+            Some(UX_TREE_WORKBENCH_ROOT_ID)
+        );
+    }
+
+    #[test]
     fn diff_gate_semantic_changes_are_blocking_by_default() {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-diff-semantic.example");
@@ -1823,6 +1863,10 @@ mod tests {
         }
         harness.app.workspace.graph_runtime.focused_view = Some(view_id);
 
+        harness.app.set_navigator_host_scope(
+            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Right),
+            crate::app::workbench_layout_policy::NavigatorHostScope::WorkbenchOnly,
+        );
         harness.app.set_navigator_containment_relation_source(
             NavigatorContainmentRelationSource::SavedViewCollections,
         );

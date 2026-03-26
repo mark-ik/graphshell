@@ -72,7 +72,7 @@ These slices are explicitly chosen because they do not require code changes in a
 ### R2 — `ViewDimension` acceptance contract
 
 Reference draft:
-- `design_docs/graphshell_docs/implementation_strategy/canvas/2026-02-27_viewdimension_acceptance_contract.md`
+- `design_docs/graphshell_docs/implementation_strategy/graph/2026-02-27_viewdimension_acceptance_contract.md`
 
 **Output**
 - Define acceptance criteria for `TwoD↔ThreeD` parity as a single contract, including:

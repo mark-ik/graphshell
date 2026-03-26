@@ -16,7 +16,7 @@
 - [../../technical_architecture/domain_interaction_scenarios.md](../../technical_architecture/domain_interaction_scenarios.md) — canonical cross-domain scenario flows
 - [../navigator/NAVIGATOR.md](../navigator/NAVIGATOR.md) — Navigator projection/navigation peer domain
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — Workbench arrangement/activation peer domain
-- [../canvas/CANVAS.md](../canvas/CANVAS.md) — Graph truth/analysis peer domain
+- [../graph/GRAPH.md](../graph/GRAPH.md) — Graph truth/analysis peer domain; canvas remains the rendered graph surface
 
 ## Tracker mapping
 

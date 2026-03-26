@@ -1996,6 +1996,76 @@ impl GraphStore {
                         );
                     }
                 }
+                ArchivedLogEntry::RecordFrameLayoutHint { frame_id, hint } => {
+                    let Ok(frame_id) = Uuid::parse_str(frame_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(frame_id) {
+                        let Ok(hint) = rkyv::deserialize::<
+                            crate::graph::FrameLayoutHint,
+                            rkyv::rancor::Error,
+                        >(hint) else {
+                            continue;
+                        };
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::AppendFrameLayoutHint { key, hint },
+                        );
+                    }
+                }
+                ArchivedLogEntry::RemoveFrameLayoutHint {
+                    frame_id,
+                    hint_index,
+                } => {
+                    let Ok(frame_id) = Uuid::parse_str(frame_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(frame_id) {
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::RemoveFrameLayoutHint {
+                                key,
+                                hint_index: hint_index.to_native() as usize,
+                            },
+                        );
+                    }
+                }
+                ArchivedLogEntry::MoveFrameLayoutHint {
+                    frame_id,
+                    from_index,
+                    to_index,
+                } => {
+                    let Ok(frame_id) = Uuid::parse_str(frame_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(frame_id) {
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::MoveFrameLayoutHint {
+                                key,
+                                from_index: from_index.to_native() as usize,
+                                to_index: to_index.to_native() as usize,
+                            },
+                        );
+                    }
+                }
+                ArchivedLogEntry::SetFrameSplitOfferSuppressed {
+                    frame_id,
+                    suppressed,
+                } => {
+                    let Ok(frame_id) = Uuid::parse_str(frame_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(frame_id) {
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::SetFrameSplitOfferSuppressed {
+                                key,
+                                suppressed: *suppressed,
+                            },
+                        );
+                    }
+                }
                 // NavigateNode is navigation history metadata; canonical URL state is
                 // derived from UpdateNodeUrl entries — no graph delta needed here.
                 ArchivedLogEntry::NavigateNode { .. } => {}
@@ -2377,6 +2447,144 @@ mod tests {
             let edge_key = graph.find_edge_key(from_key, to_key).unwrap();
             let payload = graph.get_edge(edge_key).unwrap();
             assert_eq!(payload.label(), Some("tab-group"));
+        }
+    }
+
+    #[test]
+    fn test_log_and_recover_frame_layout_metadata() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+        let frame_id = Uuid::new_v4();
+        let member_a = Uuid::new_v4();
+        let member_b = Uuid::new_v4();
+
+        {
+            let mut store = GraphStore::open(path.clone()).unwrap();
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: frame_id.to_string(),
+                url: "verso://frame/demo".to_string(),
+                position_x: 0.0,
+                position_y: 0.0,
+                timestamp_ms: 0,
+            });
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: member_a.to_string(),
+                url: "https://a.example".to_string(),
+                position_x: 1.0,
+                position_y: 0.0,
+                timestamp_ms: 0,
+            });
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: member_b.to_string(),
+                url: "https://b.example".to_string(),
+                position_x: 2.0,
+                position_y: 0.0,
+                timestamp_ms: 0,
+            });
+            store.log_mutation(&LogEntry::RecordFrameLayoutHint {
+                frame_id: frame_id.to_string(),
+                hint: crate::graph::FrameLayoutHint::SplitHalf {
+                    first: member_a.to_string(),
+                    second: member_b.to_string(),
+                    orientation: crate::graph::SplitOrientation::Vertical,
+                },
+            });
+            store.log_mutation(&LogEntry::SetFrameSplitOfferSuppressed {
+                frame_id: frame_id.to_string(),
+                suppressed: true,
+            });
+        }
+
+        {
+            let store = GraphStore::open(path).unwrap();
+            let graph = store.recover().unwrap();
+            let (frame_key, _) = graph.get_node_by_url("verso://frame/demo").unwrap();
+            let hints = graph.frame_layout_hints(frame_key).unwrap();
+
+            assert_eq!(hints.len(), 1);
+            assert_eq!(
+                hints[0],
+                crate::graph::FrameLayoutHint::SplitHalf {
+                    first: member_a.to_string(),
+                    second: member_b.to_string(),
+                    orientation: crate::graph::SplitOrientation::Vertical,
+                }
+            );
+            assert_eq!(graph.frame_split_offer_suppressed(frame_key), Some(true));
+        }
+    }
+
+    #[test]
+    fn test_log_and_recover_moved_frame_layout_metadata() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+        let frame_id = Uuid::new_v4();
+        let member_a = Uuid::new_v4();
+        let member_b = Uuid::new_v4();
+        let member_c = Uuid::new_v4();
+
+        {
+            let mut store = GraphStore::open(path.clone()).unwrap();
+            for (node_id, url, x) in [
+                (frame_id, "verso://frame/demo".to_string(), 0.0),
+                (member_a, "https://a.example".to_string(), 1.0),
+                (member_b, "https://b.example".to_string(), 2.0),
+                (member_c, "https://c.example".to_string(), 3.0),
+            ] {
+                store.log_mutation(&LogEntry::AddNode {
+                    node_id: node_id.to_string(),
+                    url,
+                    position_x: x,
+                    position_y: 0.0,
+                    timestamp_ms: 0,
+                });
+            }
+            store.log_mutation(&LogEntry::RecordFrameLayoutHint {
+                frame_id: frame_id.to_string(),
+                hint: crate::graph::FrameLayoutHint::SplitHalf {
+                    first: member_a.to_string(),
+                    second: member_b.to_string(),
+                    orientation: crate::graph::SplitOrientation::Vertical,
+                },
+            });
+            store.log_mutation(&LogEntry::RecordFrameLayoutHint {
+                frame_id: frame_id.to_string(),
+                hint: crate::graph::FrameLayoutHint::SplitHalf {
+                    first: member_b.to_string(),
+                    second: member_c.to_string(),
+                    orientation: crate::graph::SplitOrientation::Horizontal,
+                },
+            });
+            store.log_mutation(&LogEntry::MoveFrameLayoutHint {
+                frame_id: frame_id.to_string(),
+                from_index: 1,
+                to_index: 0,
+            });
+        }
+
+        {
+            let store = GraphStore::open(path).unwrap();
+            let graph = store.recover().unwrap();
+            let (frame_key, _) = graph.get_node_by_url("verso://frame/demo").unwrap();
+            let hints = graph.frame_layout_hints(frame_key).unwrap();
+
+            assert_eq!(hints.len(), 2);
+            assert_eq!(
+                hints[0],
+                crate::graph::FrameLayoutHint::SplitHalf {
+                    first: member_b.to_string(),
+                    second: member_c.to_string(),
+                    orientation: crate::graph::SplitOrientation::Horizontal,
+                }
+            );
+            assert_eq!(
+                hints[1],
+                crate::graph::FrameLayoutHint::SplitHalf {
+                    first: member_a.to_string(),
+                    second: member_b.to_string(),
+                    orientation: crate::graph::SplitOrientation::Vertical,
+                }
+            );
         }
     }
 

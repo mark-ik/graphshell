@@ -9,7 +9,7 @@
 - `2026-02-28_ux_contract_register.md`
 - `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
-- `CANVAS.md`
+- `GRAPH.md`
 - `../workbench/WORKBENCH.md`
 - `../aspect_command/command_surface_interaction_spec.md`
 - `../subsystem_focus/focus_and_region_navigation_spec.md`

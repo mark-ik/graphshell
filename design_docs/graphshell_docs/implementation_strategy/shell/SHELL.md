@@ -18,7 +18,7 @@ intent and app-level control.
 - [../aspect_command/command_surface_interaction_spec.md](../aspect_command/command_surface_interaction_spec.md) — command palette and command dispatch
 - [../navigator/NAVIGATOR.md](../navigator/NAVIGATOR.md) — Navigator domain (relationship projection and quick navigation)
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — Workbench domain (arrangement and activation authority)
-- [../canvas/CANVAS.md](../canvas/CANVAS.md) — Graph domain at the canvas surface (graph truth, analysis, and management workspace)
+- [../graph/GRAPH.md](../graph/GRAPH.md) — Graph domain spec; the canvas is its primary graph-rendering surface (graph truth, analysis, and management workspace)
 - [../../technical_architecture/unified_view_model.md](../../technical_architecture/unified_view_model.md) — unified view model (Shell absorbs the "Chrome" layer defined there)
 - [../../TERMINOLOGY.md](../../TERMINOLOGY.md) — canonical term definitions
 

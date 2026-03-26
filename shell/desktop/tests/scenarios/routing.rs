@@ -482,7 +482,10 @@ fn open_frame_url_is_not_reducer_owned() {
 
     harness
         .app
-        .enqueue_workbench_intent(WorkbenchIntent::OpenFrameUrl { url: frame_url });
+        .enqueue_workbench_intent(WorkbenchIntent::OpenFrameUrl {
+            url: frame_url,
+            focus_node: None,
+        });
 
     assert_eq!(
         harness.app.workspace.domain.graph.node_count(),

@@ -5849,7 +5849,11 @@ fn test_tag_node_udc_prefix_creates_classification_with_user_authored_provenance
         .node_classifications(node)
         .expect("node should exist");
 
-    assert_eq!(classifications.len(), 1, "one classification should be created");
+    assert_eq!(
+        classifications.len(),
+        1,
+        "one classification should be created"
+    );
     let c = &classifications[0];
     assert_eq!(c.value, "udc:519.6");
     assert_eq!(
@@ -5893,9 +5897,12 @@ fn test_tag_node_udc_does_not_duplicate_classification_if_already_present() {
         .graph
         .node_classifications(node)
         .expect("node should exist");
-    assert_eq!(classifications.len(), 1, "duplicate TagNode must not duplicate classification");
+    assert_eq!(
+        classifications.len(),
+        1,
+        "duplicate TagNode must not duplicate classification"
+    );
 }
-
 
 #[test]
 fn test_set_view_lens_preserves_direct_values_when_lens_id_missing() {

@@ -7,9 +7,9 @@
 **Related**:
 
 - `graphlet_model.md` — canonical graphlet semantics across domains
-- `../implementation_strategy/canvas/layout_algorithm_portfolio_spec.md` — layout algorithms available to graph-bearing surfaces
-- `../implementation_strategy/canvas/petgraph_algorithm_utilization_spec.md` — petgraph as shared projection intelligence
-- `../implementation_strategy/canvas/CANVAS.md` — Graph domain spec at the canvas implementation surface
+- `../implementation_strategy/graph/layout_algorithm_portfolio_spec.md` — layout algorithms available to graph-bearing surfaces
+- `../implementation_strategy/graph/petgraph_algorithm_utilization_spec.md` — petgraph as shared projection intelligence
+- `../implementation_strategy/graph/GRAPH.md` — Graph domain spec; the canvas is its primary implementation surface
 - `../implementation_strategy/navigator/NAVIGATOR.md` — Navigator domain spec
 - `../implementation_strategy/workbench/workbench_layout_policy_spec.md` — Workbench layout and anchoring rules
 - `../implementation_strategy/shell/SHELL.md` — Shell domain spec and host/orchestration semantics

@@ -14,7 +14,7 @@ the three graph canvas hosting contexts; and the Navigator/Shell omnibar seam.
 
 - [SHELL.md](SHELL.md) — Shell domain spec (authority boundaries, what Shell owns)
 - [../navigator/NAVIGATOR.md](../navigator/NAVIGATOR.md) — Navigator domain spec
-- [../canvas/CANVAS.md](../canvas/CANVAS.md) — Graph domain spec
+- [../graph/GRAPH.md](../graph/GRAPH.md) — Graph domain spec; the canvas is its primary rendered surface
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — Workbench domain spec
 - [../../technical_architecture/unified_view_model.md](../../technical_architecture/unified_view_model.md) — §3 host model, §13 not-everything-is-a-tile
 - [../../TERMINOLOGY.md](../../TERMINOLOGY.md) — canonical term definitions

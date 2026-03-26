@@ -53,6 +53,10 @@ fn handle_pending_named_frame_snapshot_restore_request(
 ) {
     if let Some(name) = graph_app.take_pending_restore_frame_snapshot_named() {
         let open_request = graph_app.take_pending_frame_restore_open_request();
+        if graph_app.current_frame_name() == Some(name.as_str()) && tiles_tree.root().is_some() {
+            activate_current_frame_handle(graph_app, tiles_tree, &name, open_request);
+            return;
+        }
         if graph_app.should_prompt_unsaved_workspace_save() {
             warn_unsaved_changes_before_frame_switch(graph_app, &name);
             request_unsaved_workspace_frame_switch_prompt(graph_app, name, open_request);
@@ -186,10 +190,7 @@ fn restore_named_frame_snapshot(
     mut routed_open_request: Option<PendingNodeOpenRequest>,
 ) {
     debug!("gui_frame: attempting to restore frame snapshot '{}'", name);
-    match persistence_ops::load_named_frame_bundle(graph_app, name).and_then(|bundle| {
-        persistence_ops::apply_workbench_profile_from_bundle(graph_app, &bundle);
-        persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
-    }) {
+    match load_or_synthesize_frame_tree(graph_app, name) {
         Ok((mut restored_tree, restored_nodes)) => {
             if let Ok(current_layout_json) = serde_json::to_string(tiles_tree) {
                 graph_app.record_workspace_undo_boundary(
@@ -210,20 +211,7 @@ fn restore_named_frame_snapshot(
                         "gui_frame: opening routed node {:?} in restored frame",
                         request.key
                     );
-                    tile_view_ops::open_or_focus_node_pane_with_mode(
-                        &mut restored_tree,
-                        graph_app,
-                        request.key,
-                        pending_tile_mode_to_tile_mode(request.mode),
-                    );
-                    let mut restore_intents = vec![
-                        lifecycle_intents::promote_node_to_active(
-                            request.key,
-                            LifecycleCause::Restore,
-                        )
-                        .into(),
-                    ];
-                    apply_intents_if_any(graph_app, &restored_tree, &mut restore_intents);
+                    focus_frame_node_request(graph_app, &mut restored_tree, request);
                 }
                 graph_app.note_frame_activated(name, restored_nodes);
                 if let Err(e) = persistence_ops::mark_named_frame_bundle_activated(graph_app, name)
@@ -258,6 +246,71 @@ fn pending_tile_mode_to_tile_mode(mode: PendingTileOpenMode) -> tile_view_ops::T
         PendingTileOpenMode::SplitHorizontal => tile_view_ops::TileOpenMode::SplitHorizontal,
         PendingTileOpenMode::QuarterPane => tile_view_ops::TileOpenMode::QuarterPane,
         PendingTileOpenMode::HalfPane => tile_view_ops::TileOpenMode::HalfPane,
+    }
+}
+
+fn focus_frame_node_request(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    request: PendingNodeOpenRequest,
+) {
+    tile_view_ops::open_or_focus_node_pane_with_mode(
+        tiles_tree,
+        graph_app,
+        request.key,
+        pending_tile_mode_to_tile_mode(request.mode),
+    );
+    let mut restore_intents = vec![
+        lifecycle_intents::promote_node_to_active(request.key, LifecycleCause::Restore).into(),
+    ];
+    apply_intents_if_any(graph_app, tiles_tree, &mut restore_intents);
+}
+
+fn current_frame_nodes(tiles_tree: &Tree<TileKind>) -> Vec<NodeKey> {
+    let mut nodes = tiles_tree
+        .tiles
+        .iter()
+        .filter_map(|(_, tile)| match tile {
+            Tile::Pane(TileKind::Node(state)) => Some(state.node),
+            Tile::Pane(TileKind::Pane(PaneViewState::Node(state))) => Some(state.node),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by_key(|key| key.index());
+    nodes.dedup();
+    nodes
+}
+
+fn activate_current_frame_handle(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    name: &str,
+    open_request: Option<PendingNodeOpenRequest>,
+) {
+    if let Some(request) = open_request
+        && graph_app.domain_graph().get_node(request.key).is_some()
+    {
+        focus_frame_node_request(graph_app, tiles_tree, request);
+    }
+    graph_app.note_frame_activated(name, current_frame_nodes(tiles_tree));
+    if let Err(e) = persistence_ops::mark_named_frame_bundle_activated(graph_app, name) {
+        debug!("Skipping frame bundle activation stamp for '{name}': {e}");
+    }
+}
+
+fn load_or_synthesize_frame_tree(
+    graph_app: &mut GraphBrowserApp,
+    name: &str,
+) -> Result<(Tree<TileKind>, Vec<NodeKey>), String> {
+    match persistence_ops::load_named_frame_bundle(graph_app, name) {
+        Ok(bundle) => {
+            persistence_ops::apply_workbench_profile_from_bundle(graph_app, &bundle);
+            persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
+        }
+        Err(bundle_error) => {
+            persistence_ops::synthesize_runtime_tree_from_graph_frame(graph_app, name)
+                .map_err(|graph_error| format!("{bundle_error}; {graph_error}"))
+        }
     }
 }
 
@@ -300,7 +353,9 @@ fn add_nodes_to_named_frame_snapshot(
                 }
             }
         }
-        Err(_) => frame_tree_with_single_node(live_nodes[0]),
+        Err(_) => persistence_ops::synthesize_runtime_tree_from_graph_frame(graph_app, name)
+            .map(|(tree, _)| tree)
+            .unwrap_or_else(|_| frame_tree_with_single_node(live_nodes[0])),
     };
     if workspace_tree.root().is_none() {
         workspace_tree = frame_tree_with_single_node(live_nodes[0]);
@@ -316,5 +371,64 @@ fn add_nodes_to_named_frame_snapshot(
     match persistence_ops::save_named_frame_bundle(graph_app, name, &workspace_tree) {
         Ok(()) => {}
         Err(e) => warn!("Failed to save frame snapshot '{name}' after add-tab operation: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use euclid::default::Point2D;
+
+    #[test]
+    fn restore_named_frame_snapshot_synthesizes_from_graph_membership_when_bundle_missing() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(1.0, 0.0));
+
+        let mut frame_tiles = Tiles::default();
+        let a_tile = frame_tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = frame_tiles.insert_pane(TileKind::Node(b.into()));
+        let frame_root = frame_tiles.insert_tab_tile(vec![a_tile, b_tile]);
+        let frame_tree = Tree::new("graph_frame_seed", frame_root, frame_tiles);
+        app.sync_named_workbench_frame_graph_representation("alpha", &frame_tree);
+
+        let mut live_tiles = Tiles::default();
+        let live_a = live_tiles.insert_pane(TileKind::Node(a.into()));
+        let live_root = live_tiles.insert_tab_tile(vec![live_a]);
+        let mut live_tree = Tree::new("live_frame", live_root, live_tiles);
+
+        restore_named_frame_snapshot(&mut app, &mut live_tree, "alpha", None);
+
+        let restored_nodes = current_frame_nodes(&live_tree);
+        assert_eq!(restored_nodes, vec![a, b]);
+        assert_eq!(app.current_frame_name(), Some("alpha"));
+    }
+
+    #[test]
+    fn same_frame_restore_request_reuses_open_handle_without_unsaved_prompt() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(1.0, 0.0));
+
+        let mut tiles = Tiles::default();
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let root = tiles.insert_tab_tile(vec![a_tile]);
+        let mut tree = Tree::new("open_alpha", root, tiles);
+
+        app.note_frame_activated("alpha", [a]);
+        app.workspace
+            .workbench_session
+            .workspace_has_unsaved_changes = true;
+        app.request_restore_frame_snapshot_named("alpha");
+        app.set_pending_workspace_restore_open_request(Some(PendingNodeOpenRequest {
+            key: b,
+            mode: PendingTileOpenMode::Tab,
+        }));
+
+        handle_pending_frame_snapshot_actions(&mut app, &mut tree);
+
+        assert!(app.unsaved_workspace_prompt_request().is_none());
+        assert_eq!(current_frame_nodes(&tree), vec![a, b]);
+        assert_eq!(app.current_frame_name(), Some("alpha"));
     }
 }

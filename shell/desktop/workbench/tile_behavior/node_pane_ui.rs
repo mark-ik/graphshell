@@ -131,7 +131,6 @@ fn render_node_pane_impl(
         render_node_viewer_backend_selector(ui, behavior.graph_app, state);
         ui.add_space(4.0);
     }
-
     let effective_viewer_id = state
         .viewer_id_override
         .as_ref()

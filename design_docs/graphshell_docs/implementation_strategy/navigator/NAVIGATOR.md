@@ -15,7 +15,7 @@ projection rules, and interaction contract.
 - [navigator_interaction_contract.md](navigator_interaction_contract.md) — click grammar, selection, reveal, dismiss
 - [navigator_projection_spec.md](navigator_projection_spec.md) — section model, projection sources, refresh triggers
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — workbench domain (arrangement and activation authority)
-- [../canvas/CANVAS.md](../canvas/CANVAS.md) — Graph domain at the canvas surface (truth and context authority)
+- [../graph/GRAPH.md](../graph/GRAPH.md) — Graph domain spec; the canvas is a graph-rendering surface for truth and context authority
 - [../../TERMINOLOGY.md](../../TERMINOLOGY.md) — canonical term definitions
 
 ---
@@ -139,7 +139,7 @@ requested facets. Shell exposes and orchestrates the system that makes the
 others possible.
 
 See `../shell/SHELL.md` for the Shell domain spec and
-`../canvas/CANVAS.md §2.2` for the Canvas interactive management workspace.
+`../graph/GRAPH.md §2.2` for the Graph interactive management workspace and its canvas surface.
 
 ---
 

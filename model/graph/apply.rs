@@ -6,7 +6,8 @@ use euclid::default::Point2D;
 use uuid::Uuid;
 
 use super::{
-    AddressKind, EdgeAssertion, EdgeKey, EdgeType, Graph, NodeKey, RelationSelector, Traversal,
+    AddressKind, EdgeAssertion, EdgeKey, EdgeType, FrameLayoutHint, Graph, NodeKey,
+    RelationSelector, Traversal,
 };
 
 #[derive(Debug, Clone)]
@@ -105,6 +106,23 @@ pub enum GraphDelta {
     SetNodePinned {
         key: NodeKey,
         is_pinned: bool,
+    },
+    AppendFrameLayoutHint {
+        key: NodeKey,
+        hint: FrameLayoutHint,
+    },
+    RemoveFrameLayoutHint {
+        key: NodeKey,
+        hint_index: usize,
+    },
+    MoveFrameLayoutHint {
+        key: NodeKey,
+        from_index: usize,
+        to_index: usize,
+    },
+    SetFrameSplitOfferSuppressed {
+        key: NodeKey,
+        suppressed: bool,
     },
 }
 
@@ -222,6 +240,26 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
         }
         GraphDelta::SetNodePinned { key, is_pinned } => {
             GraphDeltaResult::NodeMetadataUpdated(graph.set_node_pinned(key, is_pinned))
+        }
+        GraphDelta::AppendFrameLayoutHint { key, hint } => {
+            GraphDeltaResult::NodeMetadataUpdated(graph.append_frame_layout_hint(key, hint))
+        }
+        GraphDelta::RemoveFrameLayoutHint { key, hint_index } => {
+            GraphDeltaResult::NodeMetadataUpdated(
+                graph.remove_frame_layout_hint_at(key, hint_index),
+            )
+        }
+        GraphDelta::MoveFrameLayoutHint {
+            key,
+            from_index,
+            to_index,
+        } => GraphDeltaResult::NodeMetadataUpdated(
+            graph.move_frame_layout_hint(key, from_index, to_index),
+        ),
+        GraphDelta::SetFrameSplitOfferSuppressed { key, suppressed } => {
+            GraphDeltaResult::NodeMetadataUpdated(
+                graph.set_frame_split_offer_suppressed(key, suppressed),
+            )
         }
     }
 }

@@ -8,7 +8,7 @@
 
 - [`layout_behaviors_and_physics_spec.md`](./layout_behaviors_and_physics_spec.md)
 - [`2026-02-24_physics_engine_extensibility_plan.md`](./2026-02-24_physics_engine_extensibility_plan.md)
-- [`CANVAS.md`](./CANVAS.md)
+- [`GRAPH.md`](./GRAPH.md)
 - [`../system/register/physics_profile_registry_spec.md`](../system/register/physics_profile_registry_spec.md)
 - [`../../technical_architecture/2026-03-12_specification_coverage_register.md`](../../technical_architecture/2026-03-12_specification_coverage_register.md)
 

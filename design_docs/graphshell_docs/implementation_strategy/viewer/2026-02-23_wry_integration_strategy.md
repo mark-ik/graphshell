@@ -18,7 +18,8 @@
 
 Servo (texture-based rendering) is the primary web backend and the only one currently integrated.
 `wry` (native OS webview — WKWebView on macOS/iOS, WebView2 on Windows, WebKitGTK on Linux) provides
-a compatibility fallback for sites that Servo cannot render correctly. The two backends have
+an explicit Compatibility Mode backend for cases where the user chooses system-webview realization.
+The two backends have
 fundamentally different rendering models that constrain where each can be used.
 
 This plan defines how to add `wry` as a second backend under the existing Verso native mod without
@@ -35,6 +36,23 @@ Architectural clarification:
   and the same pane kind.
 - The graph-visible distinction should be pane kind and content kind first; backend/render mode are
   secondary runtime traits that may be surfaced as badges or diagnostics metadata.
+
+---
+
+## Compatibility Mode Invariant
+
+Backend switching between `viewer:webview` (Servo) and `viewer:wry` (system webview) is an
+explicit user-intent operation by default.
+
+Invariants:
+
+- No automatic Servo-to-Wry transition based only on internal compatibility heuristics.
+- No hidden backend migration during normal lifecycle reconcile.
+- Any backend transition must carry an explicit transition reason.
+- Active backend and transition reason must be visible in shell/runtime status surfaces.
+
+Compatibility Mode is therefore a user-controlled realization mode, not an involuntary conditional
+downgrade path.
 
 ---
 
@@ -132,6 +150,7 @@ Graph/UI representation guideline:
 
 - graph view should be allowed to show that a promoted node is a `Node Viewer pane`,
 - graph view may additionally badge that the effective backend is `viewer:wry`,
+- shell overview/status surfaces must show the active backend and last switch reason for the active viewer surface,
 - graph view should not treat Wry as a different pane category from Servo.
 
 ```rust
@@ -163,10 +182,32 @@ No new mechanism is needed. The existing thumbnail pipeline in `Node.thumbnail_d
 Switching between Servo and Wry is a backend transition, not proof that both
 backends share one physical storage implementation.
 
+## Backend Transition Authorization
+
+Authorized transition initiators:
+
+- user command (`Open with`, per-node/per-frame/global backend settings)
+- recovery prompt acceptance after explicit user confirmation
+- policy pinning only when the user has opted into a persistent compatibility preference
+
+Disallowed by default:
+
+- unprompted runtime auto-switches triggered by render anomalies, script errors, or unsupported-feature detection
+
+Transition reason enum (host/runtime boundary):
+
+```rust
+pub enum ViewerSwitchReason {
+    UserRequested,
+    RecoveryPromptAccepted,
+    PolicyPinned,
+}
+```
+
 Rules:
 
 - Servo remains the canonical target for browser-origin storage semantics.
-- Wry is a compatibility backend with its own native profile/session handling.
+- Wry is a Compatibility Mode backend with its own native profile/session handling.
 - Graphshell may coordinate transitions between the two, but should not invent a
   rival browser-storage hierarchy to do so.
 - Backend switching must be routed through a host-side policy layer rather than
@@ -175,7 +216,7 @@ Rules:
 Recommended authority split:
 
 - browser storage truth belongs to a Servo-compatible `ClientStorageManager`
-  (or backend-native equivalent while Wry remains fallback-only)
+  (or backend-native equivalent while Wry remains compatibility-mode-only)
 - Graphshell-owned app durability remains in `GraphStore`
 - backend-switch policy belongs to a thin host/runtime orchestration layer
   (`StorageInteropCoordinator`)
@@ -186,9 +227,9 @@ Transition policy classes:
 | --- | --- | --- |
 | Shared logical context | Preserve the same logical storage context id across backends | Only when semantics and implementation are known compatible |
 | Cloned compatibility context | Copy or approximate relevant state into a backend-specific context | When continuity is desirable but exact sharing is unsafe |
-| Isolated fallback context | Start the target backend with a fresh isolated context/profile | Default when compatibility is uncertain |
+| Isolated compatibility context | Start the target backend with a fresh isolated context/profile | Default when compatibility is uncertain |
 
-Default posture for Wry fallback:
+Default posture for Wry Compatibility Mode:
 
 - cookies and permissions may be clonable backend-by-backend
 - `localStorage` / `sessionStorage` may be clonable, but are not assumed to be
@@ -196,9 +237,10 @@ Default posture for Wry fallback:
 - IndexedDB, Cache API, OPFS, and service-worker state are not assumed shareable
   between Servo and Wry
 
-This means a command such as "Try in Wry" should be understood as a backend
-transition with explicit continuity policy, not as a guarantee that Servo and
-Wry are reading the same underlying site-data store.
+This means a command such as `Try in Wry` is the canonical Compatibility Mode
+entrypoint. It is user-triggered and explicit. It initiates a backend transition
+with declared continuity policy (shared, cloned, or isolated), and does not
+imply shared physical browser storage across backends.
 
 Node lifecycle also remains separate from site-data lifecycle:
 
@@ -306,7 +348,7 @@ Clarification:
 
 `viewer_id_override = viewer:wry` selects a viewer backend. It does not, by
 itself, define whether the transition is shared-context, cloned-context, or
-isolated-fallback. That decision belongs to runtime storage interop policy.
+isolated-compatibility. That decision belongs to runtime storage interop policy.
 
 ### Step 7: Settings UI
 
@@ -319,6 +361,14 @@ Expose backend selection in the settings UI:
 
 Done gate: changing the global default persists across restarts. Per-node override appears in node
 context menu and takes effect on next lifecycle reconcile.
+
+### Compatibility Policy Acceptance Criteria
+
+- Servo remains the default backend unless user preference says otherwise.
+- No silent backend changes occur during normal lifecycle reconcile.
+- Every backend transition records `ViewerSwitchReason`.
+- Recovery prompt transitions are explicit, reversible, and session-scoped by default.
+- Shell/runtime status exposes the active backend plus transition reason.
 
 ---
 
@@ -333,6 +383,22 @@ Implement and test in this order:
 
 The `wry` crate handles platform abstraction. No platform-specific code in Graphshell except for
 scale-factor and coordinate translation in `WryManager::set_bounds`.
+
+---
+
+## Failure Recovery Prompt Contract
+
+If Servo fails hard for a target (for example repeated crash on the same page), Graphshell may
+present a recovery prompt:
+
+- `This page failed in Servo. Open in Compatibility Mode (system webview)?`
+
+Rules:
+
+- The prompt is opt-in; there is no automatic persistent switch.
+- If accepted, the transition reason is `RecoveryPromptAccepted`.
+- Recovery switches are session-scoped by default unless the user explicitly chooses to persist them.
+- UI must provide `Try Servo Again` so the user can reverse Compatibility Mode for that surface.
 
 ---
 

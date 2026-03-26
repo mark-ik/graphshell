@@ -316,7 +316,30 @@ pub(super) fn collect_graph_actions(
                         if split_open_modifier {
                             actions.push(GraphAction::FocusNodeSplit(key));
                         } else {
-                            actions.push(GraphAction::FocusNode(key));
+                            // If the node is a frame member, open its parent
+                            // frame as a tile group with this node focused.
+                            let frame_group = app
+                                .arrangement_projection_groups()
+                                .into_iter()
+                                .find(|g| {
+                                    g.sub_kind
+                                        == crate::graph::ArrangementSubKind::FrameMember
+                                        && g.member_keys.contains(&key)
+                                });
+                            if let Some(group) = frame_group {
+                                if let Some(frame_node) =
+                                    app.domain_graph().get_node(group.container_key)
+                                {
+                                    actions.push(GraphAction::FocusFrame {
+                                        frame_name: frame_node.title.clone(),
+                                        member_key: key,
+                                    });
+                                } else {
+                                    actions.push(GraphAction::FocusNode(key));
+                                }
+                            } else {
+                                actions.push(GraphAction::FocusNode(key));
+                            }
                         }
                     }
                 } else {
