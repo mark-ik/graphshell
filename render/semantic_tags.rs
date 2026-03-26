@@ -30,6 +30,23 @@ pub(super) struct SelectedNodeEnrichmentSummary {
     pub(super) placement_anchor: Option<PlacementAnchorSummary>,
     pub(super) semantic_lens_available: bool,
     pub(super) semantic_lens_active: bool,
+    /// Durable NodeClassification records for inspector display (Stage B).
+    pub(super) display_classifications: Vec<ClassificationChip>,
+}
+
+/// Inspector chip for a single durable NodeClassification record.
+pub(super) struct ClassificationChip {
+    pub(super) value: String,
+    pub(super) label: String,
+    /// Short human-readable provenance string (e.g. "User", "Imported", "Agent").
+    pub(super) provenance: &'static str,
+    /// Short status string (e.g. "Accepted", "Suggested", "Rejected").
+    pub(super) status: &'static str,
+    pub(super) confidence: f32,
+    pub(super) primary: bool,
+    pub(super) scheme: String,
+    pub(super) node_key: crate::graph::NodeKey,
+    pub(super) classification_value: String,
 }
 
 pub(super) struct PlacementAnchorSummary {
@@ -618,6 +635,106 @@ pub(super) fn render_semantic_suggestion_buttons(
                         .small()
                         .color(theme_tokens.radial_chrome_text),
                 );
+            });
+        }
+    });
+}
+
+// ── Classification chip renderer ──────────────────────────────────────────────
+
+/// Render the durable NodeClassification records for the enrichment inspector.
+///
+/// Each chip shows label, scheme, provenance, status, and confidence.
+/// Accepted/verified primary records are visually distinguished.
+/// Accept/Reject intent buttons are shown for Suggested records.
+pub(super) fn render_classification_chips(
+    ui: &mut egui::Ui,
+    app: &mut GraphBrowserApp,
+    chips: &[ClassificationChip],
+) {
+    use crate::app::GraphIntent;
+    use crate::graph::{ClassificationScheme, ClassificationStatus};
+    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
+
+    ui.horizontal_wrapped(|ui| {
+        for chip in chips {
+            ui.vertical(|ui| {
+                let primary_marker = if chip.primary { " ★" } else { "" };
+                let button_text = format!("{}{}", chip.label, primary_marker);
+                let button = egui::Button::new(egui::RichText::new(&button_text).small());
+                let hover = format!(
+                    "{}\nScheme: {}\nProvenance: {}\nStatus: {}\nConfidence: {:.0}%",
+                    chip.value,
+                    chip.scheme,
+                    chip.provenance,
+                    chip.status,
+                    chip.confidence * 100.0,
+                );
+                if ui.add(button).on_hover_text(hover).clicked() {
+                    // Filter graph to nodes sharing this classification value
+                    app.request_graph_search_with_options(
+                        chip.value.clone(),
+                        true,
+                        GraphSearchOrigin::SemanticTag,
+                        None,
+                        1,
+                        true,
+                        None,
+                    );
+                }
+                ui.label(
+                    egui::RichText::new(format!("{} · {}", chip.provenance, chip.status))
+                        .small()
+                        .color(theme_tokens.radial_chrome_text),
+                );
+                // Accept/Reject controls for Suggested records
+                if chip.status == "Suggested" {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .small_button("✓")
+                            .on_hover_text("Accept this classification")
+                            .clicked()
+                        {
+                            // Parse scheme back from string for the intent
+                            let scheme = if chip.scheme.contains("ContentKind") {
+                                ClassificationScheme::ContentKind
+                            } else if chip.scheme.starts_with("Custom") {
+                                ClassificationScheme::Custom(chip.scheme.clone())
+                            } else {
+                                ClassificationScheme::Udc
+                            };
+                            apply_reducer_graph_intents_hardened(
+                                app,
+                                vec![GraphIntent::AcceptClassification {
+                                    key: chip.node_key,
+                                    scheme,
+                                    value: chip.classification_value.clone(),
+                                }],
+                            );
+                        }
+                        if ui
+                            .small_button("✗")
+                            .on_hover_text("Reject this classification")
+                            .clicked()
+                        {
+                            let scheme = if chip.scheme.contains("ContentKind") {
+                                ClassificationScheme::ContentKind
+                            } else if chip.scheme.starts_with("Custom") {
+                                ClassificationScheme::Custom(chip.scheme.clone())
+                            } else {
+                                ClassificationScheme::Udc
+                            };
+                            apply_reducer_graph_intents_hardened(
+                                app,
+                                vec![GraphIntent::RejectClassification {
+                                    key: chip.node_key,
+                                    scheme,
+                                    value: chip.classification_value.clone(),
+                                }],
+                            );
+                        }
+                    });
+                }
             });
         }
     });

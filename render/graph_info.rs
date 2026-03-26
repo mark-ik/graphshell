@@ -19,9 +19,10 @@ use super::canvas_visuals::{
 use super::reducer_bridge::apply_ui_intents_with_checkpoint;
 use super::semantic_tags::{
     PlacementAnchorSummary, SelectedNodeEnrichmentSummary, graph_search_history_label,
-    graph_search_scope_label, render_graph_search_origin_badge, render_selected_node_tag_panel,
-    render_semantic_suggestion_buttons, render_semantic_tag_status_buttons,
-    request_graph_search_entry, semantic_suggestion_chip, semantic_tag_status_chip,
+    graph_search_scope_label, render_classification_chips, render_graph_search_origin_badge,
+    render_selected_node_tag_panel, render_semantic_suggestion_buttons,
+    render_semantic_tag_status_buttons, request_graph_search_entry, semantic_suggestion_chip,
+    semantic_tag_status_chip,
 };
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -530,6 +531,15 @@ pub(super) fn draw_graph_info(
                                     &summary.suggested_tags,
                                 );
                             }
+                            if !summary.display_classifications.is_empty() {
+                                ui.separator();
+                                ui.small("Classifications");
+                                render_classification_chips(
+                                    ui,
+                                    app,
+                                    &summary.display_classifications,
+                                );
+                            }
                             ui.separator();
                             ui.small("Click a tag to filter the graph by that semantic slice. Status shows whether the tag is canonical knowledge state or a looser node-local tag; suggestion text explains why the tag suggester surfaced it.");
                         });
@@ -679,6 +689,42 @@ pub(super) fn selected_node_enrichment_summary(
             })
         });
 
+    use crate::graph::{ClassificationProvenance, ClassificationStatus};
+    use super::semantic_tags::ClassificationChip;
+    let display_classifications: Vec<ClassificationChip> = app
+        .domain_graph()
+        .node_classifications(selected_key)
+        .map(|classifications| {
+            classifications
+                .iter()
+                .map(|c| ClassificationChip {
+                    value: c.value.clone(),
+                    label: c.label.clone().unwrap_or_else(|| c.value.clone()),
+                    provenance: match c.provenance {
+                        ClassificationProvenance::UserAuthored => "User",
+                        ClassificationProvenance::Imported => "Imported",
+                        ClassificationProvenance::InheritedFromSource => "Inherited",
+                        ClassificationProvenance::RegistryDerived => "Registry",
+                        ClassificationProvenance::AgentSuggested => "Agent",
+                        ClassificationProvenance::CommunitySynced => "Community",
+                    },
+                    status: match c.status {
+                        ClassificationStatus::Accepted => "Accepted",
+                        ClassificationStatus::Suggested => "Suggested",
+                        ClassificationStatus::Rejected => "Rejected",
+                        ClassificationStatus::Verified => "Verified",
+                        ClassificationStatus::Imported => "Imported",
+                    },
+                    confidence: c.confidence,
+                    primary: c.primary,
+                    scheme: format!("{:?}", c.scheme),
+                    node_key: selected_key,
+                    classification_value: c.value.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Some(SelectedNodeEnrichmentSummary {
         title: if node.title.is_empty() {
             node.url.clone()
@@ -701,6 +747,7 @@ pub(super) fn selected_node_enrichment_summary(
         hidden_tag_count,
         suggested_tags,
         placement_anchor,
+        display_classifications,
         semantic_lens_available: app
             .workspace
             .graph_runtime

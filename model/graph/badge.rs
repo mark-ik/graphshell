@@ -77,12 +77,31 @@ pub(crate) struct BadgeVisual {
 }
 
 pub(crate) fn badges_for_node(node: &Node, workspace_count: usize, is_crashed: bool) -> Vec<Badge> {
-    badges_for_tags_with_presentation(
-        &node.tags,
-        Some(&node.tag_presentation),
-        workspace_count,
-        is_crashed,
-    )
+    let mut badges =
+        badges_for_tags_with_presentation(&node.tags, Some(&node.tag_presentation), workspace_count, is_crashed);
+
+    // Prepend the primary accepted/verified classification as a semantic badge
+    // (spec §Badge Policy: semantic badges outrank backend badges in graph view).
+    // Only show if not already present via the tag path to avoid duplication.
+    if let Some(primary) = node
+        .classifications
+        .iter()
+        .find(|c| c.primary && matches!(c.status, super::ClassificationStatus::Accepted | super::ClassificationStatus::Verified))
+    {
+        let label = if let Some(l) = &primary.label {
+            l.clone()
+        } else {
+            primary.value.clone()
+        };
+        // Insert before any Tag badges so it leads the badge row
+        let insert_pos = badges
+            .iter()
+            .position(|b| matches!(b, Badge::Tag { .. }))
+            .unwrap_or(badges.len());
+        badges.insert(insert_pos, Badge::Tag { label, icon: BadgeIcon::None });
+    }
+
+    badges
 }
 
 pub(crate) fn badges_for_tags(

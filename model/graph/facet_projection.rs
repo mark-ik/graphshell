@@ -143,17 +143,25 @@ pub fn facet_projection_for_node(graph: &Graph, key: NodeKey) -> Option<FacetPro
         );
     }
 
-    // UDC classes via semantic tags
-    if !node.tags.is_empty() {
-        proj.insert(
-            facet_keys::UDC_CLASSES.to_string(),
-            FacetValue::Collection(
-                node.tags
-                    .iter()
-                    .map(|t| FacetScalar::Text(t.clone()))
-                    .collect(),
-            ),
-        );
+    // UDC classes: semantic tags + durable NodeClassification values (Stage A schema).
+    // Tags already use "udc:"-prefixed values; classification values carry the same
+    // scheme-prefixed format (e.g. "udc:519.6") so they slot directly into the same
+    // collection facet.
+    {
+        let mut udc_values: Vec<FacetScalar> = node
+            .tags
+            .iter()
+            .map(|t| FacetScalar::Text(t.clone()))
+            .collect();
+        for c in &node.classifications {
+            udc_values.push(FacetScalar::Text(c.value.clone()));
+        }
+        if !udc_values.is_empty() {
+            proj.insert(
+                facet_keys::UDC_CLASSES.to_string(),
+                FacetValue::Collection(udc_values),
+            );
+        }
     }
 
     // --- Time ---
@@ -260,5 +268,67 @@ mod tests {
         let key = build_node(&mut graph, "https://example.com/");
         let proj = facet_projection_for_node(&graph, key).unwrap();
         assert!(proj.contains_key(facet_keys::LIFECYCLE));
+    }
+
+    #[test]
+    fn projection_udc_classes_includes_classification_values() {
+        use crate::model::graph::{
+            ClassificationProvenance, ClassificationScheme, ClassificationStatus,
+            NodeClassification,
+        };
+        let mut graph = Graph::new();
+        let key = build_node(&mut graph, "https://example.com/");
+        graph.add_node_classification(
+            key,
+            NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:519.6".to_string(),
+                label: Some("Computational mathematics".to_string()),
+                confidence: 1.0,
+                provenance: ClassificationProvenance::UserAuthored,
+                status: ClassificationStatus::Accepted,
+                primary: true,
+            },
+        );
+        let proj = facet_projection_for_node(&graph, key).unwrap();
+        let udc = proj.get(facet_keys::UDC_CLASSES).unwrap();
+        let FacetValue::Collection(items) = udc else {
+            panic!("expected Collection");
+        };
+        assert!(
+            items.contains(&FacetScalar::Text("udc:519.6".to_string())),
+            "classification value must appear in udc_classes facet"
+        );
+    }
+
+    #[test]
+    fn projection_udc_classes_merges_tags_and_classifications() {
+        use crate::model::graph::{
+            ClassificationProvenance, ClassificationScheme, ClassificationStatus,
+            NodeClassification,
+        };
+        let mut graph = Graph::new();
+        let key = build_node(&mut graph, "https://example.com/");
+        // add a tag directly
+        graph.insert_node_tag(key, "udc:51".to_string());
+        // add a classification
+        graph.add_node_classification(
+            key,
+            NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:519.6".to_string(),
+                label: None,
+                confidence: 0.9,
+                provenance: ClassificationProvenance::RegistryDerived,
+                status: ClassificationStatus::Suggested,
+                primary: false,
+            },
+        );
+        let proj = facet_projection_for_node(&graph, key).unwrap();
+        let FacetValue::Collection(items) = &proj[facet_keys::UDC_CLASSES] else {
+            panic!("expected Collection");
+        };
+        assert!(items.contains(&FacetScalar::Text("udc:51".to_string())));
+        assert!(items.contains(&FacetScalar::Text("udc:519.6".to_string())));
     }
 }
