@@ -475,7 +475,11 @@ fn ordered_live_frame_member_keys(graph_app: &GraphBrowserApp, name: &str) -> Ve
 }
 
 fn frame_name_for_key(graph_app: &GraphBrowserApp, frame_key: NodeKey) -> Option<String> {
-    let frame_url = graph_app.domain_graph().get_node(frame_key)?.url().to_string();
+    let frame_url = graph_app
+        .domain_graph()
+        .get_node(frame_key)?
+        .url()
+        .to_string();
     GraphBrowserApp::resolve_frame_route(&frame_url)
 }
 
@@ -952,7 +956,10 @@ pub(crate) fn materialize_frame_tile_group_tabs(
         };
         covered_members.extend(hint_members);
         tab_tiles.push(hint_tile);
-        hint_tabs.push(crate::app::FrameHintTabRuntime { tile_id: hint_tile, hint });
+        hint_tabs.push(crate::app::FrameHintTabRuntime {
+            tile_id: hint_tile,
+            hint,
+        });
     }
 
     tab_tiles.extend(
@@ -1009,7 +1016,10 @@ pub(crate) fn refresh_frame_tile_group_runtime(
 
     graph_app.workspace.graph_runtime.frame_tile_groups.clear();
     for (group_id, frame_anchor) in registered {
-        if matches!(tree.tiles.get(group_id), Some(Tile::Container(Container::Tabs(_)))) {
+        if matches!(
+            tree.tiles.get(group_id),
+            Some(Tile::Container(Container::Tabs(_)))
+        ) {
             register_frame_tile_group_runtime(graph_app, tree, group_id, frame_anchor);
         }
     }
@@ -1022,7 +1032,8 @@ pub(crate) fn frame_layout_sync_intents_for_registered_frame_groups(
     let mut intents = Vec::new();
 
     for (group_id, state) in &graph_app.workspace.graph_runtime.frame_tile_groups {
-        let Some(derived_hints) = frame_layout_hints_from_tabs_tile(graph_app, tree, *group_id) else {
+        let Some(derived_hints) = frame_layout_hints_from_tabs_tile(graph_app, tree, *group_id)
+        else {
             continue;
         };
         let existing_hints = graph_app
@@ -1914,9 +1925,18 @@ mod tests {
     fn frame_layout_sync_intents_for_registered_frame_groups_records_new_split_tabs() {
         let dir = TempDir::new().unwrap();
         let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
-        let a = app.add_node_and_sync("https://registered-a.example".into(), Point2D::new(0.0, 0.0));
-        let b = app.add_node_and_sync("https://registered-b.example".into(), Point2D::new(1.0, 0.0));
-        let c = app.add_node_and_sync("https://registered-c.example".into(), Point2D::new(2.0, 0.0));
+        let a = app.add_node_and_sync(
+            "https://registered-a.example".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://registered-b.example".into(),
+            Point2D::new(1.0, 0.0),
+        );
+        let c = app.add_node_and_sync(
+            "https://registered-c.example".into(),
+            Point2D::new(2.0, 0.0),
+        );
 
         let mut seeded_tiles = Tiles::default();
         let seeded_a = seeded_tiles.insert_pane(TileKind::Node(a.into()));

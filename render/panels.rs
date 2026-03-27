@@ -1,11 +1,9 @@
-use std::collections::{HashMap, HashSet};
 use std::env;
 use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui::{Ui, Window};
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use uuid::Uuid;
 
 use crate::app::{
@@ -14,9 +12,7 @@ use crate::app::{
     OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference, ViewAction, WorkbenchIntent,
     clip_capture_matches_filter, clip_capture_matches_query,
 };
-use crate::graph::{
-    ArrangementSubKind, EdgeFamily, NodeKey, RelationSelector, format_imported_at_secs,
-};
+use crate::graph::{ArrangementSubKind, NodeKey, format_imported_at_secs};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{
@@ -128,12 +124,13 @@ fn navigator_node_row_key(app: &GraphBrowserApp, node_key: NodeKey) -> Option<St
     app.navigator_projection_state()
         .row_targets
         .iter()
-        .find_map(|(row_key, target)| match target {
+        .filter_map(|(row_key, target)| match target {
             crate::app::NavigatorProjectionTarget::Node(key) if *key == node_key => {
                 Some(row_key.clone())
             }
             _ => None,
         })
+        .min()
 }
 
 fn containment_domain_from_row_key(row_key: &str) -> Option<&str> {
@@ -142,27 +139,6 @@ fn containment_domain_from_row_key(row_key: &str) -> Option<&str> {
 
 fn containment_folder_from_row_key(row_key: &str) -> Option<&str> {
     row_key.strip_prefix("folder:")?.split('#').next()
-}
-
-fn recent_traversal_node_timestamps(app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
-    let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
-    for edge in app.domain_graph().inner.edge_references() {
-        if !edge
-            .weight()
-            .has_relation(RelationSelector::Family(EdgeFamily::Traversal))
-        {
-            continue;
-        }
-        let timestamp = edge.weight().metrics().last_navigated_at.unwrap_or(0);
-        if timestamp == 0 {
-            continue;
-        }
-        by_node
-            .entry(edge.target())
-            .and_modify(|current| *current = (*current).max(timestamp))
-            .or_insert(timestamp);
-    }
-    by_node
 }
 
 pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
@@ -1737,58 +1713,12 @@ pub fn render_navigator_tool_pane_in_ui(
             _ => None,
         });
 
-    let groups = app.arrangement_projection_groups();
-    let mut grouped_nodes = HashSet::new();
-    for group in &groups {
-        for node_key in &group.member_keys {
-            grouped_nodes.insert(*node_key);
-        }
-    }
-
-    let traversal_timestamps = recent_traversal_node_timestamps(app);
-    let mut recent_nodes: Vec<(NodeKey, u64)> = traversal_timestamps
-        .iter()
-        .filter_map(|(node_key, timestamp)| {
-            (!grouped_nodes.contains(node_key)).then_some((*node_key, *timestamp))
-        })
-        .collect();
-    recent_nodes.sort_by(|left, right| {
-        right
-            .1
-            .cmp(&left.1)
-            .then_with(|| left.0.index().cmp(&right.0.index()))
-    });
-    let recent_set: HashSet<NodeKey> = recent_nodes.iter().map(|(key, _)| *key).collect();
-
-    let mut unrelated_nodes: Vec<NodeKey> = app
-        .domain_graph()
-        .nodes()
-        .map(|(key, _)| key)
-        .filter(|key| !grouped_nodes.contains(key) && !recent_set.contains(key))
-        .collect();
-    unrelated_nodes.sort_by_key(|key| key.index());
-
-    let mut domain_sections: std::collections::BTreeMap<String, Vec<NodeKey>> =
-        std::collections::BTreeMap::new();
-    let mut folder_sections: std::collections::BTreeMap<String, Vec<NodeKey>> =
-        std::collections::BTreeMap::new();
-    for (row_key, target) in &app.navigator_projection_state().row_targets {
-        let crate::app::NavigatorProjectionTarget::Node(node_key) = target else {
-            continue;
-        };
-        if let Some(domain) = containment_domain_from_row_key(row_key) {
-            domain_sections
-                .entry(domain.to_string())
-                .or_default()
-                .push(*node_key);
-        }
-        if let Some(folder) = containment_folder_from_row_key(row_key) {
-            folder_sections
-                .entry(folder.to_string())
-                .or_default()
-                .push(*node_key);
-        }
-    }
+    let section_projection = app.navigator_section_projection();
+    let groups = &section_projection.workbench_groups;
+    let folder_sections = &section_projection.folder_sections;
+    let domain_sections = &section_projection.domain_sections;
+    let unrelated_nodes = &section_projection.unrelated_nodes;
+    let recent_nodes = &section_projection.recent_nodes;
 
     ui.label(format!(
         "Sections: Workbench {} groups, Folders {}, Domain {}, Unrelated {}, Recent {}",
@@ -1828,7 +1758,7 @@ pub fn render_navigator_tool_pane_in_ui(
                         ui.small("No arrangement groups.");
                         return;
                     }
-                    for group in &groups {
+                    for group in groups {
                         let header = match group.sub_kind {
                             ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
                             ArrangementSubKind::TileGroup => {
@@ -1882,7 +1812,7 @@ pub fn render_navigator_tool_pane_in_ui(
                         ui.small("No containment folders.");
                         return;
                     }
-                    for (folder, node_keys) in &folder_sections {
+                    for (folder, node_keys) in folder_sections {
                         ui.collapsing(file_tree_row_label(&format!("folder:{folder}")), |ui| {
                             for node_key in node_keys {
                                 let row_key = navigator_node_row_key(app, *node_key);
@@ -1919,7 +1849,7 @@ pub fn render_navigator_tool_pane_in_ui(
                         ui.small("No domain containment rows.");
                         return;
                     }
-                    for (domain, node_keys) in &domain_sections {
+                    for (domain, node_keys) in domain_sections {
                         ui.collapsing(file_tree_row_label(&format!("domain:{domain}")), |ui| {
                             for node_key in node_keys {
                                 let row_key = navigator_node_row_key(app, *node_key);
@@ -1956,7 +1886,7 @@ pub fn render_navigator_tool_pane_in_ui(
                         ui.small("No unrelated nodes.");
                         return;
                     }
-                    for node_key in &unrelated_nodes {
+                    for node_key in unrelated_nodes {
                         let row_key = navigator_node_row_key(app, *node_key);
                         let is_selected = row_key
                             .as_ref()
@@ -1984,7 +1914,7 @@ pub fn render_navigator_tool_pane_in_ui(
                         ui.small("No traversal-derived recents.");
                         return;
                     }
-                    for (node_key, timestamp_ms) in &recent_nodes {
+                    for (node_key, timestamp_ms) in recent_nodes {
                         let row_key = navigator_node_row_key(app, *node_key);
                         let is_selected = row_key
                             .as_ref()

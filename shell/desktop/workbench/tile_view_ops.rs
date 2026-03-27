@@ -13,10 +13,10 @@ use crate::graph::NodeKey;
 use crate::registries::domain::layout::workbench_surface::FocusCycle;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
+use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::workbench::pane_model::{
     GraphPaneRef, NodePaneState, PaneId, PanePresentationMode, PaneViewState,
 };
@@ -1088,7 +1088,8 @@ pub(crate) fn open_or_focus_frame_tile_group(
     frame_anchor: NodeKey,
     focus_key: Option<NodeKey>,
 ) {
-    let member_keys = persistence_ops::ordered_live_frame_member_keys_for_anchor(graph_app, frame_anchor);
+    let member_keys =
+        persistence_ops::ordered_live_frame_member_keys_for_anchor(graph_app, frame_anchor);
     if member_keys.is_empty() {
         log::debug!(
             "tile_view_ops: open_or_focus_frame_tile_group: frame anchor {:?} has no members",
@@ -1100,13 +1101,19 @@ pub(crate) fn open_or_focus_frame_tile_group(
 
     // 1:1 cardinality: find an existing tabs container that already holds
     // a tile for any member of this frame anchor.
-    let existing_group_id = find_frame_tile_group(tiles_tree, graph_app, frame_anchor, &member_keys);
+    let existing_group_id =
+        find_frame_tile_group(tiles_tree, graph_app, frame_anchor, &member_keys);
 
     if let Some(group_id) = existing_group_id {
         // Focus the group container, then focus the specific member's tile.
         let _ = tiles_tree.make_active(|tile_id, _| tile_id == group_id);
         focus_member_tile_in_group(tiles_tree, group_id, focus_key);
-        persistence_ops::register_frame_tile_group_runtime(graph_app, tiles_tree, group_id, frame_anchor);
+        persistence_ops::register_frame_tile_group_runtime(
+            graph_app,
+            tiles_tree,
+            group_id,
+            frame_anchor,
+        );
         if let Some(frame_name) = frame_name_for_anchor(graph_app, frame_anchor) {
             graph_app.note_frame_activated(&frame_name, member_keys);
         }
@@ -1131,7 +1138,9 @@ pub(crate) fn open_or_focus_frame_tile_group(
     };
 
     // Create new tabs container with split-hint tabs first, then spillover member tabs.
-    let group_id = tiles_tree.tiles.insert_tab_tile(std::mem::take(&mut tab_tiles));
+    let group_id = tiles_tree
+        .tiles
+        .insert_tab_tile(std::mem::take(&mut tab_tiles));
 
     // Focus the desired member tile within the new group.
     focus_member_tile_in_group(tiles_tree, group_id, focus_key);
@@ -1140,7 +1149,12 @@ pub(crate) fn open_or_focus_frame_tile_group(
     let Some(root_id) = tiles_tree.root() else {
         tiles_tree.root = Some(group_id);
         tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
-        persistence_ops::register_frame_tile_group_runtime(graph_app, tiles_tree, group_id, frame_anchor);
+        persistence_ops::register_frame_tile_group_runtime(
+            graph_app,
+            tiles_tree,
+            group_id,
+            frame_anchor,
+        );
         if let Some(frame_name) = frame_name_for_anchor(graph_app, frame_anchor) {
             graph_app.note_frame_activated(&frame_name, member_keys);
         }
@@ -1158,16 +1172,19 @@ pub(crate) fn open_or_focus_frame_tile_group(
             tabs.set_active(group_id);
         }
         _ => {
-            let tabs_root = tiles_tree
-                .tiles
-                .insert_tab_tile(vec![root_id, group_id]);
+            let tabs_root = tiles_tree.tiles.insert_tab_tile(vec![root_id, group_id]);
             tiles_tree.root = Some(tabs_root);
             let _ = tiles_tree.make_active(|tile_id, _| tile_id == group_id);
         }
     }
 
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
-    persistence_ops::register_frame_tile_group_runtime(graph_app, tiles_tree, group_id, frame_anchor);
+    persistence_ops::register_frame_tile_group_runtime(
+        graph_app,
+        tiles_tree,
+        group_id,
+        frame_anchor,
+    );
     if let Some(frame_name) = frame_name_for_anchor(graph_app, frame_anchor) {
         graph_app.note_frame_activated(&frame_name, member_keys);
     }
@@ -1179,7 +1196,11 @@ pub(crate) fn open_or_focus_frame_tile_group(
 }
 
 fn frame_name_for_anchor(graph_app: &GraphBrowserApp, frame_anchor: NodeKey) -> Option<String> {
-    let frame_url = graph_app.domain_graph().get_node(frame_anchor)?.url().to_string();
+    let frame_url = graph_app
+        .domain_graph()
+        .get_node(frame_anchor)?
+        .url()
+        .to_string();
     GraphBrowserApp::resolve_frame_route(&frame_url)
 }
 
@@ -1199,7 +1220,10 @@ fn find_frame_tile_group(
         .frame_tile_groups
         .iter()
         .find_map(|(group_id, state)| (state.frame_anchor == frame_anchor).then_some(*group_id))
-        && matches!(tiles_tree.tiles.get(group_id), Some(Tile::Container(Container::Tabs(_))))
+        && matches!(
+            tiles_tree.tiles.get(group_id),
+            Some(Tile::Container(Container::Tabs(_)))
+        )
     {
         return Some(group_id);
     }
@@ -1652,7 +1676,11 @@ mod tests {
     /// Returns `(app, frame_anchor_key, [member_key_0, ..., member_key_n-1])`.
     fn make_frame_with_members(
         n: usize,
-    ) -> (GraphBrowserApp, crate::graph::NodeKey, Vec<crate::graph::NodeKey>) {
+    ) -> (
+        GraphBrowserApp,
+        crate::graph::NodeKey,
+        Vec<crate::graph::NodeKey>,
+    ) {
         let mut app = GraphBrowserApp::new_for_testing();
         let member_keys: Vec<crate::graph::NodeKey> = (0..n)
             .map(|i| {
@@ -1696,7 +1724,10 @@ mod tests {
 
         // Exactly one tabs container holds both member tiles.
         let group_id = find_frame_tile_group(&tree, &app, frame_anchor, &member_keys);
-        assert!(group_id.is_some(), "expected a tabs container for frame members");
+        assert!(
+            group_id.is_some(),
+            "expected a tabs container for frame members"
+        );
 
         let group_id = group_id.unwrap();
         if let Some(Tile::Container(Container::Tabs(tabs))) = tree.tiles.get(group_id) {
@@ -1730,7 +1761,10 @@ mod tests {
         assert_eq!(node_pane_count_after_second, 2);
 
         // The frame tile group container is the same object both times.
-        assert!(group_id_after_first.is_some(), "frame tile group must exist after first call");
+        assert!(
+            group_id_after_first.is_some(),
+            "frame tile group must exist after first call"
+        );
         assert_eq!(
             group_id_after_first, group_id_after_second,
             "expected the same frame tile group after two calls (1:1 cardinality)"
@@ -1796,14 +1830,22 @@ mod tests {
             Some(Tile::Container(Container::Tabs(tabs))) => tabs,
             other => panic!("expected tabs container, got {other:?}"),
         };
-        assert_eq!(tabs.children.len(), 2, "expected hint tab plus spillover tab");
+        assert_eq!(
+            tabs.children.len(),
+            2,
+            "expected hint tab plus spillover tab"
+        );
 
         let active_child = tabs.active.expect("active child expected");
         assert!(matches!(
             tree.tiles.get(active_child),
             Some(Tile::Container(Container::Linear(_)))
         ));
-        assert!(tile_subtree_contains_node(&tree, active_child, member_keys[1]));
+        assert!(tile_subtree_contains_node(
+            &tree,
+            active_child,
+            member_keys[1]
+        ));
 
         let hint_info = persistence_ops::frame_hint_tab_info(&app, active_child)
             .expect("active child should be registered as a hint tab");

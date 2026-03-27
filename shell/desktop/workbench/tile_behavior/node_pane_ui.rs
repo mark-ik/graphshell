@@ -117,7 +117,13 @@ fn render_node_pane_impl(
         .graph_app
         .domain_graph()
         .get_node(node_key)
-        .map(|node| (node.url().to_string(), node.mime_hint.clone(), node.lifecycle))
+        .map(|node| {
+            (
+                node.url().to_string(),
+                node.mime_hint.clone(),
+                node.lifecycle,
+            )
+        })
     else {
         ui.label("Missing node for this tile.");
         return;

@@ -4259,12 +4259,20 @@ mod tests {
                 &mut app,
                 &mut tree,
             );
-            assert_eq!(app.domain_graph().frame_split_offer_suppressed(frame_key), Some(true));
+            assert_eq!(
+                app.domain_graph().frame_split_offer_suppressed(frame_key),
+                Some(true)
+            );
             frame_key
         };
 
         let reopened = GraphBrowserApp::new_from_dir(path);
-        assert_eq!(reopened.domain_graph().frame_split_offer_suppressed(frame_key), Some(true));
+        assert_eq!(
+            reopened
+                .domain_graph()
+                .frame_split_offer_suppressed(frame_key),
+            Some(true)
+        );
     }
 
     #[test]
@@ -4349,7 +4357,8 @@ mod tests {
             .expect("node should reopen");
         reopened.select_node(reopened_node, false);
 
-        let candidate = frame_split_offer_candidate(&reopened).expect("split offer should reappear in new session");
+        let candidate = frame_split_offer_candidate(&reopened)
+            .expect("split offer should reappear in new session");
         assert_eq!(candidate.frame_name, "workspace-session-expiry");
     }
 

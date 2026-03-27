@@ -8,6 +8,4 @@ pub(crate) mod graphlet;
 pub(crate) mod layouts;
 pub(crate) mod physics;
 
-pub(crate) use graphlet::{
-    GraphletKind, GraphletScope, GraphletSpec, derive_graphlet,
-};
+pub(crate) use graphlet::{GraphletKind, GraphletScope, GraphletSpec, derive_graphlet};

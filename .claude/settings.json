@@ -21,7 +21,18 @@
       "Bash(grep -rn OpenFrameUrl c:/Users/mark_/Code/source/repos/graphshell/ --include=*.rs)",
       "Bash(grep -rn \"apply_arrangement_snapshot\\\\|ArrangementSnapshot\" c:/Users/mark_/Code/source/repos/graphshell/ --include=*.rs)",
       "Bash(gh label:*)",
-      "Bash(python -c \"import json,sys; labels=json.load\\(sys.stdin\\); print\\(''''\\\\n''''.join\\(l[''''name''''] for l in labels\\)\\)\")"
+      "Bash(python -c \"import json,sys; labels=json.load\\(sys.stdin\\); print\\(''''\\\\n''''.join\\(l[''''name''''] for l in labels\\)\\)\")",
+      "Bash(grep -rn \"RequestIntent\\\\|request_intent\" /c/Users/mark_/Code/source/repos/graphshell --include=*.rs)",
+      "Bash(grep -rn oneshot /c/Users/mark_/Code/source/repos/graphshell --include=*.rs)",
+      "Bash(grep -rn \"\\\\.layout\\\\|Layout::calculate\" /c/Users/mark_/Code/source/repos/graphshell --include=*.rs)",
+      "Bash(grep -rn \"ForceAlgorithm\\\\|Layout\" /c/Users/mark_/Code/source/repos/graphshell --include=*.rs)",
+      "Bash(grep -rn \"FruchtermanRei\\\\|apply_graph_physics\" /c/Users/mark_/Code/source/repos/graphshell --include=*.rs)",
+      "Bash(taskkill //F //IM \"graphshell-72fac9d39ec4f2e6.exe\")",
+      "Bash(sed -n '90,105p' /c/Users/mark_/Code/source/repos/graphshell/app/intent_phases.rs)",
+      "Bash(sed -n '195,210p' /c/Users/mark_/Code/source/repos/graphshell/app/intent_phases.rs)",
+      "Bash(sed -n '240,270p' /c/Users/mark_/Code/source/repos/graphshell/app/intent_phases.rs)",
+      "Read(//c/Users/mark_/.claude/plans/**)",
+      "WebFetch(domain:github.com)"
     ],
     "additionalDirectories": [
       "\\tmp"

@@ -918,7 +918,11 @@ pub(super) fn omnibar_matches_for_query(
                 all_graph_edge_candidates.push(OmnibarSearchCandidate {
                     text: format!(
                         "{} {} {} {} {}",
-                        edge_label, from_node.title, from_node.url(), to_node.title, to_node.url()
+                        edge_label,
+                        from_node.title,
+                        from_node.url(),
+                        to_node.title,
+                        to_node.url()
                     ),
                     target: OmnibarMatch::Edge {
                         from: from_key,
@@ -965,7 +969,11 @@ pub(super) fn omnibar_matches_for_query(
                     all_graph_edge_candidates.push(OmnibarSearchCandidate {
                         text: format!(
                             "{} {} {} {} {}",
-                            edge_label, from_node.title, from_node.url(), to_node.title, to_node.url()
+                            edge_label,
+                            from_node.title,
+                            from_node.url(),
+                            to_node.title,
+                            to_node.url()
                         ),
                         target: OmnibarMatch::Edge {
                             from: from_key,

@@ -222,7 +222,10 @@ impl SearchProvider for LocalSearchProvider {
                     key,
                     text: format!(
                         "{} {} {} {}",
-                        node.title, node.url(), semantic_tags, import_search
+                        node.title,
+                        node.url(),
+                        semantic_tags,
+                        import_search
                     ),
                 }
             })

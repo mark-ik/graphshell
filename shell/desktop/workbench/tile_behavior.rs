@@ -1631,10 +1631,8 @@ mod tests {
         let seeded_c = seeded_tiles.insert_pane(TileKind::Node(c.into()));
         let seeded_root = seeded_tiles.insert_tab_tile(vec![seeded_a, seeded_b, seeded_c]);
         let seeded_tree = Tree::new("close_hint_seed", seeded_root, seeded_tiles);
-        let frame_anchor = app.sync_named_workbench_frame_graph_representation(
-            "close-hint-frame",
-            &seeded_tree,
-        );
+        let frame_anchor =
+            app.sync_named_workbench_frame_graph_representation("close-hint-frame", &seeded_tree);
         app.apply_reducer_intents([crate::app::GraphIntent::RecordFrameLayoutHint {
             frame: frame_anchor,
             hint: crate::graph::FrameLayoutHint::SplitHalf {
@@ -1655,12 +1653,13 @@ mod tests {
         }]);
 
         let mut tiles = Tiles::default();
-        let (tab_tiles, _, hint_tabs) = crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
-            &app,
-            frame_anchor,
-            &mut tiles,
-        )
-        .expect("frame tabs should materialize");
+        let (tab_tiles, _, hint_tabs) =
+            crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
+                &app,
+                frame_anchor,
+                &mut tiles,
+            )
+            .expect("frame tabs should materialize");
         let group_id = tiles.insert_tab_tile(tab_tiles);
         let hint_tile_id = hint_tabs[0].tile_id;
         let mut tree = Tree::new("close_hint_tree", group_id, tiles);
@@ -1671,7 +1670,8 @@ mod tests {
             frame_anchor,
         );
 
-        let mut control_panel = crate::shell::desktop::runtime::control_panel::ControlPanel::default();
+        let mut control_panel =
+            crate::shell::desktop::runtime::control_panel::ControlPanel::default();
         let mut tile_favicon_textures = std::collections::HashMap::new();
         let search_matches = std::collections::HashSet::new();
         #[cfg(feature = "diagnostics")]
@@ -1691,7 +1691,11 @@ mod tests {
             None,
         );
 
-        assert!(Behavior::on_tab_close(&mut behavior, &mut tree.tiles, hint_tile_id));
+        assert!(Behavior::on_tab_close(
+            &mut behavior,
+            &mut tree.tiles,
+            hint_tile_id
+        ));
         let intents = behavior.take_pending_post_render_intents();
         assert_eq!(intents.len(), 1);
         match &intents[0] {

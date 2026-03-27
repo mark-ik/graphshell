@@ -12,7 +12,7 @@ use crate::app::{
     GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode, SurfaceHostId,
     WorkbenchLayoutConstraint,
 };
-use crate::graph::{EdgeFamily, NodeKey, RelationSelector};
+use crate::graph::NodeKey;
 use crate::render::radial_menu::latest_semantic_snapshot;
 
 use super::pane_model::TileRenderMode;
@@ -443,30 +443,6 @@ fn append_workbench_semantics_nodes(
         }
     }
 
-    fn recent_traversal_node_timestamps(graph_app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
-        let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
-        for edge in graph_app.domain_graph().edges() {
-            let Some(edge_key) = graph_app.domain_graph().find_edge_key(edge.from, edge.to) else {
-                continue;
-            };
-            let Some(payload) = graph_app.domain_graph().get_edge(edge_key) else {
-                continue;
-            };
-            if !payload.has_relation(RelationSelector::Family(EdgeFamily::Traversal)) {
-                continue;
-            }
-            let timestamp = payload.metrics().last_navigated_at.unwrap_or(0);
-            if timestamp == 0 {
-                continue;
-            }
-            by_node
-                .entry(edge.to)
-                .and_modify(|current| *current = (*current).max(timestamp))
-                .or_insert(timestamp);
-        }
-        by_node
-    }
-
     for (view_id, view_state) in &graph_app.workspace.graph_runtime.views {
         let selection_count = graph_app.selection_for_view(*view_id).len();
         let focused_view = graph_app.workspace.graph_runtime.focused_view == Some(*view_id);
@@ -520,28 +496,15 @@ fn append_workbench_semantics_nodes(
     }
 
     let navigator_projection = graph_app.navigator_projection_state();
-    let arrangement_groups = graph_app.arrangement_projection_groups();
-    let workbench_group_count = arrangement_groups.len();
-    let mut arranged_nodes = HashSet::new();
-    let mut workbench_member_count = 0usize;
-    for group in arrangement_groups {
-        workbench_member_count += group.member_keys.len();
-        for node_key in group.member_keys {
-            arranged_nodes.insert(node_key);
-        }
-    }
-    let recent_timestamps = recent_traversal_node_timestamps(graph_app);
-    let recent_count = recent_timestamps
-        .keys()
-        .filter(|key| !arranged_nodes.contains(key))
-        .count();
-    let unrelated_count = graph_app
-        .domain_graph()
-        .nodes()
-        .filter(|(node_key, _)| {
-            !arranged_nodes.contains(node_key) && !recent_timestamps.contains_key(node_key)
-        })
-        .count();
+    let section_projection = graph_app.navigator_section_projection();
+    let workbench_group_count = section_projection.workbench_groups.len();
+    let workbench_member_count = section_projection
+        .workbench_groups
+        .iter()
+        .map(|group| group.member_keys.len())
+        .sum();
+    let recent_count = section_projection.recent_nodes.len();
+    let unrelated_count = section_projection.unrelated_nodes.len();
     for navigator_host in navigator_hosts_for_snapshot(graph_app) {
         let (anchor_edge, form_factor) = match graph_app
             .workspace

@@ -35,13 +35,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::services::persistence::types::{
-    GraphSnapshot, PersistedAddress, PersistedArrangementEdgeData,
-    PersistedArrangementSubKind, PersistedContainmentEdgeData, PersistedContainmentSubKind,
-    PersistedEdge, PersistedEdgeFamily, PersistedImportedEdgeData, PersistedImportedSubKind,
-    PersistedNavigationTrigger, PersistedNode, PersistedNodeSessionState,
-    PersistedProvenanceEdgeData, PersistedProvenanceSubKind, PersistedSemanticEdgeData,
-    PersistedSemanticSubKind, PersistedTraversalEdgeData, PersistedTraversalMetrics,
-    PersistedTraversalRecord,
+    GraphSnapshot, PersistedAddress, PersistedArrangementEdgeData, PersistedArrangementSubKind,
+    PersistedContainmentEdgeData, PersistedContainmentSubKind, PersistedEdge, PersistedEdgeFamily,
+    PersistedImportedEdgeData, PersistedImportedSubKind, PersistedNavigationTrigger, PersistedNode,
+    PersistedNodeSessionState, PersistedProvenanceEdgeData, PersistedProvenanceSubKind,
+    PersistedSemanticEdgeData, PersistedSemanticSubKind, PersistedTraversalEdgeData,
+    PersistedTraversalMetrics, PersistedTraversalRecord,
 };
 
 pub mod apply;
@@ -3611,7 +3610,11 @@ impl Graph {
             // `url` string field for snapshots written before Stage C.2.
             let node_url = {
                 let from_address = pnode.address.as_url_str();
-                if from_address.is_empty() { pnode.url.clone() } else { from_address.to_string() }
+                if from_address.is_empty() {
+                    pnode.url.clone()
+                } else {
+                    from_address.to_string()
+                }
             };
             let key = graph.add_node_with_id(
                 node_id,
@@ -4469,9 +4472,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_duplicate_urls_last_wins() {
-        use crate::services::persistence::types::{
-            GraphSnapshot, PersistedAddress, PersistedNode,
-        };
+        use crate::services::persistence::types::{GraphSnapshot, PersistedAddress, PersistedNode};
 
         let snapshot = GraphSnapshot {
             nodes: vec![
@@ -4668,9 +4669,7 @@ mod tests {
 
     #[test]
     fn test_restore_fallback_without_session_state() {
-        use crate::services::persistence::types::{
-            GraphSnapshot, PersistedAddress, PersistedNode,
-        };
+        use crate::services::persistence::types::{GraphSnapshot, PersistedAddress, PersistedNode};
 
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {
@@ -5180,7 +5179,10 @@ mod tests {
         let mut graph = Graph::new();
         let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         let node = graph.get_node(key).unwrap();
-        assert_eq!(node.address, Address::Http("https://example.com".to_string()));
+        assert_eq!(
+            node.address,
+            Address::Http("https://example.com".to_string())
+        );
         assert_eq!(node.address.address_kind(), AddressKind::Http);
         assert_eq!(node.address.as_url_str(), node.url());
     }
@@ -5191,7 +5193,10 @@ mod tests {
         let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         graph.update_node_url(key, "file:///home/user/doc.txt".to_string());
         let node = graph.get_node(key).unwrap();
-        assert_eq!(node.address, Address::File("file:///home/user/doc.txt".to_string()));
+        assert_eq!(
+            node.address,
+            Address::File("file:///home/user/doc.txt".to_string())
+        );
         assert_eq!(node.address.address_kind(), AddressKind::File);
         assert_eq!(node.address.as_url_str(), node.url());
     }
@@ -5207,7 +5212,10 @@ mod tests {
             graph.get_node(key).unwrap().mime_hint.as_deref(),
             Some("application/pdf")
         );
-        assert_eq!(graph.get_node(key).unwrap().address.address_kind(), AddressKind::File);
+        assert_eq!(
+            graph.get_node(key).unwrap().address.address_kind(),
+            AddressKind::File
+        );
 
         let snapshot = graph.to_snapshot();
         let restored = Graph::from_snapshot(&snapshot);

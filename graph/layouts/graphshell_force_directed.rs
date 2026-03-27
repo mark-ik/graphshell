@@ -2,6 +2,40 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+// --- Spike Stage 1 receipt (2026-03-27) ---
+//
+// Question: Is the FR step separable from `&egui::Ui`?
+//
+// Finding: YES — the algorithm-level step signature is:
+//
+//   fn step<N, E, Ty, Ix, Dn, De>(
+//       &mut self,
+//       g: &mut egui_graphs::Graph<N, E, Ty, Ix, Dn, De>,
+//       view: egui::Rect,
+//   )
+//
+// `&egui::Ui` only enters through `ForceDirected::next()`, which calls
+// `self.alg.step(g, ui.ctx().content_rect())`. The Rect is a plain value
+// type — it can be captured before any async boundary.
+//
+// Question: Is `egui_graphs::Graph` (as used by Graphshell) `Send`?
+//
+// Finding: NOT PRACTICALLY USABLE ACROSS THREADS — `egui_graphs::Graph`
+// lives in egui persistent storage, owned by the egui `Context` memory map
+// and keyed by widget ID. Even if the generic type parameters satisfy `Send`
+// (no explicit `!Send` impl exists in the struct definition), passing the
+// live `EguiGraph` reference to a background thread is structurally
+// impossible: it can only be accessed under egui's memory lock, which is
+// held for the duration of a frame. Additionally, `GraphNodeShape` contains
+// `Option<egui::TextureHandle>`, which ties the type to egui's texture
+// registry. Any physics worker must operate on extracted plain data
+// (`Vec<(NodeIndex, Pos2, velocity)>`), not on the `EguiGraph` directly.
+//
+// Consequence: the `&egui::Ui` coupling in `Layout::next()` is NOT the
+// primary obstacle. The real constraint is that `EguiGraph` is frame-scoped.
+// A worker receives a copy of position/velocity data and returns a copy of
+// updated positions. The frame loop applies the results at frame start.
+
 use crate::graph::physics::{ForceAlgorithm, GraphPhysicsLayout, GraphPhysicsState, Layout};
 
 #[derive(Debug, Default)]

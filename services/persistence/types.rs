@@ -44,14 +44,7 @@ pub enum PersistedAddressKind {
 /// All variants store the full URL string so that [`PersistedAddress::as_url_str`]
 /// is always a round-trip identity.
 #[derive(
-    Archive,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    PartialEq,
-    serde::Serialize,
-    serde::Deserialize,
+    Archive, Serialize, Deserialize, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize,
 )]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedAddress {

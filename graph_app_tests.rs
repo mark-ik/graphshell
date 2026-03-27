@@ -3767,9 +3767,30 @@ fn test_create_multiple_placeholder_nodes_unique_urls() {
     let k3 = app.create_new_node_near_center();
 
     // All three nodes must have distinct URLs
-    let url1 = app.workspace.domain.graph.get_node(k1).unwrap().url().to_string();
-    let url2 = app.workspace.domain.graph.get_node(k2).unwrap().url().to_string();
-    let url3 = app.workspace.domain.graph.get_node(k3).unwrap().url().to_string();
+    let url1 = app
+        .workspace
+        .domain
+        .graph
+        .get_node(k1)
+        .unwrap()
+        .url()
+        .to_string();
+    let url2 = app
+        .workspace
+        .domain
+        .graph
+        .get_node(k2)
+        .unwrap()
+        .url()
+        .to_string();
+    let url3 = app
+        .workspace
+        .domain
+        .graph
+        .get_node(k3)
+        .unwrap()
+        .url()
+        .to_string();
 
     assert_ne!(url1, url2);
     assert_ne!(url2, url3);
@@ -6265,8 +6286,7 @@ fn old_update_node_address_kind_wal_entry_is_safely_ignored() {
 
     {
         let mut app = GraphBrowserApp::new_from_dir(path.clone());
-        let key =
-            app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let key = app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         let node_id = app.workspace.domain.graph.get_node(key).unwrap().id;
 
         // Inject a legacy UpdateNodeAddressKind entry directly into the WAL.
@@ -6293,8 +6313,14 @@ fn old_update_node_address_kind_wal_entry_is_safely_ignored() {
         .get_node_by_url("https://example.com")
         .map(|(_, n)| n)
         .expect("node must survive reload");
-    assert_eq!(reloaded_node.address.address_kind(), crate::graph::AddressKind::Http);
-    assert!(matches!(reloaded_node.address, crate::graph::Address::Http(_)));
+    assert_eq!(
+        reloaded_node.address.address_kind(),
+        crate::graph::AddressKind::Http
+    );
+    assert!(matches!(
+        reloaded_node.address,
+        crate::graph::Address::Http(_)
+    ));
 }
 
 #[test]

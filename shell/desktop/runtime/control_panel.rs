@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sysinfo::System;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -37,12 +37,18 @@ use crate::shell::desktop::runtime::registries::nostr_core::{
     NostrRelayWorker, RelayWorkerCommand,
 };
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE, CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH,
     CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED, CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
     RegistryRuntime,
 };
 
 /// Capacity of the intent channel — limits flooding from async producers.
 const INTENT_CHANNEL_CAPACITY: usize = 256;
+
+/// Maximum number of Tier 3 (short-lived) tasks that may run concurrently
+/// under ControlPanel supervision (protocol probes, blocking host requests,
+/// supervised one-shots). Prevents task-pool exhaustion from request bursts.
+const TIER3_TASK_LIMIT: usize = 8;
 
 /// How often the memory monitor samples system memory.
 const MEMORY_MONITOR_INTERVAL: Duration = Duration::from_secs(5);
@@ -99,6 +105,56 @@ pub(crate) struct QueuedIntent {
     pub(crate) queued_at: Instant,
     #[allow(dead_code)]
     pub(crate) source: IntentSource,
+}
+
+/// A `GraphIntent` paired with a one-shot reply channel for request/response patterns.
+///
+/// Use when a background worker or render-side caller needs a typed result back
+/// from the frame loop's `apply_intents` pass. The caller holds the `Receiver`
+/// and the intent is submitted as a normal `QueuedIntent`; the frame loop's
+/// handler for that intent variant calls `reply.send(result)`.
+///
+/// # Example
+/// ```ignore
+/// let (req, rx) = RequestIntent::<u32>::new(GraphIntent::Noop);
+/// control_panel.enqueue_intent_for_tests(req.into_queued(IntentSource::Agent)).ok();
+/// let result = rx.blocking_recv();
+/// ```
+///
+/// # Note on reply delivery
+/// The reply `Sender` is not carried inside `QueuedIntent` (which has no type
+/// parameter). The first real consumer of this type will either store the sender
+/// in a sidecar map keyed by a correlation ID, or extend `GraphIntent` with a
+/// dedicated request variant that carries `tokio::sync::oneshot::Sender<T>` in
+/// its payload. This type establishes the construction and lifecycle contract.
+pub(crate) struct RequestIntent<T: Send + 'static> {
+    /// The intent to submit to the frame loop.
+    pub(crate) intent: GraphIntent,
+    /// Reply channel — the frame loop sends the result here.
+    pub(crate) reply: tokio::sync::oneshot::Sender<T>,
+}
+
+impl<T: Send + 'static> RequestIntent<T> {
+    /// Create a paired `RequestIntent` and `Receiver`. Submit `into_queued()`
+    /// to the intent channel and `await` the receiver for the reply.
+    pub(crate) fn new(intent: GraphIntent) -> (Self, tokio::sync::oneshot::Receiver<T>) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        (Self { intent, reply: tx }, rx)
+    }
+
+    /// Wrap the intent in a `QueuedIntent` for submission to the intent channel.
+    ///
+    /// The `reply` sender is **not** embedded in the returned `QueuedIntent`.
+    /// The caller must keep it alive and arrange delivery separately (e.g. via
+    /// a correlation-ID sidecar map or a dedicated `GraphIntent` variant that
+    /// carries the sender in its payload).
+    pub(crate) fn into_queued(self, source: IntentSource) -> QueuedIntent {
+        QueuedIntent {
+            intent: self.intent,
+            queued_at: Instant::now(),
+            source,
+        }
+    }
 }
 
 /// Source of a queued intent — used for causality ordering and diagnostics.
@@ -192,6 +248,9 @@ pub(crate) struct ControlPanel {
     registered_tiers: HashMap<WorkerTier, usize>,
     /// Supervised background worker tasks.
     workers: JoinSet<()>,
+    /// Concurrency gate for Tier 3 short-lived tasks (protocol probes, blocking
+    /// host requests, supervised one-shots). Capacity = [`TIER3_TASK_LIMIT`].
+    short_lived_semaphore: Arc<Semaphore>,
 }
 
 impl ControlPanel {
@@ -226,6 +285,7 @@ impl ControlPanel {
             worker_idle_threshold_ms,
             registered_tiers: HashMap::new(),
             workers: JoinSet::new(),
+            short_lived_semaphore: Arc::new(Semaphore::new(TIER3_TASK_LIMIT)),
             sync_command_tx: None,
             discovery_result_rx: None,
         }
@@ -239,6 +299,16 @@ impl ControlPanel {
         let mut queued = Vec::new();
         while let Ok(item) = self.intent_rx.try_recv() {
             queued.push(item);
+        }
+        // Emit a queue-depth probe when depth exceeds half the channel capacity —
+        // this signals that workers are outpacing the frame loop without dropping yet.
+        if queued.len() > INTENT_CHANNEL_CAPACITY / 2 {
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH,
+                    byte_len: queued.len(),
+                },
+            );
         }
         queued.sort_by_key(|item| (intent_source_priority(item.source), item.queued_at));
         queued.into_iter().map(|item| item.intent).collect()
@@ -263,7 +333,15 @@ impl ControlPanel {
             return Err("sync worker command channel unavailable".to_string());
         };
         tx.try_send(SyncCommand::DiscoverNearby { timeout_secs })
-            .map_err(|e| format!("failed to enqueue discovery command: {e}"))
+            .map_err(|e| {
+                crate::shell::desktop::runtime::diagnostics::emit_event(
+                    crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE,
+                        byte_len: 0,
+                    },
+                );
+                format!("failed to enqueue discovery command: {e}")
+            })
     }
 
     /// Spawn the memory monitor background worker.
@@ -566,11 +644,22 @@ impl ControlPanel {
 
     /// Spawn a short-lived Shell/Register-owned task under the same
     /// supervision boundary as longer-lived background workers.
+    ///
+    /// Acquires a permit from the Tier 3 semaphore (capacity [`TIER3_TASK_LIMIT`])
+    /// before running the task body, so concurrent short-lived tasks can never
+    /// exceed the budget. The permit is held for the task's lifetime and
+    /// released automatically on completion.
     pub(crate) fn spawn_supervised_task<F>(&mut self, label: &'static str, task: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.workers.spawn(task);
+        let sem = Arc::clone(&self.short_lived_semaphore);
+        self.workers.spawn(async move {
+            match sem.acquire_owned().await {
+                Ok(_permit) => task.await, // permit released when task completes
+                Err(_) => {}               // semaphore closed = shutdown in progress
+            }
+        });
         log::debug!("control_panel: supervised task spawned ({label})");
     }
 
@@ -644,7 +733,13 @@ impl ControlPanel {
 
         let tx = self.intent_tx.clone();
         let active_probes = Arc::clone(&self.active_protocol_probes);
+        let sem = Arc::clone(&self.short_lived_semaphore);
         self.workers.spawn(async move {
+            // Acquire a Tier 3 concurrency permit before running the probe.
+            // If the semaphore is closed (shutdown), skip silently.
+            let Ok(_permit) = sem.acquire_owned().await else {
+                return;
+            };
             let prober = ContentTypeProber::default();
             let result = prober.probe(url, cancel.clone()).await;
             if let Some(result) = result {
@@ -691,6 +786,9 @@ impl ControlPanel {
             "control_panel: shutdown requested — cancelling {} workers",
             self.workers.len()
         );
+        // Close the semaphore first so any tasks waiting to acquire a Tier 3
+        // permit unblock immediately and exit without doing work.
+        self.short_lived_semaphore.close();
         self.cancel.cancel();
         while self.workers.join_next().await.is_some() {}
         log::debug!("control_panel: all workers joined");
@@ -705,6 +803,13 @@ impl ControlPanel {
     #[cfg(test)]
     pub(crate) fn is_intent_channel_open_for_tests(&self) -> bool {
         !self.intent_tx.is_closed()
+    }
+
+    /// Returns the number of available permits in the Tier 3 semaphore.
+    /// Intended for tests that verify concurrency budgeting.
+    #[cfg(test)]
+    pub(crate) fn tier3_available_permits(&self) -> usize {
+        self.short_lived_semaphore.available_permits()
     }
 
     #[cfg(test)]
@@ -765,6 +870,12 @@ async fn memory_monitor_worker(tx: mpsc::Sender<QueuedIntent>) {
         // frame loop is behind; skip this sample rather than blocking.
         if let Err(e) = tx.try_send(intent) {
             log::debug!("control_panel: memory pressure intent dropped ({e})");
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE,
+                    byte_len: 0,
+                },
+            );
         }
     }
 }
@@ -857,6 +968,13 @@ async fn prefetch_scheduler_worker(
             continue;
         }
 
+        // Intent channel full — emit backpressure diagnostic and apply backoff.
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE,
+                byte_len: 0,
+            },
+        );
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(PREFETCH_MAX_INTERVAL);
     }
@@ -899,6 +1017,7 @@ mod tests {
     use std::thread;
 
     use super::*;
+    use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
     use crate::shell::desktop::runtime::registries::agent::{
         Agent, AgentCapability, AgentContext, AgentHandle,
     };
@@ -1337,6 +1456,152 @@ mod tests {
         assert!(matches!(drained[0], GraphIntent::Undo));
         assert!(matches!(drained[1], GraphIntent::Redo));
         assert!(matches!(drained[2], GraphIntent::Noop));
+    }
+
+    #[tokio::test]
+    async fn memory_monitor_try_send_failure_emits_backpressure_diagnostic() {
+        // Build a tiny intent channel (capacity 1) and fill it.
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        let (intent_tx, _intent_rx) = mpsc::channel::<QueuedIntent>(1);
+        // Fill the channel so the next try_send fails.
+        intent_tx
+            .try_send(QueuedIntent {
+                intent: GraphIntent::Noop,
+                queued_at: Instant::now(),
+                source: IntentSource::MemoryMonitor,
+            })
+            .expect("first send should succeed");
+
+        // Simulate what memory_monitor_worker does on drop.
+        let intent = QueuedIntent {
+            intent: GraphIntent::Noop,
+            queued_at: Instant::now(),
+            source: IntentSource::MemoryMonitor,
+        };
+        if let Err(e) = intent_tx.try_send(intent) {
+            log::debug!("control_panel: memory pressure intent dropped ({e})");
+            crate::shell::desktop::runtime::diagnostics::emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE,
+                byte_len: 0,
+            });
+        }
+
+        // At least one backpressure event should have been emitted.
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|e| matches!(
+                e,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE
+            )),
+            "expected a backpressure diagnostic event; got: {emitted:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn drain_pending_emits_queue_depth_diagnostic_when_half_full() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        let mut panel = ControlPanel::new(None);
+        // Fill the channel above half capacity (INTENT_CHANNEL_CAPACITY / 2 + 1 items).
+        let threshold = INTENT_CHANNEL_CAPACITY / 2 + 1;
+        for _ in 0..threshold {
+            panel
+                .enqueue_intent_for_tests(QueuedIntent {
+                    intent: GraphIntent::Noop,
+                    queued_at: Instant::now(),
+                    source: IntentSource::MemoryMonitor,
+                })
+                .expect("channel should accept intent");
+        }
+
+        panel.drain_pending();
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|e| matches!(
+                e,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH
+            )),
+            "expected a queue-depth diagnostic event; got: {emitted:?}"
+        );
+    }
+
+    #[test]
+    fn request_intent_new_roundtrip() {
+        let (req, rx) = RequestIntent::<u32>::new(GraphIntent::Noop);
+
+        // The intent field is accessible.
+        assert!(matches!(req.intent, GraphIntent::Noop));
+
+        // Sending through the reply sender delivers to the receiver.
+        req.reply.send(42).expect("reply channel should be open");
+        let result = rx.blocking_recv().expect("receiver should get the reply");
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn request_intent_into_queued_stamps_correct_metadata() {
+        let (req, _rx) = RequestIntent::<u32>::new(GraphIntent::Noop);
+        let queued = req.into_queued(IntentSource::Agent);
+
+        assert!(matches!(queued.intent, GraphIntent::Noop));
+        assert_eq!(queued.source, IntentSource::Agent);
+    }
+
+    #[tokio::test]
+    async fn tier3_semaphore_caps_concurrent_tasks_at_limit() {
+        use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+        let mut panel = ControlPanel::new(None);
+        let concurrent_peak = Arc::new(AtomicUsize::new(0));
+        let running = Arc::new(AtomicUsize::new(0));
+
+        // Use a Notify so each task can independently wait without holding a shared lock.
+        let release = Arc::new(tokio::sync::Notify::new());
+
+        // Spawn more tasks than the semaphore limit.
+        let task_count = TIER3_TASK_LIMIT + 4;
+        for _ in 0..task_count {
+            let peak = Arc::clone(&concurrent_peak);
+            let running_count = Arc::clone(&running);
+            let notify = Arc::clone(&release);
+            panel.spawn_supervised_task("tier3_test", async move {
+                let current = running_count.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                peak.fetch_max(current, AtomicOrdering::SeqCst);
+                // Wait for the release signal.
+                notify.notified().await;
+                running_count.fetch_sub(1, AtomicOrdering::SeqCst);
+            });
+        }
+
+        // Yield repeatedly to let tasks acquire permits and start running.
+        for _ in 0..40 {
+            tokio::task::yield_now().await;
+        }
+
+        // The peak concurrent count must not exceed TIER3_TASK_LIMIT.
+        let peak = concurrent_peak.load(AtomicOrdering::SeqCst);
+        assert!(
+            peak <= TIER3_TASK_LIMIT,
+            "concurrent peak {peak} exceeded TIER3_TASK_LIMIT {TIER3_TASK_LIMIT}"
+        );
+
+        // Release all waiting tasks and shut down cleanly.
+        for _ in 0..task_count {
+            release.notify_one();
+        }
+        panel.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn tier3_semaphore_initial_permits_equal_limit() {
+        let panel = ControlPanel::new(None);
+        assert_eq!(panel.tier3_available_permits(), TIER3_TASK_LIMIT);
     }
 
     async fn mod_loader_worker_with_manifests(

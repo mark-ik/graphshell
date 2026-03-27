@@ -67,7 +67,12 @@ fn active_frame_group_anchor(
 ) -> Option<NodeKey> {
     let mut cursor = tiles_tree.root();
     while let Some(tile_id) = cursor {
-        if let Some(state) = graph_app.workspace.graph_runtime.frame_tile_groups.get(&tile_id) {
+        if let Some(state) = graph_app
+            .workspace
+            .graph_runtime
+            .frame_tile_groups
+            .get(&tile_id)
+        {
             return Some(state.frame_anchor);
         }
 
@@ -80,7 +85,12 @@ fn active_frame_group_anchor(
     for active_tile_id in tiles_tree.active_tiles().into_iter().rev() {
         let mut cursor: Option<TileId> = Some(active_tile_id);
         while let Some(tile_id) = cursor {
-            if let Some(state) = graph_app.workspace.graph_runtime.frame_tile_groups.get(&tile_id) {
+            if let Some(state) = graph_app
+                .workspace
+                .graph_runtime
+                .frame_tile_groups
+                .get(&tile_id)
+            {
                 return Some(state.frame_anchor);
             }
             cursor = tiles_tree.tiles.parent_of(tile_id);
@@ -90,7 +100,11 @@ fn active_frame_group_anchor(
 }
 
 fn frame_name_for_anchor(graph_app: &GraphBrowserApp, frame_anchor: NodeKey) -> Option<String> {
-    let frame_url = graph_app.domain_graph().get_node(frame_anchor)?.url().to_string();
+    let frame_url = graph_app
+        .domain_graph()
+        .get_node(frame_anchor)?
+        .url()
+        .to_string();
     GraphBrowserApp::resolve_frame_route(&frame_url)
 }
 
@@ -108,7 +122,8 @@ fn sync_current_frame_from_active_tile_group(
         return;
     }
 
-    let member_keys = persistence_ops::ordered_live_frame_member_keys_for_anchor(graph_app, frame_anchor);
+    let member_keys =
+        persistence_ops::ordered_live_frame_member_keys_for_anchor(graph_app, frame_anchor);
     if member_keys.is_empty() {
         return;
     }
@@ -265,8 +280,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     if pending_tile_drop_edit {
         post_render_intents.extend(
             persistence_ops::frame_layout_sync_intents_for_registered_frame_groups(
-                graph_app,
-                tiles_tree,
+                graph_app, tiles_tree,
             ),
         );
     }
@@ -297,8 +311,7 @@ mod tests {
 
     use super::{
         active_context_return_target, render_tile_tree_and_collect_outputs,
-        sync_current_frame_from_active_tile_group,
-        should_summon_radial_palette_on_secondary_click,
+        should_summon_radial_palette_on_secondary_click, sync_current_frame_from_active_tile_group,
     };
     use crate::app::{
         GraphBrowserApp, GraphIntent, GraphViewId, SurfaceHostId, ToolSurfaceReturnTarget,
@@ -475,27 +488,39 @@ mod tests {
         app.apply_reducer_intents([GraphIntent::RecordFrameLayoutHint {
             frame: frame_b_anchor,
             hint: crate::graph::FrameLayoutHint::SplitHalf {
-                first: app.domain_graph().get_node(c).expect("frame b first").id.to_string(),
-                second: app.domain_graph().get_node(d).expect("frame b second").id.to_string(),
+                first: app
+                    .domain_graph()
+                    .get_node(c)
+                    .expect("frame b first")
+                    .id
+                    .to_string(),
+                second: app
+                    .domain_graph()
+                    .get_node(d)
+                    .expect("frame b second")
+                    .id
+                    .to_string(),
                 orientation: crate::graph::SplitOrientation::Vertical,
             },
         }]);
 
         let mut tiles = Tiles::default();
-        let (frame_a_tabs, _, _) = crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
-            &app,
-            frame_a_anchor,
-            &mut tiles,
-        )
-        .expect("frame a tabs");
+        let (frame_a_tabs, _, _) =
+            crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
+                &app,
+                frame_a_anchor,
+                &mut tiles,
+            )
+            .expect("frame a tabs");
         let frame_a_group = tiles.insert_tab_tile(frame_a_tabs);
 
-        let (frame_b_tabs, _, _) = crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
-            &app,
-            frame_b_anchor,
-            &mut tiles,
-        )
-        .expect("frame b tabs");
+        let (frame_b_tabs, _, _) =
+            crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
+                &app,
+                frame_b_anchor,
+                &mut tiles,
+            )
+            .expect("frame b tabs");
         let frame_b_group = tiles.insert_tab_tile(frame_b_tabs);
 
         let root = tiles.insert_tab_tile(vec![frame_a_group, frame_b_group]);

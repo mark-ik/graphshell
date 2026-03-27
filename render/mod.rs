@@ -1876,8 +1876,7 @@ mod tests {
     #[test]
     fn test_focus_frame_action_maps_to_selected_frame_then_open_tile_group() {
         let member_key = NodeKey::new(9);
-        let expected_url =
-            crate::util::VersoAddress::frame("workspace-alpha").to_string();
+        let expected_url = crate::util::VersoAddress::frame("workspace-alpha").to_string();
         let intents = intents_from_graph_actions(vec![GraphAction::FocusFrame {
             frame_name: "workspace-alpha".to_string(),
             member_key,

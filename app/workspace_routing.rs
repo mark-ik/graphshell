@@ -1,7 +1,9 @@
 use super::*;
 use crate::graph::graphlet;
-use crate::graph::{ArrangementSubKind, NodeKey, RelationSelector};
+use crate::graph::{ArrangementSubKind, EdgeFamily, NodeKey, RelationSelector};
 use crate::util::VersoAddress;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArrangementProjectionGroup {
@@ -10,6 +12,15 @@ pub struct ArrangementProjectionGroup {
     pub id: String,
     pub title: String,
     pub member_keys: Vec<NodeKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NavigatorSectionProjection {
+    pub workbench_groups: Vec<ArrangementProjectionGroup>,
+    pub folder_sections: BTreeMap<String, Vec<NodeKey>>,
+    pub domain_sections: BTreeMap<String, Vec<NodeKey>>,
+    pub unrelated_nodes: Vec<NodeKey>,
+    pub recent_nodes: Vec<(NodeKey, u64)>,
 }
 
 impl GraphBrowserApp {
@@ -107,6 +118,84 @@ impl GraphBrowserApp {
             }
         }
         index
+    }
+
+    pub fn navigator_section_projection(&self) -> NavigatorSectionProjection {
+        let workbench_groups = self.arrangement_projection_groups();
+        let mut arranged_nodes = HashSet::new();
+        for group in &workbench_groups {
+            for node_key in &group.member_keys {
+                arranged_nodes.insert(*node_key);
+            }
+        }
+
+        let traversal_timestamps = navigator_recent_traversal_node_timestamps(self);
+        let mut recent_nodes: Vec<(NodeKey, u64)> = traversal_timestamps
+            .iter()
+            .filter_map(|(node_key, timestamp)| {
+                (!arranged_nodes.contains(node_key)).then_some((*node_key, *timestamp))
+            })
+            .collect();
+        recent_nodes.sort_by(|left, right| {
+            right.1.cmp(&left.1).then_with(|| {
+                arrangement_member_sort_key(self, left.0)
+                    .cmp(&arrangement_member_sort_key(self, right.0))
+            })
+        });
+        let recent_set: HashSet<NodeKey> = recent_nodes.iter().map(|(key, _)| *key).collect();
+
+        let mut unrelated_nodes: Vec<NodeKey> = self
+            .domain_graph()
+            .nodes()
+            .map(|(key, _)| key)
+            .filter(|key| !arranged_nodes.contains(key) && !recent_set.contains(key))
+            .collect();
+        unrelated_nodes.sort_by(|left, right| {
+            arrangement_member_sort_key(self, *left).cmp(&arrangement_member_sort_key(self, *right))
+        });
+
+        let mut domain_sections: BTreeMap<String, Vec<NodeKey>> = BTreeMap::new();
+        let mut folder_sections: BTreeMap<String, Vec<NodeKey>> = BTreeMap::new();
+        for (row_key, target) in &self.navigator_projection_state().row_targets {
+            let NavigatorProjectionTarget::Node(node_key) = target else {
+                continue;
+            };
+            if let Some(domain) = containment_domain_from_row_key(row_key) {
+                domain_sections
+                    .entry(domain.to_string())
+                    .or_default()
+                    .push(*node_key);
+            }
+            if let Some(folder) = containment_folder_from_row_key(row_key) {
+                folder_sections
+                    .entry(folder.to_string())
+                    .or_default()
+                    .push(*node_key);
+            }
+        }
+
+        for node_keys in domain_sections.values_mut() {
+            node_keys.sort_by(|left, right| {
+                arrangement_member_sort_key(self, *left)
+                    .cmp(&arrangement_member_sort_key(self, *right))
+            });
+            node_keys.dedup();
+        }
+        for node_keys in folder_sections.values_mut() {
+            node_keys.sort_by(|left, right| {
+                arrangement_member_sort_key(self, *left)
+                    .cmp(&arrangement_member_sort_key(self, *right))
+            });
+            node_keys.dedup();
+        }
+
+        NavigatorSectionProjection {
+            workbench_groups,
+            folder_sections,
+            domain_sections,
+            unrelated_nodes,
+            recent_nodes,
+        }
     }
 
     /// Return all nodes in the graphlet induced by `selectors`, excluding `seed`.
@@ -946,9 +1035,39 @@ fn arrangement_member_sort_key(app: &GraphBrowserApp, key: NodeKey) -> (String, 
     (label, key.index())
 }
 
+fn containment_domain_from_row_key(row_key: &str) -> Option<&str> {
+    row_key.strip_prefix("domain:")?.split('#').next()
+}
+
+fn containment_folder_from_row_key(row_key: &str) -> Option<&str> {
+    row_key.strip_prefix("folder:")?.split('#').next()
+}
+
+fn navigator_recent_traversal_node_timestamps(app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
+    let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
+    for edge in app.domain_graph().inner.edge_references() {
+        if !edge
+            .weight()
+            .has_relation(RelationSelector::Family(EdgeFamily::Traversal))
+        {
+            continue;
+        }
+        let timestamp = edge.weight().metrics().last_navigated_at.unwrap_or(0);
+        if timestamp == 0 {
+            continue;
+        }
+        by_node
+            .entry(edge.target())
+            .and_modify(|current| *current = (*current).max(timestamp))
+            .or_insert(timestamp);
+    }
+    by_node
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::NavigationTrigger;
 
     #[test]
     fn open_node_frame_routed_queues_restore_request_for_preferred_frame() {
@@ -1071,5 +1190,70 @@ mod tests {
         );
 
         assert_eq!(app.graphlet_peers_for_view(a, Some(view_id)), vec![b]);
+    }
+
+    #[test]
+    fn navigator_section_projection_groups_workbench_recent_and_unrelated_nodes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let frame = app.add_node_and_sync(
+            VersoAddress::frame("Frame A").to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let arranged = app.add_node_and_sync(
+            "https://arranged.example".to_string(),
+            Point2D::new(1.0, 0.0),
+        );
+        let source =
+            app.add_node_and_sync("https://source.example".to_string(), Point2D::new(2.0, 0.0));
+        let recent =
+            app.add_node_and_sync("https://recent.example".to_string(), Point2D::new(3.0, 0.0));
+        let unrelated = app.add_node_and_sync(
+            "https://unrelated.example".to_string(),
+            Point2D::new(4.0, 0.0),
+        );
+
+        let _ = app.assert_relation_and_sync(
+            frame,
+            arranged,
+            crate::graph::EdgeAssertion::Arrangement {
+                sub_kind: ArrangementSubKind::FrameMember,
+            },
+        );
+        assert!(app.push_history_traversal_and_sync(source, recent, NavigationTrigger::Unknown));
+
+        let projection = app.navigator_section_projection();
+        assert_eq!(projection.workbench_groups.len(), 1);
+        assert_eq!(projection.workbench_groups[0].member_keys, vec![arranged]);
+        assert_eq!(projection.recent_nodes.len(), 1);
+        assert_eq!(projection.recent_nodes[0].0, recent);
+        assert_eq!(projection.unrelated_nodes.len(), 3);
+        assert!(projection.unrelated_nodes.contains(&frame));
+        assert!(projection.unrelated_nodes.contains(&source));
+        assert!(projection.unrelated_nodes.contains(&unrelated));
+    }
+
+    #[test]
+    fn navigator_section_projection_uses_containment_rows_from_navigator_projection_state() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let file_node =
+            app.add_node_and_sync("file:///tmp/a.txt".to_string(), Point2D::new(0.0, 0.0));
+        let web_node = app.add_node_and_sync(
+            "https://example.com/docs".to_string(),
+            Point2D::new(1.0, 0.0),
+        );
+
+        app.set_navigator_containment_relation_source(
+            NavigatorContainmentRelationSource::ContainmentRelations,
+        );
+
+        let projection = app.navigator_section_projection();
+        assert_eq!(
+            projection.folder_sections.get("file:///tmp/"),
+            Some(&vec![file_node])
+        );
+        assert_eq!(
+            projection.domain_sections.get("example.com"),
+            Some(&vec![web_node])
+        );
     }
 }
