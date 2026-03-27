@@ -675,8 +675,8 @@ fn clipboard_copy_value_for_node(
     };
 
     let value = match kind {
-        ClipboardCopyKind::Url => node.url.clone(),
-        ClipboardCopyKind::Title => clipboard_title_or_url(node.title.as_str(), node.url.as_str()),
+        ClipboardCopyKind::Url => node.url().to_string(),
+        ClipboardCopyKind::Title => clipboard_title_or_url(node.title.as_str(), node.url()),
     };
 
     if value.trim().is_empty() {

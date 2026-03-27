@@ -37,10 +37,10 @@ pub fn facet_projection_for_node(graph: &Graph, key: NodeKey) -> Option<FacetPro
 
     proj.insert(
         facet_keys::ADDRESS_KIND.to_string(),
-        FacetValue::Scalar(FacetScalar::Text(format!("{:?}", node.address_kind))),
+        FacetValue::Scalar(FacetScalar::Text(format!("{:?}", node.address.address_kind()))),
     );
 
-    if let Ok(url) = url::Url::parse(&node.url) {
+    if let Ok(url) = url::Url::parse(node.url()) {
         if let Some(host) = url.host_str() {
             proj.insert(
                 facet_keys::DOMAIN.to_string(),
@@ -56,7 +56,7 @@ pub fn facet_projection_for_node(graph: &Graph, key: NodeKey) -> Option<FacetPro
 
     proj.insert(
         facet_keys::ADDRESS.to_string(),
-        FacetValue::Scalar(FacetScalar::Text(node.url.clone())),
+        FacetValue::Scalar(FacetScalar::Text(node.url().to_string())),
     );
 
     // --- Matter ---

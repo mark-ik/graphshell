@@ -1245,7 +1245,7 @@ impl DiagnosticsState {
                                     .domain
                                     .graph
                                     .get_node(tile.node_key)
-                                    .map(|n| n.url.clone())
+                                    .map(|n| n.url().to_string())
                                     .unwrap_or_else(|| "<missing>".to_string());
                                 let selected = self.pinned_node_key == Some(tile.node_key);
                                 let hover =

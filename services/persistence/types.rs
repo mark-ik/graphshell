@@ -12,6 +12,9 @@ use crate::graph::{
 };
 
 /// Address type hint for persistence (mirrors `AddressKind` in the graph model).
+///
+/// Deprecated: superseded by [`PersistedAddress`]. Kept for rkyv backward compatibility
+/// with old snapshots. No new values are written.
 #[derive(
     Archive,
     Serialize,
@@ -35,6 +38,68 @@ pub enum PersistedAddressKind {
     Unknown,
 }
 
+/// Typed address for persistence — carries both the URL scheme classification
+/// and the raw URL string. Mirrors [`crate::graph::Address`].
+///
+/// All variants store the full URL string so that [`PersistedAddress::as_url_str`]
+/// is always a round-trip identity.
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedAddress {
+    Http(String),
+    File(String),
+    Data(String),
+    /// Clip route (`verso://clip/<id>` or `graphshell://clip/<id>`). Stores the full URL.
+    Clip(String),
+    Directory(String),
+    Custom(String),
+}
+
+impl Default for PersistedAddress {
+    /// Fallback used when deserializing old snapshots that lack the `address` field.
+    /// The load path detects the empty URL and uses the legacy `url` field instead.
+    fn default() -> Self {
+        PersistedAddress::Custom(String::new())
+    }
+}
+
+impl PersistedAddress {
+    /// Return the raw URL string for this address.
+    pub fn as_url_str(&self) -> &str {
+        match self {
+            PersistedAddress::Http(s)
+            | PersistedAddress::File(s)
+            | PersistedAddress::Data(s)
+            | PersistedAddress::Clip(s)
+            | PersistedAddress::Directory(s)
+            | PersistedAddress::Custom(s) => s.as_str(),
+        }
+    }
+}
+
+impl ArchivedPersistedAddress {
+    /// Return the raw URL string from the archived address.
+    pub fn as_url_str(&self) -> &str {
+        match self {
+            ArchivedPersistedAddress::Http(s)
+            | ArchivedPersistedAddress::File(s)
+            | ArchivedPersistedAddress::Data(s)
+            | ArchivedPersistedAddress::Clip(s)
+            | ArchivedPersistedAddress::Directory(s)
+            | ArchivedPersistedAddress::Custom(s) => s.as_str(),
+        }
+    }
+}
+
 /// Persisted per-node session fidelity state.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PersistedNodeSessionState {
@@ -50,7 +115,23 @@ pub struct PersistedNodeSessionState {
 pub struct PersistedNode {
     /// Stable node identity.
     pub node_id: String,
+
+    /// Typed address — canonical source of the node URL since Stage C.2.
+    ///
+    /// Old snapshots (pre-Stage C.2) will not have this field; `serde(default)`
+    /// causes deserialization to use `PersistedAddress::Custom(String::new())`
+    /// as the fallback. The load path in `from_snapshot` checks for an empty
+    /// URL and falls back to the legacy `url` field in that case.
+    #[serde(default)]
+    pub address: PersistedAddress,
+
+    /// Legacy URL field — written alongside `address` for backward compatibility
+    /// with readers that predate Stage C.2. New readers prefer `address`.
+    ///
+    /// On old snapshots (no `address` field) this is the authoritative URL.
+    #[serde(default)]
     pub url: String,
+
     #[serde(default)]
     pub cached_host: Option<String>,
     pub title: String,
@@ -74,8 +155,6 @@ pub struct PersistedNode {
     pub session_state: Option<PersistedNodeSessionState>,
     /// Optional MIME type hint; drives renderer selection.
     pub mime_hint: Option<String>,
-    /// Address type hint; inferred from URL scheme.
-    pub address_kind: PersistedAddressKind,
     /// Durable provenance-bearing classification records (Stage A enrichment).
     #[serde(default)]
     pub classifications: Vec<NodeClassification>,
@@ -652,7 +731,10 @@ pub enum LogEntry {
         /// `None` clears the hint; `Some(mime)` sets it.
         mime_hint: Option<String>,
     },
-    /// Update the address-kind classification of a node.
+    /// Legacy WAL entry — address kind is now fully derived from the URL.
+    /// Kept for backward-compatible log replay only; no new entries are written.
+    /// On replay the entry is treated as a no-op (address re-derived from URL).
+    #[deprecated = "address_kind is derived from url; use UpdateNodeUrl instead"]
     UpdateNodeAddressKind {
         node_id: String,
         kind: PersistedAddressKind,
@@ -735,6 +817,7 @@ mod tests {
     fn test_persisted_node_roundtrip() {
         let node = PersistedNode {
             node_id: Uuid::new_v4().to_string(),
+            address: PersistedAddress::Http("https://example.com".to_string()),
             url: "https://example.com".to_string(),
             cached_host: Some("example.com".to_string()),
             title: "Example".to_string(),
@@ -766,7 +849,6 @@ mod tests {
                 form_draft: Some("draft body".to_string()),
             }),
             mime_hint: Some("text/html".to_string()),
-            address_kind: PersistedAddressKind::Http,
             classifications: Vec::new(),
             frame_layout_hints: Vec::new(),
             frame_split_offer_suppressed: false,
@@ -775,7 +857,7 @@ mod tests {
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&node).unwrap();
         let archived = rkyv::access::<ArchivedPersistedNode, rkyv::rancor::Error>(&bytes).unwrap();
         assert!(!archived.node_id.as_str().is_empty());
-        assert_eq!(archived.url.as_str(), "https://example.com");
+        assert_eq!(archived.address.as_url_str(), "https://example.com");
         assert_eq!(archived.title.as_str(), "Example");
         assert_eq!(archived.position_x, 100.0);
         assert_eq!(archived.position_y, 200.0);
@@ -797,7 +879,7 @@ mod tests {
         assert_eq!(session.scroll_y, Some(345.0));
         assert_eq!(session.form_draft.as_ref().unwrap().as_str(), "draft body");
         assert_eq!(archived.mime_hint.as_ref().unwrap().as_str(), "text/html");
-        assert_eq!(archived.address_kind, ArchivedPersistedAddressKind::Http);
+        assert_eq!(archived.address.as_url_str(), "https://example.com");
     }
 
     #[test]
@@ -854,6 +936,7 @@ mod tests {
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {
                 node_id: Uuid::new_v4().to_string(),
+                address: PersistedAddress::Http("https://a.com".to_string()),
                 url: "https://a.com".to_string(),
                 cached_host: Some("a.com".to_string()),
                 title: "A".to_string(),
@@ -873,7 +956,6 @@ mod tests {
                 favicon_height: 0,
                 session_state: None,
                 mime_hint: None,
-                address_kind: PersistedAddressKind::Http,
                 classifications: Vec::new(),
                 frame_layout_hints: Vec::new(),
                 frame_split_offer_suppressed: false,
@@ -1041,6 +1123,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_log_entry_update_node_address_kind_roundtrip() {
         for (kind, expected) in [
             (
@@ -1131,5 +1214,67 @@ mod tests {
             };
             assert_eq!(*archived, expected);
         }
+    }
+
+    #[test]
+    fn legacy_persisted_node_without_address_field_deserializes_via_url_fallback() {
+        // Simulate a JSON snapshot written before Stage C.2 — it has `url` but no `address` field.
+        // The `#[serde(default)]` on `address` produces `PersistedAddress::Custom("")`.
+        // The `from_snapshot` load path detects the empty address URL and falls back to the `url` field.
+        let json = r#"{
+            "node_id": "00000000-0000-0000-0000-000000000001",
+            "url": "https://legacy.example.com",
+            "title": "Legacy Node",
+            "position_x": 0.0,
+            "position_y": 0.0,
+            "tags": [],
+            "is_pinned": false,
+            "history_entries": [],
+            "history_index": 0,
+            "thumbnail_width": 0,
+            "thumbnail_height": 0,
+            "favicon_width": 0,
+            "favicon_height": 0,
+            "address_kind": "Http"
+        }"#;
+        let node: PersistedNode = serde_json::from_str(json).unwrap();
+        // address field defaults to Custom("") — load path uses url field
+        assert_eq!(node.url, "https://legacy.example.com");
+        assert_eq!(node.address.as_url_str(), ""); // default fallback sentinel
+    }
+
+    #[test]
+    fn new_persisted_node_with_address_field_uses_address_not_url() {
+        let node = PersistedNode {
+            node_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            address: PersistedAddress::File("file:///home/user/doc.txt".to_string()),
+            url: "file:///home/user/doc.txt".to_string(),
+            cached_host: None,
+            title: "Doc".to_string(),
+            position_x: 0.0,
+            position_y: 0.0,
+            tags: vec![],
+            tag_presentation: NodeTagPresentationState::default(),
+            import_provenance: vec![],
+            is_pinned: false,
+            history_entries: vec![],
+            history_index: 0,
+            thumbnail_png: None,
+            thumbnail_width: 0,
+            thumbnail_height: 0,
+            favicon_rgba: None,
+            favicon_width: 0,
+            favicon_height: 0,
+            session_state: None,
+            mime_hint: None,
+            classifications: vec![],
+            frame_layout_hints: vec![],
+            frame_split_offer_suppressed: false,
+        };
+        assert_eq!(node.address.as_url_str(), "file:///home/user/doc.txt");
+        let json = serde_json::to_string(&node).unwrap();
+        let restored: PersistedNode = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.address.as_url_str(), "file:///home/user/doc.txt");
+        assert!(matches!(restored.address, PersistedAddress::File(_)));
     }
 }

@@ -211,8 +211,9 @@ mod storage_interop;
 #[path = "app/workspace_state.rs"]
 mod workspace_state;
 pub use workspace_state::{
-    ChromeUiState, GraphViewRuntimeState, NavigatorSpecialtyView, VisibleNavigationRegionSet,
-    WorkbenchNavigationGeometry, WorkbenchSessionState,
+    ChromeUiState, FrameHintTabRuntime, FrameTileGroupRuntimeState, GraphViewRuntimeState,
+    NavigatorSpecialtyView, VisibleNavigationRegionSet, WorkbenchNavigationGeometry,
+    WorkbenchSessionState,
 };
 
 #[path = "app/intent_phases.rs"]
@@ -886,6 +887,7 @@ impl GraphBrowserApp {
                     hovered_graph_node: None,
                     highlighted_graph_edge: None,
                     selected_frame_name: None,
+                    frame_tile_groups: HashMap::new(),
                     navigator_projection_state: NavigatorProjectionState::default(),
                     selected_tab_nodes: HashSet::new(),
                     tab_selection_anchor: None,
@@ -1034,6 +1036,7 @@ impl GraphBrowserApp {
                     hovered_graph_node: None,
                     highlighted_graph_edge: None,
                     selected_frame_name: None,
+                    frame_tile_groups: HashMap::new(),
                     navigator_projection_state: NavigatorProjectionState::default(),
                     selected_tab_nodes: HashSet::new(),
                     tab_selection_anchor: None,
@@ -1407,7 +1410,7 @@ impl GraphBrowserApp {
                     .graph
                     .nodes()
                     .filter_map(|(key, node)| {
-                        let Ok(parsed) = url::Url::parse(&node.url) else {
+                        let Ok(parsed) = url::Url::parse(node.url()) else {
                             return None;
                         };
                         let row_prefix = match parsed.scheme() {
@@ -1947,7 +1950,6 @@ impl GraphBrowserApp {
                 | GraphIntent::RejectClassification { .. }
                 | GraphIntent::SetPrimaryClassification { .. }
                 | GraphIntent::UpdateNodeMimeHint { .. }
-                | GraphIntent::UpdateNodeAddressKind { .. }
                 | GraphIntent::RecordFrameLayoutHint { .. }
                 | GraphIntent::RemoveFrameLayoutHint { .. }
                 | GraphIntent::MoveFrameLayoutHint { .. }
@@ -2061,7 +2063,7 @@ impl GraphBrowserApp {
     fn scan_max_placeholder_id(graph: &Graph) -> u32 {
         let mut max_id = 0u32;
         for (_, node) in graph.nodes() {
-            if let Some(fragment) = node.url.strip_prefix("about:blank#") {
+            if let Some(fragment) = node.url().strip_prefix("about:blank#") {
                 if let Ok(id) = fragment.parse::<u32>() {
                     max_id = max_id.max(id + 1);
                 }

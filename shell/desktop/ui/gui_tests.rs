@@ -72,7 +72,7 @@ mod tests {
             .graph
             .get_node(node_key)
             .expect("node should exist")
-            .url
+            .url()
             .clone();
         assert_eq!(before, "https://before.example");
 
@@ -87,7 +87,7 @@ mod tests {
             .graph
             .get_node(node_key)
             .expect("node should exist")
-            .url
+            .url()
             .clone();
         assert_eq!(still_before, "https://before.example");
 
@@ -98,7 +98,7 @@ mod tests {
             .graph
             .get_node(node_key)
             .expect("node should exist")
-            .url
+            .url()
             .clone();
         assert_eq!(after, "https://after.example");
     }

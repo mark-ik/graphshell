@@ -6,8 +6,7 @@ use euclid::default::Point2D;
 use uuid::Uuid;
 
 use super::{
-    AddressKind, EdgeAssertion, EdgeKey, EdgeType, FrameLayoutHint, Graph, NodeKey,
-    RelationSelector, Traversal,
+    EdgeAssertion, EdgeKey, EdgeType, FrameLayoutHint, Graph, NodeKey, RelationSelector, Traversal,
 };
 
 #[derive(Debug, Clone)]
@@ -98,10 +97,6 @@ pub enum GraphDelta {
     SetNodeMimeHint {
         key: NodeKey,
         mime_hint: Option<String>,
-    },
-    SetNodeAddressKind {
-        key: NodeKey,
-        kind: AddressKind,
     },
     SetNodePinned {
         key: NodeKey,
@@ -234,9 +229,6 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
         }
         GraphDelta::SetNodeMimeHint { key, mime_hint } => {
             GraphDeltaResult::NodeMetadataUpdated(graph.set_node_mime_hint(key, mime_hint))
-        }
-        GraphDelta::SetNodeAddressKind { key, kind } => {
-            GraphDeltaResult::NodeMetadataUpdated(graph.set_node_address_kind(key, kind))
         }
         GraphDelta::SetNodePinned { key, is_pinned } => {
             GraphDeltaResult::NodeMetadataUpdated(graph.set_node_pinned(key, is_pinned))

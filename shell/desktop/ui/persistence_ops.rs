@@ -450,7 +450,7 @@ fn frame_layout_hints_for_name(graph_app: &GraphBrowserApp, name: &str) -> Vec<F
         .unwrap_or_default()
 }
 
-fn frame_key_for_name(graph_app: &GraphBrowserApp, name: &str) -> Option<NodeKey> {
+pub(crate) fn frame_key_for_name(graph_app: &GraphBrowserApp, name: &str) -> Option<NodeKey> {
     let frame_url = VersoAddress::frame(name.to_string()).to_string();
     graph_app
         .domain_graph()
@@ -472,6 +472,20 @@ fn ordered_live_frame_member_keys(graph_app: &GraphBrowserApp, name: &str) -> Ve
     member_keys
         .retain(|key| graph_app.domain_graph().get_node(*key).is_some() && seen.insert(*key));
     member_keys
+}
+
+fn frame_name_for_key(graph_app: &GraphBrowserApp, frame_key: NodeKey) -> Option<String> {
+    let frame_url = graph_app.domain_graph().get_node(frame_key)?.url().to_string();
+    GraphBrowserApp::resolve_frame_route(&frame_url)
+}
+
+pub(crate) fn ordered_live_frame_member_keys_for_anchor(
+    graph_app: &GraphBrowserApp,
+    frame_key: NodeKey,
+) -> Vec<NodeKey> {
+    frame_name_for_key(graph_app, frame_key)
+        .map(|name| ordered_live_frame_member_keys(graph_app, &name))
+        .unwrap_or_default()
 }
 
 fn resolve_frame_layout_member_key(
@@ -538,7 +552,7 @@ fn unique_member_count(members: &[NodeKey]) -> usize {
     members.iter().copied().collect::<HashSet<_>>().len()
 }
 
-fn derive_frame_layout_hint_from_tile(
+pub(crate) fn derive_frame_layout_hint_from_tile(
     graph_app: &GraphBrowserApp,
     tree: &Tree<TileKind>,
     tile_id: TileId,
@@ -689,12 +703,12 @@ fn derive_frame_layout_hint_from_tile(
     }
 }
 
-fn frame_layout_hints_from_runtime_tree(
+fn frame_layout_hints_from_tabs_tile(
     graph_app: &GraphBrowserApp,
     tree: &Tree<TileKind>,
+    tabs_tile_id: TileId,
 ) -> Option<Vec<FrameLayoutHint>> {
-    let root_id = tree.root()?;
-    let Tile::Container(Container::Tabs(tabs)) = tree.tiles.get(root_id)? else {
+    let Tile::Container(Container::Tabs(tabs)) = tree.tiles.get(tabs_tile_id)? else {
         return None;
     };
 
@@ -705,6 +719,37 @@ fn frame_layout_hints_from_runtime_tree(
             .filter_map(|child| derive_frame_layout_hint_from_tile(graph_app, tree, child))
             .collect(),
     )
+}
+
+fn frame_layout_hints_from_runtime_tree(
+    graph_app: &GraphBrowserApp,
+    tree: &Tree<TileKind>,
+) -> Option<Vec<FrameLayoutHint>> {
+    frame_layout_hints_from_tabs_tile(graph_app, tree, tree.root()?)
+}
+
+pub(crate) fn frame_layout_hint_summary(hint: &FrameLayoutHint) -> String {
+    match hint {
+        FrameLayoutHint::SplitHalf {
+            orientation,
+            first: _,
+            second: _,
+        } => match orientation {
+            SplitOrientation::Vertical => "Split half (columns)".to_string(),
+            SplitOrientation::Horizontal => "Split half (rows)".to_string(),
+        },
+        FrameLayoutHint::SplitPamphlet { orientation, .. } => match orientation {
+            SplitOrientation::Vertical => "Pamphlet (3 columns)".to_string(),
+            SplitOrientation::Horizontal => "Pamphlet (3 rows)".to_string(),
+        },
+        FrameLayoutHint::SplitTriptych { dominant_edge, .. } => match dominant_edge {
+            DominantEdge::Left => "Triptych (left dominant)".to_string(),
+            DominantEdge::Right => "Triptych (right dominant)".to_string(),
+            DominantEdge::Top => "Triptych (top dominant)".to_string(),
+            DominantEdge::Bottom => "Triptych (bottom dominant)".to_string(),
+        },
+        FrameLayoutHint::SplitQuartered { .. } => "Quartered grid".to_string(),
+    }
 }
 
 fn frame_layout_sync_intents_for_name(
@@ -875,29 +920,39 @@ fn build_frame_layout_hint_tile(
     }
 }
 
-pub(crate) fn synthesize_runtime_tree_from_graph_frame(
+pub(crate) fn materialize_frame_tile_group_tabs(
     graph_app: &GraphBrowserApp,
-    name: &str,
-) -> Result<(Tree<TileKind>, Vec<NodeKey>), String> {
-    let member_keys = ordered_live_frame_member_keys(graph_app, name);
-
+    frame_anchor: NodeKey,
+    tiles: &mut Tiles<TileKind>,
+) -> Option<(
+    Vec<TileId>,
+    Vec<NodeKey>,
+    Vec<crate::app::FrameHintTabRuntime>,
+)> {
+    let member_keys = ordered_live_frame_member_keys_for_anchor(graph_app, frame_anchor);
     if member_keys.is_empty() {
-        return Err(format!("frame snapshot '{name}' not found"));
+        return None;
     }
 
-    let mut tiles = Tiles::default();
     let frame_members = member_keys.iter().copied().collect::<HashSet<_>>();
     let mut covered_members = HashSet::new();
     let mut tab_tiles = Vec::new();
+    let mut hint_tabs = Vec::new();
+    let hints = graph_app
+        .domain_graph()
+        .frame_layout_hints(frame_anchor)
+        .map(|hints| hints.to_vec())
+        .unwrap_or_default();
 
-    for hint in frame_layout_hints_for_name(graph_app, name) {
+    for hint in hints {
         let Some((hint_tile, hint_members)) =
-            build_frame_layout_hint_tile(graph_app, &mut tiles, &hint, &frame_members)
+            build_frame_layout_hint_tile(graph_app, tiles, &hint, &frame_members)
         else {
             continue;
         };
         covered_members.extend(hint_members);
         tab_tiles.push(hint_tile);
+        hint_tabs.push(crate::app::FrameHintTabRuntime { tile_id: hint_tile, hint });
     }
 
     tab_tiles.extend(
@@ -905,8 +960,127 @@ pub(crate) fn synthesize_runtime_tree_from_graph_frame(
             .iter()
             .copied()
             .filter(|member| !covered_members.contains(member))
-            .map(|member| insert_frame_member_pane(&mut tiles, member)),
+            .map(|member| insert_frame_member_pane(tiles, member)),
     );
+
+    Some((tab_tiles, member_keys, hint_tabs))
+}
+
+pub(crate) fn register_frame_tile_group_runtime(
+    graph_app: &mut GraphBrowserApp,
+    tree: &Tree<TileKind>,
+    group_id: TileId,
+    frame_anchor: NodeKey,
+) {
+    let hint_tabs = frame_layout_hints_from_tabs_tile(graph_app, tree, group_id)
+        .unwrap_or_default()
+        .into_iter()
+        .zip(
+            match tree.tiles.get(group_id) {
+                Some(Tile::Container(Container::Tabs(tabs))) => tabs.children.clone(),
+                _ => Vec::new(),
+            }
+            .into_iter()
+            .filter(|child| derive_frame_layout_hint_from_tile(graph_app, tree, *child).is_some()),
+        )
+        .map(|(hint, tile_id)| crate::app::FrameHintTabRuntime { tile_id, hint })
+        .collect();
+
+    graph_app.workspace.graph_runtime.frame_tile_groups.insert(
+        group_id,
+        crate::app::FrameTileGroupRuntimeState {
+            frame_anchor,
+            hint_tabs,
+        },
+    );
+}
+
+pub(crate) fn refresh_frame_tile_group_runtime(
+    graph_app: &mut GraphBrowserApp,
+    tree: &Tree<TileKind>,
+) {
+    let registered: Vec<(TileId, NodeKey)> = graph_app
+        .workspace
+        .graph_runtime
+        .frame_tile_groups
+        .iter()
+        .map(|(group_id, state)| (*group_id, state.frame_anchor))
+        .collect();
+
+    graph_app.workspace.graph_runtime.frame_tile_groups.clear();
+    for (group_id, frame_anchor) in registered {
+        if matches!(tree.tiles.get(group_id), Some(Tile::Container(Container::Tabs(_)))) {
+            register_frame_tile_group_runtime(graph_app, tree, group_id, frame_anchor);
+        }
+    }
+}
+
+pub(crate) fn frame_layout_sync_intents_for_registered_frame_groups(
+    graph_app: &GraphBrowserApp,
+    tree: &Tree<TileKind>,
+) -> Vec<GraphIntent> {
+    let mut intents = Vec::new();
+
+    for (group_id, state) in &graph_app.workspace.graph_runtime.frame_tile_groups {
+        let Some(derived_hints) = frame_layout_hints_from_tabs_tile(graph_app, tree, *group_id) else {
+            continue;
+        };
+        let existing_hints = graph_app
+            .domain_graph()
+            .frame_layout_hints(state.frame_anchor)
+            .map(|hints| hints.to_vec())
+            .unwrap_or_default();
+        if existing_hints == derived_hints {
+            continue;
+        }
+
+        for hint_index in (0..existing_hints.len()).rev() {
+            intents.push(GraphIntent::RemoveFrameLayoutHint {
+                frame: state.frame_anchor,
+                hint_index,
+            });
+        }
+        intents.extend(
+            derived_hints
+                .into_iter()
+                .map(|hint| GraphIntent::RecordFrameLayoutHint {
+                    frame: state.frame_anchor,
+                    hint,
+                }),
+        );
+    }
+
+    intents
+}
+
+pub(crate) fn frame_hint_tab_info(
+    graph_app: &GraphBrowserApp,
+    tile_id: TileId,
+) -> Option<(NodeKey, usize, FrameLayoutHint)> {
+    for state in graph_app.workspace.graph_runtime.frame_tile_groups.values() {
+        for (index, hint_tab) in state.hint_tabs.iter().enumerate() {
+            if hint_tab.tile_id == tile_id {
+                return Some((state.frame_anchor, index, hint_tab.hint.clone()));
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn synthesize_runtime_tree_from_graph_frame(
+    graph_app: &GraphBrowserApp,
+    name: &str,
+) -> Result<(Tree<TileKind>, Vec<NodeKey>), String> {
+    let Some(frame_key) = frame_key_for_name(graph_app, name) else {
+        return Err(format!("frame snapshot '{name}' not found"));
+    };
+
+    let mut tiles = Tiles::default();
+    let Some((tab_tiles, member_keys, _hint_tabs)) =
+        materialize_frame_tile_group_tabs(graph_app, frame_key, &mut tiles)
+    else {
+        return Err(format!("frame snapshot '{name}' not found"));
+    };
 
     let root = tiles.insert_tab_tile(tab_tiles);
     let tree = Tree::new("graphshell_workspace_layout", root, tiles);
@@ -1733,6 +1907,53 @@ mod tests {
                 assert_eq!(*hint_index, 0);
             }
             other => panic!("expected RemoveFrameLayoutHint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn frame_layout_sync_intents_for_registered_frame_groups_records_new_split_tabs() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let a = app.add_node_and_sync("https://registered-a.example".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://registered-b.example".into(), Point2D::new(1.0, 0.0));
+        let c = app.add_node_and_sync("https://registered-c.example".into(), Point2D::new(2.0, 0.0));
+
+        let mut seeded_tiles = Tiles::default();
+        let seeded_a = seeded_tiles.insert_pane(TileKind::Node(a.into()));
+        let seeded_b = seeded_tiles.insert_pane(TileKind::Node(b.into()));
+        let seeded_c = seeded_tiles.insert_pane(TileKind::Node(c.into()));
+        let seeded_root = seeded_tiles.insert_tab_tile(vec![seeded_a, seeded_b, seeded_c]);
+        let seeded_tree = Tree::new("frame_registered_seed", seeded_root, seeded_tiles);
+        let frame_key = app.sync_named_workbench_frame_graph_representation(
+            "workspace-registered-split",
+            &seeded_tree,
+        );
+
+        let mut tiles = Tiles::default();
+        let tile_a = tiles.insert_pane(TileKind::Node(a.into()));
+        let tile_b = tiles.insert_pane(TileKind::Node(b.into()));
+        let tile_c = tiles.insert_pane(TileKind::Node(c.into()));
+        let split = tiles.insert_horizontal_tile(vec![tile_a, tile_b]);
+        let root = tiles.insert_tab_tile(vec![split, tile_c]);
+        let tree = Tree::new("frame_registered_split", root, tiles);
+
+        register_frame_tile_group_runtime(&mut app, &tree, root, frame_key);
+        let intents = frame_layout_sync_intents_for_registered_frame_groups(&app, &tree);
+
+        assert_eq!(intents.len(), 1);
+        match &intents[0] {
+            GraphIntent::RecordFrameLayoutHint { frame, hint } => {
+                assert_eq!(*frame, frame_key);
+                assert_eq!(
+                    *hint,
+                    FrameLayoutHint::SplitHalf {
+                        first: frame_layout_node_id(&app, a),
+                        second: frame_layout_node_id(&app, b),
+                        orientation: SplitOrientation::Vertical,
+                    }
+                );
+            }
+            other => panic!("expected RecordFrameLayoutHint, got {other:?}"),
         }
     }
 

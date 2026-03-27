@@ -49,7 +49,7 @@ pub(crate) fn fuzzy_match_node_keys(graph: &Graph, query: &str) -> Vec<NodeKey> 
         .nodes()
         .map(|(key, node)| SearchCandidate {
             key,
-            text: format!("{} {}", node.title, node.url),
+            text: format!("{} {}", node.title, node.url()),
         })
         .collect();
     fuzzy_match_items(candidates, query)

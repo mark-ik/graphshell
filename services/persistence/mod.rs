@@ -1963,39 +1963,11 @@ impl GraphStore {
                         );
                     }
                 }
-                ArchivedLogEntry::UpdateNodeAddressKind { node_id, kind } => {
-                    let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
-                        continue;
-                    };
-                    if let Some(key) = graph.get_node_key_by_id(node_id) {
-                        let _ = apply_graph_delta(
-                            graph,
-                            GraphDelta::SetNodeAddressKind {
-                                key,
-                                kind: match kind {
-                                    types::ArchivedPersistedAddressKind::Http => {
-                                        crate::graph::AddressKind::Http
-                                    }
-                                    types::ArchivedPersistedAddressKind::File => {
-                                        crate::graph::AddressKind::File
-                                    }
-                                    types::ArchivedPersistedAddressKind::Data => {
-                                        crate::graph::AddressKind::Data
-                                    }
-                                    types::ArchivedPersistedAddressKind::GraphshellClip => {
-                                        crate::graph::AddressKind::GraphshellClip
-                                    }
-                                    types::ArchivedPersistedAddressKind::Directory => {
-                                        crate::graph::AddressKind::Directory
-                                    }
-                                    types::ArchivedPersistedAddressKind::Unknown => {
-                                        crate::graph::AddressKind::Unknown
-                                    }
-                                },
-                            },
-                        );
-                    }
-                }
+                // Legacy entry — address_kind is now always derived from url.
+                // Silently skip: the preceding UpdateNodeUrl replay has already
+                // set both address_kind and address correctly from the URL.
+                #[allow(deprecated)]
+                ArchivedLogEntry::UpdateNodeAddressKind { .. } => {}
                 ArchivedLogEntry::RecordFrameLayoutHint { frame_id, hint } => {
                     let Ok(frame_id) = Uuid::parse_str(frame_id.as_str()) else {
                         continue;
@@ -3004,8 +2976,8 @@ mod tests {
         let graph = store.recover().unwrap();
         let (_, node_a) = graph.get_node_by_id(id_a).unwrap();
         let (_, node_b) = graph.get_node_by_id(id_b).unwrap();
-        assert_eq!(node_a.url, "https://updated-a.com");
-        assert_eq!(node_b.url, "https://same.com");
+        assert_eq!(node_a.url(), "https://updated-a.com");
+        assert_eq!(node_b.url(), "https://same.com");
     }
 
     #[test]

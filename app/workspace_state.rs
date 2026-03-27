@@ -7,11 +7,12 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
+use egui_tiles::TileId;
 use uuid::Uuid;
 
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::physics::GraphPhysicsState;
-use crate::graph::{Graph, NodeKey};
+use crate::graph::{FrameLayoutHint, Graph, NodeKey};
 use crate::registries::atomic::knowledge::SemanticClassVector;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::caches::RuntimeCaches;
@@ -329,6 +330,9 @@ pub struct GraphViewRuntimeState {
     /// Selected frame identity from graph-canvas backdrop interaction.
     pub selected_frame_name: Option<String>,
 
+    /// Runtime-only semantics for open frame tile groups keyed by the tabs-container tile id.
+    pub(crate) frame_tile_groups: HashMap<TileId, FrameTileGroupRuntimeState>,
+
     /// Graph-owned hierarchical projection runtime state for navigator.
     pub navigator_projection_state: NavigatorProjectionState,
 
@@ -370,6 +374,18 @@ pub struct GraphViewRuntimeState {
 
     /// Pending webview highlight-clear request for inspector teardown.
     pub pending_clip_inspector_highlight_clear: Option<RendererId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameHintTabRuntime {
+    pub tile_id: TileId,
+    pub hint: FrameLayoutHint,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameTileGroupRuntimeState {
+    pub frame_anchor: NodeKey,
+    pub hint_tabs: Vec<FrameHintTabRuntime>,
 }
 
 /// Workbench session state: frame layouts, pending intents, arrangement sync caches.

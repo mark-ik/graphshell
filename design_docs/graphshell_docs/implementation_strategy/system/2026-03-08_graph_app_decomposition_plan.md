@@ -4,7 +4,7 @@
 **Status**: Active; Stages 1-4 landed and wired  
 **Primary hotspot**: `graph_app.rs`  
 **Related**:
-- `../technical_architecture/ARCHITECTURAL_CONCERNS.md`
+- `../../../archive_docs/checkpoint_2026-03-27/graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md`
 - `2026-03-06_foundational_reset_implementation_plan.md`
 - `2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md`
 

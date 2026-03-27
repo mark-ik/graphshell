@@ -1168,7 +1168,7 @@ mod tests {
             .nodes()
             .filter(|(_, node)| {
                 matches!(
-                    VersoAddress::parse(&node.url),
+                    VersoAddress::parse(node.url()),
                     Some(VersoAddress::TileGroup(_))
                 )
             })
@@ -1221,7 +1221,7 @@ mod tests {
             .nodes()
             .find(|(_, node)| {
                 matches!(
-                    VersoAddress::parse(&node.url),
+                    VersoAddress::parse(node.url()),
                     Some(VersoAddress::TileGroup(_))
                 )
             })

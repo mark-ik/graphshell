@@ -554,7 +554,7 @@ pub fn render_command_palette_panel(
                         if let Some(target) = source_context.or(hovered_node) {
                             if let Some(node) = app.domain_graph().get_node(target) {
                                 let label = if node.title.trim().is_empty() {
-                                    node.url.as_str()
+                                    node.url()
                                 } else {
                                     node.title.as_str()
                                 };

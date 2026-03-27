@@ -41,7 +41,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 25, 2026
+Last updated: March 27, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -71,7 +71,6 @@ Project status source: [../README.md](../README.md)
 ### Graphshell Technical Architecture
 
 - [graphshell_docs/technical_architecture/ARCHITECTURAL_OVERVIEW.md](graphshell_docs/technical_architecture/ARCHITECTURAL_OVERVIEW.md) - Current architecture and component boundaries.
-- [graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md](graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md) - Known contradictions and architecture risks.
 - [graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md](graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md) - Browser semantics and behavioral model; universal content viewer (MIME detection, ViewerRegistry selection, non-web renderers, tags/badges, UDC semantic physics).
 - [graphshell_docs/technical_architecture/VERSO_AS_PEER.md](graphshell_docs/technical_architecture/VERSO_AS_PEER.md) - Verso mod: web capability (Servo + wry viewers, protocol handlers) and Verse peer agent (Ed25519 identity, SyncWorker, pairing, graph/workbench context sharing).
 - [graphshell_docs/technical_architecture/codebase_guide.md](graphshell_docs/technical_architecture/codebase_guide.md) - Active module-orientation guide and debugging entry points for reducer/workbench/render boundaries.
@@ -234,3 +233,4 @@ Project status source: [../README.md](../README.md)
 - [archive_docs/checkpoint_2026-03-07/](archive_docs/checkpoint_2026-03-07/) — foundational reset receipt consolidation: archived `2026-03-06_foundational_reset_architecture_vision.md`, `2026-03-06_foundational_reset_migration_governance.md`, `2026-03-06_foundational_reset_demolition_plan.md`, and `2026-03-06_clat_domain_state_core_extraction.md` after consolidating active policy/progress into `system_architecture_spec.md`, `2026-03-06_foundational_reset_implementation_plan.md`, and `2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md`.
 - [archive_docs/checkpoint_2026-03-10/](archive_docs/checkpoint_2026-03-10/) — archived `graphshell_docs/implementation_strategy/viewer/2026-02-26_composited_viewer_pass_contract.md` after consolidating active compositor contract authority into `implementation_strategy/PLANNING_REGISTER.md` §0 and `implementation_strategy/aspect_render/frame_assembly_and_compositor_spec.md`; retained Appendix A future-work ideas live in `PLANNING_REGISTER.md` §0.10.
 - [archive_docs/checkpoint_2026-03-18/](archive_docs/checkpoint_2026-03-18/) — completed registry/sector plans (`system/2026-02-22_registry_layer_plan.md`, `system/register/` Sectors A/D/F), stabilization progress receipt, C+F backend bridge receipt, foundational-reset `GraphBrowserApp` field ownership snapshot, and superseded wgpu/WebRender deferred strategy docs (`aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`, `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md`).
+- [archive_docs/checkpoint_2026-03-27/](archive_docs/checkpoint_2026-03-27/) — archived completed `graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md` after its open items were resolved and its historical references were superseded by active specs and overview docs.

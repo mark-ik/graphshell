@@ -10,7 +10,8 @@ use std::path::PathBuf;
 
 use egui::{Color32, Id, Response, Sense, Stroke, TextStyle, Ui, Vec2, WidgetText, vec2};
 use egui_tiles::{
-    Behavior, Container, SimplificationOptions, TabState, Tile, TileId, Tiles, UiResponse,
+    Behavior, Container, EditAction, SimplificationOptions, TabState, Tile, TileId, Tiles,
+    UiResponse,
 };
 
 use crate::app::{
@@ -425,6 +426,7 @@ pub(crate) struct GraphshellTileBehavior<'a> {
     pending_closed_nodes: Vec<NodeKey>,
     pending_post_render_intents: Vec<TilePendingIntent>,
     pending_tab_drag_stopped_nodes: HashSet<NodeKey>,
+    pending_tile_drop_edit: bool,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     #[cfg(feature = "diagnostics")]
@@ -456,6 +458,7 @@ impl<'a> GraphshellTileBehavior<'a> {
             pending_closed_nodes: Vec::new(),
             pending_post_render_intents: Vec::new(),
             pending_tab_drag_stopped_nodes: HashSet::new(),
+            pending_tile_drop_edit: false,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             #[cfg(feature = "diagnostics")]
@@ -477,6 +480,10 @@ impl<'a> GraphshellTileBehavior<'a> {
 
     pub fn take_pending_tab_drag_stopped_nodes(&mut self) -> HashSet<NodeKey> {
         std::mem::take(&mut self.pending_tab_drag_stopped_nodes)
+    }
+
+    pub fn take_pending_tile_drop_edit(&mut self) -> bool {
+        std::mem::take(&mut self.pending_tile_drop_edit)
     }
 
     fn queue_post_render_intent<T>(&mut self, intent: T)
@@ -526,14 +533,14 @@ impl<'a> GraphshellTileBehavior<'a> {
             let node = graph_app.domain_graph().get_node(node_key)?;
             let selection =
                 crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
-                    &node.url,
+                    node.url(),
                     node.mime_hint.as_deref(),
                 );
             let capabilities = selection.capabilities.clone();
 
             Some(AccessibilityInspectorSelectedNodeSnapshot {
                 node_key,
-                node_url: node.url.clone(),
+                node_url: node.url().to_string(),
                 viewer_id: selection.viewer_id,
                 accessibility_level: format!("{:?}", capabilities.accessibility.level),
                 accessibility_reason: capabilities.accessibility.reason.clone(),
@@ -994,6 +1001,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     }
 
     fn is_tab_closable(&self, tiles: &Tiles<TileKind>, tile_id: TileId) -> bool {
+        if crate::shell::desktop::ui::persistence_ops::frame_hint_tab_info(self.graph_app, tile_id)
+            .is_some()
+        {
+            return true;
+        }
+
         match tiles.get(tile_id) {
             Some(Tile::Pane(TileKind::Pane(
                 crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(_),
@@ -1015,6 +1028,15 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn on_tab_close(&mut self, tiles: &mut Tiles<TileKind>, tile_id: TileId) -> bool {
         Self::activate_successor_tab_in_parent_before_close(tiles, tile_id);
+
+        if let Some((frame_anchor, hint_index, _hint)) =
+            crate::shell::desktop::ui::persistence_ops::frame_hint_tab_info(self.graph_app, tile_id)
+        {
+            self.queue_post_render_intent(GraphIntent::RemoveFrameLayoutHint {
+                frame: frame_anchor,
+                hint_index,
+            });
+        }
 
         if let Some(Tile::Pane(TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
@@ -1060,6 +1082,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             // No extra cleanup needed for tool pane
         }
         true
+    }
+
+    fn on_edit(&mut self, edit_action: EditAction) {
+        if matches!(edit_action, EditAction::TileDropped) {
+            self.pending_tile_drop_edit = true;
+        }
     }
 }
 
@@ -1270,7 +1298,7 @@ mod tests {
     };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use crate::shell::desktop::workbench::ux_tree::{self, UxNodeRole};
-    use egui_tiles::{Container, Tile, Tiles};
+    use egui_tiles::{Behavior, Container, Tile, Tiles, Tree};
 
     #[test]
     fn decode_plaintext_content_returns_text_for_utf8() {
@@ -1579,5 +1607,101 @@ mod tests {
             violation.is_none(),
             "healthy uxtree projection should not violate probe invariant"
         );
+    }
+
+    #[test]
+    fn closing_hint_tab_queues_remove_frame_layout_hint() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://close-hint-a.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://close-hint-b.example".to_string(),
+            euclid::default::Point2D::new(1.0, 0.0),
+        );
+        let c = app.add_node_and_sync(
+            "https://close-hint-c.example".to_string(),
+            euclid::default::Point2D::new(2.0, 0.0),
+        );
+
+        let mut seeded_tiles = Tiles::default();
+        let seeded_a = seeded_tiles.insert_pane(TileKind::Node(a.into()));
+        let seeded_b = seeded_tiles.insert_pane(TileKind::Node(b.into()));
+        let seeded_c = seeded_tiles.insert_pane(TileKind::Node(c.into()));
+        let seeded_root = seeded_tiles.insert_tab_tile(vec![seeded_a, seeded_b, seeded_c]);
+        let seeded_tree = Tree::new("close_hint_seed", seeded_root, seeded_tiles);
+        let frame_anchor = app.sync_named_workbench_frame_graph_representation(
+            "close-hint-frame",
+            &seeded_tree,
+        );
+        app.apply_reducer_intents([crate::app::GraphIntent::RecordFrameLayoutHint {
+            frame: frame_anchor,
+            hint: crate::graph::FrameLayoutHint::SplitHalf {
+                first: app
+                    .domain_graph()
+                    .get_node(a)
+                    .expect("first node")
+                    .id
+                    .to_string(),
+                second: app
+                    .domain_graph()
+                    .get_node(b)
+                    .expect("second node")
+                    .id
+                    .to_string(),
+                orientation: crate::graph::SplitOrientation::Vertical,
+            },
+        }]);
+
+        let mut tiles = Tiles::default();
+        let (tab_tiles, _, hint_tabs) = crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
+            &app,
+            frame_anchor,
+            &mut tiles,
+        )
+        .expect("frame tabs should materialize");
+        let group_id = tiles.insert_tab_tile(tab_tiles);
+        let hint_tile_id = hint_tabs[0].tile_id;
+        let mut tree = Tree::new("close_hint_tree", group_id, tiles);
+        crate::shell::desktop::ui::persistence_ops::register_frame_tile_group_runtime(
+            &mut app,
+            &tree,
+            group_id,
+            frame_anchor,
+        );
+
+        let mut control_panel = crate::shell::desktop::runtime::control_panel::ControlPanel::default();
+        let mut tile_favicon_textures = std::collections::HashMap::new();
+        let search_matches = std::collections::HashSet::new();
+        #[cfg(feature = "diagnostics")]
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        let mut behavior = GraphshellTileBehavior::new(
+            &mut app,
+            &mut control_panel,
+            &mut tile_favicon_textures,
+            &search_matches,
+            None,
+            false,
+            false,
+            #[cfg(feature = "diagnostics")]
+            &mut diagnostics,
+            #[cfg(feature = "diagnostics")]
+            None,
+        );
+
+        assert!(Behavior::on_tab_close(&mut behavior, &mut tree.tiles, hint_tile_id));
+        let intents = behavior.take_pending_post_render_intents();
+        assert_eq!(intents.len(), 1);
+        match &intents[0] {
+            super::TilePendingIntent::GraphIntent(
+                crate::app::GraphIntent::RemoveFrameLayoutHint { frame, hint_index },
+            ) => {
+                assert_eq!(*frame, frame_anchor);
+                assert_eq!(*hint_index, 0);
+            }
+            _ => panic!("expected RemoveFrameLayoutHint"),
+        }
     }
 }

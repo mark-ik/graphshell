@@ -2,7 +2,7 @@ use base64::Engine;
 use euclid::default::Point2D;
 
 use crate::app::{GraphBrowserApp, RendererId};
-use crate::graph::{AddressKind, NodeKey};
+use crate::graph::NodeKey;
 use crate::model::graph::{ClassificationProvenance, ClassificationStatus, NodeClassification};
 
 const CLIP_EDGE_LABEL: &str = "clip-source";
@@ -235,7 +235,6 @@ impl GraphBrowserApp {
         let _ = graph.set_node_title(clip_key, clip_title);
         let _ = graph.insert_node_tag(clip_key, Self::TAG_CLIP.to_string());
         let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
-        let _ = graph.set_node_address_kind(clip_key, AddressKind::GraphshellClip);
         let _ = graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
         for inherited in &inherited_classifications {
             graph.add_node_classification(clip_key, inherited.clone());
@@ -497,7 +496,7 @@ mod tests {
             clip_node.history_entries,
             vec!["https://example.com".to_string()]
         );
-        assert!(clip_node.url.starts_with("data:text/html"));
+        assert!(clip_node.url().starts_with("data:text/html"));
 
         let has_clip_edge = app
             .workspace

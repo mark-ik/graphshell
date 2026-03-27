@@ -86,7 +86,7 @@ address correctly. These types must be identical across platforms.
 | `NodeId` (UUID) | Stable across sync, Coop sessions, NIP-84 publication |
 | `Address` enum | `Http(Url)`, `File(PathBuf)`, `Onion`, `Ipfs(Cid)`, `Gemini`, `Custom` |
 | `HistoryEntry` | Append-only navigation log per node; WAL-replayed across platforms |
-| `RendererKind` hint enum | Names which renderer a node prefers; not the renderer itself |
+| `viewer_override: Option<ViewerId>` | User-set field on a node that forces a specific viewer, taking precedence over address/MIME-based selection. Stored in graph data; defined canonically in [UCM spec §4.1](../implementation_strategy/viewer/universal_content_model_spec.md). (Formerly called `RendererKind` in this plan — retired in favour of the UCM name.) |
 | URL normalization | Shared by NIP-84 `r` tag, node deduplication, Coop contribution routing |
 
 `Address::File` and `Address::Directory` compile on WASM (PathBuf is in std) but are never
@@ -226,7 +226,7 @@ impl Graph {
 | Mutations | `GraphIntent`, `apply_intents()` | — |
 | Events | `GraphSemanticEvent` | — |
 | State container | `GraphWorkspace` | `GraphBrowserApp` |
-| Address / history | `Address`, `HistoryEntry`, `RendererKind` hint | `ContentRenderer`, `ProtocolResolver` |
+| Address / history | `Address`, `HistoryEntry`, `viewer_override: Option<ViewerId>` | `ContentRenderer`, `ProtocolResolver` |
 | Node identity | `NodeId` (UUID), URL normalization | — |
 | Session authority | `CoopSessionId`, role enum, approval state machine, snapshot contract | Cursor rendering, presence UX, command filtering |
 | Publication schema | NIP-84 event struct, clip node type, `nostr_event_id` | Nostr signing, relay pool, network I/O |
@@ -426,7 +426,7 @@ graphshell-core/
     intent.rs         — GraphIntent enum, apply_intents()
     event.rs          — GraphSemanticEvent
     workspace.rs      — GraphWorkspace (semantic_tags, caches, component_loci)
-    address.rs        — Address, HistoryEntry, RendererKind, NodeId
+    address.rs        — Address, HistoryEntry, viewer_override (Option<ViewerId>), NodeId
     pos.rs            — GraphPos2
     url_normalize.rs  — canonical URL normalization (shared: NIP-84, deduplication)
     coop/
@@ -588,12 +588,17 @@ Migrate `Node` identity from URL-based to UUID-based (`NodeId: Uuid`). Extend th
 
 **Effort**: Large. **Risk**: High. **Gate**: After Step 0.
 
-### Step 3 — `Address` enum introduction
+### Step 3 — `Address` enum introduction ✅ Stages A–C complete (2026-03-26)
 
 Add `Address` enum in the host crate. Wire `Node::address: Address` replacing the current URL
 field. `ContentRenderer::can_render()` hook is not required at this step.
 
 **Effort**: Medium. **Gate**: After Step 2.
+
+**Status (2026-03-26)**: Stages A–C landed. `Address` enum introduced with `String` payloads for
+rkyv/WASM compat. `Node.address_kind: AddressKind` field removed; `address.address_kind()` bridge
+accessor retained. `GraphIntent::UpdateNodeAddressKind` and WAL entry retired. Stages D (mechanical
+`url: String` field → `url()` method pass) and E (remove shim) remain before full Step 3 closure.
 
 ### Step 4 — Extract `graphshell-core` crate
 

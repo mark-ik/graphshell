@@ -241,11 +241,11 @@ fn frame_affinity_backdrop_rect(
 /// Prefers the node's title; falls back to the URL host segment.
 fn frame_anchor_label(app: &GraphBrowserApp, anchor: crate::graph::NodeKey) -> Option<String> {
     let node = app.domain_graph().get_node(anchor)?;
-    if !node.title.is_empty() && node.title != node.url {
+    if !node.title.is_empty() && node.title != node.url() {
         return Some(node.title.clone());
     }
     // Fall back to URL host segment
-    servo::ServoUrl::parse(&node.url).ok().and_then(|u| {
+    servo::ServoUrl::parse(node.url()).ok().and_then(|u| {
         u.host_str()
             .map(|h| h.trim_start_matches("www.").to_string())
     })
@@ -427,14 +427,14 @@ pub(super) fn draw_hovered_edge_tooltip(
         .get_node(from)
         .map(|n| n.title.as_str())
         .filter(|t| !t.is_empty())
-        .or_else(|| app.domain_graph().get_node(from).map(|n| n.url.as_str()))
+        .or_else(|| app.domain_graph().get_node(from).map(|n| n.url()))
         .unwrap_or("unknown");
     let to_label = app
         .domain_graph()
         .get_node(to)
         .map(|n| n.title.as_str())
         .filter(|t| !t.is_empty())
-        .or_else(|| app.domain_graph().get_node(to).map(|n| n.url.as_str()))
+        .or_else(|| app.domain_graph().get_node(to).map(|n| n.url()))
         .unwrap_or("unknown");
 
     let latest_text = latest_ts
@@ -485,7 +485,7 @@ pub(super) fn draw_hovered_node_tooltip(
 ) {
     fn compact_hover_node_label(node: &crate::graph::Node) -> String {
         let raw = if node.title.trim().is_empty() {
-            node.url.trim()
+            node.url().trim()
         } else {
             node.title.trim()
         };

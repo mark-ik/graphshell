@@ -37,7 +37,7 @@ impl GraphBrowserApp {
                 self.next_placeholder_url()
             }
             _ if request.url.is_empty() => self.next_placeholder_url(),
-            _ => request.url,
+            _ => request.url.clone(),
         };
 
         let child_node = self.add_node_and_sync(node_url, position);
@@ -158,7 +158,7 @@ impl GraphBrowserApp {
             .domain
             .graph
             .get_node(node_key)
-            .map(|node| node.url != new_url)
+            .map(|node| node.url() != new_url)
             .unwrap_or(false)
         {
             let to_key = self
@@ -534,7 +534,7 @@ impl GraphBrowserApp {
         {
             crate::shell::desktop::runtime::registries::phase3_publish_navigation_node_activated(
                 node_key,
-                &node.url,
+                node.url(),
                 &node.title,
             );
         }
@@ -818,7 +818,7 @@ mod tests {
                 .graph
                 .get_node(pending_open.key)
                 .unwrap()
-                .url
+                .url()
                 .starts_with("about:blank#")
         );
     }

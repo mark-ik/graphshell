@@ -273,8 +273,8 @@ pub(super) fn collect_graph_keyboard_traversal_action(
 pub(super) fn graph_node_accessibility_name(node: &crate::graph::Node) -> String {
     if !node.title.trim().is_empty() {
         node.title.clone()
-    } else if !node.url.trim().is_empty() {
-        node.url.clone()
+    } else if !node.url().trim().is_empty() {
+        node.url().to_string()
     } else {
         "Untitled node".to_string()
     }

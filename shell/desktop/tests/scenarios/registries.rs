@@ -214,7 +214,7 @@ fn sector_a_content_pipeline_runs_end_to_end_for_tagged_markdown_node() {
         .graph
         .get_node(key)
         .expect("node should exist");
-    let parsed = ServoUrl::parse(&node.url).expect("url should parse");
+    let parsed = ServoUrl::parse(node.url()).expect("url should parse");
     let decision = registries::phase0_decide_navigation_for_tests(
         &harness.diagnostics,
         parsed,

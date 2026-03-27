@@ -35,12 +35,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::services::persistence::types::{
-    GraphSnapshot, PersistedAddressKind, PersistedArrangementEdgeData, PersistedArrangementSubKind,
-    PersistedContainmentEdgeData, PersistedContainmentSubKind, PersistedEdge, PersistedEdgeFamily,
-    PersistedImportedEdgeData, PersistedImportedSubKind, PersistedNavigationTrigger, PersistedNode,
-    PersistedNodeSessionState, PersistedProvenanceEdgeData, PersistedProvenanceSubKind,
-    PersistedSemanticEdgeData, PersistedSemanticSubKind, PersistedTraversalEdgeData,
-    PersistedTraversalMetrics, PersistedTraversalRecord,
+    GraphSnapshot, PersistedAddress, PersistedArrangementEdgeData,
+    PersistedArrangementSubKind, PersistedContainmentEdgeData, PersistedContainmentSubKind,
+    PersistedEdge, PersistedEdgeFamily, PersistedImportedEdgeData, PersistedImportedSubKind,
+    PersistedNavigationTrigger, PersistedNode, PersistedNodeSessionState,
+    PersistedProvenanceEdgeData, PersistedProvenanceSubKind, PersistedSemanticEdgeData,
+    PersistedSemanticSubKind, PersistedTraversalEdgeData, PersistedTraversalMetrics,
+    PersistedTraversalRecord,
 };
 
 pub mod apply;
@@ -259,8 +260,8 @@ where
 
 /// Address type hint for renderer selection.
 ///
-/// Set automatically from the URL scheme at node creation time; can be overridden
-/// by WAL entry `UpdateNodeAddressKind` when a more precise classification is known.
+/// Always derived from the URL scheme — never stored independently.
+/// Obtain via `node.address.address_kind()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Archive, Serialize, Deserialize)]
 pub enum AddressKind {
     /// Served over HTTP/HTTPS — default; Servo renders.
@@ -276,6 +277,86 @@ pub enum AddressKind {
     Directory,
     /// Any other or unresolved scheme.
     Unknown,
+}
+
+/// Typed address carrying both the scheme classification and the raw URL string.
+///
+/// Replaces the two-field stopgap of `url: String` + `AddressKind`. The raw
+/// URL string is always recoverable via [`Address::as_url_str`]. Structured
+/// parsing (hostname extraction, path manipulation) continues to happen at the
+/// render/utility layer via [`cached_host_from_url`] and [`crate::util::VersoAddress`].
+///
+/// Uses `String` payloads rather than `url::Url` / `PathBuf` so the type
+/// remains `rkyv`-serializable and WASM-clean without pulling parser
+/// dependencies into the graph model layer.
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum Address {
+    /// HTTP or HTTPS content URL.
+    Http(String),
+    /// Local filesystem file (`file://` URL, non-directory).
+    File(String),
+    /// Inline data URL payload (`data:` scheme).
+    Data(String),
+    /// Graphshell clip route (`verso://clip/<id>` or `graphshell://clip/<id>`).
+    /// The payload is the clip id, not the full URL.
+    Clip(String),
+    /// Local filesystem directory path (`file://` URL ending with `/`).
+    Directory(String),
+    /// Any other or unresolved scheme — stores the raw URL.
+    Custom(String),
+}
+
+impl Address {
+    /// Return the raw URL string for this address.
+    pub fn as_url_str(&self) -> &str {
+        match self {
+            Address::Http(s)
+            | Address::File(s)
+            | Address::Data(s)
+            | Address::Directory(s)
+            | Address::Custom(s)
+            | Address::Clip(s) => s.as_str(),
+        }
+    }
+
+    /// Derive the legacy `AddressKind` from this address.
+    ///
+    /// Provided as a bridge accessor during the migration so callers that
+    /// still pattern-match on `AddressKind` continue to compile unchanged.
+    pub fn address_kind(&self) -> AddressKind {
+        match self {
+            Address::Http(_) => AddressKind::Http,
+            Address::File(_) => AddressKind::File,
+            Address::Data(_) => AddressKind::Data,
+            Address::Clip(_) => AddressKind::GraphshellClip,
+            Address::Directory(_) => AddressKind::Directory,
+            Address::Custom(_) => AddressKind::Unknown,
+        }
+    }
+}
+
+/// Construct a typed [`Address`] from a raw URL string.
+///
+/// Uses the same scheme-detection logic as the legacy `address_kind_from_url`,
+/// but embeds the URL (or clip id for clip routes) directly in the variant.
+pub(crate) fn address_from_url(url: &str) -> Address {
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        Address::Http(url.to_owned())
+    } else if lower.starts_with("data:") {
+        Address::Data(url.to_owned())
+    } else if lower.starts_with("verso://clip/") || lower.starts_with("graphshell://clip/") {
+        Address::Clip(url.to_owned())
+    } else if lower.starts_with("file://") {
+        if file_url_uses_directory_syntax(url) {
+            Address::Directory(url.to_owned())
+        } else {
+            Address::File(url.to_owned())
+        }
+    } else {
+        Address::Custom(url.to_owned())
+    }
 }
 
 /// Infer `AddressKind` from a URL scheme.
@@ -636,10 +717,7 @@ pub struct Node {
     #[rkyv(with = UuidAsBytes)]
     pub id: Uuid,
 
-    /// Full URL of the webpage
-    pub url: String,
-
-    /// Cached hostname derived from `url` for UI label rendering.
+    /// Cached hostname derived from the node's address for UI label rendering.
     pub cached_host: Option<String>,
 
     /// Page title (or URL if no title)
@@ -719,11 +797,10 @@ pub struct Node {
     /// Content-Type header provides a more precise value.
     pub mime_hint: Option<String>,
 
-    /// Address type hint (complement to `url` field).
-    ///
-    /// Inferred from the URL scheme at node creation time. May be overridden by
-    /// WAL entry `UpdateNodeAddressKind`.
-    pub address_kind: AddressKind,
+    /// Typed address — carries both the URL scheme classification and the raw
+    /// URL string (or clip id for clip routes). Use `address.address_kind()` to
+    /// get the scheme classification and `address.as_url_str()` to get the URL.
+    pub address: Address,
 
     /// Durable split arrangement annotations for frame-anchor nodes.
     pub frame_layout_hints: Vec<FrameLayoutHint>,
@@ -760,11 +837,15 @@ impl Node {
         self.committed_position
     }
 
+    /// Returns the node's raw URL string.
+    pub fn url(&self) -> &str {
+        self.address.as_url_str()
+    }
+
     #[cfg(test)]
     pub(crate) fn test_stub(url: &str) -> Self {
         Self {
             id: Uuid::new_v4(),
-            url: url.to_string(),
             cached_host: cached_host_from_url(url),
             title: url.to_string(),
             position: Point2D::new(0.0, 0.0),
@@ -787,7 +868,7 @@ impl Node {
             session_scroll: None,
             session_form_draft: None,
             mime_hint: None,
-            address_kind: AddressKind::Http,
+            address: address_from_url(url),
             frame_layout_hints: Vec::new(),
             frame_split_offer_suppressed: false,
             lifecycle: NodeLifecycle::Cold,
@@ -1776,7 +1857,6 @@ impl Graph {
         let key = self.inner.add_node(Node {
             id,
             title: url.clone(),
-            url: url.clone(),
             cached_host: cached_host_from_url(&url),
             position,
             committed_position: position,
@@ -1798,7 +1878,7 @@ impl Graph {
             session_scroll: None,
             session_form_draft: None,
             mime_hint: detect_mime(&url, None),
-            address_kind: address_kind_from_url(&url),
+            address: address_from_url(&url),
             frame_layout_hints: Vec::new(),
             frame_split_offer_suppressed: false,
             lifecycle: NodeLifecycle::Cold,
@@ -1813,7 +1893,7 @@ impl Graph {
     pub(crate) fn remove_node(&mut self, key: NodeKey) -> bool {
         if let Some(node) = self.inner.remove_node(key) {
             self.id_to_node.remove(&node.id);
-            self.remove_url_mapping(&node.url, key);
+            self.remove_url_mapping(node.address.as_url_str(), key);
             let removed_id = node.id.to_string();
             for record in &mut self.import_records {
                 record
@@ -1832,8 +1912,9 @@ impl Graph {
     /// Returns the old URL, or None if the node doesn't exist.
     pub(crate) fn update_node_url(&mut self, key: NodeKey, new_url: String) -> Option<String> {
         let node = self.inner.node_weight_mut(key)?;
+        let old_url = node.address.as_url_str().to_string();
         node.cached_host = cached_host_from_url(&new_url);
-        let old_url = std::mem::replace(&mut node.url, new_url.clone());
+        node.address = address_from_url(&new_url);
         self.remove_url_mapping(&old_url, key);
         self.url_to_nodes.entry(new_url).or_default().push(key);
         Some(old_url)
@@ -1841,7 +1922,7 @@ impl Graph {
 
     pub fn recompute_cached_hosts(&mut self) {
         for node in self.inner.node_weights_mut() {
-            node.cached_host = cached_host_from_url(&node.url);
+            node.cached_host = cached_host_from_url(node.address.as_url_str());
         }
     }
 
@@ -1908,17 +1989,6 @@ impl Graph {
             return false;
         }
         node.mime_hint = mime_hint;
-        true
-    }
-
-    pub(crate) fn set_node_address_kind(&mut self, key: NodeKey, kind: AddressKind) -> bool {
-        let Some(node) = self.inner.node_weight_mut(key) else {
-            return false;
-        };
-        if node.address_kind == kind {
-            return false;
-        }
-        node.address_kind = kind;
         true
     }
 
@@ -3009,7 +3079,7 @@ impl Graph {
 
         let mut domain_anchor: HashMap<String, (NodeKey, usize, Uuid)> = HashMap::new();
         for (key, node) in self.nodes() {
-            let Ok(parsed) = url::Url::parse(&node.url) else {
+            let Ok(parsed) = url::Url::parse(node.url()) else {
                 continue;
             };
             let depth = parsed.path_segments().map_or(0, |segments| {
@@ -3036,7 +3106,7 @@ impl Graph {
         let mut url_parent_edges = Vec::new();
         let mut domain_edges = Vec::new();
         for (key, node) in self.nodes() {
-            let Ok(parsed) = url::Url::parse(&node.url) else {
+            let Ok(parsed) = url::Url::parse(node.url()) else {
                 continue;
             };
 
@@ -3261,7 +3331,6 @@ impl Graph {
             .nodes()
             .map(|(_, node)| PersistedNode {
                 node_id: node.id.to_string(),
-                url: node.url.clone(),
                 cached_host: node.cached_host.clone(),
                 title: node.title.clone(),
                 position_x: node.committed_position.x,
@@ -3289,16 +3358,18 @@ impl Graph {
                     scroll_y: node.session_scroll.map(|(_, y)| y),
                     form_draft: node.session_form_draft.clone(),
                 }),
+                address: match &node.address {
+                    Address::Http(s) => PersistedAddress::Http(s.clone()),
+                    Address::File(s) => PersistedAddress::File(s.clone()),
+                    Address::Data(s) => PersistedAddress::Data(s.clone()),
+                    Address::Clip(s) => PersistedAddress::Clip(s.clone()),
+                    Address::Directory(s) => PersistedAddress::Directory(s.clone()),
+                    Address::Custom(s) => PersistedAddress::Custom(s.clone()),
+                },
+                // Written for backward compat: pre-Stage C.2 readers use this field.
+                url: node.address.as_url_str().to_string(),
                 classifications: node.classifications.clone(),
                 mime_hint: node.mime_hint.clone(),
-                address_kind: match node.address_kind {
-                    AddressKind::Http => PersistedAddressKind::Http,
-                    AddressKind::File => PersistedAddressKind::File,
-                    AddressKind::Data => PersistedAddressKind::Data,
-                    AddressKind::GraphshellClip => PersistedAddressKind::GraphshellClip,
-                    AddressKind::Directory => PersistedAddressKind::Directory,
-                    AddressKind::Unknown => PersistedAddressKind::Unknown,
-                },
                 frame_layout_hints: node.frame_layout_hints.clone(),
                 frame_split_offer_suppressed: node.frame_split_offer_suppressed,
             })
@@ -3536,9 +3607,15 @@ impl Graph {
             let Ok(node_id) = Uuid::parse_str(&pnode.node_id) else {
                 continue;
             };
+            // Prefer the typed address field (Stage C.2+); fall back to the legacy
+            // `url` string field for snapshots written before Stage C.2.
+            let node_url = {
+                let from_address = pnode.address.as_url_str();
+                if from_address.is_empty() { pnode.url.clone() } else { from_address.to_string() }
+            };
             let key = graph.add_node_with_id(
                 node_id,
-                pnode.url.clone(),
+                node_url,
                 Point2D::new(pnode.position_x, pnode.position_y),
             );
             let mut restore_url_from_session: Option<String> = None;
@@ -3547,7 +3624,7 @@ impl Graph {
                 node.cached_host = pnode
                     .cached_host
                     .clone()
-                    .or_else(|| cached_host_from_url(&node.url));
+                    .or_else(|| cached_host_from_url(node.address.as_url_str()));
                 node.tags = pnode.tags.iter().cloned().collect();
                 node.tag_presentation = pnode.tag_presentation.clone();
                 node.import_provenance = pnode.import_provenance.clone();
@@ -3564,14 +3641,7 @@ impl Graph {
                 node.favicon_width = pnode.favicon_width;
                 node.favicon_height = pnode.favicon_height;
                 node.mime_hint = pnode.mime_hint.clone();
-                node.address_kind = match pnode.address_kind {
-                    PersistedAddressKind::Http => AddressKind::Http,
-                    PersistedAddressKind::File => AddressKind::File,
-                    PersistedAddressKind::Data => AddressKind::Data,
-                    PersistedAddressKind::GraphshellClip => AddressKind::GraphshellClip,
-                    PersistedAddressKind::Directory => AddressKind::Directory,
-                    PersistedAddressKind::Unknown => AddressKind::Unknown,
-                };
+                // address was already set by add_node_with_id from pnode.url; no re-derivation needed.
                 node.frame_layout_hints = pnode.frame_layout_hints.clone();
                 node.frame_split_offer_suppressed = pnode.frame_split_offer_suppressed;
                 if let Some(session) = &pnode.session_state {
@@ -3588,10 +3658,10 @@ impl Graph {
             if let Some(current_url) = restore_url_from_session
                 && !current_url.is_empty()
             {
-                // Recompute MIME hint and address kind from the restored URL.
+                // Recompute MIME hint and address from the restored URL.
                 if let Some(node) = graph.inner.node_weight_mut(key) {
                     node.mime_hint = detect_mime(&current_url, None);
-                    node.address_kind = address_kind_from_url(&current_url);
+                    node.address = address_from_url(&current_url);
                 }
                 let _ = graph.update_node_url(key, current_url);
             }
@@ -3884,7 +3954,7 @@ mod tests {
         let key = graph.add_node("https://example.com".to_string(), pos);
 
         let node = graph.get_node(key).unwrap();
-        assert_eq!(node.url, "https://example.com");
+        assert_eq!(node.url(), "https://example.com");
         assert_eq!(node.title, "https://example.com");
         assert_eq!(node.position.x, 100.0);
         assert_eq!(node.position.y, 200.0);
@@ -3928,7 +3998,7 @@ mod tests {
         graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
 
         let (_, node) = graph.get_node_by_url("https://example.com").unwrap();
-        assert_eq!(node.url, "https://example.com");
+        assert_eq!(node.url(), "https://example.com");
 
         assert!(graph.get_node_by_url("https://notfound.com").is_none());
     }
@@ -4117,7 +4187,7 @@ mod tests {
         graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
         graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 2.0));
 
-        let urls: Vec<String> = graph.nodes().map(|(_, n)| n.url.clone()).collect();
+        let urls: Vec<String> = graph.nodes().map(|(_, n)| n.url().to_string()).collect();
         assert_eq!(urls.len(), 3);
         assert!(urls.contains(&"https://a.com".to_string()));
         assert!(urls.contains(&"https://b.com".to_string()));
@@ -4333,7 +4403,7 @@ mod tests {
         let snapshot = graph.to_snapshot();
         let restored = Graph::from_snapshot(&snapshot);
         let (_, restored_node) = restored.get_node_by_id(node_id).unwrap();
-        assert_eq!(restored_node.url, "https://a.com");
+        assert_eq!(restored_node.url(), "https://a.com");
     }
 
     // --- TEST-3: from_snapshot edge cases ---
@@ -4341,7 +4411,7 @@ mod tests {
     #[test]
     fn test_snapshot_edge_with_missing_url_is_dropped() {
         use crate::services::persistence::types::{
-            GraphSnapshot, PersistedAddressKind, PersistedEdge, PersistedNode,
+            GraphSnapshot, PersistedAddress, PersistedEdge, PersistedNode,
         };
 
         let snapshot = GraphSnapshot {
@@ -4366,7 +4436,7 @@ mod tests {
                 favicon_height: 0,
                 session_state: None,
                 mime_hint: None,
-                address_kind: PersistedAddressKind::Http,
+                address: PersistedAddress::Http("https://a.com".to_string()),
                 classifications: Vec::new(),
                 frame_layout_hints: Vec::new(),
                 frame_split_offer_suppressed: false,
@@ -4400,7 +4470,7 @@ mod tests {
     #[test]
     fn test_snapshot_duplicate_urls_last_wins() {
         use crate::services::persistence::types::{
-            GraphSnapshot, PersistedAddressKind, PersistedNode,
+            GraphSnapshot, PersistedAddress, PersistedNode,
         };
 
         let snapshot = GraphSnapshot {
@@ -4426,7 +4496,7 @@ mod tests {
                     favicon_height: 0,
                     session_state: None,
                     mime_hint: None,
-                    address_kind: PersistedAddressKind::Http,
+                    address: PersistedAddress::Http("https://same.com".to_string()),
                     classifications: Vec::new(),
                     frame_layout_hints: Vec::new(),
                     frame_split_offer_suppressed: false,
@@ -4452,7 +4522,7 @@ mod tests {
                     favicon_height: 0,
                     session_state: None,
                     mime_hint: None,
-                    address_kind: PersistedAddressKind::Http,
+                    address: PersistedAddress::Http("https://same.com".to_string()),
                     classifications: Vec::new(),
                     frame_layout_hints: Vec::new(),
                     frame_split_offer_suppressed: false,
@@ -4479,7 +4549,7 @@ mod tests {
         let old = graph.update_node_url(key, "new".to_string());
 
         assert_eq!(old, Some("old".to_string()));
-        assert_eq!(graph.get_node(key).unwrap().url, "new");
+        assert_eq!(graph.get_node(key).unwrap().url(), "new");
         assert!(graph.get_node_by_url("new").is_some());
         assert!(graph.get_node_by_url("old").is_none());
     }
@@ -4495,7 +4565,7 @@ mod tests {
     #[test]
     fn test_cold_restore_reapplies_history_index() {
         use crate::services::persistence::types::{
-            GraphSnapshot, PersistedAddressKind, PersistedNode, PersistedNodeSessionState,
+            GraphSnapshot, PersistedAddress, PersistedNode, PersistedNodeSessionState,
         };
 
         let node_id = Uuid::new_v4();
@@ -4531,7 +4601,7 @@ mod tests {
                     form_draft: None,
                 }),
                 mime_hint: None,
-                address_kind: PersistedAddressKind::Http,
+                address: PersistedAddress::Http("https://fallback.example".to_string()),
                 classifications: Vec::new(),
                 frame_layout_hints: Vec::new(),
                 frame_split_offer_suppressed: false,
@@ -4550,7 +4620,7 @@ mod tests {
     #[test]
     fn test_cold_restore_reapplies_scroll_offset() {
         use crate::services::persistence::types::{
-            GraphSnapshot, PersistedAddressKind, PersistedNode, PersistedNodeSessionState,
+            GraphSnapshot, PersistedAddress, PersistedNode, PersistedNodeSessionState,
         };
 
         let snapshot = GraphSnapshot {
@@ -4581,7 +4651,7 @@ mod tests {
                     form_draft: None,
                 }),
                 mime_hint: None,
-                address_kind: PersistedAddressKind::Http,
+                address: PersistedAddress::Http("https://example.com".to_string()),
                 classifications: Vec::new(),
                 frame_layout_hints: Vec::new(),
                 frame_split_offer_suppressed: false,
@@ -4599,7 +4669,7 @@ mod tests {
     #[test]
     fn test_restore_fallback_without_session_state() {
         use crate::services::persistence::types::{
-            GraphSnapshot, PersistedAddressKind, PersistedNode,
+            GraphSnapshot, PersistedAddress, PersistedNode,
         };
 
         let snapshot = GraphSnapshot {
@@ -4624,7 +4694,7 @@ mod tests {
                 favicon_height: 0,
                 session_state: None,
                 mime_hint: None,
-                address_kind: PersistedAddressKind::Http,
+                address: PersistedAddress::Http("https://fallback.example".to_string()),
                 classifications: Vec::new(),
                 frame_layout_hints: Vec::new(),
                 frame_split_offer_suppressed: false,
@@ -4866,7 +4936,7 @@ mod tests {
         let mut graph = Graph::new();
         let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         let node = graph.get_node(key).unwrap();
-        assert_eq!(node.address_kind, AddressKind::Http);
+        assert_eq!(node.address.address_kind(), AddressKind::Http);
     }
 
     #[test]
@@ -4877,7 +4947,7 @@ mod tests {
             Point2D::new(0.0, 0.0),
         );
         let node = graph.get_node(key).unwrap();
-        assert_eq!(node.address_kind, AddressKind::File);
+        assert_eq!(node.address.address_kind(), AddressKind::File);
     }
 
     #[test]
@@ -4889,7 +4959,7 @@ mod tests {
         );
         let node = graph.get_node(key).unwrap();
         assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
-        assert_eq!(node.address_kind, AddressKind::File);
+        assert_eq!(node.address.address_kind(), AddressKind::File);
     }
 
     #[test]
@@ -5011,6 +5081,122 @@ mod tests {
     }
 
     #[test]
+    fn address_from_url_http() {
+        assert_eq!(
+            address_from_url("https://example.com"),
+            Address::Http("https://example.com".to_string())
+        );
+        assert_eq!(
+            address_from_url("http://example.com/path"),
+            Address::Http("http://example.com/path".to_string())
+        );
+    }
+
+    #[test]
+    fn address_from_url_file_and_directory() {
+        assert_eq!(
+            address_from_url("file:///home/user/file.txt"),
+            Address::File("file:///home/user/file.txt".to_string())
+        );
+        assert_eq!(
+            address_from_url("file:///tmp/mydir/"),
+            Address::Directory("file:///tmp/mydir/".to_string())
+        );
+    }
+
+    #[test]
+    fn address_from_url_data_and_custom() {
+        assert_eq!(
+            address_from_url("data:text/plain,hello"),
+            Address::Data("data:text/plain,hello".to_string())
+        );
+        assert_eq!(
+            address_from_url("gemini://gemini.circumlunar.space/"),
+            Address::Custom("gemini://gemini.circumlunar.space/".to_string())
+        );
+    }
+
+    #[test]
+    fn address_from_url_clip_stores_full_url() {
+        assert_eq!(
+            address_from_url("verso://clip/clip-abc-123"),
+            Address::Clip("verso://clip/clip-abc-123".to_string())
+        );
+        assert_eq!(
+            address_from_url("graphshell://clip/clip-xyz"),
+            Address::Clip("graphshell://clip/clip-xyz".to_string())
+        );
+    }
+
+    #[test]
+    fn address_as_url_str_roundtrips_for_all_variants() {
+        let cases = [
+            "https://example.com",
+            "file:///home/user/file.txt",
+            "file:///tmp/mydir/",
+            "data:text/plain,hello",
+            "gemini://example.com/",
+            "verso://clip/clip-abc",
+            "graphshell://clip/clip-xyz",
+        ];
+        for url in cases {
+            let addr = address_from_url(url);
+            assert_eq!(
+                addr.as_url_str(),
+                url,
+                "as_url_str should return the original URL for {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn address_address_kind_bridge_matches_legacy_inference() {
+        let cases = [
+            ("https://example.com", AddressKind::Http),
+            ("http://example.com", AddressKind::Http),
+            ("file:///home/user/file.txt", AddressKind::File),
+            ("file:///tmp/mydir/", AddressKind::Directory),
+            ("data:text/plain,hello", AddressKind::Data),
+            ("verso://clip/clip-123", AddressKind::GraphshellClip),
+            ("graphshell://clip/clip-456", AddressKind::GraphshellClip),
+            ("gemini://example.com/", AddressKind::Unknown),
+        ];
+        for (url, expected_kind) in cases {
+            assert_eq!(
+                address_from_url(url).address_kind(),
+                expected_kind,
+                "address_kind() mismatch for {url}"
+            );
+            assert_eq!(
+                address_kind_from_url(url),
+                expected_kind,
+                "address_kind_from_url mismatch for {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn node_address_field_is_consistent_with_url_and_address_kind_at_creation() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let node = graph.get_node(key).unwrap();
+        assert_eq!(node.address, Address::Http("https://example.com".to_string()));
+        assert_eq!(node.address.address_kind(), AddressKind::Http);
+        assert_eq!(node.address.as_url_str(), node.url());
+    }
+
+    #[test]
+    fn node_address_field_stays_in_sync_after_url_update() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        graph.update_node_url(key, "file:///home/user/doc.txt".to_string());
+        let node = graph.get_node(key).unwrap();
+        assert_eq!(node.address, Address::File("file:///home/user/doc.txt".to_string()));
+        assert_eq!(node.address.address_kind(), AddressKind::File);
+        assert_eq!(node.address.as_url_str(), node.url());
+    }
+
+    #[test]
     fn snapshot_roundtrip_preserves_mime_hint_and_address_kind() {
         let mut graph = Graph::new();
         let key = graph.add_node(
@@ -5021,7 +5207,7 @@ mod tests {
             graph.get_node(key).unwrap().mime_hint.as_deref(),
             Some("application/pdf")
         );
-        assert_eq!(graph.get_node(key).unwrap().address_kind, AddressKind::File);
+        assert_eq!(graph.get_node(key).unwrap().address.address_kind(), AddressKind::File);
 
         let snapshot = graph.to_snapshot();
         let restored = Graph::from_snapshot(&snapshot);
@@ -5029,7 +5215,7 @@ mod tests {
             .get_node_by_url("file:///home/user/report.pdf")
             .unwrap();
         assert_eq!(rnode.mime_hint.as_deref(), Some("application/pdf"));
-        assert_eq!(rnode.address_kind, AddressKind::File);
+        assert_eq!(rnode.address.address_kind(), AddressKind::File);
     }
 
     #[test]

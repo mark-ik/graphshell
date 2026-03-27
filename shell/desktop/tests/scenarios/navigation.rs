@@ -22,7 +22,7 @@ fn webview_url_changed_updates_existing_mapping() {
         .graph
         .get_node(key)
         .expect("mapped node should exist");
-    assert_eq!(node.url, "https://after.example");
+    assert_eq!(node.url(), "https://after.example");
     assert_eq!(harness.app.get_node_for_webview(webview_id), Some(key));
 }
 

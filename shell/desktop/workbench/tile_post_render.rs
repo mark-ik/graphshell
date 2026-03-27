@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use egui_tiles::Tree;
+use egui_tiles::{TileId, Tree};
 
 use super::tile_behavior::{GraphshellTileBehavior, PendingOpenNode};
 use super::tile_compositor;
@@ -61,6 +61,61 @@ fn active_context_return_target(
     None
 }
 
+fn active_frame_group_anchor(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<NodeKey> {
+    let mut cursor = tiles_tree.root();
+    while let Some(tile_id) = cursor {
+        if let Some(state) = graph_app.workspace.graph_runtime.frame_tile_groups.get(&tile_id) {
+            return Some(state.frame_anchor);
+        }
+
+        cursor = match tiles_tree.tiles.get(tile_id) {
+            Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs))) => tabs.active,
+            _ => None,
+        };
+    }
+
+    for active_tile_id in tiles_tree.active_tiles().into_iter().rev() {
+        let mut cursor: Option<TileId> = Some(active_tile_id);
+        while let Some(tile_id) = cursor {
+            if let Some(state) = graph_app.workspace.graph_runtime.frame_tile_groups.get(&tile_id) {
+                return Some(state.frame_anchor);
+            }
+            cursor = tiles_tree.tiles.parent_of(tile_id);
+        }
+    }
+    None
+}
+
+fn frame_name_for_anchor(graph_app: &GraphBrowserApp, frame_anchor: NodeKey) -> Option<String> {
+    let frame_url = graph_app.domain_graph().get_node(frame_anchor)?.url().to_string();
+    GraphBrowserApp::resolve_frame_route(&frame_url)
+}
+
+fn sync_current_frame_from_active_tile_group(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
+    let Some(frame_anchor) = active_frame_group_anchor(graph_app, tiles_tree) else {
+        return;
+    };
+    let Some(frame_name) = frame_name_for_anchor(graph_app, frame_anchor) else {
+        return;
+    };
+    if graph_app.current_frame_name() == Some(frame_name.as_str()) {
+        return;
+    }
+
+    let member_keys = persistence_ops::ordered_live_frame_member_keys_for_anchor(graph_app, frame_anchor);
+    if member_keys.is_empty() {
+        return;
+    }
+
+    graph_app.note_frame_activated(&frame_name, member_keys);
+}
+
 pub(crate) fn render_tile_tree_and_collect_outputs(
     ui: &mut egui::Ui,
     tiles_tree: &mut Tree<TileKind>,
@@ -97,6 +152,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     let pending_open_nodes = behavior.take_pending_open_nodes();
     let pending_closed_nodes = behavior.take_pending_closed_nodes();
     let tab_drag_stopped_nodes = behavior.take_pending_tab_drag_stopped_nodes();
+    let pending_tile_drop_edit = behavior.take_pending_tile_drop_edit();
     let mut post_render_intents: Vec<GraphIntent> = behavior
         .take_pending_post_render_intents()
         .into_iter()
@@ -204,9 +260,16 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         &tab_group_nodes_after,
         &tab_drag_stopped_nodes,
     ));
-    post_render_intents.extend(
-        persistence_ops::frame_layout_sync_intents_for_current_frame(graph_app, tiles_tree),
-    );
+    persistence_ops::refresh_frame_tile_group_runtime(graph_app, tiles_tree);
+    sync_current_frame_from_active_tile_group(graph_app, tiles_tree);
+    if pending_tile_drop_edit {
+        post_render_intents.extend(
+            persistence_ops::frame_layout_sync_intents_for_registered_frame_groups(
+                graph_app,
+                tiles_tree,
+            ),
+        );
+    }
 
     TileRenderOutputs {
         pending_open_nodes,
@@ -234,11 +297,12 @@ mod tests {
 
     use super::{
         active_context_return_target, render_tile_tree_and_collect_outputs,
+        sync_current_frame_from_active_tile_group,
         should_summon_radial_palette_on_secondary_click,
     };
     use crate::app::{
-        GraphBrowserApp, GraphViewId, SurfaceHostId, ToolSurfaceReturnTarget, WorkbenchIntent,
-        WorkbenchLayoutConstraint,
+        GraphBrowserApp, GraphIntent, GraphViewId, SurfaceHostId, ToolSurfaceReturnTarget,
+        WorkbenchIntent, WorkbenchLayoutConstraint,
     };
     use crate::graph::NodeKey;
     use crate::shell::desktop::runtime::control_panel::ControlPanel;
@@ -249,7 +313,7 @@ mod tests {
     };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use crate::shell::desktop::workbench::ux_tree;
-    use egui_tiles::{Tiles, Tree};
+    use egui_tiles::{Container, Tile, Tiles, Tree};
 
     #[test]
     fn secondary_click_without_node_summons_palette() {
@@ -370,5 +434,91 @@ mod tests {
         assert!(snapshot.semantic_nodes.iter().any(|node| {
             matches!(node.domain, crate::shell::desktop::workbench::ux_tree::UxDomainIdentity::NavigatorProjection { .. })
         }));
+    }
+
+    #[test]
+    fn sync_current_frame_from_active_tile_group_tracks_active_frame_group() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://frame-a-left.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://frame-a-right.example".to_string(),
+            euclid::default::Point2D::new(1.0, 0.0),
+        );
+        let c = app.add_node_and_sync(
+            "https://frame-b-left.example".to_string(),
+            euclid::default::Point2D::new(2.0, 0.0),
+        );
+        let d = app.add_node_and_sync(
+            "https://frame-b-right.example".to_string(),
+            euclid::default::Point2D::new(3.0, 0.0),
+        );
+
+        let mut frame_a_tiles = Tiles::default();
+        let frame_a_left = frame_a_tiles.insert_pane(TileKind::Node(a.into()));
+        let frame_a_right = frame_a_tiles.insert_pane(TileKind::Node(b.into()));
+        let frame_a_root = frame_a_tiles.insert_tab_tile(vec![frame_a_left, frame_a_right]);
+        let frame_a_tree = Tree::new("frame_a_seed", frame_a_root, frame_a_tiles);
+        let frame_a_anchor =
+            app.sync_named_workbench_frame_graph_representation("workspace-alpha", &frame_a_tree);
+
+        let mut frame_b_tiles = Tiles::default();
+        let frame_b_left = frame_b_tiles.insert_pane(TileKind::Node(c.into()));
+        let frame_b_right = frame_b_tiles.insert_pane(TileKind::Node(d.into()));
+        let frame_b_root = frame_b_tiles.insert_tab_tile(vec![frame_b_left, frame_b_right]);
+        let frame_b_tree = Tree::new("frame_b_seed", frame_b_root, frame_b_tiles);
+        let frame_b_anchor =
+            app.sync_named_workbench_frame_graph_representation("workspace-beta", &frame_b_tree);
+
+        app.apply_reducer_intents([GraphIntent::RecordFrameLayoutHint {
+            frame: frame_b_anchor,
+            hint: crate::graph::FrameLayoutHint::SplitHalf {
+                first: app.domain_graph().get_node(c).expect("frame b first").id.to_string(),
+                second: app.domain_graph().get_node(d).expect("frame b second").id.to_string(),
+                orientation: crate::graph::SplitOrientation::Vertical,
+            },
+        }]);
+
+        let mut tiles = Tiles::default();
+        let (frame_a_tabs, _, _) = crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
+            &app,
+            frame_a_anchor,
+            &mut tiles,
+        )
+        .expect("frame a tabs");
+        let frame_a_group = tiles.insert_tab_tile(frame_a_tabs);
+
+        let (frame_b_tabs, _, _) = crate::shell::desktop::ui::persistence_ops::materialize_frame_tile_group_tabs(
+            &app,
+            frame_b_anchor,
+            &mut tiles,
+        )
+        .expect("frame b tabs");
+        let frame_b_group = tiles.insert_tab_tile(frame_b_tabs);
+
+        let root = tiles.insert_tab_tile(vec![frame_a_group, frame_b_group]);
+        let mut tree = Tree::new("active_frame_group_sync", root, tiles);
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tree.tiles.get_mut(root) {
+            tabs.set_active(frame_b_group);
+        }
+
+        crate::shell::desktop::ui::persistence_ops::register_frame_tile_group_runtime(
+            &mut app,
+            &tree,
+            frame_a_group,
+            frame_a_anchor,
+        );
+        crate::shell::desktop::ui::persistence_ops::register_frame_tile_group_runtime(
+            &mut app,
+            &tree,
+            frame_b_group,
+            frame_b_anchor,
+        );
+
+        sync_current_frame_from_active_tile_group(&mut app, &tree);
+
+        assert_eq!(app.current_frame_name(), Some("workspace-beta"));
     }
 }

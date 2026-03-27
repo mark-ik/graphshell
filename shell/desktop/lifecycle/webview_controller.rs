@@ -379,7 +379,7 @@ mod tests {
         app.apply_reducer_intents(intents);
 
         let node = app.workspace.domain.graph.get_node(key).unwrap();
-        assert_eq!(node.url, "https://new.com");
+        assert_eq!(node.url(), "https://new.com");
         assert!(open_selected_tile);
     }
 
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(app.workspace.domain.graph.node_count(), before + 1);
         let selected = app.get_single_selected_node().unwrap();
         assert_eq!(
-            app.workspace.domain.graph.get_node(selected).unwrap().url,
+            app.workspace.domain.graph.get_node(selected).unwrap().url(),
             "https://created.com"
         );
         assert!(open_selected_tile);
@@ -432,15 +432,15 @@ mod tests {
             .graph
             .get_node(key)
             .unwrap()
-            .url
-            .clone();
+            .url()
+            .to_string();
 
         let (open_selected_tile, intents) = intents_for_omnibox_node_search(&app, "example handle");
         app.apply_reducer_intents(intents);
 
         assert_eq!(app.get_single_selected_node(), Some(key));
         assert_eq!(
-            app.workspace.domain.graph.get_node(key).unwrap().url,
+            app.workspace.domain.graph.get_node(key).unwrap().url(),
             original_url
         );
         assert!(open_selected_tile);

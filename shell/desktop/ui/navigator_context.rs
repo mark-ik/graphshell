@@ -114,10 +114,10 @@ pub(crate) fn compute_navigator_context(graph_app: &GraphBrowserApp) -> Navigato
         .primary()
         .and_then(|key| graph_app.domain_graph().get_node(key).map(|n| (key, n)))
         .map(|(key, node)| {
-            let label = if node.url.is_empty() {
+            let label = if node.url().is_empty() {
                 "node".to_string()
             } else {
-                node.url.clone()
+                node.url().to_string()
             };
             BreadcrumbPath {
                 tokens: vec![BreadcrumbToken {

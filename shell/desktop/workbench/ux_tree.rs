@@ -962,7 +962,7 @@ fn push_nodes(
                     parent_ux_node_id: Some(ux_node_id.clone()),
                     role: UxNodeRole::GraphNode,
                     label: if node.title.is_empty() {
-                        node.url.clone()
+                        node.url().to_string()
                     } else {
                         node.title.clone()
                     },
@@ -1117,7 +1117,7 @@ fn push_nodes(
                     parent_ux_node_id: Some(ux_node_id.clone()),
                     role: UxNodeRole::GraphNode,
                     label: if node.title.is_empty() {
-                        node.url.clone()
+                        node.url().to_string()
                     } else {
                         node.title.clone()
                     },

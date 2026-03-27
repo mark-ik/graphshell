@@ -190,7 +190,7 @@ fn set_node_url_preserves_frame_membership() {
             .graph
             .get_node(key)
             .expect("node should exist")
-            .url,
+            .url(),
         "https://after.example"
     );
     assert_eq!(
@@ -297,7 +297,7 @@ fn open_clip_url_is_not_reducer_owned() {
             .graph
             .get_node(node)
             .expect("node exists")
-            .url,
+            .url(),
         VersoAddress::clip("clip-123").to_string()
     );
     assert!(harness.app.take_pending_open_clip_request().is_none());
@@ -350,7 +350,7 @@ fn open_node_url_is_not_reducer_owned() {
             .graph
             .get_node(node)
             .expect("node exists")
-            .url,
+            .url(),
         node_url
     );
     assert!(harness.app.take_pending_open_node_request().is_none());

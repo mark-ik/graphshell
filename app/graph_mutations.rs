@@ -1585,7 +1585,6 @@ impl GraphBrowserApp {
 
     pub fn update_node_url_and_log(&mut self, key: NodeKey, new_url: String) -> Option<String> {
         let new_mime_hint = crate::graph::detect_mime(&new_url, None);
-        let new_address_kind = crate::graph::address_kind_from_url(&new_url);
 
         let GraphDeltaResult::NodeUrlUpdated(old_url) =
             self.apply_graph_delta_and_sync(GraphDelta::SetNodeUrl {
@@ -1600,10 +1599,6 @@ impl GraphBrowserApp {
         let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodeMimeHint {
             key,
             mime_hint: new_mime_hint.clone(),
-        });
-        let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodeAddressKind {
-            key,
-            kind: new_address_kind,
         });
 
         if let Some(store) = &mut self.services.persistence {
@@ -1632,30 +1627,6 @@ impl GraphBrowserApp {
                     node_id: node_id.clone(),
                     mime_hint: new_mime_hint,
                 });
-                let persisted_kind = match new_address_kind {
-                    crate::graph::AddressKind::Http => {
-                        crate::services::persistence::types::PersistedAddressKind::Http
-                    }
-                    crate::graph::AddressKind::File => {
-                        crate::services::persistence::types::PersistedAddressKind::File
-                    }
-                    crate::graph::AddressKind::Data => {
-                        crate::services::persistence::types::PersistedAddressKind::Data
-                    }
-                    crate::graph::AddressKind::GraphshellClip => {
-                        crate::services::persistence::types::PersistedAddressKind::GraphshellClip
-                    }
-                    crate::graph::AddressKind::Directory => {
-                        crate::services::persistence::types::PersistedAddressKind::Directory
-                    }
-                    crate::graph::AddressKind::Unknown => {
-                        crate::services::persistence::types::PersistedAddressKind::Unknown
-                    }
-                };
-                store.log_mutation(&LogEntry::UpdateNodeAddressKind {
-                    node_id,
-                    kind: persisted_kind,
-                });
             }
         }
         self.workspace.graph_runtime.egui_state_dirty = true;
@@ -1670,7 +1641,7 @@ impl GraphBrowserApp {
         let resolved_title = title.unwrap_or_else(|| {
             let base = node.title.trim();
             if base.is_empty() {
-                format!("Note for {}", node.url)
+                format!("Note for {}", node.url())
             } else {
                 format!("Note for {base}")
             }
@@ -1679,7 +1650,7 @@ impl GraphBrowserApp {
             id: note_id,
             title: resolved_title,
             linked_node: Some(key),
-            source_url: Some(node.url.clone()),
+            source_url: Some(node.url().to_string()),
             body: String::new(),
             created_at: now,
             updated_at: now,

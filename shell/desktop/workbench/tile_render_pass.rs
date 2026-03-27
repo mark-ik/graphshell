@@ -913,7 +913,7 @@ fn render_floating_pane_overlays(
     let subtitle = graph_app
         .domain_graph()
         .get_node(floating_state.node)
-        .map(|node| node.url.clone())
+        .map(|node| node.url().to_string())
         .unwrap_or_else(|| "Floating pane".to_string());
 
     let mut action = None;

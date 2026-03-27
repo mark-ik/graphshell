@@ -1908,7 +1908,7 @@ fn test_intent_webview_created_links_parent_without_direct_selection_mutation() 
     let child = app.get_node_for_webview(child_wv).unwrap();
     assert_eq!(app.get_single_selected_node(), None);
     assert_eq!(
-        app.workspace.domain.graph.get_node(child).unwrap().url,
+        app.workspace.domain.graph.get_node(child).unwrap().url(),
         "https://child.com"
     );
 }
@@ -1964,7 +1964,7 @@ fn test_intent_webview_created_about_blank_uses_placeholder() {
             .graph
             .get_node(child)
             .unwrap()
-            .url
+            .url()
             .starts_with("about:blank#")
     );
 }
@@ -1986,7 +1986,7 @@ fn test_intent_webview_url_changed_updates_existing_mapping() {
     }]);
 
     assert_eq!(
-        app.workspace.domain.graph.get_node(key).unwrap().url,
+        app.workspace.domain.graph.get_node(key).unwrap().url(),
         "https://after.com"
     );
     assert_eq!(app.get_node_for_webview(wv), Some(key));
@@ -3694,7 +3694,7 @@ fn test_conflict_last_writer_wins_for_url_updates() {
         },
     ]);
     assert_eq!(
-        app.workspace.domain.graph.get_node(key).unwrap().url,
+        app.workspace.domain.graph.get_node(key).unwrap().url(),
         "https://second.com"
     );
 }
@@ -3767,9 +3767,9 @@ fn test_create_multiple_placeholder_nodes_unique_urls() {
     let k3 = app.create_new_node_near_center();
 
     // All three nodes must have distinct URLs
-    let url1 = app.workspace.domain.graph.get_node(k1).unwrap().url.clone();
-    let url2 = app.workspace.domain.graph.get_node(k2).unwrap().url.clone();
-    let url3 = app.workspace.domain.graph.get_node(k3).unwrap().url.clone();
+    let url1 = app.workspace.domain.graph.get_node(k1).unwrap().url().to_string();
+    let url2 = app.workspace.domain.graph.get_node(k2).unwrap().url().to_string();
+    let url3 = app.workspace.domain.graph.get_node(k3).unwrap().url().to_string();
 
     assert_ne!(url1, url2);
     assert_ne!(url2, url3);
@@ -4160,7 +4160,7 @@ fn test_create_new_node_near_center_empty_graph() {
     assert!(app.focused_selection().contains(&key));
 
     let node = app.workspace.domain.graph.get_node(key).unwrap();
-    assert!(node.url.starts_with("about:blank#"));
+    assert!(node.url().starts_with("about:blank#"));
 }
 
 #[test]
@@ -4852,7 +4852,7 @@ fn test_update_node_url_and_log() {
 
     assert_eq!(old, Some("old-url".to_string()));
     assert_eq!(
-        app.workspace.domain.graph.get_node(key).unwrap().url,
+        app.workspace.domain.graph.get_node(key).unwrap().url(),
         "new-url"
     );
     // url_to_node should be updated
@@ -4954,7 +4954,7 @@ fn test_new_from_dir_scans_placeholder_ids_from_recovery() {
     let mut app = GraphBrowserApp::new_from_dir(path);
     let key = app.create_new_node_near_center();
     let node = app.workspace.domain.graph.get_node(key).unwrap();
-    assert_eq!(node.url, "about:blank#6");
+    assert_eq!(node.url(), "about:blank#6");
 }
 
 #[test]
@@ -5606,8 +5606,8 @@ fn test_set_view_filter_does_not_mutate_graph_node_identity() {
         .graph
         .get_node(node)
         .unwrap()
-        .url
-        .clone();
+        .url()
+        .to_string();
     let lifecycle_before = app.workspace.domain.graph.get_node(node).unwrap().lifecycle;
 
     let expr =
@@ -5625,8 +5625,8 @@ fn test_set_view_filter_does_not_mutate_graph_node_identity() {
         .graph
         .get_node(node)
         .unwrap()
-        .url
-        .clone();
+        .url()
+        .to_string();
     let lifecycle_after = app.workspace.domain.graph.get_node(node).unwrap().lifecycle;
 
     assert_eq!(
@@ -6153,7 +6153,7 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
     );
 }
 
-// --- UpdateNodeMimeHint / UpdateNodeAddressKind intent tests ---
+// --- UpdateNodeMimeHint intent tests ---
 
 #[test]
 fn update_node_mime_hint_intent_sets_hint_on_node() {
@@ -6235,7 +6235,9 @@ fn update_node_mime_hint_intent_can_clear_hint() {
 }
 
 #[test]
-fn update_node_address_kind_intent_sets_kind_on_node() {
+fn address_kind_is_always_derived_from_url_not_overridable_by_intent() {
+    // Stage B: UpdateNodeAddressKind intent has been retired.
+    // address_kind is derived from url and cannot be overridden independently.
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
         .workspace
@@ -6243,13 +6245,56 @@ fn update_node_address_kind_intent_sets_kind_on_node() {
         .graph
         .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
 
-    app.apply_reducer_intents([GraphIntent::UpdateNodeAddressKind {
-        key,
-        kind: crate::graph::AddressKind::Unknown,
-    }]);
-
+    // Verify derived address_kind matches URL scheme
     let node = app.workspace.domain.graph.get_node(key).unwrap();
-    assert_eq!(node.address_kind, crate::graph::AddressKind::Unknown);
+    assert_eq!(node.address.address_kind(), crate::graph::AddressKind::Http);
+
+    // After URL update, address_kind is re-derived automatically
+    app.update_node_url_and_log(key, "file:///home/user/doc.txt".to_string());
+    let node = app.workspace.domain.graph.get_node(key).unwrap();
+    assert_eq!(node.address.address_kind(), crate::graph::AddressKind::File);
+    assert!(matches!(node.address, crate::graph::Address::File(_)));
+}
+
+#[test]
+fn old_update_node_address_kind_wal_entry_is_safely_ignored() {
+    // Stage B regression: legacy UpdateNodeAddressKind WAL entries must not
+    // crash during replay and must leave address consistent with the URL.
+    let dir = TempDir::new().expect("temp dir");
+    let path = dir.path().to_path_buf();
+
+    {
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        let key =
+            app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let node_id = app.workspace.domain.graph.get_node(key).unwrap().id;
+
+        // Inject a legacy UpdateNodeAddressKind entry directly into the WAL.
+        #[allow(deprecated)]
+        app.services
+            .persistence
+            .as_mut()
+            .expect("persistence store should exist")
+            .log_mutation(
+                &crate::services::persistence::types::LogEntry::UpdateNodeAddressKind {
+                    node_id: node_id.to_string(),
+                    kind: crate::services::persistence::types::PersistedAddressKind::Unknown,
+                },
+            );
+    } // drop app to flush WAL to disk
+
+    // Reload from disk — WAL replay must not panic and address_kind must be
+    // re-derived from the URL (Http), not set to Unknown from the legacy entry.
+    let reloaded = GraphBrowserApp::new_from_dir(path);
+    let reloaded_node = reloaded
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://example.com")
+        .map(|(_, n)| n)
+        .expect("node must survive reload");
+    assert_eq!(reloaded_node.address.address_kind(), crate::graph::AddressKind::Http);
+    assert!(matches!(reloaded_node.address, crate::graph::Address::Http(_)));
 }
 
 #[test]
@@ -6261,7 +6306,7 @@ fn node_created_with_http_url_has_http_address_kind_after_add_node() {
         .graph
         .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
     let node = app.workspace.domain.graph.get_node(key).unwrap();
-    assert_eq!(node.address_kind, crate::graph::AddressKind::Http);
+    assert_eq!(node.address.address_kind(), crate::graph::AddressKind::Http);
 }
 
 #[test]
@@ -6273,7 +6318,7 @@ fn node_created_with_file_pdf_url_gets_mime_hint_after_add_node() {
     );
     let node = app.workspace.domain.graph.get_node(key).unwrap();
     assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
-    assert_eq!(node.address_kind, crate::graph::AddressKind::File);
+    assert_eq!(node.address.address_kind(), crate::graph::AddressKind::File);
 }
 
 #[test]
@@ -6292,7 +6337,8 @@ fn update_node_url_and_log_refreshes_mime_hint_and_address_kind() {
             .graph
             .get_node(key)
             .unwrap()
-            .address_kind,
+            .address
+            .address_kind(),
         crate::graph::AddressKind::Http
     );
 
@@ -6300,7 +6346,7 @@ fn update_node_url_and_log_refreshes_mime_hint_and_address_kind() {
     app.update_node_url_and_log(key, "file:///home/user/report.pdf".to_string());
 
     let node = app.workspace.domain.graph.get_node(key).unwrap();
-    assert_eq!(node.address_kind, crate::graph::AddressKind::File);
+    assert_eq!(node.address.address_kind(), crate::graph::AddressKind::File);
     assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
 }
 
@@ -6369,20 +6415,20 @@ fn undo_redo_set_node_url_round_trips_original_value() {
         new_url: "https://new.example".to_string(),
     }]);
     assert_eq!(
-        app.workspace.domain.graph.get_node(key).unwrap().url,
+        app.workspace.domain.graph.get_node(key).unwrap().url(),
         "https://new.example"
     );
     assert_eq!(app.undo_stack_len(), 1);
 
     app.apply_reducer_intents([GraphIntent::Undo]);
     assert_eq!(
-        app.workspace.domain.graph.get_node(key).unwrap().url,
+        app.workspace.domain.graph.get_node(key).unwrap().url(),
         "https://old.example"
     );
 
     app.apply_reducer_intents([GraphIntent::Redo]);
     assert_eq!(
-        app.workspace.domain.graph.get_node(key).unwrap().url,
+        app.workspace.domain.graph.get_node(key).unwrap().url(),
         "https://new.example"
     );
 }

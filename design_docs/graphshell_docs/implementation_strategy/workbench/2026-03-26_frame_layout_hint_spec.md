@@ -1,7 +1,7 @@
 # Frame Layout Hint — Spec
 
 **Date**: 2026-03-26
-**Status**: Design — Pre-Implementation
+**Status**: Active Implementation Spec
 **Lane**: `lane:layout-semantics` (`#99`)
 
 **Related**:
@@ -402,6 +402,8 @@ the graph.
 
 ### Stage 1 — Data model (immediate prerequisite)
 
+**Status**: Landed (2026-03-26)
+
 - Add `layout_hints: Vec<FrameLayoutHint>` and `split_offer_suppressed: bool`
   to `GraphFrame`.
 - Add `FrameLayoutHint`, `SplitOrientation`, and `DominantEdge` enums.
@@ -414,6 +416,8 @@ the graph.
 
 ### Stage 2 — Tile group materialization
 
+**Status**: Landed (2026-03-26)
+
 - `OpenFrameHandle` opens all members as a tile group.
 - Tile group focuses existing group if already open (1:1 cardinality enforced).
 - Double-click node within frame → open tile group, focus that node's tile.
@@ -424,6 +428,8 @@ group with focus on that node; 1:1 cardinality holds.
 
 ### Stage 3 — Split recording
 
+**Status**: Landed (2026-03-26)
+
 - Drag-to-split within a frame tile group emits `RecordFrameLayoutHint`.
 - Tabs per hint rendered in the tile group tab strip.
 - `RemoveFrameLayoutHint` on tab close.
@@ -431,6 +437,8 @@ group with focus on that node; 1:1 cardinality holds.
 **Done gate**: split arrangements persist across frame close/reopen.
 
 ### Stage 4 — Selection coherence
+
+**Status**: Landed (2026-03-26)
 
 - Select frame → highlight tile group in Navigator.
 - Focus tile group → highlight frame backdrop on graph canvas.
@@ -441,6 +449,8 @@ node↔tile highlight coherence.
 
 ### Stage 5 — Split offer and suppression
 
+**Status**: Landed (2026-03-26)
+
 - Offer affordance appears on navigation to framed node with layout hints.
 - Dismiss / session-dismiss / frame-suppress states wired.
 - Frame settings panel exposes suppression toggle and hint management.
@@ -449,6 +459,8 @@ node↔tile highlight coherence.
 affordance is non-modal and keyboard-accessible.
 
 ### Stage 6 — Graph canvas split indicator
+
+**Status**: Landed (2026-03-26)
 
 - Split-type icon / count indicator in frame backdrop header.
 - Driven directly from `GraphFrame.layout_hints`.

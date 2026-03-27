@@ -182,7 +182,7 @@ fn explain_semantic_suggestion(app: &GraphBrowserApp, selected_key: NodeKey, tag
         return format!("Suggested by the tag suggester agent from the node title '{title}'.");
     }
 
-    let url_text = node.url.replace([':', '/', '.', '-', '_'], " ");
+    let url_text = node.url().replace([':', '/', '.', '-', '_'], " ");
     if registry
         .search(&url_text)
         .into_iter()
@@ -376,7 +376,7 @@ pub(super) fn render_selected_node_tag_panel(
     };
 
     let title = if node.title.is_empty() {
-        node.url.clone()
+        node.url().to_string()
     } else {
         node.title.clone()
     };

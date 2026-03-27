@@ -25,7 +25,7 @@ realized by the runtime?" It does not answer "what canonical viewer class is
 this?" The Viewer domain remains the authority for viewer identity and
 selection semantics.
 
-This spec closes open concern O4 from `ARCHITECTURAL_CONCERNS.md`.
+This spec closes open concern O4 from `../../../archive_docs/checkpoint_2026-03-27/graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md`.
 
 ---
 

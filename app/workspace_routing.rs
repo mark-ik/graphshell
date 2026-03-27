@@ -904,7 +904,7 @@ fn arrangement_group_identity(
     container: &crate::graph::Node,
     sub_kind: ArrangementSubKind,
 ) -> Option<(String, String)> {
-    match VersoAddress::parse(&container.url) {
+    match VersoAddress::parse(container.url()) {
         Some(VersoAddress::Frame(name)) => Some((name.clone(), container_label(container, &name))),
         Some(VersoAddress::TileGroup(group_id)) => {
             let fallback = if sub_kind == ArrangementSubKind::TileGroup {
@@ -939,7 +939,7 @@ fn arrangement_member_sort_key(app: &GraphBrowserApp, key: NodeKey) -> (String, 
             if !title.is_empty() {
                 title.to_string()
             } else {
-                node.url.clone()
+                node.url().to_string()
             }
         })
         .unwrap_or_else(|| format!("Node {}", key.index()));

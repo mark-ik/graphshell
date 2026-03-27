@@ -222,7 +222,7 @@ impl SearchProvider for LocalSearchProvider {
                     key,
                     text: format!(
                         "{} {} {} {}",
-                        node.title, node.url, semantic_tags, import_search
+                        node.title, node.url(), semantic_tags, import_search
                     ),
                 }
             })
@@ -260,12 +260,12 @@ impl SearchProvider for LocalSearchProvider {
                 semantic_tags.dedup();
                 Some(SearchResult {
                     title: if node.title.trim().is_empty() {
-                        node.url.clone()
+                        node.url().to_string()
                     } else {
                         node.title.clone()
                     },
-                    url: Some(node.url.clone()),
-                    snippet: Some(local_result_snippet(app, key, &node.url)),
+                    url: Some(node.url().to_string()),
+                    snippet: Some(local_result_snippet(app, key, node.url())),
                     source: self.id().to_string(),
                     relevance: 1.0 - (idx as f32 * 0.01),
                     semantic_tags,
@@ -308,7 +308,7 @@ fn local_udc_class_matches(
             Some((
                 key,
                 node.title.clone(),
-                node.url.clone(),
+                node.url().to_string(),
                 semantic_tags,
                 match_rank,
             ))

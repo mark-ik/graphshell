@@ -55,7 +55,7 @@ fn cold_restore_url_for_node(node: &crate::graph::Node) -> String {
             return url.clone();
         }
     }
-    node.url.clone()
+    node.url().to_string()
 }
 
 #[derive(Default, Debug)]

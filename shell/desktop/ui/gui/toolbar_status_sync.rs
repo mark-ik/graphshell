@@ -83,7 +83,7 @@ fn selected_node_url(graph_app: &GraphBrowserApp, key: NodeKey) -> Option<String
 }
 
 fn node_url_in_workspace_graph(graph: &crate::graph::Graph, key: NodeKey) -> Option<String> {
-    graph.get_node(key).map(|node| clone_node_url(&node.url))
+    graph.get_node(key).map(|node| clone_node_url(node.url()))
 }
 
 fn clone_node_url(url: &str) -> String {

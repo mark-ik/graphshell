@@ -397,7 +397,7 @@ These items are net-new requirements surfaced by the doc audit and contradiction
 
 | Document | Date | Staleness | Recommended action |
 | --- | --- | --- | --- |
-| `technical_architecture/ARCHITECTURAL_CONCERNS.md` | 2026-02-17 | Partial | Synchronize with post-Feb-17 canonical specs. Several concerns now have more thorough resolutions. |
+| `archive_docs/checkpoint_2026-03-27/graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md` | 2026-02-17 | Archived | Historical concern register archived after its open items were resolved or superseded by active specs. |
 | `technical_architecture/ARCHITECTURAL_OVERVIEW.md` | 2026-02-17 | Partial | Update "Not Yet Implemented" list (diagnostics inspector, selection consolidation are now advanced). Reconcile crate versions and LOC counts. Remove archived checkpoint references as primary sources. |
 | `../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md` | 2026-02-21 | Historical | Archived after completion; line-number references in the historical Reality Check section are likely outdated after refactoring. |
 | `viewer/2026-02-26_composited_viewer_pass_contract.md` | 2026-02-26 | Partial | §A.0.3 overlay affordance "accidentally correct" debt claim needs validation against current code. If structurally enforced since then, update the debt assessment. |

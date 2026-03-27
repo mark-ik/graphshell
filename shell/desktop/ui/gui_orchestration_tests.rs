@@ -1838,7 +1838,7 @@ fn frame_loop_drains_workbench_intents_before_reducer_apply() {
             .graph
             .get_node(node_key)
             .expect("node should exist")
-            .url,
+            .url(),
         "https://after.example"
     );
 }

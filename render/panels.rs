@@ -116,7 +116,7 @@ fn navigator_node_title(app: &GraphBrowserApp, node_key: NodeKey) -> String {
         .map(|node| {
             let title = node.title.trim();
             if title.is_empty() {
-                node.url.clone()
+                node.url().to_string()
             } else {
                 title.to_string()
             }
@@ -1283,12 +1283,12 @@ fn render_history_manager_rows(
 
             let from_label = from_key
                 .and_then(|k| app.workspace.domain.graph.get_node(k))
-                .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
+                .map(|n| if n.title.is_empty() { n.url() } else { n.title.as_str() })
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| format!("<missing:{}>", &from_node_id[..from_node_id.len().min(8)]));
             let to_label = to_key
                 .and_then(|k| app.workspace.domain.graph.get_node(k))
-                .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
+                .map(|n| if n.title.is_empty() { n.url() } else { n.title.as_str() })
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| format!("<missing:{}>", &to_node_id[..to_node_id.len().min(8)]));
 

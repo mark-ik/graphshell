@@ -479,7 +479,7 @@ impl Gui {
                     .domain
                     .graph
                     .get_node(node_key)
-                    .map(|node| node.url.clone())
+                    .map(|node| node.url().to_string())
             })
             .or(request.href);
 

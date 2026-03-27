@@ -254,7 +254,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 .graph_app
                 .domain_graph()
                 .get_node(node_key)
-                .map(|node| node.url.as_str())
+                .map(|node| node.url())
                 .unwrap_or("about:blank");
             verso::ensure_wry_overlay_for_node(node_key, url, parent_handle);
             verso::navigate_wry_overlay_for_node(node_key, url);

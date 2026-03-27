@@ -173,14 +173,21 @@ fn render_tab_ui_impl(
         #[cfg(feature = "diagnostics")]
         Some(Tile::Pane(TileKind::Tool(tool))) => (tool.title().to_string(), None),
         Some(Tile::Container(Container::Linear(linear))) => {
-            let label = match linear.dir {
+            let label = crate::shell::desktop::ui::persistence_ops::frame_hint_tab_info(
+                behavior.graph_app,
+                tile_id,
+            )
+            .map(|(_, _, hint)| {
+                crate::shell::desktop::ui::persistence_ops::frame_layout_hint_summary(&hint)
+            })
+            .unwrap_or_else(|| match linear.dir {
                 egui_tiles::LinearDir::Horizontal => {
                     workbench_surface.profile.split_horizontal_label.clone()
                 }
                 egui_tiles::LinearDir::Vertical => {
                     workbench_surface.profile.split_vertical_label.clone()
                 }
-            };
+            });
             (label, None)
         }
         Some(Tile::Container(Container::Tabs(_))) => {

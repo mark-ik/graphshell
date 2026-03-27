@@ -348,10 +348,6 @@ pub enum GraphMutation {
         key: NodeKey,
         mime_hint: Option<String>,
     },
-    UpdateNodeAddressKind {
-        key: NodeKey,
-        kind: crate::graph::AddressKind,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -838,10 +834,6 @@ pub enum GraphIntent {
         key: NodeKey,
         mime_hint: Option<String>,
     },
-    UpdateNodeAddressKind {
-        key: NodeKey,
-        kind: crate::graph::AddressKind,
-    },
     RecordFrameLayoutHint {
         frame: NodeKey,
         hint: crate::graph::FrameLayoutHint,
@@ -938,7 +930,6 @@ impl GraphIntent {
             | Self::TrustPeer { .. }
             | Self::GrantWorkspaceAccess { .. }
             | Self::UpdateNodeMimeHint { .. }
-            | Self::UpdateNodeAddressKind { .. }
             | Self::RecordFrameLayoutHint { .. }
             | Self::RemoveFrameLayoutHint { .. }
             | Self::MoveFrameLayoutHint { .. }
@@ -1243,9 +1234,6 @@ impl From<GraphMutation> for GraphIntent {
             },
             GraphMutation::UpdateNodeMimeHint { key, mime_hint } => {
                 Self::UpdateNodeMimeHint { key, mime_hint }
-            }
-            GraphMutation::UpdateNodeAddressKind { key, kind } => {
-                Self::UpdateNodeAddressKind { key, kind }
             }
         }
     }
@@ -1558,12 +1546,6 @@ impl GraphIntent {
                 Some(GraphMutation::UpdateNodeMimeHint {
                     key: *key,
                     mime_hint: mime_hint.clone(),
-                })
-            }
-            Self::UpdateNodeAddressKind { key, kind } => {
-                Some(GraphMutation::UpdateNodeAddressKind {
-                    key: *key,
-                    kind: *kind,
                 })
             }
             Self::RecordFrameLayoutHint { .. }

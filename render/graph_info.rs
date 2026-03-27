@@ -670,7 +670,7 @@ pub(super) fn selected_node_enrichment_summary(
         .and_then(|anchor_key| {
             app.domain_graph().get_node(anchor_key).map(|anchor| {
                 let label = if anchor.title.is_empty() {
-                    anchor.url.clone()
+                    anchor.url().to_string()
                 } else {
                     anchor.title.clone()
                 };
@@ -727,12 +727,12 @@ pub(super) fn selected_node_enrichment_summary(
 
     Some(SelectedNodeEnrichmentSummary {
         title: if node.title.is_empty() {
-            node.url.clone()
+            node.url().to_string()
         } else {
             node.title.clone()
         },
-        url: node.url.clone(),
-        show_url: !node.title.is_empty() && node.title != node.url,
+        url: node.url().to_string(),
+        show_url: !node.title.is_empty() && node.title != node.url(),
         lifecycle: match node.lifecycle {
             NodeLifecycle::Active => "Active",
             NodeLifecycle::Warm => "Warm",

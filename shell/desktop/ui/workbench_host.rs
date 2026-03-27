@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use egui::{RichText, SidePanel};
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
@@ -870,7 +870,7 @@ fn containment_navigator_groups(
             continue;
         }
 
-        let Ok(parsed) = url::Url::parse(&node.url) else {
+        let Ok(parsed) = url::Url::parse(node.url()) else {
             continue;
         };
 
@@ -1224,8 +1224,8 @@ fn node_primary_label(node: &crate::graph::Node) -> String {
     let title = node.title.trim();
     if !title.is_empty() {
         title.to_string()
-    } else if !node.url.trim().is_empty() {
-        node.url.clone()
+    } else if !node.url().trim().is_empty() {
+        node.url().to_string()
     } else {
         "Untitled node".to_string()
     }
@@ -1233,7 +1233,7 @@ fn node_primary_label(node: &crate::graph::Node) -> String {
 
 fn is_internal_surface_node(node: &crate::graph::Node) -> bool {
     matches!(
-        VersoAddress::parse(&node.url),
+        VersoAddress::parse(node.url()),
         Some(
             VersoAddress::Frame(_)
                 | VersoAddress::TileGroup(_)
@@ -1278,7 +1278,7 @@ fn pane_entry_for_tile(
             let subtitle = graph_app
                 .domain_graph()
                 .get_node(state.node)
-                .map(|node| node.url.clone())
+                .map(|node| node.url().to_string())
                 .filter(|url| !url.trim().is_empty());
             WorkbenchPaneEntry {
                 pane_id: state.pane_id,
@@ -1332,7 +1332,7 @@ fn pane_entry_for_tile(
             let subtitle = graph_app
                 .domain_graph()
                 .get_node(state.node)
-                .map(|node| node.url.clone())
+                .map(|node| node.url().to_string())
                 .filter(|url| !url.trim().is_empty());
             WorkbenchPaneEntry {
                 pane_id: state.pane_id,
@@ -3018,7 +3018,7 @@ fn frame_pin_name_for_node(node_key: NodeKey, graph_app: &GraphBrowserApp) -> Op
     let node = graph_app.domain_graph().get_node(node_key)?;
     let title = node.title.trim();
     let label = if title.is_empty() {
-        node.url.trim()
+        node.url().trim()
     } else {
         title
     };
@@ -4143,6 +4143,50 @@ mod tests {
     }
 
     #[test]
+    fn open_frame_as_split_action_routes_to_preferred_frame_restore() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/open-frame-as-split".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let node_id = app
+            .domain_graph()
+            .get_node(node)
+            .expect("node should exist")
+            .id;
+        app.init_membership_index(HashMap::from([(
+            node_id,
+            BTreeSet::from(["workspace-alpha".to_string(), "workspace-beta".to_string()]),
+        )]));
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let mut tree = Tree::new("workbench_host_open_frame_as_split", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::OpenFrameAsSplit {
+                node_key: node,
+                frame_name: "workspace-beta".to_string(),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert_eq!(
+            app.take_pending_restore_workspace_snapshot_named(),
+            Some("workspace-beta".to_string())
+        );
+        assert_eq!(
+            app.take_pending_workspace_restore_open_request(),
+            Some(crate::app::PendingNodeOpenRequest {
+                key: node,
+                mode: crate::app::PendingTileOpenMode::Tab,
+            })
+        );
+    }
+
+    #[test]
     fn set_frame_split_offer_suppressed_action_updates_frame_metadata() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node = app.add_node_and_sync(
@@ -4184,6 +4228,129 @@ mod tests {
             app.domain_graph().frame_split_offer_suppressed(frame_key),
             Some(false)
         );
+    }
+
+    #[test]
+    fn frame_split_offer_suppression_persists_across_restart() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let path = temp_dir.path().to_path_buf();
+
+        let frame_key = {
+            let mut app = GraphBrowserApp::new_from_dir(path.clone());
+            let node = app.add_node_and_sync(
+                "https://example.com/frame-suppression-restart".to_string(),
+                euclid::default::Point2D::new(0.0, 0.0),
+            );
+
+            let mut tiles = Tiles::default();
+            let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+            let root = tiles.insert_tab_tile(vec![node_tile]);
+            let mut tree = Tree::new("workbench_host_frame_suppression_restart", root, tiles);
+
+            app.sync_named_workbench_frame_graph_representation("workspace-restart-toggle", &tree);
+            let frame_key = frame_key_for_name(&app, "workspace-restart-toggle")
+                .expect("frame anchor should exist");
+
+            apply_workbench_host_action(
+                WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+                    frame_name: "workspace-restart-toggle".to_string(),
+                    suppressed: true,
+                },
+                &mut app,
+                &mut tree,
+            );
+            assert_eq!(app.domain_graph().frame_split_offer_suppressed(frame_key), Some(true));
+            frame_key
+        };
+
+        let reopened = GraphBrowserApp::new_from_dir(path);
+        assert_eq!(reopened.domain_graph().frame_split_offer_suppressed(frame_key), Some(true));
+    }
+
+    #[test]
+    fn dismiss_frame_split_offer_for_session_action_does_not_set_durable_suppression() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/frame-session-dismiss".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let mut tree = Tree::new("workbench_host_frame_session_dismiss", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-session-dismiss", &tree);
+        let frame_key = frame_key_for_name(&app, "workspace-session-dismiss")
+            .expect("frame anchor should exist");
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::DismissFrameSplitOfferForSession(
+                "workspace-session-dismiss".to_string(),
+            ),
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(app.is_frame_split_offer_dismissed_for_session("workspace-session-dismiss"));
+        assert_eq!(
+            app.domain_graph().frame_split_offer_suppressed(frame_key),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn frame_split_offer_session_dismiss_expires_across_restart() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let path = temp_dir.path().to_path_buf();
+
+        {
+            let mut app = GraphBrowserApp::new_from_dir(path.clone());
+            let node = app.add_node_and_sync(
+                "https://example.com/frame-session-expiry".to_string(),
+                euclid::default::Point2D::new(0.0, 0.0),
+            );
+
+            let mut tiles = Tiles::default();
+            let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+            let root = tiles.insert_tab_tile(vec![node_tile]);
+            let tree = Tree::new("workbench_host_frame_session_expiry", root, tiles);
+
+            app.sync_named_workbench_frame_graph_representation("workspace-session-expiry", &tree);
+            let frame_key = frame_key_for_name(&app, "workspace-session-expiry")
+                .expect("frame anchor should exist");
+            let node_id = app
+                .domain_graph()
+                .get_node(node)
+                .expect("node should exist")
+                .id
+                .to_string();
+            app.apply_reducer_intents([GraphIntent::RecordFrameLayoutHint {
+                frame: frame_key,
+                hint: crate::graph::FrameLayoutHint::SplitHalf {
+                    first: node_id.clone(),
+                    second: node_id,
+                    orientation: crate::graph::SplitOrientation::Vertical,
+                },
+            }]);
+            app.select_node(node, false);
+            app.dismiss_frame_split_offer_for_session("workspace-session-expiry");
+
+            assert!(frame_split_offer_candidate(&app).is_none());
+        }
+
+        let mut reopened = GraphBrowserApp::new_from_dir(path);
+        let reopened_node = reopened
+            .domain_graph()
+            .nodes()
+            .find_map(|(key, node)| {
+                (node.url() == "https://example.com/frame-session-expiry").then_some(key)
+            })
+            .expect("node should reopen");
+        reopened.select_node(reopened_node, false);
+
+        let candidate = frame_split_offer_candidate(&reopened).expect("split offer should reappear in new session");
+        assert_eq!(candidate.frame_name, "workspace-session-expiry");
     }
 
     #[test]

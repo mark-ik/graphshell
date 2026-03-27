@@ -228,7 +228,7 @@ impl super::GraphBrowserApp {
                 .domain
                 .graph
                 .get_node(key)
-                .map(|node| node.url != new_url)
+                .map(|node| node.url() != new_url)
                 .unwrap_or(false),
             super::GraphMutation::TagNode { key, tag } => {
                 let Some(node) = self.workspace.domain.graph.get_node(key) else {
@@ -263,13 +263,6 @@ impl super::GraphBrowserApp {
                 .graph
                 .get_node(key)
                 .map(|node| node.mime_hint != mime_hint)
-                .unwrap_or(false),
-            super::GraphMutation::UpdateNodeAddressKind { key, kind } => self
-                .workspace
-                .domain
-                .graph
-                .get_node(key)
-                .map(|node| node.address_kind != kind)
                 .unwrap_or(false),
             _ => false,
         }

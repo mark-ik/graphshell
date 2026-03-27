@@ -51,7 +51,7 @@ impl TileCoordinator {
         let node = graph_app.domain_graph().get_node(state.node)?;
         Some(
             crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
-                &node.url,
+                node.url(),
                 node.mime_hint.as_deref(),
             )
             .viewer_id

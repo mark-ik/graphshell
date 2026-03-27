@@ -308,7 +308,7 @@ fn render_fullscreen_origin_strip(
             graph_app
                 .domain_graph()
                 .get_node(key)
-                .map(|node| node.url.clone())
+                .map(|node| node.url().to_string())
         })
         .unwrap_or_else(|| "about:blank".to_string());
     let frame = egui::Frame::default()

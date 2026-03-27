@@ -160,7 +160,7 @@ impl From<NodeProps<Node>> for GraphNodeShape {
             color: node_props.color(),
             label_text: node_props.label.to_string(),
             title_text: node_props.payload.title.clone(),
-            url_text: node_props.payload.url.clone(),
+            url_text: node_props.payload.url().to_string(),
             cached_host: node_props.payload.cached_host.clone(),
             radius: 5.0,
             thumbnail_png: node_props.payload.thumbnail_png.clone(),
@@ -276,7 +276,7 @@ impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeSha
         self.hovered = state.hovered;
         self.label_text = state.label.to_string();
         self.title_text = state.payload.title.clone();
-        self.url_text = state.payload.url.clone();
+        self.url_text = state.payload.url().to_string();
         self.cached_host = state.payload.cached_host.clone();
         self.color = state.color();
         self.is_pinned = state.payload.is_pinned;
@@ -1550,7 +1550,7 @@ impl EguiGraphState {
 
                 // Keep full label source; zoom tiers are handled in GraphNodeShape.
                 let label = if title.is_empty() {
-                    node.payload().url.clone()
+                    node.payload().url().to_string()
                 } else {
                     title.clone()
                 };
@@ -1723,7 +1723,6 @@ impl EguiGraphState {
             | (GraphDelta::SetNodeThumbnail { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (GraphDelta::SetNodeFavicon { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (GraphDelta::SetNodeMimeHint { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
-            | (GraphDelta::SetNodeAddressKind { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (GraphDelta::SetNodePinned { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (
                 GraphDelta::AppendFrameLayoutHint { .. },
@@ -1819,7 +1818,7 @@ impl EguiGraphState {
 fn sync_egui_node_from_domain(egui_graph: &mut EguiGraph, key: NodeKey, node: &Node) {
     let position = node.projected_position();
     let label = if node.title.is_empty() {
-        node.url.clone()
+        node.url().to_string()
     } else {
         node.title.clone()
     };

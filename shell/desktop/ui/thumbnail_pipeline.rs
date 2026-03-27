@@ -86,7 +86,7 @@ pub(crate) fn request_pending_thumbnail_captures(
             continue;
         };
 
-        let requested_url = node.url.clone();
+        let requested_url = node.url().to_string();
         if requested_url.starts_with("about:blank") {
             continue;
         }
@@ -167,7 +167,7 @@ pub(crate) fn graph_intent_for_thumbnail_result(
 ) -> Option<GraphIntent> {
     let node_key = graph_app.get_node_for_webview(result.webview_id)?;
     let node = graph_app.domain_graph().get_node(node_key)?;
-    if node.url != result.requested_url {
+    if node.url() != result.requested_url {
         return None;
     }
     let png_bytes = result.png_bytes.clone()?;

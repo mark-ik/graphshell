@@ -202,14 +202,14 @@ Spec-landed features not yet implemented in the runtime — most likely to be mi
 
 ## 6. Active Architectural Concerns
 
-Open concerns as of 2026-03-08. See `ARCHITECTURAL_CONCERNS.md` for full history and resolved items.
+Open concerns as of 2026-03-08. See `../../archive_docs/checkpoint_2026-03-27/graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md` for the archived concern history and resolved items.
 
 | Concern | Severity | Notes |
 | --- | --- | --- |
-| `AddressKind` migration to typed `Address` enum | 🔴 Open | Typed enum designed; migration from `AddressKind` hint not scheduled. Blocks IPFS/Gemini/Tor resolvers. |
-| `GraphshellClip` address family | 🔴 Open | `graphshell://clip/<uuid>` not canonicalized into address resolution. Clipping plan exists. |
-| `RendererKind` vs `viewer_override` relationship | 🟡 Unresolved | Core extraction plan introduces `RendererKind`; UCM uses `viewer_override: Option<ViewerId>`. Relationship unclear. |
-| `graph_app.rs` size (11,269 lines) | 🔴 Active decomposition | Stage 1–3 extractions done; still dominant hotspot. Plan: `system/2026-03-08_graph_app_decomposition_plan.md` |
+| `AddressKind` migration to typed `Address` enum | ✅ Resolved 2026-03-27 | `Address` enum fully landed; `url: String` and `address_kind: AddressKind` retired from `Node`; `PersistedAddress` in persistence layer. See `../../archive_docs/checkpoint_2026-03-27/graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md` O1. |
+| `GraphshellClip` address family | ✅ Resolved 2026-03-27 | `verso://clip/<id>` is canonical; `VersoAddress::Clip`, `Address::Clip`, routing and capture all wired. See `../../archive_docs/checkpoint_2026-03-27/graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md` O2. |
+| `RendererKind` vs `viewer_override` relationship | ✅ Resolved 2026-03-27 | `RendererKind` retired from core extraction plan. Canonical field is `viewer_override: Option<ViewerId>` per UCM spec §4.1. |
+| `graph_app.rs` size | ✅ Substantially resolved 2026-03-27 | Now **2,108 lines** (down from 11,269). `render/mod.rs` (**3,166 lines**) is the remaining active decomposition target. |
 | `render/mod.rs` size (5,146 lines) | 🟡 Active decomposition | Stage 1 done. Follow-on staging needed. Plan: `aspect_render/2026-03-08_render_mod_decomposition_plan.md` |
 
 ---

@@ -351,7 +351,7 @@ fn build_graph_reader_map_item_plan(
     let node = graph_app.domain_graph().get_node(node_key)?;
     let affordance = selected_node_affordance_projection_from_annotations(node_key, annotations);
     let label = if node.title.is_empty() {
-        node.url.clone()
+        node.url().to_string()
     } else {
         node.title.clone()
     };
@@ -387,7 +387,7 @@ fn build_graph_reader_room_nodes(
 
     let mut nodes = Vec::new();
     let label = if node.title.is_empty() {
-        node.url.clone()
+        node.url().to_string()
     } else {
         node.title.clone()
     };
@@ -484,7 +484,7 @@ fn build_graph_reader_room_item_plan(
     let node = graph_app.domain_graph().get_node(node_key)?;
     let affordance = selected_node_affordance_projection_from_annotations(node_key, annotations);
     let label = if node.title.is_empty() {
-        node.url.clone()
+        node.url().to_string()
     } else {
         node.title.clone()
     };

@@ -602,9 +602,9 @@ fn edge_candidates_for_graph(
                 "{} {} {} {} {}",
                 edge_payload_label_text(edge.weight()),
                 from_node.title,
-                from_node.url,
+                from_node.url(),
                 to_node.title,
-                to_node.url
+                to_node.url()
             ),
             target: OmnibarMatch::Edge { from, to },
         });
@@ -620,7 +620,7 @@ fn node_candidates_for_graph(graph_app: &GraphBrowserApp) -> Vec<OmnibarSearchCa
             text: format!(
                 "{} {} {}",
                 node.title,
-                node.url,
+                node.url(),
                 omnibar_import_search_text(graph_app, key)
             ),
             target: OmnibarMatch::Node(key),
@@ -641,7 +641,7 @@ fn tab_candidates_for_keys(
                     text: format!(
                         "{} {} {}",
                         node.title,
-                        node.url,
+                        node.url(),
                         omnibar_import_search_text(graph_app, *key)
                     ),
                     target: OmnibarMatch::Node(*key),
@@ -700,7 +700,7 @@ pub(super) fn omnibar_match_label(graph_app: &GraphBrowserApp, m: &OmnibarMatch)
                 format!(
                     "{}  {}{}",
                     node.title,
-                    node.url,
+                    node.url(),
                     omnibar_import_label_suffix(graph_app, *key)
                 )
             })
@@ -723,7 +723,7 @@ pub(super) fn omnibar_match_label(graph_app: &GraphBrowserApp, m: &OmnibarMatch)
         OmnibarMatch::ColdGraphletMember(key) => graph_app
             .domain_graph()
             .get_node(*key)
-            .map(|node| format!("○ {}  {}", node.title, node.url))
+            .map(|node| format!("○ {}  {}", node.title, node.url()))
             .unwrap_or_else(|| format!("○ node {}", key.index())),
     }
 }
@@ -875,7 +875,7 @@ pub(super) fn omnibar_matches_for_query(
     let mut node_urls_seen: HashSet<String> = graph_app
         .domain_graph()
         .nodes()
-        .map(|(_, node)| node.url.clone())
+        .map(|(_, node)| node.url().to_string())
         .collect();
     let mut mapped_edge_keys_seen: HashSet<(NodeKey, NodeKey)> = graph_app
         .domain_graph()
@@ -885,10 +885,10 @@ pub(super) fn omnibar_matches_for_query(
 
     if let Some(snapshot) = graph_app.peek_latest_graph_snapshot() {
         for (_, node) in snapshot.nodes() {
-            if node_urls_seen.insert(node.url.clone()) {
+            if node_urls_seen.insert(node.url().to_string()) {
                 all_graph_node_candidates.push(OmnibarSearchCandidate {
-                    text: format!("{} {}", node.title, node.url),
-                    target: OmnibarMatch::NodeUrl(node.url.clone()),
+                    text: format!("{} {}", node.title, node.url()),
+                    target: OmnibarMatch::NodeUrl(node.url().to_string()),
                 });
             }
         }
@@ -901,11 +901,11 @@ pub(super) fn omnibar_matches_for_query(
             };
             let current_from = graph_app
                 .domain_graph()
-                .get_node_by_url(&from_node.url)
+                .get_node_by_url(from_node.url())
                 .map(|(k, _)| k);
             let current_to = graph_app
                 .domain_graph()
-                .get_node_by_url(&to_node.url)
+                .get_node_by_url(to_node.url())
                 .map(|(k, _)| k);
             if let (Some(from_key), Some(to_key)) = (current_from, current_to)
                 && mapped_edge_keys_seen.insert((from_key, to_key))
@@ -918,7 +918,7 @@ pub(super) fn omnibar_matches_for_query(
                 all_graph_edge_candidates.push(OmnibarSearchCandidate {
                     text: format!(
                         "{} {} {} {} {}",
-                        edge_label, from_node.title, from_node.url, to_node.title, to_node.url
+                        edge_label, from_node.title, from_node.url(), to_node.title, to_node.url()
                     ),
                     target: OmnibarMatch::Edge {
                         from: from_key,
@@ -932,10 +932,10 @@ pub(super) fn omnibar_matches_for_query(
     for name in graph_app.list_named_graph_snapshot_names() {
         if let Some(snapshot) = graph_app.peek_named_graph_snapshot(&name) {
             for (_, node) in snapshot.nodes() {
-                if node_urls_seen.insert(node.url.clone()) {
+                if node_urls_seen.insert(node.url().to_string()) {
                     all_graph_node_candidates.push(OmnibarSearchCandidate {
-                        text: format!("{} {}", node.title, node.url),
-                        target: OmnibarMatch::NodeUrl(node.url.clone()),
+                        text: format!("{} {}", node.title, node.url()),
+                        target: OmnibarMatch::NodeUrl(node.url().to_string()),
                     });
                 }
             }
@@ -948,11 +948,11 @@ pub(super) fn omnibar_matches_for_query(
                 };
                 let current_from = graph_app
                     .domain_graph()
-                    .get_node_by_url(&from_node.url)
+                    .get_node_by_url(from_node.url())
                     .map(|(k, _)| k);
                 let current_to = graph_app
                     .domain_graph()
-                    .get_node_by_url(&to_node.url)
+                    .get_node_by_url(to_node.url())
                     .map(|(k, _)| k);
                 if let (Some(from_key), Some(to_key)) = (current_from, current_to)
                     && mapped_edge_keys_seen.insert((from_key, to_key))
@@ -965,7 +965,7 @@ pub(super) fn omnibar_matches_for_query(
                     all_graph_edge_candidates.push(OmnibarSearchCandidate {
                         text: format!(
                             "{} {} {} {} {}",
-                            edge_label, from_node.title, from_node.url, to_node.title, to_node.url
+                            edge_label, from_node.title, from_node.url(), to_node.title, to_node.url()
                         ),
                         target: OmnibarMatch::Edge {
                             from: from_key,

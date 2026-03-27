@@ -1,10 +1,10 @@
 # `render/mod.rs` Decomposition Plan
 
-**Date**: 2026-03-08  
-**Status**: Active; Stages 1-2 landed  
+**Date**: 2026-03-08
+**Status**: ✅ Complete (2026-03-27) — exit target met; `render/mod.rs` is 1,342 lines of functional code (3,166 total including tests), well under the ~4k target. Stages 3–4 helper clustering was accomplished through incremental extraction to `canvas_overlays.rs`, `canvas_input.rs`, `graph_info.rs`, `semantic_tags.rs`.
 **Primary hotspot**: `render/mod.rs`  
 **Related**:
-- `../technical_architecture/ARCHITECTURAL_CONCERNS.md`
+- `../../../archive_docs/checkpoint_2026-03-27/graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md`
 - `frame_assembly_and_compositor_spec.md`
 - `render_backend_contract_spec.md`
 

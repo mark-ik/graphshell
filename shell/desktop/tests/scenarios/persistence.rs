@@ -375,7 +375,7 @@ fn switch_persistence_dir_reloads_graph_state() {
             .graph
             .get_node(new_placeholder)
             .expect("node should exist")
-            .url,
+            .url(),
         "about:blank#8"
     );
 }

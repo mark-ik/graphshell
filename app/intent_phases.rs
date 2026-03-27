@@ -1083,51 +1083,9 @@ impl GraphBrowserApp {
                 if updated && let Some(node) = self.workspace.domain.graph.get_node(key) {
                     crate::shell::desktop::runtime::registries::phase3_publish_navigation_mime_resolved(
                         key,
-                        &node.url,
+                        node.url(),
                         node.mime_hint.as_deref(),
                     );
-                }
-            }
-            GraphIntent::UpdateNodeAddressKind { key, kind } => {
-                let node_id = self
-                    .workspace
-                    .domain
-                    .graph
-                    .get_node(key)
-                    .map(|node| node.id);
-                let GraphDeltaResult::NodeMetadataUpdated(updated) =
-                    self.apply_graph_delta_and_sync(GraphDelta::SetNodeAddressKind { key, kind })
-                else {
-                    unreachable!("address kind delta must return NodeMetadataUpdated");
-                };
-                if updated
-                    && let Some(store) = &mut self.services.persistence
-                    && let Some(node_id) = node_id
-                {
-                    let persisted_kind = match kind {
-                        crate::graph::AddressKind::Http => {
-                            crate::services::persistence::types::PersistedAddressKind::Http
-                        }
-                        crate::graph::AddressKind::File => {
-                            crate::services::persistence::types::PersistedAddressKind::File
-                        }
-                        crate::graph::AddressKind::Data => {
-                            crate::services::persistence::types::PersistedAddressKind::Data
-                        }
-                        crate::graph::AddressKind::GraphshellClip => {
-                            crate::services::persistence::types::PersistedAddressKind::GraphshellClip
-                        }
-                        crate::graph::AddressKind::Directory => {
-                            crate::services::persistence::types::PersistedAddressKind::Directory
-                        }
-                        crate::graph::AddressKind::Unknown => {
-                            crate::services::persistence::types::PersistedAddressKind::Unknown
-                        }
-                    };
-                    store.log_mutation(&LogEntry::UpdateNodeAddressKind {
-                        node_id: node_id.to_string(),
-                        kind: persisted_kind,
-                    });
                 }
             }
             GraphIntent::RecordFrameLayoutHint { frame, hint } => {
