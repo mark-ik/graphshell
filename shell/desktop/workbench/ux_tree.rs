@@ -114,7 +114,8 @@ pub(crate) enum UxDomainIdentity {
         anchor_edge: AnchorEdge,
         form_factor: String,
         scope: String,
-        containment_relation_source: String,
+        projection_mode: String,
+        projection_seed_source: String,
         sort_mode: String,
         root_filter: Option<String>,
         row_count: usize,
@@ -127,7 +128,7 @@ pub(crate) enum UxDomainIdentity {
         recent_count: usize,
     },
     FileTreeProjection {
-        containment_relation_source: String,
+        projection_seed_source: String,
         sort_mode: String,
         root_filter: Option<String>,
         row_count: usize,
@@ -461,17 +462,15 @@ fn append_workbench_semantics_nodes(
             allowed_actions: vec![UxAction::Navigate],
             domain: UxDomainIdentity::GraphViewLensScope {
                 graph_view_id: *view_id,
-                lens_name: view_state.lens.name.clone(),
-                lens_id: view_state.lens.lens_id.clone(),
-                physics_name: view_state.lens.physics.name.clone(),
-                layout_mode: format!("{:?}", view_state.lens.layout),
+                lens_name: view_state.resolved_lens_display_name().to_string(),
+                lens_id: view_state.resolved_lens_id().map(str::to_owned),
+                physics_name: view_state.resolved_physics_profile().name.clone(),
+                layout_mode: format!("{:?}", view_state.resolved_layout_mode()),
                 theme_name: view_state
-                    .lens
-                    .theme
+                    .resolved_theme()
                     .as_ref()
                     .map(|theme| crate::registries::atomic::lens::theme_data_id(theme).to_string()),
-                filter_count: view_state.lens.filter_expr.is_some() as usize
-                    + view_state.lens.filters_legacy.len(),
+                filter_count: view_state.resolved_filter_count(),
                 dimension: format!("{:?}", view_state.dimension),
                 position_fit_locked: view_state.position_fit_locked,
                 zoom_fit_locked: view_state.zoom_fit_locked,
@@ -542,9 +541,10 @@ fn append_workbench_semantics_nodes(
                 anchor_edge,
                 form_factor,
                 scope: configured_scope.as_str().to_string(),
-                containment_relation_source: format!(
+                projection_mode: format!("{:?}", navigator_projection.mode),
+                projection_seed_source: format!(
                     "{:?}",
-                    navigator_projection.containment_relation_source
+                    navigator_projection.projection_seed_source
                 ),
                 sort_mode: format!("{:?}", navigator_projection.sort_mode),
                 root_filter: navigator_projection.root_filter.clone(),
@@ -1552,7 +1552,7 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
 mod tests {
     use super::*;
     use crate::app::{
-        NavigatorContainmentRelationSource, PendingConnectedOpenScope, PendingTileOpenMode,
+        NavigatorProjectionSeedSource, PendingConnectedOpenScope, PendingTileOpenMode,
     };
     use crate::render::radial_menu::{
         RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary, RadialSectorSemanticMetadata,
@@ -1820,9 +1820,9 @@ mod tests {
         let view_id = GraphViewId::default();
         harness.app.ensure_graph_view_registered(view_id);
         if let Some(view) = harness.app.workspace.graph_runtime.views.get_mut(&view_id) {
-            view.lens.name = "Research Lens".to_string();
-            view.lens.layout = crate::registries::atomic::lens::LayoutMode::Free;
-            view.lens.filters_legacy = vec!["tag:#clip".to_string()];
+            view.lens_state.display_name = "Research Lens".to_string();
+            view.layout_policy.mode = crate::registries::atomic::lens::LayoutMode::Free;
+            view.filter_policy.legacy_filters = vec!["tag:#clip".to_string()];
         }
         harness.app.workspace.graph_runtime.focused_view = Some(view_id);
 
@@ -1830,9 +1830,12 @@ mod tests {
             SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Right),
             crate::app::workbench_layout_policy::NavigatorHostScope::WorkbenchOnly,
         );
-        harness.app.set_navigator_containment_relation_source(
-            NavigatorContainmentRelationSource::SavedViewCollections,
+        harness.app.set_navigator_projection_seed_source(
+            NavigatorProjectionSeedSource::SavedViewCollections,
         );
+        harness
+            .app
+            .set_navigator_projection_mode(crate::app::NavigatorProjectionMode::Workbench);
         let row_key = format!("view:{}", view_id.as_uuid());
         harness.app.set_navigator_selected_rows([row_key]);
 
@@ -1877,7 +1880,8 @@ mod tests {
                             anchor_edge,
                             form_factor,
                             scope,
-                            containment_relation_source,
+                            projection_mode,
+                            projection_seed_source,
                             selected_count,
                             row_count,
                             ..
@@ -1885,7 +1889,8 @@ mod tests {
                             && *anchor_edge == AnchorEdge::Right
                             && form_factor == "sidebar"
                             && scope == "workbench"
-                            && containment_relation_source == "SavedViewCollections"
+                            && projection_mode == "Workbench"
+                            && projection_seed_source == "SavedViewCollections"
                             && *selected_count == 1
                             && *row_count >= 1
                     )

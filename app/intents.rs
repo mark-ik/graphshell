@@ -7,11 +7,11 @@ use crate::graph::{NodeKey, RelationSelector};
 
 use super::{
     CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand, GraphSearchRequest,
-    GraphViewId, GraphViewLayoutDirection, HostOpenRequest, KeyboardZoomRequest, LensConfig,
-    LifecycleCause, MemoryPressureLevel, NavigatorContainmentRelationSource, NavigatorSortMode,
-    NoteId, PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode, RendererId,
-    SelectionUpdateMode, ToolSurfaceReturnTarget, UnsavedFramePromptAction,
-    UnsavedFramePromptRequest, ViewDimension,
+    GraphViewId, GraphViewLayoutDirection, HostOpenRequest, KeyboardZoomRequest, LifecycleCause,
+    MemoryPressureLevel, NavigatorProjectionMode, NavigatorProjectionSeedSource,
+    NavigatorSortMode, NoteId, PendingConnectedOpenScope, PendingNodeOpenRequest,
+    PendingTileOpenMode, RendererId, SelectionUpdateMode, ToolSurfaceReturnTarget,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
 };
 use crate::shell::desktop::workbench::pane_model::{
     FloatingPaneTargetTileContext, PaneId, PanePresentationMode,
@@ -205,8 +205,11 @@ pub enum ViewAction {
         view_id: Option<GraphViewId>,
         selectors: Option<Vec<RelationSelector>>,
     },
-    SetNavigatorContainmentRelationSource {
-        source: NavigatorContainmentRelationSource,
+    SetNavigatorProjectionSeedSource {
+        source: NavigatorProjectionSeedSource,
+    },
+    SetNavigatorProjectionMode {
+        mode: NavigatorProjectionMode,
     },
     SetNavigatorSortMode {
         sort_mode: NavigatorSortMode,
@@ -227,8 +230,11 @@ pub enum ViewAction {
 /// Navigator projection operations.
 #[derive(Debug, Clone)]
 pub enum NavigatorProjectionIntent {
-    SetContainmentRelationSource {
-        source: NavigatorContainmentRelationSource,
+    SetProjectionSeedSource {
+        source: NavigatorProjectionSeedSource,
+    },
+    SetProjectionMode {
+        mode: NavigatorProjectionMode,
     },
     SetSortMode {
         sort_mode: NavigatorSortMode,
@@ -248,8 +254,11 @@ pub enum NavigatorProjectionIntent {
 impl From<NavigatorProjectionIntent> for GraphIntent {
     fn from(value: NavigatorProjectionIntent) -> Self {
         match value {
-            NavigatorProjectionIntent::SetContainmentRelationSource { source } => {
-                GraphIntent::SetNavigatorContainmentRelationSource { source }
+            NavigatorProjectionIntent::SetProjectionSeedSource { source } => {
+                GraphIntent::SetNavigatorProjectionSeedSource { source }
+            }
+            NavigatorProjectionIntent::SetProjectionMode { mode } => {
+                GraphIntent::SetNavigatorProjectionMode { mode }
             }
             NavigatorProjectionIntent::SetSortMode { sort_mode } => {
                 GraphIntent::SetNavigatorSortMode { sort_mode }
@@ -539,9 +548,17 @@ pub enum GraphIntent {
     SetZoom {
         zoom: f32,
     },
-    SetViewLens {
+    SetViewLensId {
         view_id: GraphViewId,
-        lens: LensConfig,
+        lens_id: String,
+    },
+    SetViewLayoutAlgorithm {
+        view_id: GraphViewId,
+        algorithm_id: String,
+    },
+    SetViewPhysicsProfile {
+        view_id: GraphViewId,
+        profile_id: String,
     },
     SetViewFilter {
         view_id: GraphViewId,
@@ -830,6 +847,61 @@ pub enum GraphIntent {
         peer_id: String,
         workspace_id: String,
     },
+    /// Start the Gemini capsule server on the given port (default 1965).
+    StartGeminiCapsuleServer {
+        port: Option<u16>,
+    },
+    /// Stop the running Gemini capsule server, if any.
+    StopGeminiCapsuleServer,
+    /// Register a node for serving via the Gemini capsule server.
+    ServeNodeAsGemini {
+        node_id: uuid::Uuid,
+        title: String,
+        privacy_class: crate::model::archive::ArchivePrivacyClass,
+        /// Pre-rendered `text/gemini` content. If `None`, serves a placeholder.
+        gemini_content: Option<String>,
+    },
+    /// Remove a node from the Gemini capsule server.
+    UnserveNodeFromGemini {
+        node_id: uuid::Uuid,
+    },
+    /// Start the Gopher capsule server on the given port (default 70).
+    StartGopherCapsuleServer {
+        port: Option<u16>,
+    },
+    /// Stop the running Gopher capsule server, if any.
+    StopGopherCapsuleServer,
+    /// Register a node for serving via the Gopher capsule server.
+    ServeNodeAsGopher {
+        node_id: uuid::Uuid,
+        title: String,
+        privacy_class: crate::model::archive::ArchivePrivacyClass,
+        /// Pre-serialized Gophermap content. If `None`, serves a placeholder menu.
+        gophermap_content: Option<String>,
+    },
+    /// Remove a node from the Gopher capsule server.
+    UnserveNodeFromGopher {
+        node_id: uuid::Uuid,
+    },
+    /// Start the Finger server on the given port (default 79).
+    StartFingerServer {
+        port: Option<u16>,
+    },
+    /// Stop the running Finger server, if any.
+    StopFingerServer,
+    /// Register a named profile for the Finger server.
+    ///
+    /// `query_name` is the key clients send (empty string = default profile).
+    PublishFingerProfile {
+        query_name: String,
+        privacy_class: crate::model::archive::ArchivePrivacyClass,
+        /// Pre-serialized plain-text content for this profile.
+        finger_text: String,
+    },
+    /// Remove a named profile from the Finger server.
+    UnpublishFingerProfile {
+        query_name: String,
+    },
     UpdateNodeMimeHint {
         key: NodeKey,
         mime_hint: Option<String>,
@@ -851,8 +923,11 @@ pub enum GraphIntent {
         frame: NodeKey,
         suppressed: bool,
     },
-    SetNavigatorContainmentRelationSource {
-        source: NavigatorContainmentRelationSource,
+    SetNavigatorProjectionSeedSource {
+        source: NavigatorProjectionSeedSource,
+    },
+    SetNavigatorProjectionMode {
+        mode: NavigatorProjectionMode,
     },
     SetNavigatorSortMode {
         sort_mode: NavigatorSortMode,
@@ -969,7 +1044,9 @@ impl GraphIntent {
             | Self::SetInteracting { .. }
             | Self::SetNodePosition { .. }
             | Self::SetZoom { .. }
-            | Self::SetViewLens { .. }
+            | Self::SetViewLensId { .. }
+            | Self::SetViewLayoutAlgorithm { .. }
+            | Self::SetViewPhysicsProfile { .. }
             | Self::SetViewFilter { .. }
             | Self::ClearViewFilter { .. }
             | Self::SetViewDimension { .. }
@@ -1030,14 +1107,27 @@ impl GraphIntent {
             | Self::ModActivated { .. }
             | Self::ModLoadFailed { .. }
             | Self::SyncNow
-            | Self::SetNavigatorContainmentRelationSource { .. }
+            | Self::SetNavigatorProjectionSeedSource { .. }
+            | Self::SetNavigatorProjectionMode { .. }
             | Self::SetNavigatorSortMode { .. }
             | Self::SetNavigatorRootFilter { .. }
             | Self::SetNavigatorSelectedRows { .. }
             | Self::SetNavigatorExpandedRows { .. }
             | Self::RebuildNavigatorProjection
             | Self::SetNavigatorSpecialtyView { .. }
-            | Self::OpenFrameTileGroup { .. } => WorkspaceGrantRequirement::None,
+            | Self::OpenFrameTileGroup { .. }
+            | Self::StartGeminiCapsuleServer { .. }
+            | Self::StopGeminiCapsuleServer
+            | Self::ServeNodeAsGemini { .. }
+            | Self::UnserveNodeFromGemini { .. }
+            | Self::StartGopherCapsuleServer { .. }
+            | Self::StopGopherCapsuleServer
+            | Self::ServeNodeAsGopher { .. }
+            | Self::UnserveNodeFromGopher { .. }
+            | Self::StartFingerServer { .. }
+            | Self::StopFingerServer
+            | Self::PublishFingerProfile { .. }
+            | Self::UnpublishFingerProfile { .. } => WorkspaceGrantRequirement::None,
         }
     }
 }
@@ -1153,8 +1243,11 @@ impl From<ViewAction> for GraphIntent {
             ViewAction::SetSelectionEdgeProjectionOverride { view_id, selectors } => {
                 Self::SetSelectionEdgeProjectionOverride { view_id, selectors }
             }
-            ViewAction::SetNavigatorContainmentRelationSource { source } => {
-                Self::SetNavigatorContainmentRelationSource { source }
+            ViewAction::SetNavigatorProjectionSeedSource { source } => {
+                Self::SetNavigatorProjectionSeedSource { source }
+            }
+            ViewAction::SetNavigatorProjectionMode { mode } => {
+                Self::SetNavigatorProjectionMode { mode }
             }
             ViewAction::SetNavigatorSortMode { sort_mode } => {
                 Self::SetNavigatorSortMode { sort_mode }
@@ -1428,8 +1521,11 @@ impl GraphIntent {
                     selectors: selectors.clone(),
                 })
             }
-            Self::SetNavigatorContainmentRelationSource { source } => {
-                Some(ViewAction::SetNavigatorContainmentRelationSource { source: *source })
+            Self::SetNavigatorProjectionSeedSource { source } => {
+                Some(ViewAction::SetNavigatorProjectionSeedSource { source: *source })
+            }
+            Self::SetNavigatorProjectionMode { mode } => {
+                Some(ViewAction::SetNavigatorProjectionMode { mode: *mode })
             }
             Self::SetNavigatorSortMode { sort_mode } => Some(ViewAction::SetNavigatorSortMode {
                 sort_mode: *sort_mode,

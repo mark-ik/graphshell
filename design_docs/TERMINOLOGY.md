@@ -342,21 +342,30 @@ Each subsystem defines its own descriptor type (e.g., `AccessibilityCapabilities
 
 ## Network & Sync (Verse)
 
+### Co-op Terminology
+
+Use **co-op** as the canonical prose and UI label for live collaborative browsing sessions.
+
+Identifier rule:
+
+* Internal Rust/type/action/file identifiers may retain the `Coop` stem (`CoopSessionId`, `StartCoopSession`, `coop_session_spec.md`) until or unless an explicit repo-wide rename is planned.
+* Docs, headings, diagrams, and UI copy should prefer **co-op** / **co-op session** / **Start Co-op**.
+
 ### Data Sovereignty: Share vs. Publish
 
 These terms have canonical meaning in graphshell and must be used precisely in code, docs, and UI copy.
 
-*   **Share**: Transfer data to a named, known counterparty over a relationship-scoped channel (iroh P2P transport, Coop session, Device Sync). The data exists on counterparty infrastructure only while the relationship is active. Revocable: closing a Coop session, ending a sync relationship, or revoking a `WorkspaceGrant` terminates the channel. The counterparty retains a local copy (snapshot) after the relationship ends, but the live link is gone. Trust is explicit — the receiving peer is identified by `NodeId` or `CoopSessionId`. Examples: sharing a graph view in a Coop session; syncing a workspace to a trusted device.
+*   **Share**: Transfer data to a named, known counterparty over a relationship-scoped channel (iroh P2P transport, co-op session, Device Sync). The data exists on counterparty infrastructure only while the relationship is active. Revocable: closing a co-op session, ending a sync relationship, or revoking a `WorkspaceGrant` terminates the channel. The counterparty retains a local copy (snapshot) after the relationship ends, but the live link is gone. Trust is explicit — the receiving peer is identified by `NodeId` or `CoopSessionId`. Examples: sharing a graph view in a co-op session; syncing a workspace to a trusted device.
 
 *   **Publish**: Commit data to infrastructure the user does not fully control (Nostr relays, Verse community DHT, libp2p gossipsub). Infrastructure-committed, not relationship-scoped. Practically irrevocable — once a NIP-84 event propagates to relays, deletion cannot be guaranteed across all copies. Trust is open or pseudonymous; the receiving audience is not enumerated at publish time. Examples: publishing a clip as a NIP-84 highlight; submitting a `Report` to a Verse community index.
 
-**The defining distinction is infrastructure commitment, not trust or audience size.** You can share with an untrusted stranger (Coop guest) and publish to a private relay only you control — in both cases, the above definitions hold. "Sharing" to a relay is publishing; "publishing" to a named peer over iroh is sharing.
+**The defining distinction is infrastructure commitment, not trust or audience size.** You can share with an untrusted stranger (co-op guest) and publish to a private relay only you control — in both cases, the above definitions hold. "Sharing" to a relay is publishing; "publishing" to a named peer over iroh is sharing.
 
-**Degradation rule**: when a sharing relationship ends (host goes offline, Coop session closes), the counterparty's local snapshot is their fallback. They own their copy; they do not own the live link. Publishing is the only path to durable URL-stable identity for an annotation beyond the session.
+**Degradation rule**: when a sharing relationship ends (host goes offline, co-op session closes), the counterparty's local snapshot is their fallback. They own their copy; they do not own the live link. Publishing is the only path to durable URL-stable identity for an annotation beyond the session.
 
 **Usage notes**:
 
-* Use "share" for Coop node visibility (`SetCoopShareVisibility`), Device Sync (`WorkspaceGrant`), and Verso bilateral sync.
+* Use "share" for co-op node visibility (`SetCoopShareVisibility`), Device Sync (`WorkspaceGrant`), and Verso bilateral sync.
 * Use "publish" for Nostr event emission, Verse community blob submission, and wallet relay export.
 * Avoid "shared" as a modifier for data that has been published — prefer "published" or "community-visible."
 * In UI copy: "Share with session" / "Publish to Nostr" / "Publish to community" — never "share to relay."

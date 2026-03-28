@@ -8,11 +8,11 @@
 **Updated**: 2026-03-07 — added WebRTC layer (§2.4, §3.7, §8)
 **Updated**: 2026-03-17 — added Matrix as durable room substrate; reframed to three contextual substrates + two cross-cutting capability fabrics model
 **Status**: Draft / canonical direction
-**Scope**: Protocol layer assignments for Coop, Device Sync, Verse, Matrix rooms, identity, and real-time media features.
+**Scope**: Protocol layer assignments for co-op, Device Sync, Verse, Matrix rooms, identity, and real-time media features.
 
 **Related docs**:
 
-- [`coop_session_spec.md`](coop_session_spec.md) - Coop session authority (§3 transport, §15 identity, §16 wallet)
+- [`../../../verso_docs/implementation_strategy/coop_session_spec.md`](../../../verso_docs/implementation_strategy/coop_session_spec.md) - Co-op session authority (§3 transport, §15 identity, §16 wallet)
 - [`2026-03-05_cp4_p2p_sync_plan.md`](2026-03-05_cp4_p2p_sync_plan.md) - Device Sync (iroh transport, ControlPanel boundary)
 - [`2026-03-17_matrix_layer_positioning.md`](2026-03-17_matrix_layer_positioning.md) - Matrix as durable room substrate: hosting gradient, cross-carrying rules, concept resurfacing
 - [`2026-02-23_verse_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) - Verso mod and iroh endpoint authority
@@ -29,7 +29,7 @@ non-overlapping role.
 
 | Context | Protocol | Metaphor | Features |
 | --- | --- | --- | --- |
-| **Bilateral** | iroh (QUIC) | "come to my home" | Device Sync, Coop cursor/presence, blob transfer |
+| **Bilateral** | iroh (QUIC) | "come to my home" | Device Sync, co-op cursor/presence, blob transfer |
 | **Room** | Matrix | "let's meet in this room" | Durable shared spaces, membership, moderation, room-based calls |
 | **Community** | libp2p (Verse) | "this is our community's center" | Verse (rotating hosts, large-n spaces, DHT routing) |
 
@@ -38,7 +38,7 @@ non-overlapping role.
 | Fabric | Protocol | Role | Features |
 | --- | --- | --- | --- |
 | **Social capabilities** | Nostr | Identity, event publication, social graph | User profiles, follows, DMs, relay-persisted events — available at every substrate |
-| **Media piping** | WebRTC | Real-time audio/video/screen share | Coop screen share, room-based calls — invocable from any substrate with signaling |
+| **Media piping** | WebRTC | Real-time audio/video/screen share | Co-op screen share, room-based calls — invocable from any substrate with signaling |
 
 These are complementary, not competing. No two protocols overlap in function:
 
@@ -60,7 +60,7 @@ See [`2026-03-17_matrix_layer_positioning.md`](2026-03-17_matrix_layer_positioni
 iroh provides QUIC-based direct peer connections with NAT hole-punching and encrypted channels. It is the primary transport for:
 
 - **Device Sync** (CP4): continuous state replication between trusted devices. `iroh-docs` (eventually-consistent KV) and `iroh-blobs` (BLAKE3 content-addressed transfer) are the data sync primitives.
-- **Coop real-time channel**: cursor position streaming (iroh datagram, unreliable, low-latency), durable session events (iroh stream, reliable, ordered).
+- **Co-op real-time channel**: cursor position streaming (iroh datagram, unreliable, low-latency), durable session events (iroh stream, reliable, ordered).
 - **Blob transfer for graph media nodes**: content-addressed file transfer between peers using `iroh-blobs`.
 
 iroh relay servers (DERP) are NAT traversal helpers only — they see encrypted traffic and step back once a hole is punched. They are not data stores.
@@ -80,16 +80,16 @@ libp2p is the right transport for **Verse** (see §4), where sessions involve la
 
 WebRTC is the browser-native real-time communication stack (ICE/STUN/TURN for NAT traversal, DTLS for encryption, SRTP for media, SCTP for data channels). Its role in Graphshell is **real-time media piping** — a cross-cutting capability invocable from any substrate that provides a signaling path:
 
-- **Coop screen share** (bilateral context): host captures a Servo webview tile as a `MediaStream` and sends it to guests via WebRTC media tracks. Latency: 100–300ms typical. No iroh involvement — media is point-to-point via WebRTC. Signaling via iroh session stream.
+- **Co-op screen share** (bilateral context): host captures a Servo webview tile as a `MediaStream` and sends it to guests via WebRTC media tracks. Latency: 100–300ms typical. No iroh involvement — media is point-to-point via WebRTC. Signaling via iroh session stream.
 - **Room-based calls** (room context): Matrix room events (MSC3401 / `m.call.*` family) provide the signaling plane for multi-party audio/video/screen share within Matrix-backed spaces. Element Call demonstrates this model at scale.
 - **Synchronized video playback**: when the active node is a video URL, each peer plays their own local copy; playback state (`play`, `pause`, `seek`) is synchronized over the existing iroh Coop event stream or Matrix room events. WebRTC is only needed if the host is streaming video frames directly rather than each peer loading independently.
-- **WASM / browser fallback transport** (Tier 2+): if Graphshell ever runs in a browser tab, iroh's native QUIC is unavailable. WebRTC data channels (via `str0m`, a pure-Rust WebRTC stack) become the fallback P2P transport for Coop. Not in scope for any current phase.
+- **WASM / browser fallback transport** (Tier 2+): if Graphshell ever runs in a browser tab, iroh's native QUIC is unavailable. WebRTC data channels (via `str0m`, a pure-Rust WebRTC stack) become the fallback P2P transport for co-op. Not in scope for any current phase.
 
 **NAT traversal**: WebRTC uses ICE (STUN + TURN). iroh uses DERP relays. Both solve the same NAT problem independently. When WebRTC is added for media, the contextual substrate handles document/state sync and WebRTC handles media — each uses its own hole-punching stack.
 
 **Signaling paths**: Two signaling paths are available:
 
-1. **iroh session stream** (bilateral): The iroh connection established for the Coop session supplies the signaling channel for WebRTC SDP exchange — no separate signaling server needed.
+1. **iroh session stream** (bilateral): The iroh connection established for the co-op session supplies the signaling channel for WebRTC SDP exchange — no separate signaling server needed.
 2. **Matrix room events** (room context): MSC3401 room events carry SDP offer/answer and ICE candidates. This is the preferred signaling path when the participants already share a Matrix room.
 
 **Rust implementation**: `str0m` (pure Rust, no C deps) is the preferred WebRTC stack. `webrtc-rs` is an alternative but heavier. Neither is in the codebase today.
@@ -98,9 +98,9 @@ WebRTC is the browser-native real-time communication stack (ICE/STUN/TURN for NA
 
 Nostr is a signed-event pub-sub bus over WebSocket relays. Its role in Graphshell:
 
-- **User identity** (`npub` / `UserIdentity`): cross-device identity anchor for Coop, flock, and wallet signing (see `coop_session_spec.md §15`).
+- **User identity** (`npub` / `UserIdentity`): cross-device identity anchor for co-op, flock, and wallet signing (see `verso_docs/implementation_strategy/coop_session_spec.md §15`).
 - **Event publication**: public graph views, published snapshots, public profile (kind 0), follows list (kind 3).
-- **DMs** (NIP-17 sealed): private out-of-band communication — Coop invite delivery, peer messaging.
+- **DMs** (NIP-17 sealed): private out-of-band communication — co-op invite delivery, peer messaging.
 - **Social graph** (NIP-02): follows list as a curated discovery mechanism for public graph content.
 - **Relay-persisted events**: encrypted wallet export blobs (§3.5), public graph view announcements.
 
@@ -140,7 +140,7 @@ The follows list (NIP-02 kind 3) serves as a **curated discovery layer**: follow
 
 NIP-17 gift-wrapped DMs provide metadata-blind private messaging: relay operators cannot determine sender, recipient, or message time. Use cases in Graphshell:
 
-- Coop session invite delivery (out-of-band, before iroh connection is established).
+- Co-op session invite delivery (out-of-band, before iroh connection is established).
 - Peer-to-peer messaging in the flock panel.
 - Future: minichat history persistence (messages persisted on user's DM relay, loaded on next session).
 
@@ -156,7 +156,7 @@ Blossom is content-addressed file storage (SHA-256) over HTTP. Graphshell-native
 
 ### 3.5 Wallet export / encrypted relay blobs (NIP-44)
 
-Covered in `coop_session_spec.md §16.3`. Encrypted workspace snapshots published as Nostr addressable events (kind 30000+), NIP-44 encrypted. Key = passport, relay = storage. No infrastructure to run if using public relays.
+Covered in `verso_docs/implementation_strategy/coop_session_spec.md §16.3`. Encrypted workspace snapshots published as Nostr addressable events (kind 30000+), NIP-44 encrypted. Key = passport, relay = storage. No infrastructure to run if using public relays.
 
 ### 3.7 NIP-84 Highlights (kind 9802) — clip publication
 
@@ -176,7 +176,7 @@ Not in scope for any current phase. Noted as the integration point if compute fe
 
 ## 4. Verse and NIP-72 / NIP-29
 
-Verse is the persistent communal hosting model — shared graph spaces with rotating host responsibilities and multiple long-term participants. This is distinct from Coop (ephemeral, single-host, small-n).
+Verse is the persistent communal hosting model — shared graph spaces with rotating host responsibilities and multiple long-term participants. This is distinct from co-op (ephemeral, single-host, small-n).
 
 ### 4.1 Why Verse needs libp2p, not just iroh
 
@@ -218,7 +218,7 @@ NIP-29 group ID format: `relay_host'group_id`. The relay's access control model 
 | Host identity and community definition | Nostr (NIP-72 kind 34550) |
 | Private space membership enforcement | Nostr NIP-29 (relay-enforced) |
 | Host approval of mutations | Nostr (NIP-72 kind 4550 approval events) |
-| Real-time presence within a Verse session | iroh datagram (same as Coop) |
+| Real-time presence within a Verse session | iroh datagram (same as co-op) |
 
 ---
 
@@ -244,7 +244,7 @@ The interesting native integration is **Nostr→graph**: a kind 1 note referenci
 | Feature | Relay required? | Who runs it? |
 | --- | --- | --- |
 | `npub` signing only | No | — |
-| Coop session signaling (invite delivery) | Yes | Any public relay |
+| Co-op session signaling (invite delivery) | Yes | Any public relay |
 | Profile (kind 0) + follows (kind 3) | Yes | Any public relay |
 | NIP-17 sealed DMs | Yes (DM relay) | Any relay the recipient advertises |
 | Wallet export blobs | Yes | Public relay acceptable (payload encrypted) |
@@ -301,7 +301,7 @@ WebRTC requires a signalling channel to exchange SDP offer/answer before the pee
 3. ICE candidates are exchanged over iroh.
 4. WebRTC peer connection is established; media flows directly peer-to-peer (or via TURN if ICE fails).
 
-This means WebRTC in Coop requires iroh to already be connected — WebRTC is an add-on for media, not a replacement for the session transport.
+This means WebRTC in co-op requires iroh to already be connected — WebRTC is an add-on for media, not a replacement for the session transport.
 
 **Room (Matrix signaling)**:
 
@@ -310,15 +310,15 @@ This means WebRTC in Coop requires iroh to already be connected — WebRTC is an
 3. ICE candidates are exchanged via Matrix room events.
 4. WebRTC peer connection is established; media flows directly peer-to-peer (or via TURN).
 
-Matrix signaling is the preferred path when participants share a Matrix room, as it inherits the room's membership and moderation semantics. iroh signaling is the zero-dependency fallback for P2P-only Coop sessions without a Matrix room.
+Matrix signaling is the preferred path when participants share a Matrix room, as it inherits the room's membership and moderation semantics. iroh signaling is the zero-dependency fallback for P2P-only co-op sessions without a Matrix room.
 
 ### Nostr and AT Protocol coexistence
 
-`UserIdentity::DidPlc` (see `coop_session_spec.md §15.6`) is the hook for AT Protocol integration. If Graphshell ever adds public graph view sharing with Bluesky-style global discovery, `did:plc` identity enables federation with the AT Protocol AppView layer. The two identity systems do not conflict — a user can have both an `npub` and a `did:plc`, with Graphshell preferring whichever the user has configured.
+`UserIdentity::DidPlc` (see `verso_docs/implementation_strategy/coop_session_spec.md §15.6`) is the hook for AT Protocol integration. If Graphshell ever adds public graph view sharing with Bluesky-style global discovery, `did:plc` identity enables federation with the AT Protocol AppView layer. The two identity systems do not conflict — a user can have both an `npub` and a `did:plc`, with Graphshell preferring whichever the user has configured.
 
 ---
 
-## 8. WebRTC in Coop Sessions (Future / Tier 2)
+## 8. WebRTC in Co-op Sessions (Future / Tier 2)
 
 WebRTC media features are not in scope for any current roadmap phase. This section documents the intended design when they are added.
 
@@ -328,14 +328,14 @@ The host captures one or more Servo webview tiles as a `MediaStream` (platform s
 
 ### 8.2 Synchronized video playback
 
-When the active Coop node is a video URL (YouTube, direct MP4, etc.), each peer loads the URL independently in their own local Servo webview. Playback state is synchronized over the iroh Coop event stream — not via WebRTC data channels — because iroh is already present and reliable. `CoopContribution` variants `SeekVideo { position_secs }`, `PlayVideo`, `PauseVideo` carry the playback cursor. The host's webview is the authoritative playback cursor; guests follow.
+When the active co-op node is a video URL (YouTube, direct MP4, etc.), each peer loads the URL independently in their own local Servo webview. Playback state is synchronized over the iroh `Coop` event stream — not via WebRTC data channels — because iroh is already present and reliable. `CoopContribution` variants `SeekVideo { position_secs }`, `PlayVideo`, `PauseVideo` carry the playback cursor. The host's webview is the authoritative playback cursor; guests follow.
 
 WebRTC is only needed here if the host is directly streaming video frames to guests (e.g. DRM content the guest cannot load independently). In the common case (same public URL), iroh sync messages are sufficient and WebRTC is not required.
 
 ### 8.3 Rust implementation path
 
 - `str0m` (pure Rust, no C deps): preferred. Handles ICE, DTLS, SRTP, SCTP. Maintained and production-tested.
-- Signalling: iroh Coop session stream (see §7 above — no separate signalling server).
+- Signalling: iroh co-op session stream (see §7 above — no separate signalling server).
 - TURN fallback: public TURN servers (Cloudflare, Twilio) or self-hosted `coturn`. Required only when ICE direct punch-through fails (~15% of connections on restricted networks).
 
 ### 8.4 Scope boundary
@@ -343,7 +343,7 @@ WebRTC is only needed here if the host is directly streaming video frames to gue
 WebRTC in Graphshell is **media-only**. It is a cross-cutting capability, not a
 substrate. It can be invoked from:
 
-- **Bilateral (Coop)**: screen share, video calls between peers (iroh signaling)
+- **Bilateral (co-op)**: screen share, video calls between peers (iroh signaling)
 - **Room (Matrix)**: room-based calls, screen share within Matrix-backed spaces (Matrix signaling)
 - **Community (Verse)**: future — community live events via Verse-hosted room signaling
 

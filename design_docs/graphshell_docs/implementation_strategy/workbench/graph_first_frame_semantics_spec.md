@@ -13,8 +13,15 @@
 - `../aspect_input/input_interaction_spec.md`
 - `../subsystem_ux_semantics/ux_tree_and_probe_spec.md`
 - `../2026-03-01_ux_migration_design_spec.md`
-- `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation as the forthcoming graph-edge backing for frame membership (§2.4)
+- `../canvas/2026-03-14_graph_relation_families.md` — ArrangementRelation as the canonical graph-edge backing for frame membership (§2.4)
+- `WORKBENCH.md` — current Workbench/Graph boundary and graph-backed frame membership note
 - `../../../TERMINOLOGY.md`
+
+**Alignment note (2026-03-27)**: newer architecture notes treat frame membership
+as graph-backed arrangement truth, with Workbench remaining the owner of handle
+lifecycle, routing, split geometry, and session-only arrangement until
+promotion. This spec therefore treats `GraphFrame.member_nodes` as a
+transitional/derived carrier rather than the long-term semantic authority.
 
 ---
 
@@ -120,16 +127,28 @@ The frame address is the canonical identity bridge between:
 - workbench handles (`OpenFrameHandle` / `CloseFrameHandle`),
 - frame-membership visualization on the canvas.
 
-### 3.0a ArrangementRelation backing (forthcoming)
+### 3.0a ArrangementRelation backing
 
-The `member_nodes: Vec<NodeKey>` field on `GraphFrame` is the current in-memory representation. The forthcoming migration replaces this with `ArrangementRelation` / `frame-member` edges in the graph (`EdgeKind::ArrangementRelation { sub_kind: "frame-member" }`). Under that model:
+The canonical long-term authority for durable frame membership is
+`ArrangementRelation` / `frame-member` edges in the graph
+(`EdgeKind::ArrangementRelation { sub_kind: "frame-member" }`).
+
+`member_nodes: Vec<NodeKey>` remains a useful implementation-facing or
+serialization-facing projection while migration and compatibility work continue,
+but it should be read as a transitional/derived view rather than the desired
+semantic source of truth.
+
+Under the graph-backed model:
 
 - Frame membership is a set of durable `frame-member` edges between the frame node and its member tile nodes.
 - Named frames produce durable `frame-member` edges; unnamed/session frames produce session-only edges.
 - The `GraphFrame.member_nodes` field becomes a derived view over these edges, not the authoritative store.
 - `AddNodeToFrame` / `RemoveNodeFromFrame` intents assert / retract the corresponding `ArrangementRelation` edge.
 
-Until the migration lands, `GraphFrame.member_nodes` remains authoritative. See `canvas/2026-03-14_graph_relation_families.md §2.4`.
+Implementation note: if any code path still treats `GraphFrame.member_nodes` as
+authoritative, that should be understood as transitional debt rather than the
+target architecture. See `canvas/2026-03-14_graph_relation_families.md §2.4`
+and `WORKBENCH.md`.
 
 ### 3.1 Membership cardinality
 
@@ -162,7 +181,15 @@ Workbench tile operations that imply organization must update graph memberships:
 | Add node tile to frame | `AddNodeToFrame(frame_id, node_key)` |
 | Remove node tile from frame | `RemoveNodeFromFrame(frame_id, node_key)` |
 | Create frame from selection | `CreateFrameFromSelection(node_keys...)` |
-| Merge frames | `MergeFrames(source, target)` updates member lists |
+| Merge frames | `MergeFrames(source, target)` updates membership truth and any derived membership views |
+
+Authority note:
+
+- Graph owns whether a durable frame-membership relation exists.
+- Workbench owns how the corresponding handle, tilegroup, split, or tab context
+  is realized on screen.
+- Session-only arrangement may exist before promotion, but promotion must be the
+  explicit bridge into durable frame-membership truth.
 
 ### 4.2 Close vs delete
 

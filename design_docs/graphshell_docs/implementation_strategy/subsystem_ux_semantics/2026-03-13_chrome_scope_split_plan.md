@@ -16,6 +16,19 @@ This document remains the execution-plan source for how graph/workbench/pane
 controls project into those hosts, and for the derived `WorkbenchLayerState`,
 `ChromeExposurePolicy`, and `WorkbenchChromeProjection` contracts.
 
+**Boundary note (2026-03-27)**: the newer five-domain split in `SHELL.md`,
+`NAVIGATOR.md`, `WORKBENCH.md`, and `VIEWER.md` sharpens the ownership model
+used here:
+
+- Shell owns top-level host composition and app/control routing,
+- Navigator owns projection semantics rendered inside Navigator hosts,
+- Workbench owns host layout chrome, visibility policy, and arrangement/session
+  inputs,
+- Viewer owns pane-local content rendering and viewer controls.
+
+`WorkbenchChromeProjection` therefore describes a derived host-chrome model for
+the workbench-scoped host, not an alternate owner of Navigator semantics.
+
 **Related**:
 - `2026-03-01_ux_execution_control_plane.md`
 - `2026-02-28_ux_contract_register.md`
@@ -196,7 +209,7 @@ based on what tiles are open.
 | --- | --- | --- |
 | Graph view slot strip | `RouteGraphViewToWorkbench`, `MoveGraphViewSlot` | Compact slot strip; active view should be legible here and/or in the left target chip |
 | Fit to screen | `RequestFitToScreen` | Single button, always relevant |
-| Lens / view-dimension chip | `SetViewLens`, `SetViewDimension` | Collapsed chip; expands on click. Replaces in-canvas lens overlay |
+| Lens / view-dimension chip | `SetViewLensId`, `SetViewDimension` | Collapsed chip; expands on click. Replaces in-canvas lens overlay |
 | Physics chip | `TogglePhysics`, `SetPhysicsProfile`, `ReheatPhysics` | Collapsed chip; expands to profile picker + on/off. Replaces in-canvas physics panel |
 | Active tag filter chips | Semantic filter state | Zero or more dismissible chips; visible when a filter is active |
 | Semantic depth badge | `ToggleSemanticDepthView` | On/off badge chip |
@@ -373,13 +386,22 @@ sidebar to appear.
 
 ---
 
-## 6. WorkbenchChromeProjection — Derived Model
+## 6. WorkbenchChromeProjection — Derived Host-Chrome Model
 
 The Workbench chrome renders only from a derived model, never directly from
 scattered app state. `WorkbenchChromeProjection` is computed each frame from
 graph state and tile tree structure, and is intentionally render-form agnostic:
 the desktop default is the sidebar, but the same projection could drive a
 future compact bar/rail fallback.
+
+This model should be read narrowly:
+
+- it is the data contract for workbench-scoped host chrome,
+- it is not the semantic definition of Navigator sections, row meaning, or
+  relation-family projection rules,
+- any relation-family or section grammar shown inside the host is still
+  Navigator-owned and should align with `NAVIGATOR.md` and
+  `graph/2026-03-14_graph_relation_families.md`.
 
 ```rust
 /// Computed each frame from graph + tile tree; fed directly into Workbench chrome render.
@@ -442,15 +464,21 @@ pub enum TopologySegment {
 ```
 
 **Derivation source priority:**
-1. Frame membership and `FrameTabSemantics` (semantic grouping) — primary
-2. Graph `UserGroupedEdge` membership (cross-frame group membership)
-3. `egui_tiles` Container shape (structural fallback)
+1. Navigator/graph-backed arrangement and relation-family projection inputs —
+   primary for semantic grouping and section meaning
+2. Workbench frame membership / frame context summaries needed for host chrome
+3. `egui_tiles` Container shape (structural fallback for orientation only)
 
 Semantic grouping takes priority over tile-tree container shape so the chrome
 remains stable when `egui_tiles` simplification rewrites the tree (e.g.,
 collapses a single-child container). The sidebar should feel pane-first, not
 container-first: panes are the primary rows, while split/group rows are only
 as visible as needed for orientation.
+
+Implementation note: older wording in this section may still refer to
+`FrameTabSemantics` or pane-tree derivation as though they define the sidebar's
+meaning. Under the current boundary model, they are inputs to host chrome and
+orientation, not the authority for Navigator projection semantics.
 
 ---
 

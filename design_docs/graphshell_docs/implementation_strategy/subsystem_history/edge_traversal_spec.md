@@ -10,9 +10,15 @@
 - `history_timeline_and_temporal_navigation_spec.md`
 - `2026-02-20_edge_traversal_impl_plan.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
-- `../canvas/2026-03-14_graph_relation_families.md` — relation family vocabulary; `TraversalDerived` and `AgentDerived` are the Traversal and Semantic/agent families respectively; `EdgeKindSet` is additive (forthcoming: `Hyperlink`, `ContainmentRelation`, `ArrangementRelation`, `ImportedRelation`)
+- `../canvas/2026-03-14_graph_relation_families.md` — relation family vocabulary; `TraversalDerived` and `AgentDerived` are the Traversal and Semantic/agent families respectively; `EdgeKindSet` remains additive across relation families
 - `../canvas/2026-03-14_edge_visual_encoding_spec.md` — supersedes §4 visual rendering table; canonical per-family stroke style
 - `../../../TERMINOLOGY.md` — `Traversal`, `Edge Traversal History`, `EdgePayload`, `EdgeType`, `AgentRegistry`
+
+**Alignment note (2026-03-27)**: the relation-family vocabulary in
+`graph/2026-03-14_graph_relation_families.md` is now the canonical semantic
+frame for history-facing traversal carriers. This spec therefore treats
+Traversal as one family among several additive edge kinds rather than as a
+special case that defines the whole edge model.
 
 ---
 
@@ -52,7 +58,6 @@ EdgeKindSet = one or more of:
   | Hyperlink         -- link-follow navigation asserted edge (Semantic family, always durable)
   | TraversalDerived  -- implicit; created by navigation event (Traversal family)
   | AgentDerived      -- implicit; created by AgentRegistry recommendation (Semantic/agent)
-  -- forthcoming:
   | ContainmentRelation { sub_kind }  -- URL hierarchy, domain, folder, clip-source
   | ArrangementRelation { sub_kind }  -- frame-member, tile-group, split-pair
   | ImportedRelation                  -- graph import provenance
@@ -60,7 +65,12 @@ EdgeKindSet = one or more of:
 
 **Invariant**: Display-only computations (dominant direction, stroke width) are derived from `EdgePayload` at render time. They must not be stored in `EdgePayload`.
 
-**Family note**: `EdgeKindSet` maps to the relation families defined in `canvas/2026-03-14_graph_relation_families.md`. Currently implemented: `UserGrouped`, `Hyperlink`, `TraversalDerived`, `AgentDerived` (Semantic and Traversal families). Forthcoming families are additive; this set is open. Visual encoding for all families: `canvas/2026-03-14_edge_visual_encoding_spec.md`.
+**Family note**: `EdgeKindSet` maps to the relation families defined in
+`canvas/2026-03-14_graph_relation_families.md`. This set is intentionally open
+and additive across Semantic, Traversal, Containment, Arrangement, and Imported
+families. Implementation status may vary by family, but the semantic model does
+not reserve special ownership for traversal over the others. Visual encoding
+for all families: `canvas/2026-03-14_edge_visual_encoding_spec.md`.
 
 Projection note: `TraversalDerived` is the canonical carrier for traversal
 family projection into History views and Navigator `Recent`; those surfaces read

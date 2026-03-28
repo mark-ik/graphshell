@@ -10,7 +10,7 @@
 - [`2026-02-23_verse_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) — Verso device-sync protocol authority
 - [`2026-02-21_lifecycle_intent_model.md`](2026-02-21_lifecycle_intent_model.md) — current reducer carrier schema and lifecycle boundary
 - [`2026-03-17_runtime_task_budget.md`](2026-03-17_runtime_task_budget.md) — CP4 as the first concrete multi-worker budget/suspension case
-- [`coop_session_spec.md`](coop_session_spec.md) — Coop co-presence authority (host-led session semantics, roles, sharing, snapshot)
+- [`../../../verso_docs/implementation_strategy/coop_session_spec.md`](../../../verso_docs/implementation_strategy/coop_session_spec.md) — Co-op co-presence authority (host-led session semantics, roles, sharing, snapshot)
 - [`SUBSYSTEM_SECURITY.md`](../subsystem_security/SUBSYSTEM_SECURITY.md) — trust/grant model (Phase 5.4/5.5)
 - [`SUBSYSTEM_DIAGNOSTICS.md`](../subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md) — diagnostics channel conventions
 - [`register/2026-03-08_sector_c_identity_verse_plan.md`](register/2026-03-08_sector_c_identity_verse_plan.md) — peer-signing / verification dependency for CP4 trust wiring

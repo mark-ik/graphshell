@@ -420,7 +420,7 @@ Named bridge ledger for the current `GraphIntent` bridge:
   - `2026-02-21_lifecycle_intent_model.md`
   - `2026-02-22_registry_layer_plan.md`
   - `2026-03-05_cp4_p2p_sync_plan.md`
-  - `coop_session_spec.md`
+  - `verso_docs/implementation_strategy/coop_session_spec.md`
   - `register/action_registry_spec.md`
   - `register/SYSTEM_REGISTER.md`
 - Code bridge locations:

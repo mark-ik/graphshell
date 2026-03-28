@@ -2156,8 +2156,8 @@ mod tests {
                 })
         );
 
-        app.set_navigator_containment_relation_source(
-            crate::app::NavigatorContainmentRelationSource::ContainmentRelations,
+        app.set_navigator_projection_seed_source(
+            crate::app::NavigatorProjectionSeedSource::ContainmentRelations,
         );
 
         app.apply_reducer_intents([GraphIntent::SetNodeUrl {

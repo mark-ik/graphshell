@@ -1106,16 +1106,13 @@ fn render_graph_pane_overlay(
         return;
     };
     let lens_name = view
-        .lens
-        .lens_id
-        .clone()
-        .unwrap_or_else(|| view.lens.name.clone());
+        .resolved_lens_id()
+        .map(str::to_owned)
+        .unwrap_or_else(|| view.resolved_lens_display_name().to_string());
     let current_lens_id = view
-        .lens
-        .lens_id
-        .clone()
+        .resolved_lens_id()
+        .map(str::to_owned)
         .unwrap_or_else(|| crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string());
-    let base_lens = view.lens.clone();
 
     // Overlay anchored to top-right of the pane, with a small margin.
     let overlay_width = 150.0;
@@ -1175,9 +1172,10 @@ fn render_graph_pane_overlay(
                             .on_hover_text("Click to reset lens to default")
                             .clicked()
                         {
-                            pending_intents.push(GraphIntent::SetViewLens {
+                            pending_intents.push(GraphIntent::SetViewLensId {
                                 view_id,
-                                lens: crate::app::LensConfig::default(),
+                                lens_id: crate::registries::atomic::lens::LENS_ID_DEFAULT
+                                    .to_string(),
                             }
                             .into());
                         }
@@ -1204,9 +1202,13 @@ fn render_graph_pane_overlay(
                         if ui.small_button("Apply").clicked() || submit_with_enter {
                             let requested = lens_input.trim();
                             if !requested.is_empty() {
-                                let mut lens = base_lens.clone();
-                                lens.lens_id = Some(requested.to_string());
-                                pending_intents.push(GraphIntent::SetViewLens { view_id, lens }.into());
+                                pending_intents.push(
+                                    GraphIntent::SetViewLensId {
+                                        view_id,
+                                        lens_id: requested.to_string(),
+                                    }
+                                    .into(),
+                                );
                             }
                         }
                     });

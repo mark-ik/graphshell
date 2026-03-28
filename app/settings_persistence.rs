@@ -912,11 +912,4 @@ impl GraphBrowserApp {
             (!normalized.is_empty()).then_some(normalized)
         })
     }
-
-    pub(crate) fn with_registry_lens_defaults(&self, mut lens: LensConfig) -> LensConfig {
-        if lens.lens_id.is_none() {
-            lens.lens_id = self.workspace.chrome_ui.default_registry_lens_id.clone();
-        }
-        lens
-    }
 }

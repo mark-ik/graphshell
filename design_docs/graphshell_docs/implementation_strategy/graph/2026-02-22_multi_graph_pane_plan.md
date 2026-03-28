@@ -311,7 +311,7 @@ Retain graph-view-targeted intents for graph panes:
 ```rust
 SetZoom { view: Option<GraphViewId>, zoom: f32 }
 RequestFitToScreen { view: Option<GraphViewId> }
-SetViewLens { view: GraphViewId, lens_id: LensId }
+SetViewLensId { view: GraphViewId, lens_id: LensId }
 SetViewLayoutMode { view: GraphViewId, mode: ViewLayoutMode }
 CommitDivergentLayout { view: GraphViewId }
 ReheatPhysics { view: Option<GraphViewId> }   // None = global canonical physics
@@ -326,7 +326,7 @@ OpenNodeInPane { node: NodeKey, pane: PaneId }
 OpenToolPane { kind: ToolPaneKind }
 ```
 
-Topology policy changes remain Lens-driven (`SetViewLens`), not separate graph-pane topology intents.
+Topology policy changes remain Lens-driven (`SetViewLensId` plus per-view policy intents), not separate graph-pane topology intents.
 
 ### 7. Rendering and Compositor Dispatch
 

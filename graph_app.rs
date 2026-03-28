@@ -167,10 +167,11 @@ mod graph_views;
 pub use graph_views::GraphViewSlot;
 #[cfg(test)]
 pub(crate) use graph_views::PersistedGraphViewLayoutManager;
+#[allow(unused_imports)]
 pub use graph_views::{
     Camera, EdgeProjectionState, GraphViewFrame, GraphViewId, GraphViewLayoutDirection,
-    GraphViewLayoutManagerState, GraphViewState, LensConfig, SelectionEdgeProjectionOverride,
-    ThreeDMode, ViewDimension, ZSource,
+    GraphViewLayoutManagerState, GraphViewState, ResolvedLensPreset,
+    SelectionEdgeProjectionOverride, ThreeDMode, ViewDimension, ZSource,
 };
 pub(crate) use graph_views::{default_semantic_depth_dimension, is_semantic_depth_dimension};
 
@@ -228,7 +229,7 @@ pub enum ViewRouteTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum NavigatorContainmentRelationSource {
+pub enum NavigatorProjectionSeedSource {
     #[default]
     GraphContainment,
     SavedViewCollections,
@@ -243,6 +244,26 @@ pub enum NavigatorSortMode {
     NameDescending,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NavigatorProjectionMode {
+    #[default]
+    Workbench,
+    Containment,
+    Semantic,
+    AllNodes,
+}
+
+impl NavigatorProjectionMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Workbench => "Workbench",
+            Self::Containment => "Containment",
+            Self::Semantic => "Semantic",
+            Self::AllNodes => "All Nodes",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavigatorProjectionTarget {
     Node(NodeKey),
@@ -251,7 +272,8 @@ pub enum NavigatorProjectionTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NavigatorProjectionState {
-    pub containment_relation_source: NavigatorContainmentRelationSource,
+    pub mode: NavigatorProjectionMode,
+    pub projection_seed_source: NavigatorProjectionSeedSource,
     pub expanded_rows: HashSet<String>,
     pub collapsed_rows: HashSet<String>,
     pub selected_rows: HashSet<String>,
@@ -1303,14 +1325,11 @@ impl GraphBrowserApp {
         &self.workspace.graph_runtime.navigator_projection_state
     }
 
-    pub fn set_navigator_containment_relation_source(
-        &mut self,
-        source: NavigatorContainmentRelationSource,
-    ) {
+    pub fn set_navigator_projection_seed_source(&mut self, source: NavigatorProjectionSeedSource) {
         self.workspace
             .graph_runtime
             .navigator_projection_state
-            .containment_relation_source = source;
+            .projection_seed_source = source;
         self.rebuild_navigator_projection_rows();
     }
 
@@ -1319,6 +1338,10 @@ impl GraphBrowserApp {
             .graph_runtime
             .navigator_projection_state
             .sort_mode = sort_mode;
+    }
+
+    pub fn set_navigator_projection_mode(&mut self, mode: NavigatorProjectionMode) {
+        self.workspace.graph_runtime.navigator_projection_state.mode = mode;
     }
 
     pub fn set_navigator_root_filter(&mut self, root_filter: Option<String>) {
@@ -1363,17 +1386,13 @@ impl GraphBrowserApp {
     }
 
     pub fn rebuild_navigator_projection_rows(&mut self) {
-        use NavigatorContainmentRelationSource as Source;
+        use NavigatorProjectionSeedSource as Source;
 
         let mut row_targets: HashMap<String, NavigatorProjectionTarget> = HashMap::new();
+        let projection_mode = self.workspace.graph_runtime.navigator_projection_state.mode;
 
-        match self
-            .workspace
-            .graph_runtime
-            .navigator_projection_state
-            .containment_relation_source
-        {
-            Source::GraphContainment => {
+        match projection_mode {
+            NavigatorProjectionMode::Semantic | NavigatorProjectionMode::AllNodes => {
                 let mut nodes: Vec<(NodeKey, Uuid)> = self
                     .workspace
                     .domain
@@ -1389,78 +1408,106 @@ impl GraphBrowserApp {
                     );
                 }
             }
-            Source::SavedViewCollections => {
-                let mut view_ids: Vec<GraphViewId> =
-                    self.workspace.graph_runtime.views.keys().copied().collect();
-                view_ids.sort_by_key(|view_id| view_id.as_uuid());
-                for view_id in view_ids {
-                    row_targets.insert(
-                        format!("view:{}", view_id.as_uuid()),
-                        NavigatorProjectionTarget::SavedView(view_id),
-                    );
-                }
-            }
-            Source::ContainmentRelations => {
-                // Derive containment rows directly from node URLs so that folder/domain
-                // groups appear even when no explicit ContainmentRelation edges exist
-                // (e.g. a single file node without a corresponding parent node).
-                let mut containment_rows: Vec<(String, NodeKey, Uuid)> = self
+            NavigatorProjectionMode::Workbench | NavigatorProjectionMode::Containment => {
+                match self
                     .workspace
-                    .domain
-                    .graph
-                    .nodes()
-                    .filter_map(|(key, node)| {
-                        let Ok(parsed) = url::Url::parse(node.url()) else {
-                            return None;
-                        };
-                        let row_prefix = match parsed.scheme() {
-                            "file" => {
-                                // Group by parent directory path.
-                                let mut parent = parsed.clone();
-                                parent.set_query(None);
-                                parent.set_fragment(None);
-                                let mut segments: Vec<String> = parent
-                                    .path_segments()
-                                    .map(|parts| {
-                                        parts
-                                            .filter(|s| !s.is_empty())
-                                            .map(ToString::to_string)
-                                            .collect::<Vec<_>>()
-                                    })
-                                    .unwrap_or_default();
-                                if segments.is_empty() {
+                    .graph_runtime
+                    .navigator_projection_state
+                    .projection_seed_source
+                {
+                    Source::GraphContainment => {
+                        let mut nodes: Vec<(NodeKey, Uuid)> = self
+                            .workspace
+                            .domain
+                            .graph
+                            .nodes()
+                            .map(|(key, node)| (key, node.id))
+                            .collect();
+                        nodes.sort_by_key(|(_, node_id)| *node_id);
+                        for (key, node_id) in nodes {
+                            row_targets.insert(
+                                format!("node:{node_id}"),
+                                NavigatorProjectionTarget::Node(key),
+                            );
+                        }
+                    }
+                    Source::SavedViewCollections => {
+                        let mut view_ids: Vec<GraphViewId> =
+                            self.workspace.graph_runtime.views.keys().copied().collect();
+                        view_ids.sort_by_key(|view_id| view_id.as_uuid());
+                        for view_id in view_ids {
+                            row_targets.insert(
+                                format!("view:{}", view_id.as_uuid()),
+                                NavigatorProjectionTarget::SavedView(view_id),
+                            );
+                        }
+                    }
+                    Source::ContainmentRelations => {
+                        // Derive containment rows directly from node URLs so that folder/domain
+                        // groups appear even when no explicit ContainmentRelation edges exist
+                        // (e.g. a single file node without a corresponding parent node).
+                        let mut containment_rows: Vec<(String, NodeKey, Uuid)> = self
+                            .workspace
+                            .domain
+                            .graph
+                            .nodes()
+                            .filter_map(|(key, node)| {
+                                let Ok(parsed) = url::Url::parse(node.url()) else {
                                     return None;
-                                }
-                                segments.pop();
-                                let parent_path = if segments.is_empty() {
-                                    "/".to_string()
-                                } else {
-                                    format!("/{}/", segments.join("/"))
                                 };
-                                parent.set_path(&parent_path);
-                                format!("folder:{parent}")
-                            }
-                            "http" | "https" => {
-                                // Group by domain.
-                                let host = parsed.host_str()?.to_ascii_lowercase();
-                                format!("domain:{host}")
-                            }
-                            _ => return None,
-                        };
-                        Some((row_prefix, key, node.id))
-                    })
-                    .collect();
-                containment_rows.sort_by(|(left_path, _, left_id), (right_path, _, right_id)| {
-                    left_path
-                        .cmp(right_path)
-                        .then_with(|| left_id.cmp(right_id))
-                });
-                containment_rows.dedup_by_key(|(row_prefix, key, _)| (row_prefix.clone(), *key));
-                for (row_key, key, node_id) in containment_rows {
-                    row_targets.insert(
-                        format!("{row_key}#{node_id}"),
-                        NavigatorProjectionTarget::Node(key),
-                    );
+                                let row_prefix = match parsed.scheme() {
+                                    "file" => {
+                                        // Group by parent directory path.
+                                        let mut parent = parsed.clone();
+                                        parent.set_query(None);
+                                        parent.set_fragment(None);
+                                        let mut segments: Vec<String> = parent
+                                            .path_segments()
+                                            .map(|parts| {
+                                                parts
+                                                    .filter(|s| !s.is_empty())
+                                                    .map(ToString::to_string)
+                                                    .collect::<Vec<_>>()
+                                            })
+                                            .unwrap_or_default();
+                                        if segments.is_empty() {
+                                            return None;
+                                        }
+                                        segments.pop();
+                                        let parent_path = if segments.is_empty() {
+                                            "/".to_string()
+                                        } else {
+                                            format!("/{}/", segments.join("/"))
+                                        };
+                                        parent.set_path(&parent_path);
+                                        format!("folder:{parent}")
+                                    }
+                                    "http" | "https" => {
+                                        // Group by domain.
+                                        let host = parsed.host_str()?.to_ascii_lowercase();
+                                        format!("domain:{host}")
+                                    }
+                                    _ => return None,
+                                };
+                                Some((row_prefix, key, node.id))
+                            })
+                            .collect();
+                        containment_rows.sort_by(
+                            |(left_path, _, left_id), (right_path, _, right_id)| {
+                                left_path
+                                    .cmp(right_path)
+                                    .then_with(|| left_id.cmp(right_id))
+                            },
+                        );
+                        containment_rows
+                            .dedup_by_key(|(row_prefix, key, _)| (row_prefix.clone(), *key));
+                        for (row_key, key, node_id) in containment_rows {
+                            row_targets.insert(
+                                format!("{row_key}#{node_id}"),
+                                NavigatorProjectionTarget::Node(key),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -1840,15 +1887,25 @@ impl GraphBrowserApp {
                 self.set_selection_edge_projection_override(view_id, selectors);
                 true
             }
-            ViewAction::SetNavigatorContainmentRelationSource { source } => {
+            ViewAction::SetNavigatorProjectionSeedSource { source } => {
                 if self
                     .workspace
                     .graph_runtime
                     .navigator_projection_state
-                    .containment_relation_source
+                    .projection_seed_source
                     != source
                 {
-                    self.set_navigator_containment_relation_source(source);
+                    self.set_navigator_projection_seed_source(source);
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                }
+                true
+            }
+            ViewAction::SetNavigatorProjectionMode { mode } => {
+                if self.workspace.graph_runtime.navigator_projection_state.mode != mode {
+                    self.set_navigator_projection_mode(mode);
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
                         latency_us: 0,
@@ -2020,7 +2077,12 @@ impl GraphBrowserApp {
         }
 
         for view in self.workspace.graph_runtime.views.values_mut() {
-            view.lens.physics = profile.clone();
+            let profile_id = crate::app::graph_views::canonical_physics_profile_id(&profile);
+            view.apply_physics_policy(
+                profile_id,
+                profile.clone(),
+                crate::app::graph_views::PolicyValueSource::WorkspaceDefault,
+            );
         }
     }
 

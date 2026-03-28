@@ -14,7 +14,7 @@
 - [../registry_runtime_spec.md](../registry_runtime_spec.md) (`RegistryRuntime` component spec)
 - [../control_panel_spec.md](../control_panel_spec.md) (`ControlPanel` component spec)
 - [../signal_bus_spec.md](../signal_bus_spec.md) (`SignalBus` / signal-routing component spec)
-- [../coop_session_spec.md](../coop_session_spec.md) (`Coop` host-led co-presence contract; distinct from device sync)
+- [../../../../verso_docs/implementation_strategy/coop_session_spec.md](../../../../verso_docs/implementation_strategy/coop_session_spec.md) (`Co-op` host-led co-presence contract; distinct from device sync)
 - [archived embedder decomposition plan](../../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md) (embedder decomposition context)
 - [../2026-02-21_lifecycle_intent_model.md](../2026-02-21_lifecycle_intent_model.md) (intent schema and reducer boundary)
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry architecture and provider wiring)
@@ -59,8 +59,8 @@ The Control Panel is a core component of **The Register** (implemented today as 
 ### Sync Terminology Contract
 
 - **Device Sync**: durable workspace replication between trusted devices (remote delta carrier intents, peer status, version-vector convergence).
-- **Coop**: collaborative/co-presence behavior (live follow/presence/shared browsing context) and not implied by Device Sync.
-- UI and docs should use explicit labels (`Sync Devices`, `Start Coop`) instead of plain `Sync` when both concepts are present.
+- **Co-op**: collaborative/co-presence behavior (live follow/presence/shared browsing context) and not implied by Device Sync.
+- UI and docs should use explicit labels (`Sync Devices`, `Start Co-op`) instead of plain `Sync` when both concepts are present.
 
 ---
 

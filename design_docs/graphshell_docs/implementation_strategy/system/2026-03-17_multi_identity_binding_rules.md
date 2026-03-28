@@ -16,7 +16,7 @@ and durable-room identity without collapsing them into one keypair or one global
 - [`register/identity_registry_spec.md`](register/identity_registry_spec.md) - transport/device identity authority
 - [`register/nostr_core_registry_spec.md`](register/nostr_core_registry_spec.md) - Nostr/user identity authority
 - [`register/2026-03-08_sector_c_identity_verse_plan.md`](register/2026-03-08_sector_c_identity_verse_plan.md) - current `UserIdentity` <-> `NodeId` binding seam
-- [`coop_session_spec.md`](coop_session_spec.md) - current `npub` / `NodeId` split for Coop
+- [`../../../verso_docs/implementation_strategy/coop_session_spec.md`](../../../verso_docs/implementation_strategy/coop_session_spec.md) - current `npub` / `NodeId` split for co-op
 
 ---
 

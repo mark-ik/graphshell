@@ -6,7 +6,7 @@
 
 **Date**: 2026-03-05
 **Status**: Draft / Tier 2 research direction
-**Scope**: How Nostr communities, NIP-90 Data Vending Machines, FLora checkpoints, distributed indices, and Proof of Access economics compose into a coherent community knowledge layer.
+**Scope**: How Nostr communities, NIP-90 Data Vending Machines, FLora checkpoints, distributed indices, and Proof of Access economics compose with Verse community primitives into a coherent community knowledge layer.
 
 **Related docs**:
 
@@ -20,7 +20,7 @@
 
 ## 1. The Problem This Solves
 
-Verse Tier 2 specifies the economic and data infrastructure for community knowledge pools: distributed index shards, FLora adapter checkpoints, Proof of Access receipts, and governance logs. What it does not specify is:
+Verse Tier 2 specifies the economic and data infrastructure for community knowledge pools through community primitives such as distributed index shards, FLora adapter checkpoints, Proof of Access receipts, governance logs, and content-addressed Verse blobs. What it does not specify is:
 
 - How users **discover** Verse communities and their published outputs.
 - How community-approved LoRA adapters are **invoked** on behalf of members at query time.
@@ -28,7 +28,7 @@ Verse Tier 2 specifies the economic and data infrastructure for community knowle
 - How **compute compensation** (running inference for a community member) integrates with the Proof of Access economy.
 - How the **social layer** (follows, public feed filtering, community announcements) connects to the economic layer.
 
-This document specifies how Nostr and NIP-90 DVMs fill these gaps without duplicating what libp2p + Verse already provides.
+This document specifies how Nostr and NIP-90 DVMs fill these gaps without duplicating what Verse's community primitives and libp2p transport already provide.
 
 ---
 
@@ -56,6 +56,8 @@ Nostr is **never** used for bulk data transfer (index shards, adapter weights, r
 ## 3. NIP-72 as the Verse Community Social Surface
 
 A Verse community has a **canonical `npub`** — the community's Nostr identity, controlled by the initial operator or a multisig equivalent. The community publishes Nostr events under this `npub`:
+
+Nostr is therefore a **social frontage** for Verse community primitives, not the authority for the underlying community state itself.
 
 - **kind 34550** (NIP-72 community definition): community name, description, moderator set (the Verse `CommunityManifest` operator/moderator roles map to NIP-72 moderators), and a reference to the Verse DHT bootstrap addresses.
 - **kind 4550** (NIP-72 approval event): each time a FLora checkpoint is approved or a new index epoch is published, the moderator signs a kind 4550 event linking to the VerseBLOB CID. This is the public announcement that a new community output is available.

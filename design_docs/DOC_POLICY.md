@@ -1,11 +1,17 @@
 # Documentation Policy
 
-There are two halves of this project, and an archive. Those are the three directories:
+The project is organized by native module boundary, plus an archive. These are the active directories:
 
 graphshell_docs\
-    Graphshell: force directed graph web browser and desktop application.
+    Graphshell core: force-directed graph browser, workbench, shell, graph domain, render, input, and all cross-cutting system infrastructure.
+verso_docs\
+    Verso mod: web rendering (Servo + Wry viewers) and bilateral P2P sync (iroh transport, identity, pairing, session capsule ledger). Tier 1 only.
 verse_docs\
-    Verse: a decentralized, peer network of tokenized browsing data, search indices, and storage.
+    Verse mod: the public decentralized community network (Tier 2). Tokenized browsing data, federated search, FLora, Proof of Access, economic model. Long-horizon research.
+nostr_docs\
+    NostrCore mod: Nostr protocol integration (NIPs, DVM, relay infrastructure, signing boundary).
+matrix_docs\
+    MatrixCore mod: Matrix room protocol (event schema, session lifecycle, room projection, governance).
 archive_docs\
 
 ## Core Principles
@@ -32,7 +38,7 @@ When a new framework or architecture path is chosen, optimize for a clean fit wi
 
 ### 4. Documentation Location and Archival Strategy
 
-- **Active project docs**: Store in `graphshell_docs/` or `verse_docs/`, or in subdirectories of either. Create, delete, and edit files in `design_docs/` to eliminate redundancy, prevent stale files, and make it easier to understand large-scale project changes. Edit files primarily with discussion and confirmation, unless explicitly granted permission.
+- **Active project docs**: Store protocol- and mod-owned docs in `graphshell_docs/`, `verso_docs/`, `verse_docs/`, `nostr_docs/`, or `matrix_docs/` as appropriate. Store hosted communication-surface and social-domain shell docs under `graphshell_docs/implementation_strategy/social/`. Create, delete, and edit files in `design_docs/` to eliminate redundancy, prevent stale files, and make it easier to understand large-scale project changes. Edit files primarily with discussion and confirmation, unless explicitly granted permission.
 - **Archive structure**: `archive_docs/` contains notes and information no longer actively relevant to the project, organized in checkpoint folders (each dated to last edit of any file in the checkpoint folder). If archiving, check if there's a current checkpoint folder; if not, create one to store the archival document(s) in.
 - **Lifecycle**: When a feature or angle is deprecated as we develop, create a doc for it in `archive_docs/`. If a feature is adopted again, move the relevant documentation back into the appropriate active doc files/folders. Delete files only upon providing a rationale and asking for confirmation.
 - **Cross-referencing conventions**: Reference other docs using relative links; for cross-folder references (graphshell_docs ↔ verse_docs), include the full path in link text for clarity.

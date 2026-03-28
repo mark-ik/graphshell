@@ -234,7 +234,7 @@ fn sector_a_content_pipeline_runs_end_to_end_for_tagged_markdown_node() {
         crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DOCUMENT
     );
     assert_eq!(
-        lens.lens_id.as_deref(),
+        Some(lens.lens_id.as_str()),
         Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
     );
     assert!(
@@ -430,7 +430,7 @@ fn phase2_lens_registry_default_id_emits_resolve_succeeded_channel() {
         &harness.diagnostics,
         registries::lens::LENS_ID_DEFAULT,
     );
-    assert_eq!(lens.name, "Default");
+    assert_eq!(lens.display_name, "Default");
 
     let snapshot = harness.snapshot();
     assert!(
@@ -449,7 +449,7 @@ fn phase2_lens_registry_unknown_id_emits_failed_and_fallback_channels() {
     let mut harness = TestRegistry::new();
 
     let lens = registries::phase2_resolve_lens_for_tests(&harness.diagnostics, "lens:unknown");
-    assert_eq!(lens.name, "Default");
+    assert_eq!(lens.display_name, "Default");
 
     let snapshot = harness.snapshot();
     assert!(

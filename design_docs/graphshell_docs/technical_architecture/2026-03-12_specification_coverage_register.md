@@ -142,7 +142,7 @@ Mark a feature family this way when:
 | Area | External standards | Existing internal specs | Coverage status | Graphshell-only source of truth? | Prospective internal spec work |
 | --- | --- | --- | --- | --- | --- |
 | Nostr runtime / registry | Nostr NIPs | `system/2026-03-10_nostr_nip_completion_plan.md`, `system/register/nostr_core_registry_spec.md`, `system/register/nostr_runtime_behavior_spec.md` | Partial | No for protocol, yes for graph projection/runtime ownership | keep protocol/runtime split explicit as graph-facing consumers land |
-| Verse / coop / graph sync | protocol partially Graphshell-specific | `system/coop_session_spec.md`, register/runtime specs | Partial | Largely yes | keep Graphshell protocol semantics explicit where no external standard exists |
+| Verse / coop / graph sync | protocol partially Graphshell-specific | `verso_docs/implementation_strategy/coop_session_spec.md`, register/runtime specs | Partial | Largely yes | keep Graphshell protocol semantics explicit where no external standard exists |
 | Identity registry | cryptographic conventions external; Graphshell identity projection internal | identity registry specs | Partial | Mixed | document canonical identity ownership vs protocol adapters |
 
 ---

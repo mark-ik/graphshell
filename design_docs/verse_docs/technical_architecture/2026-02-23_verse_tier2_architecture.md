@@ -1,9 +1,9 @@
-# Verse Tier 2: Global Sync Architecture
+# Verse Tier 2: Community Primitives Architecture
 
 **Date**: 2026-02-23
 **Status**: Research Architecture (Long-Horizon Design)
 **Prerequisite**: Tier 1 (iroh direct sync) validated in production
-**Context**: Explores extension to public community swarms, dual-transport model, economic primitives, and search infrastructure for Verse as a protocol. This is **not** a Phase 5 deliverable — it defines the long-term architectural space for research and experimentation.
+**Context**: Explores Verse as a public community layer built from reusable community primitives: community manifests, VerseBlob content, governance records, FLora checkpoints, Proof of Access receipts, and distributed index shards. This is **not** a Phase 5 deliverable — it defines the long-term architectural space for research and experimentation.
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../graphshell_docs/research/2026-03-04_standards_alignment_report.md) §§3.10–3.14):
 - **libp2p specs via iroh** — Tier 1: iroh QUIC + Noise XX; Tier 2: libp2p GossipSub 1.1, Kademlia DHT
@@ -22,6 +22,14 @@
 ## 0. Canonical Tier 2 Framing
 
 Tier 2 treats each local Verse instance as a **private-by-default, self-hosted portal** into community storage, data, and adaptation economies.
+
+Verse's primary abstractions at this layer are **community primitives**:
+
+- `CommunityManifest` and related governance state that define who a community is and how it operates
+- `VerseBlob` payloads and their content-addressed retrieval model
+- distributed index shards and announcement records that make community knowledge discoverable
+- FLora checkpoints and engram payloads that carry community adaptation work
+- Proof of Access and adjacent receipts that record contribution, retrieval, and compensation events
 
 In this framing:
 - Graphshell helps the user collect, curate, and classify data locally.
@@ -159,9 +167,11 @@ Mitigation: The Tier 2 runtime maintains a local "seen set" (Bloom filter over `
 
 ---
 
-## 4. Community Model
+## 4. Community Primitives and Community Model
 
 Tier 2 introduces **communities** — public or semi-public swarms where multiple participants exchange graph content without explicit bilateral trust.
+
+The community is not just a membership list. It is the container that binds Verse's primitives together: manifest, governance rules, announcement surfaces, blob distribution, receipt accounting, and optional adaptation checkpoints.
 
 ### 4.1 Community Definition
 
@@ -561,6 +571,8 @@ Tier 2 is **additive, not replacement**:
 
 This design philosophy de-risks the research agenda. Tier 1 ships in Phase 5 (Q2 2026); Tier 2 is a multi-year exploration.
 
+The important split is semantic as well as chronological: Tier 1 is Verso's bilateral sync substrate, while Tier 2 is Verse's community-primitives layer.
+
 ---
 
 ## 14. Next Steps (Research Roadmap)
@@ -591,7 +603,7 @@ This design philosophy de-risks the research agenda. Tier 1 ships in Phase 5 (Q2
 
 Tier 2 is **not required** for Graphshell to be a valuable tool. The personal knowledge graph + search + AI integration (Phase 1-5) are sufficient for a standalone product.
 
-Tier 2 is the answer to: **"What if Graphshell became infrastructure for decentralized knowledge commons?"**
+Tier 2 is the answer to: **"What if Graphshell hosted decentralized knowledge commons through Verse community primitives?"**
 
 It's a long-horizon bet that:
 - Users want to participate in public communities (not just private graphs)

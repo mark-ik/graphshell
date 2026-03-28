@@ -12,8 +12,22 @@
 - `workbench_layout_policy_spec.md`
 - `../navigator/NAVIGATOR.md`
 - `../navigator/navigator_interaction_contract.md`
+- `../graph/2026-03-14_graph_relation_families.md` — family-oriented Navigator modes and projection semantics
 - `../../TERMINOLOGY.md`
 - `../../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md` — historical background
+
+**Alignment note (2026-03-27)**: newer Navigator planning distinguishes between
+graphlet-oriented projection forms and relation-family-oriented section/mode
+forms. This spec is only about the graphlet-binding side of that model:
+
+- graphlets remain the canonical object for ego/corridor/component/frontier and
+  other bounded local-world derivations,
+- relation-family modes (`Workbench`, `Containment`, `Semantic`, `All nodes`)
+  remain Navigator-owned projection shapes defined in
+  `graph/2026-03-14_graph_relation_families.md`,
+- Workbench binding must be able to consume graphlets without redefining them,
+  and must not accidentally treat all Navigator family-oriented modes as
+  graphlet links.
 
 ---
 
@@ -27,6 +41,14 @@ Workbench still needs a precise answer for how arrangements relate to graphlets:
 - a tile group may either stay linked to a graphlet definition or detach and persist as an arrangement snapshot.
 
 This spec makes the binding model explicit so graph filtering, Navigator projection, and Workbench grouping all speak the same language.
+
+Practical boundary:
+
+- if the user is in a graphlet-oriented workflow, Workbench may bind to that
+  graphlet and expose linked/detached behavior;
+- if the user is in a family-oriented Navigator mode, Workbench may still open
+  nodes or arrangements from that projection, but that does not automatically
+  imply a `GraphletBinding::Linked` relationship.
 
 ---
 
@@ -42,6 +64,13 @@ For Workbench purposes, the important constraints are:
 - Workbench may bind to a graphlet, but does not become the owner of graphlet truth.
 
 When this spec discusses graphlets, it is discussing graphlets as consumed by Workbench binding and routing.
+
+Important non-equivalence:
+
+- a relation-family section or Navigator mode is not automatically a graphlet,
+- a graphlet may be derived using selectors that mention relation families,
+  but the resulting object is still a bounded graphlet with anchors and
+  derivation rules, not merely "whatever rows are visible in Navigator."
 
 ---
 
@@ -71,6 +100,11 @@ pub enum ProjectionSource {
 
 The `selectors` field names which edge families/sub-kinds contribute to
 connectivity. The `source` field names where that choice came from.
+
+This is a graphlet-projection contract, not a generic contract for every
+Navigator projection mode. Family-oriented Navigator modes may reuse similar
+selector vocabulary, but `EdgeProjectionSpec` here exists specifically to
+define bounded graphlet derivation for binding/routing.
 
 ### 3.2 Scope Precedence
 
@@ -206,6 +240,14 @@ Meaning:
 - `Linked`: the tile group is explicitly attached to a graphlet definition. Its
   roster is expected to correspond to the graphlet produced by the stored
   projection and seeds.
+
+Non-goal clarification:
+
+- opening content from a Navigator family section does not, by itself, create a
+  `Linked` graphlet binding;
+- `Linked` is reserved for arrangements that explicitly follow a bounded
+  graphlet definition and therefore must participate in selector/binding warning
+  logic.
 
 ### 4.2 Binding Invariant
 
@@ -408,7 +450,16 @@ Navigator rows must not assume that only durable `UserGrouped` or
 `FrameMember` edges define graphlet membership.
 
 Compatibility fallback is allowed during migration, but the intended authority
-is selector-resolved projection, not the old durable-only interpretation.
+is selector-resolved graphlet projection, not the old durable-only
+interpretation.
+
+Companion rule:
+
+- family-oriented Navigator sections/modes defined in
+  `graph/2026-03-14_graph_relation_families.md` remain valid Navigator
+  projections even when no linked graphlet binding exists;
+- the Workbench should only invoke this spec's binding warnings and linked/
+  detached semantics when the active workflow is actually graphlet-linked.
 
 ---
 
@@ -419,6 +470,8 @@ Workbench routing must distinguish between:
 - opening a node into an existing linked graphlet group
 - opening a node into a detached arrangement
 - creating a new linked group from a selection override
+- opening nodes from family-oriented Navigator projection without establishing a
+  graphlet binding
 
 The current durable-only routing helpers are compatibility defaults, not the
 final semantic model.

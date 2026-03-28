@@ -6,6 +6,7 @@
 **Related**:
 - `design_docs/verse_docs/implementation_strategy/flora_submission_checkpoint_spec.md`
 - `design_docs/verse_docs/implementation_strategy/community_governance_spec.md`
+- `design_docs/verse_docs/implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md`
 - `design_docs/verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.1, 3.2, 3.10, 3.11)):
@@ -62,6 +63,9 @@ enum AccessWorkType {
     FloraCheckpointIncluded,
     ReviewCompleted,
     ModerationCompleted,
+    BlobAvailabilityEpochHeld,  // storage bank: base credit for passing availability challenge
+    BlobRetrievalServed,        // storage bank: usage bonus with hold-duration weighting
+    BlobRepairCompleted,        // storage bank: repair credit for re-hosting under-replicated blob
 }
 
 struct AccessReceipt {
@@ -74,6 +78,7 @@ struct AccessReceipt {
     requester: Option<Did>,    // did:key (W3C DID Core 1.0)
 
     declared_units: u64,      // bytes, points, or policy-defined work units
+    hold_duration_epochs: Option<u64>,  // epochs held before serving (storage bank receipts)
     epoch_hint: u64,
     created_at_ms: u64,
 
@@ -89,8 +94,24 @@ struct AccessReceipt {
 - `FloraCheckpointIncluded`: higher policy-weighted points
 - `ReviewCompleted`: review points
 - `ModerationCompleted`: moderation points
+- `BlobAvailabilityEpochHeld`: byte-epochs (blob_size × 1 epoch); base credit for storage bank availability
+- `BlobRetrievalServed`: bytes transferred × hold-duration multiplier; usage-validated storage credit (see [storage bank spec](2026-03-28_decentralized_storage_bank_spec.md) §3.2)
+- `BlobRepairCompleted`: bytes re-hosted; repair credit for re-hosting under-replicated blobs
 
 Each community defines the exact weighting schedule, but the receipt shape stays stable.
+
+### 3.2 Hold-Duration Weighting (Storage Bank)
+
+For `BlobRetrievalServed` and `BlobRepairCompleted` receipts, the optional
+`hold_duration_epochs` field records how many epochs the provider held the blob
+before the retrieval or repair event. This enables the "usage validates storage
+time" credit model: longer holds produce higher credit on retrieval.
+
+`hold_duration_epochs` is `None` for all other work types and for
+`BlobAvailabilityEpochHeld` (where duration is implicitly 1 epoch).
+
+See [2026-03-28_decentralized_storage_bank_spec.md](2026-03-28_decentralized_storage_bank_spec.md)
+for the full credit mechanics, challenge protocol, and bonus formula.
 
 ---
 

@@ -17,7 +17,7 @@
 - [`2026-03-17_matrix_core_adoption_plan.md`](2026-03-17_matrix_core_adoption_plan.md) - Execution plan for `MatrixCore` session lifecycle, room projection, and allowlisted graph-intent mapping.
 - [`2026-03-17_matrix_event_schema.md`](2026-03-17_matrix_event_schema.md) - Initial `graphshell.room.*` Matrix event namespace, payload shapes, and allowed routing behavior.
 - [`register/matrix_core_registry_spec.md`](register/matrix_core_registry_spec.md) - `MatrixCore` capability-provider boundary for room sync and membership-governed spaces.
-- [`coop_session_spec.md`](coop_session_spec.md) - Coop transport, identity, and wallet boundaries.
+- [`../../verso_docs/implementation_strategy/coop_session_spec.md`](../../verso_docs/implementation_strategy/coop_session_spec.md) - Co-op transport, identity, and wallet boundaries.
 - [`../../../../verse_docs/technical_architecture/2026-03-05_verse_nostr_dvm_integration.md`](../../../../verse_docs/technical_architecture/2026-03-05_verse_nostr_dvm_integration.md) - Verse/Nostr boundary and "front door vs interior" split.
 
 ---

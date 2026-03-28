@@ -592,11 +592,11 @@ pub(super) fn requested_layout_algorithm_id(
         .graph_runtime
         .views
         .get(&view_id)
-        .map(|view| match view.lens.layout {
+        .map(|view| match view.resolved_layout_mode() {
             crate::registries::atomic::lens::LayoutMode::Free => {
-                view.lens.layout_algorithm_id.clone()
+                view.resolved_layout_algorithm_id().to_string()
             }
-            _ => layout_algorithm_id_for_mode(&view.lens.layout).to_string(),
+            other => layout_algorithm_id_for_mode(other).to_string(),
         })
         .unwrap_or_else(|| canvas_profile.layout_algorithm.algorithm_id.clone())
 }

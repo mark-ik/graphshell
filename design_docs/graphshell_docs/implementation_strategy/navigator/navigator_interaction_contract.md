@@ -18,6 +18,19 @@ resolves between graph and workbench presentations.
 - `../canvas/2026-03-14_graph_relation_families.md`
 - `../../TERMINOLOGY.md`
 
+**Alignment note (2026-03-27)**: newer Navigator planning distinguishes between
+multiple projection forms owned by the same Navigator authority:
+
+- graphlet-oriented projections (ego/corridor/component/etc.),
+- relation-family-oriented projections and section modes (`Workbench`,
+  `Containment`, `Semantic`, `All nodes`),
+- host/form-factor differences owned by Shell/Workbench rather than Navigator
+  semantics.
+
+This interaction contract therefore treats graphlets and relation-family modes
+as parallel projection shapes with the same click grammar, not as competing
+ownership models.
+
 ---
 
 ## 1. Core Principle
@@ -54,6 +67,11 @@ The Navigator projects:
 - node residency/presentation state (`NodeLifecycle`) needed to decide whether
   a node is live in workbench memory or cold on the graph
 
+In family-oriented Navigator modes, the same row grammar applies to
+relation-family sections and rows derived from arrangement/containment/semantic
+projection sources. The projection shape may change, but row-type interaction
+semantics do not.
+
 **Updated from prior specification**: the Navigator previously suppressed nodes
 without a live tile representation. Under the graphlet model, graph membership
 (selector-resolved connectivity + lifecycle) is sufficient for Navigator
@@ -67,11 +85,16 @@ routing:
 - graph-view override
 - graph default
 
-During migration, some projections may still be reconstructed from durable
-relation families such as `UserGrouped` and `FrameMember`, but those carriers
-are implementation inputs, not the canonical graphlet definition. Navigator
-authority should converge on the graphlet model defined in
-`../../technical_architecture/graphlet_model.md`.
+Graphlets and relation-family projections should not be conflated:
+
+- graphlets remain the canonical model for ego/corridor/component-style local
+  worlds defined in `../../technical_architecture/graphlet_model.md`,
+- relation families remain the canonical model for family-oriented section and
+  mode semantics defined in `../canvas/2026-03-14_graph_relation_families.md`.
+
+Either may be the active Navigator projection shape, but both remain
+Navigator-owned projections over shared graph/workbench inputs rather than
+independent truth models.
 
 Bare panes with no container-backed node representation (e.g. graph-view panes
 not belonging to any graphlet) do **not** appear as Navigator rows, even if they

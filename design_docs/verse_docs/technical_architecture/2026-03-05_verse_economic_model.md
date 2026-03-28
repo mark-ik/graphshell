@@ -15,6 +15,7 @@
 - [`../implementation_strategy/flora_submission_checkpoint_spec.md`](../implementation_strategy/flora_submission_checkpoint_spec.md) — FLora adapter pipeline
 - [`2026-02-23_verse_tier2_architecture.md`](2026-02-23_verse_tier2_architecture.md) — Tier 2 transport, VerseBlob, community model
 - [`2026-03-05_verse_nostr_dvm_integration.md`](2026-03-05_verse_nostr_dvm_integration.md) — NIP-90 DVM compute layer, sats payment flows
+- [`../implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md`](../implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md) — storage bank: contributing, using, managing decentralized storage; credit mechanics, placement, durability, pledge-to-pool
 
 ---
 
@@ -425,7 +426,81 @@ This path is slow (multiple epoch cycles), active (requires ongoing work), and d
 
 ---
 
-## 10. Open Problems
+## 10. Decentralized Storage Bank
+
+The storage bank is the **operational layer** of the storage track — it answers
+how storage is contributed, allocated, verified, and health-monitored. The full
+specification is in
+[`2026-03-28_decentralized_storage_bank_spec.md`](../implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md).
+This section summarizes how the storage bank integrates with the economic model.
+
+### 10.1 Credit Mechanics: Base + Bonus
+
+The storage bank introduces two new `AccessWorkType` variants that extend the
+PoA ledger's storage track:
+
+- **`BlobAvailabilityEpochHeld`**: Small, steady base credit for passing
+  periodic availability challenges. Prevents the long-tail death problem where
+  unpopular (but valuable) data loses all storage incentive.
+- **`BlobRetrievalServed`**: Usage-validated bonus credit on real retrieval,
+  scaled by **hold duration** — the longer you held a blob before serving it,
+  the more the retrieval is worth. This is the "usage validates storage time"
+  primitive.
+
+Both feed into the `storage` dimension of `ReputationVector`. The base-vs-bonus
+ratio is community policy (see storage bank spec §3.5).
+
+### 10.2 Bilateral Storage Visibility
+
+At the Verso (bilateral) level, peers report storage usage to each other
+without enforcement:
+
+```rust
+struct PeerStorageReport {
+    peer_id: Did,
+    bytes_i_hold_for_peer: u64,
+    bytes_peer_holds_for_me: u64,
+    held_blob_cids: Vec<Cid>,
+    last_verified_at_ms: u64,
+}
+```
+
+This is the storage bank at n=2, where trust substitutes for bonds and
+reputation. No credit intermediary — peers see the imbalance and negotiate
+informally. The bilateral model is the foundation from which community-scale
+storage banking grows.
+
+### 10.3 Pledge-to-Pool
+
+Storage credits are **non-transferable** — no trading, no exchange rate. But
+peers can **pledge** portions of earned credit to a community storage pool that
+backs shared services (Matrix rooms, shared workspaces, FLora checkpoints).
+
+Pledging is a directed allocation, not a transfer. It does not create
+cross-track fungibility: storage credits cannot be converted to sats, FIL, or
+reputation. The three-track separation is preserved.
+
+See storage bank spec §9 for `StoragePledge` and `CommunityStoragePool`.
+
+### 10.4 Fallback Hierarchy
+
+Storage hosting degrades gracefully:
+
+```
+Community storage bank → Bilateral peer hosting → Self-hosting
+```
+
+The same CIDv1-addressed data can exist at any level. Blobs promote up the
+hierarchy as more hosting becomes available and demote down as hosting is lost.
+Health indicators show the user where their data stands.
+
+---
+
+## 11. Open Problems
+
+> Note: the storage bank spec introduces its own open questions around
+> challenge protocol tuning, erasure coding rollout, and repair incentive
+> calibration — see storage bank spec §13.
 
 1. **Filecoin light client**: Verse nodes need to interact with the Filecoin chain (bond escrow, epoch settlement). A full Filecoin node is impractical on a desktop. A light client or gateway approach is needed — no design yet.
 
@@ -439,7 +514,7 @@ This path is slow (multiple epoch cycles), active (requires ongoing work), and d
 
 ---
 
-## 11. Rollout Sequence
+## 12. Rollout Sequence
 
 This is all Tier 2, after Tier 1 (Device Sync) is stable:
 

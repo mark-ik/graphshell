@@ -155,7 +155,12 @@ impl GraphBrowserApp {
             .graph_runtime
             .views
             .get(&view_id)
-            .and_then(|view| view.edge_projection_override.as_ref())
+            .and_then(|view| {
+                view.relation_policy
+                    .edge_projection_override
+                    .as_ref()
+                    .or(view.edge_projection_override.as_ref())
+            })
     }
 
     fn selection_scope_for_view(view_id: Option<GraphViewId>) -> SelectionScope {
@@ -233,7 +238,7 @@ impl GraphBrowserApp {
         let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) else {
             return;
         };
-        view.edge_projection_override = selectors.map(EdgeProjectionState::new);
+        view.apply_edge_projection_policy_override(selectors.map(EdgeProjectionState::new));
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
@@ -676,23 +681,20 @@ impl GraphBrowserApp {
     }
 
     pub(crate) fn refresh_registry_backed_view_lenses(&mut self) -> usize {
-        let refreshes: Vec<(GraphViewId, LensConfig)> = self
+        let refreshes: Vec<(GraphViewId, ResolvedLensPreset)> = self
             .workspace
             .graph_runtime
             .views
             .iter()
             .filter_map(|(&view_id, view)| {
                 let requested = view
-                    .lens
-                    .lens_id
-                    .as_deref()
+                    .resolved_lens_id()
                     .filter(|lens_id| !lens_id.trim().is_empty())
                     .map(str::to_string)
                     .or_else(|| {
-                        view.lens
-                            .name
+                        view.resolved_lens_display_name()
                             .starts_with("lens:")
-                            .then(|| view.lens.name.to_ascii_lowercase())
+                            .then(|| view.resolved_lens_display_name().to_ascii_lowercase())
                     })?;
                 Some((
                     view_id,
@@ -701,15 +703,14 @@ impl GraphBrowserApp {
             })
             .collect();
 
-        for (view_id, lens) in &refreshes {
-            if let Some(view) = self.workspace.graph_runtime.views.get_mut(view_id) {
-                let layout_algorithm_id = view.lens.layout_algorithm_id.clone();
-                view.lens = lens.clone();
-                view.lens.layout_algorithm_id = layout_algorithm_id;
+        let refresh_count = refreshes.len();
+        for (view_id, lens) in refreshes {
+            if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+                view.apply_resolved_lens_identity(lens);
             }
         }
 
-        refreshes.len()
+        refresh_count
     }
 
     pub(crate) fn move_graph_view_slot(&mut self, view_id: GraphViewId, row: i32, col: i32) {
@@ -1012,8 +1013,8 @@ pub struct LocalSimulation {
     pub positions: HashMap<NodeKey, Point2D<f32>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct LensConfig {
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LegacyLensConfig {
     pub name: String,
     pub lens_id: Option<String>,
     pub physics: PhysicsProfile,
@@ -1036,20 +1037,123 @@ pub struct LensConfig {
     pub overlay_descriptor: Option<crate::registries::atomic::lens::LensOverlayDescriptor>,
 }
 
-impl Default for LensConfig {
+/// Temporary deserialization shim for pre-decomposition `GraphViewState`
+/// snapshots that stored a nested `lens` bundle directly on the view.
+#[derive(Debug, Clone)]
+pub struct ResolvedLensPreset {
+    pub lens_id: String,
+    pub display_name: String,
+    pub physics: PhysicsProfile,
+    pub layout: LayoutMode,
+    pub layout_algorithm_id: String,
+    pub theme: Option<ThemeData>,
+    pub filter_expr: Option<crate::model::graph::filter::FacetExpr>,
+    pub filters_legacy: Vec<String>,
+    pub overlay_descriptor: Option<crate::registries::atomic::lens::LensOverlayDescriptor>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ViewLensState {
+    #[serde(default)]
+    pub base_lens_id: Option<String>,
+    #[serde(default)]
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PolicyValueSource {
+    RegistryDefault,
+    WorkspaceDefault,
+    LensPreset(String),
+    ViewOverride,
+    LegacySnapshot,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ViewLayoutPolicy {
+    pub mode: LayoutMode,
+    pub algorithm_id: String,
+    #[serde(default = "default_registry_policy_value_source")]
+    pub source: PolicyValueSource,
+}
+
+impl Default for ViewLayoutPolicy {
     fn default() -> Self {
         Self {
-            name: "Default".to_string(),
-            lens_id: None,
-            physics: PhysicsProfile::default(),
-            layout: LayoutMode::Free,
-            layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
-            theme: None,
-            filter_expr: None,
-            filters_legacy: Vec::new(),
-            overlay_descriptor: None,
+            mode: LayoutMode::Free,
+            algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
+            source: default_registry_policy_value_source(),
         }
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ViewPhysicsPolicy {
+    #[serde(default)]
+    pub profile_id: Option<String>,
+    pub profile: PhysicsProfile,
+    #[serde(default = "default_registry_policy_value_source")]
+    pub source: PolicyValueSource,
+}
+
+impl Default for ViewPhysicsPolicy {
+    fn default() -> Self {
+        Self {
+            profile_id: Some(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT.to_string()),
+            profile: PhysicsProfile::default(),
+            source: default_registry_policy_value_source(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ViewFilterPolicy {
+    #[serde(default)]
+    pub lens_filter_expr: Option<crate::model::graph::filter::FacetExpr>,
+    #[serde(default)]
+    pub lens_filter_source: Option<PolicyValueSource>,
+    #[serde(default)]
+    pub active_filter_override: Option<crate::model::graph::filter::FacetExpr>,
+    #[serde(default)]
+    pub active_filter_override_source: Option<PolicyValueSource>,
+    #[serde(default)]
+    pub legacy_filters: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ViewOverlayPolicy {
+    #[serde(skip, default)]
+    pub overlay_descriptor: Option<crate::registries::atomic::lens::LensOverlayDescriptor>,
+    #[serde(default)]
+    pub source: Option<PolicyValueSource>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ViewPresentationPolicy {
+    #[serde(default, deserialize_with = "deserialize_optional_theme_data")]
+    pub theme: Option<ThemeData>,
+    #[serde(default)]
+    pub source: Option<PolicyValueSource>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ViewRelationPolicy {
+    #[serde(default)]
+    pub edge_projection_override: Option<EdgeProjectionState>,
+}
+
+pub(crate) fn canonical_physics_profile_id(profile: &PhysicsProfile) -> &'static str {
+    if *profile == PhysicsProfile::gas() {
+        crate::registries::atomic::lens::PHYSICS_ID_GAS
+    } else if *profile == PhysicsProfile::solid() {
+        crate::registries::atomic::lens::PHYSICS_ID_SOLID
+    } else {
+        crate::registries::atomic::lens::PHYSICS_ID_DEFAULT
+    }
+}
+
+fn default_registry_policy_value_source() -> PolicyValueSource {
+    PolicyValueSource::RegistryDefault
 }
 
 /// How z-coordinates are assigned to nodes when a graph view is in a 3D mode.
@@ -1106,7 +1210,7 @@ pub enum ViewDimension {
     ThreeD { mode: ThreeDMode, z_source: ZSource },
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize)]
 pub struct GraphViewState {
     pub id: GraphViewId,
     pub name: String,
@@ -1115,7 +1219,20 @@ pub struct GraphViewState {
     pub position_fit_locked: bool,
     #[serde(default)]
     pub zoom_fit_locked: bool,
-    pub lens: LensConfig,
+    #[serde(default)]
+    pub lens_state: ViewLensState,
+    #[serde(default)]
+    pub layout_policy: ViewLayoutPolicy,
+    #[serde(default)]
+    pub physics_policy: ViewPhysicsPolicy,
+    #[serde(default)]
+    pub filter_policy: ViewFilterPolicy,
+    #[serde(default)]
+    pub overlay_policy: ViewOverlayPolicy,
+    #[serde(default)]
+    pub presentation_policy: ViewPresentationPolicy,
+    #[serde(default)]
+    pub relation_policy: ViewRelationPolicy,
     pub local_simulation: Option<LocalSimulation>,
     /// The rendering dimension for this view (2D or 3D sub-mode).
     ///
@@ -1162,7 +1279,13 @@ impl std::fmt::Debug for GraphViewState {
             .field("camera", &self.camera)
             .field("position_fit_locked", &self.position_fit_locked)
             .field("zoom_fit_locked", &self.zoom_fit_locked)
-            .field("lens", &self.lens)
+            .field("lens_state", &self.lens_state)
+            .field("layout_policy", &self.layout_policy)
+            .field("physics_policy", &self.physics_policy)
+            .field("filter_policy", &self.filter_policy)
+            .field("overlay_policy", &self.overlay_policy)
+            .field("presentation_policy", &self.presentation_policy)
+            .field("relation_policy", &self.relation_policy)
             .field("local_simulation", &self.local_simulation)
             .field("dimension", &self.dimension)
             .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
@@ -1180,7 +1303,13 @@ impl Clone for GraphViewState {
             camera: self.camera.clone(),
             position_fit_locked: self.position_fit_locked,
             zoom_fit_locked: self.zoom_fit_locked,
-            lens: self.lens.clone(),
+            lens_state: self.lens_state.clone(),
+            layout_policy: self.layout_policy.clone(),
+            physics_policy: self.physics_policy.clone(),
+            filter_policy: self.filter_policy.clone(),
+            overlay_policy: self.overlay_policy.clone(),
+            presentation_policy: self.presentation_policy.clone(),
+            relation_policy: self.relation_policy.clone(),
             local_simulation: self.local_simulation.clone(),
             dimension: self.dimension.clone(),
             last_layout_algorithm_id: self.last_layout_algorithm_id.clone(),
@@ -1194,21 +1323,321 @@ impl Clone for GraphViewState {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct GraphViewStateSerde {
+    id: GraphViewId,
+    name: String,
+    camera: Camera,
+    #[serde(default)]
+    position_fit_locked: bool,
+    #[serde(default)]
+    zoom_fit_locked: bool,
+    #[serde(default)]
+    lens_state: ViewLensState,
+    #[serde(default)]
+    layout_policy: ViewLayoutPolicy,
+    #[serde(default)]
+    physics_policy: ViewPhysicsPolicy,
+    #[serde(default)]
+    filter_policy: ViewFilterPolicy,
+    #[serde(default)]
+    overlay_policy: ViewOverlayPolicy,
+    #[serde(default)]
+    presentation_policy: ViewPresentationPolicy,
+    #[serde(default)]
+    relation_policy: ViewRelationPolicy,
+    local_simulation: Option<LocalSimulation>,
+    #[serde(default)]
+    dimension: ViewDimension,
+    #[serde(skip)]
+    last_layout_algorithm_id: Option<String>,
+    #[serde(skip)]
+    egui_state: Option<EguiGraphState>,
+    #[serde(default)]
+    active_filter: Option<crate::model::graph::filter::FacetExpr>,
+    #[serde(default)]
+    edge_projection_override: Option<EdgeProjectionState>,
+    #[serde(default)]
+    tombstones_visible: bool,
+    #[serde(skip)]
+    graphlet_node_mask: Option<std::collections::HashSet<crate::graph::NodeKey>>,
+    #[serde(default, rename = "lens")]
+    legacy_lens: Option<LegacyLensConfig>,
+}
+
+impl<'de> serde::Deserialize<'de> for GraphViewState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = GraphViewStateSerde::deserialize(deserializer)?;
+        let mut view = Self {
+            id: helper.id,
+            name: helper.name,
+            camera: helper.camera,
+            position_fit_locked: helper.position_fit_locked,
+            zoom_fit_locked: helper.zoom_fit_locked,
+            lens_state: helper.lens_state,
+            layout_policy: helper.layout_policy,
+            physics_policy: helper.physics_policy,
+            filter_policy: helper.filter_policy,
+            overlay_policy: helper.overlay_policy,
+            presentation_policy: helper.presentation_policy,
+            relation_policy: helper.relation_policy,
+            local_simulation: helper.local_simulation,
+            dimension: helper.dimension,
+            last_layout_algorithm_id: helper.last_layout_algorithm_id,
+            egui_state: helper.egui_state,
+            active_filter: helper.active_filter,
+            edge_projection_override: helper.edge_projection_override,
+            tombstones_visible: helper.tombstones_visible,
+            graphlet_node_mask: helper.graphlet_node_mask,
+        };
+
+        if let Some(legacy_lens) = helper.legacy_lens {
+            let policy_fields_missing = view.lens_state.display_name.trim().is_empty()
+                && view.lens_state.base_lens_id.is_none()
+                && matches!(view.layout_policy.mode, LayoutMode::Free)
+                && view.layout_policy.algorithm_id
+                    == crate::app::graph_layout::default_free_layout_algorithm_id()
+                && view.physics_policy.profile == PhysicsProfile::default()
+                && view.presentation_policy.theme.is_none()
+                && view.filter_policy.lens_filter_expr.is_none()
+                && view.filter_policy.legacy_filters.is_empty()
+                && view.overlay_policy.overlay_descriptor.is_none();
+            if policy_fields_missing {
+                view.hydrate_policy_surfaces_from_legacy_lens(legacy_lens);
+            }
+        }
+
+        Ok(view)
+    }
+}
+
 impl GraphViewState {
-    pub fn effective_filter_expr(&self) -> Option<&crate::model::graph::filter::FacetExpr> {
-        self.active_filter
+    fn hydrate_policy_surfaces_from_legacy_lens(&mut self, legacy_lens: LegacyLensConfig) {
+        self.lens_state = ViewLensState {
+            base_lens_id: legacy_lens.lens_id,
+            display_name: legacy_lens.name,
+        };
+        self.layout_policy = ViewLayoutPolicy {
+            mode: legacy_lens.layout,
+            algorithm_id: legacy_lens.layout_algorithm_id,
+            source: PolicyValueSource::LegacySnapshot,
+        };
+        self.physics_policy = ViewPhysicsPolicy {
+            profile_id: Some(canonical_physics_profile_id(&legacy_lens.physics).to_string()),
+            profile: legacy_lens.physics,
+            source: PolicyValueSource::LegacySnapshot,
+        };
+        self.filter_policy = ViewFilterPolicy {
+            lens_filter_expr: legacy_lens.filter_expr,
+            lens_filter_source: Some(PolicyValueSource::LegacySnapshot),
+            active_filter_override: self.active_filter.clone(),
+            active_filter_override_source: self
+                .active_filter
+                .as_ref()
+                .map(|_| PolicyValueSource::LegacySnapshot),
+            legacy_filters: legacy_lens.filters_legacy,
+        };
+        self.overlay_policy = ViewOverlayPolicy {
+            overlay_descriptor: legacy_lens.overlay_descriptor,
+            source: Some(PolicyValueSource::LegacySnapshot),
+        };
+        self.presentation_policy = ViewPresentationPolicy {
+            theme: legacy_lens.theme,
+            source: Some(PolicyValueSource::LegacySnapshot),
+        };
+        self.relation_policy = ViewRelationPolicy {
+            edge_projection_override: self.edge_projection_override.clone(),
+        };
+    }
+
+    pub fn apply_layout_policy_override(
+        &mut self,
+        mode: LayoutMode,
+        algorithm_id: impl Into<String>,
+    ) {
+        self.apply_layout_policy(mode, algorithm_id, PolicyValueSource::ViewOverride);
+    }
+
+    pub fn apply_layout_policy(
+        &mut self,
+        mode: LayoutMode,
+        algorithm_id: impl Into<String>,
+        source: PolicyValueSource,
+    ) {
+        let algorithm_id = algorithm_id.into();
+        self.layout_policy = ViewLayoutPolicy {
+            mode: mode.clone(),
+            algorithm_id: algorithm_id.clone(),
+            source,
+        };
+    }
+
+    pub fn apply_physics_policy_override(
+        &mut self,
+        profile_id: impl Into<String>,
+        profile: PhysicsProfile,
+    ) {
+        self.apply_physics_policy(profile_id, profile, PolicyValueSource::ViewOverride);
+    }
+
+    pub fn apply_physics_policy(
+        &mut self,
+        profile_id: impl Into<String>,
+        profile: PhysicsProfile,
+        source: PolicyValueSource,
+    ) {
+        let profile_id = profile_id.into();
+        self.physics_policy = ViewPhysicsPolicy {
+            profile_id: Some(profile_id),
+            profile: profile.clone(),
+            source,
+        };
+    }
+
+    pub fn apply_resolved_lens_identity(&mut self, resolved: ResolvedLensPreset) {
+        let lens_id = resolved.lens_id.clone();
+        self.lens_state = ViewLensState {
+            base_lens_id: Some(lens_id.clone()),
+            display_name: resolved.display_name.clone(),
+        };
+        self.filter_policy.lens_filter_expr = resolved.filter_expr.clone();
+        self.filter_policy.lens_filter_source =
+            self.filter_policy
+                .lens_filter_expr
+                .as_ref()
+                .map(|_| PolicyValueSource::LensPreset(lens_id.clone()));
+        self.filter_policy.legacy_filters = resolved.filters_legacy.clone();
+        self.overlay_policy.overlay_descriptor = resolved.overlay_descriptor.clone();
+        self.overlay_policy.source = self
+            .overlay_policy
+            .overlay_descriptor
             .as_ref()
-            .or(self.lens.filter_expr.as_ref())
+            .map(|_| PolicyValueSource::LensPreset(lens_id.clone()));
+        self.presentation_policy.theme = resolved.theme.clone();
+        self.presentation_policy.source = self
+            .presentation_policy
+            .theme
+            .as_ref()
+            .map(|_| PolicyValueSource::LensPreset(lens_id));
+    }
+
+    pub fn apply_filter_override(
+        &mut self,
+        expr: Option<crate::model::graph::filter::FacetExpr>,
+    ) {
+        self.filter_policy.active_filter_override = expr.clone();
+        self.filter_policy.active_filter_override_source =
+            expr.as_ref().map(|_| PolicyValueSource::ViewOverride);
+        self.active_filter = expr.clone();
+    }
+
+    pub fn apply_edge_projection_policy_override(
+        &mut self,
+        override_state: Option<EdgeProjectionState>,
+    ) {
+        self.relation_policy.edge_projection_override = override_state.clone();
+        self.edge_projection_override = override_state;
+    }
+
+    pub fn resolved_layout_mode(&self) -> &LayoutMode {
+        &self.layout_policy.mode
+    }
+
+    pub fn resolved_layout_algorithm_id(&self) -> &str {
+        self.layout_policy.algorithm_id.as_str()
+    }
+
+    pub fn resolved_layout_source(&self) -> &PolicyValueSource {
+        &self.layout_policy.source
+    }
+
+    pub fn resolved_physics_profile(&self) -> &PhysicsProfile {
+        &self.physics_policy.profile
+    }
+
+    pub fn resolved_physics_source(&self) -> &PolicyValueSource {
+        &self.physics_policy.source
+    }
+
+    pub fn resolved_lens_id(&self) -> Option<&str> {
+        self.lens_state.base_lens_id.as_deref()
+    }
+
+    pub fn resolved_lens_display_name(&self) -> &str {
+        self.lens_state.display_name.as_str()
+    }
+
+    pub fn resolved_physics_profile_id(&self) -> Option<&str> {
+        self.physics_policy
+            .profile_id
+            .as_deref()
+            .or_else(|| {
+                (!self.physics_policy.profile.name.trim().is_empty())
+                    .then(|| canonical_physics_profile_id(&self.physics_policy.profile))
+            })
+    }
+
+    pub fn resolved_theme(&self) -> Option<&ThemeData> {
+        self.presentation_policy.theme.as_ref()
+    }
+
+    pub fn resolved_theme_source(&self) -> Option<&PolicyValueSource> {
+        self.presentation_policy.source.as_ref()
+    }
+
+    pub fn resolved_overlay_descriptor(
+        &self,
+    ) -> Option<&crate::registries::atomic::lens::LensOverlayDescriptor> {
+        self.overlay_policy
+            .overlay_descriptor
+            .as_ref()
+    }
+
+    pub fn resolved_overlay_source(&self) -> Option<&PolicyValueSource> {
+        self.overlay_policy.source.as_ref()
+    }
+
+    pub fn resolved_filter_count(&self) -> usize {
+        self.filter_policy
+            .active_filter_override
+            .as_ref()
+            .or(self.filter_policy.lens_filter_expr.as_ref())
+            .is_some() as usize
+            + self.filter_policy.legacy_filters.len()
+    }
+
+    pub fn effective_filter_expr(&self) -> Option<&crate::model::graph::filter::FacetExpr> {
+        self.filter_policy
+            .active_filter_override
+            .as_ref()
+            .or(self.filter_policy.lens_filter_expr.as_ref())
+            .or(self.active_filter.as_ref())
+    }
+
+    pub fn effective_filter_source(&self) -> Option<&PolicyValueSource> {
+        self.filter_policy
+            .active_filter_override_source
+            .as_ref()
+            .or(self.filter_policy.lens_filter_source.as_ref())
     }
 
     pub fn new_with_id(id: GraphViewId, name: impl Into<String>) -> Self {
-        Self {
+        let mut view = Self {
             id,
             name: name.into(),
             camera: Camera::new(),
             position_fit_locked: false,
             zoom_fit_locked: false,
-            lens: LensConfig::default(),
+            lens_state: ViewLensState::default(),
+            layout_policy: ViewLayoutPolicy::default(),
+            physics_policy: ViewPhysicsPolicy::default(),
+            filter_policy: ViewFilterPolicy::default(),
+            overlay_policy: ViewOverlayPolicy::default(),
+            presentation_policy: ViewPresentationPolicy::default(),
+            relation_policy: ViewRelationPolicy::default(),
             local_simulation: None,
             dimension: ViewDimension::default(),
             last_layout_algorithm_id: None,
@@ -1217,7 +1646,9 @@ impl GraphViewState {
             edge_projection_override: None,
             tombstones_visible: false,
             graphlet_node_mask: None,
-        }
+        };
+        view.lens_state.display_name = "Default".to_string();
+        view
     }
 
     pub fn new(name: impl Into<String>) -> Self {
@@ -1277,4 +1708,241 @@ pub(crate) struct PersistedGraphViewLayoutManager {
 
 impl PersistedGraphViewLayoutManager {
     pub(crate) const VERSION: u32 = 1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refresh_registry_backed_view_lenses_preserves_active_filter_override() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let mut view = GraphViewState::new_with_id(view_id, "Lens");
+        view.lens_state.base_lens_id =
+            Some(crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string());
+        view.apply_filter_override(Some(crate::model::graph::filter::FacetExpr::Predicate(
+            crate::model::graph::filter::FacetPredicate {
+                facet_key: crate::model::graph::filter::facet_keys::TITLE.to_string(),
+                operator: crate::model::graph::filter::FacetOperator::Eq,
+                operand: crate::model::graph::filter::FacetOperand::Scalar(
+                    crate::model::graph::filter::FacetScalar::Text("alpha".to_string()),
+                ),
+            },
+        )));
+        app.workspace.graph_runtime.views.insert(view_id, view);
+
+        let refreshed = app.refresh_registry_backed_view_lenses();
+        let view = app
+            .workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .expect("view should remain registered");
+
+        assert_eq!(refreshed, 1);
+        assert!(view.active_filter.is_some());
+        assert!(view.filter_policy.active_filter_override.is_some());
+        assert!(view.filter_policy.lens_filter_expr.is_none());
+    }
+
+    #[test]
+    fn apply_physics_policy_override_updates_policy_fields() {
+        let mut view = GraphViewState::new("Physics");
+
+        view.apply_physics_policy_override(
+            crate::registries::atomic::lens::PHYSICS_ID_GAS,
+            crate::registries::atomic::lens::PhysicsProfile::gas(),
+        );
+
+        assert_eq!(
+            view.resolved_physics_profile_id(),
+            Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
+        );
+        assert_eq!(view.physics_policy.profile.name, "Gas");
+        assert_eq!(view.resolved_physics_profile().name, "Gas");
+        assert_eq!(view.physics_policy.source, PolicyValueSource::ViewOverride);
+    }
+
+    #[test]
+    fn apply_resolved_lens_identity_preserves_layout_and_physics_overrides() {
+        let mut view = GraphViewState::new("Lens");
+        view.apply_layout_policy_override(
+            crate::registries::atomic::lens::LayoutMode::Grid { gap: 24.0 },
+            crate::app::graph_layout::GRAPH_LAYOUT_GRID,
+        );
+        view.apply_physics_policy_override(
+            crate::registries::atomic::lens::PHYSICS_ID_GAS,
+            crate::registries::atomic::lens::PhysicsProfile::gas(),
+        );
+
+        let resolved = crate::shell::desktop::runtime::registries::phase2_resolve_lens(
+            crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY,
+        );
+        view.apply_resolved_lens_identity(resolved);
+
+        assert_eq!(
+            view.resolved_lens_id(),
+            Some(crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY)
+        );
+        assert_eq!(view.resolved_lens_display_name(), "Semantic Overlay");
+        assert_eq!(
+            view.resolved_layout_mode(),
+            &crate::registries::atomic::lens::LayoutMode::Grid { gap: 24.0 }
+        );
+        assert_eq!(
+            view.resolved_physics_profile_id(),
+            Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
+        );
+        assert!(view.resolved_overlay_descriptor().is_some());
+        assert_eq!(view.resolved_filter_count(), 1);
+        assert_eq!(
+            view.overlay_policy.source,
+            Some(PolicyValueSource::LensPreset(
+                crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY.to_string()
+            ))
+        );
+        assert_eq!(view.filter_policy.lens_filter_source, None);
+        assert_eq!(view.layout_policy.source, PolicyValueSource::ViewOverride);
+        assert_eq!(view.physics_policy.source, PolicyValueSource::ViewOverride);
+    }
+
+    #[test]
+    fn set_view_lens_id_preserves_existing_overrides() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let mut view = GraphViewState::new_with_id(view_id, "Lens");
+        view.apply_layout_policy_override(
+            crate::registries::atomic::lens::LayoutMode::Grid { gap: 24.0 },
+            crate::app::graph_layout::GRAPH_LAYOUT_GRID,
+        );
+        view.apply_physics_policy_override(
+            crate::registries::atomic::lens::PHYSICS_ID_GAS,
+            crate::registries::atomic::lens::PhysicsProfile::gas(),
+        );
+        view.apply_filter_override(Some(crate::model::graph::filter::FacetExpr::Predicate(
+            crate::model::graph::filter::FacetPredicate {
+                facet_key: crate::model::graph::filter::facet_keys::TITLE.to_string(),
+                operator: crate::model::graph::filter::FacetOperator::Eq,
+                operand: crate::model::graph::filter::FacetOperand::Scalar(
+                    crate::model::graph::filter::FacetScalar::Text("alpha".to_string()),
+                ),
+            },
+        )));
+        app.workspace.graph_runtime.views.insert(view_id, view);
+
+        app.apply_reducer_intents([crate::app::GraphIntent::SetViewLensId {
+            view_id,
+            lens_id: crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY.to_string(),
+        }]);
+
+        let view = app
+            .workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .expect("view should remain registered");
+        assert_eq!(
+            view.resolved_lens_id(),
+            Some(crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY)
+        );
+        assert_eq!(
+            view.resolved_layout_mode(),
+            &crate::registries::atomic::lens::LayoutMode::Grid { gap: 24.0 }
+        );
+        assert_eq!(
+            view.resolved_physics_profile_id(),
+            Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
+        );
+        assert!(view.filter_policy.active_filter_override.is_some());
+        assert!(view.resolved_overlay_descriptor().is_some());
+    }
+
+    #[test]
+    fn deserialize_legacy_lens_snapshot_upgrades_into_policy_surfaces() {
+        let json = format!(
+            r#"{{
+                "id":"{}",
+                "name":"Legacy",
+                "camera":{{"zoom_min":0.1,"zoom_max":10.0,"current_zoom":0.8}},
+                "position_fit_locked":false,
+                "zoom_fit_locked":false,
+                "lens":{{
+                    "name":"Legacy Lens",
+                    "lens_id":"lens:default",
+                    "physics":{{
+                        "name":"Gas",
+                        "repulsion_strength":0.8,
+                        "attraction_strength":0.05,
+                        "gravity_strength":0.0,
+                        "damping":0.8,
+                        "degree_repulsion":true,
+                        "domain_clustering":false,
+                        "semantic_clustering":false,
+                        "semantic_strength":0.0,
+                        "auto_pause":false
+                    }},
+                    "layout":{{"Grid":{{"gap":24.0}}}},
+                    "layout_algorithm_id":"{}",
+                    "theme":null,
+                    "filter_expr":null,
+                    "filters":["legacy"],
+                    "overlay_descriptor":null
+                }},
+                "active_filter":null,
+                "edge_projection_override":null,
+                "tombstones_visible":false,
+                "dimension":"TwoD"
+            }}"#,
+            GraphViewId::new().as_uuid(),
+            crate::app::graph_layout::GRAPH_LAYOUT_GRID
+        );
+
+        let view: GraphViewState =
+            serde_json::from_str(&json).expect("legacy graph view snapshot should deserialize");
+
+        assert_eq!(view.resolved_lens_id(), Some("lens:default"));
+        assert_eq!(view.resolved_lens_display_name(), "Legacy Lens");
+        assert!(matches!(
+            view.resolved_layout_mode(),
+            crate::registries::atomic::lens::LayoutMode::Grid { gap: 24.0 }
+        ));
+        assert_eq!(
+            view.resolved_layout_algorithm_id(),
+            crate::app::graph_layout::GRAPH_LAYOUT_GRID
+        );
+        assert_eq!(view.resolved_physics_profile().name, "Gas");
+        assert_eq!(view.filter_policy.legacy_filters, vec!["legacy".to_string()]);
+        assert_eq!(view.layout_policy.source, PolicyValueSource::LegacySnapshot);
+        assert_eq!(view.physics_policy.source, PolicyValueSource::LegacySnapshot);
+        assert_eq!(
+            view.filter_policy.active_filter_override_source,
+            None
+        );
+    }
+
+    #[test]
+    fn apply_filter_override_marks_view_override_provenance() {
+        let mut view = GraphViewState::new("Filter");
+        let expr = crate::model::graph::filter::FacetExpr::Predicate(
+            crate::model::graph::filter::FacetPredicate {
+                facet_key: crate::model::graph::filter::facet_keys::TITLE.to_string(),
+                operator: crate::model::graph::filter::FacetOperator::Eq,
+                operand: crate::model::graph::filter::FacetOperand::Scalar(
+                    crate::model::graph::filter::FacetScalar::Text("alpha".to_string()),
+                ),
+            },
+        );
+
+        view.apply_filter_override(Some(expr));
+
+        assert_eq!(
+            view.effective_filter_source(),
+            Some(&PolicyValueSource::ViewOverride)
+        );
+
+        view.apply_filter_override(None);
+
+        assert_eq!(view.effective_filter_source(), None);
+    }
 }

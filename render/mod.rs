@@ -537,14 +537,14 @@ pub fn render_graph_in_ui_collect_actions(
         if let Some(view) = app.workspace.graph_runtime.views.get(&view_id) {
             (
                 app.workspace.graph_runtime.physics.clone(),
-                Some(&view.lens),
+                Some(view.resolved_physics_profile()),
             )
         } else {
             (app.workspace.graph_runtime.physics.clone(), None)
         };
 
     if dynamic_layout && let Some(lens) = lens_config {
-        lens.physics.apply_to_state(&mut physics_state);
+        lens.apply_to_state(&mut physics_state);
     }
 
     if !dynamic_layout {
@@ -663,8 +663,7 @@ pub fn render_graph_in_ui_collect_actions(
 
     // Apply semantic clustering and frame-affinity forces (UDC Phase 2 + lane:layout-semantics).
     let physics_extensions = app.workspace.graph_runtime.views.get(&view_id).map(|v| {
-        v.lens
-            .physics
+        v.resolved_physics_profile()
             .graph_physics_extensions(canvas_zones_enabled)
     });
     apply_graph_physics_extensions(app, physics_extensions);
@@ -1358,8 +1357,8 @@ mod tests {
         let mut app = test_app();
         let view_id = crate::app::GraphViewId::new();
         let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
-        view.lens.lens_id = Some("lens:default".to_string());
-        view.lens.layout = LayoutMode::Grid { gap: 24.0 };
+        view.lens_state.base_lens_id = Some("lens:default".to_string());
+        view.layout_policy.mode = LayoutMode::Grid { gap: 24.0 };
         app.workspace.graph_runtime.views.insert(view_id, view);
 
         let canvas_profile = crate::registries::domain::layout::canvas::CanvasRegistry::default()
@@ -1376,8 +1375,8 @@ mod tests {
         let mut app = test_app();
         let view_id = crate::app::GraphViewId::new();
         let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
-        view.lens.layout = LayoutMode::Free;
-        view.lens.layout_algorithm_id =
+        view.layout_policy.mode = LayoutMode::Free;
+        view.layout_policy.algorithm_id =
             crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT.to_string();
         app.workspace.graph_runtime.views.insert(view_id, view);
 

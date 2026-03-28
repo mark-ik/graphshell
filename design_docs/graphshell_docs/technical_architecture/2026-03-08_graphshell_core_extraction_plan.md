@@ -24,7 +24,7 @@ note (§5.5). See §11 for updated open questions.
 - [`graph/2026-02-23_udc_semantic_tagging_plan.md`](../implementation_strategy/graph/2026-02-23_udc_semantic_tagging_plan.md) — UDC semantic tagging
 - [`2026-02-18_universal_node_content_model.md`](2026-02-18_universal_node_content_model.md) — node identity / `Address` enum
 - [`2026-03-18_event_log_fact_store_query_architecture.md`](../../archive_docs/checkpoint_2026-03-18/2026-03-18_event_log_fact_store_query_architecture.md) — portable event-log / fact-store / query split (archived: implemented 2026-03-18)
-- [`system/coop_session_spec.md`](../implementation_strategy/system/coop_session_spec.md) — Coop session authority (§3, §6, §15, §16)
+- [`../../verso_docs/implementation_strategy/coop_session_spec.md`](../../verso_docs/implementation_strategy/coop_session_spec.md) — Co-op session authority (§3, §6, §15, §16)
 - [`viewer/2026-02-11_clipping_dom_extraction_plan.md`](../implementation_strategy/viewer/2026-02-11_clipping_dom_extraction_plan.md) — clip publication (NIP-84)
 
 ---

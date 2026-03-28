@@ -27,6 +27,9 @@ use raw_window_handle::RawWindowHandle;
 use std::cell::RefCell;
 
 pub(crate) mod client_storage;
+pub(crate) mod finger;
+pub(crate) mod gemini;
+pub(crate) mod gopher;
 #[cfg(feature = "wry")]
 pub(crate) mod wry_manager;
 #[cfg(feature = "wry")]
@@ -138,6 +141,15 @@ pub(crate) fn verso_manifest() -> ModManifest {
         "protocol:https".to_string(),
         "protocol:data".to_string(),
         "viewer:webview".to_string(),
+        "action:gemini.start_server".to_string(),
+        "action:gemini.stop_server".to_string(),
+        "action:gemini.serve_node".to_string(),
+        "action:gopher.start_server".to_string(),
+        "action:gopher.stop_server".to_string(),
+        "action:gopher.serve_node".to_string(),
+        "action:finger.start_server".to_string(),
+        "action:finger.stop_server".to_string(),
+        "action:finger.publish_profile".to_string(),
     ];
 
     #[cfg(feature = "wry")]
@@ -151,6 +163,15 @@ pub(crate) fn verso_manifest() -> ModManifest {
         "protocol:https".to_string(),
         "protocol:data".to_string(),
         "viewer:webview".to_string(),
+        "action:gemini.start_server".to_string(),
+        "action:gemini.stop_server".to_string(),
+        "action:gemini.serve_node".to_string(),
+        "action:gopher.start_server".to_string(),
+        "action:gopher.stop_server".to_string(),
+        "action:gopher.serve_node".to_string(),
+        "action:finger.start_server".to_string(),
+        "action:finger.stop_server".to_string(),
+        "action:finger.publish_profile".to_string(),
     ];
 
     ModManifest::new(

@@ -7,6 +7,7 @@
 - `design_docs/verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`
 - `design_docs/verse_docs/implementation_strategy/engram_spec.md`
 - `design_docs/verse_docs/implementation_strategy/flora_submission_checkpoint_spec.md`
+- `design_docs/verse_docs/implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md`
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../graphshell_docs/research/2026-03-04_standards_alignment_report.md) §§3.11–3.13):
 - **IPFS CIDv1** — canonical content address format; base32 text encoding; codec from IPFS codec table (dag-cbor for structured data, raw for opaque bytes); BLAKE3 hash function.
@@ -244,7 +245,92 @@ Retention says how long the node keeps serving it.
 
 ---
 
-## 10. Immediate Defaults (v1)
+## 10. Fragment Manifests (Storage Bank Durability)
+
+For redundant hosting in the decentralized storage bank, each blob can be
+described by a `FragmentManifest` that lists how its data is split across
+providers:
+
+```rust
+struct FragmentManifest {
+    blob_cid: Cid,                    // the original blob CID
+    coding_scheme: CodingScheme,
+    fragments: Vec<FragmentEntry>,
+    k_required: u32,                  // fragments needed to reconstruct
+    m_total: u32,                     // total fragments produced
+}
+
+enum CodingScheme {
+    FullCopy,                         // v1: each fragment = the full blob
+    ReedSolomon { data: u32, parity: u32 },  // future: k-of-m erasure coding
+}
+
+struct FragmentEntry {
+    fragment_cid: Cid,
+    fragment_index: u32,
+    size_bytes: u64,
+}
+```
+
+**v1**: `CodingScheme::FullCopy` — each fragment is a complete copy of the
+blob. `k_required = 1`, `m_total = k_target`. This is naive k-replication
+using the same CIDv1 addressing. Switching to Reed-Solomon later requires no
+structural changes to the manifest or the storage bank protocols.
+
+See [2026-03-28_decentralized_storage_bank_spec.md](2026-03-28_decentralized_storage_bank_spec.md)
+§7 for the full durability model.
+
+---
+
+## 11. Storage Bank Message Types
+
+The storage bank uses three signed message types for health reporting and
+placement coordination. These are transported alongside VerseBlobs but are not
+VerseBlobs themselves — they are operational messages, not content-addressed
+immutable data.
+
+```rust
+struct StorageAnnouncement {
+    announcement_id: Uuid,     // UUID v7
+    provider: Did,
+    community_id: CommunityId,
+    blob_cid: Cid,
+    fragment_index: u32,       // for erasure coding; 0 for full-copy
+    announced_at_epoch: u64,
+    signature: Signature,
+}
+
+struct StorageHeartbeat {
+    heartbeat_id: Uuid,        // UUID v7
+    provider: Did,
+    community_id: CommunityId,
+    held_blob_cids: Vec<Cid>,
+    available_bytes: u64,
+    uptime_epochs: u64,
+    heartbeat_epoch: u64,
+    signature: Signature,
+}
+
+struct StorageWithdrawal {
+    withdrawal_id: Uuid,       // UUID v7
+    provider: Did,
+    community_id: CommunityId,
+    blob_cid: Cid,
+    withdrawal_epoch: u64,
+    signature: Signature,
+}
+```
+
+These messages are signed by the provider's `did:key` and validated by
+community peers. They drive the storage bank's health view and placement
+protocol.
+
+See [2026-03-28_decentralized_storage_bank_spec.md](2026-03-28_decentralized_storage_bank_spec.md)
+§6–§8 for the full placement, health, and repair model.
+
+---
+
+## 12. Immediate Defaults (v1)
 
 - Use CIDv1 base32 with `sha2-256`.
 - Use `DagCbor` for envelopes and manifests.

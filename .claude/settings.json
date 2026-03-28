@@ -32,7 +32,23 @@
       "Bash(sed -n '195,210p' /c/Users/mark_/Code/source/repos/graphshell/app/intent_phases.rs)",
       "Bash(sed -n '240,270p' /c/Users/mark_/Code/source/repos/graphshell/app/intent_phases.rs)",
       "Read(//c/Users/mark_/.claude/plans/**)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(find /c/Users/mark_/Code/source/repos/graphshell/design_docs/verse_docs -type f -name *.md)",
+      "Bash(grep -r wasm /c/Users/mark_/Code/source/repos/graphshell --include=*.toml --include=*.rs --include=*.md)",
+      "Bash(grep -ri \"wallet\\\\|crypto\\\\|ipfs\\\\|ucan\\\\|token\" /c/Users/mark_/Code/source/repos/graphshell --include=*.rs --include=*.toml)",
+      "Bash(find /c/Users/mark_/Code/source/repos/graphshell -type d -name *verse* -o -name *nostr*)",
+      "Bash(find /c/Users/mark_/Code/source/repos/graphshell/mods -type f -name *.rs)",
+      "Bash(grep -r \"iroh\\\\|nostr\\\\|wallet\\\\|identity\" /c/Users/mark_/Code/source/repos/graphshell/mods/native/verse/ --include=*.rs)",
+      "Bash(find /c/Users/mark_/Code/source/repos/graphshell/model/graph -name *.rs)",
+      "Bash(grep -E \"\\\\.rs$\")",
+      "Bash(find /c/Users/mark_/Code/source/repos/graphshell/services -name *.rs)",
+      "Bash(grep -rn \"gemini\\\\|rustls\\\\|rcgen\" c:/Users/mark_/Code/source/repos/graphshell/Cargo.toml c:/Users/mark_/Code/source/repos/graphshell/mods/ --include=*.rs --include=*.toml -l)",
+      "Bash(gh api:*)",
+      "Bash(curl -sL --max-time 30 \"https://permacomputing.net/projects/\")",
+      "Bash(curl -sL --max-time 30 \"https://permacomputing.net/\")",
+      "Bash(curl -sL --max-time 30 \"https://permacomputing.net/principles/\")",
+      "Bash(curl -sL --max-time 30 \"https://permacomputing.net/permacomputing/\")",
+      "WebFetch(domain:permacomputing.net)"
     ],
     "additionalDirectories": [
       "\\tmp"

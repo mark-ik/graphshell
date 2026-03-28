@@ -380,14 +380,14 @@ fn semantic_generation_for_tile(
     hasher.finish()
 }
 
-fn resolved_lens_config_for_tile(
+fn resolved_lens_preset_for_tile(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     node_key: NodeKey,
-) -> crate::app::LensConfig {
+) -> crate::app::ResolvedLensPreset {
     if let Some(view_id) = tile_view_ops::active_graph_view_id(tiles_tree)
         && let Some(view) = graph_app.workspace.graph_runtime.views.get(&view_id)
-        && let Some(lens_id) = view.lens.lens_id.as_deref()
+        && let Some(lens_id) = view.resolved_lens_id()
     {
         return crate::shell::desktop::runtime::registries::phase2_resolve_lens(lens_id);
     }
@@ -409,20 +409,20 @@ fn resolve_tile_semantic_input(
         graph_app.node_has_canonical_tag(node_key, GraphBrowserApp::TAG_UNREAD);
     let selection_state =
         tile_selection_state_for_tile(graph_app, tile_id_for_pane(tiles_tree, pane_id));
-    let lens_config = resolved_lens_config_for_tile(tiles_tree, graph_app, node_key);
+    let lens_preset = resolved_lens_preset_for_tile(tiles_tree, graph_app, node_key);
     let mut semantic = TileSemanticOverlayInput {
         node_key,
         render_mode,
         lifecycle,
         runtime_blocked,
         semantic_generation: 0,
-        active_lens_overlay: lens_config.overlay_descriptor,
+        active_lens_overlay: lens_preset.overlay_descriptor,
         focus_delta: focus_delta.touches(node_key).then_some(focus_delta),
         selection_state,
         has_unread_traversal_activity,
     };
     semantic.semantic_generation =
-        semantic_generation_for_tile(semantic.clone(), lens_config.lens_id.as_deref());
+        semantic_generation_for_tile(semantic.clone(), Some(lens_preset.lens_id.as_str()));
     ScheduledTileSemanticInput {
         pane_id,
         tile_rect,

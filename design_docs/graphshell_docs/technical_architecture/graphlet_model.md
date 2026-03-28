@@ -12,6 +12,7 @@
 - `../implementation_strategy/workbench/graphlet_projection_binding_spec.md` — Workbench binding and linked/detached arrangement behavior
 - `../implementation_strategy/workbench/WORKBENCH.md` — Workbench arrangement authority
 - `../implementation_strategy/shell/shell_overview_surface_spec.md` — Shell overview of graph/workbench/runtime state
+- `../implementation_strategy/graph/2026-03-14_graph_relation_families.md` — family-oriented Navigator modes and relation-family projection vocabulary
 
 ---
 
@@ -29,6 +30,16 @@ It exists because graphlets are no longer only a Workbench grouping concern. The
 - Navigator-side projection and traversal,
 - Workbench-side staged arrangements,
 - Shell-side overview and orientation.
+
+**Clarification (2026-03-27)**: graphlets are not the only Navigator projection
+form. Navigator also owns family-oriented section/mode projections over relation
+families. Those projection forms are complementary:
+
+- graphlets answer "what bounded local world is active?",
+- relation-family modes answer "which relation grammar is currently emphasized?"
+
+They may reuse some of the same selectors or graph inputs without becoming the
+same object.
 
 ---
 

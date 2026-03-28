@@ -8,6 +8,7 @@
 - `design_docs/verse_docs/implementation_strategy/flora_submission_checkpoint_spec.md`
 - `design_docs/verse_docs/implementation_strategy/proof_of_access_ledger_spec.md`
 - `design_docs/verse_docs/implementation_strategy/community_governance_spec.md`
+- `design_docs/verse_docs/implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md`
 
 ---
 
@@ -148,6 +149,35 @@ struct NodeTreasuryPolicy {
 - Separate storage commitment from reward commitment.
 
 This prevents a storage-serving node from silently becoming a spending node.
+
+### 7.2 Storage Contribution Budget
+
+Alongside `NodeTreasuryPolicy` (which governs spending), the node configures
+how much storage capacity it contributes to the decentralized storage bank:
+
+```rust
+struct StorageContributionBudget {
+    max_contributed_bytes: u64,
+    max_bandwidth_bytes_per_epoch: u64,
+    service_hours: Option<(u8, u8)>,  // active hours (e.g., 08:00–22:00); None = always
+    auto_repair: bool,                // participate in repair work automatically
+}
+```
+
+**Defaults** (all opt-in, contributing nothing until explicitly configured):
+
+- `max_contributed_bytes`: 0
+- `max_bandwidth_bytes_per_epoch`: 0
+- `service_hours`: None
+- `auto_repair`: false
+
+The contribution budget governs the **supply side**: how much of the node's
+resources are available for hosting others' blobs. It is independent of the
+treasury policy (which governs spending/payout). A node can contribute storage
+without enabling payouts (earning reputation only), and vice versa.
+
+See [2026-03-28_decentralized_storage_bank_spec.md](2026-03-28_decentralized_storage_bank_spec.md)
+for the full storage bank model, credit mechanics, and placement protocol.
 
 ---
 

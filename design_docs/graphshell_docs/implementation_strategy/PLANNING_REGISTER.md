@@ -9,11 +9,11 @@
 - [2026-02-28_ux_contract_register.md](2026-02-28_ux_contract_register.md) - Cross-spec UX ownership map and contract register.
 - [2026-03-03_pre_wgpu_feature_validation_gate_checklist.md](2026-03-03_pre_wgpu_feature_validation_gate_checklist.md) - Feature/validation-gate-only closure checklist for pre-wgpu readiness.
 - [2026-03-03_spec_conflict_resolution_register.md](2026-03-03_spec_conflict_resolution_register.md) - Priority-ordered spec conflict and terminology resolution register for pre-wgpu closure.
-- [system/2026-03-17_matrix_layer_positioning.md](system/2026-03-17_matrix_layer_positioning.md) - Places Matrix as the durable room contextual substrate within the three-context + two-fabric network model; defines room hosting gradient, cross-carrying rules, and concept resurfacing.
+- [../../../matrix_docs/implementation_strategy/2026-03-17_matrix_layer_positioning.md](../../../matrix_docs/implementation_strategy/2026-03-17_matrix_layer_positioning.md) - Places Matrix as the durable room contextual substrate within the three-context + two-fabric network model; defines room hosting gradient, cross-carrying rules, and concept resurfacing.
 - [system/2026-03-17_multi_identity_binding_rules.md](system/2026-03-17_multi_identity_binding_rules.md) - Defines the three-identity model (`NodeId`, `npub`, Matrix ID) and the explicit binding/verification rules between them.
-- [system/2026-03-17_matrix_core_adoption_plan.md](system/2026-03-17_matrix_core_adoption_plan.md) - Phase-by-phase execution plan for `MatrixCore`: session lifecycle, room projection, allowlisted graph events, and optional Nostr bridge affordances.
-- [system/2026-03-17_matrix_event_schema.md](system/2026-03-17_matrix_event_schema.md) - Concrete `graphshell.room.*` event schema for Matrix-backed rooms: payload families, validation rules, and reducer/workbench routing boundaries.
-- [system/register/2026-03-17_matrix_core_type_sketch.md](system/register/2026-03-17_matrix_core_type_sketch.md) - Rust-facing type sketch for `MatrixCoreRegistry`, supervised worker commands, normalized Matrix events, and bounded proposal routing.
+- [../../../matrix_docs/implementation_strategy/2026-03-17_matrix_core_adoption_plan.md](../../../matrix_docs/implementation_strategy/2026-03-17_matrix_core_adoption_plan.md) - Phase-by-phase execution plan for `MatrixCore`: session lifecycle, room projection, allowlisted graph events, and optional Nostr bridge affordances.
+- [../../../matrix_docs/implementation_strategy/2026-03-17_matrix_event_schema.md](../../../matrix_docs/implementation_strategy/2026-03-17_matrix_event_schema.md) - Concrete `graphshell.room.*` event schema for Matrix-backed rooms: payload families, validation rules, and reducer/workbench routing boundaries.
+- [../../../matrix_docs/implementation_strategy/2026-03-17_matrix_core_type_sketch.md](../../../matrix_docs/implementation_strategy/2026-03-17_matrix_core_type_sketch.md) - Rust-facing type sketch for `MatrixCoreRegistry`, supervised worker commands, normalized Matrix events, and bounded proposal routing.
 - [system/2026-03-17_runtime_task_budget.md](system/2026-03-17_runtime_task_budget.md) - Async worker priority tiers, concurrency envelope, suspension/resume policy, and diagnostics channels for the ControlPanel multi-worker runtime (pre-design backlog note).
 - [../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md](../../archive_docs/checkpoint_2026-03-21/2026-03-20_arrangement_graph_projection_plan.md) - Archived completion plan: tile tree as projection of arrangement graph truth (all phases shipped 2026-03-21).
 - [graph/2026-03-21_edge_family_and_provenance_expansion_plan.md](graph/2026-03-21_edge_family_and_provenance_expansion_plan.md) - Active plan for relation vocabulary expansion: keeps the current family model, adds a dedicated Provenance family, and broadens prototype edge sub-kinds before worrying about backwards compatibility.
@@ -1023,7 +1023,7 @@ These are mostly sourced from the forgotten-concepts table and adopted strategy 
 | Lane | Scope | Trigger / Prereq | Primary Docs | Notes |
 | --- | --- | --- | --- | --- |
 | `lane:history-stage-f` | Temporal Navigation / Time-Travel Preview (Stage F) | Stage E history maturity + preview isolation hardening | `2026-02-20_edge_traversal_impl_plan.md`, `SUBSYSTEM_HISTORY.md` | Treat as staged backlog lane, not a quick feature. |
-| `lane:presence-collaboration` | Collaborative presence (ghost cursors, follow mode, remote selection) | Verse sync + identity/presence semantics stable | `design_docs/verse_docs/implementation_strategy/2026-02-25_verse_presence_plan.md` | Crosses Graphshell + Verse; likely needs dedicated hub. |
+| `lane:presence-collaboration` | Collaborative presence (ghost cursors, follow mode, remote selection) | Verse sync + identity/presence semantics stable | `design_docs/verso_docs/implementation_strategy/2026-02-25_verse_presence_plan.md` | Crosses Graphshell + Verse; likely needs dedicated hub. |
 | `lane:lens-physics` | Progressive lenses + lens/physics binding policy execution | Runtime lens resolution + distinct physics preset behavior | `2026-02-25_progressive_lens_and_physics_binding_plan.md`, interaction/physics docs | Can begin with policy wiring before full UX polish. |
 | `lane:doi-fisheye` | Semantic fisheye / DOI implementation | Basic LOD + viewport culling stable | `2026-02-25_doi_fisheye_plan.md`, graph UX research | Visual ergonomics lane; pair with diagnostics/perf instrumentation. |
 | `lane:ghost-nodes` | Ghost Nodes/edges after deletion (formerly `lane:visual-tombstones`) | Deletion/traversal/history UX stable | `2026-02-26_visual_tombstones_plan.md` | Adopted concept with strategy doc; candidate early roadmap lane. |
@@ -1062,8 +1062,8 @@ These are mostly sourced from the forgotten-concepts table and adopted strategy 
 
 This issue-seeding block operationalizes the `NostrCore` native baseline defined in:
 
-- `system/2026-03-05_nostr_mod_system.md`
-- `system/register/nostr_core_registry_spec.md`
+- `../../../nostr_docs/implementation_strategy/2026-03-05_nostr_mod_system.md`
+- `../../../nostr_docs/implementation_strategy/nostr_core_registry_spec.md`
 
 Positioning note:
 

@@ -184,20 +184,41 @@ impl GraphBrowserApp {
                 let _ = self.perform_redo(current_layout);
                 true
             }
-            GraphIntent::SetViewLens { view_id, lens } => {
-                let requested_layout_algorithm_id = lens.layout_algorithm_id.clone();
-                let lens = self.with_registry_lens_defaults(lens);
-                let mut lens = if let Some(lens_id) = lens.lens_id.as_deref() {
-                    crate::shell::desktop::runtime::registries::phase2_resolve_lens(lens_id)
-                } else if lens.name.starts_with("lens:") {
-                    crate::shell::desktop::runtime::registries::phase2_resolve_lens(&lens.name)
-                } else {
-                    lens
-                };
-                lens.layout_algorithm_id = requested_layout_algorithm_id;
+            GraphIntent::SetViewLensId { view_id, lens_id } => {
+                let resolved =
+                    crate::shell::desktop::runtime::registries::phase2_resolve_lens(&lens_id);
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
-                    view.active_filter = lens.filter_expr.clone();
-                    view.lens = lens;
+                    view.apply_resolved_lens_identity(resolved);
+                }
+                self.workspace.graph_runtime.egui_state_dirty = true;
+                true
+            }
+            GraphIntent::SetViewLayoutAlgorithm {
+                view_id,
+                algorithm_id,
+            } => {
+                if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+                    view.apply_layout_policy(
+                        crate::registries::atomic::lens::LayoutMode::Free,
+                        algorithm_id,
+                        crate::app::graph_views::PolicyValueSource::ViewOverride,
+                    );
+                }
+                self.workspace.graph_runtime.egui_state_dirty = true;
+                true
+            }
+            GraphIntent::SetViewPhysicsProfile {
+                view_id,
+                profile_id,
+            } => {
+                let resolution =
+                    crate::registries::atomic::lens::resolve_physics_profile(&profile_id);
+                if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+                    view.apply_physics_policy(
+                        resolution.resolved_id,
+                        resolution.profile,
+                        crate::app::graph_views::PolicyValueSource::ViewOverride,
+                    );
                 }
                 self.workspace.graph_runtime.egui_state_dirty = true;
                 true
@@ -211,8 +232,7 @@ impl GraphBrowserApp {
                 });
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                     let is_some = expr.is_some();
-                    view.active_filter = expr.clone();
-                    view.lens.filter_expr = expr.clone();
+                    view.apply_filter_override(expr.clone());
                     let channel = if is_some {
                         crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_APPLIED
                     } else {
@@ -251,8 +271,7 @@ impl GraphBrowserApp {
             }
             GraphIntent::ClearViewFilter { view_id } => {
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
-                    view.active_filter = None;
-                    view.lens.filter_expr = None;
+                    view.apply_filter_override(None);
                     crate::shell::desktop::runtime::diagnostics::emit_event(
                         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
                             channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_CLEARED,
@@ -517,6 +536,93 @@ impl GraphBrowserApp {
                         );
                     }
                 }
+                true
+            }
+            GraphIntent::StartGeminiCapsuleServer { port } => {
+                let port = port.unwrap_or(1965);
+                crate::shell::desktop::runtime::registries::start_gemini_capsule_server(port);
+                true
+            }
+            GraphIntent::StopGeminiCapsuleServer => {
+                crate::shell::desktop::runtime::registries::stop_gemini_capsule_server();
+                true
+            }
+            GraphIntent::ServeNodeAsGemini {
+                node_id,
+                title,
+                privacy_class,
+                gemini_content,
+            } => {
+                let content = gemini_content.unwrap_or_else(|| {
+                    format!(
+                        "# {title}\n\nThis node has no content yet.\n"
+                    )
+                });
+                crate::shell::desktop::runtime::registries::register_gemini_node(
+                    node_id,
+                    title,
+                    privacy_class,
+                    content,
+                );
+                true
+            }
+            GraphIntent::UnserveNodeFromGemini { node_id } => {
+                crate::shell::desktop::runtime::registries::unregister_gemini_node(node_id);
+                true
+            }
+            GraphIntent::StartGopherCapsuleServer { port } => {
+                let port = port.unwrap_or(70);
+                crate::shell::desktop::runtime::registries::start_gopher_capsule_server(port);
+                true
+            }
+            GraphIntent::StopGopherCapsuleServer => {
+                crate::shell::desktop::runtime::registries::stop_gopher_capsule_server();
+                true
+            }
+            GraphIntent::ServeNodeAsGopher {
+                node_id,
+                title,
+                privacy_class,
+                gophermap_content,
+            } => {
+                let content = gophermap_content.unwrap_or_else(|| {
+                    format!("i{title}\tfake\tfake\t70\r\n.\r\n")
+                });
+                crate::shell::desktop::runtime::registries::register_gopher_node(
+                    node_id,
+                    title,
+                    privacy_class,
+                    content,
+                );
+                true
+            }
+            GraphIntent::UnserveNodeFromGopher { node_id } => {
+                crate::shell::desktop::runtime::registries::unregister_gopher_node(node_id);
+                true
+            }
+            GraphIntent::StartFingerServer { port } => {
+                let port = port.unwrap_or(79);
+                crate::shell::desktop::runtime::registries::start_finger_server(port);
+                true
+            }
+            GraphIntent::StopFingerServer => {
+                crate::shell::desktop::runtime::registries::stop_finger_server();
+                true
+            }
+            GraphIntent::PublishFingerProfile {
+                query_name,
+                privacy_class,
+                finger_text,
+            } => {
+                crate::shell::desktop::runtime::registries::publish_finger_profile(
+                    query_name,
+                    privacy_class,
+                    finger_text,
+                );
+                true
+            }
+            GraphIntent::UnpublishFingerProfile { query_name } => {
+                crate::shell::desktop::runtime::registries::unpublish_finger_profile(query_name);
                 true
             }
             GraphIntent::WorkflowActivated { .. } => true,
@@ -1238,7 +1344,8 @@ impl GraphBrowserApp {
             | GraphIntent::SetWorkbenchEdgeProjection { .. }
             | GraphIntent::SetViewEdgeProjectionOverride { .. }
             | GraphIntent::SetSelectionEdgeProjectionOverride { .. }
-            | GraphIntent::SetNavigatorContainmentRelationSource { .. }
+            | GraphIntent::SetNavigatorProjectionSeedSource { .. }
+            | GraphIntent::SetNavigatorProjectionMode { .. }
             | GraphIntent::SetNavigatorSortMode { .. }
             | GraphIntent::SetNavigatorRootFilter { .. }
             | GraphIntent::SetNavigatorSelectedRows { .. }
@@ -1270,7 +1377,9 @@ impl GraphBrowserApp {
             | GraphIntent::RouteGraphViewToWorkbench { .. }
             | GraphIntent::Undo
             | GraphIntent::Redo
-            | GraphIntent::SetViewLens { .. }
+            | GraphIntent::SetViewLensId { .. }
+            | GraphIntent::SetViewLayoutAlgorithm { .. }
+            | GraphIntent::SetViewPhysicsProfile { .. }
             | GraphIntent::SetViewFilter { .. }
             | GraphIntent::ClearViewFilter { .. }
             | GraphIntent::SetViewDimension { .. }
@@ -1300,6 +1409,18 @@ impl GraphBrowserApp {
             | GraphIntent::GrantWorkspaceAccess { .. }
             | GraphIntent::ForgetDevice { .. }
             | GraphIntent::RevokeWorkspaceAccess { .. }
+            | GraphIntent::StartGeminiCapsuleServer { .. }
+            | GraphIntent::StopGeminiCapsuleServer
+            | GraphIntent::ServeNodeAsGemini { .. }
+            | GraphIntent::UnserveNodeFromGemini { .. }
+            | GraphIntent::StartGopherCapsuleServer { .. }
+            | GraphIntent::StopGopherCapsuleServer
+            | GraphIntent::ServeNodeAsGopher { .. }
+            | GraphIntent::UnserveNodeFromGopher { .. }
+            | GraphIntent::StartFingerServer { .. }
+            | GraphIntent::StopFingerServer
+            | GraphIntent::PublishFingerProfile { .. }
+            | GraphIntent::UnpublishFingerProfile { .. }
             | GraphIntent::WorkflowActivated { .. }
             | GraphIntent::PersistNostrSubscriptions
             | GraphIntent::NostrEventReceived { .. }

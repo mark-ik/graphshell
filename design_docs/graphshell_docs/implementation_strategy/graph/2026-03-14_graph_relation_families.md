@@ -4,8 +4,9 @@
 **Status**: Design — Pre-Implementation
 **Purpose**: Define the canonical vocabulary of relation families that extend the
 current `EdgeKind` model, enabling typed projection, persistence tiers, and
-physics semantics — so the workbench navigator, the graph canvas, and the physics
-engine share one coherent model rather than three ad hoc ones.
+physics semantics — so the Navigator, graph canvas, Workbench arrangement
+projection, and family-aware physics policy share one coherent model rather than
+four ad hoc ones.
 
 **Related**:
 
@@ -15,10 +16,25 @@ engine share one coherent model rather than three ad hoc ones.
 - `agent_derived_edges_spec.md` — `AgentDerived` provenance and assertion protocol
 - `2026-03-21_edge_family_and_provenance_expansion_plan.md` — follow-on plan for widening edge vocabulary and introducing a dedicated Provenance family
 - `../canvas/2026-02-25_progressive_lens_and_physics_binding_plan.md` — physics profiles
+- `GRAPH.md` — Graph owns relation-family truth and canvas-side management semantics
+- `../navigator/NAVIGATOR.md` — Navigator owns projection rules, section model, and interaction contract
 - `../../TERMINOLOGY.md` — `EdgeKind`, `EdgePayload`, `Graph`, `Frame`, `TileGroup`
+- `../shell/SHELL.md` — Shell owns host composition, settings exposure, and app-level control routing
 - `../workbench/WORKBENCH.md` — workbench owns arrangement interaction/session mutation truth, not graph meaning
+- `../viewer/VIEWER.md` — Viewer realizes content surfaces but does not own relation-family semantics
 - `../system/register/SYSTEM_REGISTER.md` — register-owned routing / diagnostics carriers
 - `../aspect_control/settings_and_control_surfaces_spec.md` — control-surface ownership and settings routing
+
+**Alignment note (2026-03-27)**: the five-domain split in `SHELL.md`,
+`GRAPH.md`, `NAVIGATOR.md`, `WORKBENCH.md`, and `VIEWER.md` supersedes older
+"chrome" or "sidebar as workbench feature" framing. This document now treats:
+
+- **Graph** as the owner of relation-family truth,
+- **Navigator** as the owner of relation-family projection and mode semantics,
+- **Workbench** as a projection input source for arrangement/session state and
+  as the owner of Navigator host layout chrome,
+- **Shell** as the host and settings/diagnostics routing surface,
+- **Viewer** as the realization layer for the surfaces those domains expose.
 
 ---
 
@@ -57,14 +73,18 @@ lets the persistence layer apply appropriate durability per family.
 This family model is intentionally not canvas-only. The same relation-family
 vocabulary is meant to be reused by:
 
-- the **Navigator** for section ownership and row hierarchy,
-- workbench-scoped **Navigator hosts** for arrangement projection,
+- the **Graph** domain for durable relation truth and canvas-side management,
+- the **Navigator** for section ownership, row hierarchy, and projection modes,
+- the **Workbench** as an arrangement/session input source consumed by Navigator
+  projection,
+- **Navigator hosts** rendered in Shell/Workbench-owned chrome slots,
 - the **History** subsystem for recent/traversal projection,
 - **filesystem/import** flows for derived hierarchy and imported grouping,
 - **lens + physics** policy (`FamilyPhysicsPolicy`) for family-aware layout and
   visibility,
 - **settings / diagnostics** surfaces for inspection, toggles, and health
-  reporting.
+  reporting routed by Shell/control surfaces rather than becoming alternate
+  owners of family truth.
 
 If a subsystem needs a new hierarchy, adjacency list, or grouping surface, it
 should first ask whether that behavior can be expressed as a relation family,
@@ -301,9 +321,11 @@ Four tiers govern durability:
 
 ## 5. Navigator Projection Policy
 
-The Navigator, especially when rendered in a workbench-scoped host (see
-`2026-03-13_chrome_scope_split_plan.md §5`), is the primary tree/list
-projection surface over relation families.
+Navigator is the canonical projection and navigation surface over relation
+families. It reads from graph truth, workbench arrangement/session state,
+runtime recency/lifecycle state, and import records at projection time. Shell
+hosts the resulting Navigator surfaces; Workbench controls host placement and
+edge occupancy; Navigator owns what those hosts project.
 
 ### 5.0 Shared projection contract
 
@@ -319,11 +341,13 @@ Corollaries:
 - subsystem-specific trees should be avoided unless they need behaviors that
   Navigator cannot express;
 - diagnostics and settings surfaces may configure Navigator sections/filters,
-  but do not become alternate truth owners of hierarchy.
-renders from a `WorkbenchChromeProjection`. That projection is now defined by
-family-scoped sections with explicit priority ordering.
+  but do not become alternate truth owners of hierarchy;
+- Shell/control surfaces may route projection settings and diagnostics exposure,
+  but they do not own section semantics;
+- Workbench-owned host layout chrome determines where a Navigator surface is
+  mounted, not what relation families mean.
 
-### 5.1 Section Priority (default navigator mode)
+### 5.1 Default family-oriented section emphasis
 
 ```
 [Workbench]             ← Arrangement family: frames, tiles, active panes
@@ -348,10 +372,24 @@ family-scoped sections with explicit priority ordering.
     └─ node 9
 ```
 
-### 5.2 Projection Ownership Rule
+This is a default family-oriented projection shape, not an exclusive replacement
+for the broader Navigator section taxonomy in `NAVIGATOR.md`. In particular:
 
-A node's **primary section** in the navigator is determined by the
-highest-priority family that carries a relation to that node:
+- `Recent` remains a first-class Navigator section sourced from recency/runtime state.
+- Arrangement-backed groups may surface as `Workbench` / `Frames` emphasis depending
+  on host scope and projection form.
+- Relation-family grouping can appear either as dedicated sections or as family-owned
+  rows within a broader `Relations` section, depending on the Navigator host and mode.
+
+### 5.2 Projection ranking and duplication rule
+
+Family precedence still matters, but it is a **ranking/emphasis** rule rather
+than an absolute exclusivity rule. When multiple derived section sources include
+the same node, Navigator may surface the node in more than one section as long
+as each appearance is independently derived from that section's projection
+source.
+
+The default emphasis order is:
 
 1. **Arrangement** (highest) — if the node has any arrangement-family edge in
    the current session or a saved frame
@@ -360,14 +398,18 @@ highest-priority family that carries a relation to that node:
 3. **Containment / derived** — if the node's URL implies a path or domain
    containment relation
 4. **Semantic** — if the node has a `UserGrouped` or `AgentDerived` edge to
-   another visible node (it appears alongside its group partner, not in a
-   separate "semantic" section)
+   another visible node
 5. **Unrelated** (lowest) — if the node has no arrangement, containment, or
    active semantic edge that connects it to the current projection scope
 
-A node appears in exactly one primary section. Cross-section annotation badges
-(e.g., "also in Frame A" or "also in /docs/api") are shown on hover, not as
-duplicate rows.
+Practical interpretation:
+
+- the highest-ranked family should determine the node's default emphasis,
+  default reveal target, and preferred row ancestry in family-oriented modes;
+- Navigator is still allowed to show the same node in multiple sections when
+  that is the honest result of independently-derived section membership;
+- cross-section badges and hover annotations remain useful, but they are no
+  longer the only permitted way to express multi-membership.
 
 ### 5.3 Navigator Mode Switching
 
@@ -380,11 +422,12 @@ The navigator can be switched to a single-family projection mode:
 - **Semantic mode**: semantic-first; groups nodes by their UserGrouped clusters;
   useful for knowledge exploration without the workbench active
 - **All nodes mode**: flat roster of all nodes, sorted by recency; no family
-  filtering; equivalent to what FileTree's `GraphContainment` source currently
-  approximates
+  filtering; equivalent to the legacy FileTree flat-graph roster behavior now
+  exposed through Navigator projection state
 
-Mode switching is a view-local preference, not a graph intent. It does not
-mutate graph state.
+Mode switching is Navigator-owned projection state. It is view-local/session
+state, not graph truth. Shell/control surfaces may route it, and Workbench host
+chrome may expose it, but changing mode does not mutate graph state.
 
 ---
 
@@ -458,7 +501,7 @@ lens is applied, subject to the same confirmation gate.
 ## 7. FileTree Tool Pane — Disposition
 
 The current `ToolPaneState::FileTree` approximated hierarchy projection with a
-flat list and three `FileTreeContainmentRelationSource` variants. With relation
+flat list and three legacy source variants. With relation
 families in place, its use cases are redistributed:
 
 | Old source | Replacement |
@@ -472,6 +515,10 @@ implements containment-mode projection. It is **not removed in this plan** — i
 remains available as a legacy surface until the navigator sections covering its
 use cases are shipped and validated.
 
+Implementation note: runtime naming should follow the newer Navigator projection
+terminology (`NavigatorProjectionMode`, `NavigatorProjectionSeedSource`) rather
+than reintroducing FileTree-specific enum names into active paths.
+
 ---
 
 ## 8. Implementation Slices
@@ -484,8 +531,8 @@ disrupted. Implementation proceeds in three slices ordered by value delivered.
 Deliver the navigator section structure (§5.1) using only existing `EdgeKind`
 values. No new variants needed yet:
 
-- `Workbench` section: arrangement derived from egui_tiles Container shape and
-  `FrameTabSemantics` (same source as current `WorkbenchChromeProjection`)
+- `Workbench` / arrangement-emphasis section: arrangement derived from current
+  Workbench session state and existing Navigator projection inputs
 - `Unrelated` section: nodes with no active arrangement membership
 - `Recent` section: nodes with `TraversalDerived` edges, sorted by recency
 
@@ -495,19 +542,27 @@ navigator immediately.
 ### Slice B — Containment family edges
 
 Add `EdgeKind::ContainmentRelation` with the derived sub-kinds (`url-path`,
-`domain`) computed at graph load from node URL data. Adds the Domain/Folders
+`domain`) computed from node URL data and refreshed on node-set / URL-change
+deltas. Adds the Domain/Folders
 section to the navigator. Enables containment-mode projection.
 
-At this point, the FileTree tool pane's `ImportedFilesystemProjection` source
+At this point, the FileTree tool pane's imported-filesystem projection path
 can be retired: filesystem containment edges replace it.
 
-### Slice C — Arrangement family edges as durable graph relations
+### Slice C — Arrangement family completion and promotion semantics
 
-Add `EdgeKind::ArrangementRelation` with `frame-member`, `tile-member`, and
-`split-pair` sub-kinds. Frames become named sets of durable `frame-member` edges
-rather than workspace layout snapshots. This is a significant model change and
-is the right final step once the navigator sections are stable and the containment
-family is validated.
+Complete `EdgeKind::ArrangementRelation` adoption with `frame-member`,
+`tile-member`, and `split-pair` sub-kinds where still missing or still modeled
+through legacy workbench-only carriers. The key remaining work is not the
+existence of the concept, but the durability split and promotion semantics:
+
+- durable `frame-member` truth lives in graph-backed arrangement relations,
+- session-only tile/split structure remains Workbench-owned until promoted,
+- Navigator reads arrangement truth/projectable arrangement state without
+  becoming the owner of either.
+
+This is still the highest-risk slice because it touches Graph/Workbench bridging,
+promotion rules, and persistence boundaries.
 
 ---
 
@@ -518,10 +573,12 @@ family is validated.
 - [ ] Navigator sections render correctly using Slice A (existing EdgeKind only)
 - [ ] Nodes with no relation appear in "Unrelated" section, not missing entirely
 - [ ] Single-family projection modes switch correctly without mutating graph state
+- [ ] Section membership remains independently derived per section source even
+  when family-precedence ranking is used for default emphasis
 - [ ] New `EdgeKind` variants (Slices B and C) added additively — no existing
   test regressions
-- [ ] Derived containment edges (`url-path`, `domain`) are recomputed on load and
-  not persisted to the snapshot
+- [ ] Derived containment edges (`url-path`, `domain`) are refreshed on load and
+  on relevant node/url deltas, and are not persisted to the snapshot
 - [ ] Physics profile weights per family are view-scope policy, not per-edge
   properties
 - [ ] FileTree tool pane remains functional until navigator sections covering its

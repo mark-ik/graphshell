@@ -416,16 +416,18 @@ fn graph_bar_lens_label(graph_app: &GraphBrowserApp) -> String {
     let view_id = active_graph_view_id(graph_app);
     let lens_id = view_id
         .and_then(|id| graph_app.workspace.graph_runtime.views.get(&id))
-        .and_then(|view| view.lens.lens_id.clone())
+        .and_then(|view| view.resolved_lens_id().map(str::to_owned))
         .or_else(|| graph_app.default_registry_lens_id().map(str::to_owned))
         .unwrap_or_else(|| LENS_ID_DEFAULT.to_string());
     format!("Lens: {}", lens_id.trim_start_matches("lens:"))
 }
 
 fn graph_bar_physics_label(graph_app: &GraphBrowserApp) -> String {
-    let physics_id = graph_app
-        .default_registry_physics_id()
-        .unwrap_or(PHYSICS_PROFILE_LIQUID);
+    let physics_id = active_graph_view_id(graph_app)
+        .and_then(|id| graph_app.workspace.graph_runtime.views.get(&id))
+        .and_then(|view| view.resolved_physics_profile_id().map(str::to_owned))
+        .or_else(|| graph_app.default_registry_physics_id().map(str::to_owned))
+        .unwrap_or_else(|| PHYSICS_PROFILE_LIQUID.to_string());
     format!("Physics: {}", physics_id.trim_start_matches("physics:"))
 }
 
@@ -455,25 +457,20 @@ fn render_graph_bar_lens_menu(
             ui.label("No active graph view");
             return;
         };
-        let Some(base_lens) = graph_app
-            .workspace
-            .graph_runtime
-            .views
-            .get(&view_id)
-            .map(|view| view.lens.clone())
-        else {
+        if !graph_app.workspace.graph_runtime.views.contains_key(&view_id) {
             ui.label("No active graph view");
             return;
-        };
+        }
 
         for (label, lens_id) in [
             ("Default", LENS_ID_DEFAULT),
             ("Semantic Overlay", LENS_ID_SEMANTIC_OVERLAY),
         ] {
             if ui.button(label).clicked() {
-                let mut lens = base_lens.clone();
-                lens.lens_id = Some(lens_id.to_string());
-                frame_intents.push(GraphIntent::SetViewLens { view_id, lens });
+                frame_intents.push(GraphIntent::SetViewLensId {
+                    view_id,
+                    lens_id: lens_id.to_string(),
+                });
                 ui.close();
             }
         }
@@ -486,15 +483,24 @@ fn render_graph_bar_physics_menu(
     frame_intents: &mut Vec<GraphIntent>,
 ) {
     ui.menu_button(graph_bar_physics_label(graph_app), |ui| {
+        let active_view_id = active_graph_view_id(graph_app)
+            .filter(|view_id| graph_app.workspace.graph_runtime.views.contains_key(view_id));
         for (label, profile_id) in [
             ("Liquid", PHYSICS_PROFILE_LIQUID),
             ("Gas", PHYSICS_PROFILE_GAS),
             ("Solid", PHYSICS_PROFILE_SOLID),
         ] {
             if ui.button(label).clicked() {
-                frame_intents.push(GraphIntent::SetPhysicsProfile {
-                    profile_id: profile_id.to_string(),
-                });
+                if let Some(view_id) = active_view_id {
+                    frame_intents.push(GraphIntent::SetViewPhysicsProfile {
+                        view_id,
+                        profile_id: profile_id.to_string(),
+                    });
+                } else {
+                    frame_intents.push(GraphIntent::SetPhysicsProfile {
+                        profile_id: profile_id.to_string(),
+                    });
+                }
                 ui.close();
             }
         }

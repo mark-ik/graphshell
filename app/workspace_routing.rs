@@ -16,11 +16,52 @@ pub struct ArrangementProjectionGroup {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NavigatorSectionProjection {
+    pub mode: NavigatorProjectionMode,
     pub workbench_groups: Vec<ArrangementProjectionGroup>,
+    pub semantic_groups: Vec<SemanticProjectionGroup>,
     pub folder_sections: BTreeMap<String, Vec<NodeKey>>,
     pub domain_sections: BTreeMap<String, Vec<NodeKey>>,
     pub unrelated_nodes: Vec<NodeKey>,
     pub recent_nodes: Vec<(NodeKey, u64)>,
+    pub all_nodes: Vec<NodeKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticProjectionGroup {
+    pub title: String,
+    pub member_keys: Vec<NodeKey>,
+}
+
+impl NavigatorSectionProjection {
+    pub fn shows_workbench_section(&self) -> bool {
+        self.mode == NavigatorProjectionMode::Workbench
+    }
+
+    pub fn shows_containment_sections(&self) -> bool {
+        matches!(
+            self.mode,
+            NavigatorProjectionMode::Workbench | NavigatorProjectionMode::Containment
+        )
+    }
+
+    pub fn shows_semantic_section(&self) -> bool {
+        self.mode == NavigatorProjectionMode::Semantic
+    }
+
+    pub fn shows_unrelated_section(&self) -> bool {
+        matches!(
+            self.mode,
+            NavigatorProjectionMode::Workbench | NavigatorProjectionMode::Semantic
+        )
+    }
+
+    pub fn shows_recent_section(&self) -> bool {
+        self.mode == NavigatorProjectionMode::Workbench
+    }
+
+    pub fn shows_all_nodes_section(&self) -> bool {
+        self.mode == NavigatorProjectionMode::AllNodes
+    }
 }
 
 impl GraphBrowserApp {
@@ -121,6 +162,7 @@ impl GraphBrowserApp {
     }
 
     pub fn navigator_section_projection(&self) -> NavigatorSectionProjection {
+        let mode = self.navigator_projection_state().mode;
         let workbench_groups = self.arrangement_projection_groups();
         let mut arranged_nodes = HashSet::new();
         for group in &workbench_groups {
@@ -130,6 +172,58 @@ impl GraphBrowserApp {
         }
 
         let traversal_timestamps = navigator_recent_traversal_node_timestamps(self);
+        let semantic_selector = [RelationSelector::Semantic(
+            crate::graph::SemanticSubKind::UserGrouped,
+        )];
+        let mut semantic_groups = Vec::new();
+        let mut semantic_grouped_nodes = HashSet::new();
+        for node_key in self.domain_graph().nodes().map(|(key, _)| key) {
+            if semantic_grouped_nodes.contains(&node_key) {
+                continue;
+            }
+            let mut members = graphlet::graphlet_members_for_seeds_with_selectors(
+                self.domain_graph(),
+                &[node_key],
+                &semantic_selector,
+            );
+            members.sort_by(|left, right| {
+                arrangement_member_sort_key(self, *left)
+                    .cmp(&arrangement_member_sort_key(self, *right))
+            });
+            members.dedup();
+            if members.len() <= 1 {
+                continue;
+            }
+            let title = members
+                .first()
+                .copied()
+                .map(|key| arrangement_member_sort_key(self, key).0)
+                .unwrap_or_else(|| format!("Group {}", semantic_groups.len() + 1));
+            for member in &members {
+                semantic_grouped_nodes.insert(*member);
+            }
+            semantic_groups.push(SemanticProjectionGroup {
+                title,
+                member_keys: members,
+            });
+        }
+        semantic_groups.sort_by(|left, right| {
+            left.title
+                .cmp(&right.title)
+                .then_with(|| left.member_keys.len().cmp(&right.member_keys.len()))
+        });
+        let mut all_nodes: Vec<NodeKey> = self.domain_graph().nodes().map(|(key, _)| key).collect();
+        all_nodes.sort_by(|left, right| {
+            traversal_timestamps
+                .get(right)
+                .copied()
+                .unwrap_or(0)
+                .cmp(&traversal_timestamps.get(left).copied().unwrap_or(0))
+                .then_with(|| {
+                    arrangement_member_sort_key(self, *left)
+                        .cmp(&arrangement_member_sort_key(self, *right))
+                })
+        });
         let mut recent_nodes: Vec<(NodeKey, u64)> = traversal_timestamps
             .iter()
             .filter_map(|(node_key, timestamp)| {
@@ -189,13 +283,58 @@ impl GraphBrowserApp {
             node_keys.dedup();
         }
 
-        NavigatorSectionProjection {
+        let mut projection = NavigatorSectionProjection {
+            mode,
             workbench_groups,
+            semantic_groups,
             folder_sections,
             domain_sections,
             unrelated_nodes,
             recent_nodes,
+            all_nodes,
+        };
+
+        match mode {
+            NavigatorProjectionMode::Workbench => {
+                projection.semantic_groups.clear();
+                projection.all_nodes.clear();
+            }
+            NavigatorProjectionMode::Containment => {
+                projection.workbench_groups.clear();
+                projection.semantic_groups.clear();
+                projection.unrelated_nodes.clear();
+                projection.recent_nodes.clear();
+                projection.all_nodes.clear();
+            }
+            NavigatorProjectionMode::Semantic => {
+                projection.workbench_groups.clear();
+                projection.folder_sections.clear();
+                projection.domain_sections.clear();
+                projection.recent_nodes.clear();
+                projection.unrelated_nodes = projection
+                    .all_nodes
+                    .iter()
+                    .copied()
+                    .filter(|key| {
+                        !projection
+                            .semantic_groups
+                            .iter()
+                            .any(|group| group.member_keys.contains(key))
+                    })
+                    .collect();
+                projection.all_nodes.clear();
+            }
+            NavigatorProjectionMode::AllNodes => {
+                projection.workbench_groups.clear();
+                projection.semantic_groups.clear();
+                projection.folder_sections.clear();
+                projection.domain_sections.clear();
+                projection.unrelated_nodes.clear();
+                projection.recent_nodes.clear();
+            }
         }
+
+        projection
     }
 
     /// Return all nodes in the graphlet induced by `selectors`, excluding `seed`.
@@ -1242,8 +1381,8 @@ mod tests {
             Point2D::new(1.0, 0.0),
         );
 
-        app.set_navigator_containment_relation_source(
-            NavigatorContainmentRelationSource::ContainmentRelations,
+        app.set_navigator_projection_seed_source(
+            NavigatorProjectionSeedSource::ContainmentRelations,
         );
 
         let projection = app.navigator_section_projection();
@@ -1255,5 +1394,118 @@ mod tests {
             projection.domain_sections.get("example.com"),
             Some(&vec![web_node])
         );
+    }
+
+    #[test]
+    fn navigator_section_projection_containment_mode_hides_non_containment_sections() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let frame = app.add_node_and_sync(
+            VersoAddress::frame("Frame A").to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let arranged = app.add_node_and_sync(
+            "https://arranged.example".to_string(),
+            Point2D::new(1.0, 0.0),
+        );
+        let source =
+            app.add_node_and_sync("https://source.example".to_string(), Point2D::new(2.0, 0.0));
+        let recent =
+            app.add_node_and_sync("https://recent.example".to_string(), Point2D::new(3.0, 0.0));
+        let file_node =
+            app.add_node_and_sync("file:///tmp/a.txt".to_string(), Point2D::new(4.0, 0.0));
+
+        let _ = app.assert_relation_and_sync(
+            frame,
+            arranged,
+            crate::graph::EdgeAssertion::Arrangement {
+                sub_kind: ArrangementSubKind::FrameMember,
+            },
+        );
+        assert!(app.push_history_traversal_and_sync(source, recent, NavigationTrigger::Unknown));
+        app.set_navigator_projection_seed_source(
+            NavigatorProjectionSeedSource::ContainmentRelations,
+        );
+        app.set_navigator_projection_mode(NavigatorProjectionMode::Containment);
+
+        let projection = app.navigator_section_projection();
+        assert_eq!(projection.mode, NavigatorProjectionMode::Containment);
+        assert!(projection.workbench_groups.is_empty());
+        assert!(projection.unrelated_nodes.is_empty());
+        assert!(projection.recent_nodes.is_empty());
+        assert_eq!(
+            projection.folder_sections.get("file:///tmp/"),
+            Some(&vec![file_node])
+        );
+    }
+
+    #[test]
+    fn navigator_section_projection_semantic_mode_groups_user_grouped_nodes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync("https://a.example".to_string(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.example".to_string(), Point2D::new(1.0, 0.0));
+        let c = app.add_node_and_sync("https://c.example".to_string(), Point2D::new(2.0, 0.0));
+
+        let _ = app.assert_relation_and_sync(
+            a,
+            b,
+            crate::graph::EdgeAssertion::Semantic {
+                sub_kind: crate::graph::SemanticSubKind::UserGrouped,
+                label: None,
+                decay_progress: None,
+            },
+        );
+        app.set_navigator_projection_mode(NavigatorProjectionMode::Semantic);
+
+        let projection = app.navigator_section_projection();
+        assert_eq!(projection.mode, NavigatorProjectionMode::Semantic);
+        assert!(projection.workbench_groups.is_empty());
+        assert!(projection.folder_sections.is_empty());
+        assert!(projection.domain_sections.is_empty());
+        assert!(projection.recent_nodes.is_empty());
+        assert_eq!(projection.semantic_groups.len(), 1);
+        assert_eq!(projection.semantic_groups[0].member_keys, vec![a, b]);
+        assert_eq!(projection.unrelated_nodes, vec![c]);
+    }
+
+    #[test]
+    fn navigator_section_projection_all_nodes_mode_shows_flat_roster_only() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let frame = app.add_node_and_sync(
+            VersoAddress::frame("Frame A").to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let arranged = app.add_node_and_sync(
+            "https://arranged.example".to_string(),
+            Point2D::new(1.0, 0.0),
+        );
+        let source =
+            app.add_node_and_sync("https://source.example".to_string(), Point2D::new(2.0, 0.0));
+        let recent =
+            app.add_node_and_sync("https://recent.example".to_string(), Point2D::new(3.0, 0.0));
+        let _file_node =
+            app.add_node_and_sync("file:///tmp/a.txt".to_string(), Point2D::new(4.0, 0.0));
+
+        let _ = app.assert_relation_and_sync(
+            frame,
+            arranged,
+            crate::graph::EdgeAssertion::Arrangement {
+                sub_kind: ArrangementSubKind::FrameMember,
+            },
+        );
+        assert!(app.push_history_traversal_and_sync(source, recent, NavigationTrigger::Unknown));
+        app.set_navigator_projection_seed_source(
+            NavigatorProjectionSeedSource::ContainmentRelations,
+        );
+        app.set_navigator_projection_mode(NavigatorProjectionMode::AllNodes);
+
+        let projection = app.navigator_section_projection();
+        assert_eq!(projection.mode, NavigatorProjectionMode::AllNodes);
+        assert!(projection.workbench_groups.is_empty());
+        assert!(projection.folder_sections.is_empty());
+        assert!(projection.domain_sections.is_empty());
+        assert!(projection.unrelated_nodes.is_empty());
+        assert!(projection.recent_nodes.is_empty());
+        assert_eq!(projection.all_nodes.len(), 5);
+        assert_eq!(projection.all_nodes[0], recent);
     }
 }

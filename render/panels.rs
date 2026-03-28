@@ -37,11 +37,30 @@ fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::G
 }
 
 fn selected_node_dynamics_profile_id(app: &GraphBrowserApp) -> String {
-    let _ = app;
+    if let Some(view_id) = camera_settings_target_view_id(app)
+        && let Some(view) = app.workspace.graph_runtime.views.get(&view_id)
+        && let Some(profile_id) = view.resolved_physics_profile_id()
+    {
+        return profile_id.to_string();
+    }
+
     crate::shell::desktop::runtime::registries::phase3_resolve_active_physics_profile().resolved_id
 }
 
 fn apply_node_dynamics_profile_selection(app: &mut GraphBrowserApp, physics_id: &str) {
+    if let Some(view_id) = camera_settings_target_view_id(app)
+        && app.workspace.graph_runtime.views.contains_key(&view_id)
+    {
+        apply_reducer_graph_intents_hardened(
+            app,
+            vec![GraphIntent::SetViewPhysicsProfile {
+                view_id,
+                profile_id: physics_id.to_string(),
+            }],
+        );
+        return;
+    }
+
     apply_reducer_graph_intents_hardened(
         app,
         vec![GraphIntent::SetPhysicsProfile {
@@ -54,7 +73,7 @@ fn selected_dynamic_layout_algorithm_id(app: &GraphBrowserApp) -> String {
     if let Some(view_id) = camera_settings_target_view_id(app)
         && let Some(view) = app.workspace.graph_runtime.views.get(&view_id)
     {
-        return view.lens.layout_algorithm_id.clone();
+        return view.resolved_layout_algorithm_id().to_string();
     }
 
     crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
@@ -67,14 +86,17 @@ fn apply_dynamic_layout_algorithm_selection(app: &mut GraphBrowserApp, algorithm
     let Some(view_id) = camera_settings_target_view_id(app) else {
         return;
     };
-    let Some(view) = app.workspace.graph_runtime.views.get(&view_id) else {
+    if !app.workspace.graph_runtime.views.contains_key(&view_id) {
         return;
-    };
+    }
 
-    let mut lens = view.lens.clone();
-    lens.layout_algorithm_id = algorithm_id.to_string();
-    lens.layout = crate::registries::atomic::lens::LayoutMode::Free;
-    apply_reducer_graph_intents_hardened(app, vec![GraphIntent::SetViewLens { view_id, lens }]);
+    apply_reducer_graph_intents_hardened(
+        app,
+        vec![GraphIntent::SetViewLayoutAlgorithm {
+            view_id,
+            algorithm_id: algorithm_id.to_string(),
+        }],
+    );
 }
 
 fn semantic_depth_view_toggle_label(app: &GraphBrowserApp) -> Option<&'static str> {
@@ -1526,25 +1548,6 @@ pub fn render_navigator_tool_pane_in_ui(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
 ) -> Vec<GraphIntent> {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum NavigatorSectionMode {
-        Mixed,
-        Workbench,
-        Containment,
-        TraversalDerived,
-    }
-
-    impl NavigatorSectionMode {
-        fn label(self) -> &'static str {
-            match self {
-                Self::Mixed => "Mixed",
-                Self::Workbench => "Workbench",
-                Self::Containment => "Containment",
-                Self::TraversalDerived => "Traversal",
-            }
-        }
-    }
-
     fn file_tree_row_label(row_key: &str) -> String {
         if let Some(domain) = containment_domain_from_row_key(row_key) {
             return format!("Domain: {domain}");
@@ -1591,29 +1594,29 @@ pub fn render_navigator_tool_pane_in_ui(
 
     ui.label("Graph-backed navigator projection (pane-hosted surface).");
 
-    let mut relation_source = app.navigator_projection_state().containment_relation_source;
+    let mut projection_seed_source = app.navigator_projection_state().projection_seed_source;
     ui.horizontal(|ui| {
-        ui.label("Containment source:");
+        ui.label("Projection source:");
         ui.selectable_value(
-            &mut relation_source,
-            crate::app::NavigatorContainmentRelationSource::GraphContainment,
+            &mut projection_seed_source,
+            crate::app::NavigatorProjectionSeedSource::GraphContainment,
             "Graph",
         );
         ui.selectable_value(
-            &mut relation_source,
-            crate::app::NavigatorContainmentRelationSource::SavedViewCollections,
+            &mut projection_seed_source,
+            crate::app::NavigatorProjectionSeedSource::SavedViewCollections,
             "Saved Views",
         );
         ui.selectable_value(
-            &mut relation_source,
-            crate::app::NavigatorContainmentRelationSource::ContainmentRelations,
+            &mut projection_seed_source,
+            crate::app::NavigatorProjectionSeedSource::ContainmentRelations,
             "Containment",
         );
     });
-    if relation_source != app.navigator_projection_state().containment_relation_source {
+    if projection_seed_source != app.navigator_projection_state().projection_seed_source {
         intents.push(
-            ViewAction::SetNavigatorContainmentRelationSource {
-                source: relation_source,
+            ViewAction::SetNavigatorProjectionSeedSource {
+                source: projection_seed_source,
             }
             .into(),
         );
@@ -1674,34 +1677,33 @@ pub fn render_navigator_tool_pane_in_ui(
 
     ui.separator();
 
-    let mode_id = ui.id().with("navigator_section_mode");
-    let mut section_mode = ui
-        .data(|data| data.get_temp::<NavigatorSectionMode>(mode_id))
-        .unwrap_or(NavigatorSectionMode::Mixed);
+    let mut section_mode = app.navigator_projection_state().mode;
     ui.horizontal_wrapped(|ui| {
         ui.label("Mode:");
         ui.selectable_value(
             &mut section_mode,
-            NavigatorSectionMode::Mixed,
-            NavigatorSectionMode::Mixed.label(),
+            crate::app::NavigatorProjectionMode::Workbench,
+            crate::app::NavigatorProjectionMode::Workbench.label(),
         );
         ui.selectable_value(
             &mut section_mode,
-            NavigatorSectionMode::Workbench,
-            NavigatorSectionMode::Workbench.label(),
+            crate::app::NavigatorProjectionMode::Containment,
+            crate::app::NavigatorProjectionMode::Containment.label(),
         );
         ui.selectable_value(
             &mut section_mode,
-            NavigatorSectionMode::Containment,
-            NavigatorSectionMode::Containment.label(),
+            crate::app::NavigatorProjectionMode::Semantic,
+            crate::app::NavigatorProjectionMode::Semantic.label(),
         );
         ui.selectable_value(
             &mut section_mode,
-            NavigatorSectionMode::TraversalDerived,
-            NavigatorSectionMode::TraversalDerived.label(),
+            crate::app::NavigatorProjectionMode::AllNodes,
+            crate::app::NavigatorProjectionMode::AllNodes.label(),
         );
     });
-    ui.data_mut(|data| data.insert_temp(mode_id, section_mode));
+    if section_mode != app.navigator_projection_state().mode {
+        intents.push(ViewAction::SetNavigatorProjectionMode { mode: section_mode }.into());
+    }
 
     let selected_rows_current = app.navigator_projection_state().selected_rows.clone();
     let selected_row = selected_rows_current.iter().next().cloned();
@@ -1715,18 +1717,22 @@ pub fn render_navigator_tool_pane_in_ui(
 
     let section_projection = app.navigator_section_projection();
     let groups = &section_projection.workbench_groups;
+    let semantic_groups = &section_projection.semantic_groups;
     let folder_sections = &section_projection.folder_sections;
     let domain_sections = &section_projection.domain_sections;
     let unrelated_nodes = &section_projection.unrelated_nodes;
     let recent_nodes = &section_projection.recent_nodes;
+    let all_nodes = &section_projection.all_nodes;
 
     ui.label(format!(
-        "Sections: Workbench {} groups, Folders {}, Domain {}, Unrelated {}, Recent {}",
+        "Sections: Workbench {}, Semantic {}, Folders {}, Domain {}, Unrelated {}, Recent {}, All Nodes {}",
         groups.len(),
+        semantic_groups.len(),
         folder_sections.len(),
         domain_sections.len(),
         unrelated_nodes.len(),
         recent_nodes.len(),
+        all_nodes.len(),
     ));
     ui.small(format!(
         "Rows: {} mapped, {} selected, {} expanded",
@@ -1735,24 +1741,11 @@ pub fn render_navigator_tool_pane_in_ui(
         app.navigator_projection_state().expanded_rows.len(),
     ));
 
-    let show_workbench_sections = matches!(
-        section_mode,
-        NavigatorSectionMode::Mixed | NavigatorSectionMode::Workbench
-    );
-    let show_containment_sections = matches!(
-        section_mode,
-        NavigatorSectionMode::Mixed | NavigatorSectionMode::Containment
-    );
-    let show_traversal_sections = matches!(
-        section_mode,
-        NavigatorSectionMode::Mixed | NavigatorSectionMode::TraversalDerived
-    );
-
     egui::ScrollArea::vertical()
         .max_height(260.0)
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            if show_workbench_sections {
+            if section_projection.shows_workbench_section() {
                 ui.collapsing("Workbench", |ui| {
                     if groups.is_empty() {
                         ui.small("No arrangement groups.");
@@ -1806,7 +1799,7 @@ pub fn render_navigator_tool_pane_in_ui(
                 });
             }
 
-            if show_containment_sections {
+            if section_projection.shows_containment_sections() {
                 ui.collapsing("Folders", |ui| {
                     if folder_sections.is_empty() {
                         ui.small("No containment folders.");
@@ -1843,7 +1836,7 @@ pub fn render_navigator_tool_pane_in_ui(
                 });
             }
 
-            if show_containment_sections {
+            if section_projection.shows_containment_sections() {
                 ui.collapsing("Domain", |ui| {
                     if domain_sections.is_empty() {
                         ui.small("No domain containment rows.");
@@ -1880,7 +1873,44 @@ pub fn render_navigator_tool_pane_in_ui(
                 });
             }
 
-            if show_traversal_sections {
+            if section_projection.shows_semantic_section() {
+                ui.collapsing("Semantic", |ui| {
+                    if semantic_groups.is_empty() {
+                        ui.small("No semantic groups.");
+                        return;
+                    }
+                    for group in semantic_groups {
+                        ui.collapsing(format!("Group: {}", group.title), |ui| {
+                            for node_key in &group.member_keys {
+                                let row_key = navigator_node_row_key(app, *node_key);
+                                let is_selected = row_key
+                                    .as_ref()
+                                    .is_some_and(|row| selected_rows_current.contains(row));
+                                let response = ui.selectable_label(
+                                    is_selected,
+                                    navigator_node_title(app, *node_key),
+                                );
+                                if response.clicked() {
+                                    if let Some(row) = row_key {
+                                        intents.push(
+                                            ViewAction::SetNavigatorSelectedRows {
+                                                rows: vec![row],
+                                            }
+                                            .into(),
+                                        );
+                                    }
+                                    intents.push(GraphIntent::OpenNodeFrameRouted {
+                                        key: *node_key,
+                                        prefer_frame: None,
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            if section_projection.shows_unrelated_section() {
                 ui.collapsing("Unrelated", |ui| {
                     if unrelated_nodes.is_empty() {
                         ui.small("No unrelated nodes.");
@@ -1908,7 +1938,7 @@ pub fn render_navigator_tool_pane_in_ui(
                 });
             }
 
-            if show_traversal_sections {
+            if section_projection.shows_recent_section() {
                 ui.collapsing("Recent", |ui| {
                     if recent_nodes.is_empty() {
                         ui.small("No traversal-derived recents.");
@@ -1925,6 +1955,34 @@ pub fn render_navigator_tool_pane_in_ui(
                             timestamp_ms
                         );
                         let response = ui.selectable_label(is_selected, label);
+                        if response.clicked() {
+                            if let Some(row) = row_key {
+                                intents.push(
+                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }.into(),
+                                );
+                            }
+                            intents.push(GraphIntent::OpenNodeFrameRouted {
+                                key: *node_key,
+                                prefer_frame: None,
+                            });
+                        }
+                    }
+                });
+            }
+
+            if section_projection.shows_all_nodes_section() {
+                ui.collapsing("All Nodes", |ui| {
+                    if all_nodes.is_empty() {
+                        ui.small("No nodes in the graph.");
+                        return;
+                    }
+                    for node_key in all_nodes {
+                        let row_key = navigator_node_row_key(app, *node_key);
+                        let is_selected = row_key
+                            .as_ref()
+                            .is_some_and(|row| selected_rows_current.contains(row));
+                        let response =
+                            ui.selectable_label(is_selected, navigator_node_title(app, *node_key));
                         if response.clicked() {
                             if let Some(row) = row_key {
                                 intents.push(

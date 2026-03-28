@@ -1,10 +1,10 @@
 # VERSE AS NETWORK
 
-**Purpose**: Specification for the Verse network — what it is, what it does, and how Graphshell participates in it through the Verso peer agent.
+**Purpose**: Specification for Verse as Graphshell's optional community-scale network layer, and for the boundary between Graphshell as host, Verso as bilateral peer agent, and Verse as shared-community infrastructure.
 
 **Document Type**: Network and protocol specification (not implementation status)
-**Status**: Tier 1 (bilateral iroh sync) in Phase 5 implementation; Tier 2 (community swarms, federated search, Proof of Access, FLora/engram exchange) is long-horizon research (Q3 2026+)
-**See**: [VERSO_AS_PEER.md](../../graphshell_docs/technical_architecture/VERSO_AS_PEER.md) for how Graphshell's Verso mod participates; [2026-02-23_verse_tier1_sync_plan.md](../implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) for the Tier 1 implementation plan; [2026-02-23_verse_tier2_architecture.md](2026-02-23_verse_tier2_architecture.md) for the long-horizon swarm architecture
+**Status**: Verso bilateral sync/co-op is the active Phase 5 implementation lane; Verse community swarms, federated search, Proof of Access, and FLora/engram exchange remain long-horizon research (Q3 2026+)
+**See**: [VERSO_AS_PEER.md](../../verso_docs/technical_architecture/VERSO_AS_PEER.md) for how Graphshell's Verso mod participates; [2026-02-23_verse_tier1_sync_plan.md](../../verso_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) for the active bilateral sync implementation plan; [2026-02-23_verse_tier2_architecture.md](2026-02-23_verse_tier2_architecture.md) for the long-horizon swarm architecture; [COMMS_AS_APPLETS.md](../../graphshell_docs/implementation_strategy/social/COMMS_AS_APPLETS.md) for the hosted communication-surface boundary
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../graphshell_docs/research/2026-03-04_standards_alignment_report.md) §§3.10–3.14 for full rationale):
 
@@ -20,18 +20,37 @@
 
 ---
 
+## Architectural Position
+
+Graphshell is the **host and renderer**, not the network itself. It must remain fully useful as a local-first browser, file/media organizer, and knowledge graph even when no networking capability is loaded.
+
+The ownership split is:
+
+- **Graphshell** hosts surfaces and renders network-backed applets, but does not require networking to function.
+- **Verso** owns bilateral and session-scoped peer behavior: web capability, Device Sync, and co-op over iroh.
+- **Verse** owns the optional community-scale layer: durable shared knowledge spaces, participant-governed replication, and larger-n discovery/search flows.
+- [**Comms**](../../graphshell_docs/implementation_strategy/social/COMMS_AS_APPLETS.md) is best understood as an optional hosted applet/capability family that may run inside Graphshell surfaces; it is not a core Graphshell semantic domain.
+
+This means Graphshell can host Verse- or Comms-backed surfaces without collapsing their semantics into the shell itself. Hosting a surface is not the same thing as owning the underlying network domain.
+
+---
+
 ## What the Verse Is
 
-The Verse is a **decentralized, peer-to-peer knowledge network** that Graphshell instances participate in. It transforms the browser from a consumer of the web to a participant in a new layer on top of it.
+The Verse is a **decentralized, peer-to-peer knowledge network** for community-scale participation. It transforms Graphshell from a purely local browser/organizer into a host for shared, participant-governed knowledge spaces when the user opts into that layer.
+
+Its core building blocks are **community primitives**: community manifests, content-addressed VerseBlobs, governance and announcement records, distributed index shards, FLora checkpoints, and receipt-ledger artifacts such as Proof of Access.
 
 The Verse is not a server. It is not a platform. It is a set of protocols and data formats that Graphshell peers speak to each other. Every user running Graphshell with Verso enabled is a Verse peer.
 
 Each local Verse instance is best understood as a **private-by-default, self-hosted portal**: a sovereign node that can keep data and model customizations private, or selectively participate in consensual storage, indexing, and adaptation economies.
 
-**The Verse has two tiers:**
+Historically the docs described Verse as having two tiers. The current architectural split is narrower and cleaner:
 
-- **Tier 1** — Bilateral sync: two trusted peers synchronize their graph state directly over iroh (QUIC-based, NAT-traversing transport). This is the Phase 5 deliverable. It works offline-first; peers sync when they connect.
-- **Tier 2** — Community swarms: larger groups of peers form communities around shared knowledge domains, exchanging curated index segments and content-addressed blobs via libp2p GossipSub. This is long-horizon research.
+- **Verso** owns bilateral sync and co-op over iroh. That is the active implementation lane.
+- **Verse** owns community swarms and community-scale knowledge exchange over libp2p/Nostr/Matrix-aligned fabrics where appropriate.
+
+When older documents refer to "Verse Tier 1," read that as the bilateral capability now owned by **Verso** rather than by Verse as a standalone network domain.
 
 In the long-horizon Tier 2 framing, that local Verse node can also act as:
 - a wallet-adjacent treasury manager for stake-backed storage and bounty budgets
@@ -55,11 +74,24 @@ The Verse does not replace the web. It adds a memory and trust layer over it.
 
 ---
 
-## Tier 1: Bilateral Peer Sync
+## Bilateral Context Boundary
+
+Bilateral peer sync and live co-op are not the Verse proper. They are the **Verso-side foundation** that Verse can build on, promote from, or interoperate with.
+
+Practical rule:
+
+- If the interaction is two-party, named-peer, relationship-scoped, and iroh-backed, it belongs to **Verso**.
+- If the interaction is community-scoped, participant-governed, or intended to outlive any single bilateral session, it belongs to **Verse**.
+
+That split preserves local-first behavior and keeps community networking optional rather than making it a prerequisite of the shell.
+
+---
+
+## Verso Bilateral Foundation
 
 ### The Model
 
-Two Graphshell instances that have paired with each other sync their graphs bilaterally. Think git between two machines: operations batch at the WAL level, sync happens when peers connect, conflicts are resolved deterministically (last-write-wins on metadata; additive merge for nodes and edges).
+Two Graphshell instances that have paired with each other sync their graphs bilaterally through **Verso**. Think git between two machines: operations batch at the WAL level, sync happens when peers connect, conflicts are resolved deterministically (last-write-wins on metadata; additive merge for nodes and edges).
 
 **Properties:**
 
@@ -67,6 +99,8 @@ Two Graphshell instances that have paired with each other sync their graphs bila
 - **No mandatory server**: peers connect directly via iroh Magic Sockets (QUIC with NAT traversal). No relay required for most network configurations.
 - **End-to-end encrypted**: iroh uses the Noise protocol for transport authentication; at-rest data uses AES-256-GCM.
 - **Selective**: each workspace can be shared with specific peers at `ReadOnly` or `ReadWrite` access level.
+
+This section remains here because the bilateral model is the substrate Verse grows out of, but its implementation authority lives in Verso and its implementation plan remains [2026-02-23_verse_tier1_sync_plan.md](../implementation_strategy/2026-02-23_verse_tier1_sync_plan.md).
 
 ### What Gets Synced
 
@@ -121,9 +155,9 @@ For Tier 1, user-facing conflict UI is minimal: the rare case where deletion con
 
 ---
 
-## Tier 2: Community Swarms (Long-Horizon Research)
+## Verse Community Layer (Long-Horizon Research)
 
-Tier 2 extends the bilateral model to larger groups of peers who share knowledge in a domain, without requiring bilateral trust with every participant.
+Verse extends the bilateral model to larger groups of peers who share knowledge in a domain, without requiring bilateral trust with every participant.
 
 **Key concepts** (not Phase 5 dependencies; documented fully in [2026-02-23_verse_tier2_architecture.md](2026-02-23_verse_tier2_architecture.md)):
 
@@ -135,6 +169,36 @@ Tier 2 extends the bilateral model to larger groups of peers who share knowledge
 - **Federated adaptation (FLora)**: communities can also maintain shared domain-specific LoRA adapters, where contributors keep raw data local and publish engram payloads containing adapter memories plus contextual metadata, letting members load community-trained knowledge into their own AI tooling.
 
 Tier 2 validation begins Q3 2026 after Tier 1 is proven in production. Tier 2 is additive — it does not change Tier 1's bilateral sync model.
+
+### Decentralized Storage Bank
+
+The storage bank is the **operational layer** of decentralized storage in
+Verse — it covers how storage is contributed, allocated, verified, and
+health-monitored. It sits between the PoA ledger (accounting) and VerseBlob
+(addressing).
+
+Key properties:
+
+- **Two-layer credit model**: base credit for passing periodic availability
+  challenges (prevents long-tail death for unpopular data) + usage-validated
+  bonus on real retrieval (scaled by hold duration — "usage validates storage
+  time").
+- **Provider self-selection**: no global placement engine. Providers pull from
+  a community replication queue and choose which blobs to host.
+- **k-of-n redundancy targeting**: community sets a replication target
+  (default k=3). Health monitoring tracks actual replica count per blob.
+  Under-replicated blobs enter the queue at elevated priority.
+- **Erasure-coding-ready**: v1 uses naive k-replication; interfaces are
+  designed for future Reed-Solomon k-of-m fragment coding.
+- **Fallback hierarchy**: community storage bank → bilateral peer hosting →
+  self-hosting. Blobs promote up as hosting grows, demote down as hosting
+  shrinks. CIDv1 addressing is the same at all levels.
+- **Pledge-to-pool**: peers pledge non-transferable storage credits to a
+  community pool that backs shared services (rooms, workspaces, checkpoints).
+  No trading, no cross-track fungibility.
+
+Full specification:
+[2026-03-28_decentralized_storage_bank_spec.md](../implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md).
 
 ---
 
@@ -155,15 +219,6 @@ The `KnowledgeRegistry` (UDC semantic tags) is the curate layer that makes brows
 
 ---
 
-## What the Verse Is Not
-
-- **Not a search engine**: Verse does not crawl the web. It indexes what you and your peers have visited and curated.
-- **Not a social network**: Verse has no feeds, no follows, no public timelines in Tier 1. Community swarms (Tier 2) add opt-in group discovery, but not social media mechanics.
-- **Not a cloud service**: there is no Verse server. Peers sync directly. A relay may be used for NAT traversal, but it sees only encrypted bytes and holds no state.
-- **Not a blockchain**: Verse does not use a chain data structure. Proof of Access (Tier 2) uses reputation credits, not tokens, in the current research direction.
-
----
-
 ## Participation Levels
 
 A Graphshell user can participate in the Verse at any level:
@@ -171,12 +226,12 @@ A Graphshell user can participate in the Verse at any level:
 | Level | Requires | What you get |
 | ----- | -------- | ------------ |
 | None | — | Full Graphshell without sync; local-only knowledge graph |
-| Tier 1 (bilateral) | Verso + iroh | Sync your graph with specific trusted peers (friends, devices) |
-| Tier 1 (workspace sharing) | Verso + iroh | Share specific workspaces in read-only or read-write mode |
-| Tier 2 (community) | Verso + libp2p | Participate in topic communities; share index segments; search across community |
-| Tier 2 (storage contributor) | Verso + libp2p + storage quota | Earn reputation by hosting blobs for the community |
-| Tier 2 (FLora contributor) | Verso + libp2p + local model runtime | Submit local engrams with adapter memories to community FLora pipelines; consume approved domain adapters |
-| Tier 2 (self-hosted verse operator) | Verso + libp2p + local storage/treasury policy | Run a private-by-default verse node, set storage and bounty policy, and selectively expose services or communities |
+| Verso bilateral sync | Verso + iroh | Sync your graph with specific trusted peers (friends, devices) |
+| Verso workspace sharing | Verso + iroh | Share specific workspaces in read-only or read-write mode |
+| Verse community participation | Verso + libp2p | Participate in topic communities; share index segments; search across community |
+| Verse storage contributor | Verso + libp2p + storage quota | Earn reputation by hosting blobs for the community |
+| Verse FLora contributor | Verso + libp2p + local model runtime | Submit local engrams with adapter memories to community FLora pipelines; consume approved domain adapters |
+| Self-hosted Verse operator | Verso + libp2p + local storage/treasury policy | Run a private-by-default Verse node, set storage and bounty policy, and selectively expose services or communities |
 
 Participation is always opt-in and can be revoked. Revoking access to a workspace removes the peer from the trust store and stops syncing; it does not delete data already on the peer's device.
 
@@ -216,7 +271,7 @@ Both transport layers share the same Ed25519 identity (the same keypair derives 
 ## Related Documentation
 
 **Peer agent (Verso):**
-- [VERSO_AS_PEER.md](../../graphshell_docs/technical_architecture/VERSO_AS_PEER.md) — Verso mod: web capability + Verse peer agent; ModManifest, SyncWorker, pairing
+- [../../verso_docs/technical_architecture/VERSO_AS_PEER.md](../../verso_docs/technical_architecture/VERSO_AS_PEER.md) — Verso mod: web capability + bilateral peer agent; ModManifest, SyncWorker, pairing, co-op boundary
 
 **Tier 1 implementation:**
 - [../implementation_strategy/2026-02-23_verse_tier1_sync_plan.md](../implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) — iroh scaffold, Ed25519 identity, pairing ceremonies, SyncUnit wire format, SyncWorker control plane, workspace access grants, Phase 5 execution plan
@@ -229,6 +284,7 @@ Both transport layers share the same Ed25519 identity (the same keypair derives 
 - [../implementation_strategy/proof_of_access_ledger_spec.md](../implementation_strategy/proof_of_access_ledger_spec.md) — receipt, reputation, epoch accounting, and optional payout model
 - [../implementation_strategy/community_governance_spec.md](../implementation_strategy/community_governance_spec.md) — governance roles, quorum, moderation, treasury, and dispute rules
 - [../implementation_strategy/self_hosted_verse_node_spec.md](../implementation_strategy/self_hosted_verse_node_spec.md) — private-by-default local Verse node operating model and service guardrails
+- [../implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md](../implementation_strategy/2026-03-28_decentralized_storage_bank_spec.md) — decentralized storage bank: contributing, using, managing storage; credit mechanics, placement, durability, pledge-to-pool
 
 **Graphshell context:**
 - [GRAPHSHELL_AS_BROWSER.md](../../graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md) — browser model; how knowledge is created and organized before it enters the Verse

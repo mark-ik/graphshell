@@ -18,6 +18,27 @@ pub(crate) mod workflow;
 
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::mods::native::verso::finger::{FingerRegistry, FingerServerHandle};
+use crate::mods::native::verso::gemini::{CapsuleRegistry, GeminiServerHandle};
+use crate::mods::native::verso::gopher::{GopherRegistry, GopherServerHandle};
+
+static GEMINI_REGISTRY: OnceLock<CapsuleRegistry> = OnceLock::new();
+static GEMINI_SERVER_HANDLE: Mutex<Option<GeminiServerHandle>> = Mutex::new(None);
+static GOPHER_REGISTRY: OnceLock<GopherRegistry> = OnceLock::new();
+static GOPHER_SERVER_HANDLE: Mutex<Option<GopherServerHandle>> = Mutex::new(None);
+static FINGER_REGISTRY: OnceLock<FingerRegistry> = OnceLock::new();
+static FINGER_SERVER_HANDLE: Mutex<Option<FingerServerHandle>> = Mutex::new(None);
+
+fn gemini_registry() -> &'static CapsuleRegistry {
+    GEMINI_REGISTRY.get_or_init(CapsuleRegistry::new)
+}
+fn gopher_registry() -> &'static GopherRegistry {
+    GOPHER_REGISTRY.get_or_init(GopherRegistry::new)
+}
+fn finger_registry() -> &'static FingerRegistry {
+    FINGER_REGISTRY.get_or_init(FingerRegistry::new)
+}
+
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLevel, RendererId, RuntimeEvent,
     WorkbenchIntent,
@@ -2376,7 +2397,7 @@ pub(crate) fn phase2_binding_display_labels_for_action(action_id: &str) -> Vec<S
     runtime().binding_display_labels_for_action(action_id)
 }
 
-pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
+pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::ResolvedLensPreset {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
 
     let runtime = runtime();
@@ -2408,9 +2429,9 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         });
     }
 
-    crate::app::LensConfig {
-        name: resolution.definition.display_name,
-        lens_id: Some(resolution.resolved_id),
+    crate::app::ResolvedLensPreset {
+        lens_id: resolution.resolved_id,
+        display_name: resolution.definition.display_name,
         physics: resolution.definition.physics,
         layout: resolution.definition.layout,
         layout_algorithm_id: resolution.definition.layout_algorithm_id,
@@ -2424,7 +2445,7 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
 pub(crate) fn phase2_resolve_lens_for_content(
     mime_hint: Option<&str>,
     has_semantic_context: bool,
-) -> crate::app::LensConfig {
+) -> crate::app::ResolvedLensPreset {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
 
     let runtime = runtime();
@@ -2437,9 +2458,9 @@ pub(crate) fn phase2_resolve_lens_for_content(
     });
     let composed = runtime.dynamic().lens.compose(&lens_ids);
 
-    crate::app::LensConfig {
-        name: composed.display_name,
-        lens_id: Some(primary_id),
+    crate::app::ResolvedLensPreset {
+        lens_id: primary_id,
+        display_name: composed.display_name,
         physics: composed.physics,
         layout: composed.layout,
         layout_algorithm_id: composed.layout_algorithm_id,
@@ -2453,7 +2474,7 @@ pub(crate) fn phase2_resolve_lens_for_content(
 pub(crate) fn phase2_resolve_lens_for_node(
     app: &GraphBrowserApp,
     key: NodeKey,
-) -> crate::app::LensConfig {
+) -> crate::app::ResolvedLensPreset {
     let Some(node) = app.domain_graph().get_node(key) else {
         return phase2_resolve_lens(
             crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT,
@@ -2867,7 +2888,7 @@ pub(crate) fn phase2_resolve_input_binding_for_tests(
 pub(crate) fn phase2_resolve_lens_for_tests(
     diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     lens_id: &str,
-) -> crate::app::LensConfig {
+) -> crate::app::ResolvedLensPreset {
     let runtime = RegistryRuntime::default();
     let resolution = runtime.dynamic().lens.resolve(lens_id);
 
@@ -2882,9 +2903,9 @@ pub(crate) fn phase2_resolve_lens_for_tests(
             .emit_message_sent_for_tests(CHANNEL_LENS_FALLBACK_USED, resolution.resolved_id.len());
     }
 
-    crate::app::LensConfig {
-        name: resolution.definition.display_name,
-        lens_id: Some(resolution.resolved_id),
+    crate::app::ResolvedLensPreset {
+        lens_id: resolution.resolved_id,
+        display_name: resolution.definition.display_name,
         physics: resolution.definition.physics,
         layout: resolution.definition.layout,
         layout_algorithm_id: resolution.definition.layout_algorithm_id,
@@ -3287,6 +3308,186 @@ pub(crate) fn dispatch_workbench_surface_intent(
     intent: WorkbenchIntent,
 ) -> Option<WorkbenchIntent> {
     runtime().dispatch_workbench_surface_intent(graph_app, tiles_tree, intent)
+}
+
+// ---------------------------------------------------------------------------
+// Gemini capsule server
+// ---------------------------------------------------------------------------
+
+/// Start the Gemini capsule server on `port`.
+///
+/// If a server is already running it is stopped first.
+pub(crate) fn start_gemini_capsule_server(port: u16) {
+    // Stop any existing server.
+    stop_gemini_capsule_server();
+
+    let registry = gemini_registry().clone();
+    let config = crate::mods::native::verso::gemini::GeminiServerConfig {
+        port,
+        hostname: hostname::get()
+            .ok()
+            .and_then(|h| h.into_string().ok())
+            .unwrap_or_else(|| "localhost".to_string()),
+    };
+
+    let server = crate::mods::native::verso::gemini::GeminiCapsuleServer::new_with_registry(
+        config, registry,
+    );
+
+    let runtime = tokio::runtime::Handle::try_current();
+    match runtime {
+        Ok(handle) => {
+            let result = handle.block_on(server.start());
+            match result {
+                Ok(server_handle) => {
+                    log::info!(
+                        "gemini: capsule server started on {}",
+                        server_handle.bound_addr
+                    );
+                    *GEMINI_SERVER_HANDLE.lock().unwrap() = Some(server_handle);
+                }
+                Err(e) => {
+                    log::warn!("gemini: failed to start capsule server: {e}");
+                }
+            }
+        }
+        Err(_) => {
+            log::warn!("gemini: no tokio runtime available; cannot start capsule server");
+        }
+    }
+}
+
+/// Stop the running Gemini capsule server, if any.
+pub(crate) fn stop_gemini_capsule_server() {
+    if let Some(handle) = GEMINI_SERVER_HANDLE.lock().unwrap().take() {
+        handle.stop();
+        log::info!("gemini: capsule server stopped");
+    }
+}
+
+/// Register a node for serving via the capsule server.
+pub(crate) fn register_gemini_node(
+    node_id: uuid::Uuid,
+    title: String,
+    privacy_class: crate::model::archive::ArchivePrivacyClass,
+    gemini_content: String,
+) {
+    gemini_registry().register(crate::mods::native::verso::gemini::ServedNode {
+        node_id,
+        title,
+        privacy_class,
+        gemini_content,
+    });
+}
+
+/// Remove a node from the Gemini capsule server registry.
+pub(crate) fn unregister_gemini_node(node_id: uuid::Uuid) {
+    gemini_registry().unregister(node_id);
+}
+
+// ---------------------------------------------------------------------------
+// Gopher capsule server
+// ---------------------------------------------------------------------------
+
+pub(crate) fn start_gopher_capsule_server(port: u16) {
+    stop_gopher_capsule_server();
+
+    let registry = gopher_registry().clone();
+    let config = crate::mods::native::verso::gopher::GopherServerConfig {
+        port,
+        hostname: hostname::get()
+            .ok()
+            .and_then(|h| h.into_string().ok())
+            .unwrap_or_else(|| "localhost".to_string()),
+    };
+    let server = crate::mods::native::verso::gopher::GopherCapsuleServer::new_with_registry(
+        config, registry,
+    );
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.block_on(server.start()) {
+            Ok(server_handle) => {
+                log::info!("gopher: capsule server started on {}", server_handle.bound_addr);
+                *GOPHER_SERVER_HANDLE.lock().unwrap() = Some(server_handle);
+            }
+            Err(e) => log::warn!("gopher: failed to start capsule server: {e}"),
+        },
+        Err(_) => log::warn!("gopher: no tokio runtime available"),
+    }
+}
+
+pub(crate) fn stop_gopher_capsule_server() {
+    if let Some(handle) = GOPHER_SERVER_HANDLE.lock().unwrap().take() {
+        handle.stop();
+        log::info!("gopher: capsule server stopped");
+    }
+}
+
+pub(crate) fn register_gopher_node(
+    node_id: uuid::Uuid,
+    title: String,
+    privacy_class: crate::model::archive::ArchivePrivacyClass,
+    gophermap_content: String,
+) {
+    gopher_registry().register(crate::mods::native::verso::gopher::GopherServedNode {
+        node_id,
+        title,
+        privacy_class,
+        gophermap_content,
+    });
+}
+
+pub(crate) fn unregister_gopher_node(node_id: uuid::Uuid) {
+    gopher_registry().unregister(node_id);
+}
+
+// ---------------------------------------------------------------------------
+// Finger server
+// ---------------------------------------------------------------------------
+
+pub(crate) fn start_finger_server(port: u16) {
+    stop_finger_server();
+
+    let registry = finger_registry().clone();
+    let config = crate::mods::native::verso::finger::FingerServerConfig {
+        port,
+        default_query: "graphshell".to_string(),
+    };
+    let server = crate::mods::native::verso::finger::FingerServer::new_with_registry(
+        config, registry,
+    );
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.block_on(server.start()) {
+            Ok(server_handle) => {
+                log::info!("finger: server started on {}", server_handle.bound_addr);
+                *FINGER_SERVER_HANDLE.lock().unwrap() = Some(server_handle);
+            }
+            Err(e) => log::warn!("finger: failed to start server: {e}"),
+        },
+        Err(_) => log::warn!("finger: no tokio runtime available"),
+    }
+}
+
+pub(crate) fn stop_finger_server() {
+    if let Some(handle) = FINGER_SERVER_HANDLE.lock().unwrap().take() {
+        handle.stop();
+        log::info!("finger: server stopped");
+    }
+}
+
+pub(crate) fn publish_finger_profile(
+    query_name: String,
+    privacy_class: crate::model::archive::ArchivePrivacyClass,
+    finger_text: String,
+) {
+    finger_registry().register(crate::mods::native::verso::finger::FingerProfile {
+        query_name,
+        privacy_class,
+        finger_text,
+    });
+}
+
+pub(crate) fn unpublish_finger_profile(query_name: String) {
+    finger_registry().unregister(&query_name);
 }
 
 #[cfg(test)]
@@ -4567,10 +4768,10 @@ mod tests {
     fn phase2_lens_registry_resolves_default_lens_id() {
         let lens =
             phase2_resolve_lens(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT);
-        assert_eq!(lens.name, "Default");
+        assert_eq!(lens.display_name, "Default");
         assert_eq!(
-            lens.lens_id.as_deref(),
-            Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT)
+            lens.lens_id,
+            crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT
         );
         assert_eq!(lens.physics.name, "Liquid");
         assert!(matches!(
@@ -4590,10 +4791,10 @@ mod tests {
     #[test]
     fn phase2_lens_registry_falls_back_for_unknown_lens_id() {
         let lens = phase2_resolve_lens("lens:unknown");
-        assert_eq!(lens.name, "Default");
+        assert_eq!(lens.display_name, "Default");
         assert_eq!(
-            lens.lens_id.as_deref(),
-            Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT)
+            lens.lens_id,
+            crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT
         );
     }
 
@@ -4601,8 +4802,8 @@ mod tests {
     fn phase2_lens_registry_resolves_semantic_overlay_for_semantic_content() {
         let lens = phase2_resolve_lens_for_content(Some("text/markdown"), true);
         assert_eq!(
-            lens.lens_id.as_deref(),
-            Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
+            lens.lens_id,
+            crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY
         );
         assert!(
             lens.filters_legacy
@@ -4625,14 +4826,25 @@ mod tests {
 
         let lens = phase2_resolve_lens_for_node(&app, key);
         assert_eq!(
-            lens.lens_id.as_deref(),
-            Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
+            lens.lens_id,
+            crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY
         );
     }
 
     #[test]
     fn phase2_lens_resolution_preserves_direct_values() {
-        let mut lens = crate::app::LensConfig::default();
+        let mut lens = crate::app::ResolvedLensPreset {
+            lens_id: crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT
+                .to_string(),
+            display_name: "Default".to_string(),
+            physics: crate::registries::atomic::lens::PhysicsProfile::default(),
+            layout: crate::registries::atomic::lens::LayoutMode::Free,
+            layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
+            theme: None,
+            filter_expr: None,
+            filters_legacy: Vec::new(),
+            overlay_descriptor: None,
+        };
         lens.physics = crate::registries::atomic::lens::PhysicsProfile::gas();
         lens.layout = crate::registries::atomic::lens::LayoutMode::Grid { gap: 32.0 };
         lens.theme = Some(crate::registries::atomic::lens::ThemeData {

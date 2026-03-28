@@ -2,8 +2,9 @@
 
 > **Branding update (2026-03-01)**: The local P2P sync layer (iroh bilateral sync, Tier 1)
 > is now branded under **Verso** — the same native mod that provides web rendering.
-> **Verse** is now solely the public community network (Tier 2, long-horizon research).
-> The Tier 1 implementation plan is unchanged; only the brand name has moved.
+> **Verse** is now solely the public community network and its community primitives
+> (Tier 2, long-horizon research). The Tier 1 implementation plan is unchanged;
+> only the brand name has moved.
 
 **Date**: 2026-02-22 (original), 2026-02-23 (split), 2026-03-01 (branding update)
 **Status**: Index / Orientation Document
@@ -21,7 +22,7 @@ The original Verse strategy combined **Tier 1** (concrete Phase 5 deliverables: 
    Complete specification for Registry Phase 5: iroh transport, Ed25519 identity, pairing ceremonies, delta sync protocol, SyncWorker control plane integration, workspace access grants, UX designs, security model, and step-by-step execution plan. **This is the concrete Phase 5 deliverable.**
 
 2. **[Tier 2 Architecture](../technical_architecture/2026-02-23_verse_tier2_architecture.md)** (~600 lines)  
-   Long-horizon research: dual-transport model (iroh + libp2p), VerseBlob content format, community swarms with GossipSub, federated search, Proof of Access economic layer, Nostr signaling, content pipeline, crawler economy. **This is exploratory — not a Phase 5 dependency.**
+   Long-horizon research: Verse community primitives such as VerseBlob content format, community manifests/governance, Proof of Access, federated search, FLora checkpoints, Nostr signaling surfaces, and the dual-transport model that carries them. **This is exploratory — not a Phase 5 dependency.**
 
 Engineers implementing Phase 5 should focus on **Tier 1 only**. Tier 2 provides architectural context for future evolution but makes no immediate claims on the implementation roadmap.
 
@@ -31,7 +32,7 @@ Engineers implementing Phase 5 should focus on **Tier 1 only**. Tier 2 provides 
 
 - **I'm implementing Verse sync for Phase 5**: Read [Tier 1 Implementation Plan](2026-02-23_verse_tier1_sync_plan.md). Follow the execution plan in §9 (Steps 5.1–5.5). All dependencies, UX mockups, and done gates are defined.
 
-- **I'm researching federated knowledge protocols**: Read [Tier 2 Architecture](../technical_architecture/2026-02-23_verse_tier2_architecture.md). This explores community-scale swarms, economic incentives, and search infrastructure. Treat it as a design space, not a requirement.
+- **I'm researching federated knowledge protocols**: Read [Tier 2 Architecture](../technical_architecture/2026-02-23_verse_tier2_architecture.md). This explores Verse community primitives, community-scale swarms, economic incentives, and search infrastructure. Treat it as a design space, not a requirement.
 
 - **I'm reviewing Verse holistically**: Skim Tier 1 §1–5 (identity, transport, sync protocol, conflict resolution) for the core model, then read Tier 2 §1–2 (dual-transport rationale, identity bridge) to understand how Tier 1 extends to public swarms.
 
@@ -53,6 +54,7 @@ Engineers implementing Phase 5 should focus on **Tier 1 only**. Tier 2 provides 
 - **§11**: Open Questions (Tier 1 only) — Identity scope, relay infrastructure, sync triggers, conflict accumulation, VV pruning, workspace granularity
 
 ### Tier 2 (Architecture)
+- Verse's main abstractions are **community primitives**: VerseBlob payloads, community manifests, governance rules, index shards, FLora checkpoints, and receipt/economy records.
 - **§1**: Dual-Transport Model — iroh (bilateral) + libp2p (community swarms)
 - **§2**: Identity Bridge — Same Ed25519 keypair derives both iroh NodeId and libp2p PeerId
 - **§3**: VerseBlob — Content-addressed universal format (replaces delta-based SyncUnit for public swarms)

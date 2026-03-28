@@ -18,14 +18,18 @@ It serves three goals:
 2. [DOC_POLICY.md](DOC_POLICY.md)
 3. [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md)
 4. [TERMINOLOGY.md](TERMINOLOGY.md)
-5. [graphshell_docs/](graphshell_docs/)
-6. [verse_docs/](verse_docs/)
-7. [archive_docs/](archive_docs/)
+5. [graphshell_docs/](graphshell_docs/) — core app
+6. [verso_docs/](verso_docs/) — Verso mod (web rendering + bilateral sync)
+7. [verse_docs/](verse_docs/) — Verse mod (Tier 2 community network)
+8. [nostr_docs/](nostr_docs/) — NostrCore mod
+9. [matrix_docs/](matrix_docs/) — MatrixCore mod
+10. [graphshell_docs/comms/](graphshell_docs/comms/) — optional hosted communication surfaces inside Graphshell hosting
+11. [archive_docs/](archive_docs/)
 
 ## Working Principles
 
 - Verify claims against the code/docs before repeating them as facts.
-- Keep active docs in `graphshell_docs/` or `verse_docs/`; move superseded material to `archive_docs/` checkpoints.
+- Keep active docs in the appropriate mod directory (`graphshell_docs/`, `verso_docs/`, `verse_docs/`, `nostr_docs/`, `matrix_docs/`), with hosted communication-surface docs under `graphshell_docs/comms/`; move superseded material to `archive_docs/` checkpoints.
 - Prefer updating an existing doc over creating a new one unless the scope clearly requires a new category/resource.
 - Do not edit `PROJECT_DESCRIPTION.md` unless explicitly requested.
 - Keep this index aligned with folder structure and status in the same session as any doc changes.
@@ -41,7 +45,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 27, 2026
+Last updated: March 28, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -67,12 +71,13 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/research/2026-03-01_servo_script_engine_alternatives.md](graphshell_docs/research/2026-03-01_servo_script_engine_alternatives.md) - Long-horizon research: Nova (Rust JS engine) + Cranelift JIT as a mozjs/SpiderMonkey replacement in Servo. Covers mozjs architecture, Nova DOD design, JIT options, ohim/Wasm plugin track, Servo AI policy, and scope comparison vs. WebRender wgpu work.
 - [graphshell_docs/research/2026-03-02_ux_integration_research.md](graphshell_docs/research/2026-03-02_ux_integration_research.md) - UX integration research: file tree + tile tree + UX tree. Seven-area gap analysis (IA, interaction semantics, predictability, discoverability, feedback/recovery, accessibility, density/overflow), priority matrix, five deliverable specs (Command Semantics Matrix, Interaction Contract, Surface Behavior Spec, Accessibility Baseline Checklist, UX Telemetry Plan).
 - [graphshell_docs/research/2026-03-04_standards_alignment_report.md](graphshell_docs/research/2026-03-04_standards_alignment_report.md) - **Canonical standards adoption register.** Maps adopted vs. referenced-only external standards to every Graphshell domain. Resolves contradictions (ActivityPub vs. W3C VC/DID, RFC 6902 vs. CRDTs, rkyv vs. dag-cbor for Verse wire format, UUID v4/v7 namespace split, WCAG 2.2 vs. EN 301 549). All subsystem specs cite their adopted standards from this document. Read this before designing any new subsystem or Verse protocol.
+- [graphshell_docs/research/2026-03-27_ambient_graph_visual_effects.md](graphshell_docs/research/2026-03-27_ambient_graph_visual_effects.md) - Ambient canvas visual effects: temporal decay, graphlet halos, rhythm/pulse, warm-node particle emission, tidal influence, edge tension arcs. Default-on/off split, configurability model, and open design questions.
 
 ### Graphshell Technical Architecture
 
 - [graphshell_docs/technical_architecture/ARCHITECTURAL_OVERVIEW.md](graphshell_docs/technical_architecture/ARCHITECTURAL_OVERVIEW.md) - Current architecture and component boundaries.
 - [graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md](graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md) - Browser semantics and behavioral model; universal content viewer (MIME detection, ViewerRegistry selection, non-web renderers, tags/badges, UDC semantic physics).
-- [graphshell_docs/technical_architecture/VERSO_AS_PEER.md](graphshell_docs/technical_architecture/VERSO_AS_PEER.md) - Verso mod: web capability (Servo + wry viewers, protocol handlers) and Verse peer agent (Ed25519 identity, SyncWorker, pairing, graph/workbench context sharing).
+- [verso_docs/technical_architecture/VERSO_AS_PEER.md](verso_docs/technical_architecture/VERSO_AS_PEER.md) - Verso mod: web capability (Servo + wry viewers, protocol handlers) and Verso peer agent (Ed25519 identity, SyncWorker, pairing, graph/workbench context sharing).
 - [graphshell_docs/technical_architecture/codebase_guide.md](graphshell_docs/technical_architecture/codebase_guide.md) - Active module-orientation guide and debugging entry points for reducer/workbench/render boundaries.
 - [graphshell_docs/technical_architecture/BUILD.md](graphshell_docs/technical_architecture/BUILD.md) - Build instructions and dependency notes.
 - [graphshell_docs/technical_architecture/QUICKSTART.md](graphshell_docs/technical_architecture/QUICKSTART.md) - Fast-start command reference.
@@ -140,13 +145,12 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/system/signal_bus_spec.md](graphshell_docs/implementation_strategy/system/signal_bus_spec.md) - `SignalBus` / signal-routing contract.
 - [graphshell_docs/implementation_strategy/system/register/SYSTEM_REGISTER.md](graphshell_docs/implementation_strategy/system/register/SYSTEM_REGISTER.md) - Register hub/index and historical implementation guide.
 - [graphshell_docs/implementation_strategy/system/2026-03-05_cp4_p2p_sync_plan.md](graphshell_docs/implementation_strategy/system/2026-03-05_cp4_p2p_sync_plan.md) - CP4 ControlPanel integration plan: `p2p_sync_worker` supervision, `ApplyRemoteDelta`/`MarkPeerOffline` intent variants, version vector persistence, reducer handling, and done gates.
-- [graphshell_docs/implementation_strategy/system/coop_session_spec.md](graphshell_docs/implementation_strategy/system/coop_session_spec.md) - Coop session authority: host-led co-presence, roles, sharing, approval workflow, snapshot, session UI, intent surface, flock model (§14), Nostr identity (§15), wallet integration (§16).
 - [graphshell_docs/implementation_strategy/system/2026-03-05_network_architecture.md](graphshell_docs/implementation_strategy/system/2026-03-05_network_architecture.md) - Network protocol layer assignments: iroh (Coop/Device Sync transport), libp2p (Verse swarm), Nostr (identity/social/event bus). Covers public profile/follows, DMs, relay posture, Blossom, NIP-72/29 as Verse primitives, Nostr mod plugin surface, and iroh/libp2p/Nostr interoperability notes.
 - [graphshell_docs/implementation_strategy/system/2026-03-06_foundational_reset_implementation_plan.md](graphshell_docs/implementation_strategy/system/2026-03-06_foundational_reset_implementation_plan.md) - Active foundational reset execution plan. Tracks landed CLAT progress, remaining state-layer work, command/planner follow-ons, and verification gates.
 - [graphshell_docs/implementation_strategy/system/2026-03-06_reducer_only_mutation_enforcement_plan.md](graphshell_docs/implementation_strategy/system/2026-03-06_reducer_only_mutation_enforcement_plan.md) - Migration plan from trusted-writer boundary to compiler-enforced reducer-only graph mutation, including `GraphMutation` staging, replay alignment, side-effect isolation, and acceptance gates.
 - [graphshell_docs/implementation_strategy/system/register/protocol_registry_spec.md](graphshell_docs/implementation_strategy/system/register/protocol_registry_spec.md) - Registry spec family starts here; protocol resolution and handler floor.
-- [graphshell_docs/implementation_strategy/system/register/nostr_core_registry_spec.md](graphshell_docs/implementation_strategy/system/register/nostr_core_registry_spec.md) - Canonical `NostrCore` provider profile: capability IDs, diagnostics channel descriptors, and initial native `ModManifest` shape.
-- [graphshell_docs/implementation_strategy/system/2026-03-10_nostr_nip_completion_plan.md](graphshell_docs/implementation_strategy/system/2026-03-10_nostr_nip_completion_plan.md) - Phased plan for NIP-19/21/02/05/11/25/51/65/17 coverage; dependency order and crate strategy for completing the Nostr client layer.
+- [nostr_docs/implementation_strategy/nostr_core_registry_spec.md](nostr_docs/implementation_strategy/nostr_core_registry_spec.md) - Canonical `NostrCore` provider profile: capability IDs, diagnostics channel descriptors, and initial native `ModManifest` shape. *(moved to nostr_docs)*
+- [nostr_docs/implementation_strategy/2026-03-10_nostr_nip_completion_plan.md](nostr_docs/implementation_strategy/2026-03-10_nostr_nip_completion_plan.md) - Phased plan for NIP-19/21/02/05/11/25/51/65/17 coverage; dependency order and crate strategy for completing the Nostr client layer. *(moved to nostr_docs)*
 - [graphshell_docs/implementation_strategy/workbench/](graphshell_docs/implementation_strategy/workbench/) - Workbench specs and workbench-specific plans.
 - [graphshell_docs/implementation_strategy/graph/](graphshell_docs/implementation_strategy/graph/) - Graph domain specs and graph-specific plans; use `canvas` for the rendered surface terminology within those docs.
 - [graphshell_docs/implementation_strategy/viewer/](graphshell_docs/implementation_strategy/viewer/) - Viewer specs and viewer/backend plans.
@@ -180,20 +184,49 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/testing/delegate_trace_spa_pushstate.log](graphshell_docs/testing/delegate_trace_spa_pushstate.log) - Delegate trace log.
 - [graphshell_docs/testing/delegate_trace_window_open_http.log](graphshell_docs/testing/delegate_trace_window_open_http.log) - Delegate trace log.
 
+## Verso Active Docs
+
+Verso mod: web rendering (Servo + Wry) and bilateral P2P sync (Tier 1). See `DOC_POLICY.md` for boundary definition.
+
+### Verso Technical Architecture
+
+- [verso_docs/technical_architecture/VERSO_AS_PEER.md](verso_docs/technical_architecture/VERSO_AS_PEER.md) - Verso mod: web capability (Servo + wry viewers, protocol handlers) and Verso peer agent (Ed25519 identity, SyncWorker, pairing, graph/workbench context sharing).
+- [verso_docs/technical_architecture/VERSO_SERVO_ARCHITECTURE.md](verso_docs/technical_architecture/VERSO_SERVO_ARCHITECTURE.md) - Verso/Servo integration architecture.
+
+### Verso Implementation Strategy
+
+- [verso_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md](verso_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md) - Verso/Verse implementation strategy and Tier 1 / Tier 2 split framing.
+- [verso_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md](verso_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) - **Canonical Verso Tier 1 sync plan** (iroh transport, sync units, pairing/sync phases, deterministic sync-logic simulator matrix).
+- [verso_docs/implementation_strategy/2026-02-25_verse_presence_plan.md](verso_docs/implementation_strategy/2026-02-25_verse_presence_plan.md) - Post-Phase-5 collaborative presence plan: ghost cursors, remote selection, follow mode, and presence stream policy.
+- [verso_docs/implementation_strategy/coop_session_spec.md](verso_docs/implementation_strategy/coop_session_spec.md) - Canonical co-op session authority: host-led co-presence, roles, sharing, approval workflow, snapshot, session UI, intent surface, flock model (§14), Nostr identity (§15), and wallet integration (§16).
+- [verso_docs/implementation_strategy/2026-03-27_session_capsule_ledger_plan.md](verso_docs/implementation_strategy/2026-03-27_session_capsule_ledger_plan.md) - Session Capsule Ledger: WASM-safe portable session archive format (`SessionCapsule`, `SessionLedger`, `ArchiveReceipt`), CID addressing, AES-256-GCM encryption, UCAN delegation, and Verso bilateral sync integration. 5-slice implementation plan A.1–A.5.
+- [verso_docs/implementation_strategy/2026-03-28_gemini_capsule_server_plan.md](verso_docs/implementation_strategy/2026-03-28_gemini_capsule_server_plan.md) - Small protocol capsule servers (Gemini/Gopher/Finger): serve Graphshell content and personal profiles over TCP. `SimpleDocument` ↔ `text/gemini`/Gophermap/plain-text serializers, content routers, `GraphIntent` wiring for all three protocols.
+- [verso_docs/implementation_strategy/2026-03-28_cable_coop_minichat_spec.md](verso_docs/implementation_strategy/2026-03-28_cable_coop_minichat_spec.md) - Cable wire protocol as co-op minichat substrate: identity/cabal-key derivation, post type mapping, moderation integration (host as admin seed + subjective guest layer), in-memory ephemeral store, iroh transport (skip Noise), Comms lane positioning, 4-phase rollout.
+- [verso_docs/implementation_strategy/PHASE5_STEP5.1_COMPLETE.md](verso_docs/implementation_strategy/PHASE5_STEP5.1_COMPLETE.md) - Phase 5 Step 5.1 completion record.
+- [verso_docs/implementation_strategy/PHASE5_STEP5.2_COMPLETE.md](verso_docs/implementation_strategy/PHASE5_STEP5.2_COMPLETE.md) - Phase 5 Step 5.2 completion record.
+- [verso_docs/implementation_strategy/PHASE5_STEP5.3_COMPLETE.md](verso_docs/implementation_strategy/PHASE5_STEP5.3_COMPLETE.md) - Phase 5 Step 5.3 completion record.
+
+### Verso Research
+
+- [verso_docs/research/2026-03-28_permacomputing_alignment.md](verso_docs/research/2026-03-28_permacomputing_alignment.md) - Permacomputing alignment: 10-principle audit, gaps (resource awareness, intentional forgetting, constrained hardware, small-web publishing, content portability), curated project index (Cable, Uxn, Coalescent Computer, Solar Protocol, snac, Cerca), and design posture summary.
+- [verso_docs/research/2026-03-28_smolnet_follow_on_audit.md](verso_docs/research/2026-03-28_smolnet_follow_on_audit.md) - Suitability audit for post-Gemini/Gopher/Finger smallnet follow-ons: admission bar for native Verso support, capability-family split (`SimpleDocument` bridge boundary, discovery vs messaging vs document lanes), and recommendations for Titan, Spartan, Misfin, Nex, and Guppy.
+- [verso_docs/research/2026-03-28_smolnet_dependency_health_audit.md](verso_docs/research/2026-03-28_smolnet_dependency_health_audit.md) - Dependency-health rubric for follow-on smallnet protocol crates: when to prefer local implementations, when external Rust crates may be justified, and what still requires external ecosystem validation for Titan, Spartan, Misfin, Nex, and Guppy.
+
+---
+
 ## Verse Active Docs
+
+Verse mod: public decentralized community network (Tier 2, long-horizon research). Not a Phase 5 dependency.
 
 ### Verse Technical Architecture
 
-- [verse_docs/technical_architecture/VERSE_AS_NETWORK.md](verse_docs/technical_architecture/VERSE_AS_NETWORK.md) - The Verse network: Tier 1 bilateral iroh sync, Tier 2 community swarms (research), knowledge asset pipeline, participation levels, wire format, conflict resolution, network architecture diagrams.
+- [verse_docs/technical_architecture/VERSE_AS_NETWORK.md](verse_docs/technical_architecture/VERSE_AS_NETWORK.md) - Verse as the optional community-scale network layer, with explicit boundary against Verso bilateral sync/co-op and Comms hosted surfaces.
 - [verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md](verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md) - Long-horizon Tier 2 architecture: dual transport, VerseBlob, FLora, Proof of Access, crawler economy, and open research questions.
 - [verse_docs/technical_architecture/2026-03-05_verse_nostr_dvm_integration.md](verse_docs/technical_architecture/2026-03-05_verse_nostr_dvm_integration.md) - How Nostr (NIP-72 community surface, NIP-90 DVMs), FLora checkpoints, distributed indices, and Proof of Access economics compose: feed curation, context-aware traversal suggestions, graph node summarisation, Lightning/receipt tokenomics, and Tier 2 rollout sequence.
 - [verse_docs/technical_architecture/2026-03-05_verse_economic_model.md](verse_docs/technical_architecture/2026-03-05_verse_economic_model.md) - Coherent economic model: no native Verse token (sats for compute, FIL for storage, reputation for governance); storage staking/bonds; sats operational budget; FIL treasury; full browsing→review→hosting→compute→settlement value loop; contributor/reviewer/bootstrap staking types; anti-plutocracy guarantees; open problems.
 
 ### Verse Implementation Strategy
 
-- [verse_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md](verse_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md) - Verse implementation strategy and phase framing.
-- [verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md](verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) - **Canonical Verse Tier 1 sync plan** (iroh transport, sync units, pairing/sync phases, deterministic sync-logic simulator matrix).
-- [verse_docs/implementation_strategy/2026-02-25_verse_presence_plan.md](verse_docs/implementation_strategy/2026-02-25_verse_presence_plan.md) - Post-Phase-5 collaborative presence plan: ghost cursors, remote selection, follow mode, and presence stream policy.
 - [verse_docs/implementation_strategy/self_hosted_model_spec.md](verse_docs/implementation_strategy/self_hosted_model_spec.md) - Self-hosted model spec: capability contracts, model/engram classification, cooperative multi-model execution, mini-adapter flow, and UI-facing behavior contracts.
 - [verse_docs/implementation_strategy/2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md](verse_docs/implementation_strategy/2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md) - STM/LTM, MemoryExtractor/MemoryIngestor, engram storage, and intelligence memory plumbing.
 - [verse_docs/implementation_strategy/engram_spec.md](verse_docs/implementation_strategy/engram_spec.md) - Canonical `Engram` / `TransferProfile` schema: envelope, memory classes, validation classes, redaction, trust, and FLora submission rules.
@@ -202,14 +235,56 @@ Project status source: [../README.md](../README.md)
 - [verse_docs/implementation_strategy/proof_of_access_ledger_spec.md](verse_docs/implementation_strategy/proof_of_access_ledger_spec.md) - Canonical receipt and accounting model: off-chain ledger, reputation, epoch settlement, and optional payout channels.
 - [verse_docs/implementation_strategy/community_governance_spec.md](verse_docs/implementation_strategy/community_governance_spec.md) - Canonical community policy model: roles, quorum, treasury controls, moderation, and appeals.
 - [verse_docs/implementation_strategy/self_hosted_verse_node_spec.md](verse_docs/implementation_strategy/self_hosted_verse_node_spec.md) - Canonical private-by-default Verse node model: service surfaces, transport boundaries, quotas, and budget controls.
-- [verse_docs/implementation_strategy/PHASE5_STEP5.1_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.1_COMPLETE.md) - Phase 5 Step 5.1 completion record.
-- [verse_docs/implementation_strategy/PHASE5_STEP5.2_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.2_COMPLETE.md) - Phase 5 Step 5.2 completion record.
-- [verse_docs/implementation_strategy/PHASE5_STEP5.3_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.3_COMPLETE.md) - Phase 5 Step 5.3 completion record.
 - [verse_docs/research/VERSE.md](verse_docs/research/VERSE.md) - Original tokenization and peer-role vision (speculative research).
 - [verse_docs/research/SEARCH_FINDINGS_SUMMARY.md](verse_docs/research/SEARCH_FINDINGS_SUMMARY.md) - Research and source synthesis.
 - [verse_docs/research/2026-02-22_aspirational_protocols_and_tools.md](verse_docs/research/2026-02-22_aspirational_protocols_and_tools.md) - Protocol ecosystem survey (IPFS, ActivityPub, Nostr, Gemini, Matrix) and crate index. Reference for Tier 2 and future protocol mod work.
 - [verse_docs/research/2026-02-23_storage_economy_and_indices.md](verse_docs/research/2026-02-23_storage_economy_and_indices.md) - Speculative research on Proof of Access economy and composable Index Artifacts (Tier 2 research input).
 - [verse_docs/research/2026-02-23_modern_yacy_gap_analysis.md](verse_docs/research/2026-02-23_modern_yacy_gap_analysis.md) - Gap analysis for decentralized search: Index Artifact format (tantivy segments), local vs. remote query, crawler bounty economy (Tier 2 research input).
+
+---
+
+## NostrCore Active Docs
+
+NostrCore mod: Nostr protocol integration.
+
+### NostrCore Technical Architecture
+
+- [nostr_docs/technical_architecture/nostr_relay_spec.md](nostr_docs/technical_architecture/nostr_relay_spec.md) - Embedded Nostr relay server: three operating modes (Personal/Flock/Community), fjall event store schema, NIP-01/09/11/42/29 coverage, NostrCore ownership model, GraphIntent wiring, and rollout plan.
+
+### NostrCore Implementation Strategy
+
+- [nostr_docs/implementation_strategy/2026-03-05_nostr_mod_system.md](nostr_docs/implementation_strategy/2026-03-05_nostr_mod_system.md) - NostrCore native mod system: capability surface, relay infrastructure, event routing, and NIP baseline.
+- [nostr_docs/implementation_strategy/2026-03-10_nostr_nip_completion_plan.md](nostr_docs/implementation_strategy/2026-03-10_nostr_nip_completion_plan.md) - Phased plan for NIP-19/21/02/05/11/25/51/65/17 coverage; dependency order and crate strategy for completing the Nostr client layer.
+- [nostr_docs/implementation_strategy/nostr_core_registry_spec.md](nostr_docs/implementation_strategy/nostr_core_registry_spec.md) - Canonical `NostrCore` provider profile: capability IDs, diagnostics channel descriptors, and initial native `ModManifest` shape.
+- [nostr_docs/implementation_strategy/nostr_runtime_behavior_spec.md](nostr_docs/implementation_strategy/nostr_runtime_behavior_spec.md) - Nostr runtime behavior contract: relay lifecycle, event dispatch, signing boundary, and NIP-44 DM handling.
+
+---
+
+## MatrixCore Active Docs
+
+MatrixCore mod: Matrix room protocol for durable room membership and shared-space context.
+
+### MatrixCore Implementation Strategy
+
+- [matrix_docs/implementation_strategy/2026-03-17_matrix_core_adoption_plan.md](matrix_docs/implementation_strategy/2026-03-17_matrix_core_adoption_plan.md) - Phase-by-phase execution plan for `MatrixCore`: session lifecycle, room projection, allowlisted graph events, and optional Nostr bridge affordances.
+- [matrix_docs/implementation_strategy/2026-03-17_matrix_event_schema.md](matrix_docs/implementation_strategy/2026-03-17_matrix_event_schema.md) - Concrete `graphshell.room.*` event schema for Matrix-backed rooms: payload families, validation rules, and reducer/workbench routing boundaries.
+- [matrix_docs/implementation_strategy/2026-03-17_matrix_layer_positioning.md](matrix_docs/implementation_strategy/2026-03-17_matrix_layer_positioning.md) - Places Matrix as the durable room contextual substrate within the three-context + two-fabric network model; defines room hosting gradient, cross-carrying rules, and concept resurfacing.
+- [matrix_docs/implementation_strategy/2026-03-17_matrix_core_type_sketch.md](matrix_docs/implementation_strategy/2026-03-17_matrix_core_type_sketch.md) - Rust-facing type sketch for `MatrixCoreRegistry`, supervised worker commands, normalized Matrix events, and bounded proposal routing.
+- [matrix_docs/implementation_strategy/matrix_core_registry_spec.md](matrix_docs/implementation_strategy/matrix_core_registry_spec.md) - Canonical `MatrixCore` provider profile: capability IDs, room model, and diagnostics channel descriptors.
+
+---
+
+## Graphshell Social Domain Docs
+
+Graphshell social-domain docs cover hosted communication surfaces and related shell-side coordination rules without absorbing protocol authority from Verso, MatrixCore, NostrCore, or Verse.
+
+### Graphshell Social Implementation Strategy
+
+- [graphshell_docs/implementation_strategy/social/COMMS_AS_APPLETS.md](graphshell_docs/implementation_strategy/social/COMMS_AS_APPLETS.md) - Canonical positioning note for Comms as a Graphshell-hosted applet/surface family spanning Matrix rooms, Nostr social lanes, and Verso bilateral co-op/chat surfaces.
+- [graphshell_docs/implementation_strategy/social/profile/PROFILE.md](graphshell_docs/implementation_strategy/social/profile/PROFILE.md) - Canonical social profile surface spec: host-side profile composition, publication lanes, and boundary between public identity profile vs `GraphshellProfile` app/workflow configuration.
+- [graphshell_docs/implementation_strategy/social/profile/CAPSULE_PROFILE.md](graphshell_docs/implementation_strategy/social/profile/CAPSULE_PROFILE.md) - Canonical publication mapping spec from social profile cards into concrete Nostr kind 0, Finger text, and Gemini/Gopher capsule profile documents.
+- [graphshell_docs/implementation_strategy/social/profile/2026-03-28_social_profile_type_sketch.md](graphshell_docs/implementation_strategy/social/profile/2026-03-28_social_profile_type_sketch.md) - Rust-facing type sketch for `SocialProfileCard`, `CapsuleProfile`, disclosure policy carriers, `GraphshellProfile` associations, and secret-provider references.
+- [graphshell_docs/implementation_strategy/social/profile/serve_profile_on_all_protocols_spec.md](graphshell_docs/implementation_strategy/social/profile/serve_profile_on_all_protocols_spec.md) - Execution contract for `ServeProfileOnAllProtocols`: lane fanout, reducer/workbench/runtime boundary split, per-lane receipts, and minimum guard tests.
 
 ## Archive Checkpoints
 
@@ -226,7 +301,7 @@ Project status source: [../README.md](../README.md)
 - [archive_docs/checkpoint_2026-02-19/](archive_docs/checkpoint_2026-02-19/)
 - [archive_docs/checkpoint_2026-02-20/](archive_docs/checkpoint_2026-02-20/)
 - [archive_docs/checkpoint_2026-02-23/](archive_docs/checkpoint_2026-02-23/) — `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (consolidated into `2026-02-22_registry_layer_plan.md`)
-- [archive_docs/checkpoint_2026-02-24/](archive_docs/checkpoint_2026-02-24/) — consolidated-plan redirects: `2026-02-24_input_surface_polish_plan.md`, `2026-02-24_workspace_routing_polish_plan.md`, `2026-02-24_sync_logic_validation_plan.md`; `GRAPHSHELL_P2P_COLLABORATION.md` (pre-intent-model P2P design, superseded by `VERSE_AS_NETWORK.md` and the Tier 1 sync plan)
+- [archive_docs/checkpoint_2026-02-24/](archive_docs/checkpoint_2026-02-24/) — consolidated-plan redirects: `2026-02-24_input_surface_polish_plan.md`, `2026-02-24_workspace_routing_polish_plan.md`, `2026-02-24_sync_logic_validation_plan.md`; `GRAPHSHELL_P2P_COLLABORATION.md` (pre-intent-model P2P design, superseded by `verso_docs/technical_architecture/VERSE_AS_NETWORK.md` and the Tier 1 sync plan)
 - [archive_docs/checkpoint_2026-02-27/](archive_docs/checkpoint_2026-02-27/) — archived stale active docs: `technical_architecture/DEVELOPER_GUIDE.md`, `technical_architecture/CODEBASE_MAP.md`, `testing/VALIDATION_TESTING.md`; superseded by active `codebase_guide.md` and `test_guide.md`.
 - [archive_docs/checkpoint_2026-03-01/](archive_docs/checkpoint_2026-03-01/) — bridge spike receipts and embedder-debt records for `#180` and `#183`.
 - [archive_docs/checkpoint_2026-03-05/](archive_docs/checkpoint_2026-03-05/) — `2026-03-05_camera_navigation_fix_postmortem.md`: root-cause and fix record for longstanding camera pan/zoom bug (dead metadata slot + every-frame fit reset).

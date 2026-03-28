@@ -3956,8 +3956,12 @@ fn test_navigator_projection_state_defaults_are_graph_owned() {
     let app = GraphBrowserApp::new_for_testing();
 
     assert_eq!(
-        app.navigator_projection_state().containment_relation_source,
-        NavigatorContainmentRelationSource::GraphContainment
+        app.navigator_projection_state().mode,
+        NavigatorProjectionMode::Workbench
+    );
+    assert_eq!(
+        app.navigator_projection_state().projection_seed_source,
+        NavigatorProjectionSeedSource::GraphContainment
     );
     assert_eq!(
         app.navigator_projection_state().sort_mode,
@@ -4002,8 +4006,8 @@ fn test_file_tree_projection_rebuild_populates_saved_view_rows_for_saved_view_so
         .insert(view_id, GraphViewState::new_with_id(view_id, "Saved View"));
 
     app.apply_reducer_intents([
-        GraphIntent::SetNavigatorContainmentRelationSource {
-            source: NavigatorContainmentRelationSource::SavedViewCollections,
+        GraphIntent::SetNavigatorProjectionSeedSource {
+            source: NavigatorProjectionSeedSource::SavedViewCollections,
         },
         GraphIntent::RebuildNavigatorProjection,
     ]);
@@ -4042,8 +4046,8 @@ fn test_file_tree_projection_rebuild_populates_containment_rows_from_file_urls()
     );
 
     app.apply_reducer_intents([
-        GraphIntent::SetNavigatorContainmentRelationSource {
-            source: NavigatorContainmentRelationSource::ContainmentRelations,
+        GraphIntent::SetNavigatorProjectionSeedSource {
+            source: NavigatorProjectionSeedSource::ContainmentRelations,
         },
         GraphIntent::RebuildNavigatorProjection,
     ]);
@@ -4076,8 +4080,8 @@ fn test_file_tree_projection_root_filter_limits_containment_rows() {
         .add_node("file:///tmp/b/b.log".to_string(), Point2D::new(1.0, 0.0));
 
     app.apply_reducer_intents([
-        GraphIntent::SetNavigatorContainmentRelationSource {
-            source: NavigatorContainmentRelationSource::ContainmentRelations,
+        GraphIntent::SetNavigatorProjectionSeedSource {
+            source: NavigatorProjectionSeedSource::ContainmentRelations,
         },
         GraphIntent::SetNavigatorRootFilter {
             root_filter: Some("/tmp/a/".to_string()),
@@ -4099,8 +4103,11 @@ fn test_file_tree_projection_intents_apply_in_workspace_reducer() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     app.apply_reducer_intents([
-        GraphIntent::SetNavigatorContainmentRelationSource {
-            source: NavigatorContainmentRelationSource::ContainmentRelations,
+        GraphIntent::SetNavigatorProjectionSeedSource {
+            source: NavigatorProjectionSeedSource::ContainmentRelations,
+        },
+        GraphIntent::SetNavigatorProjectionMode {
+            mode: NavigatorProjectionMode::Containment,
         },
         GraphIntent::SetNavigatorSortMode {
             sort_mode: NavigatorSortMode::NameDescending,
@@ -4117,8 +4124,12 @@ fn test_file_tree_projection_intents_apply_in_workspace_reducer() {
     ]);
 
     assert_eq!(
-        app.navigator_projection_state().containment_relation_source,
-        NavigatorContainmentRelationSource::ContainmentRelations
+        app.navigator_projection_state().mode,
+        NavigatorProjectionMode::Containment
+    );
+    assert_eq!(
+        app.navigator_projection_state().projection_seed_source,
+        NavigatorProjectionSeedSource::ContainmentRelations
     );
     assert_eq!(
         app.navigator_projection_state().sort_mode,
@@ -4144,9 +4155,8 @@ fn test_file_tree_projection_intents_apply_in_workspace_reducer() {
 fn test_clear_graph_resets_navigator_projection_state() {
     let mut app = GraphBrowserApp::new_for_testing();
 
-    app.set_navigator_containment_relation_source(
-        NavigatorContainmentRelationSource::ContainmentRelations,
-    );
+    app.set_navigator_projection_seed_source(NavigatorProjectionSeedSource::ContainmentRelations);
+    app.set_navigator_projection_mode(NavigatorProjectionMode::AllNodes);
     app.set_navigator_sort_mode(NavigatorSortMode::NameAscending);
     app.set_navigator_root_filter(Some("root:collections".to_string()));
     app.upsert_navigator_row_target(
@@ -4158,8 +4168,12 @@ fn test_clear_graph_resets_navigator_projection_state() {
     app.clear_graph();
 
     assert_eq!(
-        app.navigator_projection_state().containment_relation_source,
-        NavigatorContainmentRelationSource::GraphContainment
+        app.navigator_projection_state().mode,
+        NavigatorProjectionMode::Workbench
+    );
+    assert_eq!(
+        app.navigator_projection_state().projection_seed_source,
+        NavigatorProjectionSeedSource::GraphContainment
     );
     assert_eq!(
         app.navigator_projection_state().sort_mode,
@@ -5445,8 +5459,7 @@ fn test_set_physics_profile_intent_updates_runtime_and_reheats() {
             .views
             .get(&view_id)
             .unwrap()
-            .lens
-            .physics
+            .resolved_physics_profile()
             .name,
         "Gas"
     );
@@ -5926,7 +5939,7 @@ fn test_tag_node_udc_does_not_duplicate_classification_if_already_present() {
 }
 
 #[test]
-fn test_set_view_lens_preserves_direct_values_when_lens_id_missing() {
+fn test_view_policy_intents_preserve_direct_values() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     let view_id = GraphViewId::new();
@@ -5935,42 +5948,41 @@ fn test_set_view_lens_preserves_direct_values_when_lens_id_missing() {
         .views
         .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
 
-    let lens = LensConfig {
-        name: "Custom Lens".to_string(),
-        lens_id: None,
-        physics: PhysicsProfile::gas(),
-        layout: LayoutMode::Grid { gap: 24.0 },
-        layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_GRID.to_string(),
-        theme: Some(ThemeData {
+    if let Some(view) = app.workspace.graph_runtime.views.get_mut(&view_id) {
+        view.presentation_policy.theme = Some(ThemeData {
             background_rgb: (1, 2, 3),
             accent_rgb: (4, 5, 6),
             font_scale: 1.3,
             stroke_width: 2.0,
-        }),
-        filters_legacy: Vec::new(),
-        filter_expr: None,
-        overlay_descriptor: None,
-    };
+        });
+    }
 
-    app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
+    app.apply_reducer_intents([
+        GraphIntent::SetViewPhysicsProfile {
+            view_id,
+            profile_id: crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
+        },
+        GraphIntent::SetViewLayoutAlgorithm {
+            view_id,
+            algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_GRID.to_string(),
+        },
+    ]);
 
-    let resolved = &app
-        .workspace
-        .graph_runtime
-        .views
-        .get(&view_id)
-        .unwrap()
-        .lens;
-    assert_eq!(resolved.physics.name, "Gas");
-    assert!(matches!(resolved.layout, LayoutMode::Grid { gap: 24.0 }));
+    let resolved = app.workspace.graph_runtime.views.get(&view_id).unwrap();
+    assert_eq!(resolved.resolved_physics_profile().name, "Gas");
+    assert!(matches!(resolved.resolved_layout_mode(), LayoutMode::Free));
     assert_eq!(
-        resolved.theme.as_ref().map(|theme| theme.background_rgb),
+        resolved.resolved_layout_algorithm_id(),
+        crate::app::graph_layout::GRAPH_LAYOUT_GRID
+    );
+    assert_eq!(
+        resolved.resolved_theme().map(|theme| theme.background_rgb),
         Some((1, 2, 3))
     );
 }
 
 #[test]
-fn test_set_view_lens_applies_persisted_lens_default_when_lens_id_missing() {
+fn test_set_view_lens_id_applies_explicit_lens_selection() {
     let mut app = GraphBrowserApp::new_for_testing();
     app.set_default_registry_lens_id(Some("lens:default"));
 
@@ -5980,38 +5992,25 @@ fn test_set_view_lens_applies_persisted_lens_default_when_lens_id_missing() {
         .views
         .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
 
-    let lens = LensConfig {
-        name: "Custom Lens".to_string(),
-        lens_id: None,
-        physics: PhysicsProfile::default(),
-        layout: LayoutMode::Free,
-        layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
-            .to_string(),
-        theme: None,
-        filters_legacy: Vec::new(),
-        filter_expr: None,
-        overlay_descriptor: None,
-    };
+    app.apply_reducer_intents([GraphIntent::SetViewLensId {
+        view_id,
+        lens_id: crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string(),
+    }]);
 
-    app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
-
-    let resolved = &app
-        .workspace
-        .graph_runtime
-        .views
-        .get(&view_id)
-        .unwrap()
-        .lens;
-    assert_eq!(resolved.lens_id.as_deref(), Some("lens:default"));
-    assert_eq!(resolved.name, "Default");
-    assert_eq!(resolved.physics.name, "Liquid");
-    assert!(matches!(resolved.layout, LayoutMode::Free));
+    let resolved = app.workspace.graph_runtime.views.get(&view_id).unwrap();
     assert_eq!(
-        resolved.layout_algorithm_id,
-        crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+        resolved.resolved_lens_id(),
+        Some(crate::registries::atomic::lens::LENS_ID_DEFAULT)
+    );
+    assert_eq!(resolved.resolved_lens_display_name(), "Default");
+    assert_eq!(resolved.resolved_physics_profile().name, "Liquid");
+    assert!(matches!(resolved.resolved_layout_mode(), LayoutMode::Free));
+    assert_eq!(
+        resolved.resolved_layout_algorithm_id(),
+        crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED
     );
     assert_eq!(
-        resolved.theme.as_ref().map(|theme| theme.background_rgb),
+        resolved.resolved_theme().map(|theme| theme.background_rgb),
         Some((20, 20, 25))
     );
 }
@@ -6099,18 +6098,17 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
 
     let registry_backed_view = GraphViewId::new();
     let mut stale_registry_lens = GraphViewState::new_with_id(registry_backed_view, "Registry");
-    stale_registry_lens.lens = LensConfig {
-        name: "Stale".to_string(),
-        lens_id: Some("lens:default".to_string()),
-        physics: PhysicsProfile::gas(),
-        layout: LayoutMode::Grid { gap: 42.0 },
-        layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
-            .to_string(),
-        theme: None,
-        filters_legacy: vec!["stale".to_string()],
-        filter_expr: None,
-        overlay_descriptor: None,
-    };
+    stale_registry_lens.lens_state.display_name = "Stale".to_string();
+    stale_registry_lens.lens_state.base_lens_id = Some("lens:default".to_string());
+    stale_registry_lens.apply_physics_policy_override(
+        crate::registries::atomic::lens::PHYSICS_ID_GAS,
+        PhysicsProfile::gas(),
+    );
+    stale_registry_lens.apply_layout_policy_override(
+        LayoutMode::Grid { gap: 42.0 },
+        crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT,
+    );
+    stale_registry_lens.filter_policy.legacy_filters = vec!["stale".to_string()];
     app.workspace
         .graph_runtime
         .views
@@ -6118,22 +6116,22 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
 
     let direct_view = GraphViewId::new();
     let mut direct_lens_view = GraphViewState::new_with_id(direct_view, "Direct");
-    direct_lens_view.lens = LensConfig {
-        name: "Direct Lens".to_string(),
-        lens_id: None,
-        physics: PhysicsProfile::gas(),
-        layout: LayoutMode::Grid { gap: 24.0 },
-        layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_GRID.to_string(),
-        theme: Some(ThemeData {
-            background_rgb: (9, 8, 7),
-            accent_rgb: (6, 5, 4),
-            font_scale: 1.1,
-            stroke_width: 3.0,
-        }),
-        filters_legacy: vec!["custom".to_string()],
-        filter_expr: None,
-        overlay_descriptor: None,
-    };
+    direct_lens_view.lens_state.display_name = "Direct Lens".to_string();
+    direct_lens_view.apply_physics_policy_override(
+        crate::registries::atomic::lens::PHYSICS_ID_GAS,
+        PhysicsProfile::gas(),
+    );
+    direct_lens_view.apply_layout_policy_override(
+        LayoutMode::Grid { gap: 24.0 },
+        crate::app::graph_layout::GRAPH_LAYOUT_GRID,
+    );
+    direct_lens_view.presentation_policy.theme = Some(ThemeData {
+        background_rgb: (9, 8, 7),
+        accent_rgb: (6, 5, 4),
+        font_scale: 1.1,
+        stroke_width: 3.0,
+    });
+    direct_lens_view.filter_policy.legacy_filters = vec!["custom".to_string()];
     app.workspace
         .graph_runtime
         .views
@@ -6142,34 +6140,32 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
     let refreshed = app.refresh_registry_backed_view_lenses();
     assert_eq!(refreshed, 1);
 
-    let registry_backed = &app
+    let registry_backed = app
         .workspace
         .graph_runtime
         .views
         .get(&registry_backed_view)
-        .unwrap()
-        .lens;
-    assert_eq!(registry_backed.lens_id.as_deref(), Some("lens:default"));
-    assert_eq!(registry_backed.name, "Default");
-    assert_eq!(registry_backed.physics.name, "Liquid");
-    assert!(matches!(registry_backed.layout, LayoutMode::Free));
+        .unwrap();
+    assert_eq!(registry_backed.resolved_lens_id(), Some("lens:default"));
+    assert_eq!(registry_backed.resolved_lens_display_name(), "Default");
+    assert_eq!(registry_backed.resolved_physics_profile().name, "Liquid");
+    assert!(matches!(registry_backed.resolved_layout_mode(), LayoutMode::Free));
     assert_eq!(
-        registry_backed.layout_algorithm_id,
+        registry_backed.resolved_layout_algorithm_id(),
         crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
     );
 
-    let direct = &app
+    let direct = app
         .workspace
         .graph_runtime
         .views
         .get(&direct_view)
-        .unwrap()
-        .lens;
-    assert_eq!(direct.name, "Direct Lens");
-    assert_eq!(direct.physics.name, direct_lens_view.lens.physics.name);
-    assert!(matches!(direct.layout, LayoutMode::Grid { gap: 24.0 }));
+        .unwrap();
+    assert_eq!(direct.resolved_lens_display_name(), "Direct Lens");
+    assert_eq!(direct.resolved_physics_profile().name, "Gas");
+    assert!(matches!(direct.resolved_layout_mode(), LayoutMode::Grid { gap: 24.0 }));
     assert_eq!(
-        direct.theme.as_ref().map(|theme| theme.background_rgb),
+        direct.resolved_theme().map(|theme| theme.background_rgb),
         Some((9, 8, 7))
     );
 }

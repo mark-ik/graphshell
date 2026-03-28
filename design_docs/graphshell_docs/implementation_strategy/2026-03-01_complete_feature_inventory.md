@@ -263,7 +263,7 @@ misreported as complete.
 | File Explorer Lens preset | 📋 Planned | DAG topology, tree layout, solid physics |
 | Brainstorm Lens preset | 📋 Planned | Free topology, force-directed, liquid physics |
 | States-of-matter physics presets (Liquid / Gas / Solid) | 📋 Planned | Semantic physics metaphor |
-| Lens switching (per-view) | ✅ Done | `SetViewLens` intent |
+| Lens switching (per-view) | ✅ Done | `SetViewLensId` intent + per-view policy intents |
 | Progressive lens composition | 🔭 Speculative | |
 
 ### Diagnostics Subsystem
