@@ -15,6 +15,7 @@
 - [`2026-02-23_verse_tier1_sync_plan.md`](2026-02-23_verse_tier1_sync_plan.md) — iroh transport authority
 - [`../../graphshell_docs/implementation_strategy/system/2026-03-05_network_architecture.md`](../../graphshell_docs/implementation_strategy/system/2026-03-05_network_architecture.md) — iroh / Nostr / libp2p layer assignments, Verso/Verse protocol mapping, relay posture
 - [`../../graphshell_docs/implementation_strategy/social/COMMS_AS_APPLETS.md`](../../graphshell_docs/implementation_strategy/social/COMMS_AS_APPLETS.md) — Comms as a Graphshell-hosted applet family rather than a core shell domain
+- [`../../graphshell_docs/implementation_strategy/social/contacts/CONTACTS.md`](../../graphshell_docs/implementation_strategy/social/contacts/CONTACTS.md) — Contacts (flock) canonical spec: data model, suggestion flow, cross-feature usage
 
 ---
 
@@ -92,7 +93,7 @@ Previous node-sharing privacy settings may auto-load only when all joining guest
 
 ### 5.4 Approved guest list (deferred)
 
-The "approved guest list" (a persistent list of trusted participants for a given view) is a deferred feature. For now, the host approves guests per-session; no persistence across sessions. Persistent friend/trust lists across sessions are out of scope for the initial co-op rollout.
+The "approved guest list" (a persistent list of trusted participants for a given view) is a deferred feature. For now, the host approves guests per-session; no persistence across sessions. When the contacts model (§14) lands, the approved-guest-list check maps onto it: a guest is "previously approved" if they appear in the host's contacts and are not tagged `Blocked`.
 
 ## 6. Interaction Contract
 
@@ -242,7 +243,7 @@ If these events need diagnostics, emit diagnostics directly from the presence ch
 
 ## 13. Rollout Order
 
-1. Add `CoopSessionId` type + Coop reducer model + intent enum stubs + no-op arms.
+1. Add `CoopSessionId` type + co-op reducer model + intent enum stubs + no-op arms.
 2. Add workbench intercept path + minimal presence overlay shell (participant list, session status).
 3. Add presence channel (cursor broadcast) over iroh datagram — diagnostics wired.
 4. Implement role gating (ViewOnly/Contributor/Editor) + role-sensitive command palette filtering.
@@ -252,43 +253,45 @@ If these events need diagnostics, emit diagnostics directly from the presence ch
 
 ---
 
-## 14. Flock Model (Deferred)
+## 14. Contacts (Flock) Model (Deferred)
 
-A **flock** is a peer's full interaction history — every participant encountered across all Coop sessions. Flock membership is automatic: when a session ends, all participants are added to each other's flock. No explicit friend request is needed.
+The **flock** is the user's contacts list — people they have deliberately chosen to keep track of across co-op sessions and other Graphshell features. The canonical spec lives in [`CONTACTS.md`](../../graphshell_docs/implementation_strategy/social/contacts/CONTACTS.md); this section summarises the co-op-relevant integration points.
 
-### 14.1 Data model
+Contacts are **not** accumulated automatically. A co-op session encounter generates a **contact suggestion** — a transient record that the user can dismiss or promote to a saved contact. Only saved contacts participate in the approved-guest-list check (§5.4) and other trust-gated features.
+
+### 14.1 Data model (co-op view)
 
 ```rust
-pub struct FlockEntry {
-    user_id: NostrPubkey,       // cross-device identity anchor (see §15)
-    display_name: String,       // last-seen name from session presence
-    tags: Vec<FlockTag>,
-    known_devices: Vec<NodeId>, // iroh NodeIds seen for this user
+pub struct ContactEntry {
+    user_id: UserIdentity,          // cross-device identity anchor (see §15)
+    display_name: String,           // user-editable; seeded from last-seen session name
+    tags: Vec<ContactTag>,
+    known_device_peers: Vec<NodeId>, // iroh NodeIds seen for this user
     first_seen: SystemTime,
     last_seen: SystemTime,
 }
 
-pub enum FlockTag {
+pub enum ContactTag {
     Friend,
     Acquaintance,
     Blocked,
-    Custom(String),             // user-defined labels
+    Custom(String),
 }
 ```
 
-`FlockTag::Blocked` is a hard signal: blocked peers cannot join sessions you host and are never auto-approved.
+`ContactTag::Blocked` is a hard signal: blocked peers cannot join sessions you host and are never auto-approved regardless of other tags.
 
 ### 14.2 Relationship to session approval
 
-The §5.2 "approved guest list" check maps directly onto flock state: a guest is "previously approved" if they appear in your flock and are not tagged `Blocked`. No separate approval store is needed.
+The §5.4 approved-guest-list check maps onto contacts: a guest is "previously approved" if they appear in your contacts and are not tagged `Blocked`. Co-op sessions with unrecognised guests (not in contacts) always fall back to private-by-default (§5.1), regardless of whether an auto-load profile exists.
 
 ### 14.3 Scope note
 
-Flock is a local, personal data structure — it is not shared or synchronized via Device Sync or Coop. It lives in the local profile store alongside other user preferences.
+Contacts are a local, personal data structure — not shared or synchronised via Device Sync or co-op. The store lives in the local profile partition alongside other user preferences.
 
 ### 14.4 Rollout note
 
-Flock is not required for the initial Coop rollout. Initial sessions treat every guest as new (§5.1 private-by-default). Flock is added as a follow-on feature; the §5.2 auto-load path is gated behind its presence.
+Contacts are not required for the initial co-op rollout. Initial sessions treat every guest as new (§5.1 private-by-default). The contacts model and the §5.4 auto-load path are gated behind each other.
 
 ---
 
@@ -320,9 +323,9 @@ Each session presence broadcast includes:
 ```rust
 pub struct PresenceIdentity {
     npub: NostrPubkey,
-    device_node_id: NodeId,
+    device_peer_id: NodeId,
     display_name: String,
-    /// NIP-01 signature over (session_id || device_node_id || display_name)
+    /// NIP-01 signature over (session_id || device_peer_id || display_name)
     /// Allows peers to verify this device is authorized to speak for this npub.
     signature: NostrSignature,
 }
@@ -332,11 +335,11 @@ Peers verify the signature on join. An unverifiable presence broadcast is reject
 
 ### 15.4 Multi-device same-user in a session
 
-Two devices belonging to the same user (same `npub`) may join the same Coop session. They appear as a single participant in the flock/participant list (merged by `npub`), with both cursors rendered but attributed to one identity. Host role assignment applies to the `npub`, not the `NodeId` — both devices share the same role.
+Two devices belonging to the same user (same `npub`) may join the same co-op session. They appear as a single participant in the flock/participant list (merged by `npub`), with both cursors rendered but attributed to one identity. Host role assignment applies to the `npub`, not the device peer ID — both devices share the same role.
 
 ### 15.5 Relationship to Device Sync identity
 
-The Verso Device Sync pairing ceremony establishes trust between `NodeId`s belonging to the same user. That trust is separate from the Nostr `npub` — Device Sync does not require Nostr. The `npub` layer is additive: if present, it provides cross-device user identity for Coop. If absent (user has not configured a Nostr key), the system falls back to `NodeId`-per-device identity (pre-§15 behavior, every device is a distinct peer).
+The Verso Device Sync pairing ceremony establishes trust between device peer IDs belonging to the same user. That trust is separate from the Nostr `npub` — Device Sync does not require Nostr. The `npub` layer is additive: if present, it provides cross-device user identity for co-op. If absent (user has not configured a Nostr key), the system falls back to `NodeId`-per-device identity (pre-§15 behavior, every device is a distinct peer).
 
 ### 15.6 DID support (deferred)
 
@@ -350,11 +353,11 @@ pub enum UserIdentity {
 }
 ```
 
-`FlockEntry.user_id` and `PresenceIdentity.npub` should be typed as `UserIdentity` when DID support is added.
+`ContactEntry.user_id` and `PresenceIdentity.npub` should be typed as `UserIdentity` when DID support is added.
 
 ### 15.7 Rollout note
 
-Nostr identity is deferred — not required for initial Coop or Device Sync. Initial builds use `NodeId` as the sole peer identifier. Nostr identity is added as a follow-on when the thin client is prioritized.
+Nostr identity is deferred — not required for initial co-op or Device Sync. Initial builds use `NodeId` as the sole peer identifier. Nostr identity is added as a follow-on when the thin client is prioritized.
 
 ---
 
@@ -373,7 +376,7 @@ These are independent features on different timelines.
 
 Hardware wallets (Ledger, Trezor) and software wallets with external signer support can hold the ed25519 or secp256k1 key that backs the user's `npub` or `UserIdentity`. The signing flow:
 
-- Graphshell constructs the payload to sign (e.g. `session_id || device_node_id || display_name`).
+- Graphshell constructs the payload to sign (e.g. `session_id || device_peer_id || display_name`).
 - Wallet signs it via its signer protocol (USB HID, NFC, BLE, or browser extension bridge).
 - Graphshell receives the signature and includes it in `PresenceIdentity`.
 
@@ -422,4 +425,4 @@ A user might use both: Device Sync for live continuity between their main machin
 
 ### 16.6 Rollout note
 
-Wallet signing (§16.2) is the only near-term target and depends on §15 (Nostr identity) being in place. Relay export (§16.3) and hardware vault (§16.4) are follow-on features with no hard dependency on initial Coop rollout.
+Wallet signing (§16.2) is the only near-term target and depends on §15 (Nostr identity) being in place. Relay export (§16.3) and hardware vault (§16.4) are follow-on features with no hard dependency on initial co-op rollout.
