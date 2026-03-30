@@ -48,7 +48,10 @@
       "Bash(curl -sL --max-time 30 \"https://permacomputing.net/\")",
       "Bash(curl -sL --max-time 30 \"https://permacomputing.net/principles/\")",
       "Bash(curl -sL --max-time 30 \"https://permacomputing.net/permacomputing/\")",
-      "WebFetch(domain:permacomputing.net)"
+      "WebFetch(domain:permacomputing.net)",
+      "Bash(find /c/Users/mark_/Code/source/repos/graphshell/design_docs -name *2026-03-27_lens* -type f)",
+      "WebSearch",
+      "WebFetch(domain:gmi.skyjake.fi)"
     ],
     "additionalDirectories": [
       "\\tmp"
