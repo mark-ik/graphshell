@@ -38,14 +38,14 @@ Workbench still needs a precise answer for how arrangements relate to graphlets:
 
 - graphlet membership depends on which selectors and derivation rules are active,
 - Workbench must consume graphlets without redefining them,
-- a tile group may either stay linked to a graphlet definition or detach and persist as an arrangement snapshot.
+- a tile group may either stay linked to a graphlet definition, remain as an unsaved session group, or fork into a new pinned graphlet.
 
 This spec makes the binding model explicit so graph filtering, Navigator projection, and Workbench grouping all speak the same language.
 
 Practical boundary:
 
 - if the user is in a graphlet-oriented workflow, Workbench may bind to that
-  graphlet and expose linked/detached behavior;
+  graphlet and expose linked/unlinked behavior;
 - if the user is in a family-oriented Navigator mode, Workbench may still open
   nodes or arrangements from that projection, but that does not automatically
   imply a `GraphletBinding::Linked` relationship.
@@ -224,7 +224,7 @@ Suggested shape:
 
 ```rust
 pub enum GraphletBinding {
-    DetachedSnapshot,
+    UnlinkedSessionGroup,
     Linked {
         projection: EdgeProjectionSpec,
         seed_nodes: Vec<NodeKey>,
@@ -235,11 +235,19 @@ pub enum GraphletBinding {
 
 Meaning:
 
-- `DetachedSnapshot`: the tile group is just an arrangement. It keeps its
-  current tiles and layout regardless of future graphlet changes.
+- `UnlinkedSessionGroup`: the tile group is just a session arrangement. It
+  keeps its current tiles and layout regardless of future graphlet changes,
+  but it is not yet durable graph truth.
 - `Linked`: the tile group is explicitly attached to a graphlet definition. Its
   roster is expected to correspond to the graphlet produced by the stored
   projection and seeds.
+
+Important persistence rule:
+
+- `UnlinkedSessionGroup` is the honest "wait" state for a workbench the user
+  wants to keep open without immediately rewriting graphlet truth.
+- durable persistence should route through an explicit graphlet save/fork path,
+  not by pretending an unlinked arrangement is already a first-class graphlet.
 
 Non-goal clarification:
 
@@ -248,6 +256,44 @@ Non-goal clarification:
 - `Linked` is reserved for arrangements that explicitly follow a bounded
   graphlet definition and therefore must participate in selector/binding warning
   logic.
+
+### 4.1A Roster And Causality Are Separate Carriers
+
+When workbench changes are propagated back into a linked graphlet, the system
+must preserve two distinct kinds of information:
+
+- the **member roster delta**: which nodes were added, removed, or rebased
+- the **attachment causality** for each added member: why this node belongs,
+  from where it was spawned, and which relation/event carriers should be
+  asserted
+
+The roster delta defines the resulting graphlet shape. The causality carrier
+defines the meaning of each membership change.
+
+Required rule:
+
+- Workbench -> graphlet propagation must not be modeled as "replace member set"
+  alone.
+- For each newly attached member, the reconciliation contract must carry enough
+  information to decide whether to emit:
+  - a traversal event,
+  - a semantic relation assertion,
+  - an arrangement assertion,
+  - provenance metadata,
+  - or a combination of those.
+
+Examples:
+
+- a node opened by following a member node should usually carry a source member,
+  a navigation trigger, and any relevant selector context before the graphlet is
+  rewritten
+- a pre-existing node manually folded into the current graphlet may justify a
+  semantic or arrangement assertion without inventing a traversal record
+- a freshly spawned node should preserve the source member and user action that
+  caused the spawn so later graph placement and explanation are not arbitrary
+
+This keeps graphlet membership honest: the roster says **what changed** and the
+causality carrier says **why it changed**.
 
 ### 4.2 Binding Invariant
 
@@ -272,13 +318,14 @@ remain workbench arrangement state, not graph truth.
 
 ## 5. Binding Modes the User Must See
 
-The UI must make linked vs detached state legible.
+The UI must make linked vs unlinked state legible.
 
 Minimum model:
 
 - **Linked to graphlet** — selector changes may change membership; the group is
   structurally coupled to graphlet recomputation
-- **Detached arrangement** — selector changes do not rewrite the group's roster
+- **Unlinked session group** — selector changes do not rewrite the group's
+  roster, and the current arrangement is not yet durable graphlet truth
 
 This distinction may be shown via badge, chip, context-menu label, or pane
 chrome subtitle, but it must be visible somewhere the user can inspect before
@@ -322,13 +369,14 @@ Difference includes:
 - the graphlet would split into multiple components
 - the graphlet would merge with another linked graphlet
 
-### 6.3 No Structural Warning for Detached Groups
+### 6.3 No Structural Warning for Unlinked Session Groups
 
-Detached arrangements do not require a graphlet-structure warning when selectors
-change, because their roster is no longer governed by graphlet projection.
+Unlinked session groups do not require a graphlet-structure warning when
+selectors change, because their roster is no longer governed by graphlet
+projection.
 
 They may still show an informational notice such as "current arrangement is
-detached from graphlet structure," but this is not a blocking confirmation.
+not linked to graphlet structure," but this is not a blocking confirmation.
 
 ### 6.4 Seed Node Deletion
 
@@ -347,10 +395,10 @@ Required behaviour on seed node deletion:
    - **Rebase to remaining seeds** — if any non-tombstoned seeds remain,
      recompute the graphlet from the surviving seed set and update
      `member_nodes`. Binding stays `Linked`.
-   - **Detach** — convert the binding to `DetachedSnapshot`, preserving the
-     current tile group roster as-is.
+   - **Keep as unlinked session group** — convert the binding to
+     `UnlinkedSessionGroup`, preserving the current tile group roster as-is.
 4. If all seed nodes are tombstoned, the binding cannot stay `Linked`.
-   Auto-convert to `DetachedSnapshot` and emit a `Warn` event.
+   Auto-convert to `UnlinkedSessionGroup` and emit a `Warn` event.
 
 This case is distinct from a selector change: the selector is unchanged but
 the projection source is partially or fully invalid.
@@ -359,26 +407,66 @@ the projection source is partially or fully invalid.
 
 ## 7. Required Confirmation Choices
 
-When a selector change would break or overwrite a linked graphlet relationship,
-the confirmation surface must offer all three outcomes:
+Two different situations require explicit user choice:
+
+- a selector change would break or overwrite a linked graphlet relationship
+- a linked workbench returns to graph context with a member roster that no
+  longer matches the linked graphlet
+
+These situations may share one confirmation surface, but they must preserve the
+same semantic outcomes.
+
+### 7.1 Reconciliation Outcomes
+
+When a linked workbench must be reconciled, the confirmation surface must offer
+the following outcomes:
 
 1. **Apply and keep linked**
-   - Commit the selector change.
-   - Recompute the graphlet.
-   - Reconcile the tile group's member roster to the new graphlet.
+   - Commit the pending selector or roster change.
+   - Recompute or rewrite the linked graphlet.
+   - Reconcile the tile group's member roster to the resulting graphlet.
+   - Emit the required relation assertions, traversal events, and provenance
+     carriers for every added or removed member.
 
-2. **Apply and detach arrangement**
-   - Commit the selector change.
+2. **Keep as unlinked session group**
    - Preserve the current tile group roster/layout as-is.
-   - Convert the tile group to `DetachedSnapshot`.
+   - Commit no graphlet rewrite.
+   - Convert the tile group to `UnlinkedSessionGroup`.
+   - Allow the user to continue working and choose a later explicit save/fork
+     operation.
 
-3. **Cancel**
-   - Do not change selectors.
-   - Preserve both the current graphlet projection and arrangement binding.
+3. **Save as new graphlet fork**
+   - Create a new pinned graphlet derived from the currently linked graphlet.
+   - Copy the linked graphlet's derivation context, then apply the current
+     workbench member delta to the fork.
+   - Preserve provenance to the parent graphlet and the reconciliation event
+     that produced the fork.
+
+4. **Cancel / discard pending change**
+   - Do not change selectors or graphlet membership.
+   - Preserve the previously linked graphlet as the source of truth.
+   - If the current workbench roster was the pending change, restore the last
+     synchronized linked roster.
 
 This choice is the explicit answer to whether arrangement should remain
 associated with graphlet structure or not. It must not be an implicit side
 effect hidden behind selector toggles.
+
+### 7.2 Fork Semantics
+
+"Save as new graphlet fork" is not an instruction to apply the current
+workbench to some unrelated graphlet.
+
+Required meaning:
+
+- the current linked graphlet is the parent
+- the new graphlet inherits the parent graphlet's derivation context and seed
+  lineage
+- the current workbench roster is interpreted as a delta over that parent
+- the fork records explicit provenance back to the parent graphlet
+
+This makes the fork a graphlet-native operation rather than an arrangement-only
+copy.
 
 ---
 
@@ -392,7 +480,7 @@ effect hidden behind selector toggles.
 4. Graphlet is computed from the selected nodes under that projection.
 5. Workbench opens with the warm members of that resulting graphlet.
 6. The resulting tile group starts as `Linked` unless the user explicitly asked
-   for a detached arrangement.
+  for an unlinked session group.
 
 This workflow must not alter unrelated graphlets elsewhere in the graph view.
 
@@ -408,7 +496,7 @@ This workflow must not alter unrelated graphlets elsewhere in the graph view.
      sequence
 5. The resulting workbench surface must indicate whether it is:
    - linked to a true edge-projected graphlet, or
-   - an ordered detached arrangement derived from chronology/session order
+  - an ordered unlinked session group derived from chronology/session order
 
 The system must not silently pretend that chronology created a normal connected
 graphlet when it did not.
@@ -428,13 +516,31 @@ graphlet when it did not.
 2. Only that view's graphlets and linked groups are evaluated.
 3. Sibling views over the same `GraphId` remain unchanged.
 
-### 8.4 Re-linking a Detached Group
+### 8.4 Re-linking An Unlinked Session Group
 
-1. User chooses a detached tile group.
+1. User chooses an unlinked session group.
 2. User explicitly selects "Link to current graphlet" or equivalent.
 3. System stores `GraphletBinding::Linked` using the current projection and seed
    context.
 4. Future selector changes once again participate in the warning flow.
+
+### 8.5 Returning From A Dirty Linked Workbench
+
+1. User opens a linked graphlet into the workbench.
+2. User changes the effective member roster by adding, removing, or rebasing
+   graphlet members.
+3. For each added member, the workbench records attachment causality:
+   source member or anchor, triggering action, and the candidate relation/event
+   carriers needed to justify the addition.
+4. User returns to graph context.
+5. If the current roster and the last synchronized linked graphlet differ, the
+  system shows the reconciliation choices from §7.1.
+6. If the user chooses **Apply and keep linked**, the graphlet rewrite uses
+  both the member roster delta and the recorded attachment causality.
+7. If the user chooses **Keep as unlinked session group**, the workbench stays
+  open as a session arrangement without rewriting graphlet truth.
+8. If the user chooses **Save as new graphlet fork**, the parent graphlet is
+  copied and the current roster delta is applied to the fork.
 
 ---
 
@@ -459,7 +565,7 @@ Companion rule:
   `graph/2026-03-14_graph_relation_families.md` remain valid Navigator
   projections even when no linked graphlet binding exists;
 - the Workbench should only invoke this spec's binding warnings and linked/
-  detached semantics when the active workflow is actually graphlet-linked.
+  unlinked semantics when the active workflow is actually graphlet-linked.
 
 ---
 
@@ -468,7 +574,7 @@ Companion rule:
 Workbench routing must distinguish between:
 
 - opening a node into an existing linked graphlet group
-- opening a node into a detached arrangement
+- opening a node into an unlinked session group
 - creating a new linked group from a selection override
 - opening nodes from family-oriented Navigator projection without establishing a
   graphlet binding
@@ -487,6 +593,27 @@ pub struct ResolvedGraphletContext {
     pub members: Vec<NodeKey>,
 }
 
+pub struct GraphletMemberDelta {
+    pub added: Vec<NodeKey>,
+    pub removed: Vec<NodeKey>,
+    pub rebased_seeds: Vec<NodeKey>,
+}
+
+pub struct MemberAttachmentContext {
+    pub member: NodeKey,
+    pub source_member: Option<NodeKey>,
+    pub trigger: Option<NavigationTrigger>,
+    pub selectors: Vec<RelationSelector>,
+    pub action_label: Option<String>,
+    pub member_was_newly_spawned: bool,
+}
+
+pub struct GraphletForkOrigin {
+    pub parent_graphlet_id: String,
+    pub parent_seed_nodes: Vec<NodeKey>,
+    pub fork_reason: String,
+}
+
 pub enum SelectorChangeImpact {
     NoStructuralChange,
     OverwritesExistingProjection,
@@ -498,8 +625,16 @@ pub enum SelectorChangeImpact {
 
 pub enum GraphletRewriteChoice {
     ApplyKeepLinked,
-    ApplyDetachArrangement,
+    KeepAsUnlinkedSessionGroup,
+    SaveAsNewGraphletFork,
     Cancel,
+}
+
+pub struct GraphletReconciliationProposal {
+    pub linked_context: ResolvedGraphletContext,
+    pub current_member_delta: GraphletMemberDelta,
+    pub attachment_contexts: Vec<MemberAttachmentContext>,
+    pub fork_origin: Option<GraphletForkOrigin>,
 }
 
 pub struct SelectionProjectionCandidate {
@@ -525,13 +660,18 @@ This model is correctly implemented when:
 2. Selector changes can be applied at graph, graph-view, and selection scope.
 3. A selection-scoped graphlet workflow can warm/open only the resulting
    graphlet without mutating unrelated graphlets.
-4. Tile groups can be inspected as either linked or detached.
-5. Selector changes that would rewrite a linked graphlet produce a confirmation
-   flow with the three outcomes from §7.
-6. Detached tile groups survive selector changes without structural mutation.
+4. Tile groups can be inspected as either linked or unlinked session groups.
+5. Selector changes or workbench-return reconciliation that would rewrite a
+  linked graphlet produce the explicit outcomes from §7.1.
+6. Unlinked session groups survive selector changes without structural mutation.
 7. Navigator and workbench routing consume the same resolved graphlet context.
 8. Multiselection selector suggestions are ranked by selection coverage before
    any cosmetic or domain-specific preference ordering.
 9. When no selector fully connects the selection, the system can offer
-   chronological organization without mislabeling it as a normal connected
-   graphlet.
+  chronological organization without mislabeling it as a normal connected
+  graphlet.
+10. Applying a dirty linked workbench back to graph truth uses both member
+   roster deltas and per-member attachment causality rather than replacing the
+   graphlet roster blindly.
+11. Saving a changed linked workbench without rewriting the parent graphlet can
+   create a new pinned graphlet fork with explicit parent provenance.

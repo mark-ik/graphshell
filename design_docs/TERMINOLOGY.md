@@ -27,9 +27,25 @@ Graphshell intentionally keeps **graph identity terms** separate from **workbenc
     edge projection, filter, algorithm, or traversal rule. Graphlets are usually
     projection-derived rather than permanently fixed durable objects, though a
     graphlet may later be promoted into a named saved structure.
+* A **Graphlet Anchor** is a node designated as one of the defining anchors of a
+    graphlet. A graphlet may have multiple anchors and may optionally designate a
+    **Primary Graphlet Anchor** when one node acts as the graphlet's current core
+    for local ranking and derivation emphasis. Graphlet anchor state is distinct
+    from spatial pin state. The system may suggest a primary anchor from strong
+    signals such as pin state and repeated graphlet-local use, but suggestion does
+    not by itself assign the role.
+* A **Graphlet Backbone** is the graphlet-local set of semantic and traversal
+    relations treated as the most explanatory or structurally central connections
+    for the active graphlet, usually around its primary anchor. Backbone is a
+    graphlet-local salience policy, not a separate global edge family.
+* A **Graphlet Migration Proposal** is the explicit proposal emitted when a user
+    drags a node from one anchored graphlet context toward another. It is a
+    high-signal gesture that may resolve to `Move`, `Associate`, `Copy`, or
+    `Cancel`; it is not itself an automatic graph truth rewrite.
 * A **Tile Group** is the workbench presentation of a graphlet-aligned or
   graphlet-adjacent arrangement. A tile group may be explicitly **linked** to a
-  graphlet definition or **detached** as an arrangement snapshot.
+    graphlet definition or left **unlinked** as a session arrangement pending an
+    explicit save or graphlet-fork decision.
 
 Canonical projection law:
 
@@ -57,7 +73,7 @@ This is a presentation correspondence, not a term collapse. A node can exist wit
     | **Grid** | `Container::Grid` | All simultaneously | Yes, rows & columns | 2D, auto or fixed column count |
 
 * **Tab Group**: A container that renders a tab bar; only the **active** child Tile is visible. Promoted tiles (`TileKind::Node`, `TileKind::Graph`, `TileKind::Tool`) are always wrapped in a Tab Group (enforced by `all_panes_must_have_tabs: true`), so each split region always has its own tab strip that can accept additional tabs. Ephemeral panes (`TileKind::Pane`) are exempt from this invariant — they are placed directly in a split region without a Tab Group wrapper, so no tab selector appears for them.
-    Canonical projection note: when a graph-rooted grouped arrangement is rendered in workbench chrome, the Tab Group / Tile Group is its workbench presentation rather than a separate semantic owner. The association may be live-linked to a graphlet projection or detached as an arrangement snapshot.
+    Canonical projection note: when a graph-rooted grouped arrangement is rendered in workbench chrome, the Tab Group / Tile Group is its workbench presentation rather than a separate semantic owner. The association may be live-linked to a graphlet projection or left unlinked as a session arrangement until the user explicitly saves or forks it.
 * **Split**: A container that arranges children in either top/bottom regions (`Horizontal`, horizontal divider) or left/right regions (`Vertical`, vertical divider) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal arrangement label) or `Split ↕` (vertical arrangement label) in tile selector strips.
 * **Grid**: A container that arranges children in a 2D matrix. Layout is either `Auto` (dynamic column count) or `Columns(n)`.
 * **Shares**: Per-child `f32` weights within a Split that determine proportional space allocation. Default share is `1.0`.

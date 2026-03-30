@@ -9,7 +9,7 @@
 - `unified_view_model.md` — five-domain model and graph-bearing surfaces
 - `../implementation_strategy/graph/petgraph_algorithm_utilization_spec.md` — petgraph-backed graphlet intelligence
 - `../implementation_strategy/navigator/NAVIGATOR.md` — Navigator domain responsibilities
-- `../implementation_strategy/workbench/graphlet_projection_binding_spec.md` — Workbench binding and linked/detached arrangement behavior
+- `../implementation_strategy/workbench/graphlet_projection_binding_spec.md` — Workbench binding and linked/unlinked arrangement behavior
 - `../implementation_strategy/workbench/WORKBENCH.md` — Workbench arrangement authority
 - `../implementation_strategy/shell/shell_overview_surface_spec.md` — Shell overview of graph/workbench/runtime state
 - `../implementation_strategy/graph/2026-03-14_graph_relation_families.md` — family-oriented Navigator modes and relation-family projection vocabulary
@@ -52,6 +52,7 @@ A graphlet is defined by:
 - a node set,
 - an edge set,
 - one or more anchors,
+- an optional primary anchor,
 - a derivation or membership rule,
 - a boundary/frontier,
 - optional ranking metadata,
@@ -66,6 +67,64 @@ Graphlets are not synonymous with:
 - a weakly connected component only.
 
 Some graphlets are connected components. Others are paths, ranked frontiers, filtered subsets, or session projections.
+
+### 2.1 Anchor Semantics
+
+Anchors are graphlet-defining roles, not just visual hints.
+
+- a graphlet may have one or more anchors
+- one anchor may be designated as the **primary anchor** when the graphlet has a
+    clear core node
+- the primary anchor may act as the local center for ranking, frontier
+    expansion, and graphlet-local layout emphasis
+
+Important separation:
+
+- a **graphlet anchor** is not the same thing as a spatially pinned node
+- pin state is a graph/layout stability control
+- anchor state is graphlet semantics used for derivation and navigation
+
+The same node may be both pinned and an anchor, but neither property implies the
+other.
+
+### 2.1A Primary-Anchor Suggestion
+
+The system may suggest a primary anchor when strong signals indicate that one
+node is acting as the graphlet's practical core.
+
+Good suggestion signals include:
+
+- the node is spatially pinned
+- the node is repeatedly used as the local open/focus origin for the graphlet
+- the node is the dominant source or sink for graphlet-local traversal
+- the node is repeatedly chosen as the migration target when nodes are brought
+    into the graphlet
+
+Important boundary:
+
+- suggestion is not the same thing as assignment
+- pin state may contribute to the suggestion score, but pinning alone does not
+    silently redefine graphlet semantics
+- the system should expose the suggested primary anchor clearly enough that the
+    user can confirm, ignore, or replace it
+
+### 2.2 Graphlet Backbone
+
+When a graphlet has a primary anchor, the graphlet may expose a **backbone**:
+the graphlet-local set of semantic and traversal relations incident to the
+primary anchor that are treated as the most explanatory or structurally central
+connections for that graphlet.
+
+Backbone is a graphlet-local salience policy, not a new global edge family.
+
+Implications:
+
+- backbone emphasis may change frontier ranking, open-connected heuristics,
+  local layout weighting, and Navigator ordering within the active graphlet
+- backbone emphasis must not silently rewrite global edge truth or mutate family
+  membership on its own
+- the active graphlet may treat some edges as backbone edges while another
+  graphlet over the same nodes does not
 
 ---
 
@@ -208,6 +267,7 @@ Suggested model:
 pub struct GraphletSpec {
     pub kind: GraphletKind,
     pub anchors: Vec<NodeId>,
+    pub primary_anchor: Option<NodeId>,
     pub scope: GraphletScope,
     pub selectors: Vec<RelationSelector>,
     pub ranking: Option<RankingPolicy>,
@@ -229,6 +289,7 @@ pub struct ResolvedGraphlet {
     pub spec: GraphletSpec,
     pub members: Vec<NodeId>,
     pub edges: Vec<EdgeId>,
+    pub backbone_edges: Vec<EdgeId>,
     pub frontier: Vec<NodeId>,
 }
 ```
@@ -286,9 +347,12 @@ Navigator uses graphlets for:
 Workbench uses graphlets for:
 
 - linked tile groups,
+- anchor-aware grouped work where one node acts as the current core,
 - graph-bearing panes that show the current graphlet,
 - open-path and open-connected flows,
-- correspondence views between open panes and graph truth.
+- correspondence views between open panes and graph truth,
+- migration proposals when a node is dragged from one anchored graphlet toward
+    another.
 
 ### 8.4 Shell UI
 
@@ -316,6 +380,10 @@ Graphlets may be presented with different layouts depending on purpose.
 
 Layouts are graph-projection policies, not canvas-only features.
 
+When a graphlet has a primary anchor, local layout policy may increase emphasis
+on the anchor's backbone edges without turning those weights into global graph
+truth.
+
 ---
 
 ## 10. Graphlet And Arrangement
@@ -328,10 +396,36 @@ Graphlets and Workbench arrangements are separate concerns.
 An arrangement may be:
 
 - **linked** to a graphlet,
-- **detached** from any graphlet,
+- **unlinked** from any graphlet while still existing as a session arrangement,
 - **relinked** later.
 
 The binding mechanics are specified in [graphlet_projection_binding_spec.md](../implementation_strategy/workbench/graphlet_projection_binding_spec.md).
+
+### 10.1 Cross-Graphlet Drag And Migration
+
+Dragging a node from one anchored graphlet toward another anchored graphlet is a
+high-signal gesture. The system should treat it as a **migration proposal**.
+
+Required meaning:
+
+- this is not an automatic graph truth rewrite
+- this is not mere geometry noise
+- this is a user signal that the node may be intended to leave one graphlet
+    context and join another
+
+The proposal should preserve the explicit cross-context grammar already used
+elsewhere in the system:
+
+- **Move** — transfer graphlet membership or arrangement emphasis from source to
+    target
+- **Associate** — add the node to the target graphlet context without erasing
+    the source relationship
+- **Copy** — create a new node in the target context with provenance back to the
+    source
+- **Cancel** — keep the current graphlet relationships unchanged
+
+This keeps graphlet migration explicit instead of making drag gestures silently
+redefine graph truth.
 
 ---
 
@@ -360,3 +454,7 @@ The graphlet model is coherent when:
 5. Graphlet presentation can vary by surface without changing graphlet truth.
 6. Workbench linkage remains explicit rather than implicit.
 7. Shell overview can name the active graphlet without becoming the owner of graphlet truth.
+8. A graphlet anchor is distinct from pin state even when the same node may hold both roles.
+9. Backbone emphasis remains graphlet-local policy rather than a hidden global edge mutation.
+10. Dragging a node between anchored graphlets produces an explicit migration proposal rather than an automatic move.
+11. Primary-anchor suggestion may use strong signals such as pin state and repeated local use without silently assigning graphlet semantics.

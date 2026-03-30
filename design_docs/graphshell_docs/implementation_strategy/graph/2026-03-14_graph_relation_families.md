@@ -166,6 +166,25 @@ zero/negligible otherwise. Avoids polluting default physics with browsing noise.
 a collapsible "Recent" section of the sidebar and in the History subsystem views.
 They do not define navigator tree structure.
 
+### 2.2A Graphlet-Local Backbone Consequence
+
+Some graphlets may designate a primary anchor node and treat a subset of the
+anchor's traversal and semantic edges as the graphlet's local **backbone**.
+
+Important boundary:
+
+- this backbone is a graphlet-local salience policy over existing family truth
+- it is not a new global relation family
+- it does not silently promote traversal edges into semantic edges or otherwise
+  rewrite the underlying edge ontology
+
+Practical effect:
+
+- graphlet derivation, frontier ranking, local layout weighting, and Navigator
+  ordering may prefer anchor-incident traversal or semantic edges within the
+  active graphlet
+- other graphlets over the same nodes may rank those same edges differently
+
 ### 2.3 Containment Family
 
 **What it captures**: "A is contained within B" — a hierarchical membership
@@ -253,6 +272,26 @@ soft cluster without overriding the global force-directed layout.
 when the workbench is active. In workbench mode, the sidebar tree is organized
 by arrangement edges (frames, tiles) first, then falls back to semantic
 grouping. Nodes without any arrangement edge appear in an "Uncategorized" section.
+
+### 2.4A Migration Proposal Consequence
+
+Dragging a node from one anchored graphlet toward another is a high-signal
+arrangement gesture, but it must not automatically rewrite graph truth.
+
+Default interpretation:
+
+- the gesture may emit a **migration proposal** routed through explicit
+  graph/workbench intent handling
+- the proposal may later resolve to `Move`, `Associate`, `Copy`, or `Cancel`
+- only the chosen resolution mutates durable or session arrangement truth
+
+Family boundary:
+
+- a migration proposal is not itself a containment assertion
+- a migration proposal is not itself a new relation family
+- if the user confirms a move, the resulting graph changes should be expressed
+  through existing arrangement, semantic, provenance, or graphlet-binding
+  carriers as appropriate
 
 ### 2.5 Imported Family
 
