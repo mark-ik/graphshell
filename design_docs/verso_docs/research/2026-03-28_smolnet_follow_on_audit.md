@@ -376,7 +376,109 @@ Until that pass exists, this document should be read as a suitability audit, not
 
 ---
 
-## 10. Design Posture Summary
+## 10. Lagrange Precedent
+
+Lagrange ([git.skyjake.fi/gemini/lagrange](https://git.skyjake.fi/gemini/lagrange)) is the most complete
+smallnet browser reference implementation and directly informs the MiddleNet
+engine's protocol strategy.
+
+### 10.1 Protocol support matrix
+
+Lagrange supports all protocols under consideration:
+
+| Protocol | Lagrange support | Security | Notes |
+|---|---|---|---|
+| Gemini | Full, primary | TLS (TOFU) | |
+| Gopher | Full | Plaintext TCP | Converts to intermediate doc model; faithful-source override |
+| Finger | Full | Plaintext TCP | Rendered as plain text |
+| Spartan | Full (v1.13) | Plaintext TCP | Shared upload dialog with Titan |
+| Titan | Full (v1.6) | TLS (Gemini-adjacent) | Upload dialog; Gemtext composer; auto-save |
+| Nex | Full | Plaintext TCP | Gemini-style `=>` links in directory listings |
+| Misfin | Full (v1.18) | TLS | `text/gemini` + 3 new line types; messaging |
+| Guppy | Mentioned | UDP (no TLS) | Low priority; transport experiment |
+
+### 10.2 Single intermediate document model
+
+Lagrange's key architectural decision: **all protocols parse to a common
+intermediate document model (`GmDocument`)**, after which the renderer is
+format-agnostic. Their own documentation states:
+
+> "After this point the content is source format agnostic. If we had, say, a
+> Markdown document, it could be laid out similarly and the page renderer
+> should be able to handle it just fine."
+
+The pipeline is:
+
+```
+Protocol-specific fetch + parse → GmDocument (layout, text runs) → GPU renderer
+```
+
+For the MiddleNet engine, the equivalent is:
+
+```
+Protocol-specific fetch + parse → DOM tree + CSS rules → Taffy/Stylo/WebRender
+```
+
+Each protocol maps its native semantics to the common document model:
+- Gemini gemtext → heading, paragraph, link, preformat blocks
+- Gopher menu → link list + preformat blocks (with optional heuristic conversion)
+- Finger → plain text body
+- Misfin → `text/gemini` + messaging line types (new block types in the document model)
+
+### 10.3 Gopher rendering: conversion with faithful fallback
+
+Lagrange converts Gopher menus to Gemtext-equivalent structure using heuristic
+autodetection. Gemtext markers found in raw Gopher data are escaped to prevent
+bleed-through. A user preference disables autodetection for faithful source
+display.
+
+**The MiddleNet engine should follow this exactly:**
+- Default: convert Gopher menu to the common document model (links, preformat,
+  paragraphs)
+- Faithful-source mode: render raw Gopher as monospace preformatted text
+- Escape any characters that would be misinterpreted by the document model
+
+### 10.4 Security posture: warn on failure, inform on absence
+
+Lagrange warns on encryption *failures* (untrusted certificate banners) rather
+than on encryption *absence*. Gopher, Finger, Spartan, and Nex appear without
+warning banners — but the protocol and its security properties are visible.
+
+**The MiddleNet engine security hierarchy:**
+
+Prefer the secure protocol where there is meaningful overlap:
+- Discovery: WebFinger (HTTPS) > Finger (plaintext)
+- Modern document: Gemini (TLS) > Spartan (no TLS) for equivalent content
+- Upload: Titan (TLS, Gemini-adjacent) > Spartan (no TLS) for equivalent actions
+- Messaging: Misfin (TLS) > legacy alternatives
+
+For protocols with no secure analogue (Gopher, Nex, Guppy): render faithfully,
+show the protocol name and its plaintext nature as a neutral informational
+indicator, not an alarm. The user who navigates to `gopher://` knows what they
+are doing.
+
+### 10.5 Revised protocol priority order
+
+In light of Lagrange's full support matrix and the MiddleNet engine context:
+
+1. **Gemini** — primary modern secure document lane (already implemented)
+2. **Gopher** — minimal plaintext document lane (already implemented); engine
+   converts to document model with faithful-source override
+3. **Titan** — best next candidate; Gemini-adjacent TLS upload semantics;
+   shared upload dialog with Spartan
+4. **Misfin** — TLS messaging; uses `text/gemini`; plugs into social/contact
+   story not the document-serving lane
+5. **Spartan** — plaintext alternative to Gemini/Titan; value is simplicity;
+   shares Titan upload dialog; admit after Titan
+6. **Nex** — plaintext directory/document lane; Gemini-style links in listings;
+   Gopher-adjacent; low priority
+7. **Guppy** — UDP, no TLS; low priority; treat as compatibility/experiment
+8. **Finger** — already implemented; WebFinger preferred for identity discovery;
+   keep as faithful plaintext compatibility lane
+
+---
+
+## 11. Design Posture Summary
 
 The right smallnet posture for Verso is now fairly clear:
 

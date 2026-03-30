@@ -19,6 +19,9 @@ note (§5.5). See §11 for updated open questions.
 
 **Related docs**:
 
+- [`2026-03-29_portable_web_core_host_envelopes.md`](2026-03-29_portable_web_core_host_envelopes.md)
+  — singular portable web/document engine vs. host-envelope architecture; clarifies naming overlap
+  with this plan
 - [`graph/petgraph_algorithm_utilization_spec.md`](../implementation_strategy/graph/petgraph_algorithm_utilization_spec.md) — petgraph algorithm surface
 - [`graph/2026-02-24_physics_engine_extensibility_plan.md`](../implementation_strategy/graph/2026-02-24_physics_engine_extensibility_plan.md) — current physics extensibility architecture
 - [`graph/2026-02-23_udc_semantic_tagging_plan.md`](../implementation_strategy/graph/2026-02-23_udc_semantic_tagging_plan.md) — UDC semantic tagging
