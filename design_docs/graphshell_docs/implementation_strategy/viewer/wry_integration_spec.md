@@ -1,7 +1,7 @@
 # Wry Integration — Interaction Spec
 
 **Date**: 2026-02-28
-**Status**: Canonical contract target (implementation scaffold in runtime)
+**Status**: Active canonical contract (partial runtime implementation landed)
 **Priority**: Active (Windows-first implementation target)
 
 **Related**:
@@ -9,7 +9,8 @@
 - `VIEWER.md`
 - `viewer_presentation_and_fallback_spec.md`
 - `universal_content_model_spec.md`
-- `2026-02-23_wry_integration_strategy.md`
+- `2026-03-28_wry_composited_texture_feasibility_spike.md`
+- `../../../archive_docs/checkpoint_2026-03-28/graphshell_docs/implementation_strategy/viewer/2026-02-23_wry_integration_strategy.md` — archived strategy/history
 - `../aspect_render/frame_assembly_and_compositor_spec.md`
 - `../../TERMINOLOGY.md` — `TileRenderMode`, `NativeOverlay`, `CompositorAdapter`, `Viewer`
 
@@ -26,7 +27,26 @@ This spec defines the canonical contracts for:
 5. **Backend selection** — when Wry is preferred over ServoViewer.
 6. **Platform targeting** — platform-specific constraints and ordering.
 
-Implementation status note (2026-03-06): runtime currently contains scaffold-level Wry integration paths (`wry_manager` slot/pool scaffolding and viewer overlay metadata sync paths), not a fully wired end-to-end native-webview lifecycle implementation. Treat this document as normative target contract plus implementation checklist, not as closure evidence.
+Implementation status note (2026-03-28): runtime now includes feature wiring, `viewer:wry` registration, native-overlay render-mode resolution, overlay sync in the compositor path, lifecycle reconcile hooks, backend selection controls, persisted Wry enable/default-backend preferences, and recovery-path backend switching. Remaining gaps are still meaningful: native Wry navigation/state telemetry is thin compared to Servo, `CompositedTexture` remains a target contract rather than a shipped path, and crash/recovery UX is presently lightweight rather than a fully modeled prompt flow. Treat this document as the active contract plus gap register, not as “already complete.”
+
+### 1.1 Current Runtime State
+
+Implemented today:
+
+- `Cargo.toml` feature wiring for `wry`
+- `mods/native/verso/wry_manager.rs`, `wry_viewer.rs`, and `wry_types.rs`
+- `viewer:wry` capability registration and `TileRenderMode::NativeOverlay` mapping
+- compositor-driven overlay sync / hide paths
+- lifecycle reconcile create / hide / destroy hooks for native overlays
+- global Wry enable toggle and default web-backend preference
+- explicit backend swap metadata with recovery-path switching semantics
+
+Still incomplete:
+
+- off-screen `CompositedTexture` realization for Wry
+- richer Wry event routing parity with Servo
+- deeper storage/session interoperability
+- a more formalized recovery prompt state machine and telemetry surface
 
 ---
 

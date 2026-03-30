@@ -11,6 +11,7 @@
 - `2026-03-14_canvas_behavior_contract.md` — canonical physics scenarios and computable behavioral invariants
 - `2026-03-14_edge_visual_encoding_spec.md` — per-family edge stroke, color, opacity, and interaction affordances
 - `2026-03-14_edge_operability_matrix.md` — per-family operability gap analysis and priority order
+- `../../../archive_docs/checkpoint_2026-03-28/graphshell_docs/implementation_strategy/graph/2026-03-27_lens_decomposition_and_view_policy_plan.md` — archived implementation history for lens decomposition, view-policy authority, and provenance metadata
 - `petgraph_algorithm_utilization_spec.md` — algorithmic analysis capabilities shared across surfaces
 - `2026-03-11_graph_enrichment_plan.md` — automated and user-initiated graph enrichment
 - `workbench_frame_tile_interaction_spec.md`
@@ -101,6 +102,13 @@ workspace for graph-level management and analysis.
 The canvas is its primary surface.
 
 Graph is not the owner of tile layout, frame structure, or pane arrangement.
+
+Archive note:
+
+- The lens decomposition / view-policy migration plan has been completed and
+  archived at `../../../archive_docs/checkpoint_2026-03-28/graphshell_docs/implementation_strategy/graph/2026-03-27_lens_decomposition_and_view_policy_plan.md`.
+- Treat that document as implementation history and rationale, not an active
+  execution plan.
 
 ---
 
