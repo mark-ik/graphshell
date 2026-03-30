@@ -602,6 +602,18 @@ pub struct ChromeUiState {
     /// Global Wry backend enable toggle (disabled by default).
     pub wry_enabled: bool,
 
+    /// Default backend for web content when no per-pane override is set.
+    pub default_web_viewer_backend: crate::app::DefaultWebViewerBackend,
+
+    /// Preferred Wry realization mode for platforms that support multiple modes.
+    pub wry_render_mode_preference: crate::app::WryRenderModePreference,
+
+    /// Snapshot refresh cadence in seconds for active webview previews.
+    pub webview_preview_active_refresh_secs: u64,
+
+    /// Snapshot refresh cadence in seconds for warm webview previews.
+    pub webview_preview_warm_refresh_secs: u64,
+
     /// Whether the default workbench host stays visible even without hosted panes.
     pub workbench_host_pinned: bool,
 

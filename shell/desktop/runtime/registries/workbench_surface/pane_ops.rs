@@ -271,6 +271,7 @@ pub(super) fn handle_set_pane_view_intent(
             {
                 node_state.node = state.node;
                 node_state.viewer_id_override = state.viewer_id_override.clone();
+                node_state.viewer_switch_reason = state.viewer_switch_reason;
                 true
             } else {
                 false
@@ -289,6 +290,7 @@ pub(super) fn handle_set_pane_view_intent(
                     })
                 {
                     node_state.viewer_id_override = state.viewer_id_override.clone();
+                    node_state.viewer_switch_reason = state.viewer_switch_reason;
                 }
             }
             tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
@@ -306,12 +308,25 @@ pub(super) fn handle_swap_viewer_backend_intent(
     node: NodeKey,
     viewer_id_override: Option<ViewerId>,
 ) {
+    let switch_reason = if viewer_id_override
+        .as_ref()
+        .is_some_and(|viewer_id| viewer_id.as_str() == "viewer:wry")
+        && graph_app.is_crash_blocked(node)
+    {
+        ViewerSwitchReason::RecoveryPromptAccepted
+    } else if viewer_id_override.is_none() {
+        ViewerSwitchReason::PolicyPinned
+    } else {
+        ViewerSwitchReason::UserRequested
+    };
+
     let exact_pane_updated = if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
         tiles_tree.tiles.iter_mut().find(|(_, tile)| {
             matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.pane_id == pane && node_state.node == node)
         })
     {
         node_state.viewer_id_override = viewer_id_override.clone();
+        node_state.viewer_switch_reason = switch_reason;
         true
     } else {
         false
@@ -330,6 +345,7 @@ pub(super) fn handle_swap_viewer_backend_intent(
             })
         {
             node_state.viewer_id_override = viewer_id_override;
+            node_state.viewer_switch_reason = switch_reason;
         }
     }
 

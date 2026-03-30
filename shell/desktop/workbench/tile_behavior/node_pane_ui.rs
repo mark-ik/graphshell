@@ -142,12 +142,11 @@ fn render_node_pane_impl(
         .as_ref()
         .map(|viewer_id| viewer_id.as_str().to_string())
         .unwrap_or_else(|| {
-            crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
+            tile_runtime::TileCoordinator::preferred_viewer_id_for_content(
+                behavior.graph_app,
                 &node_url,
                 node_mime_hint.as_deref(),
             )
-            .viewer_id
-            .to_string()
         });
 
     if effective_viewer_id.as_str() == "viewer:settings" {
@@ -411,6 +410,33 @@ fn render_node_pane_impl(
                 behavior.queue_post_render_intent(lifecycle_intents::promote_node_to_active(
                     node_key,
                     LifecycleCause::UserSelect,
+                ));
+            }
+            if effective_viewer_id.as_str() != "viewer:wry"
+                && wry_unavailable_reason(behavior.graph_app).is_none()
+                && ui.button("Open in Compatibility Mode").clicked()
+            {
+                request_viewer_backend_swap(
+                    behavior.graph_app,
+                    state,
+                    Some(ViewerId::new("viewer:wry")),
+                );
+                behavior.queue_post_render_intent(lifecycle_intents::promote_node_to_active(
+                    node_key,
+                    LifecycleCause::Restore,
+                ));
+            }
+            if effective_viewer_id.as_str() == "viewer:wry"
+                && ui.button("Try Servo Again").clicked()
+            {
+                request_viewer_backend_swap(
+                    behavior.graph_app,
+                    state,
+                    Some(ViewerId::new("viewer:webview")),
+                );
+                behavior.queue_post_render_intent(lifecycle_intents::promote_node_to_active(
+                    node_key,
+                    LifecycleCause::Restore,
                 ));
             }
             if ui.button("Close Tile").clicked() {

@@ -497,6 +497,17 @@ pub(crate) fn run_tile_render_pass_in_ui(
             if !composited_runtime_nodes.contains(&state.node) {
                 continue;
             }
+            #[cfg(feature = "wry")]
+            if crate::shell::desktop::workbench::tile_runtime::effective_viewer_id_for_pane_in_tree(
+                tiles_tree,
+                state.pane_id,
+                graph_app,
+            )
+            .as_deref()
+                == Some("viewer:wry")
+            {
+                continue;
+            }
             log::debug!(
                 "tile_render_pass: ensuring runtime viewer for active pane {:?} node {:?}",
                 state.pane_id,

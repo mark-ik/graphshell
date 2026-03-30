@@ -8,10 +8,10 @@ use crate::graph::{NodeKey, RelationSelector};
 use super::{
     CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand, GraphSearchRequest,
     GraphViewId, GraphViewLayoutDirection, HostOpenRequest, KeyboardZoomRequest, LifecycleCause,
-    MemoryPressureLevel, NavigatorProjectionMode, NavigatorProjectionSeedSource,
-    NavigatorSortMode, NoteId, PendingConnectedOpenScope, PendingNodeOpenRequest,
-    PendingTileOpenMode, RendererId, SelectionUpdateMode, ToolSurfaceReturnTarget,
-    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
+    MemoryPressureLevel, NavigatorProjectionMode, NavigatorProjectionSeedSource, NavigatorSortMode,
+    NoteId, PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode, RendererId,
+    SelectionUpdateMode, ToolSurfaceReturnTarget, UnsavedFramePromptAction,
+    UnsavedFramePromptRequest, ViewDimension,
 };
 use crate::shell::desktop::workbench::pane_model::{
     FloatingPaneTargetTileContext, PaneId, PanePresentationMode,

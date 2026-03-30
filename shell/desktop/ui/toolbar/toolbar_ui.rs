@@ -400,7 +400,7 @@ fn render_wry_compat_button(
         });
     if button.clicked() {
         let new_override = if wry_active {
-            None
+            Some(ViewerId::new("viewer:webview"))
         } else {
             Some(ViewerId::new("viewer:wry"))
         };
@@ -457,7 +457,12 @@ fn render_graph_bar_lens_menu(
             ui.label("No active graph view");
             return;
         };
-        if !graph_app.workspace.graph_runtime.views.contains_key(&view_id) {
+        if !graph_app
+            .workspace
+            .graph_runtime
+            .views
+            .contains_key(&view_id)
+        {
             ui.label("No active graph view");
             return;
         }
@@ -483,8 +488,13 @@ fn render_graph_bar_physics_menu(
     frame_intents: &mut Vec<GraphIntent>,
 ) {
     ui.menu_button(graph_bar_physics_label(graph_app), |ui| {
-        let active_view_id = active_graph_view_id(graph_app)
-            .filter(|view_id| graph_app.workspace.graph_runtime.views.contains_key(view_id));
+        let active_view_id = active_graph_view_id(graph_app).filter(|view_id| {
+            graph_app
+                .workspace
+                .graph_runtime
+                .views
+                .contains_key(view_id)
+        });
         for (label, profile_id) in [
             ("Liquid", PHYSICS_PROFILE_LIQUID),
             ("Gas", PHYSICS_PROFILE_GAS),

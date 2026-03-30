@@ -100,9 +100,14 @@ pub(crate) enum UxDomainIdentity {
         lens_name: String,
         lens_id: Option<String>,
         physics_name: String,
+        physics_source: String,
         layout_mode: String,
+        layout_source: String,
         theme_name: Option<String>,
+        theme_source: Option<String>,
         filter_count: usize,
+        filter_source: Option<String>,
+        overlay_source: Option<String>,
         dimension: String,
         position_fit_locked: bool,
         zoom_fit_locked: bool,
@@ -386,6 +391,18 @@ fn append_workbench_semantics_nodes(
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
 ) {
+    fn policy_value_source_label(source: Option<&crate::app::PolicyValueSource>) -> Option<String> {
+        source.map(|source| match source {
+            crate::app::PolicyValueSource::RegistryDefault => "registry-default".to_string(),
+            crate::app::PolicyValueSource::WorkspaceDefault => "workspace-default".to_string(),
+            crate::app::PolicyValueSource::LensPreset(lens_id) => {
+                format!("lens:{lens_id}")
+            }
+            crate::app::PolicyValueSource::ViewOverride => "view-override".to_string(),
+            crate::app::PolicyValueSource::LegacySnapshot => "legacy-snapshot".to_string(),
+        })
+    }
+
     fn navigator_hosts_for_snapshot(graph_app: &GraphBrowserApp) -> Vec<SurfaceHostId> {
         let mut hosts = graph_app
             .workspace
@@ -465,12 +482,21 @@ fn append_workbench_semantics_nodes(
                 lens_name: view_state.resolved_lens_display_name().to_string(),
                 lens_id: view_state.resolved_lens_id().map(str::to_owned),
                 physics_name: view_state.resolved_physics_profile().name.clone(),
+                physics_source: policy_value_source_label(Some(
+                    view_state.resolved_physics_source(),
+                ))
+                .unwrap_or_else(|| "unknown".to_string()),
                 layout_mode: format!("{:?}", view_state.resolved_layout_mode()),
+                layout_source: policy_value_source_label(Some(view_state.resolved_layout_source()))
+                    .unwrap_or_else(|| "unknown".to_string()),
                 theme_name: view_state
                     .resolved_theme()
                     .as_ref()
                     .map(|theme| crate::registries::atomic::lens::theme_data_id(theme).to_string()),
+                theme_source: policy_value_source_label(view_state.resolved_theme_source()),
                 filter_count: view_state.resolved_filter_count(),
+                filter_source: policy_value_source_label(view_state.effective_filter_source()),
+                overlay_source: policy_value_source_label(view_state.resolved_overlay_source()),
                 dimension: format!("{:?}", view_state.dimension),
                 position_fit_locked: view_state.position_fit_locked,
                 zoom_fit_locked: view_state.zoom_fit_locked,
@@ -1860,11 +1886,15 @@ mod tests {
                             graph_view_id,
                             lens_name,
                             filter_count,
+                            layout_source,
+                            physics_source,
                             focused_view,
                             ..
                         } if *graph_view_id == view_id
                             && lens_name == "Research Lens"
                             && *filter_count == 1
+                            && layout_source == "registry-default"
+                            && physics_source == "registry-default"
                             && *focused_view
                     )
             }),

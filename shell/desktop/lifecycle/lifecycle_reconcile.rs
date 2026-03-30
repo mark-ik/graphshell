@@ -98,6 +98,37 @@ fn collect_native_overlay_nodes(
     (all, active)
 }
 
+#[cfg(feature = "wry")]
+fn collect_wry_nodes(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+) -> (HashSet<NodeKey>, HashSet<NodeKey>) {
+    let mut all = HashSet::new();
+    let mut active = HashSet::new();
+    let active_tiles: HashSet<_> = tiles_tree.active_tiles().into_iter().collect();
+
+    for (tile_id, tile) in tiles_tree.tiles.iter() {
+        let is_active_tile = active_tiles.contains(tile_id);
+
+        if let egui_tiles::Tile::Pane(TileKind::Node(state)) = tile
+            && crate::shell::desktop::workbench::tile_runtime::effective_viewer_id_for_pane_in_tree(
+                tiles_tree,
+                state.pane_id,
+                graph_app,
+            )
+            .as_deref()
+                == Some("viewer:wry")
+        {
+            all.insert(state.node);
+            if is_active_tile {
+                active.insert(state.node);
+            }
+        }
+    }
+
+    (all, active)
+}
+
 pub(crate) struct ActivePrewarmArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) tiles_tree: &'a Tree<TileKind>,
@@ -227,6 +258,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         tile_runtime::all_node_pane_keys_using_composited_runtime(args.tiles_tree, args.graph_app);
     let (native_overlay_nodes, active_native_overlay_nodes) =
         collect_native_overlay_nodes(args.tiles_tree);
+    #[cfg(feature = "wry")]
+    let (wry_nodes, active_wry_nodes) = collect_wry_nodes(args.tiles_tree, args.graph_app);
     let has_node_panes = !tile_nodes.is_empty();
 
     for node_key in tile_nodes.difference(&composited_runtime_nodes).copied() {
@@ -239,7 +272,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     }
 
     #[cfg(feature = "wry")]
-    for node_key in tile_nodes.difference(&native_overlay_nodes).copied() {
+    for node_key in tile_nodes.difference(&wry_nodes).copied() {
         let _ = verso::destroy_wry_overlay_for_node(node_key);
     }
 
@@ -249,7 +282,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     // the graph node URL (no-ops if the URL has not changed since last navigation).
     #[cfg(feature = "wry")]
     if let Some(parent_handle) = args.window.raw_window_handle_for_child() {
-        for node_key in active_native_overlay_nodes.iter().copied() {
+        for node_key in active_wry_nodes.iter().copied() {
             let url = args
                 .graph_app
                 .domain_graph()

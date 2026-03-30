@@ -36,6 +36,20 @@ pub(crate) enum WryRenderMode {
     CompositedTexture,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WryFrameCaptureBackend {
+    None,
+    WebView2VisualCapture,
+    WkSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WryCompositedTextureSupport {
+    pub(crate) preferred_backend: WryFrameCaptureBackend,
+    pub(crate) supported: bool,
+    pub(crate) reason: &'static str,
+}
+
 impl WryRenderMode {
     pub(crate) fn for_platform(platform: WryPlatform) -> Self {
         match platform {
@@ -43,6 +57,33 @@ impl WryRenderMode {
             WryPlatform::Linux => Self::NativeOverlay,
             // Windows/macOS default to NativeOverlay in initial implementation.
             WryPlatform::Windows | WryPlatform::MacOS | WryPlatform::Other => Self::NativeOverlay,
+        }
+    }
+}
+
+impl WryCompositedTextureSupport {
+    pub(crate) fn for_platform(platform: WryPlatform) -> Self {
+        match platform {
+            WryPlatform::Windows => Self {
+                preferred_backend: WryFrameCaptureBackend::WebView2VisualCapture,
+                supported: true,
+                reason: "Windows experimental preview capture is wired through WebView2 CapturePreview; compositor texture upload is still pending.",
+            },
+            WryPlatform::MacOS => Self {
+                preferred_backend: WryFrameCaptureBackend::WkSnapshot,
+                supported: false,
+                reason: "macOS path not yet wired: no WKWebView snapshot-to-texture bridge is implemented.",
+            },
+            WryPlatform::Linux => Self {
+                preferred_backend: WryFrameCaptureBackend::None,
+                supported: false,
+                reason: "Linux remains NativeOverlay-only in the current Wry integration contract.",
+            },
+            WryPlatform::Other => Self {
+                preferred_backend: WryFrameCaptureBackend::None,
+                supported: false,
+                reason: "No composited Wry capture backend is defined for this platform.",
+            },
         }
     }
 }

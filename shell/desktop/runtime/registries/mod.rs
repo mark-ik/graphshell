@@ -3406,7 +3406,10 @@ pub(crate) fn start_gopher_capsule_server(port: u16) {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => match handle.block_on(server.start()) {
             Ok(server_handle) => {
-                log::info!("gopher: capsule server started on {}", server_handle.bound_addr);
+                log::info!(
+                    "gopher: capsule server started on {}",
+                    server_handle.bound_addr
+                );
                 *GOPHER_SERVER_HANDLE.lock().unwrap() = Some(server_handle);
             }
             Err(e) => log::warn!("gopher: failed to start capsule server: {e}"),
@@ -3452,9 +3455,8 @@ pub(crate) fn start_finger_server(port: u16) {
         port,
         default_query: "graphshell".to_string(),
     };
-    let server = crate::mods::native::verso::finger::FingerServer::new_with_registry(
-        config, registry,
-    );
+    let server =
+        crate::mods::native::verso::finger::FingerServer::new_with_registry(config, registry);
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => match handle.block_on(server.start()) {
             Ok(server_handle) => {
@@ -4834,8 +4836,7 @@ mod tests {
     #[test]
     fn phase2_lens_resolution_preserves_direct_values() {
         let mut lens = crate::app::ResolvedLensPreset {
-            lens_id: crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT
-                .to_string(),
+            lens_id: crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string(),
             display_name: "Default".to_string(),
             physics: crate::registries::atomic::lens::PhysicsProfile::default(),
             layout: crate::registries::atomic::lens::LayoutMode::Free,

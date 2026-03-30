@@ -170,7 +170,7 @@ pub(crate) use graph_views::PersistedGraphViewLayoutManager;
 #[allow(unused_imports)]
 pub use graph_views::{
     Camera, EdgeProjectionState, GraphViewFrame, GraphViewId, GraphViewLayoutDirection,
-    GraphViewLayoutManagerState, GraphViewState, ResolvedLensPreset,
+    GraphViewLayoutManagerState, GraphViewState, PolicyValueSource, ResolvedLensPreset,
     SelectionEdgeProjectionOverride, ThreeDMode, ViewDimension, ZSource,
 };
 pub(crate) use graph_views::{default_semantic_depth_dimension, is_semantic_depth_dimension};
@@ -194,7 +194,9 @@ mod startup_persistence;
 
 #[path = "app/settings_persistence.rs"]
 mod settings_persistence;
-pub use settings_persistence::{SettingsToolPage, ThemeMode};
+pub use settings_persistence::{
+    DefaultWebViewerBackend, SettingsToolPage, ThemeMode, WryRenderModePreference,
+};
 
 #[path = "app/workbench_layout_policy.rs"]
 pub(crate) mod workbench_layout_policy;
@@ -789,6 +791,10 @@ impl GraphBrowserApp {
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
         "workspace:settings-omnibar-non-at-order";
     pub const SETTINGS_WRY_ENABLED_NAME: &'static str = "workspace:settings-wry-enabled";
+    pub const SETTINGS_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS_NAME: &'static str =
+        "workspace:settings-webview-preview-active-refresh-secs";
+    pub const SETTINGS_WEBVIEW_PREVIEW_WARM_REFRESH_SECS_NAME: &'static str =
+        "workspace:settings-webview-preview-warm-refresh-secs";
     pub const SETTINGS_WORKBENCH_HOST_PINNED_NAME: &'static str =
         "workspace:settings-workbench-host-pinned";
     pub const SETTINGS_WORKBENCH_PROFILE_STATE_NAME: &'static str =
@@ -819,6 +825,8 @@ impl GraphBrowserApp {
     pub const DEFAULT_WORKSPACE_AUTOSAVE_RETENTION: u8 = 1;
     pub const DEFAULT_ACTIVE_WEBVIEW_LIMIT: usize = 4;
     pub const DEFAULT_WARM_CACHE_LIMIT: usize = 12;
+    pub const DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS: u64 = 2;
+    pub const DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS: u64 = 30;
     pub const DEFAULT_KEYBOARD_PAN_STEP: f32 = 12.0;
     pub const DEFAULT_CAMERA_PAN_INERTIA_ENABLED: bool = true;
     pub const DEFAULT_CAMERA_PAN_INERTIA_DAMPING: f32 = 0.84;
@@ -977,6 +985,12 @@ impl GraphBrowserApp {
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                     wry_enabled: false,
+                    default_web_viewer_backend: DefaultWebViewerBackend::Servo,
+                    wry_render_mode_preference: WryRenderModePreference::Auto,
+                    webview_preview_active_refresh_secs:
+                        Self::DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS,
+                    webview_preview_warm_refresh_secs:
+                        Self::DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS,
                     workbench_host_pinned: false,
                     form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
                         .is_some(),
@@ -1126,6 +1140,12 @@ impl GraphBrowserApp {
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                     wry_enabled: false,
+                    default_web_viewer_backend: DefaultWebViewerBackend::Servo,
+                    wry_render_mode_preference: WryRenderModePreference::Auto,
+                    webview_preview_active_refresh_secs:
+                        Self::DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS,
+                    webview_preview_warm_refresh_secs:
+                        Self::DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS,
                     workbench_host_pinned: false,
                     form_draft_capture_enabled: false,
                     default_registry_lens_id: None,

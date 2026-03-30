@@ -21,7 +21,7 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 pub(crate) struct TileCoordinator;
 
 impl TileCoordinator {
-    fn render_mode_for_viewer_id(viewer_id: &str) -> TileRenderMode {
+    fn registry_render_mode_for_viewer_id(viewer_id: &str) -> TileRenderMode {
         let Some(capability) =
             crate::shell::desktop::runtime::registries::phase0_describe_viewer(viewer_id)
         else {
@@ -36,8 +36,78 @@ impl TileCoordinator {
         }
     }
 
+    fn render_mode_for_viewer_id(viewer_id: &str) -> TileRenderMode {
+        Self::registry_render_mode_for_viewer_id(viewer_id)
+    }
+
+    fn wry_render_mode_for_preferences(graph_app: &GraphBrowserApp) -> TileRenderMode {
+        #[cfg(feature = "wry")]
+        {
+            match graph_app.wry_render_mode_preference() {
+                crate::app::WryRenderModePreference::ForceOverlay => TileRenderMode::NativeOverlay,
+                crate::app::WryRenderModePreference::ForceTexture
+                    if crate::registries::infrastructure::mod_loader::runtime_has_capability(
+                        "viewer:wry",
+                    ) && crate::mods::native::verso::wry_composited_texture_support()
+                        .supported =>
+                {
+                    TileRenderMode::CompositedTexture
+                }
+                crate::app::WryRenderModePreference::ForceTexture => TileRenderMode::NativeOverlay,
+                crate::app::WryRenderModePreference::Auto => TileRenderMode::NativeOverlay,
+            }
+        }
+        #[cfg(not(feature = "wry"))]
+        {
+            let _ = graph_app;
+            TileRenderMode::NativeOverlay
+        }
+    }
+
+    fn render_mode_for_effective_viewer_id(
+        graph_app: &GraphBrowserApp,
+        viewer_id: &str,
+    ) -> TileRenderMode {
+        if viewer_id == "viewer:wry" {
+            return Self::wry_render_mode_for_preferences(graph_app);
+        }
+        Self::registry_render_mode_for_viewer_id(viewer_id)
+    }
+
     pub(crate) fn viewer_id_uses_composited_runtime(viewer_id: &str) -> bool {
         Self::render_mode_for_viewer_id(viewer_id) == TileRenderMode::CompositedTexture
+    }
+
+    pub(crate) fn preferred_viewer_id_for_content(
+        graph_app: &GraphBrowserApp,
+        url: &str,
+        mime_hint: Option<&str>,
+    ) -> String {
+        let selected = crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
+            url, mime_hint,
+        );
+        if selected.viewer_id != "viewer:webview" {
+            return selected.viewer_id.to_string();
+        }
+
+        let is_http_content = url.starts_with("http://") || url.starts_with("https://");
+        if !is_http_content {
+            return selected.viewer_id.to_string();
+        }
+
+        match graph_app.default_web_viewer_backend() {
+            crate::app::DefaultWebViewerBackend::Servo => selected.viewer_id.to_string(),
+            crate::app::DefaultWebViewerBackend::Wry
+                if graph_app.wry_enabled()
+                    && cfg!(feature = "wry")
+                    && crate::registries::infrastructure::mod_loader::runtime_has_capability(
+                        "viewer:wry",
+                    ) =>
+            {
+                "viewer:wry".to_string()
+            }
+            crate::app::DefaultWebViewerBackend::Wry => selected.viewer_id.to_string(),
+        }
     }
 
     fn node_pane_effective_viewer_id(
@@ -49,14 +119,11 @@ impl TileCoordinator {
         }
 
         let node = graph_app.domain_graph().get_node(state.node)?;
-        Some(
-            crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
-                node.url(),
-                node.mime_hint.as_deref(),
-            )
-            .viewer_id
-            .to_string(),
-        )
+        Some(Self::preferred_viewer_id_for_content(
+            graph_app,
+            node.url(),
+            node.mime_hint.as_deref(),
+        ))
     }
 
     fn resolve_node_pane_render_mode(
@@ -65,7 +132,7 @@ impl TileCoordinator {
     ) -> TileRenderMode {
         Self::node_pane_effective_viewer_id(state, graph_app)
             .as_deref()
-            .map(Self::render_mode_for_viewer_id)
+            .map(|viewer_id| Self::render_mode_for_effective_viewer_id(graph_app, viewer_id))
             .unwrap_or(TileRenderMode::Placeholder)
     }
 
@@ -335,6 +402,19 @@ impl TileCoordinator {
     }
 }
 
+pub(crate) fn effective_viewer_id_for_pane_in_tree(
+    tiles_tree: &Tree<TileKind>,
+    pane_id: crate::shell::desktop::workbench::pane_model::PaneId,
+    graph_app: &GraphBrowserApp,
+) -> Option<String> {
+    tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+        Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => {
+            TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
+        }
+        _ => None,
+    })
+}
+
 pub(crate) fn viewer_id_uses_composited_runtime(viewer_id: &str) -> bool {
     TileCoordinator::viewer_id_uses_composited_runtime(viewer_id)
 }
@@ -483,7 +563,7 @@ mod tests {
     };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
-    use egui_tiles::{Tiles, Tree};
+    use egui_tiles::{Tile, Tiles, Tree};
     use euclid::Point2D;
 
     fn test_webview_id() -> servo::WebViewId {
@@ -684,6 +764,64 @@ mod tests {
             mode_for.get(&plaintext_node).copied(),
             Some(TileRenderMode::EmbeddedEgui)
         );
+    }
+
+    #[test]
+    fn preferred_viewer_id_for_content_uses_workspace_default_wry_when_enabled() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_wry_enabled(true);
+        app.set_default_web_viewer_backend(crate::app::DefaultWebViewerBackend::Wry);
+
+        let preferred = TileCoordinator::preferred_viewer_id_for_content(
+            &app,
+            "https://example.test",
+            Some("text/html"),
+        );
+
+        #[cfg(feature = "wry")]
+        if crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry") {
+            assert_eq!(preferred, "viewer:wry");
+        } else {
+            assert_eq!(preferred, "viewer:webview");
+        }
+        #[cfg(not(feature = "wry"))]
+        assert_eq!(preferred, "viewer:webview");
+    }
+
+    #[test]
+    fn refresh_node_pane_render_modes_uses_force_texture_for_wry_panes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_wry_enabled(true);
+        app.set_wry_render_mode_preference(crate::app::WryRenderModePreference::ForceTexture);
+        let node_key = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
+        let mut tree = tree_with_node_pane(NodePaneState::with_viewer(
+            node_key,
+            ViewerId::new("viewer:wry"),
+        ));
+
+        TileCoordinator::refresh_node_pane_render_modes(&mut tree, &app);
+
+        let mode = tree
+            .tiles
+            .iter()
+            .find_map(|(_, tile)| match tile {
+                Tile::Pane(TileKind::Node(state)) if state.node == node_key => {
+                    Some(state.render_mode)
+                }
+                _ => None,
+            })
+            .expect("expected node pane render mode");
+
+        #[cfg(feature = "wry")]
+        if crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry")
+            && crate::mods::native::verso::wry_composited_texture_support().supported
+        {
+            assert_eq!(mode, TileRenderMode::CompositedTexture);
+        } else {
+            assert_eq!(mode, TileRenderMode::NativeOverlay);
+        }
+        #[cfg(not(feature = "wry"))]
+        assert_eq!(mode, TileRenderMode::NativeOverlay);
     }
 
     #[test]

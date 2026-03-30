@@ -20,6 +20,7 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::ui::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
 use crate::shell::desktop::workbench::pane_model::{
     PaneId, PanePresentationMode, PaneViewState, SplitDirection, ToolPaneState, ViewerId,
+    ViewerSwitchReason,
 };
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;

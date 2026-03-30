@@ -19,6 +19,32 @@ impl_display_from_str!(ThemeMode {
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DefaultWebViewerBackend {
+    #[default]
+    Servo,
+    Wry,
+}
+
+impl_display_from_str!(DefaultWebViewerBackend {
+    DefaultWebViewerBackend::Servo => "viewer:webview",
+    DefaultWebViewerBackend::Wry => "viewer:wry",
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WryRenderModePreference {
+    #[default]
+    Auto,
+    ForceOverlay,
+    ForceTexture,
+}
+
+impl_display_from_str!(WryRenderModePreference {
+    WryRenderModePreference::Auto => "auto",
+    WryRenderModePreference::ForceOverlay => "force_overlay",
+    WryRenderModePreference::ForceTexture => "force_texture",
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsToolPage {
     #[default]
     General,
@@ -31,6 +57,10 @@ pub enum SettingsToolPage {
 }
 
 impl GraphBrowserApp {
+    pub(crate) const SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME: &str =
+        "settings.default_web_viewer_backend";
+    pub(crate) const SETTINGS_WRY_RENDER_MODE_PREFERENCE_NAME: &str =
+        "settings.wry_render_mode_preference";
     pub fn is_reserved_workspace_layout_name(name: &str) -> bool {
         name == "latest"
             || name == Self::SESSION_WORKSPACE_LAYOUT_NAME
@@ -50,6 +80,10 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
             || name == Self::SETTINGS_WRY_ENABLED_NAME
+            || name == Self::SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME
+            || name == Self::SETTINGS_WRY_RENDER_MODE_PREFERENCE_NAME
+            || name == Self::SETTINGS_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS_NAME
+            || name == Self::SETTINGS_WEBVIEW_PREVIEW_WARM_REFRESH_SECS_NAME
             || name == Self::SETTINGS_WORKBENCH_HOST_PINNED_NAME
             || name == Self::SETTINGS_WORKBENCH_PROFILE_STATE_NAME
             || name == Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME
@@ -442,6 +476,42 @@ impl GraphBrowserApp {
         self.save_wry_enabled();
     }
 
+    pub fn default_web_viewer_backend(&self) -> DefaultWebViewerBackend {
+        self.workspace.chrome_ui.default_web_viewer_backend
+    }
+
+    pub fn set_default_web_viewer_backend(&mut self, backend: DefaultWebViewerBackend) {
+        self.workspace.chrome_ui.default_web_viewer_backend = backend;
+        self.save_default_web_viewer_backend();
+    }
+
+    pub fn wry_render_mode_preference(&self) -> WryRenderModePreference {
+        self.workspace.chrome_ui.wry_render_mode_preference
+    }
+
+    pub fn set_wry_render_mode_preference(&mut self, preference: WryRenderModePreference) {
+        self.workspace.chrome_ui.wry_render_mode_preference = preference;
+        self.save_wry_render_mode_preference();
+    }
+
+    pub fn webview_preview_active_refresh_secs(&self) -> u64 {
+        self.workspace.chrome_ui.webview_preview_active_refresh_secs
+    }
+
+    pub fn set_webview_preview_active_refresh_secs(&mut self, secs: u64) {
+        self.workspace.chrome_ui.webview_preview_active_refresh_secs = secs.clamp(1, 300);
+        self.save_webview_preview_active_refresh_secs();
+    }
+
+    pub fn webview_preview_warm_refresh_secs(&self) -> u64 {
+        self.workspace.chrome_ui.webview_preview_warm_refresh_secs
+    }
+
+    pub fn set_webview_preview_warm_refresh_secs(&mut self, secs: u64) {
+        self.workspace.chrome_ui.webview_preview_warm_refresh_secs = secs.clamp(5, 3600);
+        self.save_webview_preview_warm_refresh_secs();
+    }
+
     pub fn workbench_host_pinned(&self) -> bool {
         self.workspace.chrome_ui.workbench_host_pinned
     }
@@ -468,6 +538,50 @@ impl GraphBrowserApp {
             } else {
                 "false"
             },
+        );
+    }
+
+    fn save_default_web_viewer_backend(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .default_web_viewer_backend
+                .to_string(),
+        );
+    }
+
+    fn save_wry_render_mode_preference(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_WRY_RENDER_MODE_PREFERENCE_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .wry_render_mode_preference
+                .to_string(),
+        );
+    }
+
+    fn save_webview_preview_active_refresh_secs(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .webview_preview_active_refresh_secs
+                .to_string(),
+        );
+    }
+
+    fn save_webview_preview_warm_refresh_secs(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_WEBVIEW_PREVIEW_WARM_REFRESH_SECS_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .webview_preview_warm_refresh_secs
+                .to_string(),
         );
     }
 
@@ -737,6 +851,24 @@ impl GraphBrowserApp {
                 _ => warn!("Ignoring invalid persisted wry enabled flag: '{raw}'"),
             }
         }
+        self.workspace.chrome_ui.default_web_viewer_backend = self
+            .load_workspace_layout_json(Self::SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME)
+            .and_then(|raw| raw.parse::<DefaultWebViewerBackend>().ok())
+            .unwrap_or_default();
+        self.workspace.chrome_ui.wry_render_mode_preference = self
+            .load_workspace_layout_json(Self::SETTINGS_WRY_RENDER_MODE_PREFERENCE_NAME)
+            .and_then(|raw| raw.parse::<WryRenderModePreference>().ok())
+            .unwrap_or_default();
+        self.workspace.chrome_ui.webview_preview_active_refresh_secs = self
+            .load_workspace_layout_json(Self::SETTINGS_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS_NAME)
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .map(|secs| secs.clamp(1, 300))
+            .unwrap_or(Self::DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS);
+        self.workspace.chrome_ui.webview_preview_warm_refresh_secs = self
+            .load_workspace_layout_json(Self::SETTINGS_WEBVIEW_PREVIEW_WARM_REFRESH_SECS_NAME)
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .map(|secs| secs.clamp(5, 3600))
+            .unwrap_or(Self::DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS);
         if let Some(raw) =
             self.load_workspace_layout_json(Self::SETTINGS_WORKBENCH_HOST_PINNED_NAME)
         {

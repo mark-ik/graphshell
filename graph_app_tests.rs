@@ -6149,21 +6149,22 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
     assert_eq!(registry_backed.resolved_lens_id(), Some("lens:default"));
     assert_eq!(registry_backed.resolved_lens_display_name(), "Default");
     assert_eq!(registry_backed.resolved_physics_profile().name, "Liquid");
-    assert!(matches!(registry_backed.resolved_layout_mode(), LayoutMode::Free));
+    assert!(matches!(
+        registry_backed.resolved_layout_mode(),
+        LayoutMode::Free
+    ));
     assert_eq!(
         registry_backed.resolved_layout_algorithm_id(),
         crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
     );
 
-    let direct = app
-        .workspace
-        .graph_runtime
-        .views
-        .get(&direct_view)
-        .unwrap();
+    let direct = app.workspace.graph_runtime.views.get(&direct_view).unwrap();
     assert_eq!(direct.resolved_lens_display_name(), "Direct Lens");
     assert_eq!(direct.resolved_physics_profile().name, "Gas");
-    assert!(matches!(direct.resolved_layout_mode(), LayoutMode::Grid { gap: 24.0 }));
+    assert!(matches!(
+        direct.resolved_layout_mode(),
+        LayoutMode::Grid { gap: 24.0 }
+    ));
     assert_eq!(
         direct.resolved_theme().map(|theme| theme.background_rgb),
         Some((9, 8, 7))

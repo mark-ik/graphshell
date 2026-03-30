@@ -1504,11 +1504,11 @@ impl GraphViewState {
             display_name: resolved.display_name.clone(),
         };
         self.filter_policy.lens_filter_expr = resolved.filter_expr.clone();
-        self.filter_policy.lens_filter_source =
-            self.filter_policy
-                .lens_filter_expr
-                .as_ref()
-                .map(|_| PolicyValueSource::LensPreset(lens_id.clone()));
+        self.filter_policy.lens_filter_source = self
+            .filter_policy
+            .lens_filter_expr
+            .as_ref()
+            .map(|_| PolicyValueSource::LensPreset(lens_id.clone()));
         self.filter_policy.legacy_filters = resolved.filters_legacy.clone();
         self.overlay_policy.overlay_descriptor = resolved.overlay_descriptor.clone();
         self.overlay_policy.source = self
@@ -1524,10 +1524,7 @@ impl GraphViewState {
             .map(|_| PolicyValueSource::LensPreset(lens_id));
     }
 
-    pub fn apply_filter_override(
-        &mut self,
-        expr: Option<crate::model::graph::filter::FacetExpr>,
-    ) {
+    pub fn apply_filter_override(&mut self, expr: Option<crate::model::graph::filter::FacetExpr>) {
         self.filter_policy.active_filter_override = expr.clone();
         self.filter_policy.active_filter_override_source =
             expr.as_ref().map(|_| PolicyValueSource::ViewOverride);
@@ -1571,13 +1568,10 @@ impl GraphViewState {
     }
 
     pub fn resolved_physics_profile_id(&self) -> Option<&str> {
-        self.physics_policy
-            .profile_id
-            .as_deref()
-            .or_else(|| {
-                (!self.physics_policy.profile.name.trim().is_empty())
-                    .then(|| canonical_physics_profile_id(&self.physics_policy.profile))
-            })
+        self.physics_policy.profile_id.as_deref().or_else(|| {
+            (!self.physics_policy.profile.name.trim().is_empty())
+                .then(|| canonical_physics_profile_id(&self.physics_policy.profile))
+        })
     }
 
     pub fn resolved_theme(&self) -> Option<&ThemeData> {
@@ -1591,9 +1585,7 @@ impl GraphViewState {
     pub fn resolved_overlay_descriptor(
         &self,
     ) -> Option<&crate::registries::atomic::lens::LensOverlayDescriptor> {
-        self.overlay_policy
-            .overlay_descriptor
-            .as_ref()
+        self.overlay_policy.overlay_descriptor.as_ref()
     }
 
     pub fn resolved_overlay_source(&self) -> Option<&PolicyValueSource> {
@@ -1912,13 +1904,16 @@ mod tests {
             crate::app::graph_layout::GRAPH_LAYOUT_GRID
         );
         assert_eq!(view.resolved_physics_profile().name, "Gas");
-        assert_eq!(view.filter_policy.legacy_filters, vec!["legacy".to_string()]);
-        assert_eq!(view.layout_policy.source, PolicyValueSource::LegacySnapshot);
-        assert_eq!(view.physics_policy.source, PolicyValueSource::LegacySnapshot);
         assert_eq!(
-            view.filter_policy.active_filter_override_source,
-            None
+            view.filter_policy.legacy_filters,
+            vec!["legacy".to_string()]
         );
+        assert_eq!(view.layout_policy.source, PolicyValueSource::LegacySnapshot);
+        assert_eq!(
+            view.physics_policy.source,
+            PolicyValueSource::LegacySnapshot
+        );
+        assert_eq!(view.filter_policy.active_filter_override_source, None);
     }
 
     #[test]

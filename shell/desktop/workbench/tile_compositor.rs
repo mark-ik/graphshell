@@ -90,6 +90,7 @@ impl FocusDelta {
 #[derive(Clone, Debug, PartialEq)]
 struct TileSemanticOverlayInput {
     node_key: NodeKey,
+    viewer_id: String,
     render_mode: TileRenderMode,
     lifecycle: NodeLifecycle,
     runtime_blocked: bool,
@@ -357,6 +358,7 @@ fn semantic_generation_for_tile(
 ) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     (semantic.node_key.index() as u64).hash(&mut hasher);
+    semantic.viewer_id.hash(&mut hasher);
     hash_render_mode(semantic.render_mode).hash(&mut hasher);
     hash_lifecycle(semantic.lifecycle).hash(&mut hasher);
     semantic.runtime_blocked.hash(&mut hasher);
@@ -403,6 +405,11 @@ fn resolve_tile_semantic_input(
     focus_delta: FocusDelta,
 ) -> ScheduledTileSemanticInput {
     let render_mode = render_mode_for_pane(tiles_tree, pane_id);
+    let viewer_id =
+        crate::shell::desktop::workbench::tile_runtime::effective_viewer_id_for_pane_in_tree(
+            tiles_tree, pane_id, graph_app,
+        )
+        .unwrap_or_else(|| "viewer:webview".to_string());
     let lifecycle = node_lifecycle_for_tile(graph_app, node_key);
     let runtime_blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
     let has_unread_traversal_activity =
@@ -412,6 +419,7 @@ fn resolve_tile_semantic_input(
     let lens_preset = resolved_lens_preset_for_tile(tiles_tree, graph_app, node_key);
     let mut semantic = TileSemanticOverlayInput {
         node_key,
+        viewer_id,
         render_mode,
         lifecycle,
         runtime_blocked,
@@ -598,6 +606,26 @@ fn run_composited_texture_content_pass(
     frame_activity: &mut CompositorFrameActivitySummary,
 ) -> bool {
     let node_key = semantic.node_key;
+    if semantic.viewer_id == "viewer:wry" {
+        let rendered = render_wry_preview_frame_if_needed(ctx, graph_app, &semantic, tile_rect);
+        if rendered {
+            pass_tracker.record_content_pass(node_key);
+            counters.composed += 1;
+            counters.composed_estimated_bytes =
+                counters
+                    .composed_estimated_bytes
+                    .saturating_add(estimated_tile_content_bytes(
+                        tile_rect,
+                        ctx.pixels_per_point(),
+                    ));
+            active_composited_nodes.insert(node_key);
+            frame_activity.active_tile_keys.push(node_key);
+        } else {
+            counters.skipped += 1;
+        }
+        return rendered;
+    }
+
     let Some(webview_id) = graph_app.get_webview_for_node(node_key) else {
         log::debug!(
             "composite: no runtime viewer mapped for node {:?}",
@@ -1367,6 +1395,132 @@ fn thumbnail_ghost_hash(width: u32, height: u32, bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
+#[cfg(feature = "wry")]
+fn wry_preview_texture_id(ctx: &egui::Context, node_key: NodeKey) -> Option<TextureId> {
+    let png_bytes = verso::wry_frame_png_bytes_for_node(node_key)?;
+    let image = load_from_memory(&png_bytes).ok()?.to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let rgba = image.into_raw();
+    let hash = thumbnail_ghost_hash(size[0] as u32, size[1] as u32, &png_bytes);
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
+
+    THUMBNAIL_GHOST_TEXTURES.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let handle = if let Some((cached_hash, handle)) = cache.get(&node_key) {
+            if *cached_hash == hash {
+                handle.clone()
+            } else {
+                let handle = ctx.load_texture(
+                    format!("tile-wry-preview-{node_key:?}-{hash}"),
+                    color_image,
+                    Default::default(),
+                );
+                cache.insert(node_key, (hash, handle.clone()));
+                handle
+            }
+        } else {
+            let handle = ctx.load_texture(
+                format!("tile-wry-preview-{node_key:?}-{hash}"),
+                color_image,
+                Default::default(),
+            );
+            cache.insert(node_key, (hash, handle.clone()));
+            handle
+        };
+        Some(handle.id())
+    })
+}
+
+fn webview_preview_refresh_interval_for_lifecycle(
+    graph_app: &GraphBrowserApp,
+    lifecycle: NodeLifecycle,
+) -> Option<std::time::Duration> {
+    match lifecycle {
+        NodeLifecycle::Active => Some(std::time::Duration::from_secs(
+            graph_app.webview_preview_active_refresh_secs(),
+        )),
+        NodeLifecycle::Warm => Some(std::time::Duration::from_secs(
+            graph_app.webview_preview_warm_refresh_secs(),
+        )),
+        NodeLifecycle::Cold | NodeLifecycle::Tombstone => None,
+    }
+}
+
+#[cfg(not(feature = "wry"))]
+fn wry_preview_texture_id(_ctx: &egui::Context, _node_key: NodeKey) -> Option<TextureId> {
+    None
+}
+
+#[cfg(feature = "wry")]
+fn render_wry_preview_frame_if_needed(
+    ctx: &egui::Context,
+    graph_app: &GraphBrowserApp,
+    semantic: &TileSemanticOverlayInput,
+    tile_rect: egui::Rect,
+) -> bool {
+    if semantic.viewer_id != "viewer:wry"
+        || semantic.render_mode != TileRenderMode::CompositedTexture
+    {
+        return false;
+    }
+
+    let texture_id = if let Some(texture_id) = wry_preview_texture_id(ctx, semantic.node_key) {
+        if let Some(refresh_interval) =
+            webview_preview_refresh_interval_for_lifecycle(graph_app, semantic.lifecycle)
+        {
+            let _ = verso::refresh_wry_frame_for_node_if_stale(semantic.node_key, refresh_interval);
+        }
+        Some(texture_id)
+    } else {
+        if webview_preview_refresh_interval_for_lifecycle(graph_app, semantic.lifecycle).is_some() {
+            verso::refresh_wry_frame_for_node(semantic.node_key);
+        }
+        wry_preview_texture_id(ctx, semantic.node_key)
+    };
+    let Some(texture_id) = texture_id else {
+        return false;
+    };
+
+    ctx.layer_painter(CompositorAdapter::content_layer(semantic.node_key))
+        .image(
+            texture_id,
+            tile_rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+    true
+}
+
+#[cfg(not(feature = "wry"))]
+fn render_wry_preview_frame_if_needed(
+    _ctx: &egui::Context,
+    _graph_app: &GraphBrowserApp,
+    _semantic: &TileSemanticOverlayInput,
+    _tile_rect: egui::Rect,
+) -> bool {
+    false
+}
+
+#[cfg(feature = "wry")]
+fn frozen_webview_snapshot_texture_id(
+    ctx: &egui::Context,
+    semantic: &TileSemanticOverlayInput,
+) -> Option<TextureId> {
+    if semantic.viewer_id == "viewer:wry" {
+        wry_preview_texture_id(ctx, semantic.node_key)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(feature = "wry"))]
+fn frozen_webview_snapshot_texture_id(
+    _ctx: &egui::Context,
+    _semantic: &TileSemanticOverlayInput,
+) -> Option<TextureId> {
+    None
+}
+
 fn thumbnail_ghost_texture_id(
     ctx: &egui::Context,
     graph_app: &GraphBrowserApp,
@@ -1429,7 +1583,9 @@ fn render_thumbnail_ghost_if_needed(
     ) {
         return false;
     }
-    let Some(texture_id) = thumbnail_ghost_texture_id(ctx, graph_app, semantic.node_key) else {
+    let texture_id = frozen_webview_snapshot_texture_id(ctx, semantic)
+        .or_else(|| thumbnail_ghost_texture_id(ctx, graph_app, semantic.node_key));
+    let Some(texture_id) = texture_id else {
         return false;
     };
 
@@ -1744,6 +1900,7 @@ mod tests {
     ) -> TileSemanticOverlayInput {
         TileSemanticOverlayInput {
             node_key,
+            viewer_id: "viewer:webview".to_string(),
             render_mode,
             lifecycle: NodeLifecycle::Active,
             runtime_blocked: false,
@@ -2439,6 +2596,30 @@ mod tests {
             passes[0].overlays.first(),
             Some(ScheduledOverlay::Semantic(_))
         ));
+    }
+
+    #[test]
+    fn webview_preview_refresh_interval_uses_app_preferences_and_freezes_cold_nodes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_webview_preview_active_refresh_secs(7);
+        app.set_webview_preview_warm_refresh_secs(45);
+
+        assert_eq!(
+            webview_preview_refresh_interval_for_lifecycle(&app, NodeLifecycle::Active),
+            Some(std::time::Duration::from_secs(7))
+        );
+        assert_eq!(
+            webview_preview_refresh_interval_for_lifecycle(&app, NodeLifecycle::Warm),
+            Some(std::time::Duration::from_secs(45))
+        );
+        assert_eq!(
+            webview_preview_refresh_interval_for_lifecycle(&app, NodeLifecycle::Cold),
+            None
+        );
+        assert_eq!(
+            webview_preview_refresh_interval_for_lifecycle(&app, NodeLifecycle::Tombstone),
+            None
+        );
     }
 
     #[test]

@@ -553,11 +553,8 @@ impl GraphBrowserApp {
                 privacy_class,
                 gemini_content,
             } => {
-                let content = gemini_content.unwrap_or_else(|| {
-                    format!(
-                        "# {title}\n\nThis node has no content yet.\n"
-                    )
-                });
+                let content = gemini_content
+                    .unwrap_or_else(|| format!("# {title}\n\nThis node has no content yet.\n"));
                 crate::shell::desktop::runtime::registries::register_gemini_node(
                     node_id,
                     title,
@@ -585,9 +582,8 @@ impl GraphBrowserApp {
                 privacy_class,
                 gophermap_content,
             } => {
-                let content = gophermap_content.unwrap_or_else(|| {
-                    format!("i{title}\tfake\tfake\t70\r\n.\r\n")
-                });
+                let content = gophermap_content
+                    .unwrap_or_else(|| format!("i{title}\tfake\tfake\t70\r\n.\r\n"));
                 crate::shell::desktop::runtime::registries::register_gopher_node(
                     node_id,
                     title,

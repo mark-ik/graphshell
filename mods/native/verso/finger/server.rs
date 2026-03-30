@@ -165,7 +165,10 @@ impl FingerServer {
         });
 
         log::info!("finger: server listening on {bound_addr}");
-        Ok(FingerServerHandle { shutdown_tx, bound_addr })
+        Ok(FingerServerHandle {
+            shutdown_tx,
+            bound_addr,
+        })
     }
 }
 
@@ -190,7 +193,11 @@ async fn handle_connection(
 
     // Strip optional `/W` (verbose) flag and trailing whitespace
     let query = line.trim().trim_start_matches("/W").trim().to_string();
-    let query = if query.is_empty() { default_query.clone() } else { query };
+    let query = if query.is_empty() {
+        default_query.clone()
+    } else {
+        query
+    };
 
     log::debug!("finger: request from {peer_addr}: query={query:?}");
 
@@ -210,6 +217,9 @@ async fn handle_connection(
         .write_all(response.as_bytes())
         .await
         .map_err(|e| format!("write error: {e}"))?;
-    writer.flush().await.map_err(|e| format!("flush error: {e}"))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| format!("flush error: {e}"))?;
     Ok(())
 }

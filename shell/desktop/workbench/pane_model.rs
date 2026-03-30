@@ -108,6 +108,16 @@ impl std::fmt::Display for ViewerId {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+pub(crate) enum ViewerSwitchReason {
+    #[default]
+    UserRequested,
+    RecoveryPromptAccepted,
+    PolicyPinned,
+}
+
 /// Graph pane reference payload.
 ///
 /// Identifies which `GraphViewState` (camera + Lens + per-view local layout state) is active in this pane.
@@ -203,6 +213,9 @@ pub(crate) struct NodePaneState {
     pub node: NodeKey,
     /// Optional explicit viewer backend override. `None` delegates to `ViewerRegistry`.
     pub viewer_id_override: Option<ViewerId>,
+    /// Most recent explicit backend-switch reason for this pane, if any.
+    #[serde(default)]
+    pub viewer_switch_reason: ViewerSwitchReason,
     /// Runtime-authoritative render pipeline mode for this pane.
     #[serde(default)]
     pub render_mode: TileRenderMode,
@@ -223,6 +236,7 @@ impl NodePaneState {
             pane_id: PaneId::new(),
             node,
             viewer_id_override: None,
+            viewer_switch_reason: ViewerSwitchReason::PolicyPinned,
             render_mode: TileRenderMode::Placeholder,
             presentation_mode: PanePresentationMode::Tiled,
             show_node_history: false,
@@ -235,6 +249,7 @@ impl NodePaneState {
             pane_id: PaneId::new(),
             node,
             viewer_id_override: Some(viewer_id),
+            viewer_switch_reason: ViewerSwitchReason::UserRequested,
             render_mode: TileRenderMode::Placeholder,
             presentation_mode: PanePresentationMode::Tiled,
             show_node_history: false,
@@ -263,6 +278,8 @@ enum NodePaneStateCompat {
         node: NodeKey,
         viewer_id_override: Option<ViewerId>,
         #[serde(default)]
+        viewer_switch_reason: ViewerSwitchReason,
+        #[serde(default)]
         render_mode: TileRenderMode,
         #[serde(default)]
         presentation_mode: PanePresentationMode,
@@ -276,6 +293,7 @@ impl From<NodePaneStateCompat> for NodePaneState {
                 pane_id: PaneId::new(),
                 node,
                 viewer_id_override: None,
+                viewer_switch_reason: ViewerSwitchReason::PolicyPinned,
                 render_mode: TileRenderMode::Placeholder,
                 presentation_mode: PanePresentationMode::Tiled,
                 show_node_history: false,
@@ -285,17 +303,28 @@ impl From<NodePaneStateCompat> for NodePaneState {
                 pane_id,
                 node,
                 viewer_id_override,
+                viewer_switch_reason,
                 render_mode,
                 presentation_mode,
-            } => Self {
-                pane_id: pane_id.unwrap_or_default(),
-                node,
-                viewer_id_override,
-                render_mode,
-                presentation_mode,
-                show_node_history: false,
-                show_node_audit: false,
-            },
+            } => {
+                let normalized_switch_reason = if viewer_id_override.is_none()
+                    && matches!(viewer_switch_reason, ViewerSwitchReason::UserRequested)
+                {
+                    ViewerSwitchReason::PolicyPinned
+                } else {
+                    viewer_switch_reason
+                };
+                Self {
+                    pane_id: pane_id.unwrap_or_default(),
+                    node,
+                    viewer_id_override,
+                    viewer_switch_reason: normalized_switch_reason,
+                    render_mode,
+                    presentation_mode,
+                    show_node_history: false,
+                    show_node_audit: false,
+                }
+            }
         }
     }
 }
@@ -521,6 +550,7 @@ mod tests {
         assert_eq!(state.node, key);
         assert_ne!(state.pane_id, PaneId::default());
         assert!(state.viewer_id_override.is_none());
+        assert_eq!(state.viewer_switch_reason, ViewerSwitchReason::PolicyPinned);
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
         assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }
@@ -545,6 +575,10 @@ mod tests {
         let state = NodePaneState::with_viewer(key, viewer.clone());
         assert_eq!(state.node, key);
         assert_eq!(state.viewer_id_override, Some(viewer));
+        assert_eq!(
+            state.viewer_switch_reason,
+            ViewerSwitchReason::UserRequested
+        );
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
         assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }
@@ -568,6 +602,7 @@ mod tests {
         use petgraph::stable_graph::NodeIndex;
         assert_eq!(state.node, NodeIndex::new(3));
         assert!(state.viewer_id_override.is_none());
+        assert_eq!(state.viewer_switch_reason, ViewerSwitchReason::PolicyPinned);
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
         assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }
@@ -582,6 +617,10 @@ mod tests {
             state.viewer_id_override,
             Some(ViewerId::new("viewer:webview"))
         );
+        assert_eq!(
+            state.viewer_switch_reason,
+            ViewerSwitchReason::UserRequested
+        );
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
         assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }
@@ -593,6 +632,7 @@ mod tests {
         use petgraph::stable_graph::NodeIndex;
         assert_eq!(state.node, NodeIndex::new(6));
         assert!(state.viewer_id_override.is_none());
+        assert_eq!(state.viewer_switch_reason, ViewerSwitchReason::PolicyPinned);
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
         assert_eq!(state.presentation_mode, PanePresentationMode::Tiled);
     }

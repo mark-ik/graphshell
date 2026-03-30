@@ -1,6 +1,6 @@
 use crate::app::{
-    ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent, SettingsToolPage, ThemeMode,
-    WorkbenchIntent,
+    ContextCommandSurfacePreference, DefaultWebViewerBackend, GraphBrowserApp, GraphIntent,
+    SettingsToolPage, ThemeMode, WorkbenchIntent, WryRenderModePreference,
 };
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -49,6 +49,21 @@ fn context_command_surface_label(preference: ContextCommandSurfacePreference) ->
     match preference {
         ContextCommandSurfacePreference::RadialPalette => "Radial Palette",
         ContextCommandSurfacePreference::ContextPalette => "Context Palette",
+    }
+}
+
+fn default_web_viewer_backend_label(backend: DefaultWebViewerBackend) -> &'static str {
+    match backend {
+        DefaultWebViewerBackend::Servo => "Default web backend: Servo",
+        DefaultWebViewerBackend::Wry => "Default web backend: Wry",
+    }
+}
+
+fn wry_render_mode_preference_label(preference: WryRenderModePreference) -> &'static str {
+    match preference {
+        WryRenderModePreference::Auto => "Wry mode: Auto",
+        WryRenderModePreference::ForceOverlay => "Wry mode: Force Overlay",
+        WryRenderModePreference::ForceTexture => "Wry mode: Force Texture",
     }
 }
 
@@ -206,6 +221,96 @@ pub(super) fn render_settings_menu(
                 *location_dirty = false;
                 graph_app.request_reload_all();
             }
+
+            ui.separator();
+            ui.label("Viewer Backends");
+            let mut wry_enabled = graph_app.wry_enabled();
+            if ui
+                .toggle_value(&mut wry_enabled, "Enable Wry Compatibility Backend")
+                .clicked()
+            {
+                graph_app.set_wry_enabled(wry_enabled);
+            }
+            ui.label(
+                egui::RichText::new(default_web_viewer_backend_label(
+                    graph_app.default_web_viewer_backend(),
+                ))
+                .small()
+                .color(theme_tokens.radial_chrome_text),
+            );
+            for backend in [DefaultWebViewerBackend::Servo, DefaultWebViewerBackend::Wry] {
+                if ui
+                    .selectable_label(
+                        graph_app.default_web_viewer_backend() == backend,
+                        match backend {
+                            DefaultWebViewerBackend::Servo => "Servo",
+                            DefaultWebViewerBackend::Wry => "Wry",
+                        },
+                    )
+                    .clicked()
+                {
+                    graph_app.set_default_web_viewer_backend(backend);
+                }
+            }
+            ui.label(
+                egui::RichText::new(wry_render_mode_preference_label(
+                    graph_app.wry_render_mode_preference(),
+                ))
+                .small()
+                .color(theme_tokens.radial_chrome_text),
+            );
+            for preference in [
+                WryRenderModePreference::Auto,
+                WryRenderModePreference::ForceOverlay,
+                WryRenderModePreference::ForceTexture,
+            ] {
+                if ui
+                    .selectable_label(
+                        graph_app.wry_render_mode_preference() == preference,
+                        match preference {
+                            WryRenderModePreference::Auto => "Auto",
+                            WryRenderModePreference::ForceOverlay => "Force Overlay",
+                            WryRenderModePreference::ForceTexture => "Force Texture",
+                        },
+                    )
+                    .clicked()
+                {
+                    graph_app.set_wry_render_mode_preference(preference);
+                }
+            }
+            ui.label(
+                egui::RichText::new(
+                    "Preview cadence: active nodes refresh faster; cold nodes stay frozen.",
+                )
+                .small()
+                .color(theme_tokens.radial_chrome_text),
+            );
+            ui.horizontal(|ui| {
+                ui.label("Active");
+                let mut active_secs = graph_app.webview_preview_active_refresh_secs();
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut active_secs)
+                            .range(1..=300)
+                            .suffix("s"),
+                    )
+                    .changed()
+                {
+                    graph_app.set_webview_preview_active_refresh_secs(active_secs);
+                }
+                ui.label("Warm");
+                let mut warm_secs = graph_app.webview_preview_warm_refresh_secs();
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut warm_secs)
+                            .range(5..=3600)
+                            .suffix("s"),
+                    )
+                    .changed()
+                {
+                    graph_app.set_webview_preview_warm_refresh_secs(warm_secs);
+                }
+            });
 
             #[cfg(feature = "diagnostics")]
             {

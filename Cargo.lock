@@ -4444,6 +4444,8 @@ dependencies = [
  "url",
  "uuid",
  "webdriver_server",
+ "webview2-com",
+ "windows 0.58.0",
  "windows-sys 0.61.2",
  "winit",
  "winresource",

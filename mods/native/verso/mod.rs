@@ -31,6 +31,8 @@ pub(crate) mod finger;
 pub(crate) mod gemini;
 pub(crate) mod gopher;
 #[cfg(feature = "wry")]
+pub(crate) mod wry_frame_source;
+#[cfg(feature = "wry")]
 pub(crate) mod wry_manager;
 #[cfg(feature = "wry")]
 pub(crate) mod wry_types;
@@ -75,6 +77,45 @@ pub(crate) fn ensure_wry_overlay_for_node(
 pub(crate) fn sync_wry_overlay_for_node(node_key: NodeKey, rect: OverlayRect, visible: bool) {
     let node_id = node_key.index() as u64;
     with_wry_manager(|manager| manager.sync_overlay(node_id, rect, visible));
+}
+
+#[cfg(feature = "wry")]
+pub(crate) fn wry_composited_texture_support()
+-> crate::mods::native::verso::wry_types::WryCompositedTextureSupport {
+    with_wry_manager(|manager| manager.composited_texture_support())
+}
+
+#[cfg(feature = "wry")]
+pub(crate) fn wry_frame_state_for_node(
+    node_key: NodeKey,
+) -> Option<crate::mods::native::verso::wry_frame_source::WryFrameState> {
+    let node_id = node_key.index() as u64;
+    with_wry_manager(|manager| manager.frame_state_for_node(node_id).cloned())
+}
+
+#[cfg(feature = "wry")]
+pub(crate) fn wry_frame_png_bytes_for_node(node_key: NodeKey) -> Option<Vec<u8>> {
+    let node_id = node_key.index() as u64;
+    with_wry_manager(|manager| {
+        manager
+            .frame_png_bytes_for_node(node_id)
+            .map(|bytes| bytes.to_vec())
+    })
+}
+
+#[cfg(feature = "wry")]
+pub(crate) fn refresh_wry_frame_for_node(node_key: NodeKey) {
+    let node_id = node_key.index() as u64;
+    with_wry_manager(|manager| manager.refresh_frame_state_for_node(node_id));
+}
+
+#[cfg(feature = "wry")]
+pub(crate) fn refresh_wry_frame_for_node_if_stale(
+    node_key: NodeKey,
+    min_interval: std::time::Duration,
+) -> bool {
+    let node_id = node_key.index() as u64;
+    with_wry_manager(|manager| manager.refresh_frame_state_for_node_if_stale(node_id, min_interval))
 }
 
 /// Navigate an existing wry overlay for `node_key` to `url`.

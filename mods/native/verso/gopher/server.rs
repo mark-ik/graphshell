@@ -21,8 +21,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
-use crate::mods::native::verso::gemini::SimpleDocument;
 use crate::model::archive::ArchivePrivacyClass;
+use crate::mods::native::verso::gemini::SimpleDocument;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -157,7 +157,10 @@ impl GopherCapsuleServer {
         });
 
         log::info!("gopher: capsule server listening on {bound_addr}");
-        Ok(GopherServerHandle { shutdown_tx, bound_addr })
+        Ok(GopherServerHandle {
+            shutdown_tx,
+            bound_addr,
+        })
     }
 }
 
@@ -189,16 +192,14 @@ async fn handle_connection(
         .write_all(response.as_bytes())
         .await
         .map_err(|e| format!("write error: {e}"))?;
-    writer.flush().await.map_err(|e| format!("flush error: {e}"))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| format!("flush error: {e}"))?;
     Ok(())
 }
 
-fn route_selector(
-    selector: &str,
-    registry: &GopherRegistry,
-    hostname: &str,
-    port: u16,
-) -> String {
+fn route_selector(selector: &str, registry: &GopherRegistry, hostname: &str, port: u16) -> String {
     match selector {
         "" | "/" => serve_root_menu(registry, hostname, port),
         s if s.starts_with("/node/") => {
