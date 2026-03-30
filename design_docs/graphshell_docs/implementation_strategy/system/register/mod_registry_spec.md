@@ -6,6 +6,7 @@
 **Related docs:**
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry ecosystem and ownership model)
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) (register hub and routing boundary)
+- [../../../technical_architecture/2026-03-30_protocol_modularity_and_host_capability_model.md](../../../technical_architecture/2026-03-30_protocol_modularity_and_host_capability_model.md) (protocol packaging classes and host-aware modularity)
 
 **Policy authority**: This file is the canonical policy authority for `mod_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
@@ -45,7 +46,14 @@ Canonical interfaces:
 
 - Mods extend registry surfaces; they are not hidden hardcoded subsystems.
 - Capability and dependency failures are explicit.
-- Core seeds keep the app functional with no mods loaded.
+- Core built-ins keep the app functional offline; optional feature mods may be
+  absent or denied without breaking the core floor.
+- "Modular" means capability-scoped and host-aware. It does not require the
+  same binary plugin or mod bundle to load in every host envelope.
+- Portable protocol adapters and native feature mods are both valid extension
+  units, but only the former are expected to span most hosts.
+- Mod absence must degrade explicitly through registry state and diagnostics,
+  not through silent fallback or flattening everything into core.
 
 ## Planned Extensions
 

@@ -16,6 +16,8 @@ engine that serves it, and describe how it fits into each host envelope.
   portable web core
 - [`2026-03-29_workspace_restructuring_plan.md`](2026-03-29_workspace_restructuring_plan.md)
   — Cargo workspace layout: crate responsibilities, dependency graph, migration steps
+- [`2026-03-30_protocol_modularity_and_host_capability_model.md`](2026-03-30_protocol_modularity_and_host_capability_model.md)
+  — canonical protocol packaging classes, default portable floor, and host-aware degradation model
 - [`2026-02-18_universal_node_content_model.md`](2026-02-18_universal_node_content_model.md)
   — node as persistent content container independent of renderer
 - [`../../verso_docs/technical_architecture/VERSO_AS_PEER.md`](../../verso_docs/technical_architecture/VERSO_AS_PEER.md)
@@ -188,6 +190,21 @@ For protocols with no secure analogue (Gopher, Nex, Finger, Guppy): render
 faithfully. Show the protocol name and plaintext nature as a neutral
 informational indicator — not an alarm. Warn on encryption *failures*
 (untrusted or expired certificates), not on encryption *absence*.
+
+### 3.4 Packaging and ownership boundary
+
+The MiddleNet engine owns shared document-model adapters and rendering
+semantics. It does **not** own transport realization.
+
+- `graphshell-web-core` owns document/render adapters and the intermediate
+  document model.
+- `graphshell-comms` or equivalent portable protocol logic owns protocol byte
+  parsing/composition.
+- Hosts and native mods own raw sockets, TLS sessions, browser APIs, server
+  listeners, and other host-specific runtime capabilities.
+
+Default vs optional protocol packaging is governed by
+[`2026-03-30_protocol_modularity_and_host_capability_model.md`](2026-03-30_protocol_modularity_and_host_capability_model.md).
 
 ---
 

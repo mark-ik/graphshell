@@ -6,6 +6,7 @@
 **Related docs:**
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry ecosystem and ownership model)
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) (register hub and routing boundary)
+- [../../../technical_architecture/2026-03-30_protocol_modularity_and_host_capability_model.md](../../../technical_architecture/2026-03-30_protocol_modularity_and_host_capability_model.md) (canonical protocol packaging and host-capability model)
 
 **Policy authority**: This file is the canonical policy authority for `protocol_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
@@ -38,6 +39,8 @@ Out of scope:
 - viewer selection
 - document presentation policy
 - tile-tree routing
+- non-engine social/collaboration/storage systems unless they are explicitly
+  exposed as receivable protocol handlers
 
 ## Canonical Model
 
@@ -48,16 +51,32 @@ Canonical interfaces:
 - `can_handle(scheme) -> bool`
 - `describe_capability(id) -> ProtocolCapability`
 
+`ProtocolCapability` is the future source of truth for protocol packaging and
+host availability. At minimum, each capability description must document:
+
+- `scheme_or_family`
+- `lane_kind` (`document`, `discovery`, `mutation`, `collaboration`, `storage_replication`)
+- `packaging_class` (`core_builtin`, `default_portable`, `optional_portable`, `native_only`, `non_engine_layer`)
+- `host_support_profile`
+- `requires_capabilities`
+- `degradation_mode`
+
 ## Normative Core
 
 - Protocol resolution is deterministic and explicit; unknown schemes fail with diagnostics, not silent fallback.
 - Core seeds keep the app functional offline without mods.
 - Protocol handlers produce content streams or structured load failures; they do not choose viewers.
+- Not every protocol in the Graphshell ecosystem belongs in the middlenet
+  engine or in this registry as a first-class handler. Identity fabrics,
+  collaboration fabrics, and storage/replication systems remain outside this
+  registry unless a specific receivable handler contract is adopted.
 
 ## Planned Extensions
 
-- Verse/peer protocol providers (`ipfs://`, `verse://`, `did:` scheme handling)
-- Note: `activitypub://` is not a planned handler — ActivityPub is reference-only, not an adopted Verse standard
+- Explicit host-support and degradation metadata on `ProtocolCapability`
+- Receivable peer/content handlers where explicitly adopted (`ipfs://`,
+  `ipns://`, `magnet:`, `verse://`, `did:` are examples of possible future
+  candidates, not automatic middlenet-engine members)
 - richer capability diagnostics and trust policy hooks
 
 ## Prospective Capabilities

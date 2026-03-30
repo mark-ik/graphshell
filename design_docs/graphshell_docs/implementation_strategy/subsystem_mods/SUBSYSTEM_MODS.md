@@ -10,7 +10,8 @@
 - `system/register/action_registry_spec.md`
 - `system/registry_runtime_spec.md`
 - `../subsystem_security/SUBSYSTEM_SECURITY.md`
- - `2026-03-08_unified_mods_architecture_plan.md`
+- `2026-03-08_unified_mods_architecture_plan.md`
+- `../../technical_architecture/2026-03-30_protocol_modularity_and_host_capability_model.md`
 
 **Policy authority**: This file is the single canonical policy authority for the Mods subsystem.
 Supporting mods docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -90,6 +91,27 @@ The Mods subsystem does not define what any specific mod does — that belongs t
 | WASM Mod | `extism` dynamic load | Yes | Runtime (planned) |
 
 Both tiers are intended to use the same `ModManifest` shape. However, the current runtime primarily implements the native tier; the WASM tier remains a planned track, not a landed runtime path. See `2026-03-08_unified_mods_architecture_plan.md` for the canonical split between built-ins, native mods, and future WASM plugins.
+
+### 6.1 Relationship to protocol packaging
+
+The Mods subsystem taxonomy and the protocol packaging taxonomy are related but
+not identical.
+
+- The Mods subsystem distinguishes built-ins, native feature mods, and planned
+  WASM plugin mods.
+- The protocol packaging model distinguishes `CoreBuiltins`,
+  `DefaultPortableProtocolSet`, `OptionalPortableProtocolAdapters`,
+  `NativeFeatureMods`, and `NonEngineNetworkLayers`.
+
+Alignment rule:
+
+- protocol modularity is **capability-scoped and host-aware**, not a claim that
+  one binary mod package must load everywhere,
+- portable protocol adapters and native feature mods are both valid extension
+  units,
+- only portable adapters are expected to span most host envelopes,
+- host-bounded protocol absence must degrade explicitly through registry state
+  and diagnostics.
 
 ---
 

@@ -18,6 +18,8 @@ protocol/capability lives in that layout.
   — portable MiddleNet engine spec; defines `graphshell-web-core`
 - [`2026-03-29_portable_web_core_host_envelopes.md`](2026-03-29_portable_web_core_host_envelopes.md)
   — host envelope model; capability portability survey (§12)
+- [`2026-03-30_protocol_modularity_and_host_capability_model.md`](2026-03-30_protocol_modularity_and_host_capability_model.md)
+  — canonical protocol packaging classes and host-aware protocol placement
 
 ---
 
@@ -152,6 +154,33 @@ GPU surface, window management.
 The desktop host is also the home for `wasm32-wasip2`-tier capabilities
 that run natively without overhead: server listeners, iroh QUIC transport,
 fjall/redb storage backends.
+
+---
+
+## 3A. Protocol Packaging Expectations
+
+The workspace shape should be read together with the canonical protocol
+modularity model.
+
+Packaging rule:
+
+- `graphshell-core` never owns protocol transport realization.
+- `graphshell-web-core` owns portable rendering/document semantics.
+- `graphshell-comms` owns portable protocol parsing/composition and client-side
+  protocol logic.
+- hosts and native feature mods own raw sockets, TLS sessions, browser APIs,
+  keychains, server listeners, and native viewers.
+
+Recommended packaging classes:
+
+- `CoreBuiltins` — system-owned offline floor
+- `DefaultPortableProtocolSet` — practical cross-host baseline
+- `OptionalPortableProtocolAdapters` — extra cross-host lanes
+- `NativeFeatureMods` — host-bounded capability bundles
+- `NonEngineNetworkLayers` — adjacent identity/collaboration/storage systems
+
+This gives later extraction work a canonical target for deciding whether a
+protocol belongs in a portable crate, a host crate, or a non-engine subsystem.
 
 ---
 
