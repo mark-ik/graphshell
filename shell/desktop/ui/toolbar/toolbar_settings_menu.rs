@@ -197,6 +197,10 @@ pub(super) fn render_settings_menu(
 
             ui.separator();
             ui.label("Browser");
+            if ui.button("Open Config Page").clicked() {
+                super::request_open_settings_page(graph_app, frame_intents, "servo:config");
+                ui.close();
+            }
             if ui.button("Open Preferences Page").clicked() {
                 super::request_open_settings_page(graph_app, frame_intents, "servo:preferences");
                 ui.close();

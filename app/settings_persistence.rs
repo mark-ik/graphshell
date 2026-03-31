@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::*;
 
 /// User preference for how the application theme is selected.
@@ -56,11 +58,19 @@ pub enum SettingsToolPage {
     Advanced,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceUserStylesheetSetting {
+    pub path: String,
+    pub enabled: bool,
+}
+
 impl GraphBrowserApp {
     pub(crate) const SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME: &str =
         "settings.default_web_viewer_backend";
     pub(crate) const SETTINGS_WRY_RENDER_MODE_PREFERENCE_NAME: &str =
         "settings.wry_render_mode_preference";
+    pub(crate) const SETTINGS_WORKSPACE_USER_STYLESHEETS_NAME: &str =
+        "settings.workspace_user_stylesheets";
     pub fn is_reserved_workspace_layout_name(name: &str) -> bool {
         name == "latest"
             || name == Self::SESSION_WORKSPACE_LAYOUT_NAME
@@ -82,6 +92,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_WRY_ENABLED_NAME
             || name == Self::SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME
             || name == Self::SETTINGS_WRY_RENDER_MODE_PREFERENCE_NAME
+            || name == Self::SETTINGS_WORKSPACE_USER_STYLESHEETS_NAME
             || name == Self::SETTINGS_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS_NAME
             || name == Self::SETTINGS_WEBVIEW_PREVIEW_WARM_REFRESH_SECS_NAME
             || name == Self::SETTINGS_WORKBENCH_HOST_PINNED_NAME
@@ -494,6 +505,105 @@ impl GraphBrowserApp {
         self.save_wry_render_mode_preference();
     }
 
+    pub fn workspace_user_stylesheets(&self) -> &[WorkspaceUserStylesheetSetting] {
+        &self.workspace.chrome_ui.workspace_user_stylesheets
+    }
+
+    pub fn add_workspace_user_stylesheet(&mut self, path: &str) -> Result<(), String> {
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            return Err("Enter a stylesheet path first.".to_string());
+        }
+
+        let (resolved, _) = crate::prefs::read_user_stylesheet_source(Path::new(trimmed))
+            .map_err(|error| format!("Failed to load stylesheet '{trimmed}': {error}"))?;
+        let normalized_path = resolved.to_string_lossy().into_owned();
+
+        if let Some(entry) = self
+            .workspace
+            .chrome_ui
+            .workspace_user_stylesheets
+            .iter_mut()
+            .find(|entry| entry.path == normalized_path)
+        {
+            entry.enabled = true;
+        } else {
+            self.workspace
+                .chrome_ui
+                .workspace_user_stylesheets
+                .push(WorkspaceUserStylesheetSetting {
+                    path: normalized_path,
+                    enabled: true,
+                });
+        }
+
+        self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+        self.queue_workspace_user_stylesheet_runtime_apply(true);
+        Ok(())
+    }
+
+    pub fn set_workspace_user_stylesheet_enabled(&mut self, index: usize, enabled: bool) {
+        let Some(entry) = self
+            .workspace
+            .chrome_ui
+            .workspace_user_stylesheets
+            .get_mut(index)
+        else {
+            return;
+        };
+
+        if entry.enabled == enabled {
+            return;
+        }
+
+        entry.enabled = enabled;
+        self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+        self.queue_workspace_user_stylesheet_runtime_apply(true);
+    }
+
+    pub fn remove_workspace_user_stylesheet(&mut self, index: usize) {
+        if index >= self.workspace.chrome_ui.workspace_user_stylesheets.len() {
+            return;
+        }
+
+        self.workspace
+            .chrome_ui
+            .workspace_user_stylesheets
+            .remove(index);
+        self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+        self.queue_workspace_user_stylesheet_runtime_apply(true);
+    }
+
+    pub fn reload_workspace_user_stylesheets(&mut self) {
+        self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+        self.queue_workspace_user_stylesheet_runtime_apply(true);
+    }
+
+    pub(crate) fn reconcile_workspace_user_stylesheets_with_runtime(
+        &mut self,
+        runtime_snapshot: Vec<WorkspaceUserStylesheetSetting>,
+    ) {
+        if !self.workspace.chrome_ui.workspace_user_stylesheets_initialized {
+            self.workspace.chrome_ui.workspace_user_stylesheets = runtime_snapshot;
+            self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+            self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced = true;
+            self.workspace.chrome_ui.workspace_user_stylesheet_status_message = None;
+            return;
+        }
+
+        if self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced {
+            return;
+        }
+
+        if self.enabled_workspace_user_stylesheets() == runtime_snapshot {
+            self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced = true;
+            self.workspace.chrome_ui.workspace_user_stylesheet_status_message = None;
+            return;
+        }
+
+        self.queue_workspace_user_stylesheet_runtime_apply(true);
+    }
+
     pub fn webview_preview_active_refresh_secs(&self) -> u64 {
         self.workspace.chrome_ui.webview_preview_active_refresh_secs
     }
@@ -561,6 +671,16 @@ impl GraphBrowserApp {
                 .wry_render_mode_preference
                 .to_string(),
         );
+    }
+
+    fn save_workspace_user_stylesheets(&mut self) {
+        let Ok(encoded) = serde_json::to_string(&self.workspace.chrome_ui.workspace_user_stylesheets)
+        else {
+            warn!("Failed to serialize workspace user stylesheet settings");
+            return;
+        };
+
+        self.save_workspace_layout_json(Self::SETTINGS_WORKSPACE_USER_STYLESHEETS_NAME, &encoded);
     }
 
     fn save_webview_preview_active_refresh_secs(&mut self) {
@@ -851,6 +971,21 @@ impl GraphBrowserApp {
                 _ => warn!("Ignoring invalid persisted wry enabled flag: '{raw}'"),
             }
         }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_WORKSPACE_USER_STYLESHEETS_NAME)
+        {
+            match serde_json::from_str::<Vec<WorkspaceUserStylesheetSetting>>(&raw) {
+                Ok(entries) => {
+                    self.workspace.chrome_ui.workspace_user_stylesheets = entries;
+                    self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+                    self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced = false;
+                    self.workspace.chrome_ui.workspace_user_stylesheet_status_message = None;
+                }
+                Err(error) => warn!(
+                    "Ignoring invalid persisted workspace user stylesheet settings: {error}"
+                ),
+            }
+        }
         self.workspace.chrome_ui.default_web_viewer_backend = self
             .load_workspace_layout_json(Self::SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME)
             .and_then(|raw| raw.parse::<DefaultWebViewerBackend>().ok())
@@ -1043,5 +1178,107 @@ impl GraphBrowserApp {
             let normalized = value.trim().to_ascii_lowercase();
             (!normalized.is_empty()).then_some(normalized)
         })
+    }
+
+    fn enabled_workspace_user_stylesheets(&self) -> Vec<WorkspaceUserStylesheetSetting> {
+        self.workspace
+            .chrome_ui
+            .workspace_user_stylesheets
+            .iter()
+            .filter(|entry| entry.enabled)
+            .cloned()
+            .collect()
+    }
+
+    fn build_runtime_user_stylesheet_specs(
+        entries: &[WorkspaceUserStylesheetSetting],
+    ) -> (Vec<RuntimeUserStylesheetSpec>, Vec<String>) {
+        let mut stylesheets = Vec::new();
+        let mut failures = Vec::new();
+
+        for entry in entries.iter().filter(|entry| entry.enabled) {
+            match crate::prefs::read_user_stylesheet_source(Path::new(&entry.path)) {
+                Ok((path, source)) => stylesheets.push(RuntimeUserStylesheetSpec { path, source }),
+                Err(error) => failures.push(format!("{} ({error})", entry.path)),
+            }
+        }
+
+        (stylesheets, failures)
+    }
+
+    fn queue_workspace_user_stylesheet_runtime_apply(&mut self, reload: bool) {
+        let (stylesheets, failures) = Self::build_runtime_user_stylesheet_specs(
+            &self.workspace.chrome_ui.workspace_user_stylesheets,
+        );
+        self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced = true;
+        self.workspace.chrome_ui.workspace_user_stylesheet_status_message = if failures.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "Skipped unreadable stylesheet entries: {}",
+                failures.join("; ")
+            ))
+        };
+        self.save_workspace_user_stylesheets();
+        self.set_pending_apply_user_stylesheets(stylesheets, reload);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adding_workspace_user_stylesheet_queues_runtime_apply() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let stylesheet_path = temp_dir.path().join("user.css");
+        std::fs::write(&stylesheet_path, "body { color: rgb(4, 5, 6); }")
+            .expect("stylesheet should be writable");
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.add_workspace_user_stylesheet(stylesheet_path.to_str().unwrap())
+            .expect("stylesheet should be accepted");
+
+        let (stylesheets, reload) = app
+            .take_pending_apply_user_stylesheets()
+            .expect("runtime apply command should be queued");
+        assert!(reload);
+        assert_eq!(app.workspace_user_stylesheets().len(), 1);
+        assert_eq!(stylesheets.len(), 1);
+        assert_eq!(stylesheets[0].source, "body { color: rgb(4, 5, 6); }");
+        assert_eq!(stylesheets[0].path, stylesheet_path);
+    }
+
+    #[test]
+    fn disabling_workspace_user_stylesheet_clears_runtime_apply_list() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let stylesheet_path = temp_dir.path().join("user.css");
+        std::fs::write(&stylesheet_path, "body { color: rgb(7, 8, 9); }")
+            .expect("stylesheet should be writable");
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.add_workspace_user_stylesheet(stylesheet_path.to_str().unwrap())
+            .expect("stylesheet should be accepted");
+        let _ = app.take_pending_apply_user_stylesheets();
+
+        app.set_workspace_user_stylesheet_enabled(0, false);
+        let (stylesheets, reload) = app
+            .take_pending_apply_user_stylesheets()
+            .expect("runtime apply command should be queued");
+
+        assert!(reload);
+        assert!(stylesheets.is_empty());
+    }
+
+    #[test]
+    fn runtime_bootstrap_populates_workspace_user_stylesheets_once() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.reconcile_workspace_user_stylesheets_with_runtime(vec![WorkspaceUserStylesheetSetting {
+            path: "C:/styles/one.css".to_string(),
+            enabled: true,
+        }]);
+
+        assert_eq!(app.workspace_user_stylesheets().len(), 1);
+        assert!(app.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced);
     }
 }

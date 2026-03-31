@@ -306,9 +306,7 @@ impl Default for ViewerRegistry {
         registry.register_capabilities(
             "viewer:webview",
             ViewerSubsystemCapabilities {
-                accessibility: CapabilityDeclaration::partial(
-                    "WebView accessibility tree injection deferred due accesskit version mismatch",
-                ),
+                accessibility: CapabilityDeclaration::full(),
                 security: CapabilityDeclaration::full(),
                 storage: CapabilityDeclaration::full(),
                 history: CapabilityDeclaration::full(),
@@ -586,6 +584,11 @@ mod tests {
 
         assert_eq!(capability.viewer_id, "viewer:webview");
         assert_eq!(capability.render_mode, ViewerRenderMode::CompositedTexture);
+        assert_eq!(
+            capability.subsystems.accessibility.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(capability.subsystems.accessibility.reason, None);
         assert!(capability.overlay_affordance);
         assert!(
             capability

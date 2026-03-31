@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -2081,7 +2082,9 @@ fn settings_page_summary(page: SettingsToolPage) -> &'static str {
         SettingsToolPage::Persistence => "Storage paths, snapshots, and graph persistence.",
         SettingsToolPage::Physics => "Simulation, camera, and layout behavior.",
         SettingsToolPage::Sync => "Verse and peer-facing sync controls.",
-        SettingsToolPage::Appearance => "Theme, toasts, and viewer/backend preferences.",
+        SettingsToolPage::Appearance => {
+            "Theme, toasts, viewer/backend preferences, and shared webview stylesheets."
+        }
         SettingsToolPage::Keybindings => "Input behavior, omnibar defaults, and keybindings.",
         SettingsToolPage::Advanced => "Registry-level defaults and diagnostic launchers.",
     }
@@ -2466,6 +2469,102 @@ fn render_settings_surface_in_ui_with_control_panel(
                                 .command_notice,
                             reason,
                         );
+                    }
+
+                    ui.separator();
+                    ui.label("User Stylesheets");
+                    themed_secondary_small_label(
+                        ui,
+                        phase3_resolve_active_theme(app.default_registry_theme_id())
+                            .tokens
+                            .radial_chrome_text,
+                        "Apply shared CSS files to every Servo-backed WebView in this workspace. Changes update the shared user content manager and reload affected pages.",
+                    );
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(
+                                &mut app.workspace.chrome_ui.workspace_user_stylesheet_add_input,
+                            )
+                            .desired_width(280.0)
+                            .hint_text("C:\\path\\to\\user.css"),
+                        );
+                        if ui.button("Add Stylesheet").clicked() {
+                            let input = app
+                                .workspace
+                                .chrome_ui
+                                .workspace_user_stylesheet_add_input
+                                .clone();
+                            match app.add_workspace_user_stylesheet(&input) {
+                                Ok(()) => {
+                                    app.workspace.chrome_ui.workspace_user_stylesheet_add_input
+                                        .clear();
+                                }
+                                Err(error) => {
+                                    app.workspace.chrome_ui.workspace_user_stylesheet_status_message =
+                                        Some(error);
+                                }
+                            }
+                        }
+                        if ui.button("Reload Enabled").clicked() {
+                            app.reload_workspace_user_stylesheets();
+                        }
+                    });
+                    if let Some(message) = app
+                        .workspace
+                        .chrome_ui
+                        .workspace_user_stylesheet_status_message
+                        .as_deref()
+                    {
+                        themed_secondary_small_label(
+                            ui,
+                            phase3_resolve_active_theme(app.default_registry_theme_id())
+                                .tokens
+                                .command_notice,
+                            message,
+                        );
+                    }
+                    if app.workspace_user_stylesheets().is_empty() {
+                        themed_secondary_small_label(
+                            ui,
+                            phase3_resolve_active_theme(app.default_registry_theme_id())
+                                .tokens
+                                .radial_chrome_text,
+                            "No workspace-managed stylesheets are configured.",
+                        );
+                    }
+                    let stylesheets = app.workspace_user_stylesheets().to_vec();
+                    for (index, stylesheet) in stylesheets.into_iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            let mut enabled = stylesheet.enabled;
+                            if ui.checkbox(&mut enabled, "").changed() {
+                                app.set_workspace_user_stylesheet_enabled(index, enabled);
+                            }
+
+                            ui.vertical(|ui| {
+                                let label = Path::new(&stylesheet.path)
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or(stylesheet.path.as_str());
+                                ui.label(label);
+                                themed_secondary_small_label(
+                                    ui,
+                                    phase3_resolve_active_theme(app.default_registry_theme_id())
+                                        .tokens
+                                        .radial_chrome_text,
+                                    &stylesheet.path,
+                                );
+                            });
+
+                            let reload_button = ui
+                                .add_enabled(stylesheet.enabled, egui::Button::new("Reload"))
+                                .on_hover_text("Reload all enabled workspace stylesheets from disk");
+                            if reload_button.clicked() {
+                                app.reload_workspace_user_stylesheets();
+                            }
+                            if ui.button("Remove").clicked() {
+                                app.remove_workspace_user_stylesheet(index);
+                            }
+                        });
                     }
                 }
                 SettingsToolPage::Keybindings => {

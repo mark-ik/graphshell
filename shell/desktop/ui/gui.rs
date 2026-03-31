@@ -75,7 +75,9 @@ use crate::util::CoordBridge;
 
 #[path = "gui/accessibility.rs"]
 mod accessibility;
-pub(crate) use accessibility::TileAffordanceAccessibilityProjection;
+pub(crate) use accessibility::{
+    TileAffordanceAccessibilityProjection, WebViewAccessibilityBridgeHealthSnapshot,
+};
 #[cfg(test)]
 pub(crate) use accessibility::selected_node_affordance_projection_from_annotations;
 #[path = "gui/accesskit_events.rs"]
@@ -1092,6 +1094,13 @@ impl Gui {
         &self.diagnostics_state
     }
 
+    #[cfg(feature = "diagnostics")]
+    pub(crate) fn webview_accessibility_bridge_health_snapshot(
+        active_anchor_count: usize,
+    ) -> WebViewAccessibilityBridgeHealthSnapshot {
+        accessibility::webview_accessibility_bridge_health_snapshot(active_anchor_count)
+    }
+
     pub(crate) fn notify_accessibility_tree_update(
         &mut self,
         webview_id: WebViewId,
@@ -1100,8 +1109,20 @@ impl Gui {
         // Store the most recent update per runtime viewer; it will be injected into
         // egui's accessibility tree at the start of the next frame inside
         // the context.run() callback.
-        self.pending_webview_a11y_updates
-            .insert(webview_id, tree_update);
+        let replaced_existing = self
+            .pending_webview_a11y_updates
+            .insert(webview_id, tree_update)
+            .is_some();
+
+        #[cfg(feature = "diagnostics")]
+        if let Some(tree_update) = self.pending_webview_a11y_updates.get(&webview_id) {
+            accessibility::record_webview_a11y_update_queued(
+                webview_id,
+                tree_update,
+                replaced_existing,
+                self.pending_webview_a11y_updates.len(),
+            );
+        }
     }
 
     pub(crate) fn selected_node_affordance_projection(

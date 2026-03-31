@@ -35,6 +35,12 @@ pub enum BrowserCommandTarget {
     ChromeProjection { fallback_node: Option<NodeKey> },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeUserStylesheetSpec {
+    pub path: PathBuf,
+    pub source: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppCommand {
     BrowserCommand {
@@ -42,6 +48,10 @@ pub enum AppCommand {
         target: BrowserCommandTarget,
     },
     ReloadAll,
+    ApplyUserStylesheets {
+        stylesheets: Vec<RuntimeUserStylesheetSpec>,
+        reload: bool,
+    },
     CameraCommand {
         command: CameraCommand,
         target_view: Option<GraphViewId>,

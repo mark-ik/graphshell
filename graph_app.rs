@@ -127,8 +127,8 @@ mod history_runtime;
 #[path = "app/intents.rs"]
 mod intents;
 pub use intents::{
-    AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation, RuntimeEvent,
-    ViewAction,
+    AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation,
+    RuntimeEvent, RuntimeUserStylesheetSpec, ViewAction,
 };
 
 #[path = "app/clip_capture.rs"]
@@ -195,7 +195,8 @@ mod startup_persistence;
 #[path = "app/settings_persistence.rs"]
 mod settings_persistence;
 pub use settings_persistence::{
-    DefaultWebViewerBackend, SettingsToolPage, ThemeMode, WryRenderModePreference,
+    DefaultWebViewerBackend, SettingsToolPage, ThemeMode, WorkspaceUserStylesheetSetting,
+    WryRenderModePreference,
 };
 
 #[path = "app/workbench_layout_policy.rs"]
@@ -987,6 +988,11 @@ impl GraphBrowserApp {
                     wry_enabled: false,
                     default_web_viewer_backend: DefaultWebViewerBackend::Servo,
                     wry_render_mode_preference: WryRenderModePreference::Auto,
+                    workspace_user_stylesheets: Vec::new(),
+                    workspace_user_stylesheets_initialized: false,
+                    workspace_user_stylesheets_runtime_synced: false,
+                    workspace_user_stylesheet_add_input: String::new(),
+                    workspace_user_stylesheet_status_message: None,
                     webview_preview_active_refresh_secs:
                         Self::DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS,
                     webview_preview_warm_refresh_secs:
@@ -1142,6 +1148,11 @@ impl GraphBrowserApp {
                     wry_enabled: false,
                     default_web_viewer_backend: DefaultWebViewerBackend::Servo,
                     wry_render_mode_preference: WryRenderModePreference::Auto,
+                    workspace_user_stylesheets: Vec::new(),
+                    workspace_user_stylesheets_initialized: false,
+                    workspace_user_stylesheets_runtime_synced: false,
+                    workspace_user_stylesheet_add_input: String::new(),
+                    workspace_user_stylesheet_status_message: None,
                     webview_preview_active_refresh_secs:
                         Self::DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS,
                     webview_preview_warm_refresh_secs:

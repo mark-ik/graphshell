@@ -190,8 +190,10 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         let control_id = embedder_control.id();
         match embedder_control {
             EmbedderControl::InputMethod(input_method_control) => {
-                self.visible_input_methods.borrow_mut().push(control_id);
-                self.host.on_ime_show(input_method_control);
+                if input_method_control.allow_virtual_keyboard() {
+                    self.visible_input_methods.borrow_mut().push(control_id);
+                    self.host.on_ime_show(input_method_control);
+                }
             }
             EmbedderControl::SimpleDialog(simple_dialog) => match simple_dialog {
                 SimpleDialog::Alert(alert_dialog) => {
@@ -306,6 +308,9 @@ impl App {
             .expect("Failed to parse initial URL");
 
         let user_content_manager = Rc::new(UserContentManager::new(&servo));
+        for user_stylesheet in &init.app_preferences.user_stylesheets {
+            user_content_manager.add_stylesheet(user_stylesheet.clone());
+        }
         let state = Rc::new(RunningAppState::new(
             servo,
             init.app_preferences,

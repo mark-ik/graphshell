@@ -466,6 +466,20 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
     }
 
     if let Some(state) = app_state {
+        graph_app.reconcile_workspace_user_stylesheets_with_runtime(
+            state.user_stylesheet_settings_snapshot(),
+        );
+        while let Some((stylesheets, reload)) = graph_app.take_pending_apply_user_stylesheets() {
+            state.replace_user_stylesheets(&stylesheets);
+            if reload {
+                for window in state.windows().values() {
+                    window.set_needs_update();
+                    for (_, webview) in window.webviews() {
+                        webview.reload();
+                    }
+                }
+            }
+        }
         while graph_app.take_pending_reload_all() {
             for window in state.windows().values() {
                 window.set_needs_update();

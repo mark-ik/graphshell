@@ -20,6 +20,20 @@ impl GraphBrowserApp {
         self.enqueue_app_command(AppCommand::ReloadAll);
     }
 
+    pub(crate) fn set_pending_apply_user_stylesheets(
+        &mut self,
+        stylesheets: Vec<RuntimeUserStylesheetSpec>,
+        reload: bool,
+    ) {
+        let _ = self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::ApplyUserStylesheets { .. })
+        });
+        self.enqueue_app_command(AppCommand::ApplyUserStylesheets {
+            stylesheets,
+            reload,
+        });
+    }
+
     pub(crate) fn take_pending_browser_command(
         &mut self,
     ) -> Option<(BrowserCommandTarget, BrowserCommand)> {
@@ -34,6 +48,17 @@ impl GraphBrowserApp {
     pub(crate) fn take_pending_reload_all(&mut self) -> bool {
         self.take_pending_app_command(|command| matches!(command, AppCommand::ReloadAll))
             .is_some()
+    }
+
+    pub(crate) fn take_pending_apply_user_stylesheets(
+        &mut self,
+    ) -> Option<(Vec<RuntimeUserStylesheetSpec>, bool)> {
+        match self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::ApplyUserStylesheets { .. })
+        })? {
+            AppCommand::ApplyUserStylesheets { stylesheets, reload } => Some((stylesheets, reload)),
+            _ => None,
+        }
     }
 
     pub(crate) fn set_pending_camera_command(

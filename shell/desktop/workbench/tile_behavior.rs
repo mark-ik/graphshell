@@ -563,26 +563,12 @@ impl<'a> GraphshellTileBehavior<'a> {
 
     #[cfg(feature = "diagnostics")]
     fn accessibility_bridge_health_snapshot(
-        _graph_app: &GraphBrowserApp,
+        graph_app: &GraphBrowserApp,
     ) -> AccessibilityBridgeHealthSnapshot {
-        // Placeholder snapshot capturing bridge health state structure.
-        // In production, these would be populated by querying the bridge subsystem,
-        // diagnostics channels, and runtime health state.
-        // For now, we surface the structure so bridge health observability is visible.
-
-        let update_queue_size = 0; // Would query bridge pending updates queue
-        let anchor_count = 0; // Would count active WebView → egui::Id anchors
-        let dropped_update_count = 0; // Would query cumulative dropped update counter
-        let focus_target = None; // Would query current focus target in tree
-        let degradation_state = "none".to_string(); // Would query bridge health status
-
-        AccessibilityBridgeHealthSnapshot {
-            update_queue_size,
-            anchor_count,
-            dropped_update_count,
-            focus_target,
-            degradation_state,
-        }
+        let active_anchor_count = graph_app.webview_node_mappings().count();
+        crate::shell::desktop::ui::gui::Gui::webview_accessibility_bridge_health_snapshot(
+            active_anchor_count,
+        )
     }
 
     #[cfg(feature = "diagnostics")]
@@ -1244,19 +1230,8 @@ struct AccessibilityInspectorSnapshot {
 }
 
 #[cfg(feature = "diagnostics")]
-#[derive(Debug, Clone)]
-struct AccessibilityBridgeHealthSnapshot {
-    /// Number of pending accessibility tree updates queued for processing
-    update_queue_size: usize,
-    /// Number of active WebView → egui::Id anchors for tree injection
-    anchor_count: usize,
-    /// Cumulative count of dropped/lost accessibility updates
-    dropped_update_count: usize,
-    /// Current focus target in accessibility tree (if any)
-    focus_target: Option<String>,
-    /// Degradation indicator: "none" | "warning" | "error"
-    degradation_state: String,
-}
+type AccessibilityBridgeHealthSnapshot =
+    crate::shell::desktop::ui::gui::WebViewAccessibilityBridgeHealthSnapshot;
 
 #[cfg(feature = "diagnostics")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

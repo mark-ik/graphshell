@@ -25,9 +25,10 @@ use servo::{
     Preferences, Servo, ServoDelegate, ServoError, UserContentManager, WebView, WebViewDelegate,
     WebViewId, pref,
 };
+use servo::user_contents::UserStyleSheet;
 use url::Url;
 
-use crate::app::PendingCreateToken;
+use crate::app::{PendingCreateToken, RuntimeUserStylesheetSpec, WorkspaceUserStylesheetSetting};
 use crate::prefs::{AppPreferences, EXPERIMENTAL_PREFS};
 use crate::shell::desktop::host::embedder::EmbedderCore;
 #[cfg(all(
@@ -127,6 +128,11 @@ struct PendingCreateStore {
     next_token: Cell<u64>,
 }
 
+struct ManagedUserStylesheet {
+    path: String,
+    stylesheet: Rc<UserStyleSheet>,
+}
+
 impl Default for PendingCreateStore {
     fn default() -> Self {
         Self {
@@ -216,6 +222,9 @@ pub(crate) struct RunningAppState {
 
     /// The [`UserContentManager`] for all `WebView`s created.
     pub(crate) user_content_manager: Rc<UserContentManager>,
+
+    /// File-backed stylesheets currently managed through the shared user content manager.
+    managed_user_stylesheets: RefCell<Vec<ManagedUserStylesheet>>,
 
     /// Host-side screenshot/output capture state for stable-image workflows.
     stable_image_output: StableImageOutput,
@@ -390,6 +399,16 @@ impl RunningAppState {
 
         let experimental_preferences_enabled =
             Cell::new(app_preferences.experimental_preferences_enabled);
+        let managed_user_stylesheets = app_preferences
+            .user_stylesheets
+            .iter()
+            .filter_map(|stylesheet| {
+                stylesheet.url().to_file_path().ok().map(|path| ManagedUserStylesheet {
+                    path: path.to_string_lossy().into_owned(),
+                    stylesheet: stylesheet.clone(),
+                })
+            })
+            .collect();
 
         Self {
             #[cfg(all(
@@ -403,6 +422,7 @@ impl RunningAppState {
             pending_create_store: Default::default(),
             exit_scheduled: Default::default(),
             user_content_manager,
+            managed_user_stylesheets: RefCell::new(managed_user_stylesheets),
             experimental_preferences_enabled,
             embedder_core,
         }
@@ -669,6 +689,44 @@ impl RunningAppState {
 
     pub(crate) fn handle_focused(&self, window: Rc<EmbedderWindow>) {
         self.embedder_core.focus_window(window);
+    }
+
+    pub(crate) fn user_stylesheet_settings_snapshot(&self) -> Vec<WorkspaceUserStylesheetSetting> {
+        self.managed_user_stylesheets
+            .borrow()
+            .iter()
+            .map(|entry| WorkspaceUserStylesheetSetting {
+                path: entry.path.clone(),
+                enabled: true,
+            })
+            .collect()
+    }
+
+    pub(crate) fn replace_user_stylesheets(&self, stylesheets: &[RuntimeUserStylesheetSpec]) {
+        let previous = {
+            let mut managed = self.managed_user_stylesheets.borrow_mut();
+            std::mem::take(&mut *managed)
+        };
+
+        for entry in previous {
+            self.user_content_manager.remove_stylesheet(entry.stylesheet);
+        }
+
+        let mut next = Vec::with_capacity(stylesheets.len());
+        for stylesheet in stylesheets {
+            let user_stylesheet = Rc::new(UserStyleSheet::new(
+                stylesheet.source.clone(),
+                Url::from_file_path(&stylesheet.path).unwrap(),
+            ));
+            self.user_content_manager
+                .add_stylesheet(user_stylesheet.clone());
+            next.push(ManagedUserStylesheet {
+                path: stylesheet.path.to_string_lossy().into_owned(),
+                stylesheet: user_stylesheet,
+            });
+        }
+
+        *self.managed_user_stylesheets.borrow_mut() = next;
     }
 }
 

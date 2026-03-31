@@ -28,6 +28,7 @@ use super::{
     SelectionEdgeProjectionOverride, SelectionScope, SelectionState, SettingsToolPage,
     SurfaceHostId, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, UxConfigMode,
     ViewDimension, WorkbenchIntent, WorkbenchLayoutConstraint, WorkbenchProfile,
+    WorkspaceUserStylesheetSetting,
 };
 use crate::graph::GraphletKind;
 
@@ -607,6 +608,21 @@ pub struct ChromeUiState {
 
     /// Preferred Wry realization mode for platforms that support multiple modes.
     pub wry_render_mode_preference: crate::app::WryRenderModePreference,
+
+    /// Workspace-managed user stylesheet entries for Servo-backed WebViews.
+    pub workspace_user_stylesheets: Vec<WorkspaceUserStylesheetSetting>,
+
+    /// Whether workspace user stylesheet state has been initialized from persistence or runtime.
+    pub workspace_user_stylesheets_initialized: bool,
+
+    /// Whether runtime `UserContentManager` state matches the workspace stylesheet settings.
+    pub workspace_user_stylesheets_runtime_synced: bool,
+
+    /// Draft path input for adding a workspace user stylesheet.
+    pub workspace_user_stylesheet_add_input: String,
+
+    /// Status message for workspace stylesheet operations.
+    pub workspace_user_stylesheet_status_message: Option<String>,
 
     /// Snapshot refresh cadence in seconds for active webview previews.
     pub webview_preview_active_refresh_secs: u64,

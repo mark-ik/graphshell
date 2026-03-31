@@ -32,8 +32,10 @@ pub(super) fn show_embedder_control(
             );
         }
         EmbedderControl::InputMethod(input_method_control) => {
-            window.visible_input_methods.borrow_mut().push(control_id);
-            window.show_ime(input_method_control);
+            if input_method_control.allow_virtual_keyboard() {
+                window.visible_input_methods.borrow_mut().push(control_id);
+                window.show_ime(input_method_control);
+            }
         }
         EmbedderControl::FilePicker(file_picker) => {
             window.add_dialog(webview_id, Dialog::new_file_dialog(file_picker));

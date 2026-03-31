@@ -5,9 +5,9 @@
 use core::panic;
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::fs::{self, File, read_to_string};
-use std::io::Read;
+use std::fs::{self, read_to_string};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::str::FromStr;
 #[cfg(any(target_os = "android", target_env = "ohos"))]
 use std::sync::OnceLock;
@@ -19,8 +19,8 @@ use log::warn;
 use serde_json::Value;
 use servo::{
     DeviceIndependentPixel, DiagnosticsLogging, Opts, OutputOptions, PrefValue, Preferences,
-    ServoUrl,
 };
+use servo::user_contents::UserStyleSheet;
 use url::Url;
 
 use crate::VERSION;
@@ -80,6 +80,8 @@ pub(crate) struct AppPreferences {
     /// Where to load userscripts from, if any.
     /// and if the option isn't passed userscripts won't be loaded.
     pub userscripts_directory: Option<PathBuf>,
+    /// User stylesheets to apply to every document through the shared user content manager.
+    pub user_stylesheets: Vec<Rc<UserStyleSheet>>,
     /// Override for GraphShell graph persistence directory.
     pub graph_data_dir: Option<PathBuf>,
     /// Override GraphShell persistence snapshot interval in seconds.
@@ -118,6 +120,7 @@ impl Default for AppPreferences {
             output_image_path: None,
             exit_after_stable_image: false,
             userscripts_directory: None,
+            user_stylesheets: Vec::new(),
             graph_data_dir: None,
             graph_snapshot_interval_secs: None,
             worker_idle_threshold_secs: None,
@@ -275,22 +278,41 @@ fn parse_resolution_string(
     }
 }
 
-/// Parse stylesheets into the byte stream.
-fn parse_user_stylesheets(string: String) -> Result<Vec<(Vec<u8>, ServoUrl)>, std::io::Error> {
-    Ok(string
-        .split_whitespace()
-        .map(|filename| {
-            let cwd = env::current_dir().unwrap();
-            let path = cwd.join(filename);
-            let url = ServoUrl::from_url(Url::from_file_path(&path).unwrap());
-            let mut contents = Vec::new();
-            File::open(path)
-                .unwrap()
-                .read_to_end(&mut contents)
-                .unwrap();
-            (contents, url)
-        })
-        .collect())
+/// Parse a space or comma-separated list of stylesheet paths into user stylesheet objects.
+fn parse_user_stylesheets(string: String) -> Result<Vec<Rc<UserStyleSheet>>, std::io::Error> {
+    let mut stylesheets = Vec::new();
+    for path_string in string.split([' ', ',']) {
+        if path_string.is_empty() {
+            continue;
+        }
+
+        stylesheets.push(load_user_stylesheet(Path::new(path_string))?);
+    }
+    Ok(stylesheets)
+}
+
+pub(crate) fn resolve_user_stylesheet_path(path: &Path) -> Result<PathBuf, std::io::Error> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(env::current_dir()?.join(path))
+    }
+}
+
+pub(crate) fn read_user_stylesheet_source(
+    path: &Path,
+) -> Result<(PathBuf, String), std::io::Error> {
+    let resolved = resolve_user_stylesheet_path(path)?;
+    let source = read_to_string(&resolved)?;
+    Ok((resolved, source))
+}
+
+pub(crate) fn load_user_stylesheet(path: &Path) -> Result<Rc<UserStyleSheet>, std::io::Error> {
+    let (resolved, source) = read_user_stylesheet_source(path)?;
+    Ok(Rc::new(UserStyleSheet::new(
+        source,
+        Url::from_file_path(&resolved).unwrap(),
+    )))
 }
 
 /// This is a helper function that fulfills the following parsing task
@@ -434,6 +456,10 @@ struct CmdArgs {
     #[bpaf(argument("0"))]
     devtools: Option<u16>,
 
+    /// Start remote devtools server on a specific host:port listen address.
+    #[bpaf(long("devtools-address"), argument("127.0.0.1:6000"))]
+    devtools_address: Option<String>,
+
     ///
     ///  Whether or not to enable experimental web platform features.
     #[bpaf(long)]
@@ -572,7 +598,7 @@ struct CmdArgs {
     ///
     ///  A user stylesheet to be added to every document.
     #[bpaf(argument::<String>("file.css"), parse(parse_user_stylesheets), fallback(vec![]))]
-    user_stylesheet: Vec<(Vec<u8>, ServoUrl)>,
+    user_stylesheet: Vec<Rc<UserStyleSheet>>,
 
     /// Start remote WebDriver server on port.
     #[bpaf(external)]
@@ -592,7 +618,10 @@ fn update_preferences_from_command_line_arguemnts(
     preferences: &mut Preferences,
     cmd_args: &CmdArgs,
 ) {
-    if let Some(port) = cmd_args.devtools {
+    if let Some(address) = cmd_args.devtools_address.as_deref() {
+        preferences.devtools_server_enabled = true;
+        preferences.devtools_server_listen_address = address.to_string();
+    } else if let Some(port) = cmd_args.devtools {
         preferences.devtools_server_enabled = true;
         preferences.devtools_server_listen_address = format!("127.0.0.1:{port}");
     }
@@ -716,6 +745,7 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
         output_image_path: cmd_args.output.map(|p| p.to_string_lossy().into_owned()),
         exit_after_stable_image: cmd_args.exit,
         userscripts_directory: cmd_args.userscripts,
+        user_stylesheets: cmd_args.user_stylesheet.clone(),
         graph_data_dir: cmd_args.graph_data_dir,
         graph_snapshot_interval_secs: cmd_args.graph_snapshot_interval_secs,
         worker_idle_threshold_secs: cmd_args.worker_idle_threshold_secs,
@@ -748,7 +778,7 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
             .profiler_trace_path
             .map(|p| p.to_string_lossy().into_owned()),
         nonincremental_layout: cmd_args.nonincremental_layout,
-        user_stylesheets: cmd_args.user_stylesheet,
+        user_stylesheets: Vec::new(),
         hard_fail: cmd_args.hard_fail,
         multiprocess: cmd_args.multiprocess,
         background_hang_monitor: cmd_args.background_hang_monitor,
@@ -969,4 +999,55 @@ fn test_graphshell_cmd() {
             .unwrap(),
         120
     );
+}
+
+#[test]
+fn test_devtools_address_argument_sets_listen_address() {
+    let (_, preferences, _) = test_parse("--devtools-address 0.0.0.0:6001");
+
+    assert!(preferences.devtools_server_enabled);
+    assert_eq!(preferences.devtools_server_listen_address, "0.0.0.0:6001");
+}
+
+#[test]
+fn test_devtools_address_overrides_port_argument() {
+    let (_, preferences, _) = test_parse("--devtools 7000 --devtools-address 0.0.0.0:6001");
+
+    assert!(preferences.devtools_server_enabled);
+    assert_eq!(preferences.devtools_server_listen_address, "0.0.0.0:6001");
+}
+
+#[test]
+fn test_user_stylesheets_flow_through_app_preferences() {
+    let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+    let stylesheet_path = temp_dir.path().join("user.css");
+    std::fs::write(&stylesheet_path, "body { color: rgb(1, 2, 3); }")
+        .expect("stylesheet should be writable");
+
+    let arg = format!("--user-stylesheet {}", stylesheet_path.display());
+    let (opts, _, app_preferences) = test_parse(&arg);
+
+    assert!(opts.user_stylesheets.is_empty());
+    assert_eq!(app_preferences.user_stylesheets.len(), 1);
+    assert_eq!(
+        app_preferences.user_stylesheets[0].source(),
+        "body { color: rgb(1, 2, 3); }"
+    );
+}
+
+#[test]
+fn test_user_stylesheets_accept_comma_separated_paths() {
+    let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+    let first = temp_dir.path().join("first.css");
+    let second = temp_dir.path().join("second.css");
+    std::fs::write(&first, "body { color: red; }").expect("first stylesheet should be writable");
+    std::fs::write(&second, "body { color: blue; }")
+        .expect("second stylesheet should be writable");
+
+    let arg = format!("--user-stylesheet {},{}", first.display(), second.display());
+    let (_, _, app_preferences) = test_parse(&arg);
+
+    assert_eq!(app_preferences.user_stylesheets.len(), 2);
+    assert_eq!(app_preferences.user_stylesheets[0].source(), "body { color: red; }");
+    assert_eq!(app_preferences.user_stylesheets[1].source(), "body { color: blue; }");
 }

@@ -33,6 +33,8 @@ use crate::shell::desktop::runtime::nip07_bridge;
 use crate::shell::desktop::runtime::protocols;
 use crate::shell::desktop::runtime::tracing::trace_winit_event;
 
+const BUILTIN_USERSCRIPTS_DIRECTORY: &str = "resources/user-agent-js";
+
 pub(crate) enum AppState {
     Initializing,
     Running(Rc<RunningAppState>),
@@ -107,6 +109,9 @@ impl App {
         servo.setup_logging();
 
         let user_content_manager = Rc::new(UserContentManager::new(&servo));
+        for user_stylesheet in &self.app_preferences.user_stylesheets {
+            user_content_manager.add_stylesheet(user_stylesheet.clone());
+        }
         if runtime_has_capability("nostr:nip07-bridge") {
             user_content_manager.add_script(Rc::new(UserScript::new(
                 nip07_bridge::builtin_userscript_source().to_string(),
@@ -231,11 +236,7 @@ impl ApplicationHandler<AppEvent> for App {
 fn load_userscripts(userscripts_directory: Option<&Path>) -> std::io::Result<Vec<Rc<UserScript>>> {
     let mut userscripts = Vec::new();
     if let Some(userscripts_directory) = &userscripts_directory {
-        let mut files = std::fs::read_dir(userscripts_directory)?
-            .map(|e| e.map(|entry| entry.path()))
-            .collect::<Result<Vec<_>, _>>()?;
-        files.sort_unstable();
-        for file in files {
+        for file in userscript_files(userscripts_directory)? {
             userscripts.push(Rc::new(UserScript::new(
                 std::fs::read_to_string(&file)?,
                 Some(file),
@@ -243,4 +244,52 @@ fn load_userscripts(userscripts_directory: Option<&Path>) -> std::io::Result<Vec
         }
     }
     Ok(userscripts)
+}
+
+fn userscript_files(userscripts_directory: &Path) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let resolved_directory = resolve_userscripts_directory(userscripts_directory);
+    let mut files = std::fs::read_dir(resolved_directory)?
+        .map(|e| e.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    files.retain(|path| path.is_file());
+    files.sort_unstable();
+    Ok(files)
+}
+
+fn resolve_userscripts_directory(userscripts_directory: &Path) -> std::path::PathBuf {
+    if userscripts_directory == Path::new(BUILTIN_USERSCRIPTS_DIRECTORY) {
+        crate::resources::resources_dir_path().join("user-agent-js")
+    } else {
+        userscripts_directory.to_path_buf()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BUILTIN_USERSCRIPTS_DIRECTORY, resolve_userscripts_directory, userscript_files,
+    };
+    use std::path::Path;
+
+    #[test]
+    fn resolves_builtin_userscripts_directory_via_resources_path() {
+        let resolved = resolve_userscripts_directory(Path::new(BUILTIN_USERSCRIPTS_DIRECTORY));
+
+        assert!(resolved.ends_with(Path::new("resources").join("user-agent-js")));
+        assert!(resolved.is_dir());
+    }
+
+    #[test]
+    fn builtin_userscripts_directory_contains_example_script() {
+        let files = userscript_files(Path::new(BUILTIN_USERSCRIPTS_DIRECTORY))
+            .expect("builtin userscripts directory should load");
+
+        assert!(!files.is_empty());
+        assert!(files.iter().all(|file| file.is_file()));
+        assert!(files.iter().any(|file| {
+            file.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == "00.example.js")
+        }));
+    }
 }

@@ -3,6 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::{HashMap, HashSet};
+#[cfg(feature = "diagnostics")]
+use std::sync::{Mutex, OnceLock};
 
 use accesskit::{Action, Node, NodeId, Role, TreeUpdate};
 use egui::Context;
@@ -17,6 +19,115 @@ use crate::shell::desktop::workbench::tile_compositor::{
 use crate::shell::desktop::workbench::ux_tree::{
     self, UxDomainIdentity, UxNodeRole, UxSemanticNode, UxTreeSnapshot,
 };
+
+#[cfg(feature = "diagnostics")]
+#[derive(Debug, Clone)]
+pub(crate) struct WebViewAccessibilityBridgeHealthSnapshot {
+    pub(crate) update_queue_size: usize,
+    pub(crate) anchor_count: usize,
+    pub(crate) dropped_update_count: usize,
+    pub(crate) focus_target: Option<String>,
+    pub(crate) degradation_state: String,
+}
+
+#[cfg(feature = "diagnostics")]
+#[derive(Debug, Clone, Default)]
+struct WebViewAccessibilityBridgeHealthState {
+    update_queue_size: usize,
+    dropped_update_count: usize,
+    focus_target: Option<String>,
+    degradation_state: WebViewAccessibilityBridgeDegradationState,
+}
+
+#[cfg(feature = "diagnostics")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum WebViewAccessibilityBridgeDegradationState {
+    #[default]
+    None,
+    Warning,
+    Error,
+}
+
+#[cfg(feature = "diagnostics")]
+impl WebViewAccessibilityBridgeDegradationState {
+    fn label(self) -> String {
+        match self {
+            Self::None => "none".to_string(),
+            Self::Warning => "warning".to_string(),
+            Self::Error => "error".to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+fn webview_accessibility_bridge_health_state(
+) -> &'static Mutex<WebViewAccessibilityBridgeHealthState> {
+    static STATE: OnceLock<Mutex<WebViewAccessibilityBridgeHealthState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(WebViewAccessibilityBridgeHealthState::default()))
+}
+
+#[cfg(feature = "diagnostics")]
+fn with_webview_accessibility_bridge_health_state<R>(
+    f: impl FnOnce(&mut WebViewAccessibilityBridgeHealthState) -> R,
+) -> R {
+    let mut guard = webview_accessibility_bridge_health_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut guard)
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn record_webview_a11y_update_queued(
+    webview_id: WebViewId,
+    tree_update: &TreeUpdate,
+    replaced_existing: bool,
+    update_queue_size: usize,
+) {
+    with_webview_accessibility_bridge_health_state(|state| {
+        state.update_queue_size = update_queue_size;
+        if replaced_existing {
+            state.dropped_update_count = state.dropped_update_count.saturating_add(1);
+        }
+        state.focus_target = Some(webview_accessibility_label(webview_id, tree_update));
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+pub(super) fn webview_accessibility_bridge_health_snapshot(
+    active_anchor_count: usize,
+) -> WebViewAccessibilityBridgeHealthSnapshot {
+    with_webview_accessibility_bridge_health_state(|state| {
+        WebViewAccessibilityBridgeHealthSnapshot {
+            update_queue_size: state.update_queue_size,
+            anchor_count: active_anchor_count,
+            dropped_update_count: state.dropped_update_count,
+            focus_target: state.focus_target.clone(),
+            degradation_state: state.degradation_state.label(),
+        }
+    })
+}
+
+#[cfg(feature = "diagnostics")]
+fn record_webview_a11y_queue_drained() {
+    with_webview_accessibility_bridge_health_state(|state| {
+        state.update_queue_size = 0;
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+fn record_webview_a11y_plan_degradation(plan: &WebViewA11yGraftPlan) {
+    let degradation_state = if plan.nodes.is_empty() || plan.root_node_id.is_none() {
+        WebViewAccessibilityBridgeDegradationState::Error
+    } else if plan.dropped_node_count > 0 || plan.conversion_fallback_count > 0 {
+        WebViewAccessibilityBridgeDegradationState::Warning
+    } else {
+        WebViewAccessibilityBridgeDegradationState::None
+    };
+
+    with_webview_accessibility_bridge_health_state(|state| {
+        state.degradation_state = degradation_state;
+    });
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TileAffordanceAccessibilityProjection {
@@ -891,6 +1002,9 @@ pub(super) fn inject_webview_a11y_updates(
     }
 
     inject_all_pending_webview_a11y_updates(ctx, pending);
+
+    #[cfg(feature = "diagnostics")]
+    record_webview_a11y_queue_drained();
 }
 
 fn inject_all_pending_webview_a11y_updates(
@@ -913,6 +1027,9 @@ fn inject_single_webview_a11y_update(
 ) {
     let plan = build_webview_a11y_graft_plan(webview_id, tree_update);
     let anchor_id = webview_accessibility_anchor_id(webview_id);
+
+    #[cfg(feature = "diagnostics")]
+    record_webview_a11y_plan_degradation(&plan);
 
     inject_webview_a11y_plan_nodes(ctx, webview_id, &plan.nodes);
     inject_webview_a11y_anchor_node(
