@@ -736,7 +736,7 @@ pub(crate) trait PlatformWindowSignals {
     fn notify_media_session_event(&self, _: MediaSessionEvent) {}
     fn notify_crashed(&self, _: WebView, _reason: String, _backtrace: Option<String>) {}
     fn show_console_message(&self, _level: ConsoleLogLevel, _message: &str) {}
-    fn notify_accessibility_tree_update(&self, _: WebView, _: accesskit::TreeUpdate) {}
+    fn notify_accessibility_tree_update(&self, _: WebView, _: servo::accesskit::TreeUpdate) {}
 }
 
 // ── PlatformWindow (composed facade) ─────────────────────────────────────────

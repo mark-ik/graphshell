@@ -108,10 +108,10 @@ impl App {
 
         let user_content_manager = Rc::new(UserContentManager::new(&servo));
         if runtime_has_capability("nostr:nip07-bridge") {
-            user_content_manager.add_script(UserScript {
-                script: nip07_bridge::builtin_userscript_source().to_string(),
-                source_file: None,
-            });
+            user_content_manager.add_script(Rc::new(UserScript::new(
+                nip07_bridge::builtin_userscript_source().to_string(),
+                None,
+            )));
         }
         for script in load_userscripts(self.app_preferences.userscripts_directory.as_deref())
             .expect("Loading userscripts failed")
@@ -228,7 +228,7 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
-fn load_userscripts(userscripts_directory: Option<&Path>) -> std::io::Result<Vec<UserScript>> {
+fn load_userscripts(userscripts_directory: Option<&Path>) -> std::io::Result<Vec<Rc<UserScript>>> {
     let mut userscripts = Vec::new();
     if let Some(userscripts_directory) = &userscripts_directory {
         let mut files = std::fs::read_dir(userscripts_directory)?
@@ -236,10 +236,10 @@ fn load_userscripts(userscripts_directory: Option<&Path>) -> std::io::Result<Vec
             .collect::<Result<Vec<_>, _>>()?;
         files.sort_unstable();
         for file in files {
-            userscripts.push(UserScript {
-                script: std::fs::read_to_string(&file)?,
-                source_file: Some(file),
-            });
+            userscripts.push(Rc::new(UserScript::new(
+                std::fs::read_to_string(&file)?,
+                Some(file),
+            )));
         }
     }
     Ok(userscripts)

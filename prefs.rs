@@ -594,7 +594,7 @@ fn update_preferences_from_command_line_arguemnts(
 ) {
     if let Some(port) = cmd_args.devtools {
         preferences.devtools_server_enabled = true;
-        preferences.devtools_server_port = i64::from(port);
+        preferences.devtools_server_listen_address = format!("127.0.0.1:{port}");
     }
 
     if cmd_args.enable_experimental_web_platform_features {

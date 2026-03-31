@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use accesskit::{Action, ActionRequest, Node, NodeId, Role, Tree, TreeUpdate};
+use accesskit::{Action, ActionRequest, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use euclid::default::Point2D;
 use servo::WebViewId;
@@ -44,6 +44,7 @@ fn webview_accessibility_label_prefers_focused_node_label() {
     let update = TreeUpdate {
         nodes: vec![(NodeId(1), other), (NodeId(2), focused)],
         tree: Some(Tree::new(NodeId(1))),
+        tree_id: TreeId::ROOT,
         focus: NodeId(2),
     };
 
@@ -57,6 +58,7 @@ fn webview_accessibility_label_falls_back_when_no_labels_exist() {
     let update = TreeUpdate {
         nodes: vec![(NodeId(5), Node::new(Role::Document))],
         tree: Some(Tree::new(NodeId(5))),
+        tree_id: TreeId::ROOT,
         focus: NodeId(5),
     };
 
@@ -73,6 +75,7 @@ fn inject_webview_a11y_updates_drains_pending_map() {
     let update = TreeUpdate {
         nodes: vec![(NodeId(9), update_node)],
         tree: Some(Tree::new(NodeId(9))),
+        tree_id: TreeId::ROOT,
         focus: NodeId(9),
     };
 
@@ -101,6 +104,7 @@ fn webview_a11y_graft_plan_includes_injectable_nodes_and_root() {
     let update = TreeUpdate {
         nodes: vec![(NodeId(11), root), (NodeId(22), child)],
         tree: Some(Tree::new(NodeId(11))),
+        tree_id: TreeId::ROOT,
         focus: NodeId(11),
     };
 
@@ -120,6 +124,7 @@ fn webview_a11y_graft_plan_marks_reserved_ids_as_degraded() {
     let update = TreeUpdate {
         nodes: vec![(NodeId(0), reserved_root)],
         tree: Some(Tree::new(NodeId(0))),
+        tree_id: TreeId::ROOT,
         focus: NodeId(0),
     };
 
@@ -138,6 +143,7 @@ fn webview_a11y_graft_plan_tracks_role_conversion_fallbacks() {
     let update = TreeUpdate {
         nodes: vec![(NodeId(44), node)],
         tree: Some(Tree::new(NodeId(44))),
+        tree_id: TreeId::ROOT,
         focus: NodeId(44),
     };
 
@@ -345,7 +351,8 @@ fn graph_reader_map_click_action_resolves_to_enter_room_dispatch() {
         .expect("graph reader map item should be actionable");
     let req = ActionRequest {
         action: Action::Click,
-        target: super::accessibility::accesskit_node_id_from_egui_id(
+        target_tree: TreeId::ROOT,
+        target_node: super::accessibility::accesskit_node_id_from_egui_id(
             super::accessibility::uxtree_accessibility_node_id(&map_item.ux_node_id),
         ),
         data: None,
@@ -407,7 +414,8 @@ fn graph_reader_map_focus_action_resolves_to_map_focus_dispatch() {
         .expect("graph reader map item should be actionable");
     let req = ActionRequest {
         action: Action::Focus,
-        target: super::accessibility::accesskit_node_id_from_egui_id(
+        target_tree: TreeId::ROOT,
+        target_node: super::accessibility::accesskit_node_id_from_egui_id(
             super::accessibility::uxtree_accessibility_node_id(&map_item.ux_node_id),
         ),
         data: None,
@@ -470,7 +478,8 @@ fn graph_reader_room_root_click_action_resolves_to_return_to_map_dispatch() {
         .expect("graph reader room root should be actionable");
     let req = ActionRequest {
         action: Action::Click,
-        target: super::accessibility::accesskit_node_id_from_egui_id(
+        target_tree: TreeId::ROOT,
+        target_node: super::accessibility::accesskit_node_id_from_egui_id(
             super::accessibility::uxtree_accessibility_node_id(&room_root.ux_node_id),
         ),
         data: None,
@@ -546,7 +555,8 @@ fn graph_reader_room_item_click_action_resolves_to_enter_room_dispatch() {
         .expect("graph reader room item should be actionable");
     let req = ActionRequest {
         action: Action::Click,
-        target: super::accessibility::accesskit_node_id_from_egui_id(
+        target_tree: TreeId::ROOT,
+        target_node: super::accessibility::accesskit_node_id_from_egui_id(
             super::accessibility::uxtree_accessibility_node_id(&room_item.ux_node_id),
         ),
         data: None,

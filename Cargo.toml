@@ -67,7 +67,7 @@ webxr = ["servo/webxr"]
 wry = ["dep:wry"]
 
 [dependencies]
-accesskit = { version = "0.21.1", features = ["serde"] }
+accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.23", features = ["derive"] }
 backon = "1"
 cfg-if = "1.0.4"
@@ -80,7 +80,7 @@ hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = t
 image = { version = "0.25", default-features = false, features = ["avif", "rayon", "bmp", "gif", "ico", "jpeg", "png", "webp"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 libc = "0.2"
-servo = { git = "https://github.com/servo/servo.git", tag = "v0.0.5", package = "libservo", features = ["background_hang_monitor", "bluetooth", "testbinding"], default-features = false }
+servo = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "libservo", features = ["background_hang_monitor", "bluetooth", "testbinding"], default-features = false }
 log = "0.4.29"
 mime_guess = "2.0.5"
 raw-window-handle = "0.6"
@@ -106,7 +106,7 @@ tracing-subscriber = { version = "0.3.22", optional = true, features = ["env-fil
 url = "2.5"
 uuid = { version = "1.21.0", features = ["serde", "v4"] }
 rand = "0.8"
-webdriver_server = { git = "https://github.com/servo/servo.git", tag = "v0.0.5", package = "webdriver_server" }
+webdriver_server = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-webdriver-server" }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
@@ -132,7 +132,7 @@ ohos-window-manager-sys = { version = "0.1", features = ["api-14"] }
 xcomponent-sys = { version = "0.3.5", features = ["api-14", "keyboard-types"] }
 
 [target.'cfg(any(target_os = "android", target_env = "ohos"))'.dependencies]
-base = { git = "https://github.com/servo/servo.git", tag = "v0.0.5", package = "base" }
+base = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-base" }
 nix = { version = "0.30", features = ["fs"] }
 serde_json = "1.0"
 surfman = { version = "0.11.0", features = ["sm-angle-default", "chains"] }
@@ -174,7 +174,7 @@ headers = "0.4"
 serde_json = "1.0"
 sysinfo = "0.37"
 # For optional feature servo_allocator/use-system-allocator and servo_allocator/allocation-tracking
-servo_allocator = { git = "https://github.com/servo/servo.git", tag = "v0.0.5", package = "servo_allocator" }
+servo_allocator = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-allocator" }
 surfman = { version = "0.11.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
 winit = "0.30.13"
 wry = { version = "0.47", optional = true }
@@ -183,7 +183,7 @@ wry = { version = "0.47", optional = true }
 sig = "1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-servo = { git = "https://github.com/servo/servo.git", tag = "v0.0.5", package = "libservo", features = ["no-wgl"] }
+servo = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "libservo", features = ["no-wgl"] }
 webview2-com = "0.33"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
@@ -206,7 +206,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 ] }
 
 [dev-dependencies]
-base = { git = "https://github.com/servo/servo.git", tag = "v0.0.5", package = "base" }
+base = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-base" }
 insta = "1"
 proptest = "1"
 rstest = "0.26"
@@ -214,6 +214,10 @@ tempfile = "3"
 tracing = "0.1.44"
 tracing-test = "0.2"
 inventory = "0.3"
+
+[patch.crates-io]
+egui = { git = "https://github.com/emilk/egui.git", rev = "5d8f393335e051785b4fd3af9ef92eda5b61177f" }
+egui-winit = { git = "https://github.com/emilk/egui.git", rev = "5d8f393335e051785b4fd3af9ef92eda5b61177f" }
 
 [[test]]
 name = "scenarios"

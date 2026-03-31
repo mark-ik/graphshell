@@ -522,7 +522,8 @@ pub(super) fn resolve_uxtree_accesskit_action_for_plan(
     req: &egui::accesskit::ActionRequest,
 ) -> Option<UxTreeAccesskitDispatch> {
     let node = plan.nodes.iter().find(|node| {
-        accesskit_node_id_from_egui_id(uxtree_accessibility_node_id(&node.ux_node_id)) == req.target
+        accesskit_node_id_from_egui_id(uxtree_accessibility_node_id(&node.ux_node_id))
+            == req.target_node
     })?;
 
     match (node.action_route, req.action) {

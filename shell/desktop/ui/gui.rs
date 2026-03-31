@@ -184,7 +184,7 @@ pub struct Gui {
     /// Pending accessibility tree updates received from runtime viewers that have
     /// not yet been injected into egui's accessibility tree. Keyed by WebViewId
     /// so that a newer update from the same runtime viewer supersedes the previous one.
-    pending_webview_a11y_updates: HashMap<WebViewId, accesskit::TreeUpdate>,
+    pending_webview_a11y_updates: HashMap<WebViewId, servo::accesskit::TreeUpdate>,
 
     /// Cached reference to RunningAppState for runtime viewer creation.
     state: Option<Rc<RunningAppState>>,
@@ -1095,7 +1095,7 @@ impl Gui {
     pub(crate) fn notify_accessibility_tree_update(
         &mut self,
         webview_id: WebViewId,
-        tree_update: accesskit::TreeUpdate,
+        tree_update: servo::accesskit::TreeUpdate,
     ) {
         // Store the most recent update per runtime viewer; it will be injected into
         // egui's accessibility tree at the start of the next frame inside
