@@ -12,7 +12,7 @@ functional physics layer, mobile considerations, 2D↔3D hotswitch architecture)
 
 - `2026-02-22_registry_layer_plan.md` — `PhysicsProfileRegistry` owns named presets; `CanvasRegistry` owns engine execution; `LayoutRegistry` owns positioning algorithms
 - `2026-02-24_layout_behaviors_plan.md` — behavioral micro-features (reheat, clustering, magnetic zones) that build on top of whichever engine is active
-- `2026-02-23_graph_interaction_consistency_plan.md` — gravity locus dampening (Phase 3) is a concrete `ExtraForce` candidate
+- `layout_behaviors_and_physics_spec.md` — viewport-relative gravity locus and dampening contract for the `GravityLocus` force
 - `multi_view_pane_spec.md` — pane-hosted multi-view architecture, per-`GraphViewId` layout ownership, and `ViewDimension` as graph-view state
 - `design_docs/PROJECT_DESCRIPTION.md` — 2D↔3D hotswitch with position parity is a named first-class vision feature
 
@@ -128,7 +128,8 @@ pub struct GravityLocusParams {
 }
 ```
 
-The gravity locus dampening from the interaction plan (`gravity_target.lerp(viewport_center, 0.05)`)
+The gravity locus dampening from `layout_behaviors_and_physics_spec.md`
+(`gravity_target.lerp(viewport_center, 0.05)`)
 becomes a per-frame param update — set `params.target` before `set_layout_state` instead of
 applying the lerp inside the render loop.
 

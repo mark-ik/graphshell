@@ -15,7 +15,7 @@
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
-- `2026-02-23_graph_interaction_consistency_plan.md`
+- `layout_behaviors_and_physics_spec.md`
 - `../design/KEYBINDINGS.md`
 - `../../TERMINOLOGY.md`
 - `2026-03-14_graph_relation_families.md` — relation family vocabulary; Navigator replaces "file tree" as the hierarchical projection surface

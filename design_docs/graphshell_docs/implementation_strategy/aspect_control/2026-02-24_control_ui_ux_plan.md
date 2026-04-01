@@ -1,9 +1,9 @@
 # Control UI/UX Plan (2026-02-24)
 
 **Status**: Implementation-Ready
-**Relates to**: `2026-02-23_graph_interaction_consistency_plan.md` (ActionRegistry routing,
-radial/command palette refactor tasks), `2026-02-22_registry_layer_plan.md` (ActionRegistry,
-InputRegistry)
+**Relates to**: `../aspect_command/command_surface_interaction_spec.md` (palette/radial semantics
+and ActionRegistry routing), `../aspect_input/input_interaction_spec.md` (input contexts and
+dismissal routing), `2026-02-22_registry_layer_plan.md` (ActionRegistry, InputRegistry)
 
 ## Naming
 
@@ -228,8 +228,8 @@ Concretely:
 1. **Extract modules**: Move radial menu to `desktop/radial_menu.rs` and command palette
    to `desktop/command_palette.rs`. Leave `render/mod.rs` as the callsite.
 2. **Wire `ActionRegistry`**: Replace `RadialCommand` / `RadialDomain` hardcoded enums with
-   `ActionRegistry::list_actions_for_context(context)`. Same task as
-   `2026-02-23_graph_interaction_consistency_plan.md §Implementation tasks`.
+  `ActionRegistry::list_actions_for_context(context)`. This is the same registry-routing
+  closure called for by `../aspect_command/command_surface_interaction_spec.md`.
 3. **Redesign radial layout**: 8-sector, no concentric rings, labels outside the ring,
    uniform sector size.
 4. **Unify command palette**: Merge the circular global mode and the horizontal list mode

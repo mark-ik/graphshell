@@ -41,8 +41,10 @@ settings/keybinding surfaces:
   (tabs, settings lists, omnibar/list rows, and other ordered collections).
 - Graph-view spatial selection remains box/lasso first (`Right+Drag` default), with optional
   additive spatial behavior on `Shift+Right+Drag`.
-- Source of record for this decision: interaction consistency + absorbed input-surface guidance in
-  `2026-02-23_graph_interaction_consistency_plan.md`.
+- Source of record for this decision: `../aspect_input/input_interaction_spec.md`
+  (routing/gesture invariants), `../graph/graph_node_edge_interaction_spec.md`
+  (graph-surface selection semantics), and
+  `../aspect_command/command_surface_interaction_spec.md` (ordered command/list surfaces).
 
 When implementing `graphshell://settings/keybindings`, treat this as required behavior for command
 tables and any ordered settings lists that support multi-select/range operations.

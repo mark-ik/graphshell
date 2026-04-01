@@ -1,7 +1,23 @@
 # Graph Interaction Consistency Plan (2026-02-23)
 
-**Status**: Implementation-Ready
-**Supersedes**: Prior ad-hoc zoom/scroll patches in `render/mod.rs`; absorbs remaining items from `2026-02-19_graph_ux_polish_plan.md` §1.4 (scroll zoom speed) and the "smart fit" + "no-ctrl scroll" feature targets.
+**Status**: Closed / Archived 2026-04-01 — historical execution record only
+**Supersedes**: Prior ad-hoc zoom/scroll patches in `render/mod.rs`; absorbed remaining items from `2026-02-19_graph_ux_polish_plan.md` §1.4 (scroll zoom speed) and the "smart fit" + "no-ctrl scroll" feature targets.
+
+**Canonical authority now lives in**:
+
+- `../aspect_input/input_interaction_spec.md` — input routing, hover-vs-focus guardrails, and `Escape` semantics
+- `graph_node_edge_interaction_spec.md` — graph-surface camera, selection, and multi-select semantics
+- `layout_behaviors_and_physics_spec.md` and `2026-02-24_layout_behaviors_plan.md` — viewport gravity and physics follow-on work
+- `../aspect_command/command_surface_interaction_spec.md` and `../aspect_control/2026-02-24_control_ui_ux_plan.md` — command-surface and secondary-input-surface routing
+- `../workbench/workbench_frame_tile_interaction_spec.md` and `../../TERMINOLOGY.md` — split/container/tab-group semantics
+
+## Closure Summary
+
+- Wheel Zoom, durable camera-command routing, and startup camera-fit behavior landed through the current graph camera path.
+- Shared input and dismissal policy moved into the canonical Input, Focus, and Command specs.
+- Split/container labels and workbench terminology moved into the workbench/tile and terminology authorities.
+- The only still-live follow-on from this plan, viewport-relative gravity behavior, moved into the layout/physics docs.
+- The historical plan text is retained below as an implementation record only; the unchecked tasks are not active authority.
 
 ---
 

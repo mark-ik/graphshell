@@ -14,6 +14,7 @@
 - `../../../archive_docs/checkpoint_2026-03-28/graphshell_docs/implementation_strategy/graph/2026-03-27_lens_decomposition_and_view_policy_plan.md` — archived implementation history for lens decomposition, view-policy authority, and provenance metadata
 - `petgraph_algorithm_utilization_spec.md` — algorithmic analysis capabilities shared across surfaces
 - `2026-03-11_graph_enrichment_plan.md` — automated and user-initiated graph enrichment
+- `2026-04-01_swatch_spec_extraction_plan.md` — reusable compact graph projection contract for embedded swatch surfaces
 - `workbench_frame_tile_interaction_spec.md`
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`

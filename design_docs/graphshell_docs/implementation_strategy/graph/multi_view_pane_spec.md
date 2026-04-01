@@ -7,6 +7,7 @@
 **Related**:
 
 - `GRAPH.md`
+- `2026-04-01_swatch_spec_extraction_plan.md`
 - `graph_node_edge_interaction_spec.md`
 - `../core-interaction-model-plan.md`
 - `../workbench/WORKBENCH.md`
