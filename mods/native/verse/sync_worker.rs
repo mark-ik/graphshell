@@ -13,7 +13,7 @@ use crate::shell::desktop::runtime::control_panel::{
     IntentSource as ControlIntentSource, QueuedIntent,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use iroh::{Endpoint, NodeAddr, NodeId};
+use iroh::{Endpoint, EndpointAddr, EndpointId};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
@@ -24,15 +24,15 @@ use tokio_util::sync::CancellationToken;
 #[allow(dead_code)]
 pub enum SyncCommand {
     /// Initiate sync with a peer for a specific workspace
-    SyncWorkspace { peer: NodeId, workspace_id: String },
+    SyncWorkspace { peer: EndpointId, workspace_id: String },
     /// Accept an incoming connection
     AcceptIncoming {
         conn_info: String, // Connection metadata
     },
     /// Update access grant for a peer
-    UpdateGrant { peer: NodeId, grant: WorkspaceGrant },
+    UpdateGrant { peer: EndpointId, grant: WorkspaceGrant },
     /// Revoke all access for a peer
-    RevokeAccess { peer: NodeId },
+    RevokeAccess { peer: EndpointId },
     /// Discover nearby peers via mDNS without blocking the UI thread.
     DiscoverNearby { timeout_secs: u64 },
     /// Shutdown the worker
@@ -125,7 +125,7 @@ impl SyncWorker {
 
     /// Run the sync worker (accept loop + command handler)
     pub async fn run(mut self) {
-        log::info!("SyncWorker started (NodeId: {})", self.endpoint.node_id());
+        log::info!("SyncWorker started (EndpointId: {})", self.endpoint.id());
 
         loop {
             tokio::select! {
@@ -146,7 +146,7 @@ impl SyncWorker {
                                 trusted_peers: self.trusted_peers.clone(),
                                 intent_tx: self.intent_tx.clone(),
                                 our_secret_key: self.our_secret_key.clone(),
-                                our_node_id: self.endpoint.node_id(),
+                                our_node_id: self.endpoint.id(),
                             };
                             tokio::spawn(async move {
                                 if let Err(e) = worker_handle.handle_incoming(connecting).await {
@@ -173,7 +173,7 @@ impl SyncWorker {
                                 trusted_peers: self.trusted_peers.clone(),
                                 intent_tx: self.intent_tx.clone(),
                                 our_secret_key: self.our_secret_key.clone(),
-                                our_node_id: self.endpoint.node_id(),
+                                our_node_id: self.endpoint.id(),
                             };
                             let endpoint = self.endpoint.clone();
                             tokio::spawn(async move {
@@ -225,17 +225,16 @@ struct SyncWorkerHandle {
     intent_tx: mpsc::Sender<QueuedIntent>,
     our_secret_key: iroh::SecretKey,
     #[allow(dead_code)]
-    our_node_id: NodeId,
+    our_node_id: EndpointId,
 }
 
 impl SyncWorkerHandle {
     /// Handle an incoming connection from a peer
-    async fn handle_incoming(&self, connecting: iroh::endpoint::Connecting) -> Result<(), String> {
+    async fn handle_incoming(&self, connecting: iroh::endpoint::Accepting) -> Result<(), String> {
         let conn = connecting
             .await
             .map_err(|e| format!("connection failed: {}", e))?;
-        let peer_id = iroh::endpoint::get_remote_node_id(&conn)
-            .map_err(|e| format!("no peer node ID: {}", e))?;
+        let peer_id = conn.remote_id();
 
         log::info!("Incoming connection from peer: {}", peer_id);
 
@@ -330,7 +329,7 @@ impl SyncWorkerHandle {
     async fn initiate_sync(
         &self,
         endpoint: Endpoint,
-        peer_id: NodeId,
+        peer_id: EndpointId,
         workspace_id: String,
     ) -> Result<(), String> {
         log::info!(
@@ -339,12 +338,12 @@ impl SyncWorkerHandle {
             workspace_id
         );
 
-        // Get peer's NodeAddr (simplified - in production we'd use mDNS or relay discovery)
-        let node_addr = NodeAddr::new(peer_id);
+        // Get the peer's endpoint address. In production this will include relay and direct hints.
+        let endpoint_addr = EndpointAddr::new(peer_id);
 
         // Connect to peer
         let conn = endpoint
-            .connect(node_addr, b"graphshell-sync")
+            .connect(endpoint_addr, b"graphshell-sync")
             .await
             .map_err(|e| format!("connect failed: {}", e))?;
 
@@ -425,7 +424,7 @@ impl SyncWorkerHandle {
     /// Process an incoming SyncUnit and apply intents
     async fn process_incoming_sync_unit(
         &self,
-        peer_id: NodeId,
+        peer_id: EndpointId,
         sync_unit: SyncUnit,
     ) -> Result<(), String> {
         // Check workspace grants
@@ -514,7 +513,7 @@ impl SyncWorkerHandle {
 
 pub(crate) fn resolve_peer_grant(
     peers: &[TrustedPeer],
-    peer_id: NodeId,
+    peer_id: EndpointId,
     workspace_id: &str,
 ) -> Option<AccessLevel> {
     peers

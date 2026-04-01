@@ -4494,7 +4494,7 @@ Object {
     #[test]
     fn security_health_snapshot_reports_trust_and_nostr_runtime_state() {
         let mut state = DiagnosticsState::new();
-        let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
         crate::shell::desktop::runtime::registries::phase3_trust_peer(
             crate::mods::native::verse::TrustedPeer {
                 node_id: peer_id,

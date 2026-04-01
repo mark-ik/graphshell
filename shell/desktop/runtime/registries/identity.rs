@@ -569,7 +569,7 @@ impl IdentityRegistry {
         }
 
         let assertion = PresenceBindingAssertion {
-            node_id: self.p2p_node_id().to_string(),
+            node_id: self.p2p_endpoint_id().to_string(),
             user_identity,
             issued_at_secs: now_secs,
             expires_at_secs: now_secs.saturating_add(ttl_secs.max(1)),
@@ -668,13 +668,13 @@ impl IdentityRegistry {
         self.trust_peer(peer);
     }
 
-    pub(crate) fn revoke_peer_record(&mut self, node_id: iroh::NodeId) {
+    pub(crate) fn revoke_peer_record(&mut self, node_id: iroh::EndpointId) {
         self.revoke_peer(node_id);
     }
 
     pub(crate) fn grant_workspace_access(
         &mut self,
-        node_id: iroh::NodeId,
+        node_id: iroh::EndpointId,
         workspace_id: &str,
         access: crate::mods::native::verse::AccessLevel,
     ) {
@@ -692,7 +692,7 @@ impl IdentityRegistry {
         persist_trust_store(&self.trust_store);
     }
 
-    pub(crate) fn revoke_workspace_access(&mut self, node_id: iroh::NodeId, workspace_id: &str) {
+    pub(crate) fn revoke_workspace_access(&mut self, node_id: iroh::EndpointId, workspace_id: &str) {
         let mut peers = self.trust_store.write().expect("trust store lock poisoned");
         if let Some(peer) = peers.iter_mut().find(|peer| peer.node_id == node_id) {
             peer.workspace_grants
@@ -761,13 +761,13 @@ impl IdentityRegistry {
 }
 
 impl P2PIdentityExt for IdentityRegistry {
-    fn p2p_node_id(&self) -> iroh::NodeId {
+    fn p2p_endpoint_id(&self) -> iroh::EndpointId {
         let resolution = self.resolve(IDENTITY_ID_P2P);
         let Some(identity_key) = self.keys.get(&resolution.resolved_id) else {
-            return iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+            return crate::mods::native::verse::generate_p2p_secret_key().public();
         };
         let Some(signing_key) = identity_key.signing_key.as_ref() else {
-            return iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+            return crate::mods::native::verse::generate_p2p_secret_key().public();
         };
         iroh::SecretKey::from_bytes(&signing_key.to_bytes()).public()
     }
@@ -781,7 +781,7 @@ impl P2PIdentityExt for IdentityRegistry {
             .unwrap_or_default()
     }
 
-    fn verify_peer_signature(&self, peer: iroh::NodeId, payload: &[u8], sig: &[u8]) -> bool {
+    fn verify_peer_signature(&self, peer: iroh::EndpointId, payload: &[u8], sig: &[u8]) -> bool {
         let Ok(verifying_key) = VerifyingKey::from_bytes(peer.as_bytes()) else {
             return false;
         };
@@ -807,7 +807,7 @@ impl P2PIdentityExt for IdentityRegistry {
         persist_trust_store(&self.trust_store);
     }
 
-    fn revoke_peer(&mut self, node_id: iroh::NodeId) {
+    fn revoke_peer(&mut self, node_id: iroh::EndpointId) {
         self.trust_store
             .write()
             .expect("trust store lock poisoned")
@@ -1098,7 +1098,7 @@ mod tests {
             .create_presence_binding_assertion_at(IDENTITY_ID_DEFAULT, "local:mdns", 60, 100)
             .expect("presence binding should be created");
 
-        assert_eq!(assertion.node_id, registry.p2p_node_id().to_string());
+        assert_eq!(assertion.node_id, registry.p2p_endpoint_id().to_string());
         assert_eq!(assertion.user_identity.identity_id, IDENTITY_ID_DEFAULT);
         assert_eq!(
             assertion.user_identity.protocol,
@@ -1129,7 +1129,7 @@ mod tests {
             .create_presence_binding_assertion_at(IDENTITY_ID_DEFAULT, "local:mdns", 60, 100)
             .expect("presence binding should be created");
 
-        assertion.node_id = iroh::SecretKey::generate(&mut rand::thread_rng())
+        assertion.node_id = crate::mods::native::verse::generate_p2p_secret_key()
             .public()
             .to_string();
 

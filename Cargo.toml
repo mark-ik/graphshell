@@ -7,7 +7,7 @@ license = "MPL-2.0"
 edition = "2024"
 readme = "README.md"
 publish = false
-rust-version = "1.86.0"
+rust-version = "1.92.0"
 
 [workspace]
 
@@ -106,6 +106,7 @@ tracing-subscriber = { version = "0.3.22", optional = true, features = ["env-fil
 url = "2.5"
 uuid = { version = "1.21.0", features = ["serde", "v4"] }
 rand = "0.8"
+rand_09 = { package = "rand", version = "0.9" }
 webdriver_server = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-webdriver-server" }
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -157,16 +158,15 @@ rkyv = { version = "0.8", features = ["std"] }
 aes-gcm = "0.10.3"
 cid = "0.11"
 multihash = "0.19"
-ed25519-dalek = { version = "2.2", features = ["serde"] }
+ed25519-dalek = { version = "2.2", features = ["serde", "rand_core"] }
 secp256k1 = { version = "0.31", features = ["rand", "global-context"] }
 sha2 = "0.10"
 keyring = "3"
 nostr = { version = "0.44.2", features = ["nip44"] }
 zstd = "0.13"
-iroh = "0.30"
+iroh = "0.97"
 qrcode = "0.14"
 base64 = "0.22"
-hostname = "0.4"
 mdns-sd = "0.12"
 gilrs = "0.11.1"
 glow = "0.16.0"
@@ -177,21 +177,21 @@ sysinfo = "0.37"
 servo_allocator = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-allocator" }
 surfman = { version = "0.11.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
 winit = "0.30.13"
-wry = { version = "0.47", optional = true }
+wry = { version = "0.55", optional = true }
 
 [target.'cfg(any(all(target_os = "linux", not(target_env = "ohos")), target_os = "macos"))'.dependencies]
 sig = "1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 servo = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "libservo", features = ["no-wgl"] }
-webview2-com = "0.33"
-windows = { version = "0.58", features = [
+webview2-com = "0.38.2"
+windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
     "Win32_System_Memory",
 ] }
-windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_System_Console"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [

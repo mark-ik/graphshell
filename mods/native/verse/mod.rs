@@ -17,6 +17,7 @@ use crate::shell::desktop::runtime::registries::{
 };
 use keyring::Entry;
 use std::sync::OnceLock;
+use sysinfo::System;
 
 #[cfg(test)]
 mod tests;
@@ -183,8 +184,8 @@ pub struct WorkspaceGrant {
 /// A trusted peer (own device or friend)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TrustedPeer {
-    #[serde(with = "node_id_serde")]
-    pub node_id: iroh::NodeId,
+    #[serde(with = "endpoint_id_serde")]
+    pub node_id: iroh::EndpointId,
     pub display_name: String,
     pub role: PeerRole,
     #[serde(with = "system_time_serde")]
@@ -194,19 +195,19 @@ pub struct TrustedPeer {
     pub workspace_grants: Vec<WorkspaceGrant>,
 }
 
-// Serde helpers for NodeId
-mod node_id_serde {
-    use iroh::NodeId;
+// Serde helpers for EndpointId
+mod endpoint_id_serde {
+    use iroh::EndpointId;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(node_id: &NodeId, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(node_id: &EndpointId, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         serializer.serialize_str(&node_id.to_string())
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<NodeId, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<EndpointId, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -247,14 +248,14 @@ mod option_system_time_serde {
 
 /// Extension trait for IdentityRegistry to support P2P operations
 pub trait P2PIdentityExt {
-    /// Get our NodeId (public key)
-    fn p2p_node_id(&self) -> iroh::NodeId;
+    /// Get our iroh endpoint identity (public key)
+    fn p2p_endpoint_id(&self) -> iroh::EndpointId;
 
     /// Sign a sync payload with our private key
     fn sign_sync_payload(&self, payload: &[u8]) -> Vec<u8>;
 
     /// Verify a peer's signature on a payload
-    fn verify_peer_signature(&self, peer: iroh::NodeId, payload: &[u8], sig: &[u8]) -> bool;
+    fn verify_peer_signature(&self, peer: iroh::EndpointId, payload: &[u8], sig: &[u8]) -> bool;
 
     /// Get all trusted peers
     fn get_trusted_peers(&self) -> Vec<TrustedPeer>;
@@ -263,7 +264,7 @@ pub trait P2PIdentityExt {
     fn trust_peer(&mut self, peer: TrustedPeer);
 
     /// Revoke trust for a peer (remove from trust store)
-    fn revoke_peer(&mut self, node_id: iroh::NodeId);
+    fn revoke_peer(&mut self, node_id: iroh::EndpointId);
 }
 
 /// Global verse state (initialized once on first access)
@@ -281,7 +282,12 @@ struct VerseState {
 }
 
 static VERSE_STATE: OnceLock<VerseState> = OnceLock::new();
-static FALLBACK_NODE_ID: OnceLock<iroh::NodeId> = OnceLock::new();
+static FALLBACK_ENDPOINT_ID: OnceLock<iroh::EndpointId> = OnceLock::new();
+
+pub(crate) fn generate_p2p_secret_key() -> iroh::SecretKey {
+    let mut rng = rand_09::rng();
+    iroh::SecretKey::generate(&mut rng)
+}
 
 /// Initialize the Verse mod (called on app startup if mod is enabled)
 pub(crate) fn init() -> Result<(), VerseInitError> {
@@ -349,7 +355,7 @@ fn load_or_generate_identity() -> Result<P2PIdentitySecret, VerseInitError> {
         }
         Err(keyring::Error::NoEntry) => {
             // Generate new identity
-            let secret_key = iroh::SecretKey::generate(&mut rand::thread_rng());
+            let secret_key = generate_p2p_secret_key();
             let device_name = get_device_name();
             let identity = P2PIdentitySecret {
                 secret_key,
@@ -374,9 +380,7 @@ fn load_or_generate_identity() -> Result<P2PIdentitySecret, VerseInitError> {
 /// Get a human-readable device name
 fn get_device_name() -> String {
     // Try to get hostname, fall back to "Unknown Device"
-    hostname::get()
-        .ok()
-        .and_then(|h| h.into_string().ok())
+    System::host_name()
         .unwrap_or_else(|| "Unknown Device".to_string())
 }
 
@@ -385,7 +389,7 @@ async fn create_iroh_endpoint(
     secret_key: &iroh::SecretKey,
 ) -> Result<iroh::Endpoint, VerseInitError> {
     // Create endpoint builder
-    let endpoint = iroh::Endpoint::builder()
+    let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
         .secret_key(secret_key.clone())
         .alpns(vec![SYNC_ALPN.to_vec()])
         .bind()
@@ -458,7 +462,7 @@ pub(crate) fn sign_sync_payload(payload: &[u8]) -> Vec<u8> {
 }
 
 /// Verify a peer's signature on a payload
-pub(crate) fn verify_peer_signature(peer: iroh::NodeId, payload: &[u8], sig: &[u8]) -> bool {
+pub(crate) fn verify_peer_signature(peer: iroh::EndpointId, payload: &[u8], sig: &[u8]) -> bool {
     // Convert signature bytes to iroh::Signature (Ed25519 signature)
     if sig.len() != 64 {
         return false;
@@ -491,17 +495,17 @@ pub(crate) fn verify_peer_signature(peer: iroh::NodeId, payload: &[u8], sig: &[u
 /// Version vector for tracking causal history across peers
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VersionVector {
-    /// Maps NodeId → highest sequence number seen from that peer
+    /// Maps endpoint IDs to the highest sequence number seen from each peer.
     #[serde(with = "version_vector_serde")]
-    pub clocks: std::collections::HashMap<iroh::NodeId, u64>,
+    pub clocks: std::collections::HashMap<iroh::EndpointId, u64>,
 }
 
-// Serde helper for HashMap<NodeId, u64>
+// Serde helpers for HashMap<EndpointId, u64>
 mod version_vector_serde {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::HashMap;
 
-    pub fn serialize<S>(map: &HashMap<iroh::NodeId, u64>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(map: &HashMap<iroh::EndpointId, u64>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -510,7 +514,7 @@ mod version_vector_serde {
         string_map.serialize(serializer)
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<iroh::NodeId, u64>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<iroh::EndpointId, u64>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -518,7 +522,7 @@ mod version_vector_serde {
         string_map
             .into_iter()
             .map(|(k, v)| {
-                k.parse::<iroh::NodeId>()
+                k.parse::<iroh::EndpointId>()
                     .map(|node_id| (node_id, v))
                     .map_err(serde::de::Error::custom)
             })
@@ -552,14 +556,14 @@ impl VersionVector {
     }
 
     /// Increment sequence number for a peer
-    pub fn increment(&mut self, peer: iroh::NodeId) -> u64 {
+    pub fn increment(&mut self, peer: iroh::EndpointId) -> u64 {
         let seq = self.clocks.entry(peer).or_insert(0);
         *seq += 1;
         *seq
     }
 
     /// Get current sequence number for a peer
-    pub fn get(&self, peer: iroh::NodeId) -> u64 {
+    pub fn get(&self, peer: iroh::EndpointId) -> u64 {
         self.clocks.get(&peer).copied().unwrap_or(0)
     }
 }
@@ -587,8 +591,8 @@ pub struct SyncLog {
 pub struct SyncedIntent {
     pub log_entry: LogEntry,
     /// Which peer originated this intent
-    #[serde(with = "node_id_serde")]
-    pub authored_by: iroh::NodeId,
+    #[serde(with = "endpoint_id_serde")]
+    pub authored_by: iroh::EndpointId,
     /// Wall clock at origin (for LWW resolution)
     pub authored_at_secs: u64, // SystemTime as unix timestamp
     /// Per-peer monotonic counter
@@ -802,8 +806,8 @@ fn get_sync_log_path(workspace_id: &str) -> Result<std::path::PathBuf, String> {
         .join(format!("{}.bin", workspace_id)))
 }
 
-/// Get our NodeId (public key derived from secret key)
-pub(crate) fn node_id() -> iroh::NodeId {
+/// Get our local iroh endpoint identity.
+pub(crate) fn endpoint_id() -> iroh::EndpointId {
     if let Some(state) = VERSE_STATE.get() {
         return state.identity.secret_key.public();
     }
@@ -812,8 +816,8 @@ pub(crate) fn node_id() -> iroh::NodeId {
         channel_id: CHANNEL_VERSE_PREINIT_CALL,
         byte_len: "node_id".len(),
     });
-    log::warn!("node_id called before Verse initialization; using temporary fallback NodeId");
-    *FALLBACK_NODE_ID.get_or_init(|| iroh::SecretKey::generate(&mut rand::thread_rng()).public())
+    log::warn!("endpoint_id called before Verse initialization; using temporary fallback EndpointId");
+    *FALLBACK_ENDPOINT_ID.get_or_init(|| generate_p2p_secret_key().public())
 }
 
 /// Get our device name
@@ -916,7 +920,7 @@ pub(crate) fn trust_peer(peer: TrustedPeer) {
         .write()
         .expect("trust store lock poisoned");
 
-    // Remove existing peer with same NodeId (update case)
+    // Remove any existing record for the same endpoint identity (update case).
     peers.retain(|p| p.node_id != peer.node_id);
     peers.push(peer);
 
@@ -927,7 +931,7 @@ pub(crate) fn trust_peer(peer: TrustedPeer) {
 }
 
 /// Revoke trust for a peer (remove from trust store)
-pub(crate) fn revoke_peer(node_id: iroh::NodeId) {
+pub(crate) fn revoke_peer(node_id: iroh::EndpointId) {
     let Some(state) = VERSE_STATE.get() else {
         log::warn!("revoke_peer called before Verse initialization");
         return;
@@ -947,7 +951,7 @@ pub(crate) fn revoke_peer(node_id: iroh::NodeId) {
 
 /// Grant workspace access for a peer
 pub(crate) fn grant_workspace_access(
-    node_id: iroh::NodeId,
+    node_id: iroh::EndpointId,
     workspace_id: String,
     access: AccessLevel,
 ) {
@@ -985,7 +989,7 @@ pub(crate) fn grant_workspace_access(
 }
 
 /// Revoke workspace access for a peer
-pub(crate) fn revoke_workspace_access(node_id: iroh::NodeId, workspace_id: String) {
+pub(crate) fn revoke_workspace_access(node_id: iroh::EndpointId, workspace_id: String) {
     let Some(state) = VERSE_STATE.get() else {
         log::warn!("revoke_workspace_access called before Verse initialization");
         return;
@@ -1071,13 +1075,13 @@ pub(crate) const PAIRING_WORDLIST: &[&str] = &[
 pub struct PairingCode {
     /// The 6-word mnemonic phrase
     pub phrase: String,
-    /// iroh::NodeAddr encoded in the code
-    pub node_addr: iroh::NodeAddr,
+    /// The peer address encoded in the pairing code.
+    pub endpoint_addr: iroh::EndpointAddr,
     /// When the code expires
     pub expires_at: std::time::SystemTime,
 }
 
-/// Encode our NodeAddr into a 6-word pairing code
+/// Encode our endpoint address into a 6-word pairing code.
 pub fn generate_pairing_code() -> Result<PairingCode, String> {
     let Some(state) = VERSE_STATE.get() else {
         emit_event(DiagnosticEvent::MessageSent {
@@ -1087,38 +1091,38 @@ pub fn generate_pairing_code() -> Result<PairingCode, String> {
         return Err("Verse is not initialized yet".to_string());
     };
 
-    // Get NodeId directly (NodeAddr requires async, but NodeId is synchronous)
-    let node_id = state.endpoint.node_id();
+    // Get the endpoint identity directly; the full address can be assembled locally.
+    let endpoint_id = state.endpoint.id();
 
-    // Keep the 6-word mnemonic prefix for usability, and append a full NodeId suffix
+    // Keep the 6-word mnemonic prefix for usability, and append the full endpoint ID suffix
     // so decode can reconstruct the exact peer identity.
-    let node_id_bytes = node_id.as_bytes();
+    let endpoint_id_bytes = endpoint_id.as_bytes();
 
     // Take first 6 bytes and encode as 6 words (8 bits per word)
     let mut words = Vec::with_capacity(6);
     for i in 0..6 {
-        let byte_val = node_id_bytes[i];
+        let byte_val = endpoint_id_bytes[i];
         let word_idx = byte_val as usize % 256;
         words.push(PAIRING_WORDLIST[word_idx]);
     }
 
     let mnemonic = words.join("-");
-    let phrase = format!("{}:{}", mnemonic, node_id);
+    let phrase = format!("{}:{}", mnemonic, endpoint_id);
     let expires_at = std::time::SystemTime::now() + std::time::Duration::from_secs(5 * 60);
 
-    // Note: For Step 5.3, we create a minimal NodeAddr with just the NodeId
+    // Note: For Step 5.3, we create a minimal endpoint address with just the endpoint identity.
     // Step 5.4 will include full relay and direct addresses
-    let node_addr = iroh::NodeAddr::new(node_id);
+    let endpoint_addr = iroh::EndpointAddr::new(endpoint_id);
 
     Ok(PairingCode {
         phrase,
-        node_addr,
+        endpoint_addr,
         expires_at,
     })
 }
 
-/// Decode a pairing code back into a NodeId.
-pub fn decode_pairing_code(phrase: &str) -> Result<iroh::NodeId, String> {
+/// Decode a pairing code back into an endpoint identity.
+pub fn decode_pairing_code(phrase: &str) -> Result<iroh::EndpointId, String> {
     let (mnemonic, encoded_node_id) = phrase
         .split_once(':')
         .ok_or_else(|| "pairing code missing node-id suffix".to_string())?;
@@ -1136,7 +1140,7 @@ pub fn decode_pairing_code(phrase: &str) -> Result<iroh::NodeId, String> {
     }
 
     encoded_node_id
-        .parse::<iroh::NodeId>()
+        .parse::<iroh::EndpointId>()
         .map_err(|e| format!("invalid node id payload: {e}"))
 }
 
@@ -1186,7 +1190,7 @@ fn start_mdns_advertisement(
 ) -> Option<mdns_sd::ServiceDaemon> {
     match mdns_sd::ServiceDaemon::new() {
         Ok(daemon) => {
-            let node_id = endpoint.node_id();
+            let endpoint_id = endpoint.id();
 
             // Service type: _graphshell-sync._udp.local
             let service_type = "_graphshell-sync._udp.local.";
@@ -1194,15 +1198,15 @@ fn start_mdns_advertisement(
             // Instance name: device name
             let instance_name = sanitize_service_name(device_name);
 
-            // TXT records: node_id (as hex string)
+            // TXT records: endpoint_id (as hex string)
             let mut properties = std::collections::HashMap::new();
-            properties.insert("node_id".to_string(), node_id.to_string());
+            properties.insert("node_id".to_string(), endpoint_id.to_string());
             if let Some(binding) = presence_binding.as_ref() {
                 insert_presence_binding_properties(&mut properties, binding);
             }
 
-            // Note: We'll add relay URL in Step 5.4 when we handle full NodeAddr encoding
-            // For Step 5.3, just advertise NodeId for local network discovery
+            // Note: We'll add relay URL in Step 5.4 when we handle full endpoint addresses.
+            // For Step 5.3, just advertise the endpoint identity for local network discovery.
 
             // Note: Port 0 because iroh uses QUIC with Magic Sockets (not a fixed TCP/UDP port)
             let service_info = mdns_sd::ServiceInfo::new(
@@ -1256,7 +1260,7 @@ pub(crate) fn sanitize_service_name(name: &str) -> String {
 #[allow(dead_code)]
 pub struct DiscoveredPeer {
     pub device_name: String,
-    pub node_id: iroh::NodeId,
+    pub node_id: iroh::EndpointId,
     pub relay_url: Option<url::Url>,
     pub presence_binding: Option<PresenceBindingAssertion>,
     pub presence_binding_verified: bool,
@@ -1282,7 +1286,7 @@ pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, S
                 if let mdns_sd::ServiceEvent::ServiceResolved(info) = event {
                     // Extract node_id from TXT records
                     if let Some(node_id_str) = info.get_property_val_str("node_id") {
-                        if let Ok(node_id) = node_id_str.parse::<iroh::NodeId>() {
+                        if let Ok(node_id) = node_id_str.parse::<iroh::EndpointId>() {
                             let relay_url = info
                                 .get_property_val_str("relay")
                                 .and_then(|s| s.parse::<url::Url>().ok());

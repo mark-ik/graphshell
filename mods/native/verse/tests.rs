@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod step_5_1_tests {
-    use super::super::{P2PIdentitySecret, verse_manifest};
+    use super::super::{P2PIdentitySecret, generate_p2p_secret_key, verse_manifest};
 
     #[test]
     fn verse_manifest_declares_correct_provides() {
@@ -71,7 +71,7 @@ mod step_5_1_tests {
 
     #[test]
     fn p2p_identity_secret_serde_roundtrip() {
-        let original_key = iroh::SecretKey::generate(&mut rand::thread_rng());
+        let original_key = generate_p2p_secret_key();
         let identity = P2PIdentitySecret {
             secret_key: original_key.clone(),
             device_name: "test-device".to_string(),
@@ -100,13 +100,13 @@ mod step_5_1_tests {
 mod step_5_2_tests {
     use super::super::{
         AccessLevel, PeerRole, SyncLog, SyncedIntent, TrustedPeer, VersionVector, WorkspaceGrant,
-        verify_peer_signature,
+        generate_p2p_secret_key, verify_peer_signature,
     };
     use crate::services::persistence::types::LogEntry;
 
     #[test]
     fn trusted_peer_serde_roundtrip() {
-        let node_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let node_id = generate_p2p_secret_key().public();
         let peer = TrustedPeer {
             node_id,
             display_name: "Marks-iPhone".to_string(),
@@ -146,8 +146,8 @@ mod step_5_2_tests {
         let mut vv1 = VersionVector::new();
         let mut vv2 = VersionVector::new();
 
-        let peer_a = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
-        let peer_b = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let peer_a = generate_p2p_secret_key().public();
+        let peer_b = generate_p2p_secret_key().public();
 
         vv1.increment(peer_a);
         vv1.increment(peer_a);
@@ -169,8 +169,8 @@ mod step_5_2_tests {
         let mut vv_newer = VersionVector::new();
         let mut vv_older = VersionVector::new();
 
-        let peer_a = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
-        let peer_b = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let peer_a = generate_p2p_secret_key().public();
+        let peer_b = generate_p2p_secret_key().public();
 
         vv_older.increment(peer_a);
         vv_older.increment(peer_b);
@@ -192,7 +192,7 @@ mod step_5_2_tests {
 
     #[test]
     fn sync_log_encryption_roundtrip() {
-        let secret_key = iroh::SecretKey::generate(&mut rand::thread_rng());
+        let secret_key = generate_p2p_secret_key();
         let node_id = secret_key.public();
 
         let mut sync_log = SyncLog::new("test-workspace".to_string());
@@ -231,7 +231,7 @@ mod step_5_2_tests {
 
     #[test]
     fn sign_verify_roundtrip() {
-        let secret_key = iroh::SecretKey::generate(&mut rand::thread_rng());
+        let secret_key = generate_p2p_secret_key();
         let node_id = secret_key.public();
 
         let payload = b"test sync payload";
@@ -284,13 +284,13 @@ mod step_5_2_tests {
 // Tests for Step 5.4: Delta Sync core rules (LWW + ghost-node)
 #[cfg(test)]
 mod step_5_4_tests {
-    use super::super::{SyncLog, SyncedIntent};
+    use super::super::{SyncLog, SyncedIntent, generate_p2p_secret_key};
     use crate::services::persistence::types::LogEntry;
 
     #[test]
     fn sync_log_lww_rejects_older_title() {
         let node_id = "node-1".to_string();
-        let peer = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let peer = generate_p2p_secret_key().public();
         let mut log = SyncLog::new("workspace".to_string());
 
         let newer = SyncedIntent {
@@ -319,7 +319,7 @@ mod step_5_4_tests {
     #[test]
     fn sync_log_ghost_node_blocks_old_add() {
         let node_id = "node-2".to_string();
-        let peer = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let peer = generate_p2p_secret_key().public();
         let mut log = SyncLog::new("workspace".to_string());
 
         let removal = SyncedIntent {
@@ -350,7 +350,7 @@ mod step_5_4_tests {
 
     #[test]
     fn sync_log_rejects_duplicate_sequence() {
-        let peer = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let peer = generate_p2p_secret_key().public();
         let mut log = SyncLog::new("workspace".to_string());
 
         let first = SyncedIntent {
@@ -377,7 +377,7 @@ mod step_5_4_tests {
 mod step_5_3_tests {
     use super::super::{
         DiscoveredPeer, PAIRING_WORDLIST, PresenceBindingAssertion, decode_pairing_code,
-        generate_qr_code_ascii, generate_qr_code_png, parse_presence_protocol,
+        generate_p2p_secret_key, generate_qr_code_ascii, generate_qr_code_png, parse_presence_protocol,
         presence_protocol_label, sanitize_service_name,
     };
     use crate::shell::desktop::runtime::registries::identity::{
@@ -443,7 +443,7 @@ mod step_5_3_tests {
 
     #[test]
     fn pairing_code_decode_accepts_node_id_suffix_payload() {
-        let node_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let node_id = generate_p2p_secret_key().public();
         let code = format!("abandon-ability-able-about-above-absent:{}", node_id);
 
         let decoded = decode_pairing_code(&code).expect("pairing code should decode");
@@ -493,7 +493,7 @@ mod step_5_3_tests {
 
     #[test]
     fn discovered_peer_contains_required_fields() {
-        let node_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let node_id = generate_p2p_secret_key().public();
         let relay_url = "https://relay.example.com".parse::<url::Url>().ok();
         let presence_binding = Some(PresenceBindingAssertion {
             node_id: node_id.to_string(),

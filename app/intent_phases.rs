@@ -457,7 +457,7 @@ impl GraphBrowserApp {
                 peer_id,
                 display_name,
             } => {
-                match peer_id.parse::<iroh::NodeId>() {
+                match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
                         crate::shell::desktop::runtime::registries::phase3_trust_peer(
                             crate::mods::native::verse::TrustedPeer {
@@ -481,7 +481,7 @@ impl GraphBrowserApp {
                 peer_id,
                 workspace_id,
             } => {
-                match peer_id.parse::<iroh::NodeId>() {
+                match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
                         crate::shell::desktop::runtime::registries::phase3_grant_workspace_access(
                             node_id,
@@ -503,7 +503,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::ForgetDevice { peer_id } => {
-                match peer_id.parse::<iroh::NodeId>() {
+                match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
                         crate::shell::desktop::runtime::registries::phase3_revoke_peer(node_id);
                         log::info!("forgetting device: {peer_id}");
@@ -518,7 +518,7 @@ impl GraphBrowserApp {
                 peer_id,
                 workspace_id,
             } => {
-                match peer_id.parse::<iroh::NodeId>() {
+                match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
                         crate::shell::desktop::runtime::registries::phase3_revoke_workspace_access(
                             node_id,

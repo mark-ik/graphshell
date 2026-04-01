@@ -18,6 +18,8 @@ pub(crate) mod workflow;
 
 use std::sync::{Arc, Mutex, OnceLock};
 
+use sysinfo::System;
+
 use crate::mods::native::verso::finger::{FingerRegistry, FingerServerHandle};
 use crate::mods::native::verso::gemini::{CapsuleRegistry, GeminiServerHandle};
 use crate::mods::native::verso::gopher::{GopherRegistry, GopherServerHandle};
@@ -714,19 +716,19 @@ pub(crate) fn phase3_trust_peer(peer: crate::mods::native::verse::TrustedPeer) {
     runtime().trust_peer(peer);
 }
 
-pub(crate) fn phase3_revoke_peer(node_id: iroh::NodeId) {
+pub(crate) fn phase3_revoke_peer(node_id: iroh::EndpointId) {
     runtime().revoke_peer(node_id);
 }
 
 pub(crate) fn phase3_grant_workspace_access(
-    node_id: iroh::NodeId,
+    node_id: iroh::EndpointId,
     workspace_id: &str,
     access: crate::mods::native::verse::AccessLevel,
 ) {
     runtime().grant_workspace_access(node_id, workspace_id, access);
 }
 
-pub(crate) fn phase3_revoke_workspace_access(node_id: iroh::NodeId, workspace_id: &str) {
+pub(crate) fn phase3_revoke_workspace_access(node_id: iroh::EndpointId, workspace_id: &str) {
     runtime().revoke_workspace_access(node_id, workspace_id);
 }
 
@@ -2038,7 +2040,7 @@ impl RegistryRuntime {
             .trust_peer_record(peer);
     }
 
-    pub(crate) fn revoke_peer(&self, node_id: iroh::NodeId) {
+    pub(crate) fn revoke_peer(&self, node_id: iroh::EndpointId) {
         self.identity
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -2047,7 +2049,7 @@ impl RegistryRuntime {
 
     pub(crate) fn grant_workspace_access(
         &self,
-        node_id: iroh::NodeId,
+        node_id: iroh::EndpointId,
         workspace_id: &str,
         access: crate::mods::native::verse::AccessLevel,
     ) {
@@ -2057,7 +2059,7 @@ impl RegistryRuntime {
             .grant_workspace_access(node_id, workspace_id, access);
     }
 
-    pub(crate) fn revoke_workspace_access(&self, node_id: iroh::NodeId, workspace_id: &str) {
+    pub(crate) fn revoke_workspace_access(&self, node_id: iroh::EndpointId, workspace_id: &str) {
         self.identity
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -3324,10 +3326,7 @@ pub(crate) fn start_gemini_capsule_server(port: u16) {
     let registry = gemini_registry().clone();
     let config = crate::mods::native::verso::gemini::GeminiServerConfig {
         port,
-        hostname: hostname::get()
-            .ok()
-            .and_then(|h| h.into_string().ok())
-            .unwrap_or_else(|| "localhost".to_string()),
+        hostname: System::host_name().unwrap_or_else(|| "localhost".to_string()),
     };
 
     let server = crate::mods::native::verso::gemini::GeminiCapsuleServer::new_with_registry(
@@ -3395,10 +3394,7 @@ pub(crate) fn start_gopher_capsule_server(port: u16) {
     let registry = gopher_registry().clone();
     let config = crate::mods::native::verso::gopher::GopherServerConfig {
         port,
-        hostname: hostname::get()
-            .ok()
-            .and_then(|h| h.into_string().ok())
-            .unwrap_or_else(|| "localhost".to_string()),
+        hostname: System::host_name().unwrap_or_else(|| "localhost".to_string()),
     };
     let server = crate::mods::native::verso::gopher::GopherCapsuleServer::new_with_registry(
         config, registry,
@@ -3741,7 +3737,7 @@ pub(crate) fn phase0_decide_navigation_for_tests_with_control(
 pub(crate) fn phase5_check_verse_workspace_sync_access_for_tests(
     diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     peers: &[crate::mods::native::verse::TrustedPeer],
-    peer_id: iroh::NodeId,
+    peer_id: iroh::EndpointId,
     workspace_id: &str,
     has_mutating_intents: bool,
 ) -> bool {
@@ -4938,7 +4934,7 @@ mod tests {
     #[test]
     fn phase5_action_registry_forget_device_emits_peer_targeted_intent() {
         let app = GraphBrowserApp::new_for_testing();
-        let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng())
+        let peer_id = crate::mods::native::verse::generate_p2p_secret_key()
             .public()
             .to_string();
 
@@ -4954,7 +4950,7 @@ mod tests {
     #[test]
     fn phase5_action_registry_pair_local_peer_emits_trust_peer_intent() {
         let app = GraphBrowserApp::new_for_testing();
-        let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng())
+        let peer_id = crate::mods::native::verse::generate_p2p_secret_key()
             .public()
             .to_string();
 

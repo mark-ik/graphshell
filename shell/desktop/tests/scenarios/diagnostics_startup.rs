@@ -64,7 +64,7 @@ fn history_manager_limit_env_emits_channel() {
 fn verse_preinit_calls_emit_channel() {
     let mut harness = TestRegistry::new();
 
-    let _ = crate::mods::native::verse::node_id();
+    let _ = crate::mods::native::verse::endpoint_id();
 
     let snapshot = harness.snapshot();
     assert!(

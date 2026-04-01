@@ -4,9 +4,9 @@ use crate::registries::atomic::diagnostics;
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::registries;
 
-// Helper to generate a deterministic test NodeId without network I/O
-fn test_peer_id() -> iroh::NodeId {
-    iroh::SecretKey::generate(&mut rand::thread_rng()).public()
+// Helper to generate a deterministic test endpoint identity without network I/O
+fn test_peer_id() -> iroh::EndpointId {
+    crate::mods::native::verse::generate_p2p_secret_key().public()
 }
 
 #[test]

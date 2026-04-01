@@ -21,7 +21,7 @@
 #![windows_subsystem = "windows"]
 
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::System::Console;
+use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
 
 fn main() {
     #[cfg(target_os = "windows")]
@@ -32,7 +32,7 @@ fn main() {
         // work out-of-the-box, and we need to manually attempt to attach to
         // the console of the parent process. If servo was not started from
         // the commandline, then the call will fail, which we can ignore.
-        let _result = Console::AttachConsole(Console::ATTACH_PARENT_PROCESS);
+        let _result = AttachConsole(ATTACH_PARENT_PROCESS);
     }
     cfg_if::cfg_if! {
         if #[cfg(not(any(target_os = "android", target_env = "ohos")))] {

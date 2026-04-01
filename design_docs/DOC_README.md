@@ -45,7 +45,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 28, 2026
+Last updated: March 31, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -124,6 +124,9 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/shell/shell_backlog_pack.md](graphshell_docs/implementation_strategy/shell/shell_backlog_pack.md) - Shell execution backlog including overview, routing, and interruption scenario-track IDs.
 - [graphshell_docs/implementation_strategy/shell/shell_overview_surface_spec.md](graphshell_docs/implementation_strategy/shell/shell_overview_surface_spec.md) - Concrete Shell overview surface for graph/workbench/runtime summary and cross-domain routing.
 - [graphshell_docs/implementation_strategy/graph/GRAPH.md](graphshell_docs/implementation_strategy/graph/GRAPH.md) - Graph domain spec; the canvas is its primary rendered surface, not the domain name.
+- [graphshell_docs/implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md](graphshell_docs/implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md) - Broad historical plan and landed-scope record for node badges, tag panel behavior, icon resources, and presentation metadata; narrowed on 2026-03-31 after code-reality audit.
+- [graphshell_docs/implementation_strategy/graph/2026-03-31_node_badge_and_tagging_follow_on_plan.md](graphshell_docs/implementation_strategy/graph/2026-03-31_node_badge_and_tagging_follow_on_plan.md) - Reduced follow-on plan for the remaining node-badge/tagging work: deliberate panel routing, panel extraction/close semantics, richer icon picker scope, and UI-path tests.
+- [graphshell_docs/implementation_strategy/graph/node_badge_and_tagging_spec.md](graphshell_docs/implementation_strategy/graph/node_badge_and_tagging_spec.md) - Canonical interaction contract for node badges, tag assignment surface behavior, icon resources, and Knowledge Registry integration.
 - [graphshell_docs/implementation_strategy/graph/graph_node_edge_interaction_spec.md](graphshell_docs/implementation_strategy/graph/graph_node_edge_interaction_spec.md) - Canonical interaction contract for graph, node, edge, and camera semantics on graph-bearing surfaces including the canvas.
 - [graphshell_docs/implementation_strategy/graph/2026-03-21_edge_family_and_provenance_expansion_plan.md](graphshell_docs/implementation_strategy/graph/2026-03-21_edge_family_and_provenance_expansion_plan.md) - Edge vocabulary expansion plan: keeps the current five relation families, adds a dedicated Provenance family, and proposes broader semantic/traversal/containment/arrangement/imported sub-kind vocabularies for prototype-era knowledge capture.
 - [graphshell_docs/implementation_strategy/graph/2026-03-21_edge_payload_type_sketch.md](graphshell_docs/implementation_strategy/graph/2026-03-21_edge_payload_type_sketch.md) - Rust-facing graph-model sketch for the next `EdgePayload`: split family from sub-kind, move traversal onto an explicit event carrier, and add typed Imported/Provenance sidecars.

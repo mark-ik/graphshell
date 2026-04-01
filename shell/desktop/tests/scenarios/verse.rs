@@ -2,7 +2,7 @@ use super::super::harness::TestRegistry;
 use crate::mods::native::verse::{AccessLevel, PeerRole, TrustedPeer, WorkspaceGrant};
 use crate::shell::desktop::runtime::registries;
 
-fn make_peer(node_id: iroh::NodeId, workspace_id: &str, access: AccessLevel) -> TrustedPeer {
+fn make_peer(node_id: iroh::EndpointId, workspace_id: &str, access: AccessLevel) -> TrustedPeer {
     TrustedPeer {
         node_id,
         display_name: "test-peer".to_string(),
@@ -21,7 +21,7 @@ fn make_peer(node_id: iroh::NodeId, workspace_id: &str, access: AccessLevel) -> 
 #[test]
 fn verse_access_control_rw_peer_with_mutations_is_allowed() {
     let mut harness = TestRegistry::new();
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
     let peers = vec![make_peer(peer_id, "workspace-w", AccessLevel::ReadWrite)];
 
     let allowed = registries::phase5_check_verse_workspace_sync_access_for_tests(
@@ -45,7 +45,7 @@ fn verse_access_control_rw_peer_with_mutations_is_allowed() {
 #[test]
 fn verse_access_control_ro_peer_with_mutations_emits_access_denied() {
     let mut harness = TestRegistry::new();
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
     let peers = vec![make_peer(peer_id, "workspace-w", AccessLevel::ReadOnly)];
 
     let allowed = registries::phase5_check_verse_workspace_sync_access_for_tests(
@@ -68,7 +68,7 @@ fn verse_access_control_ro_peer_with_mutations_emits_access_denied() {
 #[test]
 fn verse_access_control_ro_peer_without_mutations_is_allowed() {
     let mut harness = TestRegistry::new();
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
     let peers = vec![make_peer(peer_id, "workspace-w", AccessLevel::ReadOnly)];
 
     let allowed = registries::phase5_check_verse_workspace_sync_access_for_tests(
@@ -97,7 +97,7 @@ fn verse_access_control_ro_peer_without_mutations_is_allowed() {
 #[test]
 fn verse_access_control_ungranted_peer_emits_access_denied() {
     let mut harness = TestRegistry::new();
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
     // Peer is trusted but holds no grant for "workspace-w"
     let peer = TrustedPeer {
         node_id: peer_id,
@@ -128,7 +128,7 @@ fn verse_access_control_ungranted_peer_emits_access_denied() {
 #[test]
 fn verse_access_control_wrong_workspace_grant_emits_access_denied() {
     let mut harness = TestRegistry::new();
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
     let peers = vec![make_peer(
         peer_id,
         "workspace-other",
@@ -159,7 +159,7 @@ fn verse_access_control_wrong_workspace_grant_emits_access_denied() {
 #[test]
 fn verse_access_control_target_workspace_ro_denies_mutations_even_with_rw_elsewhere() {
     let mut harness = TestRegistry::new();
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
     let peers = vec![TrustedPeer {
         node_id: peer_id,
         display_name: "mixed-grant-peer".to_string(),
@@ -202,7 +202,7 @@ fn verse_access_control_target_workspace_ro_denies_mutations_even_with_rw_elsewh
 #[test]
 fn verse_access_control_unknown_peer_emits_access_denied() {
     let mut harness = TestRegistry::new();
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
     let peers: Vec<TrustedPeer> = vec![]; // empty trust store
 
     let allowed = registries::phase5_check_verse_workspace_sync_access_for_tests(
@@ -225,7 +225,7 @@ fn verse_access_control_unknown_peer_emits_access_denied() {
 #[test]
 fn verse_access_control_revoke_removes_grant_and_emits_access_denied() {
     let mut harness = TestRegistry::new();
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
 
     // Before revoke: peer has ReadWrite access
     let mut peers = vec![make_peer(peer_id, "workspace-w", AccessLevel::ReadWrite)];
@@ -266,7 +266,7 @@ fn verse_access_control_deny_does_not_mutate_graph_state() {
     let _node = harness.add_node("https://example.com");
     let node_count_before = harness.app.workspace.domain.graph.node_count();
 
-    let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+    let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
     let peers: Vec<TrustedPeer> = vec![];
 
     let allowed = registries::phase5_check_verse_workspace_sync_access_for_tests(

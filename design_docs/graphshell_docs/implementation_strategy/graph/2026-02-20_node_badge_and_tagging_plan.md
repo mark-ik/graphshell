@@ -2,16 +2,21 @@
      License, v. 2.0. If a copy of the MPL was not distributed with this
      file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
 
+<!-- markdownlint-disable MD024 MD030 MD032 MD036 MD004 -->
+
 # Node Badge and Tagging Plan (2026-02-20)
 
-**Status**: In Progress (Partially Implemented) — updated 2026-03-13 for node-owned tag migration follow-through, compositor integration, GUI decomposition, and `#focus` disambiguation
+**Status**: Mostly Landed / Follow-on Narrowed — updated 2026-03-31 for code-reality alignment and extraction of the remaining work into `2026-03-31_node_badge_and_tagging_follow_on_plan.md`
 
 **Prerequisites**:
-- Persistence hub Phase 1 tag actions and runtime tag storage.
-- Current runtime reality: canonical membership now lives on `Node.tags`; presentation ordering and icon choice are still missing.
-- A follow-up presentation metadata layer is required for durable per-tag icon choice and user-visible ordering.
 
-This plan covers the visual and interactive layers on top of that data model, plus the missing presentation metadata needed to make icon assignment and ordering durable.
+- Persistence hub Phase 1 tag actions and runtime tag storage. Landed.
+- Current runtime reality: canonical membership lives on `Node.tags`; presentation ordering and icon overrides now also live on-node through `NodeTagPresentationState`.
+- Remaining work is limited to deliberate input routing (`T` / context menu), render-layer extraction of the tag panel, richer icon resources/search, and explicit UI-path tests.
+
+This plan now serves as the broad historical plan and landed-scope record for node badges and tagging. The active remainder is tracked in `2026-03-31_node_badge_and_tagging_follow_on_plan.md`.
+
+This plan covers the visual and interactive layers on top of that data model, plus the presentation metadata that now makes icon assignment and ordering durable.
 
 ---
 
@@ -55,6 +60,8 @@ without breaking existing data.
 ---
 
 ### Phase 1: Badge Visual System
+
+**Status note (2026-03-31)**: Functionally landed. The badge model, shared resolver, canvas badges, orbit expansion, tab-header suffixes, archive dimming, and `#clip` dashed border treatment are all in code. Remaining work in this area is limited to test/path cleanup captured in the follow-on plan.
 
 #### 1.1 Badge Types
 
@@ -156,16 +163,16 @@ In the detail-view tab bar, each tab header shows a compact badge row to the rig
 
 #### Tasks
 
-- [ ] Define `Badge` and `BadgeIcon` enums in `graph/node.rs` or a new `graph/badge.rs`.
-- [ ] Add `fn badges_for_node(node: &Node, workspace_count: usize) -> Vec<Badge>` helper.
-- [ ] In `GraphNodeShape::ui()`: compute badges, render at-rest overlay (top-right corner).
-- [ ] Add `badge_expand_t: HashMap<NodeKey, f32>` state to `GraphNodeShape` or the egui_adapter.
-- [ ] Animate badge expansion on hover: increment `badge_expand_t` each frame, request repaint.
-- [ ] Render expanded orbit layout when `badge_expand_t > 0`.
-- [ ] Tab bar: render compact badge suffix per tab. Post-GUI decomposition, tab bar rendering lives in `shell/desktop/ui/workbench/` (not `gui.rs` — that file is now lifecycle/entrypoints only; frame orchestration is in `gui/gui_update_coordinator.rs`; workbench layout driving is in `gui_orchestration.rs`).
-- [ ] In `GraphNodeShape::ui()`: nodes with `TAG_ARCHIVE` render at reduced opacity (0.35–0.45)
+- [x] Define `Badge` and `BadgeIcon` enums in `model/graph/badge.rs`.
+- [x] Add `fn badges_for_node(node: &Node, workspace_count: usize, is_crashed: bool) -> Vec<Badge>` helper.
+- [x] In `GraphNodeShape::ui()`: compute badges and render the at-rest overlay (top-right corner).
+- [x] Add per-node `badge_expand_t` state on `GraphNodeShape` and drive repaint-based animation from the egui adapter.
+- [x] Animate badge expansion on hover/selection.
+- [x] Render expanded orbit layout when `badge_expand_t > 0`.
+- [x] Tab bar renders compact badge suffixes per node tab in `shell/desktop/workbench/tile_behavior/tab_chrome.rs`.
+- [x] In `GraphNodeShape::ui()`: nodes with `TAG_ARCHIVE` render at reduced opacity (0.35–0.45)
   when the "Show archived" graph view toggle is on. Excluded entirely when toggle is off.
-- [ ] In `GraphNodeShape::ui()`: nodes with `TAG_CLIP` render a dashed border stroke instead of the default solid border. All other geometry is unchanged.
+- [x] In `GraphNodeShape::ui()`: nodes with `TAG_CLIP` render a dashed border stroke instead of the default solid border. All other geometry is unchanged.
 
 #### Validation Tests
 
@@ -179,6 +186,8 @@ In the detail-view tab bar, each tab header shows a compact badge row to the rig
 ---
 
 ### Phase 1.5: Tag Presentation Metadata
+
+**Status note (2026-03-31)**: Landed. The presentation metadata carrier exists on `Node`, reducer flows maintain it, persistence includes it, and badge resolution consumes it.
 
 The original version of this plan assumed that tag order and icon choice could be layered directly on top of a plain set of tag strings. That is no longer sufficient.
 
@@ -217,10 +226,10 @@ If no presentation metadata exists for a node, rendering falls back to determini
 
 #### Tasks
 
-- [ ] Define a presentation metadata carrier for per-node tag order and icon overrides.
-- [ ] Sync `TagNode` / `UntagNode` flows so metadata is initialized and pruned consistently.
-- [ ] Make badge resolution consume presentation metadata when available and deterministic fallback ordering otherwise.
-- [ ] Make icon picker selection write presentation metadata instead of trying to encode icon choice into the raw tag string.
+- [x] Define a presentation metadata carrier for per-node tag order and icon overrides.
+- [x] Sync `TagNode` / `UntagNode` flows so metadata is initialized and pruned consistently.
+- [x] Make badge resolution consume presentation metadata when available and deterministic fallback ordering otherwise.
+- [x] Make icon picker selection write presentation metadata instead of trying to encode icon choice into the raw tag string.
 
 #### Validation Tests
 
@@ -327,6 +336,8 @@ Update these families to read node-owned tags (preferably through helper APIs):
 
 ### Phase 2: Tag Assignment UI
 
+**Status note (2026-03-31)**: Partially landed. The non-modal tag panel exists and is reachable from the Selected Node inspector and the graph toolbar, supports add/remove intents, suggestions, and durable user-tag icon overrides, but it still lacks the original deliberate trigger/close contract and has not yet been extracted out of render-layer code.
+
 #### 2.1 Trigger
 
 The tag assignment panel opens when:
@@ -417,17 +428,17 @@ re-ranked on every keystroke.
 
 #### Tasks
 
-- [ ] Expand the existing `TagPanelState` to cover suggestion cache and icon-picker state. Current runtime already has `TagPanelState { node_key, text_input }`.
-- [ ] Move panel rendering out of the temporary graph-render placement into a dedicated UI module when the broader GUI extraction settles (`shell/desktop/ui/tag_panel.rs` remains a good target).
-- [ ] `T` key routing: set `tag_panel_open = Some(selected_node_key)` via the input context stack. This is a deliberate keybinding change because `T` is currently bound to physics; do not silently steal the existing shortcut.
-- [ ] `render_tag_panel()`: egui `Window` anchored near node rect; chip row, text field,
-  suggestions.
-- [ ] On text field change: run nucleo against `tag_index` keys + static emoji name list.
-- [ ] On `Enter` / suggestion click: emit `GraphIntent::TagNode { key, tag }`.
-- [ ] On chip ✕ click: emit `GraphIntent::UntagNode { key, tag }`.
-- [ ] `render_icon_picker()`: scrollable emoji grid + Lucide tab; search via nucleo.
-- [ ] On icon selection: associate icon with the pending tag (stored in `TagPanelState`).
-- [ ] Persist icon choice through tag presentation metadata rather than a transient UI-only field.
+- [x] Expand `TagPanelState` beyond `{ node_key, text_input }` to cover icon-picker open state and pending icon override. A dedicated matcher/suggestion cache is still optional.
+- [ ] Move panel rendering out of the temporary render-layer placement into a dedicated UI module when the broader GUI extraction settles (`shell/desktop/ui/tag_panel.rs` remains a good target).
+- [ ] `T` key routing: open the panel through the input context stack or action routing. This remains a deliberate keybinding change because `T` is still bound to physics; do not silently steal the existing shortcut.
+- [ ] Finish the original panel hosting contract: anchor it near the node rect and add the explicit `Esc` / outside-click close behavior from the spec.
+- [x] `render_selected_node_tag_panel()`: a non-modal egui `Window` exists with chip row, text field, and suggestions.
+- [x] On text field change: suggestions already re-rank against existing tags, display-only suggested tags, and `KnowledgeRegistry` search results. A reusable nucleo-backed matcher cache is not implemented yet.
+- [x] On `Enter` / suggestion click: emit `GraphIntent::TagNode { key, tag }`.
+- [x] On chip ✕ click: emit `GraphIntent::UntagNode { key, tag }`.
+- [ ] Replace the current preset-row icon picker with the originally planned searchable emoji grid and optional Lucide tab.
+- [x] On icon selection: associate icon with the pending tag in `TagPanelState`.
+- [x] Persist icon choice through tag presentation metadata rather than a transient UI-only field.
 
 #### Validation Tests
 
@@ -441,6 +452,8 @@ re-ranked on every keystroke.
 ---
 
 ### Phase 3: Icon Resources
+
+**Status note (2026-03-31)**: Still open except for the minimal preset-row emoji picker. Durable icon state is solved; the richer resource/search layer is not.
 
 #### 3.1 Emoji (Primary)
 
@@ -635,22 +648,21 @@ its SIMD hot path, and is a single-crate dependency. It is already considered fo
 
 ### Current Implementation Snapshot
 
-As of 2026-03-12, the following parts of this plan already exist in code:
+As of 2026-03-31, the following parts of this plan already exist in code:
 
-- shared badge model and reserved tag constants in `graph/badge.rs`
-- graph-node badge rendering and archive dimming in `model/graph/egui_adapter.rs`
+- shared badge model and reserved tag constants in `model/graph/badge.rs`
+- presentation metadata on the node model plus reducer and persistence plumbing
+- graph-node at-rest badges, archive dimming, `#clip` dashed ring, and hover/selection orbit expansion in `model/graph/egui_adapter.rs`
 - tab-header badge suffixes in `shell/desktop/workbench/tile_behavior/tab_chrome.rs`
-- reducer-side reserved-tag normalization and acceptance of ordinary user tags
-- a non-modal selected-node tag editor in `render/mod.rs`
+- reducer-side reserved-tag normalization, node-owned tag truth, and metadata pruning
+- a non-modal tag editor reachable from the Selected Node inspector and graph toolbar, with a minimal preset-row emoji picker and durable user-tag icon overrides
 
 Still missing:
 
-- badge orbit / hover expansion
-- dedicated `T`-key and context-menu trigger routing
-- icon picker and durable user-tag icon storage
-- `#clip` dashed-border treatment
-- canonical tag ownership migration from `workspace.semantic_tags` to `Node.tags`
-- full presentation metadata layer for user-controlled order and icon choice
+- deliberate keyboard and context-menu routing (`T` and graph-context `Tags…`)
+- panel anchoring/extraction and the original close semantics (`Esc`, outside click)
+- searchable emoji catalog and optional Lucide asset/dependency path
+- explicit UI-path coverage for open/close/add/remove/icon-persistence flows
 
 ---
 
@@ -676,3 +688,10 @@ Still missing:
 - Added Phase 1.5 tag presentation metadata so durable user-tag icon choice and ordering have an explicit architectural home.
 - Added Phase 1.6 canonical tag ownership migration, including the temporary dual-write reducer bridge, read-path migration, semantic-index rebuild changes, and explicit removal of `workspace.semantic_tags`.
 - Added a current implementation snapshot to distinguish landed work from remaining slices.
+
+### 2026-03-31 — Reality-check update
+
+- Audited the plan against the current codebase and marked the broad badge model, presentation metadata, canonical tag ownership migration, graph render path, orbit expansion, and tab-header suffix work as landed.
+- Updated Phase 2 to reflect the current tag panel reality: inspector and toolbar entry points exist, add/remove works, suggestions work, and icon overrides persist, but the deliberate trigger and close semantics remain open.
+- Narrowed Phase 3 to the remaining resource/search work rather than durable icon persistence, which is already solved.
+- Extracted the actual remainder into `2026-03-31_node_badge_and_tagging_follow_on_plan.md` so this file can remain a historical plan plus landed-scope record instead of a stale catch-all.

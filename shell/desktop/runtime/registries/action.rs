@@ -1957,7 +1957,7 @@ fn execute_verse_pair_device_action(
                 }),
             }
         }
-        PairingMode::LocalPeer { node_id } => match node_id.parse::<iroh::NodeId>() {
+        PairingMode::LocalPeer { node_id } => match node_id.parse::<iroh::EndpointId>() {
             Ok(parsed_node_id) => {
                 ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::TrustPeer {
                     peer_id: parsed_node_id.to_string(),
@@ -2198,7 +2198,7 @@ mod tests {
     #[test]
     fn action_registry_pair_local_peer_emits_trust_peer_intent() {
         let app = GraphBrowserApp::new_for_testing();
-        let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng())
+        let peer_id = crate::mods::native::verse::generate_p2p_secret_key()
             .public()
             .to_string();
         let registry = ActionRegistry::default();
