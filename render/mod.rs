@@ -46,7 +46,7 @@ mod canvas_visuals;
 mod graph_info;
 mod panels;
 mod reducer_bridge;
-mod semantic_tags;
+pub(crate) mod semantic_tags;
 mod spatial_index;
 use canvas_camera::handle_custom_navigation;
 use canvas_input::{

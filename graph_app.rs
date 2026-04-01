@@ -751,6 +751,7 @@ pub struct TagPanelState {
     pub text_input: String,
     pub icon_picker_open: bool,
     pub icon_search_input: String,
+    pub prefer_pane_anchor: bool,
     pub pending_icon_override: Option<crate::graph::badge::BadgeIcon>,
 }
 

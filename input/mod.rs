@@ -21,6 +21,7 @@ use egui::Key;
 /// action application (pure state mutation), making actions testable.
 #[derive(Default)]
 pub struct KeyboardActions {
+    pub open_tag_panel: bool,
     pub toggle_physics: bool,
     pub toggle_camera_position_fit_lock: bool,
     pub toggle_camera_zoom_fit_lock: bool,
@@ -184,6 +185,10 @@ pub(crate) fn collect_actions(
 
         if action_binding_pressed(i, action_id::graph::TOGGLE_PHYSICS, &binding_descriptors) {
             actions.toggle_physics = true;
+        }
+
+        if action_binding_pressed(i, action_id::graph::NODE_EDIT_TAGS, &binding_descriptors) {
+            actions.open_tag_panel = true;
         }
 
         if action_binding_pressed(i, action_id::graph::ZOOM_IN, &binding_descriptors) {
@@ -917,6 +922,7 @@ mod tests {
         let mut actions = KeyboardActions::default();
 
         let mut raw = RawInput::default();
+        raw.modifiers = modifiers;
         raw.events.push(Event::Key {
             key,
             physical_key: None,
@@ -1049,6 +1055,38 @@ mod tests {
         assert!(
             !actions.toggle_physics,
             "single-key T shortcut should be suppressed while text input captures keyboard"
+        );
+    }
+
+    #[test]
+    fn collect_actions_maps_ctrl_t_to_tag_panel_when_not_captured() {
+        let actions = collect_actions_with_key_event(
+            Key::T,
+            Modifiers {
+                ctrl: true,
+                ..Modifiers::default()
+            },
+            false,
+        );
+        assert!(
+            actions.open_tag_panel,
+            "Ctrl+T should open the tag panel when keyboard input is not captured"
+        );
+    }
+
+    #[test]
+    fn collect_actions_suppresses_ctrl_t_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(
+            Key::T,
+            Modifiers {
+                ctrl: true,
+                ..Modifiers::default()
+            },
+            true,
+        );
+        assert!(
+            !actions.open_tag_panel,
+            "Ctrl+T should be suppressed while text input captures keyboard"
         );
     }
 

@@ -7,7 +7,7 @@
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry, GraphSearchOrigin, SearchDisplayMode,
-    TagPanelState, ThreeDMode, ViewAction, ViewDimension, ZSource,
+    ThreeDMode, ViewAction, ViewDimension, ZSource,
 };
 use crate::graph::NodeKey;
 use crate::graph::format_imported_at_secs;
@@ -20,9 +20,8 @@ use super::reducer_bridge::apply_ui_intents_with_checkpoint;
 use super::semantic_tags::{
     PlacementAnchorSummary, SelectedNodeEnrichmentSummary, graph_search_history_label,
     graph_search_scope_label, render_classification_chips, render_graph_search_origin_badge,
-    render_selected_node_tag_panel, render_semantic_suggestion_buttons,
-    render_semantic_tag_status_buttons, request_graph_search_entry, semantic_suggestion_chip,
-    semantic_tag_status_chip,
+    render_semantic_suggestion_buttons, render_semantic_tag_status_buttons,
+    request_graph_search_entry, semantic_suggestion_chip, semantic_tag_status_chip,
 };
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -361,13 +360,11 @@ pub(super) fn draw_graph_info(
                             ui.horizontal(|ui| {
                                 ui.heading("Selected Node");
                                 if ui.small_button("Edit Tags").clicked() {
-                                    app.workspace.graph_runtime.tag_panel_state =
-                                        Some(TagPanelState {
-                                            node_key: selected_key,
-                                            text_input: String::new(),
-                                            icon_picker_open: false,
-                                            pending_icon_override: None,
-                                        });
+                                    crate::shell::desktop::ui::tag_panel::open_node_tag_panel(
+                                        app,
+                                        selected_key,
+                                        false,
+                                    );
                                 }
                             });
                             ui.small(&summary.title);
@@ -546,9 +543,6 @@ pub(super) fn draw_graph_info(
                 });
         }
 
-        render_selected_node_tag_panel(ui.ctx(), app, selected_key);
-    } else if app.workspace.graph_runtime.tag_panel_state.is_some() {
-        app.workspace.graph_runtime.tag_panel_state = None;
     }
 
     // Draw controls hint
@@ -568,8 +562,13 @@ pub(super) fn draw_graph_info(
             crate::shell::desktop::runtime::registries::input::action_id::workbench::HELP_OPEN,
         )
         .join(" / ");
+    let tags_hint =
+        crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+            crate::shell::desktop::runtime::registries::input::action_id::graph::NODE_EDIT_TAGS,
+        )
+        .join(" / ");
     let controls_text = format!(
-        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | R Reheat | +/-/0 Zoom | C Position-Lock | Z Zoom-Lock | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} Commands | {radial_hint} Radial | Ctrl+Z/Y Undo/Redo | {help_hint} Help"
+        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | {tags_hint} Tags | R Reheat | +/-/0 Zoom | C Position-Lock | Z Zoom-Lock | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} Commands | {radial_hint} Radial | Ctrl+Z/Y Undo/Redo | {help_hint} Help"
     );
     ui.painter().text(
         ui.available_rect_before_wrap().left_bottom() + Vec2::new(10.0, -10.0),

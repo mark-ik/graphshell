@@ -297,6 +297,13 @@ pub(crate) fn run_post_render_phase<FActive>(
         focused_pane_node,
         active_node_pane.map(|pane| pane.pane_id),
     );
+    crate::shell::desktop::ui::tag_panel::render_tag_panel(
+        ctx,
+        graph_app,
+        tiles_tree,
+        graph_surface_focused,
+        *focused_node_hint,
+    );
     if !preview_mode_active && let Some(target_dir) = graph_app.take_pending_switch_data_dir() {
         match persistence_ops::switch_persistence_store(
             graph_app,

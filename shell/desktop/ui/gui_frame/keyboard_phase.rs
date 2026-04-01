@@ -20,6 +20,7 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 pub(crate) struct KeyboardPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
+    pub(crate) graph_surface_focused: bool,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
@@ -63,6 +64,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     let KeyboardPhaseArgs {
         ctx,
         graph_app,
+        graph_surface_focused,
         window,
         tiles_tree,
         tile_rendering_contexts,
@@ -116,6 +118,14 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
             tile_rendering_contexts,
             tile_favicon_textures,
             favicon_textures,
+        );
+    }
+    if keyboard_actions.open_tag_panel {
+        crate::shell::desktop::ui::tag_panel::open_tag_panel_for_current_focus(
+            graph_app,
+            tiles_tree,
+            graph_surface_focused,
+            None,
         );
     }
     frame_intents.extend(input::intents_from_actions(&keyboard_actions));

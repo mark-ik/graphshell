@@ -11,6 +11,7 @@ pub(super) struct GraphSearchAndKeyboardPhaseArgs<'a> {
     pub(super) toasts: &'a mut egui_notify::Toasts,
     pub(super) window: &'a EmbedderWindow,
     pub(super) tiles_tree: &'a mut Tree<TileKind>,
+    pub(super) graph_surface_focused: &'a mut bool,
     pub(super) graph_search_open: &'a mut bool,
     pub(super) graph_search_query: &'a mut String,
     pub(super) graph_search_filter_mode: &'a mut bool,

@@ -215,6 +215,7 @@ fn disabled_action_reason(
         ActionId::NodePinSelected
         | ActionId::NodeUnpinSelected
         | ActionId::NodeDelete
+        | ActionId::NodeEditTags
         | ActionId::NodeMarkTombstone
         | ActionId::NodeChooseFrame
         | ActionId::NodeAddToFrame
@@ -868,6 +869,15 @@ pub(crate) fn execute_action_with_layout_target(
             .into(),
         ),
         ActionId::NodeDelete => intents.push(GraphMutation::RemoveSelectedNodes.into()),
+        ActionId::NodeEditTags => {
+            if let Some(key) = open_target.or(focused_pane_node) {
+                crate::shell::desktop::ui::tag_panel::open_node_tag_panel(
+                    app,
+                    key,
+                    focused_pane_node == Some(key),
+                );
+            }
+        }
         ActionId::NodeMarkTombstone => intents.push(GraphMutation::MarkTombstoneForSelected.into()),
         ActionId::NodeChooseFrame => {
             if let Some(key) = open_target
@@ -1982,6 +1992,36 @@ mod tests {
         );
         assert_eq!(graph_scope.len(), 1);
         assert_eq!(graph_scope[0].id, ActionId::GraphTogglePhysics);
+    }
+
+    #[test]
+    fn execute_action_opens_tag_panel_for_target_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://tags.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::NodeEditTags,
+            None,
+            Some(node),
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert_eq!(
+            app.workspace
+                .graph_runtime
+                .tag_panel_state
+                .as_ref()
+                .map(|state| state.node_key),
+            Some(node)
+        );
     }
 
     #[test]

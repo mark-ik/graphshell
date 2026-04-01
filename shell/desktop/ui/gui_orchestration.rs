@@ -433,6 +433,7 @@ fn open_mode_from_pending(mode: PendingTileOpenMode) -> TileOpenMode {
 pub(crate) fn run_keyboard_phase(
     ctx: &egui::Context,
     graph_app: &mut GraphBrowserApp,
+    graph_surface_focused: bool,
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
@@ -450,6 +451,7 @@ pub(crate) fn run_keyboard_phase(
         gui_frame::KeyboardPhaseArgs {
             ctx,
             graph_app,
+            graph_surface_focused,
             window,
             tiles_tree,
             tile_rendering_contexts,

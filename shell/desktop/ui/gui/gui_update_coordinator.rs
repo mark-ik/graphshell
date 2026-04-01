@@ -93,6 +93,7 @@ impl Gui {
                 toasts,
                 window,
                 tiles_tree,
+                graph_surface_focused,
                 graph_search_open,
                 graph_search_query,
                 graph_search_filter_mode,
@@ -248,6 +249,7 @@ impl Gui {
             toasts,
             window,
             tiles_tree,
+            graph_surface_focused,
             graph_search_open,
             graph_search_query,
             graph_search_filter_mode,
@@ -284,6 +286,7 @@ impl Gui {
         gui_orchestration::run_keyboard_phase(
             ctx,
             graph_app,
+            *graph_surface_focused,
             window,
             tiles_tree,
             tile_rendering_contexts,

@@ -49,7 +49,7 @@ use self::toolbar_settings_menu::render_settings_menu;
 use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, GraphViewId, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingTileOpenMode, RadialMenuShortcut,
-    TagPanelState, ToastAnchorPreference, WorkbenchIntent,
+    ToastAnchorPreference, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
@@ -539,12 +539,7 @@ fn open_selected_node_tag_panel(graph_app: &mut GraphBrowserApp) {
     let Some(node_key) = graph_app.focused_selection().primary() else {
         return;
     };
-    graph_app.workspace.graph_runtime.tag_panel_state = Some(TagPanelState {
-        node_key,
-        text_input: String::new(),
-        icon_picker_open: false,
-        pending_icon_override: None,
-    });
+    crate::shell::desktop::ui::tag_panel::open_node_tag_panel(graph_app, node_key, false);
 }
 
 pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {

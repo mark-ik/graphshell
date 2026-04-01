@@ -171,6 +171,7 @@ pub enum ActionId {
     NodePinSelected,
     NodeUnpinSelected,
     NodeDelete,
+    NodeEditTags,
     NodeChooseFrame,
     NodeAddToFrame,
     NodeAddConnectedToFrame,
@@ -239,6 +240,7 @@ impl ActionId {
             Self::NodePinSelected => &[input_action::graph::NODE_PIN_SELECTED],
             Self::NodeUnpinSelected => &[input_action::graph::NODE_UNPIN_SELECTED],
             Self::NodeDelete => &[input_action::graph::NODE_DELETE],
+            Self::NodeEditTags => &[input_action::graph::NODE_EDIT_TAGS],
             Self::EdgeConnectPair => &[input_action::graph::EDGE_CONNECT_PAIR],
             Self::EdgeConnectBoth => &[input_action::graph::EDGE_CONNECT_BOTH],
             Self::EdgeRemoveUser => &[input_action::graph::EDGE_REMOVE_USER],
@@ -272,6 +274,7 @@ impl ActionId {
             Self::NodePinSelected => "node:pin_selected",
             Self::NodeUnpinSelected => "node:unpin_selected",
             Self::NodeDelete => "node:delete",
+            Self::NodeEditTags => "node:edit_tags",
             Self::NodeChooseFrame => "node:choose_frame",
             Self::NodeAddToFrame => "node:add_to_frame",
             Self::NodeAddConnectedToFrame => "node:add_connected_to_frame",
@@ -337,6 +340,7 @@ impl ActionId {
             Self::NodePinSelected => "Pin",
             Self::NodeUnpinSelected => "Unpin",
             Self::NodeDelete => "Delete",
+            Self::NodeEditTags => "Tags",
             Self::NodeChooseFrame => "Choose F",
             Self::NodeAddToFrame => "Add F",
             Self::NodeAddConnectedToFrame => "Add Conn F",
@@ -402,6 +406,7 @@ impl ActionId {
             Self::NodePinSelected => "Pin Selected",
             Self::NodeUnpinSelected => "Unpin Selected",
             Self::NodeDelete => "Delete Selected Node(s)",
+            Self::NodeEditTags => "Edit Tags...",
             Self::NodeChooseFrame => "Choose Frame...",
             Self::NodeAddToFrame => "Add To Frame...",
             Self::NodeAddConnectedToFrame => "Add Connected To Frame...",
@@ -467,6 +472,7 @@ impl ActionId {
             | Self::NodePinSelected
             | Self::NodeUnpinSelected
             | Self::NodeDelete
+            | Self::NodeEditTags
             | Self::NodeChooseFrame
             | Self::NodeAddToFrame
             | Self::NodeAddConnectedToFrame
@@ -551,6 +557,7 @@ fn all_action_ids() -> &'static [ActionId] {
         NodePinSelected,
         NodeUnpinSelected,
         NodeDelete,
+        NodeEditTags,
         NodeChooseFrame,
         NodeAddToFrame,
         NodeAddConnectedToFrame,
@@ -692,6 +699,7 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (NodePinSelected, node_ops_enabled),
         (NodeUnpinSelected, node_ops_enabled),
         (NodeDelete, node_ops_enabled),
+        (NodeEditTags, node_ops_enabled),
         (NodeChooseFrame, node_ops_enabled),
         (NodeAddToFrame, node_ops_enabled),
         (NodeAddConnectedToFrame, node_ops_enabled),
@@ -881,6 +889,12 @@ mod tests {
             .find(|e| e.id == ActionId::NodePinSelected)
             .unwrap();
         assert!(!pin.enabled);
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeEditTags)
+                .is_some_and(|entry| !entry.enabled)
+        );
     }
 
     #[test]
@@ -895,6 +909,12 @@ mod tests {
             .find(|e| e.id == ActionId::NodePinSelected)
             .unwrap();
         assert!(pin.enabled);
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeEditTags)
+                .is_some_and(|entry| entry.enabled)
+        );
     }
 
     #[test]

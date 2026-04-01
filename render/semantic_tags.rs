@@ -10,7 +10,7 @@ use crate::graph::NodeKey;
 use crate::graph::badge::{BadgeVisual, badge_visuals, badges_for_node};
 use std::collections::{HashMap, HashSet};
 
-use crate::app::GraphIntent;
+use super::reducer_bridge::apply_reducer_graph_intents_hardened;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 
 // ── Structs ───────────────────────────────────────────────────────────────────
@@ -53,9 +53,9 @@ pub(super) struct PlacementAnchorSummary {
     pub(super) slice_tag: Option<String>,
 }
 
-pub(super) struct SemanticTagChip {
-    pub(super) query: String,
-    pub(super) label: String,
+pub(crate) struct SemanticTagChip {
+    pub(crate) query: String,
+    pub(crate) label: String,
 }
 
 pub(super) struct SemanticTagStatusChip {
@@ -94,7 +94,7 @@ pub(super) fn semantic_badges_by_key(
 
 // ── Tag display / status labels ───────────────────────────────────────────────
 
-pub(super) fn semantic_tag_display_label(tag: &str) -> String {
+pub(crate) fn semantic_tag_display_label(tag: &str) -> String {
     if let Some(code) = tag.strip_prefix("udc:") {
         return match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(code)
         {
@@ -228,7 +228,7 @@ fn icon_picker_presets() -> Vec<crate::graph::badge::BadgeIcon> {
     ]
 }
 
-fn badge_icon_label(icon: &crate::graph::badge::BadgeIcon) -> String {
+pub(crate) fn badge_icon_label(icon: &crate::graph::badge::BadgeIcon) -> String {
     match icon {
         crate::graph::badge::BadgeIcon::Emoji(value) => value.clone(),
         crate::graph::badge::BadgeIcon::Lucide(value) => value.clone(),
@@ -264,7 +264,7 @@ pub(crate) fn is_reserved_system_tag(tag: &str) -> bool {
     )
 }
 
-pub(super) fn reserved_tag_warning(query: &str) -> Option<String> {
+pub(crate) fn reserved_tag_warning(query: &str) -> Option<String> {
     let normalized = normalize_tag_entry_input(query)?;
     if normalized.starts_with('#') && !is_reserved_system_tag(&normalized) {
         return Some("Unknown #tag will be accepted as user-defined.".to_string());

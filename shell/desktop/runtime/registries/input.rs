@@ -23,6 +23,7 @@ pub(crate) mod action_id {
         pub(crate) const CYCLE_FOCUS_REGION: &str = "graph:cycle_focus_region";
         pub(crate) const COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
         pub(crate) const RADIAL_MENU_OPEN: &str = "workbench:radial_menu_open";
+        pub(crate) const NODE_EDIT_TAGS: &str = "graph:node_edit_tags";
         pub(crate) const TOGGLE_PHYSICS: &str = "graph:toggle_physics";
         pub(crate) const REHEAT_PHYSICS: &str = "graph:reheat_physics";
         pub(crate) const ZOOM_IN: &str = "graph:zoom_in";
@@ -672,6 +673,16 @@ struct DefaultBindingSpec {
 
 fn default_binding_specs() -> Vec<DefaultBindingSpec> {
     vec![
+        DefaultBindingSpec {
+            action_id: action_id::graph::NODE_EDIT_TAGS,
+            display_name: "Edit Node Tags",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::CTRL,
+                keycode: Keycode::Char('t'),
+            },
+        },
         DefaultBindingSpec {
             action_id: action_id::graph::TOGGLE_PHYSICS,
             display_name: "Toggle Physics Simulation",
@@ -1623,6 +1634,7 @@ mod tests {
             action_id::graph::CYCLE_FOCUS_REGION,
             action_id::graph::COMMAND_PALETTE_OPEN,
             action_id::graph::RADIAL_MENU_OPEN,
+            action_id::graph::NODE_EDIT_TAGS,
             action_id::graph::TOGGLE_PHYSICS,
             action_id::graph::REHEAT_PHYSICS,
             action_id::graph::ZOOM_IN,
