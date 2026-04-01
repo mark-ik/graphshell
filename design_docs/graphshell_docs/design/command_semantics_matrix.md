@@ -60,7 +60,8 @@ Canonical requirement: command surfaces may differ in presentation, but not in a
 | `GraphFit` | Fit Graph to Screen | Graph | per-View | None | `GraphIntent::RequestFitToScreen` | No | Palette, Radial | N/A | None |
 | `GraphTogglePhysics` | Toggle Physics Simulation | Graph | per-View | None | `GraphIntent::TogglePhysics` | Yes | Keyboard, Palette, Radial | N/A | `T` |
 | `GraphReheatPhysics` | Reheat Physics Simulation | Graph | per-View | None | `GraphIntent::ReheatPhysics` | No | Keyboard, Palette, Radial | N/A | `R` |
-| `GraphToggleDetailView` | Toggle Graph / Detail View | View Surface | per-Frame | Focused view surface available | Toggles graph/detail projection for focused surface | No | Keyboard, Palette, Radial | Visible + disabled when no focusable view surface | `Home` / `Esc` |
+| `GraphToggleDetailView` | Toggle Graph / Detail View | View Surface | per-Frame | Focused view surface available | Toggles graph/detail projection for focused surface | No | Keyboard, Palette, Radial | Visible + disabled when no focusable view surface | `Home` |
+| `GraphToggleOverviewPlane` | Toggle Overview Plane | Graph View Layout | per-Graph | Graph scope available | `GraphIntent::ToggleGraphViewLayoutManager` | No | Keyboard, Palette, Toolbar, Navigator sidebar | Visible + disabled when graph scope unavailable | `Ctrl+Shift+O` |
 | `GraphSearchOpen` | Open Graph Search | Search surface | per-Frame | Graph view surface available | Opens graph search UI for current graph surface | No | Keyboard, Palette, Toolbar | Visible + disabled when graph search surface unavailable | `Ctrl+F` |
 | `GraphTogglePositionFitLock` | Toggle Position-Fit Lock | Graph Camera | per-View | None | `GraphIntent::ToggleCameraPositionFitLock` | No | Keyboard, Palette | N/A | `C` |
 | `GraphToggleZoomFitLock` | Toggle Zoom-Fit Lock | Graph Camera | per-View | None | `GraphIntent::ToggleCameraZoomFitLock` | No | Keyboard, Palette | N/A | `Z` |

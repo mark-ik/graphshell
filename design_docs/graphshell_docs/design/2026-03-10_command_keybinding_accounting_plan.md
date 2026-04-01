@@ -27,6 +27,11 @@ where the current command/keybinding accounting is incomplete and what needs to
 be done to close the usability gap. It is a planning document only — no
 implementation until Sectors H and G are complete.
 
+Implementation note (2026-04-01): the live command/input contract now includes
+`GraphToggleOverviewPlane` on `Ctrl+Shift+O`, and `Escape` is explicitly treated
+as dismiss/back rather than as a graph/detail view toggle. `Escape` therefore
+remains a focus/input contract rule, not a standalone matrix action row.
+
 ---
 
 ## 2. Current State: What Exists
@@ -70,7 +75,8 @@ and therefore absent from the matrix. These are currently handled by direct
 
 | Keybinding | Behavior | Matrix coverage |
 |---|---|---|
-| `Home` / `Esc` | Toggle Graph/Detail view | Not in matrix |
+| `Home` | Toggle Graph/Detail view | In matrix |
+| `Ctrl+Shift+O` | Toggle Overview Plane | In matrix |
 | `R` | Reheat physics | Not in matrix |
 | `+` / `-` / `0` | Zoom in/out/reset | Not in matrix |
 | `C` | Toggle position-fit lock | Not in matrix |
@@ -87,6 +93,7 @@ and therefore absent from the matrix. These are currently handled by direct
 | `Back` / `Forward` | Traversal navigation | Not in matrix |
 | `F1` / `?` | Toggle keyboard shortcut help | Not in matrix |
 | `F3` | Toggle radial palette mode | Not in matrix |
+| `Escape` | Dismiss/back out of the innermost transient surface; not a view toggle | Contract-owned, not a matrix action |
 
 ### 2.3 ActionRegistry — Registered Action IDs
 
@@ -171,7 +178,8 @@ lower-level (camera/input primitives) and may not belong in the matrix; some sho
 
 | Keybinding | Action concept | Proposed action ID |
 |---|---|---|
-| `Home` / `Esc` | Toggle graph/detail view | `graph:toggle_detail_view` |
+| `Home` | Toggle graph/detail view | `graph:toggle_detail_view` |
+| `Ctrl+Shift+O` | Toggle Overview Plane | `graph:toggle_overview_plane` |
 | `Ctrl+F` | Graph search | `graph:search_open` |
 | `F1` / `?` | Toggle keyboard shortcut help | `workbench:help_open` |
 | `F3` | Toggle radial palette mode | `workbench:radial_palette_toggle` |
@@ -399,7 +407,7 @@ expect rename, not a command palette. `Ctrl+K` is the dominant industry default 
 command launchers. `F2` should be freed for a future node-rename action.
 Retain `F2` as a configurable alias only.
 
-**`Home` / `Esc` → `Home` for view toggle** (change recommended)
+**`Home` / `Esc` → `Home` for view toggle** (landed 2026-04-01)
 
 `Esc` is universally "cancel / dismiss current overlay." Using it to toggle a
 persistent mode creates a layered semantic collision: users who press `Esc` to dismiss

@@ -228,7 +228,7 @@ Canonical wording rules:
 - Contextual invocation opens the same palette component in Context Palette Mode.
 - Arrow keys move focus.
 - Enter confirms.
-- Escape dismisses.
+- Escape dismisses and must not trigger unrelated global mode toggles on the same press.
 
 **Who owns it**: - Graphshell command system owns the action set and ranking rules.
 - The palette UI owns rendering, focus movement within the list, and search text capture.

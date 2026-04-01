@@ -8,7 +8,8 @@
 
 Default keybinds are configurable in `Settings -> Input`.
 
-- `Home` / `Esc`: Toggle Graph / Detail view
+- `Home`: Toggle Graph / Detail view
+- `Ctrl+Shift+O`: Toggle Overview Plane
 - `N`: Create new node
 - `Delete`: Remove selected node(s)
 - `Ctrl+Shift+Delete`: Clear graph
@@ -35,6 +36,10 @@ Default keybinds are configurable in `Settings -> Input`.
 - `Ctrl+F`: Graph search
 - `Ctrl+Z` / `Ctrl+Y`: Undo / Redo (workbench-structure scope)
 - `Ctrl+Z` (hold): show undo preview indicator; release `Z` while holding `Ctrl` commits one undo step; releasing chord without commit path cancels preview
+
+## Global Cancel / Back
+
+- `Escape`: Dismiss or back out of the innermost transient surface (for example modal dialogs, command palette, graph search, tag panel, Overview Plane, or embedded-content focus reclaim). It is not a graph/detail view toggle.
 
 ## History Scope Semantics
 

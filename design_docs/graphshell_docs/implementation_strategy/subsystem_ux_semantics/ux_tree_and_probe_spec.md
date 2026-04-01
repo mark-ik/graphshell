@@ -383,13 +383,16 @@ This table is canonical and mirrored verbatim in:
 | Command palette or radial opened | Command surface (`CommandPalette` context) | `Escape`, click-away dismiss, or explicit close action | Prior semantic region/control captured at open |
 | Command palette or radial dismissed | Focus router on pop from `CommandPalette` context | Dismiss action completion | Prior captured region/control; must not default to omnibar |
 | Omnibar/search explicit focus acquisition | Text-entry control (`TextEntry` context) | `Escape`, explicit unfocus, or region-cycle command | Prior semantic region/control captured before text-entry capture |
+| Graph-owned transient management surface (for example Overview Plane, tag panel, facet rail, graph search shell) | Owning graph/control surface context | `Escape` or explicit close action | Prior graph semantic region/control or focused graph view if still valid; otherwise next valid visible region |
 | Embedded content focused | Embedded viewer (`EmbeddedContent` context) with host escape guarantee | Host-focus-reclaim binding (`Escape` or configured equivalent) | Last host semantic region before embedded capture |
+| No dismissible surface or capture active (`Normal`) | None | No-op unless a scope-owned non-destructive back/cancel rule explicitly applies | Existing focus owner remains unchanged; `Escape` must not toggle persistent mode or launch settings/control surfaces |
 | Region-cycle command (`F6`) while not modal-captured | Focus router | Repeated region-cycle / reverse cycle binding | Next/previous visible landmark in deterministic order; wraps predictably |
 
 UxTree observability requirement: capture owner and focus-return target used by these
 transitions must be inferable from semantic snapshot state (focused owner path + action
 availability + modal presence), and violations must emit `ux:navigation_violation` or
-`ux:contract_warning`.
+`ux:contract_warning`. A bare-`Escape` persistent-mode toggle with no active dismissible
+surface is therefore an explicit contract violation.
 
 ---
 

@@ -75,8 +75,8 @@ An **input context** is a named scope that determines:
 
 | Context | Active when | Global bindings |
 |---------|-------------|----------------|
-| `Normal` | default application state | all active |
-| `TextEntry` | omnibar, search field, inline editor, any text input is active | most suppressed; Escape exits |
+| `Normal` | default application state | all active; bare `Escape` has no global mode-toggle meaning |
+| `TextEntry` | omnibar, search field, inline editor, any text input is active | most suppressed; `Escape` clears/unfocuses/exits according to the owning surface contract |
 | `Modal` | a blocking dialog, confirmation surface, or overlay that requires resolution | all suppressed except modal-specific |
 | `GamepadNav` | gamepad input mode is active (radial menu / D-pad navigation) | gamepad-specific active; keyboard still resolves |
 | `CommandPalette` | command palette or radial menu is open | palette-specific active; Escape exits |
@@ -115,12 +115,18 @@ This table is canonical and mirrored verbatim in:
 | Command palette or radial opened | Command surface (`CommandPalette` context) | `Escape`, click-away dismiss, or explicit close action | Prior semantic region/control captured at open |
 | Command palette or radial dismissed | Focus router on pop from `CommandPalette` context | Dismiss action completion | Prior captured region/control; must not default to omnibar |
 | Omnibar/search explicit focus acquisition | Text-entry control (`TextEntry` context) | `Escape`, explicit unfocus, or region-cycle command | Prior semantic region/control captured before text-entry capture |
+| Graph-owned transient management surface (for example Overview Plane, tag panel, facet rail, graph search shell) | Owning graph/control surface context | `Escape` or explicit close action | Prior graph semantic region/control or focused graph view if still valid; otherwise next valid visible region |
 | Embedded content focused | Embedded viewer (`EmbeddedContent` context) with host escape guarantee | Host-focus-reclaim binding (`Escape` or configured equivalent) | Last host semantic region before embedded capture |
+| No dismissible surface or capture active (`Normal`) | None | No-op unless a scope-owned non-destructive back/cancel rule explicitly applies | Existing focus owner remains unchanged; `Escape` must not toggle persistent mode or launch settings/control surfaces |
 | Region-cycle command (`F6`) while not modal-captured | Focus router | Repeated region-cycle / reverse cycle binding | Next/previous visible landmark in deterministic order; wraps predictably |
 
 **Invariant**: Any transition that violates this table is a correctness bug and must emit
 `ux:navigation_violation` or `ux:contract_warning` with enough context to identify transition
 source and failed return target.
+
+**Invariant**: `Escape` is a dismiss/back key, not a persistent mode toggle.
+If no dismissible surface or scoped back path is active, bare `Escape` defaults to no-op.
+Top-level shell overview, settings, or view-mode changes require their own explicit bindings.
 
 ---
 
