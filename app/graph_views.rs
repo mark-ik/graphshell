@@ -28,6 +28,29 @@ fn sorted_unique_node_keys(nodes: impl IntoIterator<Item = NodeKey>) -> Vec<Node
     out
 }
 
+fn emit_graph_view_region_mutation_diagnostic(byte_len: usize) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id:
+            crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_VIEW_REGION_MUTATION_APPLIED,
+        byte_len: byte_len.max(1),
+    });
+}
+
+fn emit_graph_view_transfer_succeeded_diagnostic(byte_len: usize) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id:
+            crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_SUCCEEDED,
+        byte_len: byte_len.max(1),
+    });
+}
+
+fn emit_graph_view_transfer_blocked_diagnostic() {
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED,
+        latency_us: 0,
+    });
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeProjectionSource {
     WorkbenchDefault,
@@ -641,6 +664,7 @@ impl GraphBrowserApp {
         destination_view: GraphViewId,
     ) {
         if source_view == destination_view {
+            emit_graph_view_transfer_blocked_diagnostic();
             return;
         }
 
@@ -651,6 +675,7 @@ impl GraphBrowserApp {
             .slots
             .get(&source_view)
         else {
+            emit_graph_view_transfer_blocked_diagnostic();
             return;
         };
         let Some(destination_slot) = self
@@ -660,9 +685,11 @@ impl GraphBrowserApp {
             .slots
             .get(&destination_view)
         else {
+            emit_graph_view_transfer_blocked_diagnostic();
             return;
         };
         if source_slot.archived || destination_slot.archived {
+            emit_graph_view_transfer_blocked_diagnostic();
             return;
         }
         if self
@@ -678,11 +705,13 @@ impl GraphBrowserApp {
                 .get(&destination_view)
                 .is_some_and(|view| view.graphlet_node_mask.is_some())
         {
+            emit_graph_view_transfer_blocked_diagnostic();
             return;
         }
 
         let selected_nodes = sorted_unique_node_keys(self.selection_for_view(source_view).iter().copied());
         if selected_nodes.is_empty() {
+            emit_graph_view_transfer_blocked_diagnostic();
             return;
         }
 
@@ -730,6 +759,7 @@ impl GraphBrowserApp {
         self.sync_selection_edge_projection_override_for_scope(destination_scope);
         self.set_workspace_focused_view_with_transition(Some(destination_view));
         self.workspace.graph_runtime.egui_state_dirty = true;
+        emit_graph_view_transfer_succeeded_diagnostic(selected_set.len());
     }
 
     pub fn ensure_graph_view_registered(&mut self, view_id: GraphViewId) {
@@ -895,6 +925,7 @@ impl GraphBrowserApp {
             self.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane { view_id, mode });
         }
         self.persist_graph_view_layout_manager_state();
+        emit_graph_view_region_mutation_diagnostic(1);
     }
 
     pub(crate) fn rename_graph_view_slot(&mut self, view_id: GraphViewId, name: String) {
@@ -902,6 +933,7 @@ impl GraphBrowserApp {
         if trimmed.is_empty() {
             return;
         }
+        let mut persisted_name_len = None;
         if let Some(slot) = self
             .workspace
             .graph_runtime
@@ -910,10 +942,14 @@ impl GraphBrowserApp {
             .get_mut(&view_id)
         {
             slot.name = trimmed.to_string();
+            persisted_name_len = Some(slot.name.len());
             if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                 view.name = slot.name.clone();
             }
+        }
+        if let Some(name_len) = persisted_name_len {
             self.persist_graph_view_layout_manager_state();
+            emit_graph_view_region_mutation_diagnostic(name_len);
         }
     }
 
@@ -988,6 +1024,7 @@ impl GraphBrowserApp {
             slot.row = row;
             slot.col = col;
             self.persist_graph_view_layout_manager_state();
+            emit_graph_view_region_mutation_diagnostic(1);
         }
     }
 
@@ -1004,6 +1041,7 @@ impl GraphBrowserApp {
                 self.set_workspace_focused_view_with_transition(None);
             }
             self.persist_graph_view_layout_manager_state();
+            emit_graph_view_region_mutation_diagnostic(1);
         }
     }
 
@@ -1026,6 +1064,7 @@ impl GraphBrowserApp {
             slot.row = next_row;
             slot.col = next_col;
             self.persist_graph_view_layout_manager_state();
+            emit_graph_view_region_mutation_diagnostic(1);
         }
     }
 

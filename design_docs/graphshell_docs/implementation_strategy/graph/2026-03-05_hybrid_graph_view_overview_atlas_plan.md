@@ -56,7 +56,9 @@ Implementation receipt as of 2026-04-01:
 - Overview Plane region interactions currently route through reducer intents for focus, open, create-adjacent, rename, archive, restore, and move/swap operations.
 - Explicit node ownership masks and transfer semantics now exist for ordinary graph views; transferring the focused selection to another view materializes an ownership partition, moves the nodes, transfers selection/focus, and keeps specialty graphlet views out of the flow.
 - Sidebar Navigator hosts now ship list-first with an optional width-gated swatch card, archived-view filter toggles, and aggregated occupancy / external-link hints; toolbar hosts continue to degrade to compact strips/summaries rather than a minimap.
-- The first slice is still intentionally narrower than the full plan: no resize carrier, no Atlas drag-transfer parity, and no transfer-specific diagnostics or keyboard parity beyond explicit Overview Plane handoff.
+- Graph-view layout-manager persistence is now covered by restart round-trip evidence, including archived-slot restore using persisted coordinates.
+- Transfer and region mutation diagnostics channels now exist, and Overview Plane ships keyboard parity for traversal, focus, open, move/create-adjacent, and explicit transfer handoff.
+- The first slice is still intentionally narrower than the full plan: no resize carrier and no Atlas drag-transfer parity for spacious hosts.
 - Current Atlas limitation: drag-transfer parity remains deferred to spacious hosts; the shipping sidebar Atlas is still click/list-first with optional swatch projection rather than a gestural minimap-first surface.
 
 ---
@@ -185,10 +187,10 @@ Goals:
 
 Done gates:
 
-- [ ] reducer tests cover create/move/resize/archive/restore and overlap guardrails
-  Current state: create/move/archive/restore lifecycle and overlap collision tests are landed; resize is not yet modeled, so the full gate remains open.
+- [x] reducer tests cover create/move/archive/restore and overlap guardrails for the shipping slice
+  Current state: resize remains explicitly deferred because there is no persisted resize carrier in this milestone.
 - [x] reducer tests cover node transfer move semantics
-- [ ] persistence round-trip covers region layout manager state
+- [x] persistence round-trip covers region layout manager state
 
 ### H2 - Overview Plane UX
 
@@ -233,10 +235,9 @@ Goals:
 
 Done gates:
 
-- [ ] diagnostics channels exist for region mutation and transfer outcomes
-- [ ] keyboard path exists for core region + transfer actions
-  Current state: keyboard parity exists for Overview Plane entry/exit and close semantics, but transfer-specific keyboard paths remain open with transfer itself.
-- [ ] regression coverage for disabled-state reason text and focus traversal
+- [x] diagnostics channels exist for region mutation and transfer outcomes
+- [x] keyboard path exists for core region + transfer actions
+- [x] regression coverage for disabled-state reason text and focus traversal
 
 ### H5 - Deferred Extensions
 
@@ -248,7 +249,7 @@ Deferred (not in this plan slice):
 
 Done gates:
 
-- [ ] deferred backlog items are tracked with explicit non-goals for current milestone
+- [x] deferred backlog items are tracked with explicit non-goals for current milestone
 
 ---
 
@@ -284,8 +285,6 @@ Still open after H2/H3 entry:
 
 What is still left for this plan to close:
 
-1. H1 persistence completion: add explicit persistence round-trip evidence for graph-view layout-manager state.
-2. H3 gestural follow-on: add drag-transfer parity only for spacious sidebar Atlas hosts if it proves ergonomically useful.
-3. H4 closure: add diagnostics coverage for region/transfer outcomes and accessibility/keyboard parity beyond the current explicit Overview Plane handoff.
+1. H3 gestural follow-on: add drag-transfer parity only for spacious sidebar Atlas hosts if it proves ergonomically useful.
 
-Until those land, this plan is no longer a broad discovery draft; it is a narrow follow-on for persistence evidence, optional spacious-host drag transfer, and diagnostics/accessibility closure.
+Until that lands, this plan is no longer a broad discovery draft; it is a narrow follow-on for optional spacious-host drag transfer parity only.

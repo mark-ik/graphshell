@@ -12,6 +12,7 @@ const OVERVIEW_CELL_SIZE: Vec2 = Vec2::new(156.0, 92.0);
 const OVERVIEW_CELL_GAP: f32 = 16.0;
 const OVERVIEW_SWATCH_GAP: f32 = 8.0;
 const NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH: f32 = 272.0;
+const OVERVIEW_SELECTED_VIEW_ID_KEY: &str = "graphshell_overview_selected_view";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OverviewSlotSnapshot {
@@ -37,7 +38,7 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
     let slots = sorted_slot_snapshots(app);
     let active_slots: Vec<_> = slots.iter().filter(|slot| !slot.archived).cloned().collect();
     let archived_slots: Vec<_> = slots.iter().filter(|slot| slot.archived).cloned().collect();
-    let selected_view_id = selected_overview_view_id(app, &slots);
+    let selected_view_id = overview_surface_selected_view_id(ctx, app, &slots);
     let selected_slot = slots.iter().find(|slot| Some(slot.view_id) == selected_view_id);
     let mut open = true;
     let mut close_requested = false;
@@ -70,13 +71,14 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
                 }
             });
             ui.small(
-                "Click to focus a view, double-click to open it in the workbench, or drag a card to move its slot.",
+                "Click to focus a view, double-click to open it, Arrow keys to traverse, Space to focus, Enter to open, Ctrl+Enter to transfer, Alt+Arrow to move, and Ctrl+Shift+Arrow to create adjacent.",
             );
             ui.separator();
 
             ui.columns(2, |columns| {
                 render_overview_grid(
                     &mut columns[0],
+                    ctx,
                     &active_slots,
                     selected_view_id,
                     &mut pending_intents,
@@ -99,6 +101,13 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
     {
         close_requested = true;
     }
+
+    let (keyboard_selected_view_id, keyboard_intents) =
+        collect_overview_keyboard_intents(ctx, app, &slots, selected_view_id);
+    if keyboard_selected_view_id != selected_view_id {
+        set_overview_surface_selected_view_id(ctx, keyboard_selected_view_id);
+    }
+    pending_intents.extend(keyboard_intents);
 
     if close_requested || !open {
         pending_intents.push(GraphIntent::ExitGraphViewLayoutManager);
@@ -362,6 +371,7 @@ fn render_compact_overview_grid(
 
 fn render_overview_grid(
     ui: &mut Ui,
+    ctx: &Context,
     slots: &[OverviewSlotSnapshot],
     selected_view_id: Option<GraphViewId>,
     pending_intents: &mut Vec<GraphIntent>,
@@ -422,6 +432,7 @@ fn render_overview_grid(
         );
 
         if response.clicked() {
+            set_overview_surface_selected_view_id(ctx, Some(slot.view_id));
             pending_intents.push(GraphIntent::FocusGraphView {
                 view_id: slot.view_id,
             });
@@ -482,6 +493,9 @@ fn render_overview_details(
     if let Some(node_count) = app.graph_view_owned_node_count(slot.view_id) {
         ui.small(format!("Owned nodes: {node_count}"));
     }
+    ui.small(
+        "Keyboard: Arrow = select, Space = focus, Enter = open, Ctrl+Enter = transfer, Alt+Arrow = move, Ctrl+Shift+Arrow = create adjacent.",
+    );
     ui.add_space(6.0);
 
     let rename_response = ui.text_edit_singleline(&mut rename_draft);
@@ -519,34 +533,21 @@ fn render_overview_details(
 
     ui.separator();
     ui.small("Transfer focused selection");
-    let focused_view = app.workspace.graph_runtime.focused_view;
-    let focused_selection_count = app.focused_selection().len();
-    let transfer_enabled = focused_view.is_some()
-        && focused_selection_count > 0
-        && focused_view != Some(slot.view_id);
-    let transfer_reason = if focused_view.is_none() {
-        "Focus a source graph view first."
-    } else if focused_selection_count == 0 {
-        "Select one or more nodes in the focused graph view first."
-    } else {
-        "Selected view already owns the focused selection."
-    };
+    let transfer_affordance = overview_transfer_affordance(app, slot.view_id);
     let move_button = ui.add_enabled(
-        transfer_enabled,
-        egui::Button::new(format!("Move {focused_selection_count} selected node(s) here")),
+        transfer_affordance.enabled,
+        egui::Button::new(format!(
+            "Move {} selected node(s) here",
+            transfer_affordance.selection_count
+        )),
     );
-    let move_button = if transfer_enabled {
+    let move_button = if transfer_affordance.enabled {
         move_button.on_hover_text("Transfer the focused selection into this graph view")
     } else {
-        move_button.on_disabled_hover_text(transfer_reason)
+        move_button.on_disabled_hover_text(transfer_affordance.disabled_reason)
     };
-    if move_button.clicked()
-        && let Some(source_view) = focused_view
-    {
-        pending_intents.push(GraphIntent::TransferSelectedNodesToGraphView {
-            source_view,
-            destination_view: slot.view_id,
-        });
+    if move_button.clicked() && let Some(intent) = overview_transfer_intent(app, slot.view_id) {
+        pending_intents.push(intent);
     }
 
     ui.separator();
@@ -739,6 +740,212 @@ fn navigator_overview_swatch_enabled(available_width: f32) -> bool {
     available_width >= NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH
 }
 
+fn overview_surface_selected_view_id(
+    ctx: &Context,
+    app: &GraphBrowserApp,
+    slots: &[OverviewSlotSnapshot],
+) -> Option<GraphViewId> {
+    let stored = ctx.data_mut(|data| {
+        data.get_persisted::<GraphViewId>(egui::Id::new(OVERVIEW_SELECTED_VIEW_ID_KEY))
+    });
+    let selected = stored
+        .filter(|view_id| slots.iter().any(|slot| slot.view_id == *view_id))
+        .or_else(|| selected_overview_view_id(app, slots));
+    if let Some(view_id) = selected {
+        set_overview_surface_selected_view_id(ctx, Some(view_id));
+    }
+    selected
+}
+
+fn set_overview_surface_selected_view_id(ctx: &Context, selected_view_id: Option<GraphViewId>) {
+    if let Some(view_id) = selected_view_id {
+        ctx.data_mut(|data| {
+            data.insert_persisted(egui::Id::new(OVERVIEW_SELECTED_VIEW_ID_KEY), view_id)
+        });
+    }
+}
+
+fn overview_slot_for_view(
+    slots: &[OverviewSlotSnapshot],
+    view_id: GraphViewId,
+) -> Option<&OverviewSlotSnapshot> {
+    slots.iter().find(|slot| slot.view_id == view_id)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OverviewTransferAffordance {
+    enabled: bool,
+    source_view: Option<GraphViewId>,
+    selection_count: usize,
+    disabled_reason: &'static str,
+}
+
+fn overview_transfer_affordance(
+    app: &GraphBrowserApp,
+    destination_view: GraphViewId,
+) -> OverviewTransferAffordance {
+    let source_view = app.workspace.graph_runtime.focused_view;
+    let selection_count = app.focused_selection().len();
+    if source_view.is_none() {
+        return OverviewTransferAffordance {
+            enabled: false,
+            source_view,
+            selection_count,
+            disabled_reason: "Focus a source graph view first.",
+        };
+    }
+    if selection_count == 0 {
+        return OverviewTransferAffordance {
+            enabled: false,
+            source_view,
+            selection_count,
+            disabled_reason: "Select one or more nodes in the focused graph view first.",
+        };
+    }
+    if source_view == Some(destination_view) {
+        return OverviewTransferAffordance {
+            enabled: false,
+            source_view,
+            selection_count,
+            disabled_reason: "Selected view already owns the focused selection.",
+        };
+    }
+    OverviewTransferAffordance {
+        enabled: true,
+        source_view,
+        selection_count,
+        disabled_reason: "Transfer the focused selection into this graph view.",
+    }
+}
+
+fn overview_transfer_intent(
+    app: &GraphBrowserApp,
+    destination_view: GraphViewId,
+) -> Option<GraphIntent> {
+    let affordance = overview_transfer_affordance(app, destination_view);
+    affordance.enabled.then_some(GraphIntent::TransferSelectedNodesToGraphView {
+        source_view: affordance.source_view?,
+        destination_view,
+    })
+}
+
+fn next_overview_selected_view_id(
+    slots: &[OverviewSlotSnapshot],
+    selected_view_id: Option<GraphViewId>,
+    direction: GraphViewLayoutDirection,
+) -> Option<GraphViewId> {
+    let selected_view_id = selected_view_id.or_else(|| slots.first().map(|slot| slot.view_id))?;
+    let current = overview_slot_for_view(slots, selected_view_id)?;
+    let next = slots
+        .iter()
+        .filter(|slot| slot.view_id != current.view_id)
+        .filter_map(|slot| match direction {
+            GraphViewLayoutDirection::Left if slot.col < current.col => Some(((
+                current.col - slot.col,
+                (slot.row - current.row).abs(),
+                slot.row,
+                slot.col,
+            ), slot.view_id)),
+            GraphViewLayoutDirection::Right if slot.col > current.col => Some(((
+                slot.col - current.col,
+                (slot.row - current.row).abs(),
+                slot.row,
+                slot.col,
+            ), slot.view_id)),
+            GraphViewLayoutDirection::Up if slot.row < current.row => Some(((
+                current.row - slot.row,
+                (slot.col - current.col).abs(),
+                slot.col,
+                slot.row,
+            ), slot.view_id)),
+            GraphViewLayoutDirection::Down if slot.row > current.row => Some(((
+                slot.row - current.row,
+                (slot.col - current.col).abs(),
+                slot.col,
+                slot.row,
+            ), slot.view_id)),
+            _ => None,
+        })
+        .min_by_key(|(key, _)| *key);
+    next.map(|(_, view_id)| view_id)
+        .or(Some(selected_view_id))
+}
+
+fn collect_overview_keyboard_intents(
+    ctx: &Context,
+    app: &GraphBrowserApp,
+    slots: &[OverviewSlotSnapshot],
+    selected_view_id: Option<GraphViewId>,
+) -> (Option<GraphViewId>, Vec<GraphIntent>) {
+    let mut selected_view_id = selected_view_id;
+    let mut intents = Vec::new();
+    if slots.is_empty() || ctx.wants_keyboard_input() {
+        return (selected_view_id, intents);
+    }
+
+    ctx.input(|input| {
+        let ctrl = input.modifiers.ctrl || input.modifiers.command;
+        let shift = input.modifiers.shift;
+        let alt = input.modifiers.alt;
+        for (key, direction) in [
+            (Key::ArrowLeft, GraphViewLayoutDirection::Left),
+            (Key::ArrowRight, GraphViewLayoutDirection::Right),
+            (Key::ArrowUp, GraphViewLayoutDirection::Up),
+            (Key::ArrowDown, GraphViewLayoutDirection::Down),
+        ] {
+            if !input.key_pressed(key) {
+                continue;
+            }
+
+            if ctrl && shift {
+                if let Some(view_id) = selected_view_id {
+                    intents.push(GraphIntent::CreateGraphViewSlot {
+                        anchor_view: Some(view_id),
+                        direction,
+                        open_mode: Some(PendingTileOpenMode::Tab),
+                    });
+                }
+                continue;
+            }
+
+            if alt {
+                if let Some(slot) = selected_view_id.and_then(|view_id| overview_slot_for_view(slots, view_id)) {
+                    let (row, col) = shifted_slot_position(slot.row, slot.col, direction);
+                    intents.push(GraphIntent::MoveGraphViewSlot {
+                        view_id: slot.view_id,
+                        row,
+                        col,
+                    });
+                }
+                continue;
+            }
+
+            selected_view_id = next_overview_selected_view_id(slots, selected_view_id, direction);
+        }
+
+        if input.key_pressed(Key::Space) && let Some(view_id) = selected_view_id {
+            intents.push(GraphIntent::FocusGraphView { view_id });
+        }
+
+        if input.key_pressed(Key::Enter) {
+            if ctrl {
+                if let Some(view_id) = selected_view_id
+                    && let Some(intent) = overview_transfer_intent(app, view_id)
+                {
+                    intents.push(intent);
+                }
+            } else if let Some(view_id) = selected_view_id {
+                intents.push(GraphIntent::RouteGraphViewToWorkbench {
+                    view_id,
+                    mode: PendingTileOpenMode::Tab,
+                });
+            }
+        }
+    });
+
+    (selected_view_id, intents)
+}
+
 fn drag_target_slot_position(slot: &OverviewSlotSnapshot, drag_delta: Vec2) -> (i32, i32) {
     let col_delta = (drag_delta.x / (OVERVIEW_CELL_SIZE.x + OVERVIEW_CELL_GAP)).round() as i32;
     let row_delta = (drag_delta.y / (OVERVIEW_CELL_SIZE.y + OVERVIEW_CELL_GAP)).round() as i32;
@@ -797,6 +1004,81 @@ mod tests {
     fn navigator_overview_swatch_enabled_requires_sidebar_width() {
         assert!(!navigator_overview_swatch_enabled(240.0));
         assert!(navigator_overview_swatch_enabled(NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH));
+    }
+
+    #[test]
+    fn overview_transfer_affordance_reports_missing_focus_reason() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+
+        let affordance = overview_transfer_affordance(&app, view_id);
+        assert!(!affordance.enabled);
+        assert_eq!(affordance.disabled_reason, "Focus a source graph view first.");
+    }
+
+    #[test]
+    fn overview_transfer_affordance_reports_empty_selection_reason() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source = GraphViewId::new();
+        let destination = GraphViewId::new();
+        app.ensure_graph_view_registered(source);
+        app.ensure_graph_view_registered(destination);
+        app.workspace.graph_runtime.focused_view = Some(source);
+
+        let affordance = overview_transfer_affordance(&app, destination);
+        assert!(!affordance.enabled);
+        assert_eq!(
+            affordance.disabled_reason,
+            "Select one or more nodes in the focused graph view first."
+        );
+    }
+
+    #[test]
+    fn next_overview_selected_view_id_moves_to_nearest_neighbor() {
+        let selected = GraphViewId::new();
+        let right = GraphViewId::new();
+        let down = GraphViewId::new();
+        let diagonal = GraphViewId::new();
+        let slots = vec![
+            OverviewSlotSnapshot {
+                view_id: selected,
+                name: "Selected".to_string(),
+                row: 0,
+                col: 0,
+                archived: false,
+            },
+            OverviewSlotSnapshot {
+                view_id: right,
+                name: "Right".to_string(),
+                row: 0,
+                col: 1,
+                archived: false,
+            },
+            OverviewSlotSnapshot {
+                view_id: down,
+                name: "Down".to_string(),
+                row: 1,
+                col: 0,
+                archived: false,
+            },
+            OverviewSlotSnapshot {
+                view_id: diagonal,
+                name: "Diagonal".to_string(),
+                row: 1,
+                col: 1,
+                archived: false,
+            },
+        ];
+
+        assert_eq!(
+            next_overview_selected_view_id(&slots, Some(selected), GraphViewLayoutDirection::Right),
+            Some(right)
+        );
+        assert_eq!(
+            next_overview_selected_view_id(&slots, Some(selected), GraphViewLayoutDirection::Down),
+            Some(down)
+        );
     }
 
     #[test]

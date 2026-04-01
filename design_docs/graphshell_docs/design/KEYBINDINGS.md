@@ -10,6 +10,7 @@ Default keybinds are configurable in `Settings -> Input`.
 
 - `Home`: Toggle Graph / Detail view
 - `Ctrl+Shift+O`: Toggle Overview Plane
+- When Overview Plane is open: `Arrow Keys` select a view region, `Space` focuses the selected region, `Enter` opens it, `Ctrl+Enter` transfers the focused selection into it, `Alt+Arrow Keys` move the selected region, and `Ctrl+Shift+Arrow Keys` creates an adjacent region.
 - `N`: Create new node
 - `Delete`: Remove selected node(s)
 - `Ctrl+Shift+Delete`: Clear graph

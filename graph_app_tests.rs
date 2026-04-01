@@ -6564,6 +6564,84 @@ fn stale_camera_target_enqueue_emits_blocked_channel() {
     );
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn graph_view_region_mutations_emit_diagnostic_channel() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let anchor = GraphViewId::new();
+    app.ensure_graph_view_registered(anchor);
+
+    app.apply_reducer_intents([
+        GraphIntent::CreateGraphViewSlot {
+            anchor_view: Some(anchor),
+            direction: GraphViewLayoutDirection::Right,
+            open_mode: None,
+        },
+        GraphIntent::RenameGraphViewSlot {
+            view_id: anchor,
+            name: "Renamed".to_string(),
+        },
+        GraphIntent::MoveGraphViewSlot {
+            view_id: anchor,
+            row: 2,
+            col: 3,
+        },
+        GraphIntent::ArchiveGraphViewSlot { view_id: anchor },
+        GraphIntent::RestoreGraphViewSlot {
+            view_id: anchor,
+            row: 2,
+            col: 3,
+        },
+    ]);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains("runtime.ui.graph.view_region_mutation_applied"),
+        "expected graph-view region mutations to emit a diagnostic channel"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn graph_view_transfer_emits_success_and_blocked_channels() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let source = GraphViewId::new();
+    let destination = GraphViewId::new();
+    app.ensure_graph_view_registered(source);
+    app.ensure_graph_view_registered(destination);
+
+    let alpha = app.add_node_and_sync("alpha".to_string(), Point2D::new(0.0, 0.0));
+    app.apply_reducer_intents([
+        GraphIntent::FocusGraphView { view_id: source },
+        GraphIntent::TransferSelectedNodesToGraphView {
+            source_view: source,
+            destination_view: destination,
+        },
+        GraphIntent::UpdateSelection {
+            keys: vec![alpha],
+            mode: SelectionUpdateMode::Replace,
+        },
+        GraphIntent::TransferSelectedNodesToGraphView {
+            source_view: source,
+            destination_view: destination,
+        },
+    ]);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains("runtime.ui.graph.view_transfer_blocked"),
+        "expected blocked transfer attempt to emit a blocked diagnostic channel"
+    );
+    assert!(
+        snapshot.contains("runtime.ui.graph.view_transfer_succeeded"),
+        "expected successful transfer attempt to emit a success diagnostic channel"
+    );
+}
+
 #[test]
 fn pending_workbench_intent_queue_is_explicit_and_drainable() {
     let mut app = GraphBrowserApp::new_for_testing();
@@ -6784,7 +6862,7 @@ fn graph_view_slot_lifecycle_create_rename_move_archive_restore() {
 }
 
 #[test]
-fn graph_view_slot_move_guard_prevents_coordinate_collision() {
+fn graph_view_slot_move_swaps_with_existing_occupant() {
     let mut app = GraphBrowserApp::new_for_testing();
     let left = GraphViewId::new();
     let right = GraphViewId::new();
@@ -6813,11 +6891,16 @@ fn graph_view_slot_move_guard_prevents_coordinate_collision() {
         .iter()
         .find(|slot| slot.view_id == right)
         .expect("right slot should exist");
+    let left_slot = slots
+        .iter()
+        .find(|slot| slot.view_id == left)
+        .expect("left slot should exist");
     assert_eq!(
         (right_slot.row, right_slot.col),
-        (2, 2),
-        "move into occupied slot should be rejected"
+        (1, 1),
+        "moving into an occupied slot should swap with the existing occupant"
     );
+    assert_eq!((left_slot.row, left_slot.col), (2, 2));
 }
 
 #[test]
@@ -6972,6 +7055,70 @@ fn persisted_graph_view_layout_manager_shape_round_trips() {
     assert_eq!(decoded.slots.len(), 1);
     assert_eq!(decoded.slots[0].view_id, view_id);
     assert_eq!(decoded.slots[0].name, "Primary");
+}
+
+#[test]
+fn graph_view_layout_manager_round_trip_and_restore_archived_slot() {
+    let dir = TempDir::new().expect("tempdir should open");
+    let path = dir.path().to_path_buf();
+    let primary = GraphViewId::new();
+    let archived = GraphViewId::new();
+
+    {
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        app.ensure_graph_view_registered(primary);
+        app.ensure_graph_view_registered(archived);
+        app.apply_reducer_intents([
+            GraphIntent::EnterGraphViewLayoutManager,
+            GraphIntent::RenameGraphViewSlot {
+                view_id: primary,
+                name: "Primary".to_string(),
+            },
+            GraphIntent::MoveGraphViewSlot {
+                view_id: primary,
+                row: 3,
+                col: 4,
+            },
+            GraphIntent::MoveGraphViewSlot {
+                view_id: archived,
+                row: 6,
+                col: 1,
+            },
+            GraphIntent::ArchiveGraphViewSlot { view_id: archived },
+        ]);
+    }
+
+    let mut reopened = GraphBrowserApp::new_from_dir(path);
+    assert!(reopened.graph_view_layout_manager_active());
+
+    let slots = reopened.graph_view_slots_for_tests();
+    let primary_slot = slots
+        .iter()
+        .find(|slot| slot.view_id == primary)
+        .expect("primary slot should round-trip");
+    let archived_slot = slots
+        .iter()
+        .find(|slot| slot.view_id == archived)
+        .expect("archived slot should round-trip");
+
+    assert_eq!(primary_slot.name, "Primary");
+    assert_eq!((primary_slot.row, primary_slot.col), (3, 4));
+    assert!(archived_slot.archived);
+    assert_eq!((archived_slot.row, archived_slot.col), (6, 1));
+
+    reopened.apply_reducer_intents([GraphIntent::RestoreGraphViewSlot {
+        view_id: archived,
+        row: archived_slot.row,
+        col: archived_slot.col,
+    }]);
+
+    let restored = reopened
+        .graph_view_slots_for_tests()
+        .into_iter()
+        .find(|slot| slot.view_id == archived)
+        .expect("restored slot should still exist");
+    assert!(!restored.archived);
+    assert_eq!((restored.row, restored.col), (6, 1));
 }
 
 #[cfg(feature = "diagnostics")]
