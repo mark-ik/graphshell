@@ -2,7 +2,7 @@
 
 **Status**: Research / Synthesis
 **Context**: Leveraging the Registry Layer Architecture (`2026-02-22_registry_layer_plan.md`) to define high-level UX patterns.
-**See Also**: `2026-02-22_multi_graph_pane_plan.md` (pane-hosted multi-view plan; graph-pane Canonical/Divergent semantics)
+**See Also**: `../implementation_strategy/graph/multi_view_pane_spec.md` (pane-hosted multi-view contract; graph-view isolation semantics)
 
 ## Executive Summary
 
@@ -66,15 +66,15 @@ Graphshell's architecture has evolved from a monolithic application to a registr
 
 **Concept**: The same graph can be projected into different spatial arrangements without mutating the underlying data.
 
-**Architecture Leverage**: `GraphViewState` (in `app.rs`) + `LocalSimulation`.
+**Architecture Leverage**: `GraphViewState` + per-view local simulation state.
 
-*   **Canonical View**: The "True" position of nodes, shared across the workspace. Driven by global physics or manual positioning.
-*   **Divergent View**: A temporary or specialized projection.
+*   **Primary View**: A graph view's current local spatial arrangement.
+*   **Alternative Projection**: A temporary or specialized arrangement in a different graph view.
     *   *Timeline View*: Project nodes onto an X-axis based on `created_at`.
     *   *Kanban View*: Project nodes into buckets based on `status` tag.
     *   *Map View*: Project nodes onto lat/long if geospatial data exists.
 
-**UX Implication**: Users can "pivot" data instantly by opening a new Pane with a Divergent Lens, while keeping the Canonical view open for context.
+**UX Implication**: Users can pivot data instantly by opening a new pane with a different graph view or lens, while keeping another view open for context.
 
 ---
 
@@ -106,8 +106,8 @@ Graphshell's architecture has evolved from a monolithic application to a registr
 ## 5. Implementation Notes
 
 This document is a UX design reference, not an implementation roadmap. Implementation is
-covered by `2026-02-22_registry_layer_plan.md` (registries), `2026-02-22_multi_graph_pane_plan.md`
-(pane-hosted multi-view dispatch + Canonical/Divergent graph views), and
+covered by `2026-02-22_registry_layer_plan.md` (registries), `../implementation_strategy/graph/multi_view_pane_spec.md`
+(pane-hosted multi-view dispatch + graph-view isolation), and
 `2026-02-24_physics_engine_extensibility_plan.md` (physics
 presets and ExtraForce). This section notes gaps and ordering constraints.
 
@@ -139,6 +139,6 @@ The `Lens-physics binding preference` (`LensPhysicsBindingPreference`) is also f
 specified there and chains after the progressive-switch gate. Do not implement progressive
 Lens switching or physics binding before the prerequisites in §4 of that plan are met.
 
-**Divergent view types (§3)**: Timeline, Kanban, and Map projections are now tracked as
+**Alternative view types (§3)**: Timeline, Kanban, and Map projections are now tracked as
 layout algorithm requirements in `2026-02-24_physics_engine_extensibility_plan.md §Layout
-Algorithm Reference Table` and as Divergent use cases in `2026-02-22_multi_graph_pane_plan.md`.
+Algorithm Reference Table` and as graph-view projection use cases in `../implementation_strategy/graph/multi_view_pane_spec.md`.

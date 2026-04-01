@@ -9,7 +9,7 @@
 * `2026-02-23_udc_semantic_tagging_plan.md`
 * `node_badge_and_tagging_spec.md`
 * `2026-02-24_layout_behaviors_plan.md`
-* `2026-02-22_multi_graph_pane_plan.md`
+* `multi_view_pane_spec.md`
 * `faceted_filter_surface_spec.md`
 * `../workbench/graph_first_frame_semantics_spec.md`
 * `../system/2026-03-06_reducer_only_mutation_enforcement_plan.md`

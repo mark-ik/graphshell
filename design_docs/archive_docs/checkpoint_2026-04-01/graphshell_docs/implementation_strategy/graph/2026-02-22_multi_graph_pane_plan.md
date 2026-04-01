@@ -1,6 +1,6 @@
 # Pane-Hosted Multi-View Plan (formerly "Multi-Graph Pane Plan") (2026-02-22)
 
-**Status**: Active historical planning slice — implementation/planning evidence retained, but canonical surface hierarchy now lives in `multi_view_pane_spec.md`, `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`, and `../core-interaction-model-plan.md` (reframed 2026-03-20)
+**Status**: Closed / Archived 2026-04-01 — retained as migration history only; canonical authority now lives in `multi_view_pane_spec.md`, `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`, and `../core-interaction-model-plan.md`
 **Supersedes**: "Layout: Advanced Physics and Algorithms Plan" (integrated here) and the earlier graph-only framing of this document
 **See also**:
 - `2026-02-22_registry_layer_plan.md` (registry authority and terminology)
@@ -8,6 +8,12 @@
 - `../viewer/2026-02-24_universal_content_model_plan.md` (viewer selection / content types)
 - `2026-02-24_performance_tuning_plan.md` (culling / LOD / frame budgets)
 - `2026-02-18_graph_ux_research_report.md` (layout quality and interaction research)
+
+**Closure note**:
+
+- This document is no longer an active design authority. Treat it as migration/history context for the shift from graph-only panes to pane-hosted multi-view dispatch.
+- Active interaction and hierarchy rules now live in `multi_view_pane_spec.md`, `../core-interaction-model-plan.md`, and `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`.
+- The older `Canonical` / `Divergent` framing remains useful as historical rationale, but the current active contract is the per-`GraphViewId` local-per-view model in `multi_view_pane_spec.md`.
 
 **Goal**: Record the migration from graph-only panes toward pane-hosted multi-view dispatch, while preserving graph-specific multi-view features (`GraphViewId`, independent cameras, per-view Lens, Canonical/Divergent layouts). This document is no longer the canonical top-level UI model for graph/workbench parity.
 

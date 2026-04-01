@@ -697,7 +697,7 @@ _Source file before consolidation: `2026-02-24_immediate_priorities.md`_
 
 **Audit basis (2026-02-25 review)**:
 - `2026-02-22_registry_layer_plan.md`
-- `2026-02-22_multi_graph_pane_plan.md` (scope expanded in paired doc sync to pane-hosted multi-view architecture)
+- `graph/multi_view_pane_spec.md` (current pane-hosted multi-view interaction authority)
 - `2026-02-24_layout_behaviors_plan.md`
 - `2026-02-24_performance_tuning_plan.md`
 - `2026-02-24_control_ui_ux_plan.md`

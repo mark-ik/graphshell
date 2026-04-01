@@ -13,7 +13,7 @@ functional physics layer, mobile considerations, 2D↔3D hotswitch architecture)
 - `2026-02-22_registry_layer_plan.md` — `PhysicsProfileRegistry` owns named presets; `CanvasRegistry` owns engine execution; `LayoutRegistry` owns positioning algorithms
 - `2026-02-24_layout_behaviors_plan.md` — behavioral micro-features (reheat, clustering, magnetic zones) that build on top of whichever engine is active
 - `2026-02-23_graph_interaction_consistency_plan.md` — gravity locus dampening (Phase 3) is a concrete `ExtraForce` candidate
-- `2026-02-22_multi_graph_pane_plan.md` — pane-hosted multi-view architecture; `GraphViewState`, `Canonical`/`Divergent` layout modes, and `LocalSimulation` remain graph-pane payload concepts; 3D views are a new `ViewDimension` axis on `GraphViewState`
+- `multi_view_pane_spec.md` — pane-hosted multi-view architecture, per-`GraphViewId` layout ownership, and `ViewDimension` as graph-view state
 - `design_docs/PROJECT_DESCRIPTION.md` — 2D↔3D hotswitch with position parity is a named first-class vision feature
 
 ---
@@ -798,7 +798,7 @@ along the z-axis, trivially added or removed.
 
 ### `ViewDimension` on `GraphViewState`
 
-Extend `GraphViewState` from the multi-graph pane plan:
+Extend `GraphViewState` from `multi_view_pane_spec.md`:
 
 ```rust
 pub enum ViewDimension {
@@ -1370,13 +1370,13 @@ The following items require coordination with other plans and are not fully reso
   are defined in the linked plan.
 
 - **`GraphViewState.dimension` placement**: `ViewDimension` is defined here but belongs to
-  the `GraphViewState` struct in `2026-02-22_multi_graph_pane_plan.md`. Confirm that plan
-  is updated to include the `dimension` field before implementing 3D rendering.
+  the `GraphViewState` contract in `multi_view_pane_spec.md`. Confirm that the canonical
+  graph-view spec is updated to include the `dimension` field before implementing 3D rendering.
 
-- **`LocalSimulation` + rapier**: `LocalSimulation` (from multi_graph_pane_plan) owns a
-  shadow position set. Divergent views that also run rapier physics need a rapier `RigidBodySet`
-  per `LocalSimulation`. Specify whether `LocalSimulation` owns both the shadow positions and
-  the rapier world, or whether rapier is always global.
+- **Per-view local simulation + rapier**: graph-view-local simulation state owns the
+  shadow position set. Views that also run rapier physics need a rapier `RigidBodySet`
+  per local simulation instance. Specify whether that local simulation state owns both the
+  shadow positions and the rapier world, or whether rapier is always global.
 
 - **Snapshot format for `PhysicsRegion`**: Regions reference `GraphWorkspace.zones`. The
   snapshot format (`persistence_ops.rs`) must be extended to include `physics_regions`. Confirm

@@ -7,7 +7,7 @@
 **Related**:
 
 - `multi_view_pane_spec.md`
-- `2026-02-22_multi_graph_pane_plan.md`
+- `../core-interaction-model-plan.md`
 - `graph_node_edge_interaction_spec.md`
 - `../subsystem_ux_semantics/2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`

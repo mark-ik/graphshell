@@ -3,7 +3,7 @@
 **Status**: Implementation-Ready  
 **Supersedes**: `2026-02-11_performance_optimization_plan.md`  
 **Context**: Post-Registry migration cleanup and scaling.
-**Relates to**: `2026-02-22_multi_graph_pane_plan.md` (per-graph-pane culling/LOD semantics and divergent-simulation budgets)
+**Relates to**: `../graph/multi_view_pane_spec.md` (per-graph-pane culling/LOD semantics and graph-view isolation)
 
 ## Goal
 

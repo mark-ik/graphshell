@@ -3,7 +3,7 @@
 **Status**: Deferred (blocked) — awaiting basic LOD/culling baseline from `2026-02-24_performance_tuning_plan.md` Phases 1–2
 **Blocking Prerequisites**: Viewport culling (Phase 1) and Node + Edge LOD (Phase 2) from `2026-02-24_performance_tuning_plan.md` must be in place. The canonical zoom-adaptive LOD tiers (Point / Compact / Expanded) and their `camera.scale` thresholds are defined in `graph_node_edge_interaction_spec.md §4.8`; DOI rendering must build on top of those tiers, not redefine them.
 **Context**: Post-LOD readability improvement for dense graphs; preserves mental map while surfacing relevance.
-**Relates to**: `2026-02-24_performance_tuning_plan.md` (LOD/culling primitives this plan builds on), `graph_node_edge_interaction_spec.md §4.8` (canonical LOD tier thresholds and hysteresis — DOI is an overlay, not a replacement), `2026-02-18_graph_ux_research_report.md` §§13.2, 14.8, 14.9 (research basis), `2026-02-22_multi_graph_pane_plan.md` (per-pane isolation rule)
+**Relates to**: `2026-02-24_performance_tuning_plan.md` (LOD/culling primitives this plan builds on), `graph_node_edge_interaction_spec.md §4.8` (canonical LOD tier thresholds and hysteresis — DOI is an overlay, not a replacement), `2026-02-18_graph_ux_research_report.md` §§13.2, 14.8, 14.9 (research basis), `multi_view_pane_spec.md` (per-pane isolation rule)
 
 ---
 
@@ -180,7 +180,7 @@ Render pass z-order: sort visible nodes by `final_radius` ascending (paint small
 - **`MetadataFrame`**: DOI score cache (`HashMap<NodeIndex, DoiScore>`) stored alongside the LOD zoom oracle; snapshot-swap updated by worker, read-only to render.
 - **DOI calculator worker**: background task owned by graph-pane context; reads graph snapshot + node visit metadata; writes snapshot to `MetadataFrame` cache.
 - **Render path** (`render/graph_node_shape.rs` or equivalent): reads cached `DoiScore` per node; applies size/opacity/LOD tier overrides; applies fisheye scale when `semantic_fisheye_enabled`.
-- **Multi-pane rule**: DOI scores and fisheye calculations are computed **per graph pane**, consistent with existing culling/LOD per-pane isolation (`2026-02-22_multi_graph_pane_plan.md`).
+- **Multi-pane rule**: DOI scores and fisheye calculations are computed **per graph pane**, consistent with existing culling/LOD per-pane isolation (`multi_view_pane_spec.md`).
 
 ---
 

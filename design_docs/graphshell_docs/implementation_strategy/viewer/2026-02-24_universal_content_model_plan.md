@@ -7,7 +7,7 @@
 - `../technical_architecture/2026-02-18_universal_node_content_model.md` — Research vision document; this plan is the implementation-ready follow-through
 - `../graph/node_badge_and_tagging_spec.md` — Badge/tag system; `viewer_id` field and `mime_hint` interplay with badge display and tag assignment UI
 - `2026-02-22_registry_layer_plan.md` — `ViewerRegistry` (Phase 2, complete) is the primary contract surface; `ProtocolRegistry` and `KnowledgeRegistry` are prerequisites for Steps 3 and 6
-- `2026-02-22_multi_graph_pane_plan.md` — node viewers are pane-hosted view payloads; graph panes remain separate surface types
+- `../graph/multi_view_pane_spec.md` — node viewers are pane-hosted view payloads; graph panes remain separate surface types
 - `2026-02-23_wry_integration_strategy.md` — Wry backend is a `Viewer` implementation; Steps 1–3 here are prerequisites for the Wry plan
 - `2026-03-08_simple_document_engine_target_spec.md` — canonical spec for `SimpleDocument`, `EngineTarget`, `RenderPolicy` (Steps 11–12)
 - `2026-02-23_udc_semantic_tagging_plan.md` — UDC semantic tags drive renderer selection hints and the tag badge system

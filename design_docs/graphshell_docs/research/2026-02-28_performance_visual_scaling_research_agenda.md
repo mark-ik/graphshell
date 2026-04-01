@@ -540,7 +540,7 @@ stability measurable across all physics-related implementations.
 - `implementation_strategy/graph/2026-02-24_layout_behaviors_plan.md`
 - `implementation_strategy/graph/2026-02-25_progressive_lens_and_physics_binding_plan.md`
 - `implementation_strategy/graph/2026-02-24_physics_engine_extensibility_plan.md`
-- `implementation_strategy/graph/2026-02-22_multi_graph_pane_plan.md`
+- `implementation_strategy/graph/multi_view_pane_spec.md`
 - `research/2026-02-18_graph_ux_research_report.md §§2–5, 7–8, 10`
 - Purchase et al. (2002), "Metrics for Graph Drawing Aesthetics"
 - Yoghourdjian et al. (2018), "Exploring the Limits of Complexity"

@@ -3,7 +3,7 @@
 **Status**: Implementation-Ready (Phases 1–2); Phase 3 blocked on layout injection hook
 **Supersedes**: `2026-02-19_layout_advanced_plan.md`
 **Canonical spec**: `layout_behaviors_and_physics_spec.md` — authoritative contracts for all behaviors described here; this plan documents the execution sequence and open prerequisites only.
-**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `2026-02-23_graph_interaction_consistency_plan.md` (viewport gravity), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs), `2026-02-22_multi_graph_pane_plan.md` (graph-pane Canonical/Divergent semantics and per-pane budgets), `../workbench/graph_first_frame_semantics_spec.md` (Frame identity and membership authority).
+**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `2026-02-23_graph_interaction_consistency_plan.md` (viewport gravity), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs), `multi_view_pane_spec.md` (graph-pane isolation and per-view layout ownership), `../workbench/graph_first_frame_semantics_spec.md` (Frame identity and membership authority).
 
 ## Context
 
@@ -18,7 +18,7 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 3. Treat this plan as additive to current physics system; avoid introducing a parallel layout engine.
 4. Scope applies to **graph panes** only (`CanvasRegistry` surface behavior). Node viewer panes and tool panes are out of scope.
 
-**Multi-view note**: Canonical vs Divergent graph-pane semantics are defined in `2026-02-22_multi_graph_pane_plan.md`. Unless explicitly stated otherwise, behaviors in this plan target the canonical shared graph layout path and should not implicitly overwrite divergent local simulations.
+**Multi-view note**: Graph-view layout state is isolated per `GraphViewId` as defined in `multi_view_pane_spec.md`. Unless explicitly stated otherwise, behaviors in this plan must not implicitly overwrite a sibling view's local simulation state.
 
 ---
 
