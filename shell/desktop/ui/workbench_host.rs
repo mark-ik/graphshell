@@ -2263,6 +2263,17 @@ pub(crate) fn render_workbench_host(
                             crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::OpenView(view_id) => {
                                 post_host_actions.push(WorkbenchHostAction::OpenGraphView(view_id));
                             }
+                            crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::TransferSelectionToView {
+                                source_view,
+                                destination_view,
+                            } => {
+                                post_host_actions.push(
+                                    WorkbenchHostAction::TransferSelectedNodesToGraphView {
+                                        source_view,
+                                        destination_view,
+                                    },
+                                );
+                            }
                             crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::ToggleOverviewPlane => {
                                 post_host_actions.push(WorkbenchHostAction::ToggleOverviewPlane);
                             }
@@ -2652,6 +2663,10 @@ enum WorkbenchHostAction {
     RestoreFrame(String),
     FocusGraphView(GraphViewId),
     OpenGraphView(GraphViewId),
+    TransferSelectedNodesToGraphView {
+        source_view: GraphViewId,
+        destination_view: GraphViewId,
+    },
     ToggleOverviewPlane,
     /// Set or clear a graphlet specialty view on a Navigator host.
     SetNavigatorSpecialtyView {
@@ -3041,6 +3056,15 @@ fn apply_workbench_host_action(
             graph_app.apply_reducer_intents([GraphIntent::RouteGraphViewToWorkbench {
                 view_id,
                 mode: PendingTileOpenMode::Tab,
+            }]);
+        }
+        WorkbenchHostAction::TransferSelectedNodesToGraphView {
+            source_view,
+            destination_view,
+        } => {
+            graph_app.apply_reducer_intents([GraphIntent::TransferSelectedNodesToGraphView {
+                source_view,
+                destination_view,
             }]);
         }
         WorkbenchHostAction::ToggleOverviewPlane => {

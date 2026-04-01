@@ -12,7 +12,10 @@ const OVERVIEW_CELL_SIZE: Vec2 = Vec2::new(156.0, 92.0);
 const OVERVIEW_CELL_GAP: f32 = 16.0;
 const OVERVIEW_SWATCH_GAP: f32 = 8.0;
 const NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH: f32 = 272.0;
+const NAVIGATOR_OVERVIEW_TRANSFER_CELL_MIN_WIDTH: f32 = 60.0;
 const OVERVIEW_SELECTED_VIEW_ID_KEY: &str = "graphshell_overview_selected_view";
+const NAVIGATOR_OVERVIEW_DRAG_SOURCE_VIEW_KEY: &str =
+    "graphshell_navigator_overview_drag_source_view";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OverviewSlotSnapshot {
@@ -27,6 +30,10 @@ pub(crate) struct OverviewSlotSnapshot {
 pub(crate) enum OverviewSurfaceAction {
     FocusView(GraphViewId),
     OpenView(GraphViewId),
+    TransferSelectionToView {
+        source_view: GraphViewId,
+        destination_view: GraphViewId,
+    },
     ToggleOverviewPlane,
 }
 
@@ -275,7 +282,7 @@ pub(crate) fn render_navigator_overview_swatch(
 
     if swatch_enabled {
         ui.add_space(6.0);
-        render_compact_overview_grid(ui, &active_slots, selected_view_id, &mut actions);
+        render_compact_overview_grid(ui, app, &active_slots, selected_view_id, &mut actions);
     }
 
     if let Some(selected_slot) = slots
@@ -304,6 +311,7 @@ pub(crate) fn render_navigator_overview_swatch(
 
 fn render_compact_overview_grid(
     ui: &mut Ui,
+    app: &GraphBrowserApp,
     slots: &[OverviewSlotSnapshot],
     selected_view_id: Option<GraphViewId>,
     actions: &mut Vec<OverviewSurfaceAction>,
@@ -318,12 +326,20 @@ fn render_compact_overview_grid(
     let cell_width = ((available_width - (cols - 1.0) * OVERVIEW_SWATCH_GAP) / cols)
         .clamp(42.0, 76.0);
     let cell_height = (cell_width * 0.58).clamp(24.0, 44.0);
+    let drag_transfer_enabled = navigator_overview_drag_transfer_enabled(cell_width);
     let grid_size = Vec2::new(
         cols * cell_width + (cols - 1.0) * OVERVIEW_SWATCH_GAP,
         rows * cell_height + (rows - 1.0) * OVERVIEW_SWATCH_GAP,
     );
     let (grid_rect, _) = ui.allocate_exact_size(grid_size, Sense::hover());
     let painter = ui.painter();
+    let drag_source_id = egui::Id::new(NAVIGATOR_OVERVIEW_DRAG_SOURCE_VIEW_KEY);
+    let mut drag_source_view = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<GraphViewId>(drag_source_id));
+    let pointer_pos = ui.input(|input| input.pointer.interact_pos());
+    let pointer_released = ui.input(|input| input.pointer.any_released());
+    let mut cell_rects = Vec::with_capacity(slots.len());
 
     for slot in slots {
         let cell_rect = compact_slot_rect_for_coords(
@@ -334,18 +350,29 @@ fn render_compact_overview_grid(
             grid_rect.min,
             Vec2::new(cell_width, cell_height),
         );
+        cell_rects.push((slot.view_id, cell_rect));
         let response = ui.interact(
             cell_rect,
             egui::Id::new(("navigator_overview_slot", slot.view_id.as_uuid())),
-            Sense::click(),
+            Sense::click_and_drag(),
         );
         let is_selected = Some(slot.view_id) == selected_view_id;
-        let fill = if is_selected {
+        let is_drag_source = drag_source_view == Some(slot.view_id);
+        let is_drop_target = drag_source_view.is_some_and(|source_view| {
+            source_view != slot.view_id
+                && pointer_pos.is_some_and(|pointer| cell_rect.contains(pointer))
+                && navigator_overview_transfer_action(app, source_view, slot.view_id).is_some()
+        });
+        let fill = if is_drag_source {
+            Color32::from_rgb(78, 88, 56)
+        } else if is_selected {
             Color32::from_rgb(66, 88, 120)
         } else {
             Color32::from_rgb(40, 45, 54)
         };
-        let stroke = if is_selected {
+        let stroke = if is_drop_target {
+            Stroke::new(2.0, Color32::from_rgb(120, 210, 180))
+        } else if is_selected {
             Stroke::new(2.0, Color32::from_rgb(180, 210, 255))
         } else {
             Stroke::new(1.0, Color32::from_gray(100))
@@ -366,6 +393,28 @@ fn render_compact_overview_grid(
         if response.double_clicked() {
             actions.push(OverviewSurfaceAction::OpenView(slot.view_id));
         }
+        if response.drag_started()
+            && drag_transfer_enabled
+            && navigator_overview_drag_source_view(app) == Some(slot.view_id)
+        {
+            drag_source_view = Some(slot.view_id);
+            ui.ctx()
+                .data_mut(|data| data.insert_temp(drag_source_id, slot.view_id));
+        }
+    }
+
+    if pointer_released {
+        if let Some(source_view) = drag_source_view
+            && let Some(pointer) = pointer_pos
+            && let Some((destination_view, _)) = cell_rects
+                .iter()
+                .find(|(view_id, rect)| *view_id != source_view && rect.contains(pointer))
+            && let Some(action) =
+                navigator_overview_transfer_action(app, source_view, *destination_view)
+        {
+            actions.push(action);
+        }
+        ui.ctx().data_mut(|data| data.remove::<GraphViewId>(drag_source_id));
     }
 }
 
@@ -740,6 +789,50 @@ fn navigator_overview_swatch_enabled(available_width: f32) -> bool {
     available_width >= NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH
 }
 
+fn navigator_overview_drag_transfer_enabled(cell_width: f32) -> bool {
+    cell_width >= NAVIGATOR_OVERVIEW_TRANSFER_CELL_MIN_WIDTH
+}
+
+fn navigator_overview_drag_source_view(app: &GraphBrowserApp) -> Option<GraphViewId> {
+    let source_view = app.workspace.graph_runtime.focused_view?;
+    let source_slot = app
+        .workspace
+        .graph_runtime
+        .graph_view_layout_manager
+        .slots
+        .get(&source_view)?;
+    if source_slot.archived || app.focused_selection().is_empty() {
+        return None;
+    }
+    let source_state = app.workspace.graph_runtime.views.get(&source_view)?;
+    if source_state.graphlet_node_mask.is_some() {
+        return None;
+    }
+    Some(source_view)
+}
+
+fn navigator_overview_transfer_action(
+    app: &GraphBrowserApp,
+    source_view: GraphViewId,
+    destination_view: GraphViewId,
+) -> Option<OverviewSurfaceAction> {
+    if navigator_overview_drag_source_view(app) != Some(source_view) {
+        return None;
+    }
+    match overview_transfer_intent(app, destination_view)? {
+        GraphIntent::TransferSelectedNodesToGraphView {
+            source_view: intent_source,
+            destination_view: intent_destination,
+        } if intent_source == source_view && intent_destination == destination_view => {
+            Some(OverviewSurfaceAction::TransferSelectionToView {
+                source_view,
+                destination_view,
+            })
+        }
+        _ => None,
+    }
+}
+
 fn overview_surface_selected_view_id(
     ctx: &Context,
     app: &GraphBrowserApp,
@@ -1007,6 +1100,14 @@ mod tests {
     }
 
     #[test]
+    fn navigator_overview_drag_transfer_enabled_requires_spacious_cells() {
+        assert!(!navigator_overview_drag_transfer_enabled(58.0));
+        assert!(navigator_overview_drag_transfer_enabled(
+            NAVIGATOR_OVERVIEW_TRANSFER_CELL_MIN_WIDTH
+        ));
+    }
+
+    #[test]
     fn overview_transfer_affordance_reports_missing_focus_reason() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
@@ -1032,6 +1133,48 @@ mod tests {
             affordance.disabled_reason,
             "Select one or more nodes in the focused graph view first."
         );
+    }
+
+    #[test]
+    fn navigator_overview_transfer_action_matches_overview_transfer_parity() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source = GraphViewId::new();
+        let destination = GraphViewId::new();
+        app.ensure_graph_view_registered(source);
+        app.ensure_graph_view_registered(destination);
+        app.workspace.graph_runtime.focused_view = Some(source);
+
+        let node = app.workspace.domain.graph.add_node(
+            "https://navigator-transfer.example".to_string(),
+            euclid::point2(0.0, 0.0),
+        );
+        app.select_in_focused_view(node, false);
+
+        assert_eq!(
+            navigator_overview_transfer_action(&app, source, destination),
+            Some(OverviewSurfaceAction::TransferSelectionToView {
+                source_view: source,
+                destination_view: destination,
+            })
+        );
+    }
+
+    #[test]
+    fn navigator_overview_transfer_action_rejects_non_focused_source() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source = GraphViewId::new();
+        let destination = GraphViewId::new();
+        app.ensure_graph_view_registered(source);
+        app.ensure_graph_view_registered(destination);
+        app.workspace.graph_runtime.focused_view = Some(destination);
+
+        let node = app.workspace.domain.graph.add_node(
+            "https://navigator-transfer-mismatch.example".to_string(),
+            euclid::point2(0.0, 0.0),
+        );
+        app.select_in_focused_view(node, false);
+
+        assert_eq!(navigator_overview_transfer_action(&app, source, destination), None);
     }
 
     #[test]

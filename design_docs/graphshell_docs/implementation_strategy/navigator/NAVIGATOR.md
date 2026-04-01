@@ -552,10 +552,12 @@ Ownership split:
 - Graph owns graph-view regions, slot layout, and direct structural editing
 - Navigator owns compact overview projection, graphlet/context orientation, and routing affordances
 - Workbench still owns arrangement/session projection shown alongside those overview affordances
+- The compact overview projection may eventually be backed by a reusable `SwatchSpec` shared with other embedded graph-preview surfaces, but Navigator still contributes only host policy and routing semantics, not a second graph model
 
 Host-form guidance:
 
 - `Sidebar` hosts in `GraphOnly` or `Both` scope may render a minimap-like swatch or overview card when there is sufficient space
+- spacious `Sidebar` hosts may additionally allow drag-transfer across that swatch when target cells remain reliably sized for gesture use
 - the same host may place graph-view lists, graphlet summaries, selected-node context, and workbench-session lists beside that swatch rather than cramming all meaning into one tiny canvas
 - `Toolbar` hosts should default to compact chips, strips, counters, or tab-like summaries of graph views and workbench sessions instead of a precision-target minimap
 

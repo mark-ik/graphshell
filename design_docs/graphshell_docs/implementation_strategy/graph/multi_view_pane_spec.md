@@ -9,7 +9,6 @@
 - `GRAPH.md`
 - `graph_node_edge_interaction_spec.md`
 - `../core-interaction-model-plan.md`
-- `2026-03-05_hybrid_graph_view_overview_atlas_plan.md`
 - `../workbench/WORKBENCH.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../workbench/pane_chrome_and_promotion_spec.md`
@@ -197,12 +196,14 @@ Rules:
 
 - create, move, resize, rename, archive, and restore slot/view operations are graph-owned authoring actions
 - Navigator hosts may project compact view overviews, swatches, strips, or lists for orientation and routing
+- those compact swatches may eventually share a reusable `SwatchSpec` rendering contract with other embedded graph-preview surfaces, but that contract does not create a new slot-layout or persistence authority
 - Navigator overview surfaces must not persist their own region model or become a second slot-layout truth
 - any cross-view node transfer initiated from a Navigator overview surface must emit the same reducer intent path as the graph Overview Plane
 
 Form-factor constraint:
 
 - sidebar Navigator hosts may render a minimap-like overview swatch when space permits
+- spacious sidebar Navigator hosts may additionally allow drag-transfer from the swatch only when targets remain reliably sized for gesture use
 - toolbar Navigator hosts should degrade to strips, chips, or list semantics instead of requiring a tiny precision-edit canvas
 
 First-shipping constraint:

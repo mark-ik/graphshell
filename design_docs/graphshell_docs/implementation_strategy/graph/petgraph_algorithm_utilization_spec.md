@@ -225,7 +225,7 @@ browsing session stripped of loops.
 **Uses:**
 
 - **Visual:** Render condensed super-nodes at a zoom-out level (Navigator overview swatch / atlas-oriented projection) as cluster representatives.
-    Planned in `2026-03-05_hybrid_graph_view_overview_atlas_plan.md` with Navigator-owned orientation semantics.
+    See `multi_view_pane_spec.md §5.3A` and `../navigator/NAVIGATOR.md §11.7` for the Navigator-owned orientation semantics.
 - **History:** In the history timeline subsystem (`subsystem_history/history_timeline_and_temporal_navigation_spec.md`),
   condensation provides a natural "canonical path" through a session by following the condensation
   DAG topologically.
