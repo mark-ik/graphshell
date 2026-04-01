@@ -38,14 +38,16 @@ Current reality:
 - runtime code now contains a persisted `FrameTabSemantics` carrier on saved frame bundles
 - save/load paths now derive, validate, and repair semantic tab metadata as frame state
 - explicit `RepairFrameTabSemantics` intent plumbing now exists via runtime lifecycle bridge -> app command -> frame persistence repair/resave path
-- omnibar saved-frame tab discovery now uses an overlay-first semantic helper path
+- omnibar saved-frame and live local-tab discovery now use overlay-first semantic helper paths
 - live workbench tab-shape queries now flow through shared `tile_grouping` helpers instead of duplicating node-tab membership rules per consumer
 - restore-time frame loading can now rewrap pane-rest bundles back into visual tabs when saved semantic metadata provides the missing group members
 - runtime code now contains reducer-owned `RestorePaneToSemanticTabGroup` / `CollapseSemanticTabGroupToPaneRest` intent carriers, workbench-surface application, and runtime-resident semantic overlay state for the active frame
 - live collapse-to-pane-rest state now persists through named-frame bundle saves instead of being lost when saving from a structurally collapsed tree
 - workbench host pane rows now expose `Tabs` / `Rest` affordances for pane-rest restore and live collapse, backed by the shared semantic-tab query helper
 - keyboard command wiring now exists through `InputRegistry` for toggling the focused pane between pane-rest and semantic-tab-group form
-- some other tab-aware behavior still infers semantics directly from live tile-tree shape
+- live tab-range selection order now consults the active semantic overlay before falling back to visual tree order
+- post-render drag/drop reconciliation now resynchronizes the touched runtime semantic tab groups after structural tab edits while preserving unrelated collapsed pane-rest groups
+- restore/collapse completion now requires explicit post-transition runtime confirmation of the intended semantic tab state
 - the concept remains intended architecture and is still referenced by active graph/workbench docs
 
 ---
@@ -305,7 +307,7 @@ into a shared semantic-query module.
 
 ### Stage 8D: Restore / Collapse + Pane Rest State
 
-**Status**: Partial
+**Status**: Complete
 
 Goal: implement semantic lifecycle transitions and on-demand rewrap affordance.
 
@@ -315,19 +317,20 @@ Goal: implement semantic lifecycle transitions and on-demand rewrap affordance.
   frame bundles, and live-runtime restore/collapse now routes through the same reducer -> workbench-surface boundary (landed).
 - Desktop apply layer: implement tree rewrap (hoist/unhoist), runtime lifecycle dispatch
   (resume/suspend), UI readiness update on confirmation
-  (tree rewrap + idempotent semantic sequencing landed; explicit runtime suspend/resume confirmation remains future work).
+  (tree rewrap + idempotent semantic sequencing landed; explicit post-transition runtime confirmation now gates success for the current runtime path).
 - Implement idempotency: applying restore/collapse twice has same effect as once (landed for the structural runtime path).
 - Implement single-pane inverted-tab affordance in `desktop/ui/toolbar/` or pane chrome render
   (current runtime slice landed in the workbench host pane rows as `Tabs` / `Rest` affordances).
 - Register keyboard equivalent in `InputRegistry` (landed as focused-pane semantic-tab toggle wiring).
-- Connect lifecycle ordering: restore waits for runtime confirmation before updating UI readiness.
+- Connect lifecycle ordering: restore waits for runtime confirmation before updating UI readiness (landed for the current workbench runtime path).
 
-Remaining gate: stricter runtime lifecycle confirmation and any final polish on affordance placement
-outside the workbench host are still required before Stage 8D can be called complete.
+Done gate met for Stage 8D: live restore/collapse now has reducer-owned intents, structural rewrap,
+idempotent state transitions, keyboard/UI affordances, and explicit runtime confirmation before
+success is reported.
 
 ### Stage 8E: Simplify-Safe Restore Integration
 
-**Status**: Not started — blocked on Stage 8D done gate
+**Status**: Not started
 
 Goal: allow `egui_tiles::simplify()` to run without losing Graphshell tab semantics.
 
@@ -441,7 +444,7 @@ Stage 8E here once confirmed.
 
 - Retitled from the older overlay-and-promotion wording to keep `promotion` reserved for graph enrollment only.
 - Status corrected: `FrameTabSemantics` is now partially implemented in runtime code, but the
-  restore/collapse lifecycle and broader consumer migration remain planned work.
+  simplify-safe restore integration still remains planned work.
 - Canonical authority chain updated to point at `../graph/multi_view_pane_spec.md` for the semantic contract.
 - Stale ownership wording replaced with current reducer/app-layer and desktop/workbench apply-layer language.
-- Current open coupling called out explicitly: omnibar saved-tab discovery still reads semantic tab membership from tile-tree shape.
+- Runtime gap closed for Stage 8D: restore/collapse now confirms the resulting semantic tab state before reporting success, while Stage 8E remains future work.

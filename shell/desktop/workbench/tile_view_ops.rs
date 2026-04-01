@@ -40,6 +40,12 @@ pub(crate) enum SemanticTabAffordance {
     Collapse { group_id: Uuid, member_count: usize },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SemanticTabTransitionTarget {
+    Restored,
+    Collapsed,
+}
+
 fn tile_matches_node(tile: &TileKind, node_key: NodeKey) -> bool {
     matches!(tile.node_state(), Some(state) if state.node == node_key)
 }
@@ -621,6 +627,150 @@ fn current_runtime_frame_tab_semantics(
         .or_else(|| persistence_ops::derive_runtime_frame_tab_semantics_from_tree(tiles_tree))
 }
 
+fn node_key_for_pane(
+    tiles_tree: &Tree<TileKind>,
+    pane_id: PaneId,
+) -> Option<NodeKey> {
+    let tile_id = tile_id_for_pane(tiles_tree, pane_id)?;
+    match tiles_tree.tiles.get(tile_id) {
+        Some(Tile::Pane(tile)) => tile.node_state().map(|state| state.node),
+        _ => None,
+    }
+}
+
+fn node_key_for_pane_in_tiles(
+    tiles: &egui_tiles::Tiles<TileKind>,
+    pane_id: PaneId,
+) -> Option<NodeKey> {
+    tiles.iter().find_map(|(_, tile)| match tile {
+        Tile::Pane(tile) if tile.pane_id() == pane_id => tile.node_state().map(|state| state.node),
+        _ => None,
+    })
+}
+
+pub(crate) fn semantic_tab_node_keys(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+) -> HashSet<NodeKey> {
+    let Some(semantics) = current_runtime_frame_tab_semantics(graph_app, tiles_tree) else {
+        return crate::shell::desktop::workbench::tile_grouping::tab_node_keys_in_tree(tiles_tree);
+    };
+
+    let keys: HashSet<_> = semantics
+        .tab_groups
+        .iter()
+        .flat_map(|group| group.pane_ids.iter().copied())
+        .filter_map(|pane_id| node_key_for_pane(tiles_tree, pane_id))
+        .collect();
+    if keys.is_empty() {
+        crate::shell::desktop::workbench::tile_grouping::tab_node_keys_in_tree(tiles_tree)
+    } else {
+        keys
+    }
+}
+
+pub(crate) fn semantic_tab_node_order_for_tile(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    tile_id: TileId,
+) -> Option<Vec<NodeKey>> {
+    let pane_id = match tiles_tree.tiles.get(tile_id) {
+        Some(Tile::Pane(tile)) => tile.pane_id(),
+        _ => {
+            return crate::shell::desktop::workbench::tile_grouping::tab_group_node_order_for_tile(
+                &tiles_tree.tiles,
+                tile_id,
+            );
+        }
+    };
+
+    let fallback =
+        crate::shell::desktop::workbench::tile_grouping::tab_group_node_order_for_tile(
+            &tiles_tree.tiles,
+            tile_id,
+        );
+    let Some(semantics) = current_runtime_frame_tab_semantics(graph_app, tiles_tree) else {
+        return fallback;
+    };
+    let Some(group) = semantics
+        .tab_groups
+        .iter()
+        .find(|group| group.pane_ids.contains(&pane_id))
+    else {
+        return fallback;
+    };
+
+    let ordered_nodes: Vec<_> = group
+        .pane_ids
+        .iter()
+        .filter_map(|pane_id| node_key_for_pane(tiles_tree, *pane_id))
+        .collect();
+    if ordered_nodes.is_empty() {
+        return fallback;
+    }
+
+    if let Some(tree_order) = fallback {
+        let semantic_nodes: HashSet<_> = ordered_nodes.iter().copied().collect();
+        if tree_order.len() == ordered_nodes.len()
+            && tree_order.iter().all(|node_key| semantic_nodes.contains(node_key))
+        {
+            return Some(tree_order);
+        }
+    }
+
+    Some(ordered_nodes)
+}
+
+pub(crate) fn semantic_tab_node_order_for_tile_in_tiles(
+    tiles: &egui_tiles::Tiles<TileKind>,
+    graph_app: &GraphBrowserApp,
+    tile_id: TileId,
+) -> Option<Vec<NodeKey>> {
+    let pane_id = match tiles.get(tile_id) {
+        Some(Tile::Pane(tile)) => tile.pane_id(),
+        _ => {
+            return crate::shell::desktop::workbench::tile_grouping::tab_group_node_order_for_tile(
+                tiles, tile_id,
+            );
+        }
+    };
+
+    let fallback =
+        crate::shell::desktop::workbench::tile_grouping::tab_group_node_order_for_tile(
+            tiles, tile_id,
+        );
+    let Some(semantics) = graph_app.current_frame_tab_semantics() else {
+        return fallback;
+    };
+    let Some(group) = semantics
+        .tab_groups
+        .iter()
+        .find(|group| group.pane_ids.contains(&pane_id))
+    else {
+        return fallback;
+    };
+
+    let ordered_nodes: Vec<_> = group
+        .pane_ids
+        .iter()
+        .filter_map(|pane_id| node_key_for_pane_in_tiles(tiles, *pane_id))
+        .collect();
+    if ordered_nodes.is_empty() {
+        return fallback;
+    }
+
+    if let Some(tree_order) = fallback {
+        let semantic_nodes: HashSet<_> = ordered_nodes.iter().copied().collect();
+        if tree_order.len() == ordered_nodes.len()
+            && tree_order.iter().all(|node_key| semantic_nodes.contains(node_key))
+        {
+            return Some(tree_order);
+        }
+    }
+
+    Some(ordered_nodes)
+}
+
 pub(crate) fn semantic_tab_affordance_for_pane(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -673,6 +823,77 @@ pub(crate) fn semantic_tab_toggle_intent_for_pane(
     }
 }
 
+fn confirm_semantic_tab_transition(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    group_id: Uuid,
+    focus_pane: PaneId,
+    expected: SemanticTabTransitionTarget,
+) -> bool {
+    let Some(semantics) = graph_app.current_frame_tab_semantics() else {
+        return false;
+    };
+    let Some(group) = semantics
+        .tab_groups
+        .iter()
+        .find(|group| group.group_id == group_id && group.pane_ids.contains(&focus_pane))
+    else {
+        return false;
+    };
+
+    let member_tile_ids: Vec<_> = group
+        .pane_ids
+        .iter()
+        .filter_map(|pane_id| tile_id_for_pane(tiles_tree, *pane_id))
+        .collect();
+    if member_tile_ids.len() != group.pane_ids.len() {
+        return false;
+    }
+
+    let attached_member_count = member_tile_ids
+        .iter()
+        .filter(|tile_id| tile_is_attached(tiles_tree, **tile_id))
+        .count();
+    let focus_tile_id = match tile_id_for_pane(tiles_tree, focus_pane) {
+        Some(tile_id) => tile_id,
+        None => return false,
+    };
+    let focus_is_active = tiles_tree.active_tiles().contains(&focus_tile_id);
+    let exact_tabs_container =
+        tabs_container_for_exact_runtime_members(tiles_tree, &member_tile_ids);
+
+    match (
+        expected,
+        semantic_tab_affordance_for_pane(tiles_tree, graph_app, focus_pane),
+    ) {
+        (
+            SemanticTabTransitionTarget::Collapsed,
+            Some(SemanticTabAffordance::Restore {
+                group_id: affordance_group_id,
+                ..
+            }),
+        ) => {
+            affordance_group_id == group_id
+                && attached_member_count == 1
+                && exact_tabs_container.is_none()
+                && focus_is_active
+        }
+        (
+            SemanticTabTransitionTarget::Restored,
+            Some(SemanticTabAffordance::Collapse {
+                group_id: affordance_group_id,
+                ..
+            }),
+        ) => {
+            affordance_group_id == group_id
+                && attached_member_count == group.pane_ids.len()
+                && exact_tabs_container.is_some()
+                && focus_is_active
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn collapse_semantic_tab_group_to_pane_rest(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &mut GraphBrowserApp,
@@ -699,7 +920,16 @@ pub(crate) fn collapse_semantic_tab_group_to_pane_rest(
             .active_pane_id
             .or_else(|| group.pane_ids.first().copied());
         graph_app.set_current_frame_tab_semantics(Some(semantics));
-        return focus_pane_id.is_some_and(|pane_id| focus_pane(tiles_tree, pane_id));
+        return focus_pane_id.is_some_and(|pane_id| {
+            focus_pane(tiles_tree, pane_id)
+                && confirm_semantic_tab_transition(
+                    tiles_tree,
+                    graph_app,
+                    group_id,
+                    pane_id,
+                    SemanticTabTransitionTarget::Collapsed,
+                )
+        });
     }
 
     let Some(tabs_id) = tabs_container_for_exact_runtime_members(tiles_tree, &ordered_tile_ids)
@@ -747,7 +977,13 @@ pub(crate) fn collapse_semantic_tab_group_to_pane_rest(
     let _ = focus_pane(tiles_tree, active_pane);
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
     graph_app.set_current_frame_tab_semantics(Some(semantics));
-    true
+    confirm_semantic_tab_transition(
+        tiles_tree,
+        graph_app,
+        group_id,
+        active_pane,
+        SemanticTabTransitionTarget::Collapsed,
+    )
 }
 
 pub(crate) fn restore_pane_to_semantic_tab_group(
@@ -774,7 +1010,14 @@ pub(crate) fn restore_pane_to_semantic_tab_group(
         .collect();
     if ordered_tile_ids.len() <= 1 {
         graph_app.set_current_frame_tab_semantics(Some(semantics));
-        return focus_pane(tiles_tree, pane);
+        return focus_pane(tiles_tree, pane)
+            && confirm_semantic_tab_transition(
+                tiles_tree,
+                graph_app,
+                group_id,
+                pane,
+                SemanticTabTransitionTarget::Restored,
+            );
     }
 
     if let Some(tabs_id) = tabs_container_for_exact_runtime_members(tiles_tree, &ordered_tile_ids) {
@@ -790,7 +1033,14 @@ pub(crate) fn restore_pane_to_semantic_tab_group(
         }
         graph_app.set_current_frame_tab_semantics(Some(semantics));
         tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
-        return focus_pane(tiles_tree, pane);
+        return focus_pane(tiles_tree, pane)
+            && confirm_semantic_tab_transition(
+                tiles_tree,
+                graph_app,
+                group_id,
+                pane,
+                SemanticTabTransitionTarget::Restored,
+            );
     }
 
     let mut attached_tile_ids: Vec<_> = ordered_tile_ids
@@ -840,6 +1090,13 @@ pub(crate) fn restore_pane_to_semantic_tab_group(
     graph_app.set_current_frame_tab_semantics(Some(semantics));
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
     focus_pane(tiles_tree, pane)
+        && confirm_semantic_tab_transition(
+            tiles_tree,
+            graph_app,
+            group_id,
+            pane,
+            SemanticTabTransitionTarget::Restored,
+        )
 }
 
 fn ordered_selected_pane_tile_ids(
@@ -1821,6 +2078,12 @@ mod tests {
             })
             .count();
         assert_eq!(attached_count, 1);
+        let active_after_collapse = tree.active_tiles().into_iter().next().expect("active tile");
+        let active_pane_after_collapse = match tree.tiles.get(active_after_collapse) {
+            Some(Tile::Pane(tile)) => tile.pane_id(),
+            other => panic!("expected active pane after collapse, got {other:?}"),
+        };
+        assert_eq!(active_pane_after_collapse, pane_a);
 
         assert!(restore_pane_to_semantic_tab_group(
             &mut tree,
@@ -1834,6 +2097,8 @@ mod tests {
             }
             other => panic!("expected restored tabs root, got {other:?}"),
         }
+        let active_after_restore = tree.active_tiles();
+        assert!(active_after_restore.contains(&b_tile));
         assert_eq!(
             app.current_frame_tab_semantics()
                 .expect("runtime semantics")
@@ -1841,6 +2106,49 @@ mod tests {
                 .group_id,
             group.group_id
         );
+    }
+
+    #[test]
+    fn restore_semantic_tab_group_requires_confirmed_runtime_shape() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://semantic-confirm-a.example".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://semantic-confirm-b.example".into(),
+            euclid::default::Point2D::new(80.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![a_tile, b_tile]);
+        let mut tree = Tree::new("semantic_tab_restore_confirmation", root, tiles);
+
+        let semantics = persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&tree)
+            .expect("semantics");
+        let group = semantics.tab_groups[0].clone();
+        let pane_b = match tree.tiles.get(b_tile) {
+            Some(Tile::Pane(tile)) => tile.pane_id(),
+            other => panic!("expected pane tile for b, got {other:?}"),
+        };
+        app.set_current_frame_tab_semantics(Some(semantics));
+
+        assert!(collapse_semantic_tab_group_to_pane_rest(
+            &mut tree,
+            &mut app,
+            group.group_id
+        ));
+
+        let _ = tree.remove_recursively(b_tile);
+
+        assert!(!restore_pane_to_semantic_tab_group(
+            &mut tree,
+            &mut app,
+            pane_b,
+            group.group_id
+        ));
     }
 
     #[test]
@@ -1902,6 +2210,88 @@ mod tests {
             Some(WorkbenchIntent::RestorePaneToSemanticTabGroup { pane, group_id })
                 if pane == pane_a && group_id == group.group_id
         ));
+    }
+
+    #[test]
+    fn semantic_tab_queries_include_collapsed_runtime_members() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://semantic-collapsed-a.example".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://semantic-collapsed-b.example".into(),
+            euclid::default::Point2D::new(80.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![a_tile, b_tile]);
+        let mut tree = Tree::new("semantic_tab_collapsed_queries", root, tiles);
+
+        let semantics = persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&tree)
+            .expect("semantics");
+        let group = semantics.tab_groups[0].clone();
+        app.set_current_frame_tab_semantics(Some(semantics));
+
+        assert!(collapse_semantic_tab_group_to_pane_rest(
+            &mut tree,
+            &mut app,
+            group.group_id
+        ));
+
+        let active_tile = tree.active_tiles().into_iter().next().expect("active tile");
+        let key_set = semantic_tab_node_keys(&tree, &app);
+
+        assert_eq!(key_set.len(), 2);
+        assert!(key_set.contains(&a));
+        assert!(key_set.contains(&b));
+        assert_eq!(
+            semantic_tab_node_order_for_tile(&tree, &app, active_tile),
+            Some(vec![a, b])
+        );
+    }
+
+    #[test]
+    fn semantic_tab_order_in_tiles_preserves_visible_tab_order() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://semantic-order-a.example".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://semantic-order-b.example".into(),
+            euclid::default::Point2D::new(80.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![a_tile, b_tile]);
+        let tree = Tree::new("semantic_tab_visible_order", root, tiles);
+
+        let semantics = persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&tree)
+            .expect("semantics");
+        app.set_current_frame_tab_semantics(Some(semantics));
+
+        let tabs = match tree.tiles.get(root) {
+            Some(Tile::Container(Container::Tabs(tabs))) => tabs,
+            other => panic!("expected tabs root container, got {other:?}"),
+        };
+        let mut reordered_children = tabs.children.clone();
+        reordered_children.reverse();
+
+        let mut reordered_tiles = tree.tiles.clone();
+        if let Some(Tile::Container(Container::Tabs(tabs))) = reordered_tiles.get_mut(root) {
+            tabs.children = reordered_children;
+            tabs.set_active(b_tile);
+        }
+
+        assert_eq!(
+            semantic_tab_node_order_for_tile_in_tiles(&reordered_tiles, &app, b_tile),
+            Some(vec![b, a])
+        );
     }
 
     #[test]

@@ -411,8 +411,11 @@ pub(super) fn non_at_global_fallback_matches(
     dedupe_matches_in_order(out)
 }
 
-fn tab_node_keys_in_tree(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
-    tile_grouping::tab_node_keys_in_tree(tiles_tree)
+fn tab_node_keys_in_tree(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> HashSet<NodeKey> {
+    crate::shell::desktop::workbench::tile_view_ops::semantic_tab_node_keys(tiles_tree, graph_app)
 }
 
 fn omnibar_graph_view_context(
@@ -652,7 +655,7 @@ pub(super) fn omnibar_match_signifier(
 ) -> &'static str {
     match m {
         OmnibarMatch::Node(key) => {
-            let local_tabs = tab_node_keys_in_tree(tiles_tree);
+            let local_tabs = tab_node_keys_in_tree(graph_app, tiles_tree);
             let saved_tabs = saved_tab_node_keys(graph_app);
             let is_local_tab = local_tabs.contains(key);
             let is_saved_tab = saved_tabs.contains(key);
@@ -832,7 +835,7 @@ pub(super) fn omnibar_matches_for_query(
     let query = query.trim();
     if query.is_empty() {
         if matches!(mode, OmnibarSearchMode::TabsLocal) {
-            let warm_set = tab_node_keys_in_tree(tiles_tree);
+            let warm_set = tab_node_keys_in_tree(graph_app, tiles_tree);
             let view_id = omnibar_graph_view_context(graph_app, tiles_tree);
             let mut local_tabs: Vec<NodeKey> = warm_set.iter().copied().collect();
             local_tabs.sort_by_key(|key| key.index());
@@ -859,7 +862,7 @@ pub(super) fn omnibar_matches_for_query(
         return Vec::new();
     }
 
-    let local_tab_nodes = tab_node_keys_in_tree(tiles_tree);
+    let local_tab_nodes = tab_node_keys_in_tree(graph_app, tiles_tree);
     let local_node_candidates = node_candidates_for_graph(graph_app);
     let local_edge_candidates = edge_candidates_for_graph(graph_app.domain_graph(), None);
 
@@ -1005,7 +1008,7 @@ pub(super) fn omnibar_matches_for_query(
                 .primary()
                 .map(|context| graph_app.cached_hop_distances_for_context(context))
                 .unwrap_or_default();
-            let local_tab_set = tab_node_keys_in_tree(tiles_tree);
+            let local_tab_set = tab_node_keys_in_tree(graph_app, tiles_tree);
             if !has_node_panes {
                 let node_rank: HashMap<NodeKey, usize> = node_matches
                     .iter()
@@ -1694,6 +1697,46 @@ mod tests {
         assert!(matches.len() >= 2);
         assert_eq!(matches[0], OmnibarMatch::Node(local_tab));
         assert!(matches.contains(&OmnibarMatch::Node(saved_tab)));
+    }
+
+    #[test]
+    fn test_omnibar_tabs_local_includes_collapsed_semantic_tab_members() {
+        let temp = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
+        let alpha =
+            app.add_node_and_sync("https://collapsed-alpha.example".into(), Point2D::zero());
+        let beta = app.add_node_and_sync(
+            "https://collapsed-beta.example".into(),
+            Point2D::new(20.0, 0.0),
+        );
+
+        let mut current_tiles = egui_tiles::Tiles::default();
+        let alpha_tile = current_tiles.insert_pane(TileKind::Node(alpha.into()));
+        let beta_tile = current_tiles.insert_pane(TileKind::Node(beta.into()));
+        let current_root = current_tiles.insert_tab_tile(vec![alpha_tile, beta_tile]);
+        let mut current_tree = Tree::new("current_tree", current_root, current_tiles);
+
+        let semantics =
+            persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&current_tree)
+                .expect("runtime semantics");
+        let group = semantics.tab_groups[0].clone();
+        app.set_current_frame_tab_semantics(Some(semantics));
+        assert!(
+            crate::shell::desktop::workbench::tile_view_ops::collapse_semantic_tab_group_to_pane_rest(
+                &mut current_tree,
+                &mut app,
+                group.group_id,
+            )
+        );
+
+        let matches = omnibar_matches_for_query(
+            &mut app,
+            &current_tree,
+            OmnibarSearchMode::TabsLocal,
+            "collapsed-beta",
+            true,
+        );
+        assert_eq!(matches, vec![OmnibarMatch::Node(beta)]);
     }
 
     #[test]

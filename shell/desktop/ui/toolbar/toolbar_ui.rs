@@ -20,7 +20,6 @@ use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
 use crate::shell::desktop::workbench::pane_model::{PaneId, ViewerId};
-use crate::shell::desktop::workbench::tile_grouping;
 #[path = "toolbar_controls.rs"]
 mod toolbar_controls;
 #[path = "toolbar_location_dropdown.rs"]

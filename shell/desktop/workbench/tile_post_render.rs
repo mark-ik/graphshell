@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::Instant;
 
 use egui_tiles::{TileId, Tree};
@@ -15,6 +15,7 @@ use super::tile_runtime;
 use super::ux_tree;
 use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
 use crate::graph::NodeKey;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_LAYOUT_GUTTER_DETECTED,
@@ -131,6 +132,159 @@ fn sync_current_frame_from_active_tile_group(
     graph_app.note_frame_activated(&frame_name, member_keys);
 }
 
+fn related_tab_nodes_for_changed_groups(
+    tab_groups_before: &HashMap<NodeKey, TileId>,
+    tab_group_nodes_before: &HashMap<TileId, Vec<NodeKey>>,
+    tab_groups_after: &HashMap<NodeKey, TileId>,
+    tab_group_nodes_after: &HashMap<TileId, Vec<NodeKey>>,
+    moved_nodes: &HashSet<NodeKey>,
+) -> HashSet<NodeKey> {
+    let mut related = moved_nodes.clone();
+    for node_key in moved_nodes {
+        if let Some(group_id) = tab_groups_before.get(node_key)
+            && let Some(peers) = tab_group_nodes_before.get(group_id)
+        {
+            related.extend(peers.iter().copied());
+        }
+        if let Some(group_id) = tab_groups_after.get(node_key)
+            && let Some(peers) = tab_group_nodes_after.get(group_id)
+        {
+            related.extend(peers.iter().copied());
+        }
+    }
+    related
+}
+
+fn touched_pane_ids_for_node_keys(
+    tiles_tree: &Tree<TileKind>,
+    node_keys: &HashSet<NodeKey>,
+) -> HashSet<PaneId> {
+    tiles_tree
+        .tiles
+        .iter()
+        .filter_map(|(_, tile)| match tile {
+            egui_tiles::Tile::Pane(tile_kind)
+                if tile_kind
+                    .node_state()
+                    .is_some_and(|state| node_keys.contains(&state.node)) =>
+            {
+                Some(tile_kind.pane_id())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn runtime_group_membership_key(pane_ids: &[PaneId]) -> BTreeSet<String> {
+    pane_ids.iter().map(ToString::to_string).collect()
+}
+
+fn reconcile_runtime_semantics_for_touched_panes(
+    current: Option<crate::app::RuntimeFrameTabSemantics>,
+    derived: Option<crate::app::RuntimeFrameTabSemantics>,
+    touched_pane_ids: &HashSet<PaneId>,
+) -> Option<crate::app::RuntimeFrameTabSemantics> {
+    if touched_pane_ids.is_empty() {
+        return current.or(derived);
+    }
+
+    match (current, derived) {
+        (None, derived) => derived,
+        (Some(current), None) => {
+            let tab_groups: Vec<_> = current
+                .tab_groups
+                .into_iter()
+                .filter(|group| !group.pane_ids.iter().any(|pane_id| touched_pane_ids.contains(pane_id)))
+                .collect();
+            if tab_groups.is_empty() {
+                None
+            } else {
+                Some(crate::app::RuntimeFrameTabSemantics {
+                    version: current.version,
+                    tab_groups,
+                })
+            }
+        }
+        (Some(current), Some(derived)) => {
+            let mut derived_by_membership: HashMap<
+                BTreeSet<String>,
+                crate::app::RuntimeTabGroupMetadata,
+            > = derived
+                .tab_groups
+                .into_iter()
+                .filter(|group| {
+                    group
+                        .pane_ids
+                        .iter()
+                        .any(|pane_id| touched_pane_ids.contains(pane_id))
+                })
+                .map(|group| (runtime_group_membership_key(&group.pane_ids), group))
+                .collect();
+            let mut tab_groups = Vec::new();
+
+            for group in current.tab_groups {
+                if !group
+                    .pane_ids
+                    .iter()
+                    .any(|pane_id| touched_pane_ids.contains(pane_id))
+                {
+                    tab_groups.push(group);
+                    continue;
+                }
+
+                let key = runtime_group_membership_key(&group.pane_ids);
+                if let Some(derived_group) = derived_by_membership.remove(&key) {
+                    tab_groups.push(crate::app::RuntimeTabGroupMetadata {
+                        group_id: group.group_id,
+                        pane_ids: derived_group.pane_ids,
+                        active_pane_id: derived_group.active_pane_id,
+                    });
+                }
+            }
+
+            tab_groups.extend(derived_by_membership.into_values());
+            if tab_groups.is_empty() {
+                None
+            } else {
+                Some(crate::app::RuntimeFrameTabSemantics {
+                    version: derived.version,
+                    tab_groups,
+                })
+            }
+        }
+    }
+}
+
+fn sync_runtime_semantics_after_tab_drop(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    tab_groups_before: &HashMap<NodeKey, TileId>,
+    tab_group_nodes_before: &HashMap<TileId, Vec<NodeKey>>,
+    tab_groups_after: &HashMap<NodeKey, TileId>,
+    tab_group_nodes_after: &HashMap<TileId, Vec<NodeKey>>,
+    moved_nodes: &HashSet<NodeKey>,
+) {
+    let touched_nodes = related_tab_nodes_for_changed_groups(
+        tab_groups_before,
+        tab_group_nodes_before,
+        tab_groups_after,
+        tab_group_nodes_after,
+        moved_nodes,
+    );
+    let touched_pane_ids = touched_pane_ids_for_node_keys(tiles_tree, &touched_nodes);
+    if touched_pane_ids.is_empty() {
+        return;
+    }
+
+    let current = graph_app.current_frame_tab_semantics().cloned();
+    let derived = persistence_ops::derive_runtime_frame_tab_semantics_from_tree(tiles_tree);
+    graph_app.set_current_frame_tab_semantics(reconcile_runtime_semantics_for_touched_panes(
+        current,
+        derived,
+        &touched_pane_ids,
+    ));
+}
+
 pub(crate) fn render_tile_tree_and_collect_outputs(
     ui: &mut egui::Ui,
     tiles_tree: &mut Tree<TileKind>,
@@ -149,6 +303,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
 ) -> TileRenderOutputs {
     let uxtree_build_started = Instant::now();
     let tab_groups_before = tile_grouping::node_pane_tab_group_memberships(tiles_tree);
+    let tab_group_nodes_before = tile_grouping::tab_group_nodes(tiles_tree);
     let mut behavior = GraphshellTileBehavior::new(
         graph_app,
         control_panel,
@@ -275,6 +430,17 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         &tab_group_nodes_after,
         &tab_drag_stopped_nodes,
     ));
+    if pending_tile_drop_edit || !tab_drag_stopped_nodes.is_empty() {
+        sync_runtime_semantics_after_tab_drop(
+            graph_app,
+            tiles_tree,
+            &tab_groups_before,
+            &tab_group_nodes_before,
+            &tab_groups_after,
+            &tab_group_nodes_after,
+            &tab_drag_stopped_nodes,
+        );
+    }
     persistence_ops::refresh_frame_tile_group_runtime(graph_app, tiles_tree);
     sync_current_frame_from_active_tile_group(graph_app, tiles_tree);
     if pending_tile_drop_edit {
@@ -310,19 +476,21 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use super::{
-        active_context_return_target, render_tile_tree_and_collect_outputs,
-        should_summon_radial_palette_on_secondary_click, sync_current_frame_from_active_tile_group,
+        active_context_return_target, reconcile_runtime_semantics_for_touched_panes,
+        render_tile_tree_and_collect_outputs, should_summon_radial_palette_on_secondary_click,
+        sync_current_frame_from_active_tile_group,
     };
     use crate::app::{
-        GraphBrowserApp, GraphIntent, GraphViewId, SurfaceHostId, ToolSurfaceReturnTarget,
-        WorkbenchIntent, WorkbenchLayoutConstraint,
+        GraphBrowserApp, GraphIntent, GraphViewId, RuntimeFrameTabSemantics,
+        RuntimeTabGroupMetadata, SurfaceHostId, ToolSurfaceReturnTarget, WorkbenchIntent,
+        WorkbenchLayoutConstraint,
     };
     use crate::graph::NodeKey;
     use crate::shell::desktop::runtime::control_panel::ControlPanel;
     #[cfg(feature = "diagnostics")]
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::workbench::pane_model::{
-        GraphPaneRef, NodePaneState, ToolPaneRef, ToolPaneState,
+        GraphPaneRef, NodePaneState, PaneId, ToolPaneRef, ToolPaneState,
     };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use crate::shell::desktop::workbench::ux_tree;
@@ -447,6 +615,78 @@ mod tests {
         assert!(snapshot.semantic_nodes.iter().any(|node| {
             matches!(node.domain, crate::shell::desktop::workbench::ux_tree::UxDomainIdentity::NavigatorProjection { .. })
         }));
+    }
+
+    #[test]
+    fn reconcile_runtime_semantics_for_touched_panes_drops_only_edited_groups() {
+        let a = PaneId::new();
+        let b = PaneId::new();
+        let c = PaneId::new();
+        let d = PaneId::new();
+        let untouched_group_id = uuid::Uuid::new_v4();
+        let current = RuntimeFrameTabSemantics {
+            version: 1,
+            tab_groups: vec![
+                RuntimeTabGroupMetadata {
+                    group_id: uuid::Uuid::new_v4(),
+                    pane_ids: vec![a, b],
+                    active_pane_id: Some(a),
+                },
+                RuntimeTabGroupMetadata {
+                    group_id: untouched_group_id,
+                    pane_ids: vec![c, d],
+                    active_pane_id: Some(c),
+                },
+            ],
+        };
+        let touched = HashSet::from([a, b]);
+
+        let reconciled = reconcile_runtime_semantics_for_touched_panes(
+            Some(current),
+            None,
+            &touched,
+        )
+        .expect("untouched group should remain");
+
+        assert_eq!(reconciled.tab_groups.len(), 1);
+        assert_eq!(reconciled.tab_groups[0].group_id, untouched_group_id);
+        assert_eq!(reconciled.tab_groups[0].pane_ids, vec![c, d]);
+    }
+
+    #[test]
+    fn reconcile_runtime_semantics_for_touched_panes_preserves_exact_group_id() {
+        let a = PaneId::new();
+        let b = PaneId::new();
+        let preserved_group_id = uuid::Uuid::new_v4();
+        let current = RuntimeFrameTabSemantics {
+            version: 1,
+            tab_groups: vec![RuntimeTabGroupMetadata {
+                group_id: preserved_group_id,
+                pane_ids: vec![a, b],
+                active_pane_id: Some(a),
+            }],
+        };
+        let derived = RuntimeFrameTabSemantics {
+            version: 1,
+            tab_groups: vec![RuntimeTabGroupMetadata {
+                group_id: uuid::Uuid::new_v4(),
+                pane_ids: vec![b, a],
+                active_pane_id: Some(b),
+            }],
+        };
+        let touched = HashSet::from([a, b]);
+
+        let reconciled = reconcile_runtime_semantics_for_touched_panes(
+            Some(current),
+            Some(derived),
+            &touched,
+        )
+        .expect("reconciled semantics");
+
+        assert_eq!(reconciled.tab_groups.len(), 1);
+        assert_eq!(reconciled.tab_groups[0].group_id, preserved_group_id);
+        assert_eq!(reconciled.tab_groups[0].pane_ids, vec![b, a]);
+        assert_eq!(reconciled.tab_groups[0].active_pane_id, Some(b));
     }
 
     #[test]
