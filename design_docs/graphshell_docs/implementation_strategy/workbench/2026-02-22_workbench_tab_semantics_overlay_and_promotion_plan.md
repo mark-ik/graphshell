@@ -2,20 +2,21 @@
      License, v. 2.0. If a copy of the MPL was not distributed with this
      file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
 
-# Workbench Tab Semantics Overlay and Restore/Collapse Plan
+# Workbench Semantic Tab Overlay and Pane-Rest Execution Note
 
 **Date**: 2026-02-22
-**Status**: Implementation-Ready — Stage 8A complete; Stages 8B–8E pending implementation
+**Status**: Active execution note — planned feature, not yet implemented in runtime code
 
-**Canonical specs that absorbed design decisions from this plan**:
+**Canonical authority chain**:
 
-- `pane_chrome_and_promotion_spec.md §7` — `FrameTabSemantics` data model, hoist/unhoist contract, simplification repair (**canonical authority** for those contracts; this plan is the execution guide)
-- `canvas/multi_view_pane_spec.md §7` — `FrameTabSemantics` cross-reference
-- `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — `PaneOpeningMode`, `SimplificationSuppressed`, and promotion semantics (**canonical authority** for those concerns)
+- `../graph/multi_view_pane_spec.md §7` — canonical contract for `FrameTabSemantics`, hoist/unhoist, pane-rest semantics, and simplify-safe invariants
+- `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — canonical authority for `PaneOpeningMode`, `SimplificationSuppressed`, and graph-enrollment promotion semantics
+- `pane_chrome_and_promotion_spec.md` — pane chrome and opening semantics cross-reference only; not the canonical owner of `FrameTabSemantics`
 
 **Relates to**:
 
 - `../../archive_docs/checkpoint_2026-02-22/2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation (archived 2026-02-24); `PaneId` and `FrameManifest` types defined there, plus frame membership/routing context lineage
+- `frame_persistence_format_spec.md` — canonical current persisted frame-bundle shape; semantic tab overlay remains a planned additive extension there
 - `../system/register/workbench_surface_registry_spec.md` — `WorkbenchSurfaceRegistry` owns layout/interaction policy for tile containers, including simplification options; overlay restore/collapse logic must read those options (the former `2026-02-22_registry_layer_plan.md` Phase 3 is now canonicalized here)
 - `../system/2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md` — current `GraphWorkspace`/`AppServices` field-ownership status; `FrameTabSemantics` target home after state-ownership migration
 
@@ -23,12 +24,21 @@
 
 ## Purpose
 
-Add a thin tab-semantics overlay subsystem on top of the workbench (`egui_tiles`) so Graphshell
-can preserve tab-specific behavior through structural normalization (including `simplify()`), while
-supporting pane rest states and on-demand restoration back into tab containers.
+This note keeps the `FrameTabSemantics` direction active as an implementation guide without
+pretending the feature has already landed.
 
-Stage 8A (design lock) is complete — this document is the design. The remaining stages are
-implementation work.
+The target remains the same:
+
+- preserve semantic tab membership through structural normalization such as `simplify()`
+- allow pane-rest states to retain tab-aware meaning
+- restore tab containers on demand without conflating hoist/unhoist with graph-enrollment promotion
+
+Current reality:
+
+- runtime code does **not** yet contain a `FrameTabSemantics` carrier
+- runtime code does **not** yet contain the planned restore/collapse intents in this note
+- some tab-aware behavior still infers semantics directly from live tile-tree shape
+- the concept remains intended architecture and is still referenced by active graph/workbench docs
 
 ---
 
@@ -76,9 +86,9 @@ The `WorkbenchSurfaceRegistry` layout policy section (see `../system/register/wo
 
 ### Intent Boundary
 
-- `render/*` captures UI events only; it must not directly mutate overlay semantics.
-- `graph_app.rs` is the authority for semantic decisions (restore/collapse intents, repair policy, warning creation).
-- `desktop/*` applies workbench tree mutations and runtime effects in response to app-level intents.
+- UI/render code captures events only; it must not directly mutate overlay semantics.
+- The reducer / app layer is the authority for semantic decisions (restore/collapse intents, repair policy, warning creation).
+- The desktop/workbench apply layer mutates tree/runtime state in response to reducer-owned intents.
 - Restore/collapse actions are explicit `GraphIntent` variants, not ad hoc tree rewrites at UI callsites.
 
 ---
@@ -102,8 +112,8 @@ pub struct TabGroupMetadata {
 }
 ```
 
-Persistence: serialized with rkyv and stored in the frame bundle (redb). This is frame
-state, not graph WAL data — it must not appear in fjall `LogEntry` variants.
+Planned persistence target: serialized with rkyv and stored in the frame bundle as additive frame
+state. This is frame state, not graph WAL data — it must not appear in fjall `LogEntry` variants.
 
 Optional future additions (schema-additive, not breaking):
 
@@ -137,7 +147,11 @@ For all tab-aware behavior (omnibar saved tabs, pin UI, tab affordances):
 
 Implement through shared helper APIs — not per-feature ad hoc logic.
 
-Proposed helper surface (exact module TBD, likely `desktop/workbench_semantics.rs`):
+Current gap this work is meant to close:
+
+- omnibar saved-tab discovery still reads tab membership from tile-tree shape directly instead of an overlay-first semantic helper path
+
+Proposed helper surface (exact module TBD; name/location should be chosen to fit the current desktop/workbench module layout rather than the older monolithic owner-file era structure):
 
 ```rust
 fn semantic_tab_groups_for_frame(semantics: &FrameTabSemantics) -> &[TabGroupMetadata];
@@ -187,6 +201,9 @@ GraphIntent::RepairFrameTabSemantics {
 }
 ```
 
+These intent variants do not exist in runtime code today; they are the proposed reducer-owned
+carrier for this feature.
+
 The desktop apply layer handles tree rewrites, lifecycle dispatch, and UI state updates in response
 to these intents.
 
@@ -235,7 +252,8 @@ Example: `Frame 'research-1': repaired tab group g42 (missing active pane p9). P
 
 ## Stage 8 Execution Plan
 
-Stage 8A (design lock) is complete — the design output is this document plus `pane_chrome_and_promotion_spec.md §7`. Stages 8B–8E are pending implementation; no stage beyond 8A has landed.
+Stage 8A (design lock) is complete as documentation only. Stages 8B–8E remain implementation work,
+and no runtime slice beyond design lock has landed.
 
 ### Stage 8B: Overlay Persistence + Validation
 
@@ -261,7 +279,7 @@ deterministic and test-covered. Repair emits structured log entries.
 Goal: route all tab-aware features through shared semantic queries; eliminate direct tree-shape
 inference from consumers.
 
-- Add overlay-first helper APIs in `desktop/workbench_semantics.rs`.
+- Add overlay-first helper APIs in a current desktop/workbench semantic-query module.
 - Update omnibar saved-tab discovery to use `saved_tab_nodes_for_frame()`.
 - Update pin UI tab-aware queries to use `pane_semantic_tab_state()`.
 - Preserve tree-shape fallback in the helpers during rollout; do not require overlay presence.
@@ -401,3 +419,11 @@ Stage 8E here once confirmed.
 - Source-of-truth split table added.
 - `WorkbenchSurfaceRegistry` risk added to Risks section.
 - Helper API surface and module location (`desktop/workbench_semantics.rs`) made concrete.
+
+### 2026-04-01 (reconciliation revision)
+
+- Retitled from the older overlay-and-promotion wording to keep `promotion` reserved for graph enrollment only.
+- Status corrected: `FrameTabSemantics` remains planned architecture and is not yet implemented in runtime code.
+- Canonical authority chain updated to point at `../graph/multi_view_pane_spec.md` for the semantic contract.
+- Stale ownership wording replaced with current reducer/app-layer and desktop/workbench apply-layer language.
+- Current open coupling called out explicitly: omnibar saved-tab discovery still reads semantic tab membership from tile-tree shape.

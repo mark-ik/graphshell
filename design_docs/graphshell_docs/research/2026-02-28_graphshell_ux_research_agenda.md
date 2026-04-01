@@ -121,7 +121,7 @@ What's missing: evidence about what users expect navigation to mean, and whether
 
 The clipping plan (`2026-02-11_clipping_dom_extraction_plan.md`) specifies a right-click → "Clip Element" → `document.elementFromPoint(x, y).outerHTML` pipeline that creates a new node with a `data:text/html;base64,...` URL, tagged `#clip`, linked to the source node via a `UserGrouped` edge. The implementation is split across four phases: context menu plumbing, content extraction, clip node creation, and clip rendering. The plan is marked Implementation-Ready.
 
-The UDC tagging plan (`2026-02-23_udc_semantic_tagging_plan.md`) and the knowledge registry spec define a structured tagging layer. `VERSE.md` and the Tier 2 architecture describe how clipped content eventually feeds into engram extraction workflows.
+The semantic tagging spec (`implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`) and the knowledge registry spec define the structured tagging layer. `implementation_strategy/graph/2026-03-11_graph_enrichment_plan.md`, `VERSE.md`, and the Tier 2 architecture describe how clipped content eventually feeds into engram extraction workflows.
 
 What's missing is any investigation of how users actually want to capture knowledge — which of several possible workflows (clip element, clip page, annotate, extract structured data, save snapshot) they reach for, in what sequence, and what makes a capture "successful" to them.
 

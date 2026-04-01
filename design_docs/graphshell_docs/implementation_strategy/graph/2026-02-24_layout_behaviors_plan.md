@@ -3,7 +3,7 @@
 **Status**: Implementation-Ready (Phases 1–2); Phase 3 blocked on layout injection hook
 **Supersedes**: `2026-02-19_layout_advanced_plan.md`
 **Canonical spec**: `layout_behaviors_and_physics_spec.md` — authoritative contracts for all behaviors described here; this plan documents the execution sequence and open prerequisites only.
-**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `graph_node_edge_interaction_spec.md` (graph-surface camera and viewport expectations), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs), `multi_view_pane_spec.md` (graph-pane isolation and per-view layout ownership), `../workbench/graph_first_frame_semantics_spec.md` (Frame identity and membership authority).
+**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `graph_node_edge_interaction_spec.md` (graph-surface camera and viewport expectations), `semantic_tagging_and_knowledge_spec.md` (UDC parsing, semantic clustering semantics, canonicalization), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs), `multi_view_pane_spec.md` (graph-pane isolation and per-view layout ownership), `../workbench/graph_first_frame_semantics_spec.md` (Frame identity and membership authority).
 
 ## Context
 

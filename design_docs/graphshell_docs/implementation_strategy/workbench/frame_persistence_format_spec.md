@@ -8,6 +8,7 @@
 
 - [`workbench_frame_tile_interaction_spec.md`](./workbench_frame_tile_interaction_spec.md)
 - [`pane_chrome_and_promotion_spec.md`](./pane_chrome_and_promotion_spec.md)
+- [`2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`](./2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md)
 - [`../subsystem_storage/storage_and_persistence_integrity_spec.md`](../subsystem_storage/storage_and_persistence_integrity_spec.md)
 - [`../system/2026-03-12_workspace_decomposition_and_renaming_plan.md`](../system/2026-03-12_workspace_decomposition_and_renaming_plan.md)
 - [`../../technical_architecture/2026-03-12_specification_coverage_register.md`](../../technical_architecture/2026-03-12_specification_coverage_register.md)
@@ -66,6 +67,11 @@ Current persisted top-level fields:
 - `manifest`
 - `metadata`
 
+Current non-field rule:
+
+- `FrameTabSemantics` is **not** currently part of the persisted bundle shape
+- semantic tab overlay remains a planned additive frame-state extension rather than a landed field in `PersistedFrame` / `PersistedWorkspace`
+
 ### 3.1 Layout
 
 `FrameLayout` contains:
@@ -113,6 +119,17 @@ Normative rule:
 
 - metadata is durable bookkeeping,
 - it does not affect structural validity of the frame bundle.
+
+### 3.4 Planned extension: semantic tab overlay
+
+`FrameTabSemantics` remains a planned future additive field for persisted frame bundles.
+
+Normative future rule:
+
+- if added, `FrameTabSemantics` is frame state only
+- it is additive to the persisted bundle and must remain backward compatible
+- it does not belong in graph WAL / domain-graph persistence lanes
+- until it lands, restore behavior must continue to derive tab meaning from current persisted layout and manifest only
 
 ---
 

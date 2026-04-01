@@ -11,7 +11,7 @@
 - `graph_node_edge_interaction_spec.md`
 - `2026-02-24_layout_behaviors_plan.md`
 - `2026-02-24_physics_engine_extensibility_plan.md`
-- `2026-02-23_udc_semantic_tagging_plan.md`
+- `semantic_tagging_and_knowledge_spec.md`
 - `../system/register/canvas_registry_spec.md`
 - `../system/register/physics_profile_registry_spec.md`
 - `2026-03-14_graph_relation_families.md` — relation family vocabulary and `FamilyPhysicsPolicy` (§6.1); supersedes edge-type-based force assumptions

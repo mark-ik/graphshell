@@ -10,7 +10,7 @@
 - `../graph/multi_view_pane_spec.md` — node viewers are pane-hosted view payloads; graph panes remain separate surface types
 - `2026-02-23_wry_integration_strategy.md` — Wry backend is a `Viewer` implementation; Steps 1–3 here are prerequisites for the Wry plan
 - `2026-03-08_simple_document_engine_target_spec.md` — canonical spec for `SimpleDocument`, `EngineTarget`, `RenderPolicy` (Steps 11–12)
-- `2026-02-23_udc_semantic_tagging_plan.md` — UDC semantic tags drive renderer selection hints and the tag badge system
+- `../graph/semantic_tagging_and_knowledge_spec.md` — UDC semantic tags drive renderer selection hints and canonical classification behavior
 - `2026-02-24_layout_behaviors_plan.md` — Zone attractor and semantic physics extend naturally to content-type clusters
 
 ---
@@ -824,7 +824,7 @@ they require only already-in-`Cargo.toml` crates (`image`, `mime_guess`). `synte
 | `2026-02-23_wry_integration_strategy.md` | Steps 1–2 here are prerequisites; `Viewer` trait is shared |
 | `../graph/node_badge_and_tagging_spec.md` | Step 8 extends badge system with `ContentType` badge |
 | `2026-02-22_registry_layer_plan.md` | `ViewerRegistry` (Phase 2) is the contract surface; `ProtocolRegistry` is the resolver surface |
-| `2026-02-23_udc_semantic_tagging_plan.md` | MIME hints drive UDC tag suggestions; semantic physics clusters by content type |
+| `../graph/semantic_tagging_and_knowledge_spec.md` | MIME hints drive UDC tag suggestions; semantic physics and canonical classification semantics define content-type clustering behavior |
 | `2026-02-24_layout_behaviors_plan.md` | Zone attractors can group PDF nodes together, image nodes together, etc. |
 | `2026-02-21_lifecycle_intent_model.md` | Lifecycle promotion/demotion applies to all viewer types; `lifecycle_reconcile.rs` must dispatch to the correct viewer |
 | `2026-03-08_servo_text_editor_architecture_plan.md` | `viewer:text-editor` takes priority over `viewer:plaintext` for editable `text/*` nodes; Step 12 pipeline short-circuits to it; `tree-sitter` (desktop-only) vs `syntect`/`fancy-regex` (WASM-portable) split originates here |

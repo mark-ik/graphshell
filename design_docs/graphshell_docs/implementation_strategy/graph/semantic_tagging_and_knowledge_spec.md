@@ -1,8 +1,8 @@
 # Semantic Tagging and Knowledge Registry - Interaction Spec
 
 **Date**: 2026-03-06
-**Status**: Canonical interaction contract
-**Priority**: Implementation-ready (UDC closure pass)
+**Status**: Canonical interaction contract — updated 2026-04-01 after UDC plan closure and archival
+**Priority**: Implementation-ready
 
 **Related**:
 
@@ -11,7 +11,7 @@
 - `layout_behaviors_and_physics_spec.md`
 - `faceted_filter_surface_spec.md`
 - `facet_pane_routing_spec.md`
-- `2026-02-23_udc_semantic_tagging_plan.md`
+- `2026-03-11_graph_enrichment_plan.md`
 - `../system/register/knowledge_registry_spec.md`
 - `../system/register/canvas_registry_spec.md`
 - `../subsystem_ux_semantics/ux_tree_and_probe_spec.md`

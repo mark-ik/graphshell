@@ -117,7 +117,7 @@ misreported as complete.
 | Tiled Pane / Docked Pane presentation modes | ✅ Done | `workbench/pane_presentation_and_locking_spec.md` |
 | PaneLock (Unlocked / PositionLocked / FullyLocked) | ✅ Done | `workbench/pane_presentation_and_locking_spec.md` |
 | Tile drag-and-drop, split, reorder | ✅ Done | `workbench/workbench_frame_tile_interaction_spec.md` |
-| FrameTabSemantics persistence | ✅ Done | Semantic tab group membership survives egui_tiles simplification |
+| FrameTabSemantics persistence | 📋 Planned | Intended architecture remains active, but runtime code does not yet persist semantic tab group membership separately from tile-tree shape |
 | Frame (persisted Tile Tree branch) | ✅ Done | `workbench/workbench_frame_tile_interaction_spec.md` |
 | Frame Snapshot (FrameLayout + FrameManifest + FrameMetadata) | ✅ Done | `workbench/workbench_frame_tile_interaction_spec.md` |
 | Frame switching / workbar | ✅ Done | `workbench/workbench_frame_tile_interaction_spec.md` |

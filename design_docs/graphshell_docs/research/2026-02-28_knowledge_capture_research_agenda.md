@@ -5,7 +5,8 @@
 **Author**: Arc
 **Feeds Into**:
 - `implementation_strategy/viewer/2026-02-11_clipping_dom_extraction_plan.md`
-- `implementation_strategy/graph/2026-02-23_udc_semantic_tagging_plan.md`
+- `implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
+- `implementation_strategy/graph/2026-03-11_graph_enrichment_plan.md`
 - `implementation_strategy/graph/node_badge_and_tagging_spec.md`
 - `implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
 - `technical_architecture/GRAPHSHELL_AS_BROWSER.md §§4–5`
@@ -235,7 +236,7 @@ A **Semantic Tagging Adoption Report** with:
   first-run explanation (if any) is required.
 - A recommended discoverability improvement for the tag panel if `T` key is insufficient.
 
-Feeds into `2026-02-23_udc_semantic_tagging_plan.md` Phase 1 and Phase 2 sequencing.
+Feeds into `semantic_tagging_and_knowledge_spec.md` §§2-4 and `2026-03-11_graph_enrichment_plan.md` lane sequencing.
 
 ---
 
@@ -501,7 +502,8 @@ emerge from cross-thread findings.
 ## References
 
 - `implementation_strategy/viewer/2026-02-11_clipping_dom_extraction_plan.md`
-- `implementation_strategy/graph/2026-02-23_udc_semantic_tagging_plan.md`
+- `implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
+- `implementation_strategy/graph/2026-03-11_graph_enrichment_plan.md`
 - `implementation_strategy/graph/node_badge_and_tagging_spec.md`
 - `implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
 - `implementation_strategy/system/register/knowledge_registry_spec.md`

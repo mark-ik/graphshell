@@ -39,7 +39,7 @@ the workbench-scoped host, not an alternate owner of Navigator semantics.
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `../graph/multi_view_pane_spec.md`
 - `../graph/2026-03-14_graph_relation_families.md` — relation family vocabulary and navigator projection contract
-- `../graph/2026-02-23_udc_semantic_tagging_plan.md`
+- `../graph/semantic_tagging_and_knowledge_spec.md`
 - `../graph/node_badge_and_tagging_spec.md`
 - `../graph/layout_behaviors_and_physics_spec.md`
 - `../aspect_render/2026-03-12_compositor_expansion_plan.md`
