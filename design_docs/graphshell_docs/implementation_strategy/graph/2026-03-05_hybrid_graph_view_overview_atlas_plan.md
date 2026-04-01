@@ -1,12 +1,13 @@
-# Hybrid Graph-View Management Plan (Overview Plane + Atlas)
+# Hybrid Graph-View Management Plan (Graph Overview Plane + Navigator Atlas)
 
 **Date**: 2026-03-05
-**Status**: Active planning draft
+**Status**: Active planning draft (narrowed 2026-04-01)
 **Priority**: High (UX semantics)
 
 **Related**:
 
 - `multi_view_pane_spec.md`
+- `../navigator/NAVIGATOR.md`
 - `../core-interaction-model-plan.md`
 - `graph_node_edge_interaction_spec.md`
 - `../subsystem_ux_semantics/2026-02-28_ux_contract_register.md`
@@ -20,10 +21,34 @@ Define a practical UX model for graph-view management that keeps the "one canvas
 
 This plan adopts a **hybrid** model:
 
-1. **Overview Plane** for structural graph-view editing.
-2. **Atlas Mini-Map** for continuous navigation and transfer during normal work.
+1. **Graph Overview Plane** for structural graph-view editing.
+2. **Navigator Atlas / overview swatch** for continuous orientation during normal work.
 
 Both surfaces route through the same reducer intents and state contracts.
+
+---
+
+## 1A. Critical refinement (2026-04-01)
+
+The original plan was directionally right but too loose about ownership.
+
+Refined stance:
+
+- The **Overview Plane** remains graph-owned and is the explicit authoring surface for graph-view regions.
+- The **Atlas** is not a second graph manager. It is a Navigator-hosted orientation surface that may project graph views as swatches, lists, or strips depending on host form factor.
+- **Sidebar** Navigator hosts may render a true overview swatch or minimap-like card when there is enough space.
+- **Toolbar** Navigator hosts should degrade to compact chips, strips, and counts rather than forcing a tiny canvas that is too cramped for reliable manipulation.
+- **Freefloating Navigator hosts are deferred**. The current host model is edge-mounted; a floating Navigator would require a separate Shell host-model expansion instead of being smuggled into this plan.
+- "Zoom out to overview" remains the idiomatic graph-domain control for direct graph-view management. Navigator may help orient and route, but it must not become the only place where graph-view structure can be authored.
+
+First-shipping posture:
+
+- Build **H2 before H3**. The graph-owned Overview Plane must exist before Navigator attempts drag-transfer or structural graph-view management affordances.
+- The **first sidebar-host Atlas ships list-first**, with graph-view/session lists as the primary surface and an optional overview swatch card added only once host sizing is stable.
+- **Archived graph views are hidden by default** in compact Navigator surfaces and appear behind an explicit filter toggle.
+- **High-density cross-view hints are aggregated**, using counts, occupancy badges, or subtle adjacency indicators instead of drawing detailed per-edge spaghetti in the Atlas.
+- **Transfer animation is decorative only** and must never become the state-authoritative signal; reducer completion remains the authoritative outcome.
+- **Auto-placement must prefer deterministic scan order** over nearest-slot heuristics for the initial slice.
 
 ---
 
@@ -33,6 +58,7 @@ Both surfaces route through the same reducer intents and state contracts.
 - Keep multiple `GraphViewId` scopes with per-view camera and local layout/physics state.
 - Do not introduce a persistent graph-of-graphs model in this slice.
 - Treat "view as region" as UX semantics backed by view-scoped state, not a separate ontology.
+- Split responsibilities cleanly: graph owns region authoring; Navigator owns ambient orientation and cross-surface summary.
 
 Rationale:
 
@@ -85,19 +111,44 @@ Primary operations:
 - move region
 - resize region
 - rename region
+- archive / restore region
 - transfer selected nodes to destination region
 
-### 4.2 Atlas Mini-Map (always available)
+This is the authoritative direct-manipulation surface for graph-view structure.
+If a gesture changes region geometry, ownership, or archival state, this is the
+surface that should own the primary interaction.
+
+### 4.2 Navigator Atlas / Overview Swatch (host-dependent)
+
+The atlas concept survives, but as a Navigator-hosted orientation surface
+rather than as a second graph-management plane.
 
 Primary operations:
 
 - click region to focus view
-- drag selected nodes onto a destination region
+- reveal the active graphlet, graph view, or selected node in a compact context map
 - observe occupancy/relationship hints at low visual complexity
+- in spacious hosts only, drag selected nodes onto a destination region
+
+Form-factor policy:
+
+- Sidebar hosts may render a minimap-like swatch plus adjacent lists for graph views, graphlets, nodes, and workbench sessions.
+- Toolbar hosts should default to a compact graph-view strip or tab-like representation of workbench sessions and graph-view targets.
+- Toolbar hosts should not be required to support precision drag-transfer across a tiny minimap.
+
+First release recommendation:
+
+- Ship the sidebar form as **list-first** with an optional swatch card gated by a host-width threshold.
+- Treat the swatch as an orientation aid, not the sole information carrier; session strips, graph-view lists, and selected-node context should remain legible without it.
+- Keep toolbar Atlas surfaces non-gestural in the first slice beyond focus/routing actions.
 
 Parity rule:
 
-- Atlas transfer and Overview transfer must emit identical reducer intents.
+- Any transfer initiated from Navigator Atlas must emit identical reducer intents to Overview Plane transfer.
+
+Non-goal:
+
+- Atlas does not become a second persisted region model or an alternate source of truth for graph-view layout.
 
 ---
 
@@ -113,7 +164,7 @@ Goals:
 Done gates:
 
 - [x] decisions in Section 3 are copied into canonical spec language — ownership rules (§3.1–3.4) are reflected in `multi_view_pane_spec.md §§3–6` (GraphViewId, per-view layout, slot lifecycle, routing semantics). Overlap policy (§3.5) is reflected in `multi_view_pane_spec.md §5.2` slot coordinate collision guard.
-- [ ] parity rule between Overview and Atlas transfer intents is explicitly documented in a spec (currently stated here only; should move to `multi_view_pane_spec.md §5` or a dedicated H1 spec)
+- [x] overview-plane vs. Navigator-Atlas role split and transfer parity are explicitly documented in canonical specs (`multi_view_pane_spec.md §5.3A` and `../navigator/NAVIGATOR.md §11.7`)
 
 ### H1 - Reducer Contracts and State
 
@@ -133,7 +184,7 @@ Done gates:
 
 Goals:
 
-- implement explicit Overview mode entry/exit
+- implement explicit graph-owned Overview mode entry/exit
 - support region manipulation affordances
 - support transfer gesture from selected nodes to destination region
 
@@ -147,14 +198,19 @@ Done gates:
 
 Goals:
 
-- add always-available Atlas panel/surface
-- support click-to-focus and drag-to-transfer
+- add Navigator-hosted Atlas/overview surface
+- ship a list-first sidebar Atlas and compact toolbar degradation before attempting a swatch-heavy variant
+- support click-to-focus everywhere and drag-to-transfer only where host geometry permits it
 - keep intent parity with Overview operations
 
 Done gates:
 
-- [ ] Atlas click focuses target view deterministically
-- [ ] Atlas drag transfer uses same reducer intent path as Overview
+- [ ] Navigator Atlas click focuses target view deterministically
+- [ ] first sidebar Atlas ships as list-first with optional swatch-card gating instead of requiring a minimap-first layout
+- [ ] sidebar-host Atlas drag transfer uses same reducer intent path as Overview
+- [ ] toolbar-host Atlas degrades to non-minimap list/strip semantics without losing routing parity
+- [ ] archived graph views are hidden by default and surfaced through an explicit filter toggle in compact Navigator contexts
+- [ ] high-density cross-view relationships degrade to aggregated hints rather than detailed inter-view edge rendering
 - [ ] focused-view transitions are test-covered
 
 ### H4 - Diagnostics and Accessibility
@@ -192,7 +248,7 @@ Done gates:
 3. `H2.1`: explicit Overview mode toggle and state wiring.
 4. `H2.2`: region drag/resize affordances routed via intents.
 5. `H3.1`: Atlas focus routing parity with Overview.
-6. `H3.2`: Atlas drag transfer parity with Overview.
+6. `H3.2`: sidebar Atlas drag transfer parity with Overview and toolbar degradation rules.
 7. `H4.1`: diagnostics channels for region/transfer outcomes.
 8. `H4.2`: keyboard and accessibility parity for hybrid surfaces.
 
@@ -200,7 +256,15 @@ Done gates:
 
 ## 7. Open Questions (resolve before H2)
 
-1. Should transfer animation be purely decorative or tied to reducer completion timing?
-2. How should cross-view edge hints be rendered in Atlas at high density?
-3. Should region auto-placement prefer nearest free slot or first deterministic scan order?
-4. Should archived regions be visible in Atlas by default or behind a filter toggle?
+Resolved for the first shipping slice:
+
+1. Transfer animation is purely decorative and may follow reducer completion, but must not gate or define success.
+2. High-density cross-view hints should use aggregated counts, occupancy, or adjacency indicators rather than detailed edge-line rendering.
+3. Region auto-placement should use deterministic scan order first.
+4. Archived regions should be hidden by default in Atlas and appear behind a filter toggle.
+5. The first sidebar-host Atlas should ship as a list-first Navigator section with an optional swatch card once host sizing is stable.
+
+Still open after H2/H3 entry:
+
+1. Should aggregated cross-view hints differentiate semantic families, or remain view-level only in the first Atlas slice?
+2. What host-width threshold should enable the optional swatch card without destabilizing Navigator layout density?

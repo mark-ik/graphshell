@@ -188,6 +188,33 @@ Routing from manager to pane hosting is explicit:
 
 This is the key separation: routing a graph view into the workbench changes contextual presentation, not graph-view semantic ownership.
 
+### 5.3A Overview-plane authoring vs Navigator overview projection
+
+The graph-view layout manager and any explicit graph Overview Plane remain the
+authoritative editing surfaces for graph-view structure.
+
+Rules:
+
+- create, move, resize, rename, archive, and restore slot/view operations are graph-owned authoring actions
+- Navigator hosts may project compact view overviews, swatches, strips, or lists for orientation and routing
+- Navigator overview surfaces must not persist their own region model or become a second slot-layout truth
+- any cross-view node transfer initiated from a Navigator overview surface must emit the same reducer intent path as the graph Overview Plane
+
+Form-factor constraint:
+
+- sidebar Navigator hosts may render a minimap-like overview swatch when space permits
+- toolbar Navigator hosts should degrade to strips, chips, or list semantics instead of requiring a tiny precision-edit canvas
+
+First-shipping constraint:
+
+- the first sidebar-host Navigator overview should ship list-first, with an optional swatch card enabled only when host geometry is stable enough to keep adjacent graph-view/session context legible
+- compact Navigator overview surfaces should hide archived graph views by default behind an explicit filter toggle
+- high-density cross-view relationships in Navigator overview surfaces should degrade to aggregated hints rather than detailed edge-line rendering
+- the canonical direct-edit route remains an explicit graph-domain command such as "zoom out to Overview Plane"
+
+This preserves the intended split: Graph owns direct structural editing;
+Navigator owns ambient orientation and navigation.
+
 ### 5.4 Persistence shape
 
 Layout manager state persists as:

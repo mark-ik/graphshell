@@ -539,7 +539,46 @@ Scope, form factor, anchor edge, enabled state, and cross-axis margins are
 persisted in `WorkbenchProfile` per Navigator host. They are part of the layout
 policy the user configures and are not reset between sessions.
 
-### 11.7 Constraint With Layout Policy
+### 11.7 Graph Overview Swatch Policy
+
+Navigator may host a graph overview swatch when that serves orientation better
+than a pure list.
+
+This is the right home for the old "Atlas" idea only in its orientation role.
+It is not a second graph-view layout authority.
+
+Ownership split:
+
+- Graph owns graph-view regions, slot layout, and direct structural editing
+- Navigator owns compact overview projection, graphlet/context orientation, and routing affordances
+- Workbench still owns arrangement/session projection shown alongside those overview affordances
+
+Host-form guidance:
+
+- `Sidebar` hosts in `GraphOnly` or `Both` scope may render a minimap-like swatch or overview card when there is sufficient space
+- the same host may place graph-view lists, graphlet summaries, selected-node context, and workbench-session lists beside that swatch rather than cramming all meaning into one tiny canvas
+- `Toolbar` hosts should default to compact chips, strips, counters, or tab-like summaries of graph views and workbench sessions instead of a precision-target minimap
+
+First release guidance:
+
+- the first sidebar-host graph overview should be list-first, not minimap-first
+- an optional swatch/overview card may appear only after host-width thresholds are met without crowding graph-view lists, selected-node context, or workbench-session summaries
+- archived graph views should be hidden by default in compact overview projections and revealed through an explicit filter toggle
+- dense inter-view relationships should appear as aggregated counts or adjacency hints rather than line-level micro-geometry
+
+Critical rule:
+
+- if the user needs to create, move, resize, rename, archive, or directly reorganize graph-view regions, Navigator must route into graph-owned controls rather than pretending the swatch is the full editor
+
+This means an idiomatic graph-domain control such as "zoom out to Overview
+Plane" remains important even when Navigator provides a helpful overview.
+
+Current scope guardrail:
+
+- floating/freeform Navigator hosts are not part of the current host model
+- if a floating overview is desired later, that is a Shell host-model extension, not a silent expansion of Navigator semantics
+
+### 11.8 Constraint With Layout Policy
 
 Navigator hosting is governed by workbench layout policy. The layout policy
 must be able to persist and restore:

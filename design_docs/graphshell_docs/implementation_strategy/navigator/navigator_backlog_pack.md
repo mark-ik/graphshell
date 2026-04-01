@@ -81,7 +81,10 @@ full milestone closure receipt (`NV25`).
 2. `NV22` Navigator Scenario Test Matrix. Depends: `NV06`-`NV21`. Done gate: tests/spec scenarios cover row-type clicks, selection, reveal, recents, search/filter, and arrangement rows.
 3. `NV23` Workbench-Navigator Contract Sync Pass. Depends: `WB25`, `NV22`. Done gate: workbench pane/focus semantics and Navigator projection semantics no longer contradict each other.
 4. `NV24` Graph-Navigator Contract Sync Pass. Depends: `NV04`, `NV18`, graph backlog equivalents. Done gate: Navigator sections and graph relation/view semantics align.
-5. `NV25` Navigator Milestone Closure Receipt. Depends: `NV01`-`NV24`. Done gate: one closure doc states what another agent can now safely build on for sections, click grammar, routing, and projection behavior.
+5. `NV24A` Graph Overview Host-Form Contract. Depends: `NV15`, `NV20`, `NV24`. Done gate: the first graph-overview Navigator host is explicitly list-first in sidebars, optional-swatch gating is defined by host geometry, and toolbar hosts degrade to compact strips/counters rather than minimap semantics.
+6. `NV24B` Graph Overview Projection Density + Filters. Depends: `NV18`, `NV24A`. Done gate: archived graph views are hidden by default behind an explicit filter toggle, dense inter-view relationships degrade to aggregated hints, and overview-projection state remains distinct from graph truth.
+7. `NV24C` Graph Overview Routing Parity. Depends: `NV17`, `NV24A`, graph backlog equivalents. Done gate: focus/reveal actions route identically across toolbar and sidebar hosts, while structural editing hands off to the graph-owned Overview Plane rather than mutating Navigator-local state.
+8. `NV25` Navigator Milestone Closure Receipt. Depends: `NV01`-`NV24`, `NV24A`-`NV24C`. Done gate: one closure doc states what another agent can now safely build on for sections, click grammar, routing, and projection behavior.
 
 ---
 
@@ -90,3 +93,4 @@ full milestone closure receipt (`NV25`).
 - `NVS01` `DI01` Graph-first local exploration parity. Depends: `NV06`, `NV10`, `NV16`. Done gate: selection -> ego graphlet -> frontier transition flow is implemented or evidenced without Navigator absorbing graph truth.
 - `NVS02` `DI02` Corridor transition parity. Depends: `NV08`, `NV18`, `NV24`. Done gate: anchor selection -> corridor graphlet -> graph/path emphasis flow is coherent and evidenced against the canonical scenario.
 - `NVS03` `DI05` Shell overview graphlet reorientation handoff. Depends: `NV17`, `NV21`, `NV23`. Done gate: a Shell overview handoff back into Navigator graphlet context is explicit, routed, and diagnosable.
+- `NVS04` Graph Overview swatch-to-plane handoff parity. Depends: `NV24A`, `NV24B`, `NV24C`. Done gate: compact Navigator overview surfaces orient and route successfully without pretending to be the full graph-view editor, and the handoff into Overview Plane is explicit and testable.

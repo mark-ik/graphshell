@@ -37,11 +37,11 @@ the workbench-scoped host, not an alternate owner of Navigator semantics.
 - `2026-03-23_navigator_host_runtime_naming_plan.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
-- `../canvas/multi_view_pane_spec.md`
-- `../canvas/2026-03-14_graph_relation_families.md` — relation family vocabulary and navigator projection contract
-- `../canvas/2026-02-23_udc_semantic_tagging_plan.md`
+- `../graph/multi_view_pane_spec.md`
+- `../graph/2026-03-14_graph_relation_families.md` — relation family vocabulary and navigator projection contract
+- `../graph/2026-02-23_udc_semantic_tagging_plan.md`
 - `../graph/node_badge_and_tagging_spec.md`
-- `../canvas/2026-02-25_progressive_lens_and_physics_binding_plan.md`
+- `../graph/layout_behaviors_and_physics_spec.md`
 - `../aspect_render/2026-03-12_compositor_expansion_plan.md`
 
 ---

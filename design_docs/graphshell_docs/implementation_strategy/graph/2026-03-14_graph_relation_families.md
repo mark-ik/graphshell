@@ -15,7 +15,7 @@ four ad hoc ones.
 - `../subsystem_history/edge_traversal_spec.md` — `TraversalDerived` lifecycle and decay rules
 - `agent_derived_edges_spec.md` — `AgentDerived` provenance and assertion protocol
 - `2026-03-21_edge_family_and_provenance_expansion_plan.md` — follow-on plan for widening edge vocabulary and introducing a dedicated Provenance family
-- `../canvas/2026-02-25_progressive_lens_and_physics_binding_plan.md` — physics profiles
+- `layout_behaviors_and_physics_spec.md` — lens/physics binding, progressive switching, and family physics alignment
 - `GRAPH.md` — Graph owns relation-family truth and canvas-side management semantics
 - `../navigator/NAVIGATOR.md` — Navigator owns projection rules, section model, and interaction contract
 - `../../TERMINOLOGY.md` — `EdgeKind`, `EdgePayload`, `Graph`, `Frame`, `TileGroup`
@@ -531,7 +531,7 @@ does not pull nodes together unless a containment lens is active. No special
 "ignore this edge family" flag is needed; the weight field handles it cleanly.
 
 The `LensPhysicsBindingPreference` and `ProgressiveLensAutoSwitch` preferences
-defined in `2026-02-25_progressive_lens_and_physics_binding_plan.md §§1.2, 2.4`
+defined in `layout_behaviors_and_physics_spec.md §§5–6`
 apply normally — `FamilyPhysicsPolicy` is one more field that activates when a
 lens is applied, subject to the same confirmation gate.
 

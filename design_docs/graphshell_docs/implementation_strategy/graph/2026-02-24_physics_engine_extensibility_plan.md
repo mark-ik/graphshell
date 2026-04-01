@@ -1301,15 +1301,15 @@ node, set mass to zero, assign to a collision group manually). These overrides m
 snapshot roundtrip. Add `physics_overrides: Option<NodePhysicsOverrides>` to graph node
 metadata. `NodePhysicsOverrides { pinned: bool, mass_override: Option<f32>, group_override: Option<u32> }`.
 
-**Lens-physics binding preference** *(specified — see `2026-02-25_progressive_lens_and_physics_binding_plan.md §1.2`)*
+**Lens-physics binding preference** *(specified — see `layout_behaviors_and_physics_spec.md §5`)*
 
 A per-user preference `lens_physics_binding: LensPhysicsBindingPreference` stored in
 `AppPreferences` controlling whether applying a Lens automatically switches the physics
 preset. Options: `Always`, `Ask` (default), `Never`. The binding is declared via
-`LensConfig.physics_profile_id: Option<PhysicsProfileId>` (§1.1 of that plan). A
+`LensConfig.physics_profile_id: Option<PhysicsProfileId>` (§5.1 of the canonical spec). A
 companion preference `progressive_lens_auto_switch: ProgressiveLensAutoSwitch` governs
-zoom-triggered switching with an independent `Always / Ask / Never` gate (§2.4). See the
-linked plan for the full chaining semantics and `AppPreferences` field names.
+zoom-triggered switching with an independent `Always / Ask / Never` gate (§6 of the canonical
+spec). See that spec for the full chaining semantics and `AppPreferences` field names.
 
 **Layout convergence timeout setting**
 
@@ -1364,10 +1364,10 @@ The following items require coordination with other plans and are not fully reso
   These must be registered in `2026-02-22_registry_layer_plan.md §Layout Domain` to avoid
   duplication. Resolve before implementing Level 2 ExtraForce forces.
 
-- **`LensCompositor` + physics preset binding** *(resolved — see `2026-02-25_progressive_lens_and_physics_binding_plan.md §1`)*:
+- **`LensCompositor` + physics preset binding** *(resolved — see `layout_behaviors_and_physics_spec.md §§5–6`)*:
   `LensConfig.physics_profile_id: Option<PhysicsProfileId>` is now formally specified.
   The full `Always/Ask/Never` binding contract and runtime behavior in `LensCompositor::apply_lens`
-  are defined in the linked plan.
+  are defined in the canonical physics spec.
 
 - **`GraphViewState.dimension` placement**: `ViewDimension` is defined here but belongs to
   the `GraphViewState` contract in `multi_view_pane_spec.md`. Confirm that the canonical

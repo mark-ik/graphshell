@@ -11,7 +11,7 @@ node/edge presentation layer, not the force model.
 
 - `2026-02-24_interaction_and_semantic_design_schemes.md` — physics-as-semantics, lens model
 - `../implementation_strategy/graph/2026-03-14_graph_relation_families.md` — relation families, family physics policy
-- `../implementation_strategy/canvas/2026-02-25_progressive_lens_and_physics_binding_plan.md` — LensConfig, FamilyPhysicsPolicy
+- `../implementation_strategy/graph/layout_behaviors_and_physics_spec.md` — LensConfig, progressive switching, FamilyPhysicsPolicy
 - `../../TERMINOLOGY.md` — Node, GraphViewId, EdgeKind, LensConfig
 
 ---

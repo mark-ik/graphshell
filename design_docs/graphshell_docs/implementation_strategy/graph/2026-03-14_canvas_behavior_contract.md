@@ -14,7 +14,7 @@ metrics already defined in `layout_algorithm_portfolio_spec.md §4`.
 - `layout_algorithm_portfolio_spec.md` — portfolio selection, readability metrics, diagnostics
 - `graph_node_edge_interaction_spec.md` — interaction model authority
 - `2026-03-14_graph_relation_families.md` — family physics weights (`FamilyPhysicsPolicy`)
-- `2026-02-25_progressive_lens_and_physics_binding_plan.md` — lens/physics binding
+- `layout_behaviors_and_physics_spec.md §§5–6` — lens/physics binding and progressive switching
 
 ---
 

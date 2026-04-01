@@ -11,7 +11,6 @@
 - `graph_node_edge_interaction_spec.md`
 - `2026-02-24_layout_behaviors_plan.md`
 - `2026-02-24_physics_engine_extensibility_plan.md`
-- `2026-02-25_progressive_lens_and_physics_binding_plan.md`
 - `2026-02-23_udc_semantic_tagging_plan.md`
 - `../system/register/canvas_registry_spec.md`
 - `../system/register/physics_profile_registry_spec.md`
