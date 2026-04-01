@@ -8,10 +8,8 @@
 use crate::app::{GraphBrowserApp, GraphSearchHistoryEntry, GraphSearchOrigin};
 use crate::graph::NodeKey;
 use crate::graph::badge::{BadgeVisual, badge_visuals, badges_for_node};
-use egui::Window;
 use std::collections::{HashMap, HashSet};
 
-use super::reducer_bridge::apply_reducer_graph_intents_hardened;
 use crate::app::GraphIntent;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 
@@ -238,7 +236,7 @@ fn badge_icon_label(icon: &crate::graph::badge::BadgeIcon) -> String {
     }
 }
 
-fn normalize_tag_entry_input(input: &str) -> Option<String> {
+pub(crate) fn normalize_tag_entry_input(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
@@ -250,7 +248,7 @@ fn normalize_tag_entry_input(input: &str) -> Option<String> {
     })
 }
 
-fn is_reserved_system_tag(tag: &str) -> bool {
+pub(crate) fn is_reserved_system_tag(tag: &str) -> bool {
     matches!(
         tag,
         GraphBrowserApp::TAG_PIN
@@ -292,7 +290,7 @@ fn default_tag_suggestion_candidates() -> Vec<String> {
     .collect()
 }
 
-pub(super) fn ranked_tag_suggestions(
+pub(crate) fn ranked_tag_suggestions(
     app: &GraphBrowserApp,
     selected_key: NodeKey,
     query: &str,
@@ -348,191 +346,6 @@ pub(super) fn ranked_tag_suggestions(
     }
 
     ranked
-}
-
-// ── Render tag panel ──────────────────────────────────────────────────────────
-
-pub(super) fn render_selected_node_tag_panel(
-    ctx: &egui::Context,
-    app: &mut GraphBrowserApp,
-    selected_key: NodeKey,
-) {
-    let Some((panel_node_key, panel_text_input)) = app
-        .workspace
-        .graph_runtime
-        .tag_panel_state
-        .as_ref()
-        .map(|state| (state.node_key, state.text_input.clone()))
-    else {
-        return;
-    };
-    if panel_node_key != selected_key {
-        app.workspace.graph_runtime.tag_panel_state = None;
-        return;
-    }
-    let Some(node) = app.domain_graph().get_node(selected_key) else {
-        app.workspace.graph_runtime.tag_panel_state = None;
-        return;
-    };
-
-    let title = if node.title.is_empty() {
-        node.url().to_string()
-    } else {
-        node.title.clone()
-    };
-    let current_tags =
-        crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &selected_key);
-    let mut text_input = panel_text_input;
-    let mut open = true;
-    let mut close_requested = false;
-    let mut pending_intents = Vec::new();
-    let mut pending_icon_write: Option<(String, Option<crate::graph::badge::BadgeIcon>)> = None;
-    let warning = reserved_tag_warning(&text_input);
-    let suggestions = ranked_tag_suggestions(app, selected_key, &text_input);
-    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
-
-    Window::new(format!("Tags for {}", title))
-        .id(egui::Id::new((
-            "graph_node_tag_panel",
-            selected_key.index(),
-        )))
-        .open(&mut open)
-        .default_width(360.0)
-        .show(ctx, |ui| {
-            ui.small("Current tags");
-            if current_tags.is_empty() {
-                ui.small("No tags yet.");
-            } else {
-                ui.horizontal_wrapped(|ui| {
-                    for tag in &current_tags {
-                        let label = semantic_tag_display_label(tag);
-                        if ui.small_button(format!("{label} ×")).clicked() {
-                            pending_intents.push(GraphIntent::UntagNode {
-                                key: selected_key,
-                                tag: tag.clone(),
-                            });
-                        }
-                    }
-                });
-            }
-
-            ui.separator();
-            ui.small("Add tag");
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut text_input).hint_text("Add tag or semantic code…"),
-            );
-            let submit =
-                response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-            ui.horizontal(|ui| {
-                let picker_label = app
-                    .workspace
-                    .graph_runtime
-                    .tag_panel_state
-                    .as_ref()
-                    .and_then(|state| state.pending_icon_override.as_ref())
-                    .map(badge_icon_label)
-                    .unwrap_or_else(|| "⊞".to_string());
-                if ui.small_button(picker_label).clicked()
-                    && let Some(panel_state) = app.workspace.graph_runtime.tag_panel_state.as_mut()
-                {
-                    panel_state.icon_picker_open = !panel_state.icon_picker_open;
-                }
-                if ui.small_button("Add").clicked() || submit {
-                    if let Some(tag) = normalize_tag_entry_input(&text_input) {
-                        pending_intents.push(GraphIntent::TagNode {
-                            key: selected_key,
-                            tag,
-                        });
-                        text_input.clear();
-                    }
-                }
-                if ui.small_button("Close").clicked() {
-                    close_requested = true;
-                }
-            });
-            if app
-                .workspace
-                .graph_runtime
-                .tag_panel_state
-                .as_ref()
-                .is_some_and(|state| state.icon_picker_open)
-            {
-                ui.small("Icon picker");
-                ui.horizontal_wrapped(|ui| {
-                    for icon in icon_picker_presets() {
-                        let label = badge_icon_label(&icon);
-                        if ui.small_button(label).clicked()
-                            && let Some(panel_state) =
-                                app.workspace.graph_runtime.tag_panel_state.as_mut()
-                        {
-                            panel_state.pending_icon_override =
-                                (!matches!(icon, crate::graph::badge::BadgeIcon::None))
-                                    .then_some(icon.clone());
-                            panel_state.icon_picker_open = false;
-                        }
-                    }
-                });
-            }
-            if let Some(warning) = warning.as_ref() {
-                ui.label(
-                    egui::RichText::new(warning)
-                        .small()
-                        .color(theme_tokens.command_notice),
-                );
-            }
-
-            ui.separator();
-            ui.small("Suggestions");
-            if suggestions.is_empty() {
-                ui.small("No suggestions yet.");
-            } else {
-                ui.horizontal_wrapped(|ui| {
-                    for chip in &suggestions {
-                        let button = egui::Button::new(egui::RichText::new(&chip.label).small());
-                        if ui.add(button).clicked() {
-                            pending_intents.push(GraphIntent::TagNode {
-                                key: selected_key,
-                                tag: chip.query.clone(),
-                            });
-                            text_input.clear();
-                        }
-                    }
-                });
-            }
-        });
-
-    if close_requested || !open {
-        app.workspace.graph_runtime.tag_panel_state = None;
-    } else if let Some(panel_state) = app.workspace.graph_runtime.tag_panel_state.as_mut() {
-        panel_state.text_input = text_input;
-    }
-
-    if !pending_intents.is_empty() {
-        let tag_for_icon_write = pending_intents.iter().find_map(|intent| match intent {
-            GraphIntent::TagNode { tag, .. } => Some(tag.clone()),
-            _ => None,
-        });
-        apply_reducer_graph_intents_hardened(app, pending_intents);
-        if let Some(tag) = tag_for_icon_write
-            && !is_reserved_system_tag(&tag)
-            && !tag.starts_with("udc:")
-        {
-            let icon = app
-                .workspace
-                .graph_runtime
-                .tag_panel_state
-                .as_ref()
-                .and_then(|state| state.pending_icon_override.clone());
-            let _ = app.set_node_tag_icon_override(selected_key, &tag, icon.clone());
-            pending_icon_write = Some((tag, icon));
-        }
-    }
-
-    if let Some((_tag, _icon)) = pending_icon_write
-        && let Some(panel_state) = app.workspace.graph_runtime.tag_panel_state.as_mut()
-    {
-        panel_state.pending_icon_override = None;
-    }
 }
 
 // ── Tag button renderers ──────────────────────────────────────────────────────

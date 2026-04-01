@@ -14,6 +14,7 @@ pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
 pub(crate) mod persistence_ops;
 pub(crate) mod shell_layout_pass;
+pub(crate) mod tag_panel;
 pub(crate) mod thumbnail_pipeline;
 pub(crate) mod toolbar;
 pub(crate) mod toolbar_routing;
