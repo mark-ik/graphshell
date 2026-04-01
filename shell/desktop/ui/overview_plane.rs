@@ -11,6 +11,7 @@ use crate::app::{
 const OVERVIEW_CELL_SIZE: Vec2 = Vec2::new(156.0, 92.0);
 const OVERVIEW_CELL_GAP: f32 = 16.0;
 const OVERVIEW_SWATCH_GAP: f32 = 8.0;
+const NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH: f32 = 272.0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OverviewSlotSnapshot {
@@ -82,6 +83,7 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
                 );
                 render_overview_details(
                     &mut columns[1],
+                    app,
                     ctx,
                     selected_slot,
                     &archived_slots,
@@ -169,6 +171,12 @@ pub(crate) fn render_navigator_overview_swatch(
     let archived_count = slots.iter().filter(|slot| slot.archived).count();
     let selected_view_id = selected_overview_view_id(app, &slots);
     let mut actions = Vec::new();
+    let show_archived_id = egui::Id::new("navigator_overview_show_archived");
+    let mut show_archived = ui
+        .ctx()
+        .data_mut(|data| data.get_persisted::<bool>(show_archived_id))
+        .unwrap_or(false);
+    let swatch_enabled = navigator_overview_swatch_enabled(ui.available_width());
 
     ui.horizontal(|ui| {
         ui.label(RichText::new("Views").small().strong());
@@ -182,6 +190,21 @@ pub(crate) fn render_navigator_overview_swatch(
             .small()
             .weak(),
         );
+        if archived_count > 0 {
+            ui.separator();
+            let archived_label = if show_archived {
+                "Hide archived"
+            } else {
+                "Show archived"
+            };
+            if ui
+                .small_button(archived_label)
+                .on_hover_text("Toggle archived graph views in the Navigator list")
+                .clicked()
+            {
+                show_archived = !show_archived;
+            }
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let manage_label = if app.graph_view_layout_manager_active() {
                 "Manage*"
@@ -197,25 +220,69 @@ pub(crate) fn render_navigator_overview_swatch(
             }
         });
     });
+    ui.ctx()
+        .data_mut(|data| data.insert_persisted(show_archived_id, show_archived));
 
     if active_slots.is_empty() {
         ui.small("No active graph views yet.");
         return actions;
     }
 
-    render_compact_overview_grid(ui, &active_slots, selected_view_id, &mut actions);
-    if let Some(selected_slot) = active_slots
+    let list_slots: Vec<_> = if show_archived {
+        slots.iter().collect()
+    } else {
+        active_slots.iter().collect()
+    };
+    ui.vertical(|ui| {
+        for slot in list_slots {
+            ui.horizontal_wrapped(|ui| {
+                let label = if Some(slot.view_id) == selected_view_id {
+                    RichText::new(&slot.name).small().strong()
+                } else {
+                    RichText::new(&slot.name).small()
+                };
+                if ui.selectable_label(Some(slot.view_id) == selected_view_id, label).clicked() {
+                    actions.push(OverviewSurfaceAction::FocusView(slot.view_id));
+                }
+                if ui.small_button("Open").clicked() {
+                    actions.push(OverviewSurfaceAction::OpenView(slot.view_id));
+                }
+
+                let mut hints = vec![format!("r{} · c{}", slot.row, slot.col)];
+                if slot.archived {
+                    hints.push("archived".to_string());
+                }
+                if let Some(node_count) = app.graph_view_owned_node_count(slot.view_id) {
+                    hints.push(format!("{node_count} nodes"));
+                }
+                let external_links = app.graph_view_external_link_count(slot.view_id);
+                if external_links > 0 {
+                    hints.push(format!("{external_links} x-links"));
+                }
+                ui.label(RichText::new(hints.join(" · ")).small().weak());
+            });
+        }
+    });
+
+    if swatch_enabled {
+        ui.add_space(6.0);
+        render_compact_overview_grid(ui, &active_slots, selected_view_id, &mut actions);
+    }
+
+    if let Some(selected_slot) = slots
         .iter()
         .find(|slot| Some(slot.view_id) == selected_view_id)
     {
         ui.horizontal_wrapped(|ui| {
+            let mut summary = vec![format!(
+                "Focused: {} (r{} · c{})",
+                selected_slot.name, selected_slot.row, selected_slot.col
+            )];
+            if let Some(node_count) = app.graph_view_owned_node_count(selected_slot.view_id) {
+                summary.push(format!("{node_count} nodes"));
+            }
             ui.label(
-                RichText::new(format!(
-                    "Focused: {} (r{} · c{})",
-                    selected_slot.name, selected_slot.row, selected_slot.col
-                ))
-                .small()
-                .weak(),
+                RichText::new(summary.join(" · ")).small().weak(),
             );
             if ui.small_button("Open").clicked() {
                 actions.push(OverviewSurfaceAction::OpenView(selected_slot.view_id));
@@ -393,6 +460,7 @@ fn render_overview_grid(
 
 fn render_overview_details(
     ui: &mut Ui,
+    app: &GraphBrowserApp,
     ctx: &Context,
     selected_slot: Option<&OverviewSlotSnapshot>,
     archived_slots: &[OverviewSlotSnapshot],
@@ -409,8 +477,11 @@ fn render_overview_details(
         .data_mut(|data| data.get_persisted::<String>(rename_id))
         .unwrap_or_else(|| slot.name.clone());
 
-    ui.label(format!("Focused view: {}", slot.name));
+    ui.label(format!("Selected view: {}", slot.name));
     ui.small(format!("Slot position: row {}, col {}", slot.row, slot.col));
+    if let Some(node_count) = app.graph_view_owned_node_count(slot.view_id) {
+        ui.small(format!("Owned nodes: {node_count}"));
+    }
     ui.add_space(6.0);
 
     let rename_response = ui.text_edit_singleline(&mut rename_draft);
@@ -445,6 +516,38 @@ fn render_overview_details(
             });
         }
     });
+
+    ui.separator();
+    ui.small("Transfer focused selection");
+    let focused_view = app.workspace.graph_runtime.focused_view;
+    let focused_selection_count = app.focused_selection().len();
+    let transfer_enabled = focused_view.is_some()
+        && focused_selection_count > 0
+        && focused_view != Some(slot.view_id);
+    let transfer_reason = if focused_view.is_none() {
+        "Focus a source graph view first."
+    } else if focused_selection_count == 0 {
+        "Select one or more nodes in the focused graph view first."
+    } else {
+        "Selected view already owns the focused selection."
+    };
+    let move_button = ui.add_enabled(
+        transfer_enabled,
+        egui::Button::new(format!("Move {focused_selection_count} selected node(s) here")),
+    );
+    let move_button = if transfer_enabled {
+        move_button.on_hover_text("Transfer the focused selection into this graph view")
+    } else {
+        move_button.on_disabled_hover_text(transfer_reason)
+    };
+    if move_button.clicked()
+        && let Some(source_view) = focused_view
+    {
+        pending_intents.push(GraphIntent::TransferSelectedNodesToGraphView {
+            source_view,
+            destination_view: slot.view_id,
+        });
+    }
 
     ui.separator();
     ui.small("Move slot");
@@ -632,6 +735,10 @@ fn compact_overview_label(name: &str, max_chars: usize) -> String {
     compact
 }
 
+fn navigator_overview_swatch_enabled(available_width: f32) -> bool {
+    available_width >= NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH
+}
+
 fn drag_target_slot_position(slot: &OverviewSlotSnapshot, drag_delta: Vec2) -> (i32, i32) {
     let col_delta = (drag_delta.x / (OVERVIEW_CELL_SIZE.x + OVERVIEW_CELL_GAP)).round() as i32;
     let row_delta = (drag_delta.y / (OVERVIEW_CELL_SIZE.y + OVERVIEW_CELL_GAP)).round() as i32;
@@ -684,6 +791,12 @@ mod tests {
 
         let slots = sorted_slot_snapshots(&app);
         assert_eq!(selected_overview_view_id(&app, &slots), Some(view_b));
+    }
+
+    #[test]
+    fn navigator_overview_swatch_enabled_requires_sidebar_width() {
+        assert!(!navigator_overview_swatch_enabled(240.0));
+        assert!(navigator_overview_swatch_enabled(NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH));
     }
 
     #[test]

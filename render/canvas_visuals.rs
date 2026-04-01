@@ -442,12 +442,15 @@ pub(super) fn visible_nodes_for_view_filters(
     });
     let graphlet_mask: Option<HashSet<NodeKey>> =
         view_state.and_then(|v| v.graphlet_node_mask.clone());
+    let owned_node_mask: Option<HashSet<NodeKey>> =
+        view_state.and_then(|v| v.owned_node_mask().cloned());
 
     // Intersect all active filters.  Each `Some` constrains the visible set.
     intersect_filters([
         facet_matches,
         search_filter_matches,
         tombstone_filter,
+        owned_node_mask,
         graphlet_mask,
     ])
 }

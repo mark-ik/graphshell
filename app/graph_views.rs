@@ -508,6 +508,230 @@ impl GraphBrowserApp {
             );
     }
 
+    fn graph_view_ownership_partition_active(&self) -> bool {
+        self.workspace
+            .graph_runtime
+            .views
+            .values()
+            .any(|view| view.graphlet_node_mask.is_none() && view.owned_node_mask.is_some())
+    }
+
+    fn initialize_owned_node_mask_for_new_view(&self) -> Option<HashSet<NodeKey>> {
+        self.graph_view_ownership_partition_active()
+            .then(HashSet::new)
+    }
+
+    fn active_ordinary_graph_view_ids(&self) -> Vec<GraphViewId> {
+        self.workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .slots
+            .values()
+            .filter(|slot| !slot.archived)
+            .filter_map(|slot| {
+                self.workspace
+                    .graph_runtime
+                    .views
+                    .get(&slot.view_id)
+                    .filter(|view| view.graphlet_node_mask.is_none())
+                    .map(|_| slot.view_id)
+            })
+            .collect()
+    }
+
+    fn all_domain_node_keys(&self) -> HashSet<NodeKey> {
+        self.workspace
+            .domain
+            .graph
+            .nodes()
+            .map(|(key, _)| key)
+            .collect()
+    }
+
+    fn materialize_graph_view_node_ownership(&mut self, source_view: GraphViewId) {
+        let ordinary_views = self.active_ordinary_graph_view_ids();
+        if ordinary_views.is_empty() || !ordinary_views.contains(&source_view) {
+            return;
+        }
+
+        let all_nodes = self.all_domain_node_keys();
+        let mut explicitly_owned = HashSet::new();
+        for view_id in &ordinary_views {
+            if let Some(mask) = self
+                .workspace
+                .graph_runtime
+                .views
+                .get(view_id)
+                .and_then(|view| view.owned_node_mask.as_ref())
+            {
+                explicitly_owned.extend(mask.iter().copied());
+            }
+        }
+
+        let unowned: HashSet<NodeKey> = all_nodes.difference(&explicitly_owned).copied().collect();
+
+        for view_id in ordinary_views {
+            if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+                if view.owned_node_mask.is_none() {
+                    view.owned_node_mask = Some(HashSet::new());
+                }
+                if view_id == source_view
+                    && let Some(mask) = view.owned_node_mask.as_mut()
+                {
+                    mask.extend(unowned.iter().copied());
+                }
+            }
+        }
+    }
+
+    pub fn graph_view_owned_node_count(&self, view_id: GraphViewId) -> Option<usize> {
+        self.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .and_then(|view| view.owned_node_mask.as_ref())
+            .map(HashSet::len)
+    }
+
+    pub fn graph_view_has_explicit_ownership(&self, view_id: GraphViewId) -> bool {
+        self.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .is_some_and(|view| view.owned_node_mask.is_some())
+    }
+
+    pub fn graph_view_external_link_count(&self, view_id: GraphViewId) -> usize {
+        let ownership: HashMap<NodeKey, GraphViewId> = self
+            .workspace
+            .graph_runtime
+            .views
+            .iter()
+            .filter(|(_, view)| view.graphlet_node_mask.is_none())
+            .flat_map(|(&owned_view_id, view)| {
+                view.owned_node_mask
+                    .iter()
+                    .flat_map(move |mask| mask.iter().copied().map(move |node| (node, owned_view_id)))
+            })
+            .collect();
+        if ownership.is_empty() {
+            return 0;
+        }
+
+        self.workspace
+            .domain
+            .graph
+            .edges()
+            .filter(|edge| {
+                let Some(from_view) = ownership.get(&edge.from) else {
+                    return false;
+                };
+                let Some(to_view) = ownership.get(&edge.to) else {
+                    return false;
+                };
+                (*from_view == view_id && *to_view != view_id)
+                    || (*to_view == view_id && *from_view != view_id)
+            })
+            .count()
+    }
+
+    pub(crate) fn transfer_selected_nodes_to_graph_view(
+        &mut self,
+        source_view: GraphViewId,
+        destination_view: GraphViewId,
+    ) {
+        if source_view == destination_view {
+            return;
+        }
+
+        let Some(source_slot) = self
+            .workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .slots
+            .get(&source_view)
+        else {
+            return;
+        };
+        let Some(destination_slot) = self
+            .workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .slots
+            .get(&destination_view)
+        else {
+            return;
+        };
+        if source_slot.archived || destination_slot.archived {
+            return;
+        }
+        if self
+            .workspace
+            .graph_runtime
+            .views
+            .get(&source_view)
+            .is_some_and(|view| view.graphlet_node_mask.is_some())
+            || self
+                .workspace
+                .graph_runtime
+                .views
+                .get(&destination_view)
+                .is_some_and(|view| view.graphlet_node_mask.is_some())
+        {
+            return;
+        }
+
+        let selected_nodes = sorted_unique_node_keys(self.selection_for_view(source_view).iter().copied());
+        if selected_nodes.is_empty() {
+            return;
+        }
+
+        self.materialize_graph_view_node_ownership(source_view);
+        let selected_set: HashSet<NodeKey> = selected_nodes.iter().copied().collect();
+        for view_id in self.active_ordinary_graph_view_ids() {
+            if let Some(mask) = self
+                .workspace
+                .graph_runtime
+                .views
+                .get_mut(&view_id)
+                .and_then(|view| view.owned_node_mask.as_mut())
+            {
+                mask.retain(|node| !selected_set.contains(node));
+            }
+        }
+
+        if let Some(view) = self.workspace.graph_runtime.views.get_mut(&destination_view) {
+            let mask = view.owned_node_mask.get_or_insert_with(HashSet::new);
+            mask.extend(selected_nodes.iter().copied());
+        }
+
+        let source_scope = SelectionScope::View(source_view);
+        let destination_scope = SelectionScope::View(destination_view);
+        if let Some(selection) = self
+            .workspace
+            .graph_runtime
+            .selection_by_scope
+            .get_mut(&source_scope)
+        {
+            selection.retain_nodes(|node| !selected_set.contains(&node));
+        }
+        self.workspace
+            .graph_runtime
+            .selection_by_scope
+            .retain(|_, selection| !selection.is_empty());
+
+        let mut destination_selection = SelectionState::new();
+        destination_selection.update_many(selected_nodes, SelectionUpdateMode::Replace);
+        self.workspace
+            .graph_runtime
+            .selection_by_scope
+            .insert(destination_scope, destination_selection);
+        self.sync_selection_edge_projection_override_for_scope(source_scope);
+        self.sync_selection_edge_projection_override_for_scope(destination_scope);
+        self.set_workspace_focused_view_with_transition(Some(destination_view));
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
     pub fn ensure_graph_view_registered(&mut self, view_id: GraphViewId) {
         let had_view = self.workspace.graph_runtime.views.contains_key(&view_id);
         let had_slot = self
@@ -519,6 +743,7 @@ impl GraphBrowserApp {
         if !self.workspace.graph_runtime.views.contains_key(&view_id) {
             let name = self.next_graph_view_slot_name();
             let mut state = GraphViewState::new_with_id(view_id, name);
+            state.owned_node_mask = self.initialize_owned_node_mask_for_new_view();
             state.local_simulation = Some(LocalSimulation {
                 positions: self
                     .workspace
@@ -610,6 +835,7 @@ impl GraphBrowserApp {
     ) {
         let view_id = GraphViewId::new();
         let mut state = GraphViewState::new_with_id(view_id, self.next_graph_view_slot_name());
+        state.owned_node_mask = self.initialize_owned_node_mask_for_new_view();
         state.local_simulation = Some(LocalSimulation {
             positions: self
                 .workspace
@@ -1296,6 +1522,14 @@ pub struct GraphViewState {
     /// Defaults to `false` (tombstoned nodes are hidden from the render pass).
     #[serde(default)]
     pub tombstones_visible: bool,
+    /// Optional persisted ownership mask for ordinary graph views.
+    ///
+    /// When `Some`, the render pass restricts visible nodes to this explicit
+    /// owned set (intersected with any other active filters). `None` preserves
+    /// the historical "show all nodes" behavior until a view participates in
+    /// the explicit transfer flow.
+    #[serde(default)]
+    pub owned_node_mask: Option<std::collections::HashSet<crate::graph::NodeKey>>,
     /// Optional graphlet node-set mask.  When `Some`, the render pass restricts
     /// visible nodes to this set (intersected with any other active filters).
     ///
@@ -1326,6 +1560,10 @@ impl std::fmt::Debug for GraphViewState {
             .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
             .field("active_filter", &self.active_filter)
             .field("edge_projection_override", &self.edge_projection_override)
+            .field(
+                "owned_node_mask_len",
+                &self.owned_node_mask.as_ref().map(std::collections::HashSet::len),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -1352,6 +1590,7 @@ impl Clone for GraphViewState {
             active_filter: self.active_filter.clone(),
             edge_projection_override: self.edge_projection_override.clone(),
             tombstones_visible: self.tombstones_visible,
+            owned_node_mask: self.owned_node_mask.clone(),
             // graphlet_node_mask is session-derived; not cloned across views
             graphlet_node_mask: None,
         }
@@ -1394,6 +1633,8 @@ struct GraphViewStateSerde {
     edge_projection_override: Option<EdgeProjectionState>,
     #[serde(default)]
     tombstones_visible: bool,
+    #[serde(default)]
+    owned_node_mask: Option<std::collections::HashSet<crate::graph::NodeKey>>,
     #[serde(skip)]
     graphlet_node_mask: Option<std::collections::HashSet<crate::graph::NodeKey>>,
     #[serde(default, rename = "lens")]
@@ -1426,6 +1667,7 @@ impl<'de> serde::Deserialize<'de> for GraphViewState {
             active_filter: helper.active_filter,
             edge_projection_override: helper.edge_projection_override,
             tombstones_visible: helper.tombstones_visible,
+            owned_node_mask: helper.owned_node_mask,
             graphlet_node_mask: helper.graphlet_node_mask,
         };
 
@@ -1644,6 +1886,10 @@ impl GraphViewState {
             .or(self.active_filter.as_ref())
     }
 
+    pub fn owned_node_mask(&self) -> Option<&std::collections::HashSet<crate::graph::NodeKey>> {
+        self.owned_node_mask.as_ref()
+    }
+
     pub fn effective_filter_source(&self) -> Option<&PolicyValueSource> {
         self.filter_policy
             .active_filter_override_source
@@ -1672,6 +1918,7 @@ impl GraphViewState {
             active_filter: None,
             edge_projection_override: None,
             tombstones_visible: false,
+            owned_node_mask: None,
             graphlet_node_mask: None,
         };
         view.lens_state.display_name = "Default".to_string();

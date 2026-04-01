@@ -54,9 +54,10 @@ Implementation receipt as of 2026-04-01:
 
 - Explicit Overview Plane entry/exit is now implemented via reducer-owned manager state, keyboard/palette/toolbar entry points, and `Escape` close semantics.
 - Overview Plane region interactions currently route through reducer intents for focus, open, create-adjacent, rename, archive, restore, and move/swap operations.
-- Sidebar Navigator hosts now project a compact overview swatch with focus/open/manage affordances; toolbar hosts continue to degrade to compact strips/summaries rather than a minimap.
-- The first slice is still intentionally narrower than the full plan: no resize carrier, no cross-view transfer gesture, no Atlas drag-transfer parity, no archived-view filter toggle, and no aggregated cross-view relationship hints yet.
-- Current Atlas limitation: the sidebar swatch currently renders whenever a graph-scoped sidebar host is present; the planned host-width gate and explicit list-first fallback are still open.
+- Explicit node ownership masks and transfer semantics now exist for ordinary graph views; transferring the focused selection to another view materializes an ownership partition, moves the nodes, transfers selection/focus, and keeps specialty graphlet views out of the flow.
+- Sidebar Navigator hosts now ship list-first with an optional width-gated swatch card, archived-view filter toggles, and aggregated occupancy / external-link hints; toolbar hosts continue to degrade to compact strips/summaries rather than a minimap.
+- The first slice is still intentionally narrower than the full plan: no resize carrier, no Atlas drag-transfer parity, and no transfer-specific diagnostics or keyboard parity beyond explicit Overview Plane handoff.
+- Current Atlas limitation: drag-transfer parity remains deferred to spacious hosts; the shipping sidebar Atlas is still click/list-first with optional swatch projection rather than a gestural minimap-first surface.
 
 ---
 
@@ -186,7 +187,7 @@ Done gates:
 
 - [ ] reducer tests cover create/move/resize/archive/restore and overlap guardrails
   Current state: create/move/archive/restore lifecycle and overlap collision tests are landed; resize is not yet modeled, so the full gate remains open.
-- [ ] reducer tests cover node transfer move semantics
+- [x] reducer tests cover node transfer move semantics
 - [ ] persistence round-trip covers region layout manager state
 
 ### H2 - Overview Plane UX
@@ -201,7 +202,7 @@ Done gates:
 
 - [x] command/shortcut opens and exits Overview mode deterministically
 - [x] region interactions produce reducer-authoritative intents only
-- [ ] transfer gesture emits deterministic move intent
+- [x] transfer gesture or equivalent explicit Overview handoff emits deterministic move intent
 
 ### H3 - Atlas UX
 
@@ -215,12 +216,11 @@ Goals:
 Done gates:
 
 - [x] Navigator Atlas click focuses target view deterministically
-- [ ] first sidebar Atlas ships as list-first with optional swatch-card gating instead of requiring a minimap-first layout
-  Current state: sidebar hosts already expose the swatch and list surfaces, but the swatch is not yet width-gated and there is no forced list-first fallback when host space becomes too tight.
+- [x] first sidebar Atlas ships as list-first with optional swatch-card gating instead of requiring a minimap-first layout
 - [ ] sidebar-host Atlas drag transfer uses same reducer intent path as Overview
 - [x] toolbar-host Atlas degrades to non-minimap list/strip semantics without losing routing parity
-- [ ] archived graph views are hidden by default and surfaced through an explicit filter toggle in compact Navigator contexts
-- [ ] high-density cross-view relationships degrade to aggregated hints rather than detailed inter-view edge rendering
+- [x] archived graph views are hidden by default and surfaced through an explicit filter toggle in compact Navigator contexts
+- [x] high-density cross-view relationships degrade to aggregated hints rather than detailed inter-view edge rendering
 - [x] focused-view transitions are test-covered
 
 ### H4 - Diagnostics and Accessibility
@@ -284,9 +284,8 @@ Still open after H2/H3 entry:
 
 What is still left for this plan to close:
 
-1. H1 persistence and transfer completion: add explicit persistence round-trip evidence for graph-view layout-manager state and implement reducer-tested node-transfer move semantics.
-2. H2 transfer completion: add a deterministic selected-node transfer gesture or equivalent Overview Plane handoff.
-3. H3 Atlas completion: add host-width swatch gating, archived-view filter controls, aggregated inter-view hints, and any drag-transfer parity only in spacious hosts.
-4. H4 closure: add diagnostics coverage for region/transfer outcomes and accessibility/keyboard parity beyond the initial Overview Plane toggle/close paths.
+1. H1 persistence completion: add explicit persistence round-trip evidence for graph-view layout-manager state.
+2. H3 gestural follow-on: add drag-transfer parity only for spacious sidebar Atlas hosts if it proves ergonomically useful.
+3. H4 closure: add diagnostics coverage for region/transfer outcomes and accessibility/keyboard parity beyond the current explicit Overview Plane handoff.
 
-Until those land, this plan is no longer a broad discovery draft; it is a narrow follow-on for transfer, persistence evidence, Atlas completion, and diagnostics/accessibility closure.
+Until those land, this plan is no longer a broad discovery draft; it is a narrow follow-on for persistence evidence, optional spacious-host drag transfer, and diagnostics/accessibility closure.

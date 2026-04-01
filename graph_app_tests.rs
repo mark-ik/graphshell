@@ -6821,6 +6821,97 @@ fn graph_view_slot_move_guard_prevents_coordinate_collision() {
 }
 
 #[test]
+fn transfer_selected_nodes_to_graph_view_materializes_ownership_and_moves_selection() {
+    use std::collections::HashSet;
+
+    let mut app = GraphBrowserApp::new_for_testing();
+    let source = GraphViewId::new();
+    let destination = GraphViewId::new();
+    app.ensure_graph_view_registered(source);
+    app.ensure_graph_view_registered(destination);
+
+    let alpha = app.add_node_and_sync("alpha".to_string(), Point2D::new(0.0, 0.0));
+    let beta = app.add_node_and_sync("beta".to_string(), Point2D::new(10.0, 0.0));
+    let gamma = app.add_node_and_sync("gamma".to_string(), Point2D::new(20.0, 0.0));
+
+    app.apply_reducer_intents([
+        GraphIntent::FocusGraphView { view_id: source },
+        GraphIntent::UpdateSelection {
+            keys: vec![alpha, beta],
+            mode: SelectionUpdateMode::Replace,
+        },
+        GraphIntent::TransferSelectedNodesToGraphView {
+            source_view: source,
+            destination_view: destination,
+        },
+    ]);
+
+    let source_mask = app.workspace.graph_runtime.views[&source]
+        .owned_node_mask
+        .clone()
+        .expect("source view should materialize ownership");
+    let destination_mask = app.workspace.graph_runtime.views[&destination]
+        .owned_node_mask
+        .clone()
+        .expect("destination view should materialize ownership");
+
+    assert_eq!(source_mask, HashSet::from([gamma]));
+    assert_eq!(destination_mask, HashSet::from([alpha, beta]));
+    assert!(app.selection_for_view(source).is_empty());
+    assert_eq!(
+        app.selection_for_view(destination)
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>(),
+        HashSet::from([alpha, beta])
+    );
+    assert_eq!(app.workspace.graph_runtime.focused_view, Some(destination));
+}
+
+#[test]
+fn create_graph_view_slot_starts_empty_when_ownership_partition_is_active() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let source = GraphViewId::new();
+    let destination = GraphViewId::new();
+    app.ensure_graph_view_registered(source);
+    app.ensure_graph_view_registered(destination);
+
+    let alpha = app.add_node_and_sync("alpha".to_string(), Point2D::new(0.0, 0.0));
+    app.apply_reducer_intents([
+        GraphIntent::FocusGraphView { view_id: source },
+        GraphIntent::UpdateSelection {
+            keys: vec![alpha],
+            mode: SelectionUpdateMode::Replace,
+        },
+        GraphIntent::TransferSelectedNodesToGraphView {
+            source_view: source,
+            destination_view: destination,
+        },
+        GraphIntent::CreateGraphViewSlot {
+            anchor_view: Some(destination),
+            direction: GraphViewLayoutDirection::Right,
+            open_mode: None,
+        },
+    ]);
+
+    let created = app
+        .graph_view_slots_for_tests()
+        .into_iter()
+        .map(|slot| slot.view_id)
+        .find(|view_id| *view_id != source && *view_id != destination)
+        .expect("expected created graph view");
+
+    assert_eq!(
+        app.workspace.graph_runtime.views[&created]
+            .owned_node_mask
+            .as_ref()
+            .map(std::collections::HashSet::len),
+        Some(0),
+        "new graph views should start empty once explicit ownership is active"
+    );
+}
+
+#[test]
 fn route_graph_view_to_workbench_enqueues_open_graph_view_pane_intent() {
     let mut app = GraphBrowserApp::new_for_testing();
     let view_id = GraphViewId::new();

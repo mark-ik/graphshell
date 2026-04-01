@@ -3245,6 +3245,8 @@ fn render_frame_pin_controls(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
     use crate::app::workbench_layout_policy::NavigatorHostId;
     use crate::services::persistence::types::LogEntry;
     #[cfg(feature = "diagnostics")]

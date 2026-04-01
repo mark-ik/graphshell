@@ -174,6 +174,13 @@ impl GraphBrowserApp {
                 self.set_workspace_focused_view_with_transition(Some(view_id));
                 true
             }
+            GraphIntent::TransferSelectedNodesToGraphView {
+                source_view,
+                destination_view,
+            } => {
+                self.transfer_selected_nodes_to_graph_view(source_view, destination_view);
+                true
+            }
             GraphIntent::Undo => {
                 let current_layout = self.current_undo_checkpoint_layout_json();
                 let _ = self.perform_undo(current_layout);
@@ -1424,6 +1431,7 @@ impl GraphBrowserApp {
             | GraphIntent::OpenNodeFrameRouted { .. }
             | GraphIntent::OpenNodeWorkspaceRouted { .. }
             | GraphIntent::FocusGraphView { .. }
+            | GraphIntent::TransferSelectedNodesToGraphView { .. }
             | GraphIntent::SetNavigatorSpecialtyView { .. }
             | GraphIntent::OpenFrameTileGroup { .. } => {
                 unreachable!("runtime lifecycle intents are handled in phase 3")

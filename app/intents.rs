@@ -511,6 +511,10 @@ pub enum GraphIntent {
     FocusGraphView {
         view_id: GraphViewId,
     },
+    TransferSelectedNodesToGraphView {
+        source_view: GraphViewId,
+        destination_view: GraphViewId,
+    },
     CreateNoteForNode {
         key: NodeKey,
         title: Option<String>,
@@ -1045,6 +1049,7 @@ impl GraphIntent {
             | Self::RestoreGraphViewSlot { .. }
             | Self::RouteGraphViewToWorkbench { .. }
             | Self::FocusGraphView { .. }
+            | Self::TransferSelectedNodesToGraphView { .. }
             | Self::Undo
             | Self::Redo
             | Self::AcceptHostOpenRequest { .. }
