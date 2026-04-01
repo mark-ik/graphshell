@@ -1,6 +1,6 @@
 # Node Badge and Tagging Follow-On Plan (2026-03-31)
 
-**Status**: Active / Narrowed follow-on
+**Status**: Closed / Archived 2026-04-01
 
 **Related**:
 
@@ -9,7 +9,7 @@
 - `../aspect_input/input_interaction_spec.md`
 - `../system/register/action_registry_spec.md`
 
-The original node badge and tagging plan is now mostly landed. The remaining work is small enough that it should be tracked as a focused follow-on instead of keeping the older broad plan artificially open.
+The original node badge and tagging plan was mostly landed when this follow-on was created. This remainder is now closed: keyboard routing is intentionally bound through `Ctrl+T`, the panel host lives in `shell/desktop/ui/tag_panel.rs`, close semantics are explicit, the icon picker is searchable emoji-only, and the focused routing/interaction tests are present.
 
 ---
 
@@ -110,3 +110,9 @@ The original node badge and tagging plan is now mostly landed. The remaining wor
 - Created as the reduced remainder after auditing `2026-02-20_node_badge_and_tagging_plan.md` against the current implementation.
 - Confirmed that badge resolution, presentation metadata, node-owned tag truth, orbit rendering, clip-border treatment, and tab-header badges are already landed.
 - Isolated the actual unfinished work to routing, panel extraction/close semantics, richer icon picker/search scope, and UI-path coverage.
+
+### 2026-04-01
+
+- Closed after the remaining routing, shell-hosting, searchable emoji picker, and interaction-test work landed in code.
+- Scope decision finalized: Lucide remains out of the current picker surface; emoji-only search is the active contract.
+- Archived alongside the broader 2026-02-20 historical plan.

@@ -6,15 +6,22 @@
 
 # Node Badge and Tagging Plan (2026-02-20)
 
-**Status**: Mostly Landed / Follow-on Narrowed — updated 2026-03-31 for code-reality alignment and extraction of the remaining work into `2026-03-31_node_badge_and_tagging_follow_on_plan.md`
+**Status**: Closed / Archived 2026-04-01 — broad historical plan retained as an implementation record after the remaining follow-on work landed
+
+**Closure note**:
+
+- The former follow-on remainder is now closed in code: the tag panel is shell-hosted, routed through the input/action stack, reachable from command surfaces plus existing inspector/toolbar affordances, and covered by focused interaction tests.
+- The keyboard route settled on `Ctrl+T`; plain `T` remains the physics toggle.
+- The icon-picker scope was intentionally narrowed to searchable emoji-only. `BadgeIcon::Lucide` remains a type-level escape hatch, but Lucide assets/search are not part of the current shipped panel contract.
+- Current active authority is `node_badge_and_tagging_spec.md`. This archived plan remains historical context only.
 
 **Prerequisites**:
 
 - Persistence hub Phase 1 tag actions and runtime tag storage. Landed.
 - Current runtime reality: canonical membership lives on `Node.tags`; presentation ordering and icon overrides now also live on-node through `NodeTagPresentationState`.
-- Remaining work is limited to deliberate input routing (`T` / context menu), render-layer extraction of the tag panel, richer icon resources/search, and explicit UI-path tests.
+- No active implementation prerequisites remain for this plan.
 
-This plan now serves as the broad historical plan and landed-scope record for node badges and tagging. The active remainder is tracked in `2026-03-31_node_badge_and_tagging_follow_on_plan.md`.
+This plan now serves as the broad historical plan and landed-scope record for node badges and tagging. The reduced follow-on plan created on 2026-03-31 has also been closed and archived.
 
 This plan covers the visual and interactive layers on top of that data model, plus the presentation metadata that now makes icon assignment and ordering durable.
 

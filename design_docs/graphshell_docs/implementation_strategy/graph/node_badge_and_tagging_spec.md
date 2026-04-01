@@ -1,7 +1,7 @@
 # Node Badge and Tagging - Interaction Spec
 
 **Date**: 2026-03-06
-**Status**: Canonical interaction contract
+**Status**: Canonical interaction contract — updated 2026-04-01 after plan closure and archival
 **Priority**: Implementation-ready
 
 **Related**:
@@ -11,10 +11,11 @@
 - `semantic_tagging_and_knowledge_spec.md`
 - `faceted_filter_surface_spec.md`
 - `facet_pane_routing_spec.md`
-- `2026-02-20_node_badge_and_tagging_plan.md`
 - `2026-02-23_udc_semantic_tagging_plan.md`
 - `../system/register/knowledge_registry_spec.md`
 - `../system/register/action_registry_spec.md`
+- `../../../archive_docs/checkpoint_2026-04-01/graphshell_docs/implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md`
+- `../../../archive_docs/checkpoint_2026-04-01/graphshell_docs/implementation_strategy/graph/2026-03-31_node_badge_and_tagging_follow_on_plan.md`
 
 ---
 
@@ -30,17 +31,17 @@ This spec defines the canonical contracts for:
 
 ### 1A. Three-Tree Authority Contract
 
-**Graph Tree authority**
+#### Graph Tree authority
 
 - Node tag truth (`Node.tags`) and semantic-class projection are graph-owned state.
 - Tag add/remove semantics are reducer-authority mutations (`TagNode` / `UntagNode`).
 
-**Workbench Tree authority**
+#### Workbench Tree authority
 
 - Workbench owns where the tag panel is hosted/anchored and pane arrangement behavior.
 - Workbench does not own tag truth, tag validation, or semantic classification meaning.
 
-**UxTree contract**
+#### UxTree contract
 
 - Tagging controls, chip state, and validation/blocked statuses are exposed as host-UI semantics.
 - Tagging interactions must remain probe/harness addressable and parity-safe with facet/routing contracts.
@@ -94,7 +95,7 @@ Badge =
 
 BadgeIcon =
   | Emoji(String)
-  | Lucide(&'static str)
+  | Lucide(String)
   | None              -- label-only chip
 ```
 
@@ -168,15 +169,16 @@ System tags have fixed, non-user-reassignable icons:
 
 The tag assignment panel opens when:
 
-- `T` key is pressed with a node selected in graph view
-- Right-click context menu → "Tags…" in graph view
-- A badge chip in the expanded orbit is clicked
+- the bound input action is triggered for the active graph surface; the default binding is `Ctrl+T`, while plain `T` remains reserved for physics
+- the node command surface invokes `Edit Tags...`
+- the Selected Node inspector invokes `Edit Tags`
+- the graph toolbar invokes its tag affordance for the selected node
 
-In detail/node view, `T` targets the focused tab's node.
+When workbench/node-pane focus owns the active surface, the bound action targets the focused node pane. When graph focus owns the surface, it targets the single selected graph node.
 
 ### 4.2 Panel Behavior Contract
 
-The panel is non-modal and anchored near the node (below or to the right, whichever fits in the viewport).
+The panel is non-modal and anchored near the selected graph node when graph geometry is available, or near the active node pane when pane focus owns the open request.
 
 | Interaction | Required behavior |
 |-------------|------------------|
@@ -184,7 +186,7 @@ The panel is non-modal and anchored near the node (below or to the right, whiche
 | Text input change | Re-rank suggestions via nucleo fuzzy match against `tag_index` + `KnowledgeRegistry::search()` |
 | `Enter` or suggestion click | Validate via `KnowledgeRegistry::validate(tag)`, then emit `TagNode { key, tag }` |
 | `Esc` | Close panel without changes |
-| Click outside / node deselected | Close panel without changes |
+| Click outside / node deselected / pane focus drift | Close panel without changes |
 | `#` prefix on unknown tag | Show warning indicator; allow submission |
 | Invalid UDC code | Show validation error from `KnowledgeRegistry`; block submission |
 
@@ -195,6 +197,7 @@ UDC canonicalization behavior:
 - Duplicate equivalent UDC forms must not produce duplicate tags on the same node.
 
 **Autocomplete contract**:
+
 - Minimum suggestion delay: none (re-rank on every keystroke).
 - Maximum suggestions shown: 5.
 - Suggestion sources (combined, ranked by score): existing `tag_index` keys, `KnowledgeRegistry::search()` results, static emoji name list.
@@ -207,13 +210,12 @@ Facet parity contract:
 
 ### 4.3 Icon Picker Contract
 
-Accessible via the `[⊞]` button in the tag panel or by clicking the icon slot of an existing user tag chip.
+Accessible via the `[⊞]` button in the tag panel.
 
-- Two tabs: **Emoji** (default) and **Lucide**.
-- Search field: nucleo against emoji names (Emoji tab) or icon slugs (Lucide tab).
-- Preview: selecting an icon updates the pending tag chip in the parent panel before confirmation.
-- `Cancel`: dismiss picker; no change to pending tag.
-- `Select`: confirm icon selection; update pending tag's icon.
+- The current picker is searchable emoji-only.
+- Search matches against a curated keyword-backed emoji catalog.
+- Selecting an icon updates the pending tag icon for the next add/write operation.
+- System-tag icons remain immutable.
 
 ---
 
@@ -225,12 +227,11 @@ Accessible via the `[⊞]` button in the tag panel or by clicking the icon slot 
 - A static `EMOJI_NAMES: &[(&str, &str)]` list (slug → char) provides search capability (~500 curated entries).
 - Search: nucleo fuzzy match over slug list.
 
-### 5.2 Lucide Icons (Extended)
+### 5.2 Lucide Status
 
-- Curated subset of ~200 icons from the Lucide MIT-licensed set.
-- Embedded via `include_bytes!` in a generated `icons.rs` module.
-- Rendered via `egui_extras` SVG support; rasterized at required size on first use and cached.
-- Lucide tab in icon picker; slug-based search.
+- `BadgeIcon::Lucide` remains a model-level escape hatch for future use.
+- Lucide assets, SVG rendering, and Lucide search are out of the current tag-panel scope.
+- Any future Lucide picker work requires an explicit spec update before it becomes active contract.
 
 ---
 
@@ -262,7 +263,7 @@ Diagnostics expectations:
 | At-rest capped at 3 + overflow chip | Test: node with 5 badges → 3 shown + `+2` chip |
 | `Crashed` always occupies slot 1 | Test: `Crashed + Pinned` → Crashed first |
 | `#unread` is not user-assignable via tag panel | Test: tag panel does not surface `#unread` in suggestions; `TagNode { tag: "#unread" }` from panel is blocked |
-| `T` key opens panel for selected node | Test: `T` key with selection → `tag_panel_open == Some(key)` |
+| Bound tag-panel action opens panel for the active focus target | Test: default `Ctrl+T` with graph selection or node-pane focus → `tag_panel_open == Some(key)` |
 | `Esc` closes panel without change | Test: Esc → panel closes, no intents emitted |
 | `Enter` emits `TagNode` | Test: type tag + Enter → `TagNode` intent in intent queue |
 | Chip ✕ emits `UntagNode` | Test: click ✕ on chip → `UntagNode` intent in intent queue |

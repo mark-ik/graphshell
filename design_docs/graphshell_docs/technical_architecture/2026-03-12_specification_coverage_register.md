@@ -81,7 +81,7 @@ Mark a feature family this way when:
 | MIME detection / viewer selection | WHATWG MIME Sniffing, media type conventions | `viewer/viewer_presentation_and_fallback_spec.md`, `viewer/universal_content_model_spec.md` | Partial | No | explicit MIME precedence and fallback matrix if not already centralized |
 | HTML / DOM / document behavior | WHATWG HTML, DOM | viewer/spec docs, clipping specs | Partial | No | document explicit projection rules from browser semantics into graph semantics |
 | Web storage/content persistence semantics | WHATWG Storage | storage subsystem specs | Partial | No | note Graphshell deviations from browser storage semantics explicitly |
-| Node semantic tagging / knowledge | none authoritative for Graphshell tag model beyond UDC side references | `canvas/semantic_tagging_and_knowledge_spec.md`, `canvas/2026-02-20_node_badge_and_tagging_plan.md` | Partial | Yes (except UDC semantics) | tag ownership migration, presentation metadata, tag query semantics |
+| Node semantic tagging / knowledge | none authoritative for Graphshell tag model beyond UDC side references | `graph/semantic_tagging_and_knowledge_spec.md`, `graph/node_badge_and_tagging_spec.md` | Partial | Yes (except UDC semantics) | tag query semantics, long-term content-type badge expansion, future Lucide re-scope only if reauthorized |
 | `#clip` and extracted DOM fragments | loosely informed by DOM semantics; no external Graphshell equivalent | `viewer/clipping_and_dom_extraction_spec.md` | Partial | Yes | decide whether `#clip` remains a tag or becomes explicit node kind |
 
 ### 3.2 Workbench/session/layout families

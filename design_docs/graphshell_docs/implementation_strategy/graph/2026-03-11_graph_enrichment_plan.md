@@ -7,7 +7,7 @@
 **Relates to**:
 
 * `2026-02-23_udc_semantic_tagging_plan.md`
-* `2026-02-20_node_badge_and_tagging_plan.md`
+* `node_badge_and_tagging_spec.md`
 * `2026-02-24_layout_behaviors_plan.md`
 * `2026-02-22_multi_graph_pane_plan.md`
 * `faceted_filter_surface_spec.md`
@@ -473,7 +473,7 @@ This document is the umbrella plan.
 
 Subsidiary plan responsibilities:
 
-* `2026-02-20_node_badge_and_tagging_plan.md`: badge visuals and tag assignment UI.
+* `node_badge_and_tagging_spec.md`: canonical badge visuals and tag assignment UI contract.
 * `2026-02-23_udc_semantic_tagging_plan.md`: UDC parsing, semantic distance, and label-first classification.
 * `2026-02-24_layout_behaviors_plan.md`: semantic placement, semantic gravity, and downstream layout behaviors.
 * `faceted_filter_surface_spec.md`: canonical filter semantics and authority boundaries for enrichment queries.

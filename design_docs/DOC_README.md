@@ -45,7 +45,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 31, 2026
+Last updated: April 1, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -124,8 +124,6 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/shell/shell_backlog_pack.md](graphshell_docs/implementation_strategy/shell/shell_backlog_pack.md) - Shell execution backlog including overview, routing, and interruption scenario-track IDs.
 - [graphshell_docs/implementation_strategy/shell/shell_overview_surface_spec.md](graphshell_docs/implementation_strategy/shell/shell_overview_surface_spec.md) - Concrete Shell overview surface for graph/workbench/runtime summary and cross-domain routing.
 - [graphshell_docs/implementation_strategy/graph/GRAPH.md](graphshell_docs/implementation_strategy/graph/GRAPH.md) - Graph domain spec; the canvas is its primary rendered surface, not the domain name.
-- [graphshell_docs/implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md](graphshell_docs/implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md) - Broad historical plan and landed-scope record for node badges, tag panel behavior, icon resources, and presentation metadata; narrowed on 2026-03-31 after code-reality audit.
-- [graphshell_docs/implementation_strategy/graph/2026-03-31_node_badge_and_tagging_follow_on_plan.md](graphshell_docs/implementation_strategy/graph/2026-03-31_node_badge_and_tagging_follow_on_plan.md) - Reduced follow-on plan for the remaining node-badge/tagging work: deliberate panel routing, panel extraction/close semantics, richer icon picker scope, and UI-path tests.
 - [graphshell_docs/implementation_strategy/graph/node_badge_and_tagging_spec.md](graphshell_docs/implementation_strategy/graph/node_badge_and_tagging_spec.md) - Canonical interaction contract for node badges, tag assignment surface behavior, icon resources, and Knowledge Registry integration.
 - [graphshell_docs/implementation_strategy/graph/graph_node_edge_interaction_spec.md](graphshell_docs/implementation_strategy/graph/graph_node_edge_interaction_spec.md) - Canonical interaction contract for graph, node, edge, and camera semantics on graph-bearing surfaces including the canvas.
 - [graphshell_docs/implementation_strategy/graph/2026-03-21_edge_family_and_provenance_expansion_plan.md](graphshell_docs/implementation_strategy/graph/2026-03-21_edge_family_and_provenance_expansion_plan.md) - Edge vocabulary expansion plan: keeps the current five relation families, adds a dedicated Provenance family, and proposes broader semantic/traversal/containment/arrangement/imported sub-kind vocabularies for prototype-era knowledge capture.
@@ -316,3 +314,4 @@ Graphshell social-domain docs cover hosted communication surfaces and related sh
 - [archive_docs/checkpoint_2026-03-10/](archive_docs/checkpoint_2026-03-10/) — archived `graphshell_docs/implementation_strategy/viewer/2026-02-26_composited_viewer_pass_contract.md` after consolidating active compositor contract authority into `implementation_strategy/PLANNING_REGISTER.md` §0 and `implementation_strategy/aspect_render/frame_assembly_and_compositor_spec.md`; retained Appendix A future-work ideas live in `PLANNING_REGISTER.md` §0.10.
 - [archive_docs/checkpoint_2026-03-18/](archive_docs/checkpoint_2026-03-18/) — completed registry/sector plans (`system/2026-02-22_registry_layer_plan.md`, `system/register/` Sectors A/D/F), stabilization progress receipt, C+F backend bridge receipt, foundational-reset `GraphBrowserApp` field ownership snapshot, and superseded wgpu/WebRender deferred strategy docs (`aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`, `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md`).
 - [archive_docs/checkpoint_2026-03-27/](archive_docs/checkpoint_2026-03-27/) — archived completed `graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md` after its open items were resolved and its historical references were superseded by active specs and overview docs.
+- [archive_docs/checkpoint_2026-04-01/](archive_docs/checkpoint_2026-04-01/) — archived completed node-tagging plan history: `graphshell_docs/implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md` and `graphshell_docs/implementation_strategy/graph/2026-03-31_node_badge_and_tagging_follow_on_plan.md`; active authority remains `graphshell_docs/implementation_strategy/graph/node_badge_and_tagging_spec.md`.

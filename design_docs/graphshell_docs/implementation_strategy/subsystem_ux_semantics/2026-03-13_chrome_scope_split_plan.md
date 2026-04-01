@@ -40,7 +40,7 @@ the workbench-scoped host, not an alternate owner of Navigator semantics.
 - `../canvas/multi_view_pane_spec.md`
 - `../canvas/2026-03-14_graph_relation_families.md` — relation family vocabulary and navigator projection contract
 - `../canvas/2026-02-23_udc_semantic_tagging_plan.md`
-- `../canvas/2026-02-20_node_badge_and_tagging_plan.md`
+- `../graph/node_badge_and_tagging_spec.md`
 - `../canvas/2026-02-25_progressive_lens_and_physics_binding_plan.md`
 - `../aspect_render/2026-03-12_compositor_expansion_plan.md`
 
@@ -119,7 +119,7 @@ semantics surface in the desktop chrome.
   authority for tool-page routing, apply semantics, and return paths. This plan
   adds the presentation distinction between transient graph overlays and
   explicitly tiled workbench-hosted panes.
-- `../canvas/2026-02-20_node_badge_and_tagging_plan.md` and
+- `../graph/node_badge_and_tagging_spec.md` and
   `../aspect_render/2026-03-12_compositor_expansion_plan.md` remain the
   authority for canvas badges and tile affordances. This plan determines which
   of those signals surface as graph-scoped host chips versus

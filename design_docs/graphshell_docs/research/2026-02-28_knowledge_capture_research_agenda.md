@@ -6,7 +6,7 @@
 **Feeds Into**:
 - `implementation_strategy/viewer/2026-02-11_clipping_dom_extraction_plan.md`
 - `implementation_strategy/graph/2026-02-23_udc_semantic_tagging_plan.md`
-- `implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md`
+- `implementation_strategy/graph/node_badge_and_tagging_spec.md`
 - `implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
 - `technical_architecture/GRAPHSHELL_AS_BROWSER.md §§4–5`
 
@@ -502,7 +502,7 @@ emerge from cross-thread findings.
 
 - `implementation_strategy/viewer/2026-02-11_clipping_dom_extraction_plan.md`
 - `implementation_strategy/graph/2026-02-23_udc_semantic_tagging_plan.md`
-- `implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md`
+- `implementation_strategy/graph/node_badge_and_tagging_spec.md`
 - `implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
 - `implementation_strategy/system/register/knowledge_registry_spec.md`
 - `technical_architecture/GRAPHSHELL_AS_BROWSER.md §§4–5`

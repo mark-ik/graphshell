@@ -5,7 +5,7 @@
 **Relates to**:
 
 - `../technical_architecture/2026-02-18_universal_node_content_model.md` — Research vision document; this plan is the implementation-ready follow-through
-- `2026-02-20_node_badge_and_tagging_plan.md` — Badge/tag system; `viewer_id` field and `mime_hint` interplay with badge display and tag assignment UI
+- `../graph/node_badge_and_tagging_spec.md` — Badge/tag system; `viewer_id` field and `mime_hint` interplay with badge display and tag assignment UI
 - `2026-02-22_registry_layer_plan.md` — `ViewerRegistry` (Phase 2, complete) is the primary contract surface; `ProtocolRegistry` and `KnowledgeRegistry` are prerequisites for Steps 3 and 6
 - `2026-02-22_multi_graph_pane_plan.md` — node viewers are pane-hosted view payloads; graph panes remain separate surface types
 - `2026-02-23_wry_integration_strategy.md` — Wry backend is a `Viewer` implementation; Steps 1–3 here are prerequisites for the Wry plan
@@ -347,7 +347,7 @@ with visible playback controls. `cargo build` (without `--features audio`) compi
 
 **Goal**: `mime_hint` and `address_kind` inform badge rendering and tag suggestions.
 
-This step integrates with `2026-02-20_node_badge_and_tagging_plan.md`:
+This step integrates with `../graph/node_badge_and_tagging_spec.md`:
 
 - **Address-kind badge**: Add a `Badge::ContentType(ViewerId)` variant. When a node's
   viewer is not `viewer:webview` (the default), show a small icon badge indicating the content type:
@@ -822,7 +822,7 @@ they require only already-in-`Cargo.toml` crates (`image`, `mime_guess`). `synte
 | Plan | How It Connects |
 | ---- | --------------- |
 | `2026-02-23_wry_integration_strategy.md` | Steps 1–2 here are prerequisites; `Viewer` trait is shared |
-| `2026-02-20_node_badge_and_tagging_plan.md` | Step 8 extends badge system with `ContentType` badge |
+| `../graph/node_badge_and_tagging_spec.md` | Step 8 extends badge system with `ContentType` badge |
 | `2026-02-22_registry_layer_plan.md` | `ViewerRegistry` (Phase 2) is the contract surface; `ProtocolRegistry` is the resolver surface |
 | `2026-02-23_udc_semantic_tagging_plan.md` | MIME hints drive UDC tag suggestions; semantic physics clusters by content type |
 | `2026-02-24_layout_behaviors_plan.md` | Zone attractors can group PDF nodes together, image nodes together, etc. |
@@ -919,8 +919,8 @@ option when IPFS, Gemini, and Tor resolvers are prioritized.
 
 ### 2026-02-24
 
-- Plan created. Research vision (`2026-02-18_universal_node_content_model.md`) and badge/tagging
-  plan (`2026-02-20_node_badge_and_tagging_plan.md`) synthesized into this implementation plan.
+- Plan created. Research vision (`2026-02-18_universal_node_content_model.md`) and the badge/tagging
+  interaction contract (`../graph/node_badge_and_tagging_spec.md`) synthesized into this implementation plan.
 - `Viewer` trait from `2026-02-23_wry_integration_strategy.md` adopted as the shared contract.
 - Ten implementation steps defined with done gates.
 - Feature flag strategy aligned with existing Cargo.toml conventions.
