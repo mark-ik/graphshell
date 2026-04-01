@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use egui::{RichText, SidePanel};
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
@@ -11,7 +11,8 @@ use uuid::Uuid;
 use crate::app::workbench_layout_policy::{AnchorEdge, FirstUseOutcome, NavigatorHostId};
 use crate::app::{
     CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, NavigatorHostScope,
-    SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent, WorkbenchLayoutConstraint,
+    PendingTileOpenMode, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent,
+    WorkbenchLayoutConstraint,
     WorkbenchNavigationGeometry,
 };
 use crate::graph::{
@@ -2247,6 +2248,29 @@ pub(crate) fn render_workbench_host(
                     specialty_canvas_rect = Some(canvas_alloc_rect);
                 }
 
+                if host_shows_graph_scope(&host_layout)
+                    && matches!(host_layout.form_factor, WorkbenchHostFormFactor::Sidebar)
+                {
+                    let swatch_actions =
+                        crate::shell::desktop::ui::overview_plane::render_navigator_overview_swatch(
+                            ui, graph_app,
+                        );
+                    for action in swatch_actions {
+                        match action {
+                            crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::FocusView(view_id) => {
+                                post_host_actions.push(WorkbenchHostAction::FocusGraphView(view_id));
+                            }
+                            crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::OpenView(view_id) => {
+                                post_host_actions.push(WorkbenchHostAction::OpenGraphView(view_id));
+                            }
+                            crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::ToggleOverviewPlane => {
+                                post_host_actions.push(WorkbenchHostAction::ToggleOverviewPlane);
+                            }
+                        }
+                    }
+                    ui.separator();
+                }
+
                 if host_shows_graph_scope(&host_layout) && !projection.navigator_groups.is_empty() {
                     ui.heading("Navigator");
                     for group in &projection.navigator_groups {
@@ -2626,6 +2650,9 @@ enum WorkbenchHostAction {
     SaveCurrentFrame,
     PruneEmptyFrames,
     RestoreFrame(String),
+    FocusGraphView(GraphViewId),
+    OpenGraphView(GraphViewId),
+    ToggleOverviewPlane,
     /// Set or clear a graphlet specialty view on a Navigator host.
     SetNavigatorSpecialtyView {
         host: SurfaceHostId,
@@ -3006,6 +3033,18 @@ fn apply_workbench_host_action(
         }
         WorkbenchHostAction::RestoreFrame(name) => {
             graph_app.request_restore_frame_snapshot_named(name);
+        }
+        WorkbenchHostAction::FocusGraphView(view_id) => {
+            graph_app.apply_reducer_intents([GraphIntent::FocusGraphView { view_id }]);
+        }
+        WorkbenchHostAction::OpenGraphView(view_id) => {
+            graph_app.apply_reducer_intents([GraphIntent::RouteGraphViewToWorkbench {
+                view_id,
+                mode: PendingTileOpenMode::Tab,
+            }]);
+        }
+        WorkbenchHostAction::ToggleOverviewPlane => {
+            graph_app.apply_reducer_intents([GraphIntent::ToggleGraphViewLayoutManager]);
         }
         WorkbenchHostAction::SetNavigatorSpecialtyView { host, kind } => {
             graph_app

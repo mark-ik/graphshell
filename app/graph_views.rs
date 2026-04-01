@@ -431,23 +431,34 @@ impl GraphBrowserApp {
         format!("Graph View {count}")
     }
 
+    fn graph_view_slot_at_position(
+        &self,
+        row: i32,
+        col: i32,
+        except_view: Option<GraphViewId>,
+    ) -> Option<GraphViewId> {
+        self.workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .slots
+            .values()
+            .find_map(|slot| {
+                (!slot.archived
+                    && Some(slot.view_id) != except_view
+                    && slot.row == row
+                    && slot.col == col)
+                    .then_some(slot.view_id)
+            })
+    }
+
     fn graph_view_slot_position_occupied(
         &self,
         row: i32,
         col: i32,
         except_view: Option<GraphViewId>,
     ) -> bool {
-        self.workspace
-            .graph_runtime
-            .graph_view_layout_manager
-            .slots
-            .values()
-            .any(|slot| {
-                !slot.archived
-                    && Some(slot.view_id) != except_view
-                    && slot.row == row
-                    && slot.col == col
-            })
+        self.graph_view_slot_at_position(row, col, except_view)
+            .is_some()
     }
 
     fn next_free_graph_view_slot_position(&self) -> (i32, i32) {
@@ -714,9 +725,33 @@ impl GraphBrowserApp {
     }
 
     pub(crate) fn move_graph_view_slot(&mut self, view_id: GraphViewId, row: i32, col: i32) {
-        if self.graph_view_slot_position_occupied(row, col, Some(view_id)) {
+        let Some((current_row, current_col)) = self
+            .workspace
+            .graph_runtime
+            .graph_view_layout_manager
+            .slots
+            .get(&view_id)
+            .map(|slot| (slot.row, slot.col))
+        else {
+            return;
+        };
+        if current_row == row && current_col == col {
             return;
         }
+
+        let occupant_view_id = self.graph_view_slot_at_position(row, col, Some(view_id));
+        if let Some(occupant_view_id) = occupant_view_id
+            && let Some(occupant_slot) = self
+                .workspace
+                .graph_runtime
+                .graph_view_layout_manager
+                .slots
+                .get_mut(&occupant_view_id)
+        {
+            occupant_slot.row = current_row;
+            occupant_slot.col = current_col;
+        }
+
         if let Some(slot) = self
             .workspace
             .graph_runtime
@@ -1754,6 +1789,33 @@ mod tests {
         assert_eq!(view.physics_policy.profile.name, "Gas");
         assert_eq!(view.resolved_physics_profile().name, "Gas");
         assert_eq!(view.physics_policy.source, PolicyValueSource::ViewOverride);
+    }
+
+    #[test]
+    fn move_graph_view_slot_swaps_with_occupied_slot() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let left = GraphViewId::new();
+        let right = GraphViewId::new();
+        app.ensure_graph_view_registered(left);
+        app.ensure_graph_view_registered(right);
+
+        {
+            let slots = &mut app.workspace.graph_runtime.graph_view_layout_manager.slots;
+            let left_slot = slots.get_mut(&left).expect("left slot should exist");
+            left_slot.row = 0;
+            left_slot.col = 0;
+            let right_slot = slots.get_mut(&right).expect("right slot should exist");
+            right_slot.row = 0;
+            right_slot.col = 1;
+        }
+
+        app.move_graph_view_slot(left, 0, 1);
+
+        let slots = &app.workspace.graph_runtime.graph_view_layout_manager.slots;
+        let left_slot = slots.get(&left).expect("left slot should exist");
+        let right_slot = slots.get(&right).expect("right slot should exist");
+        assert_eq!((left_slot.row, left_slot.col), (0, 1));
+        assert_eq!((right_slot.row, right_slot.col), (0, 0));
     }
 
     #[test]

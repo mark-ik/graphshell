@@ -10,14 +10,22 @@ use crate::app::{
 
 const OVERVIEW_CELL_SIZE: Vec2 = Vec2::new(156.0, 92.0);
 const OVERVIEW_CELL_GAP: f32 = 16.0;
+const OVERVIEW_SWATCH_GAP: f32 = 8.0;
 
-#[derive(Clone)]
-struct OverviewSlotSnapshot {
-    view_id: GraphViewId,
-    name: String,
-    row: i32,
-    col: i32,
-    archived: bool,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OverviewSlotSnapshot {
+    pub(crate) view_id: GraphViewId,
+    pub(crate) name: String,
+    pub(crate) row: i32,
+    pub(crate) col: i32,
+    pub(crate) archived: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OverviewSurfaceAction {
+    FocusView(GraphViewId),
+    OpenView(GraphViewId),
+    ToggleOverviewPlane,
 }
 
 pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
@@ -99,7 +107,7 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
     }
 }
 
-fn sorted_slot_snapshots(app: &GraphBrowserApp) -> Vec<OverviewSlotSnapshot> {
+pub(crate) fn sorted_slot_snapshots(app: &GraphBrowserApp) -> Vec<OverviewSlotSnapshot> {
     let mut slots: Vec<_> = app
         .workspace
         .graph_runtime
@@ -124,7 +132,7 @@ fn sorted_slot_snapshots(app: &GraphBrowserApp) -> Vec<OverviewSlotSnapshot> {
     slots
 }
 
-fn selected_overview_view_id(
+pub(crate) fn selected_overview_view_id(
     app: &GraphBrowserApp,
     slots: &[OverviewSlotSnapshot],
 ) -> Option<GraphViewId> {
@@ -150,6 +158,139 @@ fn overview_window_pos(app: &GraphBrowserApp) -> Pos2 {
         .next()
         .map(|rect| Pos2::new(rect.left() + 24.0, rect.top() + 24.0))
         .unwrap_or_else(|| Pos2::new(48.0, 96.0))
+}
+
+pub(crate) fn render_navigator_overview_swatch(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+) -> Vec<OverviewSurfaceAction> {
+    let slots = sorted_slot_snapshots(app);
+    let active_slots: Vec<_> = slots.iter().filter(|slot| !slot.archived).cloned().collect();
+    let archived_count = slots.iter().filter(|slot| slot.archived).count();
+    let selected_view_id = selected_overview_view_id(app, &slots);
+    let mut actions = Vec::new();
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Views").small().strong());
+        ui.separator();
+        ui.label(
+            RichText::new(format!(
+                "{} active · {} archived",
+                active_slots.len(),
+                archived_count
+            ))
+            .small()
+            .weak(),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let manage_label = if app.graph_view_layout_manager_active() {
+                "Manage*"
+            } else {
+                "Manage"
+            };
+            if ui
+                .small_button(manage_label)
+                .on_hover_text("Open the full Overview Plane")
+                .clicked()
+            {
+                actions.push(OverviewSurfaceAction::ToggleOverviewPlane);
+            }
+        });
+    });
+
+    if active_slots.is_empty() {
+        ui.small("No active graph views yet.");
+        return actions;
+    }
+
+    render_compact_overview_grid(ui, &active_slots, selected_view_id, &mut actions);
+    if let Some(selected_slot) = active_slots
+        .iter()
+        .find(|slot| Some(slot.view_id) == selected_view_id)
+    {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "Focused: {} (r{} · c{})",
+                    selected_slot.name, selected_slot.row, selected_slot.col
+                ))
+                .small()
+                .weak(),
+            );
+            if ui.small_button("Open").clicked() {
+                actions.push(OverviewSurfaceAction::OpenView(selected_slot.view_id));
+            }
+        });
+    }
+
+    actions
+}
+
+fn render_compact_overview_grid(
+    ui: &mut Ui,
+    slots: &[OverviewSlotSnapshot],
+    selected_view_id: Option<GraphViewId>,
+    actions: &mut Vec<OverviewSurfaceAction>,
+) {
+    let Some((min_row, max_row, min_col, max_col)) = overview_grid_bounds(slots) else {
+        return;
+    };
+
+    let rows = (max_row - min_row + 1).max(1) as f32;
+    let cols = (max_col - min_col + 1).max(1) as f32;
+    let available_width = ui.available_width().max(140.0);
+    let cell_width = ((available_width - (cols - 1.0) * OVERVIEW_SWATCH_GAP) / cols)
+        .clamp(42.0, 76.0);
+    let cell_height = (cell_width * 0.58).clamp(24.0, 44.0);
+    let grid_size = Vec2::new(
+        cols * cell_width + (cols - 1.0) * OVERVIEW_SWATCH_GAP,
+        rows * cell_height + (rows - 1.0) * OVERVIEW_SWATCH_GAP,
+    );
+    let (grid_rect, _) = ui.allocate_exact_size(grid_size, Sense::hover());
+    let painter = ui.painter();
+
+    for slot in slots {
+        let cell_rect = compact_slot_rect_for_coords(
+            slot.row,
+            slot.col,
+            min_row,
+            min_col,
+            grid_rect.min,
+            Vec2::new(cell_width, cell_height),
+        );
+        let response = ui.interact(
+            cell_rect,
+            egui::Id::new(("navigator_overview_slot", slot.view_id.as_uuid())),
+            Sense::click(),
+        );
+        let is_selected = Some(slot.view_id) == selected_view_id;
+        let fill = if is_selected {
+            Color32::from_rgb(66, 88, 120)
+        } else {
+            Color32::from_rgb(40, 45, 54)
+        };
+        let stroke = if is_selected {
+            Stroke::new(2.0, Color32::from_rgb(180, 210, 255))
+        } else {
+            Stroke::new(1.0, Color32::from_gray(100))
+        };
+        painter.rect_filled(cell_rect, 6.0, fill);
+        painter.rect_stroke(cell_rect, 6.0, stroke, StrokeKind::Outside);
+        painter.text(
+            cell_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            compact_overview_label(&slot.name, if cell_width >= 60.0 { 12 } else { 6 }),
+            egui::TextStyle::Small.resolve(ui.style()),
+            Color32::WHITE,
+        );
+
+        if response.clicked() {
+            actions.push(OverviewSurfaceAction::FocusView(slot.view_id));
+        }
+        if response.double_clicked() {
+            actions.push(OverviewSurfaceAction::OpenView(slot.view_id));
+        }
+    }
 }
 
 fn render_overview_grid(
@@ -465,6 +606,32 @@ fn slot_rect_for_coords(
     egui::Rect::from_min_size(Pos2::new(x, y), OVERVIEW_CELL_SIZE)
 }
 
+fn compact_slot_rect_for_coords(
+    row: i32,
+    col: i32,
+    min_row: i32,
+    min_col: i32,
+    origin: Pos2,
+    cell_size: Vec2,
+) -> egui::Rect {
+    let x = origin.x + (col - min_col) as f32 * (cell_size.x + OVERVIEW_SWATCH_GAP);
+    let y = origin.y + (row - min_row) as f32 * (cell_size.y + OVERVIEW_SWATCH_GAP);
+    egui::Rect::from_min_size(Pos2::new(x, y), cell_size)
+}
+
+fn compact_overview_label(name: &str, max_chars: usize) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return "View".to_string();
+    }
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut compact: String = trimmed.chars().take(max_chars.saturating_sub(1)).collect();
+    compact.push('…');
+    compact
+}
+
 fn drag_target_slot_position(slot: &OverviewSlotSnapshot, drag_delta: Vec2) -> (i32, i32) {
     let col_delta = (drag_delta.x / (OVERVIEW_CELL_SIZE.x + OVERVIEW_CELL_GAP)).round() as i32;
     let row_delta = (drag_delta.y / (OVERVIEW_CELL_SIZE.y + OVERVIEW_CELL_GAP)).round() as i32;
@@ -517,5 +684,20 @@ mod tests {
 
         let slots = sorted_slot_snapshots(&app);
         assert_eq!(selected_overview_view_id(&app, &slots), Some(view_b));
+    }
+
+    #[test]
+    fn sorted_slot_snapshots_lists_active_before_archived() {
+        let active = GraphViewId::new();
+        let archived = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(active);
+        app.ensure_graph_view_registered(archived);
+        app.archive_graph_view_slot(archived);
+
+        let slots = sorted_slot_snapshots(&app);
+
+        assert_eq!(slots.first().map(|slot| slot.view_id), Some(active));
+        assert_eq!(slots.last().map(|slot| slot.view_id), Some(archived));
     }
 }

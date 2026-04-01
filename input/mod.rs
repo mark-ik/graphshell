@@ -162,7 +162,7 @@ pub(crate) fn collect_actions(
     let binding_descriptors = phase2_describe_input_bindings();
 
     ctx.input(|i| {
-        // Escape always works: unfocus text field or toggle view
+        // Escape always works as a dismiss/back affordance for active surfaces.
         if i.key_pressed(Key::Escape) {
             if keyboard_captured_by_egui {
                 // Escape will unfocus the text field (handled by egui)
@@ -170,8 +170,6 @@ pub(crate) fn collect_actions(
             }
             if graph_app.graph_view_layout_manager_active() {
                 actions.close_overview_plane = true;
-            } else {
-                actions.toggle_view = true;
             }
         }
 
@@ -1191,6 +1189,21 @@ mod tests {
         );
 
         assert!(actions.close_overview_plane);
+        assert!(!actions.toggle_view);
+    }
+
+    #[test]
+    fn collect_actions_does_not_map_escape_to_toggle_view_when_no_surface_is_active() {
+        let app = test_app();
+
+        let actions = collect_actions_with_key_event_for_app(
+            &app,
+            Key::Escape,
+            Modifiers::default(),
+            false,
+        );
+
+        assert!(!actions.close_overview_plane);
         assert!(!actions.toggle_view);
     }
 
