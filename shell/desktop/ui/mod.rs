@@ -12,6 +12,7 @@ pub(crate) mod gui_orchestration;
 pub(crate) mod gui_state;
 pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
+pub(crate) mod overview_plane;
 pub(crate) mod persistence_ops;
 pub(crate) mod shell_layout_pass;
 pub(crate) mod tag_panel;

@@ -1002,6 +1002,9 @@ pub(crate) fn execute_action_with_layout_target(
         ActionId::GraphCycleFocusRegion => {
             app.enqueue_workbench_intent(WorkbenchIntent::CycleFocusRegion);
         }
+        ActionId::GraphToggleOverviewPlane => {
+            intents.push(GraphIntent::ToggleGraphViewLayoutManager);
+        }
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
         ActionId::GraphToggleGhostNodes => intents.push(GraphIntent::ToggleGhostNodes),
         ActionId::GraphPhysicsConfig => {

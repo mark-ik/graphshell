@@ -21,6 +21,8 @@ use egui::Key;
 /// action application (pure state mutation), making actions testable.
 #[derive(Default)]
 pub struct KeyboardActions {
+    pub toggle_overview_plane: bool,
+    pub close_overview_plane: bool,
     pub open_tag_panel: bool,
     pub toggle_physics: bool,
     pub toggle_camera_position_fit_lock: bool,
@@ -118,6 +120,7 @@ fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool
                         'k' => Key::K,
                         'l' => Key::L,
                         'n' => Key::N,
+                        'o' => Key::O,
                         'p' => Key::P,
                         '?' => Key::Questionmark,
                         'r' => Key::R,
@@ -150,7 +153,7 @@ fn action_binding_pressed(
 /// Collect keyboard actions from the egui context (input detection only).
 pub(crate) fn collect_actions(
     ctx: &egui::Context,
-    _graph_app: &GraphBrowserApp,
+    graph_app: &GraphBrowserApp,
 ) -> KeyboardActions {
     // Don't handle shortcuts while egui is actively capturing keyboard input
     // (for example, URL bar text editing).
@@ -165,7 +168,11 @@ pub(crate) fn collect_actions(
                 // Escape will unfocus the text field (handled by egui)
                 return;
             }
-            actions.toggle_view = true;
+            if graph_app.graph_view_layout_manager_active() {
+                actions.close_overview_plane = true;
+            } else {
+                actions.toggle_view = true;
+            }
         }
 
         // Home: Toggle view (always works)
@@ -181,6 +188,14 @@ pub(crate) fn collect_actions(
         // Skip remaining shortcuts while egui is consuming keyboard input.
         if keyboard_captured_by_egui {
             return;
+        }
+
+        if action_binding_pressed(
+            i,
+            action_id::graph::TOGGLE_OVERVIEW_PLANE,
+            &binding_descriptors,
+        ) {
+            actions.toggle_overview_plane = true;
         }
 
         if action_binding_pressed(i, action_id::graph::TOGGLE_PHYSICS, &binding_descriptors) {
@@ -317,6 +332,12 @@ pub(crate) fn collect_actions(
 /// Convert keyboard actions to graph intents without applying them.
 pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     let mut intents = Vec::new();
+    if actions.toggle_overview_plane {
+        intents.push(GraphIntent::ToggleGraphViewLayoutManager);
+    }
+    if actions.close_overview_plane {
+        intents.push(GraphIntent::ExitGraphViewLayoutManager);
+    }
     if actions.toggle_physics {
         intents.push(GraphIntent::TogglePhysics);
     }
@@ -945,6 +966,39 @@ mod tests {
         actions
     }
 
+    fn collect_actions_with_key_event_for_app(
+        app: &GraphBrowserApp,
+        key: Key,
+        modifiers: Modifiers,
+        capture_keyboard: bool,
+    ) -> KeyboardActions {
+        let ctx = egui::Context::default();
+        let mut actions = KeyboardActions::default();
+
+        let mut raw = RawInput::default();
+        raw.modifiers = modifiers;
+        raw.events.push(Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        });
+
+        let _ = ctx.run(raw, |ctx| {
+            if capture_keyboard {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let mut input = String::from("capture");
+                    let response = ui.add(egui::TextEdit::singleline(&mut input));
+                    response.request_focus();
+                });
+            }
+            actions = collect_actions(ctx, app);
+        });
+
+        actions
+    }
+
     #[test]
     fn collect_actions_suppresses_f6_when_keyboard_is_captured() {
         let actions = collect_actions_with_key_event(Key::F6, Modifiers::default(), true);
@@ -1088,6 +1142,56 @@ mod tests {
             !actions.open_tag_panel,
             "Ctrl+T should be suppressed while text input captures keyboard"
         );
+    }
+
+    #[test]
+    fn collect_actions_maps_ctrl_shift_o_to_overview_toggle_when_not_captured() {
+        let actions = collect_actions_with_key_event(
+            Key::O,
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                ..Modifiers::default()
+            },
+            false,
+        );
+        assert!(
+            actions.toggle_overview_plane,
+            "Ctrl+Shift+O should toggle the Overview Plane when keyboard input is not captured"
+        );
+    }
+
+    #[test]
+    fn collect_actions_suppresses_ctrl_shift_o_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(
+            Key::O,
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                ..Modifiers::default()
+            },
+            true,
+        );
+        assert!(
+            !actions.toggle_overview_plane,
+            "Ctrl+Shift+O should be suppressed while text input captures keyboard"
+        );
+    }
+
+    #[test]
+    fn collect_actions_maps_escape_to_close_overview_when_manager_is_active() {
+        let mut app = test_app();
+        app.apply_reducer_intents([GraphIntent::EnterGraphViewLayoutManager]);
+
+        let actions = collect_actions_with_key_event_for_app(
+            &app,
+            Key::Escape,
+            Modifiers::default(),
+            false,
+        );
+
+        assert!(actions.close_overview_plane);
+        assert!(!actions.toggle_view);
     }
 
     #[test]

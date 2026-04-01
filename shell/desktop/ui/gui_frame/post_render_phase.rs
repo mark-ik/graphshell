@@ -304,6 +304,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         graph_surface_focused,
         *focused_node_hint,
     );
+    crate::shell::desktop::ui::overview_plane::render_overview_plane(ctx, graph_app);
     if !preview_mode_active && let Some(target_dir) = graph_app.take_pending_switch_data_dir() {
         match persistence_ops::switch_persistence_store(
             graph_app,

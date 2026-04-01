@@ -21,6 +21,7 @@ pub(crate) mod action_id {
     pub(crate) mod graph {
         pub(crate) const VIEW_CONFIRM: &str = "graph:view_confirm";
         pub(crate) const CYCLE_FOCUS_REGION: &str = "graph:cycle_focus_region";
+        pub(crate) const TOGGLE_OVERVIEW_PLANE: &str = "graph:toggle_overview_plane";
         pub(crate) const COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
         pub(crate) const RADIAL_MENU_OPEN: &str = "workbench:radial_menu_open";
         pub(crate) const NODE_EDIT_TAGS: &str = "graph:node_edit_tags";
@@ -101,6 +102,14 @@ impl ModifierMask {
 
     fn contains(self, flag: Self) -> bool {
         self.0 & flag.0 == flag.0
+    }
+}
+
+impl std::ops::BitOr for ModifierMask {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
     }
 }
 
@@ -381,6 +390,7 @@ impl InputBinding {
             egui::Key::K => Keycode::Char('k'),
             egui::Key::L => Keycode::Char('l'),
             egui::Key::N => Keycode::Char('n'),
+            egui::Key::O => Keycode::Char('o'),
             egui::Key::P => Keycode::Char('p'),
             egui::Key::Questionmark => Keycode::Char('?'),
             egui::Key::R => Keycode::Char('r'),
@@ -673,6 +683,16 @@ struct DefaultBindingSpec {
 
 fn default_binding_specs() -> Vec<DefaultBindingSpec> {
     vec![
+        DefaultBindingSpec {
+            action_id: action_id::graph::TOGGLE_OVERVIEW_PLANE,
+            display_name: "Toggle Overview Plane",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::CTRL | ModifierMask::SHIFT,
+                keycode: Keycode::Char('o'),
+            },
+        },
         DefaultBindingSpec {
             action_id: action_id::graph::NODE_EDIT_TAGS,
             display_name: "Edit Node Tags",

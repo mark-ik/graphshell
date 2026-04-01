@@ -198,6 +198,7 @@ pub enum ActionId {
     GraphFit,
     GraphFitGraphlet,
     GraphCycleFocusRegion,
+    GraphToggleOverviewPlane,
     GraphTogglePhysics,
     /// Toggle per-view ghost node (tombstone) visibility.
     GraphToggleGhostNodes,
@@ -246,6 +247,7 @@ impl ActionId {
             Self::EdgeRemoveUser => &[input_action::graph::EDGE_REMOVE_USER],
             Self::GraphFit => &[],
             Self::GraphFitGraphlet => &[],
+            Self::GraphToggleOverviewPlane => &[input_action::graph::TOGGLE_OVERVIEW_PLANE],
             Self::GraphTogglePhysics => &[input_action::graph::TOGGLE_PHYSICS],
             Self::GraphPhysicsConfig => &[input_action::workbench::OPEN_PHYSICS_SETTINGS],
             Self::GraphCommandPalette => &[input_action::graph::COMMAND_PALETTE_OPEN],
@@ -298,6 +300,7 @@ impl ActionId {
             Self::GraphFit => "graph:fit",
             Self::GraphFitGraphlet => "graph:fit_graphlet",
             Self::GraphCycleFocusRegion => "graph:cycle_focus_region",
+            Self::GraphToggleOverviewPlane => "graph:toggle_overview_plane",
             Self::GraphTogglePhysics => "graph:toggle_physics",
             Self::GraphToggleGhostNodes => "graph:toggle_ghost_nodes",
             Self::GraphPhysicsConfig => "graph:physics_config",
@@ -364,6 +367,7 @@ impl ActionId {
             Self::GraphFit => "Fit",
             Self::GraphFitGraphlet => "Fit Graphlet",
             Self::GraphCycleFocusRegion => "Focus",
+            Self::GraphToggleOverviewPlane => "Overview",
             Self::GraphTogglePhysics => "Physics",
             Self::GraphToggleGhostNodes => "Ghosts",
             Self::GraphPhysicsConfig => "Config",
@@ -430,6 +434,7 @@ impl ActionId {
             Self::GraphFit => "Fit Graph to Screen",
             Self::GraphFitGraphlet => "Fit Graphlet to Screen",
             Self::GraphCycleFocusRegion => "Cycle Focus Region",
+            Self::GraphToggleOverviewPlane => "Toggle Overview Plane",
             Self::GraphTogglePhysics => "Toggle Physics Simulation",
             Self::GraphToggleGhostNodes => "Toggle Ghost Node Visibility",
             Self::GraphPhysicsConfig => "Open Physics Settings",
@@ -496,6 +501,7 @@ impl ActionId {
             Self::GraphFit
             | Self::GraphFitGraphlet
             | Self::GraphCycleFocusRegion
+            | Self::GraphToggleOverviewPlane
             | Self::GraphTogglePhysics
             | Self::GraphToggleGhostNodes
             | Self::GraphPhysicsConfig
@@ -581,6 +587,7 @@ fn all_action_ids() -> &'static [ActionId] {
         GraphFit,
         GraphFitGraphlet,
         GraphCycleFocusRegion,
+        GraphToggleOverviewPlane,
         GraphTogglePhysics,
         GraphToggleGhostNodes,
         GraphPhysicsConfig,
@@ -727,6 +734,7 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         // Graph
         (GraphFit, true),
         (GraphFitGraphlet, true),
+        (GraphToggleOverviewPlane, true),
         (GraphTogglePhysics, true),
         (GraphToggleGhostNodes, true),
         (GraphPhysicsConfig, true),

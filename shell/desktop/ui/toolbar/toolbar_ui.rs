@@ -60,6 +60,9 @@ use crate::shell::desktop::runtime::registries::lens::{LENS_ID_DEFAULT, LENS_ID_
 use crate::shell::desktop::runtime::registries::physics_profile::{
     PHYSICS_PROFILE_GAS, PHYSICS_PROFILE_LIQUID, PHYSICS_PROFILE_SOLID,
 };
+use crate::shell::desktop::runtime::registries::{
+    input::action_id, phase2_binding_display_labels_for_action,
+};
 use crate::shell::desktop::ui::navigator_context::NavigatorContextProjection;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
@@ -542,6 +545,18 @@ fn open_selected_node_tag_panel(graph_app: &mut GraphBrowserApp) {
     crate::shell::desktop::ui::tag_panel::open_node_tag_panel(graph_app, node_key, false);
 }
 
+fn overview_plane_tooltip(graph_app: &GraphBrowserApp) -> String {
+    let shortcut = phase2_binding_display_labels_for_action(action_id::graph::TOGGLE_OVERVIEW_PLANE)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "Ctrl+Shift+O".to_string());
+    if graph_app.graph_view_layout_manager_active() {
+        format!("Exit Overview Plane ({shortcut})")
+    } else {
+        format!("Open Overview Plane ({shortcut})")
+    }
+}
+
 pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let Input {
         ctx,
@@ -634,6 +649,18 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
 
                     render_graph_bar_lens_menu(ui, graph_app, frame_intents);
                     render_graph_bar_physics_menu(ui, graph_app, frame_intents);
+
+                    let overview_label = if graph_app.graph_view_layout_manager_active() {
+                        "Overview*"
+                    } else {
+                        "Overview"
+                    };
+                    let overview_button = ui
+                        .add(toolbar_button(overview_label))
+                        .on_hover_text(overview_plane_tooltip(graph_app));
+                    if overview_button.clicked() {
+                        frame_intents.push(GraphIntent::ToggleGraphViewLayoutManager);
+                    }
 
                     let command_button = ui
                         .add(toolbar_button("Cmd"))
