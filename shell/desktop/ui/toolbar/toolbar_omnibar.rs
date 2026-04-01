@@ -412,10 +412,7 @@ pub(super) fn non_at_global_fallback_matches(
 }
 
 fn tab_node_keys_in_tree(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
-    tile_grouping::webview_tab_group_memberships(tiles_tree)
-        .keys()
-        .copied()
-        .collect()
+    tile_grouping::tab_node_keys_in_tree(tiles_tree)
 }
 
 fn omnibar_graph_view_context(
@@ -444,11 +441,9 @@ fn saved_tab_node_keys(graph_app: &GraphBrowserApp) -> HashSet<NodeKey> {
         let Ok(bundle) = persistence_ops::load_named_frame_bundle(graph_app, &frame_name) else {
             continue;
         };
-        if let Ok((tree, _)) =
-            persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
-        {
-            saved_tab_nodes.extend(tab_node_keys_in_tree(&tree));
-        }
+        saved_tab_nodes.extend(persistence_ops::saved_tab_node_keys_for_frame_bundle(
+            graph_app, &bundle,
+        ));
     }
     saved_tab_nodes
 }
@@ -1603,6 +1598,64 @@ mod tests {
             &current_tree,
             OmnibarSearchMode::TabsAll,
             "saved-tab",
+            true,
+        );
+        assert_eq!(matches, vec![OmnibarMatch::Node(tab_key)]);
+    }
+
+    #[test]
+    fn test_omnibar_tabs_all_uses_frame_tab_semantics_for_pane_rest_saved_frame() {
+        let temp = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
+        let tab_key =
+            app.add_node_and_sync("https://saved-pane-rest.example".into(), Point2D::zero());
+        let node_uuid = app.domain_graph().get_node(tab_key).expect("node").id;
+
+        let mut saved_tiles = egui_tiles::Tiles::default();
+        let saved_root = saved_tiles.insert_pane(persistence_ops::PersistedPaneTile::Pane(1));
+        let saved_bundle = persistence_ops::PersistedWorkspace {
+            version: 1,
+            name: "frame:pane-rest".to_string(),
+            layout: persistence_ops::WorkspaceLayout {
+                tree: Tree::new("saved_pane_rest", saved_root, saved_tiles),
+            },
+            manifest: persistence_ops::WorkspaceManifest {
+                panes: std::collections::BTreeMap::from([(
+                    1,
+                    persistence_ops::PaneContent::NodePane { node_uuid },
+                )]),
+                member_node_uuids: std::collections::BTreeSet::from([node_uuid]),
+            },
+            frame_tab_semantics: Some(persistence_ops::FrameTabSemantics {
+                version: 1,
+                tab_groups: vec![persistence_ops::TabGroupMetadata {
+                    group_id: uuid::Uuid::new_v4(),
+                    pane_ids: vec![1],
+                    active_pane_id: Some(1),
+                }],
+            }),
+            metadata: persistence_ops::WorkspaceMetadata {
+                created_at_ms: 1,
+                updated_at_ms: 1,
+                last_activated_at_ms: None,
+            },
+            workbench_profile: crate::app::WorkbenchProfile::default(),
+        };
+        app.save_workspace_layout_json(
+            "frame:pane-rest",
+            &serde_json::to_string(&saved_bundle).expect("serialize saved frame bundle"),
+        );
+
+        let mut current_tiles = egui_tiles::Tiles::default();
+        let current_root =
+            current_tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let current_tree = Tree::new("current_tree", current_root, current_tiles);
+
+        let matches = omnibar_matches_for_query(
+            &mut app,
+            &current_tree,
+            OmnibarSearchMode::TabsAll,
+            "saved-pane-rest",
             true,
         );
         assert_eq!(matches, vec![OmnibarMatch::Node(tab_key)]);

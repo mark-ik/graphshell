@@ -5,7 +5,7 @@
 # Workbench Semantic Tab Overlay and Pane-Rest Execution Note
 
 **Date**: 2026-02-22
-**Status**: Active execution note — planned feature, not yet implemented in runtime code
+**Status**: Active execution note — partially implemented runtime slice; broader semantic-tab rollout remains in progress
 
 **Canonical authority chain**:
 
@@ -16,7 +16,7 @@
 **Relates to**:
 
 - `../../archive_docs/checkpoint_2026-02-22/2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation (archived 2026-02-24); `PaneId` and `FrameManifest` types defined there, plus frame membership/routing context lineage
-- `frame_persistence_format_spec.md` — canonical current persisted frame-bundle shape; semantic tab overlay remains a planned additive extension there
+- `frame_persistence_format_spec.md` — canonical current persisted frame-bundle shape, including the optional additive `frame_tab_semantics` field
 - `../system/register/workbench_surface_registry_spec.md` — `WorkbenchSurfaceRegistry` owns layout/interaction policy for tile containers, including simplification options; overlay restore/collapse logic must read those options (the former `2026-02-22_registry_layer_plan.md` Phase 3 is now canonicalized here)
 - `../system/2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md` — current `GraphWorkspace`/`AppServices` field-ownership status; `FrameTabSemantics` target home after state-ownership migration
 
@@ -24,8 +24,8 @@
 
 ## Purpose
 
-This note keeps the `FrameTabSemantics` direction active as an implementation guide without
-pretending the feature has already landed.
+This note keeps the `FrameTabSemantics` direction active as an implementation guide while
+tracking the partial runtime slice that has now landed.
 
 The target remains the same:
 
@@ -35,9 +35,17 @@ The target remains the same:
 
 Current reality:
 
-- runtime code does **not** yet contain a `FrameTabSemantics` carrier
-- runtime code does **not** yet contain the planned restore/collapse intents in this note
-- some tab-aware behavior still infers semantics directly from live tile-tree shape
+- runtime code now contains a persisted `FrameTabSemantics` carrier on saved frame bundles
+- save/load paths now derive, validate, and repair semantic tab metadata as frame state
+- explicit `RepairFrameTabSemantics` intent plumbing now exists via runtime lifecycle bridge -> app command -> frame persistence repair/resave path
+- omnibar saved-frame tab discovery now uses an overlay-first semantic helper path
+- live workbench tab-shape queries now flow through shared `tile_grouping` helpers instead of duplicating node-tab membership rules per consumer
+- restore-time frame loading can now rewrap pane-rest bundles back into visual tabs when saved semantic metadata provides the missing group members
+- runtime code now contains reducer-owned `RestorePaneToSemanticTabGroup` / `CollapseSemanticTabGroupToPaneRest` intent carriers, workbench-surface application, and runtime-resident semantic overlay state for the active frame
+- live collapse-to-pane-rest state now persists through named-frame bundle saves instead of being lost when saving from a structurally collapsed tree
+- workbench host pane rows now expose `Tabs` / `Rest` affordances for pane-rest restore and live collapse, backed by the shared semantic-tab query helper
+- keyboard command wiring now exists through `InputRegistry` for toggling the focused pane between pane-rest and semantic-tab-group form
+- some other tab-aware behavior still infers semantics directly from live tile-tree shape
 - the concept remains intended architecture and is still referenced by active graph/workbench docs
 
 ---
@@ -149,7 +157,7 @@ Implement through shared helper APIs — not per-feature ad hoc logic.
 
 Current gap this work is meant to close:
 
-- omnibar saved-tab discovery still reads tab membership from tile-tree shape directly instead of an overlay-first semantic helper path
+- some remaining live consumers still read tab meaning from tree shape instead of a shared overlay-first semantic query surface
 
 Proposed helper surface (exact module TBD; name/location should be chosen to fit the current desktop/workbench module layout rather than the older monolithic owner-file era structure):
 
@@ -201,8 +209,7 @@ GraphIntent::RepairFrameTabSemantics {
 }
 ```
 
-These intent variants do not exist in runtime code today; they are the proposed reducer-owned
-carrier for this feature.
+These intent variants now exist in runtime code as reducer-owned carriers for the live restore/collapse path.
 
 The desktop apply layer handles tree rewrites, lifecycle dispatch, and UI state updates in response
 to these intents.
@@ -252,61 +259,71 @@ Example: `Frame 'research-1': repaired tab group g42 (missing active pane p9). P
 
 ## Stage 8 Execution Plan
 
-Stage 8A (design lock) is complete as documentation only. Stages 8B–8E remain implementation work,
-and no runtime slice beyond design lock has landed.
+Stage 8A (design lock) is complete as documentation only. Stages 8B and 8C now have an initial
+runtime slice landed; Stages 8D–8E remain implementation work.
 
 ### Stage 8B: Overlay Persistence + Validation
 
-**Status**: Not started
+**Status**: Partial
 
 Goal: persist optional tab semantics metadata in the frame bundle and validate/repair it on load.
 
-- Extend bundle schema with optional `FrameTabSemantics` field (rkyv, additive — bundle load
-  works with or without overlay present).
-- Implement validation helpers: check each invariant in order, collect all violations before repairing.
-- Implement repair helpers: drop/correct invalid entries; preserve valid entries; return repair log.
-- Implement `RepairFrameTabSemantics` intent handling in reducer.
-- Add roundtrip tests: bundle with overlay, bundle without overlay, bundle with invalid overlay.
-- Add repair invariant tests: duplicate pane, invalid active pane, missing pane.
+- Extend bundle schema with optional `FrameTabSemantics` field (landed).
+- Implement validation helpers: check each invariant in order, collect all violations before repairing
+  (initial load-time repair landed for persisted bundle invariants).
+- Implement repair helpers: drop/correct invalid entries; preserve valid entries; return repair log
+  (load-time repair log strings landed; explicit repair command path now lands repair + resave for named frames).
+- Implement `RepairFrameTabSemantics` intent handling in reducer
+  (intent carrier landed through runtime lifecycle bridge and app command path; reducer-owned graph-delta semantics are still not needed here).
+- Add roundtrip tests: bundle with overlay, bundle without overlay, bundle with invalid overlay
+  (initial save/load and repair coverage landed).
+- Add repair invariant tests: duplicate pane, invalid active pane, missing pane (landed).
 
-Done gate: bundle load/save roundtrip passes with and without overlay. Invalid overlay repairs are
-deterministic and test-covered. Repair emits structured log entries.
+Remaining gate: structured repair events and any future reducer-owned graph-state coupling still
+need to land before Stage 8B can be called complete.
 
 ### Stage 8C: Overlay-First Query APIs + Consumer Migration
 
-**Status**: Not started — blocked on Stage 8B done gate
+**Status**: Partial
 
 Goal: route all tab-aware features through shared semantic queries; eliminate direct tree-shape
 inference from consumers.
 
-- Add overlay-first helper APIs in a current desktop/workbench semantic-query module.
-- Update omnibar saved-tab discovery to use `saved_tab_nodes_for_frame()`.
+- Add overlay-first helper APIs in a current desktop/workbench semantic-query module
+  (initial persistence helper path landed in `persistence_ops`; shared live-tree helper coverage landed in `tile_grouping`).
+- Update omnibar saved-tab discovery to use `saved_tab_nodes_for_frame()` (landed via
+  bundle-level semantic helper path).
+- Consolidate live tab-group ordering/membership queries onto shared helpers so omnibar, post-render
+  grouping, and tab chrome stop duplicating node-tab membership rules (landed for current
+  tree-shape consumers).
 - Update pin UI tab-aware queries to use `pane_semantic_tab_state()`.
 - Preserve tree-shape fallback in the helpers during rollout; do not require overlay presence.
 - No new direct tree-shape inference paths in migrated consumers.
 
-Done gate: tab-aware feature behavior is stable under tree-shape normalization. `cargo grep` for
-direct `Tree<TileKind>` access outside `desktop/workbench_semantics.rs` returns no new callsites
-for tab-semantic queries.
+Remaining gate: migrate the rest of the tab-aware consumers, then consolidate the helper surface
+into a shared semantic-query module.
 
 ### Stage 8D: Restore / Collapse + Pane Rest State
 
-**Status**: Not started — blocked on Stage 8B done gate
+**Status**: Partial
 
 Goal: implement semantic lifecycle transitions and on-demand rewrap affordance.
 
 - Add `RestorePaneToSemanticTabGroup`, `CollapseSemanticTabGroupToPaneRest` intent variants and
-  reducer handling.
+  reducer handling (landed).
+- Restore-time pane-rest rewrap from persisted `FrameTabSemantics` metadata is landed for saved
+  frame bundles, and live-runtime restore/collapse now routes through the same reducer -> workbench-surface boundary (landed).
 - Desktop apply layer: implement tree rewrap (hoist/unhoist), runtime lifecycle dispatch
-  (resume/suspend), UI readiness update on confirmation.
-- Implement idempotency: applying restore/collapse twice has same effect as once.
+  (resume/suspend), UI readiness update on confirmation
+  (tree rewrap + idempotent semantic sequencing landed; explicit runtime suspend/resume confirmation remains future work).
+- Implement idempotency: applying restore/collapse twice has same effect as once (landed for the structural runtime path).
 - Implement single-pane inverted-tab affordance in `desktop/ui/toolbar/` or pane chrome render
-  (exact location TBD by render pass structure). Register keyboard equivalent in `InputRegistry`.
+  (current runtime slice landed in the workbench host pane rows as `Tabs` / `Rest` affordances).
+- Register keyboard equivalent in `InputRegistry` (landed as focused-pane semantic-tab toggle wiring).
 - Connect lifecycle ordering: restore waits for runtime confirmation before updating UI readiness.
 
-Done gate: collapsed semantic tabs can be restored with metadata fully restored. Pane rest state
-is usable while runtime content is suspended or resuming. Restore/collapse operations are idempotent under
-repeated application.
+Remaining gate: stricter runtime lifecycle confirmation and any final polish on affordance placement
+outside the workbench host are still required before Stage 8D can be called complete.
 
 ### Stage 8E: Simplify-Safe Restore Integration
 
@@ -423,7 +440,8 @@ Stage 8E here once confirmed.
 ### 2026-04-01 (reconciliation revision)
 
 - Retitled from the older overlay-and-promotion wording to keep `promotion` reserved for graph enrollment only.
-- Status corrected: `FrameTabSemantics` remains planned architecture and is not yet implemented in runtime code.
+- Status corrected: `FrameTabSemantics` is now partially implemented in runtime code, but the
+  restore/collapse lifecycle and broader consumer migration remain planned work.
 - Canonical authority chain updated to point at `../graph/multi_view_pane_spec.md` for the semantic contract.
 - Stale ownership wording replaced with current reducer/app-layer and desktop/workbench apply-layer language.
 - Current open coupling called out explicitly: omnibar saved-tab discovery still reads semantic tab membership from tile-tree shape.

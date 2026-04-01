@@ -65,12 +65,15 @@ Current persisted top-level fields:
 - `name`
 - `layout`
 - `manifest`
+- `frame_tab_semantics` (optional)
 - `metadata`
+- `workbench_profile`
 
-Current non-field rule:
+Current optional-field rule:
 
-- `FrameTabSemantics` is **not** currently part of the persisted bundle shape
-- semantic tab overlay remains a planned additive frame-state extension rather than a landed field in `PersistedFrame` / `PersistedWorkspace`
+- `FrameTabSemantics` is now an optional additive field in the persisted bundle shape
+- bundle load/save must continue to work with or without `frame_tab_semantics` present
+- semantic tab overlay remains frame state only; it is not graph WAL data
 
 ### 3.1 Layout
 
@@ -80,7 +83,7 @@ Current non-field rule:
 
 `PersistedPaneTile` currently allows:
 
-- `Graph`
+- `Graph` (legacy persisted graph-pane form kept for compatibility)
 - `Pane(PersistedPaneId)`
 - `LegacyDiagnostic` (deserialize-only backward compatibility)
 
@@ -120,16 +123,18 @@ Normative rule:
 - metadata is durable bookkeeping,
 - it does not affect structural validity of the frame bundle.
 
-### 3.4 Planned extension: semantic tab overlay
+### 3.4 Optional field: semantic tab overlay
 
-`FrameTabSemantics` remains a planned future additive field for persisted frame bundles.
+`FrameTabSemantics` is an additive persisted frame-bundle field used to preserve semantic tab
+membership independently from structural tile-tree normalization.
 
-Normative future rule:
+Normative rule:
 
-- if added, `FrameTabSemantics` is frame state only
+- `FrameTabSemantics` is frame state only
 - it is additive to the persisted bundle and must remain backward compatible
 - it does not belong in graph WAL / domain-graph persistence lanes
-- until it lands, restore behavior must continue to derive tab meaning from current persisted layout and manifest only
+- consumers must tolerate the field being absent and fall back to deriving tab meaning from
+  current persisted layout and manifest when needed
 
 ---
 

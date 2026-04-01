@@ -24,7 +24,7 @@ use super::{
     GraphViewFrame, GraphViewId, GraphViewLayoutManagerState, GraphViewState, HelpPanelShortcut,
     HistoryManagerTab, HistoryTraversalFailureReason, KeyboardPanInputMode, MemoryPressureLevel,
     NavigatorProjectionState, OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingCreateToken,
-    RadialMenuShortcut, RendererId, RuntimeBlockState, SearchDisplayMode,
+    RadialMenuShortcut, RendererId, RuntimeBlockState, RuntimeFrameTabSemantics, SearchDisplayMode,
     SelectionEdgeProjectionOverride, SelectionScope, SelectionState, SettingsToolPage,
     SurfaceHostId, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, UxConfigMode,
     ViewDimension, WorkbenchIntent, WorkbenchLayoutConstraint, WorkbenchProfile,
@@ -417,6 +417,9 @@ pub struct WorkbenchSessionState {
 
     /// Name of the currently loaded named frame/workspace, if any.
     pub(crate) current_workspace_name: Option<String>,
+
+    /// Semantic tab overlay for the currently active named frame/workbench tree.
+    pub(crate) current_frame_tab_semantics: Option<RuntimeFrameTabSemantics>,
 
     /// True while current tile tree was synthesized without a named restore context.
     pub(crate) current_workspace_is_synthesized: bool,

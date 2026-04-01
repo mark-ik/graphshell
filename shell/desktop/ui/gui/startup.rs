@@ -36,6 +36,9 @@ pub(super) fn restore_startup_session_frame_if_available(
         normalize_graph_only_workbench_tree(&mut restored_tree);
         if restored_tree.root().is_some() {
             graph_app.mark_session_frame_layout_json(&layout_json);
+            graph_app.set_current_frame_tab_semantics(
+                persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&restored_tree),
+            );
             log::debug!("gui: restored startup session frame from session layout json");
             *tiles_tree = restored_tree;
             return true;
@@ -54,6 +57,13 @@ pub(super) fn restore_startup_session_frame_if_available(
             if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
                 graph_app.mark_session_frame_layout_json(&runtime_layout_json);
             }
+            graph_app.set_current_frame_tab_semantics(
+                persistence_ops::runtime_frame_tab_semantics_from_restored_bundle(
+                    graph_app,
+                    &bundle,
+                    &restored_tree,
+                ),
+            );
             log::debug!("gui: restored startup session frame from legacy session bundle");
             *tiles_tree = restored_tree;
             return true;
@@ -67,6 +77,9 @@ pub(super) fn restore_startup_session_frame_if_available(
         normalize_graph_only_workbench_tree(&mut restored_tree);
         if restored_tree.root().is_some() {
             graph_app.mark_session_frame_layout_json(&layout_json);
+            graph_app.set_current_frame_tab_semantics(
+                persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&restored_tree),
+            );
             log::debug!("gui: restored startup session frame from compatibility layout json");
             *tiles_tree = restored_tree;
             return true;

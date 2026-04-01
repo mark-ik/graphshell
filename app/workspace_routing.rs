@@ -464,6 +464,7 @@ impl GraphBrowserApp {
     /// Mark the current frame context as synthesized from runtime actions.
     pub fn mark_current_workspace_synthesized(&mut self) {
         self.workspace.workbench_session.current_workspace_name = None;
+        self.workspace.workbench_session.current_frame_tab_semantics = None;
         self.workspace
             .workbench_session
             .current_workspace_is_synthesized = true;
@@ -596,6 +597,17 @@ impl GraphBrowserApp {
 
     pub fn current_frame_name(&self) -> Option<&str> {
         self.current_workspace_name()
+    }
+
+    pub fn current_frame_tab_semantics(&self) -> Option<&RuntimeFrameTabSemantics> {
+        self.workspace
+            .workbench_session
+            .current_frame_tab_semantics
+            .as_ref()
+    }
+
+    pub fn set_current_frame_tab_semantics(&mut self, semantics: Option<RuntimeFrameTabSemantics>) {
+        self.workspace.workbench_session.current_frame_tab_semantics = semantics;
     }
 
     /// Initialize membership index from desktop-layer workspace scan.

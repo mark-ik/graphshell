@@ -35,6 +35,7 @@ pub struct KeyboardActions {
     pub toggle_help_panel: bool,
     pub toggle_command_palette: bool,
     pub toggle_radial_menu: bool,
+    pub toggle_semantic_tab_group: bool,
     pub create_node: bool,
     pub connect_selected_pair: bool,
     pub connect_both_directions: bool,
@@ -151,10 +152,7 @@ fn action_binding_pressed(
 }
 
 /// Collect keyboard actions from the egui context (input detection only).
-pub(crate) fn collect_actions(
-    ctx: &egui::Context,
-    graph_app: &GraphBrowserApp,
-) -> KeyboardActions {
+pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) -> KeyboardActions {
     // Don't handle shortcuts while egui is actively capturing keyboard input
     // (for example, URL bar text editing).
     let keyboard_captured_by_egui = ctx.wants_keyboard_input();
@@ -234,6 +232,13 @@ pub(crate) fn collect_actions(
             &binding_descriptors,
         ) {
             actions.toggle_history_manager = true;
+        }
+        if action_binding_pressed(
+            i,
+            action_id::workbench::TOGGLE_SEMANTIC_TAB_GROUP,
+            &binding_descriptors,
+        ) {
+            actions.toggle_semantic_tab_group = true;
         }
 
         if action_binding_pressed(i, action_id::graph::NODE_NEW, &binding_descriptors) {
@@ -1143,6 +1148,44 @@ mod tests {
     }
 
     #[test]
+    fn collect_actions_maps_ctrl_alt_t_to_semantic_tab_toggle_when_not_captured() {
+        let actions = collect_actions_with_key_event(
+            Key::T,
+            Modifiers {
+                ctrl: true,
+                alt: true,
+                ..Modifiers::default()
+            },
+            false,
+        );
+        assert!(
+            actions.toggle_semantic_tab_group,
+            "Ctrl+Alt+T should toggle the semantic tab group when keyboard input is not captured"
+        );
+        assert!(
+            !actions.open_tag_panel,
+            "Ctrl+Alt+T should remain distinct from the Ctrl+T tag shortcut"
+        );
+    }
+
+    #[test]
+    fn collect_actions_suppresses_ctrl_alt_t_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(
+            Key::T,
+            Modifiers {
+                ctrl: true,
+                alt: true,
+                ..Modifiers::default()
+            },
+            true,
+        );
+        assert!(
+            !actions.toggle_semantic_tab_group,
+            "Ctrl+Alt+T should be suppressed while text input captures keyboard"
+        );
+    }
+
+    #[test]
     fn collect_actions_maps_ctrl_shift_o_to_overview_toggle_when_not_captured() {
         let actions = collect_actions_with_key_event(
             Key::O,
@@ -1181,12 +1224,8 @@ mod tests {
         let mut app = test_app();
         app.apply_reducer_intents([GraphIntent::EnterGraphViewLayoutManager]);
 
-        let actions = collect_actions_with_key_event_for_app(
-            &app,
-            Key::Escape,
-            Modifiers::default(),
-            false,
-        );
+        let actions =
+            collect_actions_with_key_event_for_app(&app, Key::Escape, Modifiers::default(), false);
 
         assert!(actions.close_overview_plane);
         assert!(!actions.toggle_view);
@@ -1196,12 +1235,8 @@ mod tests {
     fn collect_actions_does_not_map_escape_to_toggle_view_when_no_surface_is_active() {
         let app = test_app();
 
-        let actions = collect_actions_with_key_event_for_app(
-            &app,
-            Key::Escape,
-            Modifiers::default(),
-            false,
-        );
+        let actions =
+            collect_actions_with_key_event_for_app(&app, Key::Escape, Modifiers::default(), false);
 
         assert!(!actions.close_overview_plane);
         assert!(!actions.toggle_view);

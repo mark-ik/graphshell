@@ -128,6 +128,17 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
             None,
         );
     }
+    if keyboard_actions.toggle_semantic_tab_group
+        && let Some(focused_pane) = window.focused_pane()
+        && let Some(intent) =
+            crate::shell::desktop::workbench::tile_view_ops::semantic_tab_toggle_intent_for_pane(
+                tiles_tree,
+                graph_app,
+                focused_pane,
+            )
+    {
+        graph_app.enqueue_workbench_intent(intent);
+    }
     frame_intents.extend(input::intents_from_actions(&keyboard_actions));
     input::dispatch_runtime_requests_from_actions(&keyboard_actions);
     graph_app.extend_workbench_intents(input::workbench_intents_from_actions(&keyboard_actions));

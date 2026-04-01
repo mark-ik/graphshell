@@ -256,6 +256,8 @@ impl WorkbenchSurfaceRegistry {
                     | WorkbenchIntent::SetPaneView { .. }
                     | WorkbenchIntent::OpenGraphViewPane { .. }
                     | WorkbenchIntent::OpenNodeInPane { .. }
+                    | WorkbenchIntent::RestorePaneToSemanticTabGroup { .. }
+                    | WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { .. }
             ),
         }
     }
@@ -489,6 +491,18 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::ReconcileGraphletTiles { node } => {
                 pane_ops::handle_reconcile_graphlet_tiles_intent(graph_app, tiles_tree, node);
+                None
+            }
+            WorkbenchIntent::RestorePaneToSemanticTabGroup { pane, group_id } => {
+                pane_ops::handle_restore_pane_to_semantic_tab_group_intent(
+                    graph_app, tiles_tree, pane, group_id,
+                );
+                None
+            }
+            WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { group_id } => {
+                pane_ops::handle_collapse_semantic_tab_group_to_pane_rest_intent(
+                    graph_app, tiles_tree, group_id,
+                );
                 None
             }
         }

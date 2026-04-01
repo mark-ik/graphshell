@@ -49,6 +49,7 @@ pub(crate) mod action_id {
         pub(crate) const OPEN_HISTORY_MANAGER: &str = "workbench:open_history_manager";
         pub(crate) const OPEN_PHYSICS_SETTINGS: &str = "workbench:open_physics_settings";
         pub(crate) const OPEN_CAMERA_CONTROLS: &str = "workbench:open_camera_controls";
+        pub(crate) const TOGGLE_SEMANTIC_TAB_GROUP: &str = "workbench:toggle_semantic_tab_group";
         pub(crate) const UNDO: &str = "workbench:undo";
         pub(crate) const REDO: &str = "workbench:redo";
     }
@@ -934,6 +935,16 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
+            action_id: action_id::workbench::TOGGLE_SEMANTIC_TAB_GROUP,
+            display_name: "Toggle Semantic Tab Group",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask(ModifierMask::CTRL.0 | ModifierMask::ALT.0),
+                keycode: Keycode::Char('t'),
+            },
+        },
+        DefaultBindingSpec {
             action_id: action_id::workbench::UNDO,
             display_name: "Undo",
             section: InputBindingSection::Workbench,
@@ -1676,6 +1687,7 @@ mod tests {
             action_id::workbench::OPEN_HISTORY_MANAGER,
             action_id::workbench::OPEN_PHYSICS_SETTINGS,
             action_id::workbench::OPEN_CAMERA_CONTROLS,
+            action_id::workbench::TOGGLE_SEMANTIC_TAB_GROUP,
             action_id::workbench::UNDO,
             action_id::workbench::REDO,
             action_id::radial_menu::CATEGORY_PREVIOUS,

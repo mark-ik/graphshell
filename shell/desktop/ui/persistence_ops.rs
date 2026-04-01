@@ -31,6 +31,9 @@ pub(crate) type PersistedPaneId = u64;
 
 /// Backward-compatible local alias retained while migrating callsites.
 pub(crate) type PaneId = PersistedPaneId;
+type RuntimePaneId = crate::shell::desktop::workbench::pane_model::PaneId;
+
+const FRAME_TAB_SEMANTICS_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum PersistedPaneTile {
@@ -75,6 +78,19 @@ pub(crate) struct FrameManifest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct FrameTabSemantics {
+    pub version: u32,
+    pub tab_groups: Vec<TabGroupMetadata>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct TabGroupMetadata {
+    pub group_id: Uuid,
+    pub pane_ids: Vec<PaneId>,
+    pub active_pane_id: Option<PaneId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FrameMetadata {
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
@@ -87,6 +103,8 @@ pub(crate) struct PersistedFrame {
     pub name: String,
     pub layout: FrameLayout,
     pub manifest: FrameManifest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_tab_semantics: Option<FrameTabSemantics>,
     pub metadata: FrameMetadata,
     #[serde(default)]
     pub workbench_profile: WorkbenchProfile,
@@ -160,6 +178,629 @@ pub(crate) fn derive_membership_from_manifest(manifest: &FrameManifest) -> BTree
         .collect()
 }
 
+fn visit_layout_tiles_preorder(
+    tree: &Tree<PersistedPaneTile>,
+    tile_id: TileId,
+    out: &mut Vec<TileId>,
+) {
+    let Some(tile) = tree.tiles.get(tile_id) else {
+        return;
+    };
+
+    match tile {
+        Tile::Pane(_) => {}
+        Tile::Container(Container::Tabs(tabs)) => {
+            out.push(tile_id);
+            for child in &tabs.children {
+                visit_layout_tiles_preorder(tree, *child, out);
+            }
+        }
+        Tile::Container(Container::Linear(linear)) => {
+            for child in &linear.children {
+                visit_layout_tiles_preorder(tree, *child, out);
+            }
+        }
+        Tile::Container(Container::Grid(grid)) => {
+            for child in grid.children() {
+                visit_layout_tiles_preorder(tree, *child, out);
+            }
+        }
+    }
+}
+
+fn persisted_pane_id_for_tile(tree: &Tree<PersistedPaneTile>, tile_id: TileId) -> Option<PaneId> {
+    match tree.tiles.get(tile_id) {
+        Some(Tile::Pane(PersistedPaneTile::Pane(pane_id))) => Some(*pane_id),
+        _ => None,
+    }
+}
+
+fn derived_tab_group_metadata_from_layout(tree: &Tree<PersistedPaneTile>) -> Vec<TabGroupMetadata> {
+    let mut tabs_container_ids = Vec::new();
+    if let Some(root) = tree.root() {
+        visit_layout_tiles_preorder(tree, root, &mut tabs_container_ids);
+    }
+
+    tabs_container_ids
+        .into_iter()
+        .filter_map(|tabs_tile_id| {
+            let Tile::Container(Container::Tabs(tabs)) = tree.tiles.get(tabs_tile_id)? else {
+                return None;
+            };
+
+            let pane_ids: Vec<_> = tabs
+                .children
+                .iter()
+                .filter_map(|child| persisted_pane_id_for_tile(tree, *child))
+                .collect();
+            if pane_ids.is_empty() {
+                return None;
+            }
+
+            let active_pane_id = tabs
+                .active
+                .and_then(|active_tile| persisted_pane_id_for_tile(tree, active_tile));
+
+            Some(TabGroupMetadata {
+                group_id: Uuid::new_v4(),
+                pane_ids,
+                active_pane_id,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn derive_frame_tab_semantics_from_layout(
+    layout: &FrameLayout,
+) -> Option<FrameTabSemantics> {
+    let tab_groups = derived_tab_group_metadata_from_layout(&layout.tree);
+    if tab_groups.is_empty() {
+        None
+    } else {
+        Some(FrameTabSemantics {
+            version: FRAME_TAB_SEMANTICS_VERSION,
+            tab_groups,
+        })
+    }
+}
+
+fn runtime_pane_id_for_tile(tree: &Tree<TileKind>, tile_id: TileId) -> Option<RuntimePaneId> {
+    match tree.tiles.get(tile_id) {
+        Some(Tile::Pane(tile)) => Some(tile.pane_id()),
+        _ => None,
+    }
+}
+
+fn visit_runtime_tiles_preorder(tree: &Tree<TileKind>, tile_id: TileId, out: &mut Vec<TileId>) {
+    let Some(tile) = tree.tiles.get(tile_id) else {
+        return;
+    };
+
+    match tile {
+        Tile::Pane(_) => {}
+        Tile::Container(Container::Tabs(tabs)) => {
+            out.push(tile_id);
+            for child in &tabs.children {
+                visit_runtime_tiles_preorder(tree, *child, out);
+            }
+        }
+        Tile::Container(Container::Linear(linear)) => {
+            for child in &linear.children {
+                visit_runtime_tiles_preorder(tree, *child, out);
+            }
+        }
+        Tile::Container(Container::Grid(grid)) => {
+            for child in grid.children() {
+                visit_runtime_tiles_preorder(tree, *child, out);
+            }
+        }
+    }
+}
+
+fn derived_runtime_tab_group_metadata_from_tree(
+    tree: &Tree<TileKind>,
+) -> Vec<crate::app::RuntimeTabGroupMetadata> {
+    let mut tabs_container_ids = Vec::new();
+    if let Some(root) = tree.root() {
+        visit_runtime_tiles_preorder(tree, root, &mut tabs_container_ids);
+    }
+
+    tabs_container_ids
+        .into_iter()
+        .filter_map(|tabs_tile_id| {
+            let Tile::Container(Container::Tabs(tabs)) = tree.tiles.get(tabs_tile_id)? else {
+                return None;
+            };
+
+            let pane_ids: Vec<_> = tabs
+                .children
+                .iter()
+                .filter_map(|child| runtime_pane_id_for_tile(tree, *child))
+                .collect();
+            if pane_ids.is_empty() {
+                return None;
+            }
+
+            let active_pane_id = tabs
+                .active
+                .and_then(|active_tile| runtime_pane_id_for_tile(tree, active_tile));
+
+            Some(crate::app::RuntimeTabGroupMetadata {
+                group_id: Uuid::new_v4(),
+                pane_ids,
+                active_pane_id,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn derive_runtime_frame_tab_semantics_from_tree(
+    tree: &Tree<TileKind>,
+) -> Option<crate::app::RuntimeFrameTabSemantics> {
+    let tab_groups = derived_runtime_tab_group_metadata_from_tree(tree);
+    if tab_groups.is_empty() {
+        None
+    } else {
+        Some(crate::app::RuntimeFrameTabSemantics {
+            version: FRAME_TAB_SEMANTICS_VERSION,
+            tab_groups,
+        })
+    }
+}
+
+fn persisted_group_membership_key(pane_ids: &[PaneId]) -> BTreeSet<PaneId> {
+    pane_ids.iter().copied().collect()
+}
+
+fn project_runtime_frame_tab_semantics_to_persisted(
+    semantics: &crate::app::RuntimeFrameTabSemantics,
+    pane_id_map: &HashMap<RuntimePaneId, PaneId>,
+) -> Option<FrameTabSemantics> {
+    let tab_groups: Vec<_> = semantics
+        .tab_groups
+        .iter()
+        .filter_map(|group| {
+            let pane_ids: Vec<_> = group
+                .pane_ids
+                .iter()
+                .filter_map(|pane_id| pane_id_map.get(pane_id).copied())
+                .collect();
+            if pane_ids.is_empty() {
+                return None;
+            }
+            Some(TabGroupMetadata {
+                group_id: group.group_id,
+                active_pane_id: group
+                    .active_pane_id
+                    .and_then(|pane_id| pane_id_map.get(&pane_id).copied())
+                    .filter(|pane_id| pane_ids.contains(pane_id)),
+                pane_ids,
+            })
+        })
+        .collect();
+
+    if tab_groups.is_empty() {
+        None
+    } else {
+        Some(FrameTabSemantics {
+            version: FRAME_TAB_SEMANTICS_VERSION,
+            tab_groups,
+        })
+    }
+}
+
+fn merge_persisted_frame_tab_semantics(
+    projected: Option<FrameTabSemantics>,
+    derived: Option<FrameTabSemantics>,
+) -> Option<FrameTabSemantics> {
+    match (projected, derived) {
+        (None, derived) => derived,
+        (Some(projected), None) => Some(projected),
+        (Some(projected), Some(derived)) => {
+            let mut derived_by_membership: HashMap<BTreeSet<PaneId>, TabGroupMetadata> = derived
+                .tab_groups
+                .into_iter()
+                .map(|group| (persisted_group_membership_key(&group.pane_ids), group))
+                .collect();
+            let mut tab_groups = Vec::new();
+
+            for group in projected.tab_groups {
+                let key = persisted_group_membership_key(&group.pane_ids);
+                if let Some(derived_group) = derived_by_membership.remove(&key) {
+                    tab_groups.push(TabGroupMetadata {
+                        group_id: group.group_id,
+                        pane_ids: derived_group.pane_ids,
+                        active_pane_id: derived_group.active_pane_id,
+                    });
+                } else {
+                    tab_groups.push(group);
+                }
+            }
+
+            tab_groups.extend(derived_by_membership.into_values());
+            if tab_groups.is_empty() {
+                None
+            } else {
+                Some(FrameTabSemantics {
+                    version: FRAME_TAB_SEMANTICS_VERSION,
+                    tab_groups,
+                })
+            }
+        }
+    }
+}
+
+fn resolved_frame_tab_semantics_for_bundle(
+    graph_app: &GraphBrowserApp,
+    derived: Option<FrameTabSemantics>,
+    pane_id_map: &HashMap<RuntimePaneId, PaneId>,
+) -> Option<FrameTabSemantics> {
+    let projected = graph_app
+        .current_frame_tab_semantics()
+        .and_then(|semantics| {
+            project_runtime_frame_tab_semantics_to_persisted(semantics, pane_id_map)
+        });
+    merge_persisted_frame_tab_semantics(projected, derived)
+}
+
+pub(crate) fn semantic_tab_groups_for_frame(bundle: &PersistedWorkspace) -> Vec<TabGroupMetadata> {
+    bundle
+        .frame_tab_semantics
+        .as_ref()
+        .map(|semantics| semantics.tab_groups.clone())
+        .or_else(|| derive_frame_tab_semantics_from_layout(&bundle.layout).map(|s| s.tab_groups))
+        .unwrap_or_default()
+}
+
+pub(crate) fn saved_tab_node_keys_for_frame_bundle(
+    graph_app: &GraphBrowserApp,
+    bundle: &PersistedWorkspace,
+) -> HashSet<NodeKey> {
+    let pane_ids: BTreeSet<_> = semantic_tab_groups_for_frame(bundle)
+        .into_iter()
+        .flat_map(|group| group.pane_ids.into_iter())
+        .collect();
+
+    pane_ids
+        .into_iter()
+        .filter_map(|pane_id| match bundle.manifest.panes.get(&pane_id) {
+            Some(PaneContent::NodePane { node_uuid }) => graph_app
+                .workspace
+                .domain
+                .graph
+                .get_node_key_by_id(*node_uuid),
+            _ => None,
+        })
+        .collect()
+}
+
+fn repair_frame_tab_semantics(bundle: &mut PersistedWorkspace) -> Vec<String> {
+    let Some(semantics) = bundle.frame_tab_semantics.as_mut() else {
+        return Vec::new();
+    };
+
+    let mut repairs = Vec::new();
+    let valid_pane_ids: BTreeSet<_> = bundle.manifest.panes.keys().copied().collect();
+    let mut seen_group_ids = HashSet::new();
+    let mut seen_pane_ids = BTreeSet::new();
+    let mut repaired_groups = Vec::new();
+
+    if semantics.version != FRAME_TAB_SEMANTICS_VERSION {
+        repairs.push(format!(
+            "upgraded FrameTabSemantics version {} -> {}",
+            semantics.version, FRAME_TAB_SEMANTICS_VERSION
+        ));
+        semantics.version = FRAME_TAB_SEMANTICS_VERSION;
+    }
+
+    for group in &semantics.tab_groups {
+        let mut repaired_group = group.clone();
+
+        if !seen_group_ids.insert(repaired_group.group_id) {
+            let prior_group_id = repaired_group.group_id;
+            repaired_group.group_id = Uuid::new_v4();
+            repairs.push(format!(
+                "regenerated duplicate tab group id {prior_group_id}"
+            ));
+        }
+
+        let mut local_seen = BTreeSet::new();
+        let mut repaired_pane_ids = Vec::new();
+        for pane_id in &repaired_group.pane_ids {
+            if !valid_pane_ids.contains(pane_id) {
+                repairs.push(format!(
+                    "dropped missing pane id {pane_id} from tab group {}",
+                    repaired_group.group_id
+                ));
+                continue;
+            }
+            if !local_seen.insert(*pane_id) {
+                repairs.push(format!(
+                    "dropped duplicate pane id {pane_id} within tab group {}",
+                    repaired_group.group_id
+                ));
+                continue;
+            }
+            if !seen_pane_ids.insert(*pane_id) {
+                repairs.push(format!(
+                    "removed pane id {pane_id} from later duplicate membership in tab group {}",
+                    repaired_group.group_id
+                ));
+                continue;
+            }
+            repaired_pane_ids.push(*pane_id);
+        }
+        repaired_group.pane_ids = repaired_pane_ids;
+
+        if repaired_group.pane_ids.is_empty() {
+            repairs.push(format!(
+                "removed empty tab group {} after pane repair",
+                repaired_group.group_id
+            ));
+            continue;
+        }
+
+        if repaired_group
+            .active_pane_id
+            .is_some_and(|pane_id| !repaired_group.pane_ids.contains(&pane_id))
+        {
+            repairs.push(format!(
+                "reset invalid active pane for tab group {}",
+                repaired_group.group_id
+            ));
+            repaired_group.active_pane_id = None;
+        }
+
+        repaired_groups.push(repaired_group);
+    }
+
+    semantics.tab_groups = repaired_groups;
+    if semantics.tab_groups.is_empty() {
+        bundle.frame_tab_semantics = None;
+        repairs.push("removed empty FrameTabSemantics overlay".to_string());
+    }
+
+    repairs
+}
+
+fn runtime_tile_from_manifest_pane(
+    graph_app: &GraphBrowserApp,
+    pane_content: &PaneContent,
+    restored_nodes: &mut Vec<NodeKey>,
+) -> Option<TileKind> {
+    match pane_content {
+        PaneContent::Graph => Some(TileKind::Graph(
+            crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::default()),
+        )),
+        PaneContent::NodePane { node_uuid } => graph_app
+            .workspace
+            .domain
+            .graph
+            .get_node_key_by_id(*node_uuid)
+            .map(|node_key| {
+                restored_nodes.push(node_key);
+                TileKind::Node(node_key.into())
+            }),
+        PaneContent::Tool { kind } => {
+            #[cfg(feature = "diagnostics")]
+            {
+                Some(TileKind::Tool(
+                    crate::shell::desktop::workbench::pane_model::ToolPaneRef::new(kind.clone()),
+                ))
+            }
+            #[cfg(not(feature = "diagnostics"))]
+            {
+                let _ = kind;
+                None
+            }
+        }
+    }
+}
+
+fn replace_child_in_parent(
+    tree: &mut Tree<TileKind>,
+    parent_id: TileId,
+    old_child: TileId,
+    new_child: TileId,
+) {
+    let Some(parent_tile) = tree.tiles.get_mut(parent_id) else {
+        return;
+    };
+
+    match parent_tile {
+        Tile::Container(Container::Tabs(tabs)) => {
+            let was_active = tabs.active == Some(old_child);
+            if let Some(index) = tabs.children.iter().position(|child| *child == old_child) {
+                tabs.children[index] = new_child;
+                if was_active {
+                    tabs.set_active(new_child);
+                }
+            }
+        }
+        Tile::Container(Container::Linear(linear)) => {
+            if let Some(index) = linear.children.iter().position(|child| *child == old_child) {
+                linear.children[index] = new_child;
+                linear.shares.replace_with(old_child, new_child);
+            }
+        }
+        Tile::Container(Container::Grid(grid)) => {
+            let index = grid
+                .children()
+                .enumerate()
+                .find_map(|(index, child)| (*child == old_child).then_some(index));
+            if let Some(index) = index {
+                let _ = grid.replace_at(index, new_child);
+            }
+        }
+        Tile::Pane(_) => {}
+    }
+}
+
+fn tile_is_attached(tree: &Tree<TileKind>, tile_id: TileId) -> bool {
+    tree.root() == Some(tile_id) || tree.tiles.parent_of(tile_id).is_some()
+}
+
+fn tabs_container_for_exact_members(
+    tree: &Tree<TileKind>,
+    ordered_tile_ids: &[TileId],
+) -> Option<TileId> {
+    let first = *ordered_tile_ids.first()?;
+    let parent_id = tree.tiles.parent_of(first)?;
+    let Tile::Container(Container::Tabs(tabs)) = tree.tiles.get(parent_id)? else {
+        return None;
+    };
+
+    if ordered_tile_ids
+        .iter()
+        .all(|tile_id| tree.tiles.parent_of(*tile_id) == Some(parent_id))
+        && tabs.children.len() == ordered_tile_ids.len()
+        && tabs
+            .children
+            .iter()
+            .all(|child| ordered_tile_ids.contains(child))
+    {
+        Some(parent_id)
+    } else {
+        None
+    }
+}
+
+fn restore_semantic_tab_groups_into_runtime_tree(
+    graph_app: &GraphBrowserApp,
+    bundle: &PersistedWorkspace,
+    runtime_tree: &mut Tree<TileKind>,
+    restored_nodes: &mut Vec<NodeKey>,
+) -> Vec<String> {
+    let Some(semantics) = bundle.frame_tab_semantics.as_ref() else {
+        return Vec::new();
+    };
+
+    let mut pane_tile_ids: HashMap<PaneId, TileId> = bundle
+        .layout
+        .tree
+        .tiles
+        .iter()
+        .filter_map(|(tile_id, tile)| match tile {
+            Tile::Pane(PersistedPaneTile::Pane(pane_id))
+                if runtime_tree.tiles.get(*tile_id).is_some() =>
+            {
+                Some((*pane_id, *tile_id))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut repairs = Vec::new();
+
+    for group in &semantics.tab_groups {
+        let mut ordered_tile_ids = Vec::new();
+        let mut attached_tiles = Vec::new();
+
+        for pane_id in &group.pane_ids {
+            let tile_id = if let Some(tile_id) = pane_tile_ids
+                .get(pane_id)
+                .copied()
+                .filter(|tile_id| runtime_tree.tiles.get(*tile_id).is_some())
+            {
+                tile_id
+            } else {
+                let Some(pane_content) = bundle.manifest.panes.get(pane_id) else {
+                    continue;
+                };
+                let Some(runtime_tile) =
+                    runtime_tile_from_manifest_pane(graph_app, pane_content, restored_nodes)
+                else {
+                    repairs.push(format!(
+                        "skipped semantic tab member {pane_id} in group {} because runtime content could not be realized",
+                        group.group_id
+                    ));
+                    continue;
+                };
+                let tile_id = runtime_tree.tiles.insert_pane(runtime_tile);
+                pane_tile_ids.insert(*pane_id, tile_id);
+                tile_id
+            };
+
+            ordered_tile_ids.push(tile_id);
+            if tile_is_attached(runtime_tree, tile_id) {
+                attached_tiles.push(tile_id);
+            }
+        }
+
+        if ordered_tile_ids.len() <= 1 {
+            continue;
+        }
+
+        let active_child = group
+            .active_pane_id
+            .and_then(|pane_id| pane_tile_ids.get(&pane_id).copied())
+            .filter(|tile_id| ordered_tile_ids.contains(tile_id));
+
+        if let Some(tabs_id) = tabs_container_for_exact_members(runtime_tree, &ordered_tile_ids) {
+            if let Some(Tile::Container(Container::Tabs(tabs))) =
+                runtime_tree.tiles.get_mut(tabs_id)
+            {
+                tabs.children = ordered_tile_ids.clone();
+                if let Some(active_child) = active_child {
+                    tabs.set_active(active_child);
+                }
+            }
+            continue;
+        }
+
+        let mut unique_attached: Vec<_> = attached_tiles
+            .into_iter()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let anchor_tile = if unique_attached.len() == 1 {
+            unique_attached.pop()
+        } else if unique_attached.is_empty() && runtime_tree.root().is_none() {
+            ordered_tile_ids.first().copied()
+        } else {
+            repairs.push(format!(
+                "skipped semantic tab restore for group {} because {} attached members were present",
+                group.group_id,
+                unique_attached.len()
+            ));
+            continue;
+        };
+        let Some(anchor_tile) = anchor_tile else {
+            continue;
+        };
+
+        let anchor_parent = runtime_tree.tiles.parent_of(anchor_tile);
+        let anchor_was_root = runtime_tree.root() == Some(anchor_tile);
+        let restored_group = runtime_tree.tiles.insert_tab_tile(ordered_tile_ids.clone());
+        if let Some(Tile::Container(Container::Tabs(tabs))) =
+            runtime_tree.tiles.get_mut(restored_group)
+        {
+            if let Some(active_child) = active_child {
+                tabs.set_active(active_child);
+            }
+        }
+
+        if let Some(parent_id) = anchor_parent {
+            replace_child_in_parent(runtime_tree, parent_id, anchor_tile, restored_group);
+        } else if anchor_was_root || runtime_tree.root().is_none() {
+            runtime_tree.root = Some(restored_group);
+        } else {
+            repairs.push(format!(
+                "skipped semantic tab restore for group {} because anchor tile was detached",
+                group.group_id
+            ));
+            continue;
+        }
+
+        repairs.push(format!(
+            "restored semantic tab group {} from pane rest with {} panes",
+            group.group_id,
+            ordered_tile_ids.len()
+        ));
+    }
+
+    repairs
+}
+
 pub(crate) fn validate_frame_bundle(bundle: &PersistedWorkspace) -> Result<(), FrameBundleError> {
     for pane_id in persisted_layout_referenced_pane_ids(&bundle.layout) {
         if !bundle.manifest.panes.contains_key(&pane_id) {
@@ -191,17 +832,24 @@ fn runtime_tree_to_bundle(
             .map_err(|e| e.to_string())?;
 
     let mut panes = BTreeMap::new();
+    let mut runtime_to_persisted_pane_ids = HashMap::new();
     for (tile_id, tile) in serde_tree.tiles.iter_mut() {
         let Tile::Pane(pane_value) = tile else {
             continue;
         };
         let runtime_pane: TileKind =
             serde_json::from_value(pane_value.clone()).map_err(|e| e.to_string())?;
+        let runtime_pane_id = runtime_pane.pane_id();
         let persisted_pane = match runtime_pane {
             TileKind::Pane(_) => {
                 continue;
             }
-            TileKind::Graph(_) => PersistedPaneTile::Graph,
+            TileKind::Graph(_) => {
+                let pane_id = tile_id.0;
+                panes.insert(pane_id, PaneContent::Graph);
+                runtime_to_persisted_pane_ids.insert(runtime_pane_id, pane_id);
+                PersistedPaneTile::Pane(pane_id)
+            }
             TileKind::Node(state) => {
                 let node = graph_app
                     .workspace
@@ -216,6 +864,7 @@ fn runtime_tree_to_bundle(
                     })?;
                 let pane_id = tile_id.0;
                 panes.insert(pane_id, PaneContent::NodePane { node_uuid: node.id });
+                runtime_to_persisted_pane_ids.insert(state.pane_id, pane_id);
                 PersistedPaneTile::Pane(pane_id)
             }
             #[cfg(feature = "diagnostics")]
@@ -227,6 +876,7 @@ fn runtime_tree_to_bundle(
                         kind: tool_ref.kind.clone(),
                     },
                 );
+                runtime_to_persisted_pane_ids.insert(tool_ref.pane_id, pane_id);
                 PersistedPaneTile::Pane(pane_id)
             }
         };
@@ -241,6 +891,14 @@ fn runtime_tree_to_bundle(
         member_node_uuids: BTreeSet::new(),
     };
     manifest.member_node_uuids = derive_membership_from_manifest(&manifest);
+    let derived_frame_tab_semantics = derive_frame_tab_semantics_from_layout(&FrameLayout {
+        tree: layout_tree.clone(),
+    });
+    let frame_tab_semantics = resolved_frame_tab_semantics_for_bundle(
+        graph_app,
+        derived_frame_tab_semantics,
+        &runtime_to_persisted_pane_ids,
+    );
 
     let now = now_unix_ms();
     let metadata = match prior_metadata {
@@ -265,6 +923,7 @@ fn runtime_tree_to_bundle(
         name: name.to_string(),
         layout: FrameLayout { tree: layout_tree },
         manifest,
+        frame_tab_semantics,
         metadata,
         workbench_profile: graph_app.workbench_profile().clone(),
     })
@@ -318,7 +977,51 @@ pub(crate) fn load_named_frame_bundle(
             _ => return Err(err.to_string()),
         }
     }
+    for repair in repair_frame_tab_semantics(&mut bundle) {
+        warn!("frame '{}': {repair}", bundle.name);
+    }
     Ok(bundle)
+}
+
+pub(crate) fn repair_named_frame_tab_semantics(
+    graph_app: &mut GraphBrowserApp,
+    name: &str,
+) -> Result<Vec<String>, String> {
+    let json = graph_app
+        .load_workspace_layout_json(name)
+        .ok_or_else(|| format!("frame snapshot '{name}' not found"))?;
+    let mut bundle: PersistedWorkspace = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    let mut repairs = Vec::new();
+    let mut changed = false;
+
+    if let Err(err) = validate_frame_bundle(&bundle) {
+        match err {
+            FrameBundleError::MembershipMismatch { .. } => {
+                repair_manifest_membership(&mut bundle);
+                repairs.push("repaired manifest membership before semantic tab repair".to_string());
+                changed = true;
+            }
+            _ => return Err(err.to_string()),
+        }
+    }
+
+    let semantic_repairs = repair_frame_tab_semantics(&mut bundle);
+    if !semantic_repairs.is_empty() {
+        changed = true;
+        repairs.extend(semantic_repairs);
+    }
+
+    if !changed {
+        return Ok(repairs);
+    }
+
+    let bundle_json = serde_json::to_string(&bundle).map_err(|e| e.to_string())?;
+    graph_app.save_workspace_layout_json(name, &bundle_json);
+    refresh_workbench_projection_from_manifests(graph_app)?;
+    crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+        "frame_tab_semantics_repaired",
+    );
+    Ok(repairs)
 }
 
 pub(crate) fn apply_workbench_profile_from_bundle(
@@ -326,6 +1029,75 @@ pub(crate) fn apply_workbench_profile_from_bundle(
     bundle: &PersistedWorkspace,
 ) {
     graph_app.set_workbench_profile(bundle.workbench_profile.clone());
+}
+
+pub(crate) fn runtime_frame_tab_semantics_from_restored_bundle(
+    _graph_app: &GraphBrowserApp,
+    bundle: &PersistedWorkspace,
+    runtime_tree: &Tree<TileKind>,
+) -> Option<crate::app::RuntimeFrameTabSemantics> {
+    let mut repaired = bundle.clone();
+    if let Err(err) = validate_frame_bundle(&repaired) {
+        match err {
+            FrameBundleError::MembershipMismatch { .. } => {
+                repair_manifest_membership(&mut repaired)
+            }
+            _ => return derive_runtime_frame_tab_semantics_from_tree(runtime_tree),
+        }
+    }
+    let _ = repair_frame_tab_semantics(&mut repaired);
+
+    let persisted_semantics = repaired
+        .frame_tab_semantics
+        .or_else(|| derive_frame_tab_semantics_from_layout(&repaired.layout))?;
+    let persisted_to_runtime: HashMap<PaneId, RuntimePaneId> = repaired
+        .layout
+        .tree
+        .tiles
+        .iter()
+        .filter_map(|(tile_id, tile)| match tile {
+            Tile::Pane(PersistedPaneTile::Pane(pane_id)) => runtime_tree
+                .tiles
+                .get(*tile_id)
+                .and_then(|runtime_tile| match runtime_tile {
+                    Tile::Pane(tile) => Some((*pane_id, tile.pane_id())),
+                    _ => None,
+                }),
+            _ => None,
+        })
+        .collect();
+
+    let tab_groups: Vec<_> = persisted_semantics
+        .tab_groups
+        .into_iter()
+        .filter_map(|group| {
+            let pane_ids: Vec<_> = group
+                .pane_ids
+                .into_iter()
+                .filter_map(|pane_id| persisted_to_runtime.get(&pane_id).copied())
+                .collect();
+            if pane_ids.is_empty() {
+                return None;
+            }
+            Some(crate::app::RuntimeTabGroupMetadata {
+                group_id: group.group_id,
+                active_pane_id: group
+                    .active_pane_id
+                    .and_then(|pane_id| persisted_to_runtime.get(&pane_id).copied())
+                    .filter(|pane_id| pane_ids.contains(pane_id)),
+                pane_ids,
+            })
+        })
+        .collect();
+
+    if tab_groups.is_empty() {
+        None
+    } else {
+        Some(crate::app::RuntimeFrameTabSemantics {
+            version: persisted_semantics.version,
+            tab_groups,
+        })
+    }
 }
 
 pub(crate) fn restore_runtime_tree_from_frame_bundle(
@@ -340,6 +1112,9 @@ pub(crate) fn restore_runtime_tree_from_frame_bundle(
             }
             _ => return Err(err.to_string()),
         }
+    }
+    for repair in repair_frame_tab_semantics(&mut repaired) {
+        warn!("frame '{}': {repair}", repaired.name);
     }
 
     let mut serde_tree: Tree<serde_json::Value> = serde_json::from_value(
@@ -377,39 +1152,17 @@ pub(crate) fn restore_runtime_tree_from_frame_bundle(
                 }
             }
             PersistedPaneTile::Pane(pane_id) => match repaired.manifest.panes.get(&pane_id) {
-                Some(PaneContent::Graph) => Some(TileKind::Graph(
-                    crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(
-                        GraphViewId::default(),
-                    ),
-                )),
-                Some(PaneContent::NodePane { node_uuid }) => {
-                    if let Some(node_key) = graph_app
-                        .workspace
-                        .domain
-                        .graph
-                        .get_node_key_by_id(*node_uuid)
-                    {
-                        restored_nodes.push(node_key);
-                        Some(TileKind::Node(node_key.into()))
-                    } else {
-                        missing_tile_ids.push(*tile_id);
-                        None
-                    }
-                }
-                Some(PaneContent::Tool { kind }) => {
-                    #[cfg(feature = "diagnostics")]
-                    {
-                        Some(TileKind::Tool(
-                            crate::shell::desktop::workbench::pane_model::ToolPaneRef::new(
-                                kind.clone(),
-                            ),
-                        ))
-                    }
-                    #[cfg(not(feature = "diagnostics"))]
-                    {
-                        let _ = kind;
-                        missing_tile_ids.push(*tile_id);
-                        None
+                Some(pane_content) => {
+                    match runtime_tile_from_manifest_pane(
+                        graph_app,
+                        pane_content,
+                        &mut restored_nodes,
+                    ) {
+                        Some(runtime_tile) => Some(runtime_tile),
+                        None => {
+                            missing_tile_ids.push(*tile_id);
+                            None
+                        }
                     }
                 }
                 None => return Err(format!("missing manifest pane id {pane_id}")),
@@ -429,6 +1182,14 @@ pub(crate) fn restore_runtime_tree_from_frame_bundle(
         let _ = runtime_tree.remove_recursively(tile_id);
     }
     tile_runtime::prune_stale_node_pane_keys_only(&mut runtime_tree, graph_app);
+    for repair in restore_semantic_tab_groups_into_runtime_tree(
+        graph_app,
+        &repaired,
+        &mut runtime_tree,
+        &mut restored_nodes,
+    ) {
+        warn!("frame '{}': {repair}", repaired.name);
+    }
     let has_graph_pane = runtime_tree
         .tiles
         .iter()
@@ -2286,6 +3047,7 @@ mod tests {
                 panes: BTreeMap::new(),
                 member_node_uuids: BTreeSet::new(),
             },
+            frame_tab_semantics: None,
             metadata: WorkspaceMetadata {
                 created_at_ms: 1,
                 updated_at_ms: 1,
@@ -2346,5 +3108,307 @@ mod tests {
             loaded.manifest.panes.get(&2),
             Some(PaneContent::NodePane { node_uuid: id }) if *id == node_uuid
         ));
+    }
+
+    #[test]
+    fn save_named_frame_bundle_derives_frame_tab_semantics_for_tabs() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let a = app.add_node_and_sync("https://tabs-a.example".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://tabs-b.example".into(), Point2D::new(20.0, 0.0));
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let pane_a = tiles.insert_pane(TileKind::Node(a.into()));
+        let pane_b = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![graph, pane_a, pane_b]);
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tiles.get_mut(root) {
+            tabs.set_active(pane_b);
+        }
+        let tree = Tree::new("workspace-frame-semantics", root, tiles);
+
+        save_named_frame_bundle(&mut app, "workspace-frame-semantics", &tree)
+            .expect("save frame bundle");
+        let loaded =
+            load_named_frame_bundle(&app, "workspace-frame-semantics").expect("load frame bundle");
+
+        let semantics = loaded
+            .frame_tab_semantics
+            .as_ref()
+            .expect("tab semantics should be persisted");
+        assert_eq!(semantics.version, FRAME_TAB_SEMANTICS_VERSION);
+        assert_eq!(semantics.tab_groups.len(), 1);
+        let group = &semantics.tab_groups[0];
+        assert_eq!(
+            group.pane_ids.len(),
+            3,
+            "graph and node panes should be tracked"
+        );
+        assert_eq!(group.active_pane_id, Some(3));
+        assert!(matches!(
+            loaded.manifest.panes.get(&1),
+            Some(PaneContent::Graph)
+        ));
+        assert!(matches!(
+            loaded.manifest.panes.get(&2),
+            Some(PaneContent::NodePane { .. })
+        ));
+        assert!(matches!(
+            loaded.manifest.panes.get(&3),
+            Some(PaneContent::NodePane { .. })
+        ));
+    }
+
+    #[test]
+    fn load_named_frame_bundle_repairs_invalid_frame_tab_semantics() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let node_key =
+            app.add_node_and_sync("https://repair-semantics.example".into(), Point2D::zero());
+        let node_uuid = app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_key)
+            .expect("node")
+            .id;
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(PersistedPaneTile::Pane(1));
+        let bundle = PersistedWorkspace {
+            version: 1,
+            name: "repair-semantics".to_string(),
+            layout: WorkspaceLayout {
+                tree: Tree::new("repair-semantics-tree", root, tiles),
+            },
+            manifest: WorkspaceManifest {
+                panes: BTreeMap::from([(1, PaneContent::NodePane { node_uuid })]),
+                member_node_uuids: BTreeSet::from([node_uuid]),
+            },
+            frame_tab_semantics: Some(FrameTabSemantics {
+                version: 0,
+                tab_groups: vec![
+                    TabGroupMetadata {
+                        group_id: Uuid::new_v4(),
+                        pane_ids: vec![1, 1, 999],
+                        active_pane_id: Some(999),
+                    },
+                    TabGroupMetadata {
+                        group_id: Uuid::new_v4(),
+                        pane_ids: vec![1],
+                        active_pane_id: Some(1),
+                    },
+                ],
+            }),
+            metadata: WorkspaceMetadata {
+                created_at_ms: 1,
+                updated_at_ms: 1,
+                last_activated_at_ms: None,
+            },
+            workbench_profile: WorkbenchProfile::default(),
+        };
+        app.save_workspace_layout_json(
+            "repair-semantics",
+            &serde_json::to_string(&bundle).expect("serialize bundle"),
+        );
+
+        let loaded = load_named_frame_bundle(&app, "repair-semantics").expect("load frame bundle");
+        let semantics = loaded
+            .frame_tab_semantics
+            .as_ref()
+            .expect("repair should preserve non-empty semantics");
+        assert_eq!(semantics.version, FRAME_TAB_SEMANTICS_VERSION);
+        assert_eq!(semantics.tab_groups.len(), 1);
+        assert_eq!(semantics.tab_groups[0].pane_ids, vec![1]);
+        assert_eq!(semantics.tab_groups[0].active_pane_id, None);
+    }
+
+    #[test]
+    fn restore_runtime_tree_from_frame_bundle_rewraps_pane_rest_semantic_tabs() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let a = app.add_node_and_sync("https://pane-rest-a.example".into(), Point2D::zero());
+        let b = app.add_node_and_sync(
+            "https://pane-rest-b.example".into(),
+            Point2D::new(16.0, 0.0),
+        );
+        let a_uuid = app.workspace.domain.graph.get_node(a).expect("node a").id;
+        let b_uuid = app.workspace.domain.graph.get_node(b).expect("node b").id;
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(PersistedPaneTile::Pane(1));
+        let bundle = PersistedWorkspace {
+            version: 1,
+            name: "pane-rest-restore".to_string(),
+            layout: WorkspaceLayout {
+                tree: Tree::new("pane-rest-restore-tree", root, tiles),
+            },
+            manifest: WorkspaceManifest {
+                panes: BTreeMap::from([
+                    (1, PaneContent::NodePane { node_uuid: a_uuid }),
+                    (2, PaneContent::NodePane { node_uuid: b_uuid }),
+                ]),
+                member_node_uuids: BTreeSet::from([a_uuid, b_uuid]),
+            },
+            frame_tab_semantics: Some(FrameTabSemantics {
+                version: FRAME_TAB_SEMANTICS_VERSION,
+                tab_groups: vec![TabGroupMetadata {
+                    group_id: Uuid::new_v4(),
+                    pane_ids: vec![1, 2],
+                    active_pane_id: Some(2),
+                }],
+            }),
+            metadata: WorkspaceMetadata {
+                created_at_ms: 1,
+                updated_at_ms: 1,
+                last_activated_at_ms: None,
+            },
+            workbench_profile: WorkbenchProfile::default(),
+        };
+
+        let (restored_tree, restored_nodes) =
+            restore_runtime_tree_from_frame_bundle(&app, &bundle).expect("restore frame bundle");
+
+        assert!(restored_nodes.contains(&a));
+        assert!(restored_nodes.contains(&b));
+
+        let root_id = restored_tree.root().expect("restored root");
+        let tabs = match restored_tree.tiles.get(root_id) {
+            Some(Tile::Container(Container::Tabs(tabs))) => tabs,
+            other => panic!("expected restored semantic tabs at root, got {other:?}"),
+        };
+        assert_eq!(tabs.children.len(), 2);
+
+        let restored_members: Vec<_> = tabs
+            .children
+            .iter()
+            .filter_map(|child| match restored_tree.tiles.get(*child) {
+                Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(restored_members, vec![a, b]);
+
+        let active_node =
+            tabs.active
+                .and_then(|active_tile| match restored_tree.tiles.get(active_tile) {
+                    Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
+                    _ => None,
+                });
+        assert_eq!(active_node, Some(b));
+    }
+
+    #[test]
+    fn repair_named_frame_tab_semantics_persists_repaired_overlay() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let node_key =
+            app.add_node_and_sync("https://persist-repair.example".into(), Point2D::zero());
+        let node_uuid = app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_key)
+            .expect("node")
+            .id;
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(PersistedPaneTile::Pane(1));
+        let bundle = PersistedWorkspace {
+            version: 1,
+            name: "persist-repair-semantics".to_string(),
+            layout: WorkspaceLayout {
+                tree: Tree::new("persist-repair-tree", root, tiles),
+            },
+            manifest: WorkspaceManifest {
+                panes: BTreeMap::from([(1, PaneContent::NodePane { node_uuid })]),
+                member_node_uuids: BTreeSet::from([node_uuid]),
+            },
+            frame_tab_semantics: Some(FrameTabSemantics {
+                version: 0,
+                tab_groups: vec![
+                    TabGroupMetadata {
+                        group_id: Uuid::new_v4(),
+                        pane_ids: vec![1, 1, 999],
+                        active_pane_id: Some(999),
+                    },
+                    TabGroupMetadata {
+                        group_id: Uuid::new_v4(),
+                        pane_ids: vec![1],
+                        active_pane_id: Some(1),
+                    },
+                ],
+            }),
+            metadata: WorkspaceMetadata {
+                created_at_ms: 1,
+                updated_at_ms: 1,
+                last_activated_at_ms: None,
+            },
+            workbench_profile: WorkbenchProfile::default(),
+        };
+        app.save_workspace_layout_json(
+            "persist-repair-semantics",
+            &serde_json::to_string(&bundle).expect("serialize bundle"),
+        );
+
+        let repairs = repair_named_frame_tab_semantics(&mut app, "persist-repair-semantics")
+            .expect("repair named frame semantics");
+        assert!(!repairs.is_empty());
+
+        let persisted_json = app
+            .load_workspace_layout_json("persist-repair-semantics")
+            .expect("persisted frame json");
+        let persisted: PersistedWorkspace =
+            serde_json::from_str(&persisted_json).expect("deserialize repaired bundle");
+        let semantics = persisted
+            .frame_tab_semantics
+            .as_ref()
+            .expect("repaired semantics should remain present");
+        assert_eq!(semantics.version, FRAME_TAB_SEMANTICS_VERSION);
+        assert_eq!(semantics.tab_groups.len(), 1);
+        assert_eq!(semantics.tab_groups[0].pane_ids, vec![1]);
+        assert_eq!(semantics.tab_groups[0].active_pane_id, None);
+    }
+
+    #[test]
+    fn save_named_frame_bundle_preserves_collapsed_runtime_semantic_tabs() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let a = app.add_node_and_sync("https://collapsed-save-a.example".into(), Point2D::zero());
+        let b = app.add_node_and_sync(
+            "https://collapsed-save-b.example".into(),
+            Point2D::new(24.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![a_tile, b_tile]);
+        let mut tree = Tree::new("collapsed_runtime_semantics_save", root, tiles);
+
+        let semantics =
+            derive_runtime_frame_tab_semantics_from_tree(&tree).expect("runtime semantics");
+        let group_id = semantics.tab_groups[0].group_id;
+        app.set_current_frame_tab_semantics(Some(semantics));
+        assert!(
+            crate::shell::desktop::workbench::tile_view_ops::collapse_semantic_tab_group_to_pane_rest(
+                &mut tree,
+                &mut app,
+                group_id,
+            )
+        );
+
+        save_named_frame_bundle(&mut app, "workspace-collapsed-runtime-semantics", &tree)
+            .expect("save frame");
+
+        let bundle = load_named_frame_bundle(&app, "workspace-collapsed-runtime-semantics")
+            .expect("load frame");
+        let tab_groups = semantic_tab_groups_for_frame(&bundle);
+        assert_eq!(tab_groups.len(), 1);
+        assert_eq!(tab_groups[0].pane_ids.len(), 2);
+        assert_eq!(
+            saved_tab_node_keys_for_frame_bundle(&app, &bundle),
+            HashSet::from([a, b])
+        );
     }
 }

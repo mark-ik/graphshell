@@ -272,8 +272,10 @@ fn render_tab_ui_impl(
             let node_key = state.node;
             if modifiers.shift {
                 let ordered_nodes =
-                    GraphshellTileBehavior::tab_group_node_order_for_tile(tiles, tile_id)
-                        .unwrap_or_else(|| vec![node_key]);
+                    crate::shell::desktop::workbench::tile_grouping::tab_group_node_order_for_tile(
+                        tiles, tile_id,
+                    )
+                    .unwrap_or_else(|| vec![node_key]);
                 let target_index = ordered_nodes
                     .iter()
                     .position(|key| *key == node_key)
@@ -318,8 +320,10 @@ fn render_tab_ui_impl(
             let node_key = state.node;
             if modifiers.shift {
                 let ordered_nodes =
-                    GraphshellTileBehavior::tab_group_node_order_for_tile(tiles, tile_id)
-                        .unwrap_or_else(|| vec![node_key]);
+                    crate::shell::desktop::workbench::tile_grouping::tab_group_node_order_for_tile(
+                        tiles, tile_id,
+                    )
+                    .unwrap_or_else(|| vec![node_key]);
                 let target_index = ordered_nodes
                     .iter()
                     .position(|key| *key == node_key)

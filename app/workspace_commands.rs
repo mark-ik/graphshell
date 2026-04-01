@@ -56,7 +56,10 @@ impl GraphBrowserApp {
         match self.take_pending_app_command(|command| {
             matches!(command, AppCommand::ApplyUserStylesheets { .. })
         })? {
-            AppCommand::ApplyUserStylesheets { stylesheets, reload } => Some((stylesheets, reload)),
+            AppCommand::ApplyUserStylesheets {
+                stylesheets,
+                reload,
+            } => Some((stylesheets, reload)),
             _ => None,
         }
     }
@@ -438,6 +441,23 @@ impl GraphBrowserApp {
         self.take_pending_restore_workspace_snapshot_named()
     }
 
+    /// Request repairing persisted semantic tab metadata for a named frame snapshot.
+    pub fn request_repair_frame_tab_semantics(&mut self, frame_name: impl Into<String>) {
+        self.enqueue_app_command(AppCommand::RepairFrameTabSemantics {
+            frame_name: frame_name.into(),
+        });
+    }
+
+    /// Take and clear pending semantic-tab repair request for a named frame snapshot.
+    pub fn take_pending_repair_frame_tab_semantics(&mut self) -> Option<String> {
+        match self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::RepairFrameTabSemantics { .. })
+        })? {
+            AppCommand::RepairFrameTabSemantics { frame_name } => Some(frame_name),
+            _ => None,
+        }
+    }
+
     /// Take and clear one-shot open request for routed frame restore.
     pub fn take_pending_workspace_restore_open_request(
         &mut self,
@@ -806,5 +826,18 @@ mod tests {
                 toast_message: None,
             })
         );
+    }
+
+    #[test]
+    fn frame_tab_semantics_repair_request_roundtrips() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.request_repair_frame_tab_semantics("workspace:pin:pane:test");
+
+        assert_eq!(
+            app.take_pending_repair_frame_tab_semantics(),
+            Some("workspace:pin:pane:test".to_string())
+        );
+        assert!(app.take_pending_repair_frame_tab_semantics().is_none());
     }
 }

@@ -62,6 +62,21 @@ impl GraphBrowserApp {
                 });
                 true
             }
+            GraphIntent::RestorePaneToSemanticTabGroup { pane, group_id } => {
+                self.enqueue_workbench_intent(WorkbenchIntent::RestorePaneToSemanticTabGroup {
+                    pane: *pane,
+                    group_id: *group_id,
+                });
+                true
+            }
+            GraphIntent::CollapseSemanticTabGroupToPaneRest { group_id } => {
+                self.enqueue_workbench_intent(
+                    WorkbenchIntent::CollapseSemanticTabGroupToPaneRest {
+                        group_id: *group_id,
+                    },
+                );
+                true
+            }
             GraphIntent::ToggleHelpPanel => {
                 self.enqueue_workbench_intent(WorkbenchIntent::ToggleHelpPanel);
                 true
@@ -663,6 +678,10 @@ impl GraphBrowserApp {
             }
             GraphIntent::SetNavigatorSpecialtyView { host, kind } => {
                 self.apply_set_navigator_specialty_view(host, kind);
+                true
+            }
+            GraphIntent::RepairFrameTabSemantics { frame_name } => {
+                self.request_repair_frame_tab_semantics(frame_name);
                 true
             }
             _ => false,
@@ -1433,9 +1452,67 @@ impl GraphBrowserApp {
             | GraphIntent::FocusGraphView { .. }
             | GraphIntent::TransferSelectedNodesToGraphView { .. }
             | GraphIntent::SetNavigatorSpecialtyView { .. }
-            | GraphIntent::OpenFrameTileGroup { .. } => {
+            | GraphIntent::RepairFrameTabSemantics { .. }
+            | GraphIntent::OpenFrameTileGroup { .. }
+            | GraphIntent::RestorePaneToSemanticTabGroup { .. }
+            | GraphIntent::CollapseSemanticTabGroupToPaneRest { .. } => {
                 unreachable!("runtime lifecycle intents are handled in phase 3")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::desktop::workbench::pane_model::PaneId;
+
+    #[test]
+    fn repair_frame_tab_semantics_intent_enqueues_app_command() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        assert!(
+            app.handle_runtime_lifecycle_intent(GraphIntent::RepairFrameTabSemantics {
+                frame_name: "workspace:test".to_string(),
+            })
+        );
+
+        assert_eq!(
+            app.take_pending_repair_frame_tab_semantics(),
+            Some("workspace:test".to_string())
+        );
+    }
+
+    #[test]
+    fn semantic_tab_runtime_intents_enqueue_workbench_intents() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let pane = PaneId::new();
+        let group_id = uuid::Uuid::new_v4();
+
+        assert!(
+            app.handle_workbench_bridge_intent(&GraphIntent::RestorePaneToSemanticTabGroup {
+                pane,
+                group_id
+            })
+        );
+        assert!(app.handle_workbench_bridge_intent(
+            &GraphIntent::CollapseSemanticTabGroupToPaneRest { group_id }
+        ));
+
+        let intents = app.take_pending_workbench_intents();
+        assert_eq!(intents.len(), 2);
+        assert!(matches!(
+            &intents[0],
+            WorkbenchIntent::RestorePaneToSemanticTabGroup {
+                pane: queued_pane,
+                group_id: queued_group_id,
+            } if *queued_pane == pane && *queued_group_id == group_id
+        ));
+        assert!(matches!(
+            &intents[1],
+            WorkbenchIntent::CollapseSemanticTabGroupToPaneRest {
+                group_id: queued_group_id,
+            } if *queued_group_id == group_id
+        ));
     }
 }

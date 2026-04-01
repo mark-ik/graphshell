@@ -7,8 +7,9 @@ use std::rc::Rc;
 
 use egui_tiles::{Container, Tile, TileId, Tree};
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
+use uuid::Uuid;
 
-use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId};
+use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, WorkbenchIntent};
 use crate::graph::NodeKey;
 use crate::registries::domain::layout::workbench_surface::FocusCycle;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
@@ -31,6 +32,12 @@ pub(crate) enum TileOpenMode {
     SplitHorizontal,
     QuarterPane,
     HalfPane,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SemanticTabAffordance {
+    Restore { group_id: Uuid, member_count: usize },
+    Collapse { group_id: Uuid, member_count: usize },
 }
 
 fn tile_matches_node(tile: &TileKind, node_key: NodeKey) -> bool {
@@ -573,6 +580,266 @@ pub(crate) fn close_pane(tiles_tree: &mut Tree<TileKind>, pane_id: PaneId) -> bo
     tiles_tree.remove_recursively(tile_id);
     let _ = ensure_active_tile(tiles_tree);
     true
+}
+
+fn tile_is_attached(tiles_tree: &Tree<TileKind>, tile_id: TileId) -> bool {
+    tiles_tree.root() == Some(tile_id) || tiles_tree.tiles.parent_of(tile_id).is_some()
+}
+
+fn tabs_container_for_exact_runtime_members(
+    tiles_tree: &Tree<TileKind>,
+    ordered_tile_ids: &[TileId],
+) -> Option<TileId> {
+    let first = *ordered_tile_ids.first()?;
+    let parent_id = tiles_tree.tiles.parent_of(first)?;
+    let Tile::Container(Container::Tabs(tabs)) = tiles_tree.tiles.get(parent_id)? else {
+        return None;
+    };
+
+    if ordered_tile_ids
+        .iter()
+        .all(|tile_id| tiles_tree.tiles.parent_of(*tile_id) == Some(parent_id))
+        && tabs.children.len() == ordered_tile_ids.len()
+        && tabs
+            .children
+            .iter()
+            .all(|child| ordered_tile_ids.contains(child))
+    {
+        Some(parent_id)
+    } else {
+        None
+    }
+}
+
+fn current_runtime_frame_tab_semantics(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<crate::app::RuntimeFrameTabSemantics> {
+    graph_app
+        .current_frame_tab_semantics()
+        .cloned()
+        .or_else(|| persistence_ops::derive_runtime_frame_tab_semantics_from_tree(tiles_tree))
+}
+
+pub(crate) fn semantic_tab_affordance_for_pane(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    pane: PaneId,
+) -> Option<SemanticTabAffordance> {
+    let semantics = current_runtime_frame_tab_semantics(graph_app, tiles_tree)?;
+    let group = semantics
+        .tab_groups
+        .iter()
+        .find(|group| group.pane_ids.len() > 1 && group.pane_ids.contains(&pane))?;
+    let ordered_tile_ids: Vec<_> = group
+        .pane_ids
+        .iter()
+        .filter_map(|pane_id| tile_id_for_pane(tiles_tree, *pane_id))
+        .collect();
+    if ordered_tile_ids.len() <= 1 {
+        return None;
+    }
+
+    if tabs_container_for_exact_runtime_members(tiles_tree, &ordered_tile_ids).is_some() {
+        return Some(SemanticTabAffordance::Collapse {
+            group_id: group.group_id,
+            member_count: group.pane_ids.len(),
+        });
+    }
+
+    let pane_tile_id = tile_id_for_pane(tiles_tree, pane)?;
+    if !tile_is_attached(tiles_tree, pane_tile_id) {
+        return None;
+    }
+
+    Some(SemanticTabAffordance::Restore {
+        group_id: group.group_id,
+        member_count: group.pane_ids.len(),
+    })
+}
+
+pub(crate) fn semantic_tab_toggle_intent_for_pane(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    pane: PaneId,
+) -> Option<WorkbenchIntent> {
+    match semantic_tab_affordance_for_pane(tiles_tree, graph_app, pane)? {
+        SemanticTabAffordance::Restore { group_id, .. } => {
+            Some(WorkbenchIntent::RestorePaneToSemanticTabGroup { pane, group_id })
+        }
+        SemanticTabAffordance::Collapse { group_id, .. } => {
+            Some(WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { group_id })
+        }
+    }
+}
+
+pub(crate) fn collapse_semantic_tab_group_to_pane_rest(
+    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &mut GraphBrowserApp,
+    group_id: Uuid,
+) -> bool {
+    let Some(mut semantics) = current_runtime_frame_tab_semantics(graph_app, tiles_tree) else {
+        return false;
+    };
+    let Some(group) = semantics
+        .tab_groups
+        .iter_mut()
+        .find(|group| group.group_id == group_id)
+    else {
+        return false;
+    };
+
+    let ordered_tile_ids: Vec<_> = group
+        .pane_ids
+        .iter()
+        .filter_map(|pane_id| tile_id_for_pane(tiles_tree, *pane_id))
+        .collect();
+    if ordered_tile_ids.len() <= 1 {
+        let focus_pane_id = group
+            .active_pane_id
+            .or_else(|| group.pane_ids.first().copied());
+        graph_app.set_current_frame_tab_semantics(Some(semantics));
+        return focus_pane_id.is_some_and(|pane_id| focus_pane(tiles_tree, pane_id));
+    }
+
+    let Some(tabs_id) = tabs_container_for_exact_runtime_members(tiles_tree, &ordered_tile_ids)
+    else {
+        graph_app.set_current_frame_tab_semantics(Some(semantics));
+        return ordered_tile_ids
+            .iter()
+            .copied()
+            .find(|tile_id| tile_is_attached(tiles_tree, *tile_id))
+            .is_some();
+    };
+
+    let active_pane = group
+        .active_pane_id
+        .or_else(|| match tiles_tree.tiles.get(tabs_id) {
+            Some(Tile::Container(Container::Tabs(tabs))) => {
+                tabs.active
+                    .and_then(|active_tile| match tiles_tree.tiles.get(active_tile) {
+                        Some(Tile::Pane(tile)) => Some(tile.pane_id()),
+                        _ => None,
+                    })
+            }
+            _ => None,
+        });
+    let active_pane = active_pane
+        .filter(|pane_id| group.pane_ids.contains(pane_id))
+        .or_else(|| group.pane_ids.first().copied());
+    let Some(active_pane) = active_pane else {
+        return false;
+    };
+    group.active_pane_id = Some(active_pane);
+
+    let active_tile_id = match tile_id_for_pane(tiles_tree, active_pane) {
+        Some(tile_id) => tile_id,
+        None => return false,
+    };
+    let sibling_tile_ids: Vec<_> = ordered_tile_ids
+        .into_iter()
+        .filter(|tile_id| *tile_id != active_tile_id && tile_is_attached(tiles_tree, *tile_id))
+        .collect();
+    for tile_id in sibling_tile_ids {
+        let _ = detach_tile_for_reparent(tiles_tree, tile_id);
+    }
+
+    let _ = focus_pane(tiles_tree, active_pane);
+    tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+    graph_app.set_current_frame_tab_semantics(Some(semantics));
+    true
+}
+
+pub(crate) fn restore_pane_to_semantic_tab_group(
+    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &mut GraphBrowserApp,
+    pane: PaneId,
+    group_id: Uuid,
+) -> bool {
+    let Some(semantics) = current_runtime_frame_tab_semantics(graph_app, tiles_tree) else {
+        return false;
+    };
+    let Some(group) = semantics
+        .tab_groups
+        .iter()
+        .find(|group| group.group_id == group_id && group.pane_ids.contains(&pane))
+    else {
+        return false;
+    };
+
+    let ordered_tile_ids: Vec<_> = group
+        .pane_ids
+        .iter()
+        .filter_map(|pane_id| tile_id_for_pane(tiles_tree, *pane_id))
+        .collect();
+    if ordered_tile_ids.len() <= 1 {
+        graph_app.set_current_frame_tab_semantics(Some(semantics));
+        return focus_pane(tiles_tree, pane);
+    }
+
+    if let Some(tabs_id) = tabs_container_for_exact_runtime_members(tiles_tree, &ordered_tile_ids) {
+        let active_tile_id = group
+            .active_pane_id
+            .filter(|pane_id| group.pane_ids.contains(pane_id))
+            .unwrap_or(pane);
+        let active_tile_id = tile_id_for_pane(tiles_tree, active_tile_id);
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(tabs_id) {
+            if let Some(active_tile_id) = active_tile_id {
+                tabs.set_active(active_tile_id);
+            }
+        }
+        graph_app.set_current_frame_tab_semantics(Some(semantics));
+        tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+        return focus_pane(tiles_tree, pane);
+    }
+
+    let mut attached_tile_ids: Vec<_> = ordered_tile_ids
+        .iter()
+        .copied()
+        .filter(|tile_id| tile_is_attached(tiles_tree, *tile_id))
+        .collect();
+    attached_tile_ids.sort_by_key(|tile_id| tile_id.0);
+    let anchor_tile = attached_tile_ids
+        .first()
+        .copied()
+        .or_else(|| ordered_tile_ids.first().copied());
+    let Some(anchor_tile) = anchor_tile else {
+        return false;
+    };
+    let anchor_parent = tiles_tree.tiles.parent_of(anchor_tile);
+    let anchor_was_root = tiles_tree.root() == Some(anchor_tile);
+
+    for tile_id in attached_tile_ids
+        .iter()
+        .copied()
+        .filter(|tile_id| *tile_id != anchor_tile)
+    {
+        let _ = detach_tile_for_reparent(tiles_tree, tile_id);
+    }
+
+    let tabs_id = tiles_tree.tiles.insert_tab_tile(ordered_tile_ids.clone());
+    let active_tile_id = group
+        .active_pane_id
+        .filter(|pane_id| group.pane_ids.contains(pane_id))
+        .unwrap_or(pane);
+    let active_tile_id = tile_id_for_pane(tiles_tree, active_tile_id);
+    if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(tabs_id) {
+        if let Some(active_tile_id) = active_tile_id {
+            tabs.set_active(active_tile_id);
+        }
+    }
+
+    if let Some(parent_id) = anchor_parent {
+        replace_child_in_parent(tiles_tree, parent_id, anchor_tile, tabs_id);
+    } else if anchor_was_root || tiles_tree.root().is_none() {
+        tiles_tree.root = Some(tabs_id);
+    } else {
+        return false;
+    }
+
+    graph_app.set_current_frame_tab_semantics(Some(semantics));
+    tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+    focus_pane(tiles_tree, pane)
 }
 
 fn ordered_selected_pane_tile_ids(
@@ -1501,6 +1768,140 @@ mod tests {
             .tiles
             .iter()
             .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == graph_b)));
+    }
+
+    #[test]
+    fn semantic_tab_group_can_collapse_and_restore_live_tree() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://semantic-live-a.example".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://semantic-live-b.example".into(),
+            euclid::default::Point2D::new(80.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![a_tile, b_tile]);
+        let mut tree = Tree::new("semantic_tab_restore_roundtrip", root, tiles);
+
+        let semantics = persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&tree)
+            .expect("semantics");
+        let group = semantics.tab_groups[0].clone();
+        let pane_a = match tree.tiles.get(a_tile) {
+            Some(Tile::Pane(tile)) => tile.pane_id(),
+            other => panic!("expected pane tile for a, got {other:?}"),
+        };
+        let pane_b = match tree.tiles.get(b_tile) {
+            Some(Tile::Pane(tile)) => tile.pane_id(),
+            other => panic!("expected pane tile for b, got {other:?}"),
+        };
+        app.set_current_frame_tab_semantics(Some(semantics));
+
+        assert!(collapse_semantic_tab_group_to_pane_rest(
+            &mut tree,
+            &mut app,
+            group.group_id
+        ));
+        assert!(
+            !matches!(
+                tree.tiles.get(tree.root().expect("root after collapse")),
+                Some(Tile::Container(Container::Tabs(_)))
+            ),
+            "collapse should leave pane-rest form at the root"
+        );
+        let attached_count = [pane_a, pane_b]
+            .into_iter()
+            .filter(|pane_id| {
+                tile_id_for_pane(&tree, *pane_id)
+                    .is_some_and(|tile_id| tile_is_attached(&tree, tile_id))
+            })
+            .count();
+        assert_eq!(attached_count, 1);
+
+        assert!(restore_pane_to_semantic_tab_group(
+            &mut tree,
+            &mut app,
+            pane_b,
+            group.group_id
+        ));
+        match tree.tiles.get(tree.root().expect("root after restore")) {
+            Some(Tile::Container(Container::Tabs(tabs))) => {
+                assert_eq!(tabs.children.len(), 2);
+            }
+            other => panic!("expected restored tabs root, got {other:?}"),
+        }
+        assert_eq!(
+            app.current_frame_tab_semantics()
+                .expect("runtime semantics")
+                .tab_groups[0]
+                .group_id,
+            group.group_id
+        );
+    }
+
+    #[test]
+    fn semantic_tab_affordance_and_toggle_intent_follow_runtime_state() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync(
+            "https://semantic-toggle-a.example".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://semantic-toggle-b.example".into(),
+            euclid::default::Point2D::new(80.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![a_tile, b_tile]);
+        let mut tree = Tree::new("semantic_tab_toggle_affordance", root, tiles);
+
+        let semantics = persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&tree)
+            .expect("semantics");
+        let group = semantics.tab_groups[0].clone();
+        let pane_a = match tree.tiles.get(a_tile) {
+            Some(Tile::Pane(tile)) => tile.pane_id(),
+            other => panic!("expected pane tile for a, got {other:?}"),
+        };
+        app.set_current_frame_tab_semantics(Some(semantics));
+
+        assert_eq!(
+            semantic_tab_affordance_for_pane(&tree, &app, pane_a),
+            Some(SemanticTabAffordance::Collapse {
+                group_id: group.group_id,
+                member_count: 2,
+            })
+        );
+        assert!(matches!(
+            semantic_tab_toggle_intent_for_pane(&tree, &app, pane_a),
+            Some(WorkbenchIntent::CollapseSemanticTabGroupToPaneRest {
+                group_id
+            }) if group_id == group.group_id
+        ));
+
+        assert!(collapse_semantic_tab_group_to_pane_rest(
+            &mut tree,
+            &mut app,
+            group.group_id
+        ));
+
+        assert_eq!(
+            semantic_tab_affordance_for_pane(&tree, &app, pane_a),
+            Some(SemanticTabAffordance::Restore {
+                group_id: group.group_id,
+                member_count: 2,
+            })
+        );
+        assert!(matches!(
+            semantic_tab_toggle_intent_for_pane(&tree, &app, pane_a),
+            Some(WorkbenchIntent::RestorePaneToSemanticTabGroup { pane, group_id })
+                if pane == pane_a && group_id == group.group_id
+        ));
     }
 
     #[test]

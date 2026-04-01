@@ -492,3 +492,30 @@ pub(super) fn handle_split_pane_intent(
         });
     }
 }
+
+pub(super) fn handle_restore_pane_to_semantic_tab_group_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    pane: PaneId,
+    group_id: uuid::Uuid,
+) {
+    if !tile_view_ops::restore_pane_to_semantic_tab_group(tiles_tree, graph_app, pane, group_id) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+            byte_len: 1,
+        });
+    }
+}
+
+pub(super) fn handle_collapse_semantic_tab_group_to_pane_rest_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    group_id: uuid::Uuid,
+) {
+    if !tile_view_ops::collapse_semantic_tab_group_to_pane_rest(tiles_tree, graph_app, group_id) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+            byte_len: 1,
+        });
+    }
+}

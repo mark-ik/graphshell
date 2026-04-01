@@ -103,8 +103,22 @@ fn handle_pending_frame_save_layout_actions(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) {
+    handle_pending_repair_frame_tab_semantics(graph_app);
     handle_pending_save_frame_snapshot(graph_app, tiles_tree);
     handle_pending_save_frame_snapshot_named(graph_app, tiles_tree);
+}
+
+fn handle_pending_repair_frame_tab_semantics(graph_app: &mut GraphBrowserApp) {
+    while let Some(frame_name) = graph_app.take_pending_repair_frame_tab_semantics() {
+        match persistence_ops::repair_named_frame_tab_semantics(graph_app, &frame_name) {
+            Ok(repairs) => {
+                for repair in repairs {
+                    warn!("frame '{frame_name}': {repair}");
+                }
+            }
+            Err(error) => warn!("Failed to repair frame tab semantics for '{frame_name}': {error}"),
+        }
+    }
 }
 
 fn handle_pending_save_frame_snapshot(
@@ -221,6 +235,9 @@ fn restore_named_frame_snapshot(
                 if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
                     graph_app.mark_session_frame_layout_json(&runtime_layout_json);
                 }
+                graph_app.set_current_frame_tab_semantics(
+                    persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&restored_tree),
+                );
                 *tiles_tree = restored_tree;
             } else if let Some(request) = routed_open_request.take() {
                 warn!(
@@ -292,6 +309,9 @@ fn activate_current_frame_handle(
     {
         focus_frame_node_request(graph_app, tiles_tree, request);
     }
+    graph_app.set_current_frame_tab_semantics(
+        persistence_ops::derive_runtime_frame_tab_semantics_from_tree(tiles_tree),
+    );
     graph_app.note_frame_activated(name, current_frame_nodes(tiles_tree));
     if let Err(e) = persistence_ops::mark_named_frame_bundle_activated(graph_app, name) {
         debug!("Skipping frame bundle activation stamp for '{name}': {e}");
@@ -305,10 +325,25 @@ fn load_or_synthesize_frame_tree(
     match persistence_ops::load_named_frame_bundle(graph_app, name) {
         Ok(bundle) => {
             persistence_ops::apply_workbench_profile_from_bundle(graph_app, &bundle);
-            persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
+            let restored =
+                persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle);
+            if let Ok((tree, _)) = &restored {
+                graph_app.set_current_frame_tab_semantics(
+                    persistence_ops::runtime_frame_tab_semantics_from_restored_bundle(
+                        graph_app, &bundle, tree,
+                    ),
+                );
+            }
+            restored
         }
         Err(bundle_error) => {
             persistence_ops::synthesize_runtime_tree_from_graph_frame(graph_app, name)
+                .map(|(tree, nodes)| {
+                    graph_app.set_current_frame_tab_semantics(
+                        persistence_ops::derive_runtime_frame_tab_semantics_from_tree(&tree),
+                    );
+                    (tree, nodes)
+                })
                 .map_err(|graph_error| format!("{bundle_error}; {graph_error}"))
         }
     }

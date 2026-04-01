@@ -12,8 +12,7 @@ use crate::app::workbench_layout_policy::{AnchorEdge, FirstUseOutcome, Navigator
 use crate::app::{
     CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, NavigatorHostScope,
     PendingTileOpenMode, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent,
-    WorkbenchLayoutConstraint,
-    WorkbenchNavigationGeometry,
+    WorkbenchLayoutConstraint, WorkbenchNavigationGeometry,
 };
 use crate::graph::{
     ArrangementSubKind, DominantEdge, FrameLayoutHint, GraphletKind, NodeKey, SplitOrientation,
@@ -225,6 +224,7 @@ pub(crate) struct WorkbenchPaneEntry {
     pub(crate) title: String,
     pub(crate) subtitle: Option<String>,
     pub(crate) arrangement_memberships: Vec<String>,
+    pub(crate) semantic_tab_affordance: Option<tile_view_ops::SemanticTabAffordance>,
     pub(crate) is_active: bool,
     pub(crate) closable: bool,
 }
@@ -622,6 +622,7 @@ impl WorkbenchChromeProjection {
             .filter_map(|(_, tile)| match tile {
                 Tile::Pane(kind) => Some(pane_entry_for_tile(
                     graph_app,
+                    tiles_tree,
                     kind,
                     active_pane,
                     &arrangement_memberships,
@@ -1247,6 +1248,7 @@ fn is_internal_surface_node(node: &crate::graph::Node) -> bool {
 
 fn pane_entry_for_tile(
     graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
     kind: &TileKind,
     active_pane: Option<PaneId>,
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
@@ -1262,6 +1264,7 @@ fn pane_entry_for_tile(
             title: graph_view_title(graph_app, graph_ref.graph_view_id),
             subtitle: Some("Graph".to_string()),
             arrangement_memberships: Vec::new(),
+            semantic_tab_affordance: None,
             is_active: active_pane == Some(graph_ref.pane_id),
             closable: false,
         },
@@ -1292,6 +1295,11 @@ fn pane_entry_for_tile(
                     .get(&state.node)
                     .cloned()
                     .unwrap_or_default(),
+                semantic_tab_affordance: tile_view_ops::semantic_tab_affordance_for_pane(
+                    tiles_tree,
+                    graph_app,
+                    state.pane_id,
+                ),
                 is_active: active_pane == Some(state.pane_id),
                 closable: true,
             }
@@ -1306,6 +1314,7 @@ fn pane_entry_for_tile(
                 title: tool.title().to_string(),
                 subtitle: Some("Tool".to_string()),
                 arrangement_memberships: Vec::new(),
+                semantic_tab_affordance: None,
                 is_active: active_pane == Some(tool.pane_id),
                 closable: true,
             }
@@ -1318,6 +1327,7 @@ fn pane_entry_for_tile(
             title: graph_view_title(graph_app, graph_ref.graph_view_id),
             subtitle: Some("Graph".to_string()),
             arrangement_memberships: Vec::new(),
+            semantic_tab_affordance: None,
             is_active: active_pane == Some(graph_ref.pane_id),
             closable: false,
         },
@@ -1346,6 +1356,11 @@ fn pane_entry_for_tile(
                     .get(&state.node)
                     .cloned()
                     .unwrap_or_default(),
+                semantic_tab_affordance: tile_view_ops::semantic_tab_affordance_for_pane(
+                    tiles_tree,
+                    graph_app,
+                    state.pane_id,
+                ),
                 is_active: active_pane == Some(state.pane_id),
                 closable: true,
             }
@@ -1359,6 +1374,7 @@ fn pane_entry_for_tile(
             title: tool.title().to_string(),
             subtitle: Some("Tool".to_string()),
             arrangement_memberships: Vec::new(),
+            semantic_tab_affordance: None,
             is_active: active_pane == Some(tool.pane_id),
             closable: true,
         },
@@ -1557,6 +1573,7 @@ fn build_tree_node(
     match tile {
         Tile::Pane(kind) => Some(WorkbenchChromeNode::Pane(pane_entry_for_tile(
             graph_app,
+            tiles_tree,
             kind,
             active_pane,
             arrangement_memberships,
@@ -2613,6 +2630,13 @@ enum WorkbenchHostAction {
         row_key: Option<String>,
     },
     SplitPane(PaneId, SplitDirection),
+    RestoreSemanticTabGroup {
+        pane: PaneId,
+        group_id: Uuid,
+    },
+    CollapseSemanticTabGroup {
+        group_id: Uuid,
+    },
     /// Close a non-node pane (graph view, tool). Preserves webview.
     ClosePane(PaneId),
     /// Dismiss a node pane: demotes to Cold but keeps graph edges intact.
@@ -2698,6 +2722,52 @@ fn layer_state_label(layer_state: WorkbenchLayerState) -> &'static str {
     }
 }
 
+fn render_semantic_tab_affordance_button(
+    ui: &mut egui::Ui,
+    entry: &WorkbenchPaneEntry,
+    actions: &mut Vec<WorkbenchHostAction>,
+) {
+    let Some(affordance) = entry.semantic_tab_affordance else {
+        return;
+    };
+
+    match affordance {
+        tile_view_ops::SemanticTabAffordance::Restore {
+            group_id,
+            member_count,
+        } => {
+            if ui
+                .small_button("Tabs")
+                .on_hover_text(format!(
+                    "Restore semantic tab group with {member_count} pane{}",
+                    if member_count == 1 { "" } else { "s" }
+                ))
+                .clicked()
+            {
+                actions.push(WorkbenchHostAction::RestoreSemanticTabGroup {
+                    pane: entry.pane_id,
+                    group_id,
+                });
+            }
+        }
+        tile_view_ops::SemanticTabAffordance::Collapse {
+            group_id,
+            member_count,
+        } => {
+            if ui
+                .small_button("Rest")
+                .on_hover_text(format!(
+                    "Collapse semantic tab group with {member_count} pane{} to pane rest",
+                    if member_count == 1 { "" } else { "s" }
+                ))
+                .clicked()
+            {
+                actions.push(WorkbenchHostAction::CollapseSemanticTabGroup { group_id });
+            }
+        }
+    }
+}
+
 fn render_tree_node(
     ui: &mut egui::Ui,
     node: &WorkbenchChromeNode,
@@ -2721,6 +2791,7 @@ fn render_tree_node(
                     actions.push(WorkbenchHostAction::FocusPane(entry.pane_id));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    render_semantic_tab_affordance_button(ui, entry, actions);
                     if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
                         actions.push(match entry.kind {
                             WorkbenchPaneKind::Node { .. } => {
@@ -2821,6 +2892,7 @@ fn render_pane_row(
             actions.push(WorkbenchHostAction::FocusPane(entry.pane_id));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            render_semantic_tab_affordance_button(ui, entry, actions);
             if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
                 actions.push(match entry.kind {
                     WorkbenchPaneKind::Node { .. } => {
@@ -2925,6 +2997,17 @@ fn apply_workbench_host_action(
                 source_pane,
                 direction,
             });
+        }
+        WorkbenchHostAction::RestoreSemanticTabGroup { pane, group_id } => {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::RestorePaneToSemanticTabGroup {
+                pane,
+                group_id,
+            });
+        }
+        WorkbenchHostAction::CollapseSemanticTabGroup { group_id } => {
+            graph_app.enqueue_workbench_intent(
+                WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { group_id },
+            );
         }
         WorkbenchHostAction::ClosePane(pane) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::ClosePane {
@@ -3934,6 +4017,58 @@ mod tests {
             }
             other => panic!("expected split root, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn projection_marks_semantic_tab_affordance_for_pane_rest_members() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let left_node = app.add_node_and_sync(
+            "https://example.com/semantic-left".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let right_node = app.add_node_and_sync(
+            "https://example.com/semantic-right".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let left_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(left_node)));
+        let right_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(right_node)));
+        let root = tiles.insert_tab_tile(vec![left_tile, right_tile]);
+        let mut tree = Tree::new("workbench_host_semantic_affordance", root, tiles);
+
+        let semantics =
+            crate::shell::desktop::ui::persistence_ops::derive_runtime_frame_tab_semantics_from_tree(
+                &tree,
+            )
+            .expect("semantic tab metadata");
+        let group = semantics.tab_groups[0].clone();
+        app.set_current_frame_tab_semantics(Some(semantics));
+
+        let pane_id = match tree.tiles.get(left_tile) {
+            Some(Tile::Pane(tile)) => tile.pane_id(),
+            other => panic!("expected pane tile, got {other:?}"),
+        };
+        assert!(tile_view_ops::collapse_semantic_tab_group_to_pane_rest(
+            &mut tree,
+            &mut app,
+            group.group_id
+        ));
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, Some(pane_id));
+        let entry = projection
+            .pane_entries
+            .iter()
+            .find(|entry| entry.pane_id == pane_id)
+            .expect("collapsed pane should remain visible");
+
+        assert_eq!(
+            entry.semantic_tab_affordance,
+            Some(tile_view_ops::SemanticTabAffordance::Restore {
+                group_id: group.group_id,
+                member_count: 2,
+            })
+        );
     }
 
     #[test]

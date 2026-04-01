@@ -127,8 +127,8 @@ mod history_runtime;
 #[path = "app/intents.rs"]
 mod intents;
 pub use intents::{
-    AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation,
-    RuntimeEvent, RuntimeUserStylesheetSpec, ViewAction,
+    AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation, RuntimeEvent,
+    RuntimeUserStylesheetSpec, ViewAction,
 };
 
 #[path = "app/clip_capture.rs"]
@@ -613,6 +613,16 @@ pub enum WorkbenchIntent {
     ReconcileGraphletTiles {
         node: NodeKey,
     },
+    /// Restore a pane-rest member back into its semantic tab group.
+    RestorePaneToSemanticTabGroup {
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        group_id: Uuid,
+    },
+    /// Collapse a semantic tab group back to pane-rest form while retaining its
+    /// semantic membership overlay.
+    CollapseSemanticTabGroupToPaneRest {
+        group_id: Uuid,
+    },
     CloseToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
         restore_previous_focus: bool,
@@ -684,6 +694,19 @@ pub enum WorkbenchIntent {
     DetachNodeToSplit {
         key: NodeKey,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeTabGroupMetadata {
+    pub group_id: Uuid,
+    pub pane_ids: Vec<crate::shell::desktop::workbench::pane_model::PaneId>,
+    pub active_pane_id: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeFrameTabSemantics {
+    pub version: u32,
+    pub tab_groups: Vec<RuntimeTabGroupMetadata>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -948,6 +971,7 @@ impl GraphBrowserApp {
                     node_last_active_workspace: HashMap::new(),
                     node_workspace_membership: HashMap::new(),
                     current_workspace_name: None,
+                    current_frame_tab_semantics: None,
                     current_workspace_is_synthesized: false,
                     workspace_has_unsaved_changes: false,
                     unsaved_workspace_prompt_warned: false,
@@ -1108,6 +1132,7 @@ impl GraphBrowserApp {
                     node_last_active_workspace: HashMap::new(),
                     node_workspace_membership: HashMap::new(),
                     current_workspace_name: None,
+                    current_frame_tab_semantics: None,
                     current_workspace_is_synthesized: false,
                     workspace_has_unsaved_changes: false,
                     unsaved_workspace_prompt_warned: false,

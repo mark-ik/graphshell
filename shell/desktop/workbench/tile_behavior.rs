@@ -886,28 +886,6 @@ impl<'a> GraphshellTileBehavior<'a> {
             || pointer.y > tab_rect.bottom() + detach_band_margin
     }
 
-    fn tab_group_node_order_for_tile(
-        tiles: &Tiles<TileKind>,
-        tile_id: TileId,
-    ) -> Option<Vec<NodeKey>> {
-        for (_, tile) in tiles.iter() {
-            let Tile::Container(Container::Tabs(tabs)) = tile else {
-                continue;
-            };
-            if !tabs.children.contains(&tile_id) {
-                continue;
-            }
-            let mut out = Vec::new();
-            for child_id in &tabs.children {
-                if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(*child_id) {
-                    out.push(state.node);
-                }
-            }
-            return Some(out);
-        }
-        None
-    }
-
     fn activate_successor_tab_in_parent_before_close(tiles: &mut Tiles<TileKind>, tile_id: TileId) {
         let Some(parent_id) = tiles.parent_of(tile_id) else {
             return;

@@ -1444,6 +1444,8 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::DetachNodeToSplit { .. }
         | WorkbenchIntent::OpenNodeInPane { .. }
         | WorkbenchIntent::ReconcileGraphletTiles { .. }
+        | WorkbenchIntent::RestorePaneToSemanticTabGroup { .. }
+        | WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { .. }
         | WorkbenchIntent::SelectTile { .. }
         | WorkbenchIntent::UpdateTileSelection { .. }
         | WorkbenchIntent::ClearTileSelection

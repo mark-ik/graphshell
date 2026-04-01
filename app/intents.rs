@@ -99,6 +99,9 @@ pub enum AppCommand {
     RestoreWorkspaceSnapshotNamed {
         name: String,
     },
+    RepairFrameTabSemantics {
+        frame_name: String,
+    },
     RestoreHistoryWorkspaceLayout {
         layout_json: String,
     },
@@ -978,6 +981,16 @@ pub enum GraphIntent {
         url: String,
         focus_node: Option<NodeKey>,
     },
+    RestorePaneToSemanticTabGroup {
+        pane: PaneId,
+        group_id: uuid::Uuid,
+    },
+    CollapseSemanticTabGroupToPaneRest {
+        group_id: uuid::Uuid,
+    },
+    RepairFrameTabSemantics {
+        frame_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1131,6 +1144,9 @@ impl GraphIntent {
             | Self::RebuildNavigatorProjection
             | Self::SetNavigatorSpecialtyView { .. }
             | Self::OpenFrameTileGroup { .. }
+            | Self::RestorePaneToSemanticTabGroup { .. }
+            | Self::CollapseSemanticTabGroupToPaneRest { .. }
+            | Self::RepairFrameTabSemantics { .. }
             | Self::StartGeminiCapsuleServer { .. }
             | Self::StopGeminiCapsuleServer
             | Self::ServeNodeAsGemini { .. }
@@ -1198,6 +1214,28 @@ mod tests {
         );
         assert_eq!(
             GraphIntent::HistoryTimelineReplayStarted.workspace_grant_requirement(),
+            WorkspaceGrantRequirement::None
+        );
+        assert_eq!(
+            GraphIntent::RepairFrameTabSemantics {
+                frame_name: "workspace:test".to_string(),
+            }
+            .workspace_grant_requirement(),
+            WorkspaceGrantRequirement::None
+        );
+        assert_eq!(
+            GraphIntent::RestorePaneToSemanticTabGroup {
+                pane: PaneId::new(),
+                group_id: uuid::Uuid::new_v4(),
+            }
+            .workspace_grant_requirement(),
+            WorkspaceGrantRequirement::None
+        );
+        assert_eq!(
+            GraphIntent::CollapseSemanticTabGroupToPaneRest {
+                group_id: uuid::Uuid::new_v4(),
+            }
+            .workspace_grant_requirement(),
             WorkspaceGrantRequirement::None
         );
     }
