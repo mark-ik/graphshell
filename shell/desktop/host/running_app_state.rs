@@ -20,12 +20,12 @@ use image::{DynamicImage, ImageFormat};
 ))]
 use libc::c_char;
 use log::{error, info};
+use servo::user_contents::UserStyleSheet;
 use servo::{
     AllowOrDenyRequest, ConsoleLogLevel, CreateNewWebViewRequest, EventLoopWaker, PrefValue,
     Preferences, Servo, ServoDelegate, ServoError, UserContentManager, WebView, WebViewDelegate,
     WebViewId, pref,
 };
-use servo::user_contents::UserStyleSheet;
 use url::Url;
 
 use crate::app::{PendingCreateToken, RuntimeUserStylesheetSpec, WorkspaceUserStylesheetSetting};
@@ -403,10 +403,14 @@ impl RunningAppState {
             .user_stylesheets
             .iter()
             .filter_map(|stylesheet| {
-                stylesheet.url().to_file_path().ok().map(|path| ManagedUserStylesheet {
-                    path: path.to_string_lossy().into_owned(),
-                    stylesheet: stylesheet.clone(),
-                })
+                stylesheet
+                    .url()
+                    .to_file_path()
+                    .ok()
+                    .map(|path| ManagedUserStylesheet {
+                        path: path.to_string_lossy().into_owned(),
+                        stylesheet: stylesheet.clone(),
+                    })
             })
             .collect();
 
@@ -709,7 +713,8 @@ impl RunningAppState {
         };
 
         for entry in previous {
-            self.user_content_manager.remove_stylesheet(entry.stylesheet);
+            self.user_content_manager
+                .remove_stylesheet(entry.stylesheet);
         }
 
         let mut next = Vec::with_capacity(stylesheets.len());

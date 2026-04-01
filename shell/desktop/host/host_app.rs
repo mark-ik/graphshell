@@ -266,9 +266,7 @@ fn resolve_userscripts_directory(userscripts_directory: &Path) -> std::path::Pat
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        BUILTIN_USERSCRIPTS_DIRECTORY, resolve_userscripts_directory, userscript_files,
-    };
+    use super::{BUILTIN_USERSCRIPTS_DIRECTORY, resolve_userscripts_directory, userscript_files};
     use std::path::Path;
 
     #[test]

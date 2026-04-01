@@ -380,8 +380,7 @@ fn load_or_generate_identity() -> Result<P2PIdentitySecret, VerseInitError> {
 /// Get a human-readable device name
 fn get_device_name() -> String {
     // Try to get hostname, fall back to "Unknown Device"
-    System::host_name()
-        .unwrap_or_else(|| "Unknown Device".to_string())
+    System::host_name().unwrap_or_else(|| "Unknown Device".to_string())
 }
 
 /// Create iroh endpoint with our secret key
@@ -505,7 +504,10 @@ mod version_vector_serde {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::HashMap;
 
-    pub fn serialize<S>(map: &HashMap<iroh::EndpointId, u64>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(
+        map: &HashMap<iroh::EndpointId, u64>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -816,7 +818,9 @@ pub(crate) fn endpoint_id() -> iroh::EndpointId {
         channel_id: CHANNEL_VERSE_PREINIT_CALL,
         byte_len: "node_id".len(),
     });
-    log::warn!("endpoint_id called before Verse initialization; using temporary fallback EndpointId");
+    log::warn!(
+        "endpoint_id called before Verse initialization; using temporary fallback EndpointId"
+    );
     *FALLBACK_ENDPOINT_ID.get_or_init(|| generate_p2p_secret_key().public())
 }
 

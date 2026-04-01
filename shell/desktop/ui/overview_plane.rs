@@ -43,10 +43,16 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
     }
 
     let slots = sorted_slot_snapshots(app);
-    let active_slots: Vec<_> = slots.iter().filter(|slot| !slot.archived).cloned().collect();
+    let active_slots: Vec<_> = slots
+        .iter()
+        .filter(|slot| !slot.archived)
+        .cloned()
+        .collect();
     let archived_slots: Vec<_> = slots.iter().filter(|slot| slot.archived).cloned().collect();
     let selected_view_id = overview_surface_selected_view_id(ctx, app, &slots);
-    let selected_slot = slots.iter().find(|slot| Some(slot.view_id) == selected_view_id);
+    let selected_slot = slots
+        .iter()
+        .find(|slot| Some(slot.view_id) == selected_view_id);
     let mut open = true;
     let mut close_requested = false;
     let mut pending_intents = Vec::new();
@@ -158,13 +164,22 @@ pub(crate) fn selected_overview_view_id(
         .graph_runtime
         .focused_view
         .filter(|view_id| slots.iter().any(|slot| slot.view_id == *view_id))
-        .or_else(|| slots.iter().find(|slot| !slot.archived).map(|slot| slot.view_id))
+        .or_else(|| {
+            slots
+                .iter()
+                .find(|slot| !slot.archived)
+                .map(|slot| slot.view_id)
+        })
         .or_else(|| slots.first().map(|slot| slot.view_id))
 }
 
 fn overview_window_pos(app: &GraphBrowserApp) -> Pos2 {
     if let Some(view_id) = app.workspace.graph_runtime.focused_view
-        && let Some(rect) = app.workspace.graph_runtime.graph_view_canvas_rects.get(&view_id)
+        && let Some(rect) = app
+            .workspace
+            .graph_runtime
+            .graph_view_canvas_rects
+            .get(&view_id)
     {
         return Pos2::new(rect.left() + 24.0, rect.top() + 24.0);
     }
@@ -183,7 +198,11 @@ pub(crate) fn render_navigator_overview_swatch(
     app: &GraphBrowserApp,
 ) -> Vec<OverviewSurfaceAction> {
     let slots = sorted_slot_snapshots(app);
-    let active_slots: Vec<_> = slots.iter().filter(|slot| !slot.archived).cloned().collect();
+    let active_slots: Vec<_> = slots
+        .iter()
+        .filter(|slot| !slot.archived)
+        .cloned()
+        .collect();
     let archived_count = slots.iter().filter(|slot| slot.archived).count();
     let selected_view_id = selected_overview_view_id(app, &slots);
     let mut actions = Vec::new();
@@ -257,7 +276,10 @@ pub(crate) fn render_navigator_overview_swatch(
                 } else {
                     RichText::new(&slot.name).small()
                 };
-                if ui.selectable_label(Some(slot.view_id) == selected_view_id, label).clicked() {
+                if ui
+                    .selectable_label(Some(slot.view_id) == selected_view_id, label)
+                    .clicked()
+                {
                     actions.push(OverviewSurfaceAction::FocusView(slot.view_id));
                 }
                 if ui.small_button("Open").clicked() {
@@ -297,9 +319,7 @@ pub(crate) fn render_navigator_overview_swatch(
             if let Some(node_count) = app.graph_view_owned_node_count(selected_slot.view_id) {
                 summary.push(format!("{node_count} nodes"));
             }
-            ui.label(
-                RichText::new(summary.join(" · ")).small().weak(),
-            );
+            ui.label(RichText::new(summary.join(" · ")).small().weak());
             if ui.small_button("Open").clicked() {
                 actions.push(OverviewSurfaceAction::OpenView(selected_slot.view_id));
             }
@@ -323,8 +343,8 @@ fn render_compact_overview_grid(
     let rows = (max_row - min_row + 1).max(1) as f32;
     let cols = (max_col - min_col + 1).max(1) as f32;
     let available_width = ui.available_width().max(140.0);
-    let cell_width = ((available_width - (cols - 1.0) * OVERVIEW_SWATCH_GAP) / cols)
-        .clamp(42.0, 76.0);
+    let cell_width =
+        ((available_width - (cols - 1.0) * OVERVIEW_SWATCH_GAP) / cols).clamp(42.0, 76.0);
     let cell_height = (cell_width * 0.58).clamp(24.0, 44.0);
     let drag_transfer_enabled = navigator_overview_drag_transfer_enabled(cell_width);
     let grid_size = Vec2::new(
@@ -414,7 +434,8 @@ fn render_compact_overview_grid(
         {
             actions.push(action);
         }
-        ui.ctx().data_mut(|data| data.remove::<GraphViewId>(drag_source_id));
+        ui.ctx()
+            .data_mut(|data| data.remove::<GraphViewId>(drag_source_id));
     }
 }
 
@@ -595,7 +616,9 @@ fn render_overview_details(
     } else {
         move_button.on_disabled_hover_text(transfer_affordance.disabled_reason)
     };
-    if move_button.clicked() && let Some(intent) = overview_transfer_intent(app, slot.view_id) {
+    if move_button.clicked()
+        && let Some(intent) = overview_transfer_intent(app, slot.view_id)
+    {
         pending_intents.push(intent);
     }
 
@@ -738,12 +761,7 @@ fn overview_grid_bounds(slots: &[OverviewSlotSnapshot]) -> Option<(i32, i32, i32
     Some((min_row, max_row, min_col, max_col))
 }
 
-fn slot_rect(
-    slot: &OverviewSlotSnapshot,
-    min_row: i32,
-    min_col: i32,
-    origin: Pos2,
-) -> egui::Rect {
+fn slot_rect(slot: &OverviewSlotSnapshot, min_row: i32, min_col: i32, origin: Pos2) -> egui::Rect {
     slot_rect_for_coords(slot.row, slot.col, min_row, min_col, origin)
 }
 
@@ -916,10 +934,12 @@ fn overview_transfer_intent(
     destination_view: GraphViewId,
 ) -> Option<GraphIntent> {
     let affordance = overview_transfer_affordance(app, destination_view);
-    affordance.enabled.then_some(GraphIntent::TransferSelectedNodesToGraphView {
-        source_view: affordance.source_view?,
-        destination_view,
-    })
+    affordance
+        .enabled
+        .then_some(GraphIntent::TransferSelectedNodesToGraphView {
+            source_view: affordance.source_view?,
+            destination_view,
+        })
 }
 
 fn next_overview_selected_view_id(
@@ -933,35 +953,46 @@ fn next_overview_selected_view_id(
         .iter()
         .filter(|slot| slot.view_id != current.view_id)
         .filter_map(|slot| match direction {
-            GraphViewLayoutDirection::Left if slot.col < current.col => Some(((
-                current.col - slot.col,
-                (slot.row - current.row).abs(),
-                slot.row,
-                slot.col,
-            ), slot.view_id)),
-            GraphViewLayoutDirection::Right if slot.col > current.col => Some(((
-                slot.col - current.col,
-                (slot.row - current.row).abs(),
-                slot.row,
-                slot.col,
-            ), slot.view_id)),
-            GraphViewLayoutDirection::Up if slot.row < current.row => Some(((
-                current.row - slot.row,
-                (slot.col - current.col).abs(),
-                slot.col,
-                slot.row,
-            ), slot.view_id)),
-            GraphViewLayoutDirection::Down if slot.row > current.row => Some(((
-                slot.row - current.row,
-                (slot.col - current.col).abs(),
-                slot.col,
-                slot.row,
-            ), slot.view_id)),
+            GraphViewLayoutDirection::Left if slot.col < current.col => Some((
+                (
+                    current.col - slot.col,
+                    (slot.row - current.row).abs(),
+                    slot.row,
+                    slot.col,
+                ),
+                slot.view_id,
+            )),
+            GraphViewLayoutDirection::Right if slot.col > current.col => Some((
+                (
+                    slot.col - current.col,
+                    (slot.row - current.row).abs(),
+                    slot.row,
+                    slot.col,
+                ),
+                slot.view_id,
+            )),
+            GraphViewLayoutDirection::Up if slot.row < current.row => Some((
+                (
+                    current.row - slot.row,
+                    (slot.col - current.col).abs(),
+                    slot.col,
+                    slot.row,
+                ),
+                slot.view_id,
+            )),
+            GraphViewLayoutDirection::Down if slot.row > current.row => Some((
+                (
+                    slot.row - current.row,
+                    (slot.col - current.col).abs(),
+                    slot.col,
+                    slot.row,
+                ),
+                slot.view_id,
+            )),
             _ => None,
         })
         .min_by_key(|(key, _)| *key);
-    next.map(|(_, view_id)| view_id)
-        .or(Some(selected_view_id))
+    next.map(|(_, view_id)| view_id).or(Some(selected_view_id))
 }
 
 fn collect_overview_keyboard_intents(
@@ -1002,7 +1033,9 @@ fn collect_overview_keyboard_intents(
             }
 
             if alt {
-                if let Some(slot) = selected_view_id.and_then(|view_id| overview_slot_for_view(slots, view_id)) {
+                if let Some(slot) =
+                    selected_view_id.and_then(|view_id| overview_slot_for_view(slots, view_id))
+                {
                     let (row, col) = shifted_slot_position(slot.row, slot.col, direction);
                     intents.push(GraphIntent::MoveGraphViewSlot {
                         view_id: slot.view_id,
@@ -1016,7 +1049,9 @@ fn collect_overview_keyboard_intents(
             selected_view_id = next_overview_selected_view_id(slots, selected_view_id, direction);
         }
 
-        if input.key_pressed(Key::Space) && let Some(view_id) = selected_view_id {
+        if input.key_pressed(Key::Space)
+            && let Some(view_id) = selected_view_id
+        {
             intents.push(GraphIntent::FocusGraphView { view_id });
         }
 
@@ -1096,7 +1131,9 @@ mod tests {
     #[test]
     fn navigator_overview_swatch_enabled_requires_sidebar_width() {
         assert!(!navigator_overview_swatch_enabled(240.0));
-        assert!(navigator_overview_swatch_enabled(NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH));
+        assert!(navigator_overview_swatch_enabled(
+            NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH
+        ));
     }
 
     #[test]
@@ -1115,7 +1152,10 @@ mod tests {
 
         let affordance = overview_transfer_affordance(&app, view_id);
         assert!(!affordance.enabled);
-        assert_eq!(affordance.disabled_reason, "Focus a source graph view first.");
+        assert_eq!(
+            affordance.disabled_reason,
+            "Focus a source graph view first."
+        );
     }
 
     #[test]
@@ -1174,7 +1214,10 @@ mod tests {
         );
         app.select_in_focused_view(node, false);
 
-        assert_eq!(navigator_overview_transfer_action(&app, source, destination), None);
+        assert_eq!(
+            navigator_overview_transfer_action(&app, source, destination),
+            None
+        );
     }
 
     #[test]

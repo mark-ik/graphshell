@@ -60,8 +60,8 @@ impl WebViewAccessibilityBridgeDegradationState {
 }
 
 #[cfg(feature = "diagnostics")]
-fn webview_accessibility_bridge_health_state(
-) -> &'static Mutex<WebViewAccessibilityBridgeHealthState> {
+fn webview_accessibility_bridge_health_state()
+-> &'static Mutex<WebViewAccessibilityBridgeHealthState> {
     static STATE: OnceLock<Mutex<WebViewAccessibilityBridgeHealthState>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(WebViewAccessibilityBridgeHealthState::default()))
 }

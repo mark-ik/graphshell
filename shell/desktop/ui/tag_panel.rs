@@ -153,7 +153,13 @@ pub(crate) fn render_tag_panel(
         return;
     };
 
-    if should_close_tag_panel(app, tiles_tree, graph_surface_focused, focused_hint, &snapshot) {
+    if should_close_tag_panel(
+        app,
+        tiles_tree,
+        graph_surface_focused,
+        focused_hint,
+        &snapshot,
+    ) {
         app.workspace.graph_runtime.tag_panel_state = None;
         return;
     }
@@ -183,7 +189,10 @@ pub(crate) fn render_tag_panel(
     let window_pos = tag_panel_window_pos(app, tiles_tree, &snapshot);
 
     let response = Window::new(format!("Tags for {title}"))
-        .id(egui::Id::new(("graphshell_tag_panel", snapshot.node_key.index())))
+        .id(egui::Id::new((
+            "graphshell_tag_panel",
+            snapshot.node_key.index(),
+        )))
         .collapsible(false)
         .default_width(360.0)
         .default_pos(window_pos)
@@ -208,8 +217,9 @@ pub(crate) fn render_tag_panel(
 
             ui.separator();
             ui.small("Add tag");
-            let response = ui
-                .add(TextEdit::singleline(&mut text_input).hint_text("Add tag or semantic code..."));
+            let response = ui.add(
+                TextEdit::singleline(&mut text_input).hint_text("Add tag or semantic code..."),
+            );
             let submit =
                 response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
             ui.horizontal(|ui| {
@@ -239,8 +249,7 @@ pub(crate) fn render_tag_panel(
                 ui.separator();
                 ui.small("Icon picker");
                 ui.add(
-                    TextEdit::singleline(&mut icon_search_input)
-                        .hint_text("Search emoji icons..."),
+                    TextEdit::singleline(&mut icon_search_input).hint_text("Search emoji icons..."),
                 );
                 ui.horizontal_wrapped(|ui| {
                     if ui.small_button("None").clicked() {
@@ -354,9 +363,16 @@ fn tag_panel_window_pos(
     }
 
     if let Some(view_id) = app.workspace.graph_runtime.focused_view
-        && let Some(rect) = app.workspace.graph_runtime.graph_view_canvas_rects.get(&view_id)
+        && let Some(rect) = app
+            .workspace
+            .graph_runtime
+            .graph_view_canvas_rects
+            .get(&view_id)
     {
-        return Pos2::new((rect.right() - 372.0).max(rect.left() + 12.0), rect.top() + 12.0);
+        return Pos2::new(
+            (rect.right() - 372.0).max(rect.left() + 12.0),
+            rect.top() + 12.0,
+        );
     }
 
     Pos2::new(24.0, 96.0)
@@ -385,9 +401,9 @@ mod tests {
     use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use crate::shell::desktop::workbench::tile_view_ops::focus_pane;
-    use euclid::default::Point2D;
     use egui::{Event, RawInput};
     use egui_tiles::{Tiles, Tree};
+    use euclid::default::Point2D;
 
     fn node_tree(states: Vec<NodePaneState>) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
@@ -409,10 +425,8 @@ mod tests {
     #[test]
     fn open_node_tag_panel_resets_transient_inputs() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node = app.add_node_and_sync(
-            "https://tags.example".to_string(),
-            Point2D::new(0.0, 0.0),
-        );
+        let node =
+            app.add_node_and_sync("https://tags.example".to_string(), Point2D::new(0.0, 0.0));
 
         open_node_tag_panel(&mut app, node, true);
 
@@ -432,21 +446,23 @@ mod tests {
     #[test]
     fn matching_emoji_icons_filters_by_keyword() {
         let matches = matching_emoji_icons("science");
-        assert!(matches.iter().any(
-            |icon| matches!(icon, BadgeIcon::Emoji(value) if value == "🔬")
-        ));
+        assert!(
+            matches
+                .iter()
+                .any(|icon| matches!(icon, BadgeIcon::Emoji(value) if value == "🔬"))
+        );
     }
 
     #[test]
     fn open_tag_panel_for_current_focus_prefers_active_node_pane() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node = app.add_node_and_sync(
-            "https://pane.example".to_string(),
-            Point2D::new(0.0, 0.0),
-        );
+        let node =
+            app.add_node_and_sync("https://pane.example".to_string(), Point2D::new(0.0, 0.0));
         let tree = node_tree(vec![NodePaneState::for_node(node)]);
 
-        assert!(open_tag_panel_for_current_focus(&mut app, &tree, false, None));
+        assert!(open_tag_panel_for_current_focus(
+            &mut app, &tree, false, None
+        ));
 
         let state = app
             .workspace
@@ -468,7 +484,9 @@ mod tests {
         app.update_focused_selection(vec![node], SelectionUpdateMode::Replace);
         let tree = graph_tree();
 
-        assert!(open_tag_panel_for_current_focus(&mut app, &tree, false, None));
+        assert!(open_tag_panel_for_current_focus(
+            &mut app, &tree, false, None
+        ));
 
         let state = app
             .workspace
@@ -510,10 +528,8 @@ mod tests {
     #[test]
     fn should_close_tag_panel_when_pane_focus_moves() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node_a = app.add_node_and_sync(
-            "https://pane-a.example".to_string(),
-            Point2D::new(0.0, 0.0),
-        );
+        let node_a =
+            app.add_node_and_sync("https://pane-a.example".to_string(), Point2D::new(0.0, 0.0));
         let node_b = app.add_node_and_sync(
             "https://pane-b.example".to_string(),
             Point2D::new(40.0, 0.0),
@@ -542,10 +558,8 @@ mod tests {
     #[test]
     fn render_tag_panel_closes_on_escape() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node = app.add_node_and_sync(
-            "https://escape.example".to_string(),
-            Point2D::new(0.0, 0.0),
-        );
+        let node =
+            app.add_node_and_sync("https://escape.example".to_string(), Point2D::new(0.0, 0.0));
         app.update_focused_selection(vec![node], SelectionUpdateMode::Replace);
         open_node_tag_panel(&mut app, node, false);
         let tree = graph_tree();

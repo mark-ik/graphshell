@@ -46,7 +46,8 @@ fn emit_graph_view_transfer_succeeded_diagnostic(byte_len: usize) {
 
 fn emit_graph_view_transfer_blocked_diagnostic() {
     emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED,
+        channel_id:
+            crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED,
         latency_us: 0,
     });
 }
@@ -632,9 +633,9 @@ impl GraphBrowserApp {
             .iter()
             .filter(|(_, view)| view.graphlet_node_mask.is_none())
             .flat_map(|(&owned_view_id, view)| {
-                view.owned_node_mask
-                    .iter()
-                    .flat_map(move |mask| mask.iter().copied().map(move |node| (node, owned_view_id)))
+                view.owned_node_mask.iter().flat_map(move |mask| {
+                    mask.iter().copied().map(move |node| (node, owned_view_id))
+                })
             })
             .collect();
         if ownership.is_empty() {
@@ -709,7 +710,8 @@ impl GraphBrowserApp {
             return;
         }
 
-        let selected_nodes = sorted_unique_node_keys(self.selection_for_view(source_view).iter().copied());
+        let selected_nodes =
+            sorted_unique_node_keys(self.selection_for_view(source_view).iter().copied());
         if selected_nodes.is_empty() {
             emit_graph_view_transfer_blocked_diagnostic();
             return;
@@ -729,7 +731,12 @@ impl GraphBrowserApp {
             }
         }
 
-        if let Some(view) = self.workspace.graph_runtime.views.get_mut(&destination_view) {
+        if let Some(view) = self
+            .workspace
+            .graph_runtime
+            .views
+            .get_mut(&destination_view)
+        {
             let mask = view.owned_node_mask.get_or_insert_with(HashSet::new);
             mask.extend(selected_nodes.iter().copied());
         }
@@ -1601,7 +1608,10 @@ impl std::fmt::Debug for GraphViewState {
             .field("edge_projection_override", &self.edge_projection_override)
             .field(
                 "owned_node_mask_len",
-                &self.owned_node_mask.as_ref().map(std::collections::HashSet::len),
+                &self
+                    .owned_node_mask
+                    .as_ref()
+                    .map(std::collections::HashSet::len),
             )
             .finish_non_exhaustive()
     }

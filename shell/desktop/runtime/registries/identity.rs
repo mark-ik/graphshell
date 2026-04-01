@@ -692,7 +692,11 @@ impl IdentityRegistry {
         persist_trust_store(&self.trust_store);
     }
 
-    pub(crate) fn revoke_workspace_access(&mut self, node_id: iroh::EndpointId, workspace_id: &str) {
+    pub(crate) fn revoke_workspace_access(
+        &mut self,
+        node_id: iroh::EndpointId,
+        workspace_id: &str,
+    ) {
         let mut peers = self.trust_store.write().expect("trust store lock poisoned");
         if let Some(peer) = peers.iter_mut().find(|peer| peer.node_id == node_id) {
             peer.workspace_grants

@@ -546,10 +546,11 @@ fn open_selected_node_tag_panel(graph_app: &mut GraphBrowserApp) {
 }
 
 fn overview_plane_tooltip(graph_app: &GraphBrowserApp) -> String {
-    let shortcut = phase2_binding_display_labels_for_action(action_id::graph::TOGGLE_OVERVIEW_PLANE)
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| "Ctrl+Shift+O".to_string());
+    let shortcut =
+        phase2_binding_display_labels_for_action(action_id::graph::TOGGLE_OVERVIEW_PLANE)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "Ctrl+Shift+O".to_string());
     if graph_app.graph_view_layout_manager_active() {
         format!("Exit Overview Plane ({shortcut})")
     } else {

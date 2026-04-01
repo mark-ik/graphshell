@@ -528,16 +528,17 @@ impl GraphBrowserApp {
         {
             entry.enabled = true;
         } else {
-            self.workspace
-                .chrome_ui
-                .workspace_user_stylesheets
-                .push(WorkspaceUserStylesheetSetting {
+            self.workspace.chrome_ui.workspace_user_stylesheets.push(
+                WorkspaceUserStylesheetSetting {
                     path: normalized_path,
                     enabled: true,
-                });
+                },
+            );
         }
 
-        self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+        self.workspace
+            .chrome_ui
+            .workspace_user_stylesheets_initialized = true;
         self.queue_workspace_user_stylesheet_runtime_apply(true);
         Ok(())
     }
@@ -557,7 +558,9 @@ impl GraphBrowserApp {
         }
 
         entry.enabled = enabled;
-        self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+        self.workspace
+            .chrome_ui
+            .workspace_user_stylesheets_initialized = true;
         self.queue_workspace_user_stylesheet_runtime_apply(true);
     }
 
@@ -570,12 +573,16 @@ impl GraphBrowserApp {
             .chrome_ui
             .workspace_user_stylesheets
             .remove(index);
-        self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+        self.workspace
+            .chrome_ui
+            .workspace_user_stylesheets_initialized = true;
         self.queue_workspace_user_stylesheet_runtime_apply(true);
     }
 
     pub fn reload_workspace_user_stylesheets(&mut self) {
-        self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
+        self.workspace
+            .chrome_ui
+            .workspace_user_stylesheets_initialized = true;
         self.queue_workspace_user_stylesheet_runtime_apply(true);
     }
 
@@ -583,21 +590,39 @@ impl GraphBrowserApp {
         &mut self,
         runtime_snapshot: Vec<WorkspaceUserStylesheetSetting>,
     ) {
-        if !self.workspace.chrome_ui.workspace_user_stylesheets_initialized {
+        if !self
+            .workspace
+            .chrome_ui
+            .workspace_user_stylesheets_initialized
+        {
             self.workspace.chrome_ui.workspace_user_stylesheets = runtime_snapshot;
-            self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
-            self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced = true;
-            self.workspace.chrome_ui.workspace_user_stylesheet_status_message = None;
+            self.workspace
+                .chrome_ui
+                .workspace_user_stylesheets_initialized = true;
+            self.workspace
+                .chrome_ui
+                .workspace_user_stylesheets_runtime_synced = true;
+            self.workspace
+                .chrome_ui
+                .workspace_user_stylesheet_status_message = None;
             return;
         }
 
-        if self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced {
+        if self
+            .workspace
+            .chrome_ui
+            .workspace_user_stylesheets_runtime_synced
+        {
             return;
         }
 
         if self.enabled_workspace_user_stylesheets() == runtime_snapshot {
-            self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced = true;
-            self.workspace.chrome_ui.workspace_user_stylesheet_status_message = None;
+            self.workspace
+                .chrome_ui
+                .workspace_user_stylesheets_runtime_synced = true;
+            self.workspace
+                .chrome_ui
+                .workspace_user_stylesheet_status_message = None;
             return;
         }
 
@@ -674,7 +699,8 @@ impl GraphBrowserApp {
     }
 
     fn save_workspace_user_stylesheets(&mut self) {
-        let Ok(encoded) = serde_json::to_string(&self.workspace.chrome_ui.workspace_user_stylesheets)
+        let Ok(encoded) =
+            serde_json::to_string(&self.workspace.chrome_ui.workspace_user_stylesheets)
         else {
             warn!("Failed to serialize workspace user stylesheet settings");
             return;
@@ -977,13 +1003,19 @@ impl GraphBrowserApp {
             match serde_json::from_str::<Vec<WorkspaceUserStylesheetSetting>>(&raw) {
                 Ok(entries) => {
                     self.workspace.chrome_ui.workspace_user_stylesheets = entries;
-                    self.workspace.chrome_ui.workspace_user_stylesheets_initialized = true;
-                    self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced = false;
-                    self.workspace.chrome_ui.workspace_user_stylesheet_status_message = None;
+                    self.workspace
+                        .chrome_ui
+                        .workspace_user_stylesheets_initialized = true;
+                    self.workspace
+                        .chrome_ui
+                        .workspace_user_stylesheets_runtime_synced = false;
+                    self.workspace
+                        .chrome_ui
+                        .workspace_user_stylesheet_status_message = None;
                 }
-                Err(error) => warn!(
-                    "Ignoring invalid persisted workspace user stylesheet settings: {error}"
-                ),
+                Err(error) => {
+                    warn!("Ignoring invalid persisted workspace user stylesheet settings: {error}")
+                }
             }
         }
         self.workspace.chrome_ui.default_web_viewer_backend = self
@@ -1210,8 +1242,12 @@ impl GraphBrowserApp {
         let (stylesheets, failures) = Self::build_runtime_user_stylesheet_specs(
             &self.workspace.chrome_ui.workspace_user_stylesheets,
         );
-        self.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced = true;
-        self.workspace.chrome_ui.workspace_user_stylesheet_status_message = if failures.is_empty() {
+        self.workspace
+            .chrome_ui
+            .workspace_user_stylesheets_runtime_synced = true;
+        self.workspace
+            .chrome_ui
+            .workspace_user_stylesheet_status_message = if failures.is_empty() {
             None
         } else {
             Some(format!(
@@ -1273,12 +1309,18 @@ mod tests {
     #[test]
     fn runtime_bootstrap_populates_workspace_user_stylesheets_once() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.reconcile_workspace_user_stylesheets_with_runtime(vec![WorkspaceUserStylesheetSetting {
-            path: "C:/styles/one.css".to_string(),
-            enabled: true,
-        }]);
+        app.reconcile_workspace_user_stylesheets_with_runtime(vec![
+            WorkspaceUserStylesheetSetting {
+                path: "C:/styles/one.css".to_string(),
+                enabled: true,
+            },
+        ]);
 
         assert_eq!(app.workspace_user_stylesheets().len(), 1);
-        assert!(app.workspace.chrome_ui.workspace_user_stylesheets_runtime_synced);
+        assert!(
+            app.workspace
+                .chrome_ui
+                .workspace_user_stylesheets_runtime_synced
+        );
     }
 }

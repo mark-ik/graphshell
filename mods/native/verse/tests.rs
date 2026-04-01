@@ -377,8 +377,8 @@ mod step_5_4_tests {
 mod step_5_3_tests {
     use super::super::{
         DiscoveredPeer, PAIRING_WORDLIST, PresenceBindingAssertion, decode_pairing_code,
-        generate_p2p_secret_key, generate_qr_code_ascii, generate_qr_code_png, parse_presence_protocol,
-        presence_protocol_label, sanitize_service_name,
+        generate_p2p_secret_key, generate_qr_code_ascii, generate_qr_code_png,
+        parse_presence_protocol, presence_protocol_label, sanitize_service_name,
     };
     use crate::shell::desktop::runtime::registries::identity::{
         UserIdentityClaim, UserIdentityProtocol,

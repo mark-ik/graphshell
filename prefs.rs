@@ -17,10 +17,10 @@ use bpaf::*;
 use euclid::Size2D;
 use log::warn;
 use serde_json::Value;
+use servo::user_contents::UserStyleSheet;
 use servo::{
     DeviceIndependentPixel, DiagnosticsLogging, Opts, OutputOptions, PrefValue, Preferences,
 };
-use servo::user_contents::UserStyleSheet;
 use url::Url;
 
 use crate::VERSION;
@@ -1041,13 +1041,18 @@ fn test_user_stylesheets_accept_comma_separated_paths() {
     let first = temp_dir.path().join("first.css");
     let second = temp_dir.path().join("second.css");
     std::fs::write(&first, "body { color: red; }").expect("first stylesheet should be writable");
-    std::fs::write(&second, "body { color: blue; }")
-        .expect("second stylesheet should be writable");
+    std::fs::write(&second, "body { color: blue; }").expect("second stylesheet should be writable");
 
     let arg = format!("--user-stylesheet {},{}", first.display(), second.display());
     let (_, _, app_preferences) = test_parse(&arg);
 
     assert_eq!(app_preferences.user_stylesheets.len(), 2);
-    assert_eq!(app_preferences.user_stylesheets[0].source(), "body { color: red; }");
-    assert_eq!(app_preferences.user_stylesheets[1].source(), "body { color: blue; }");
+    assert_eq!(
+        app_preferences.user_stylesheets[0].source(),
+        "body { color: red; }"
+    );
+    assert_eq!(
+        app_preferences.user_stylesheets[1].source(),
+        "body { color: blue; }"
+    );
 }

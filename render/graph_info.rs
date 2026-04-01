@@ -542,7 +542,6 @@ pub(super) fn draw_graph_info(
                         });
                 });
         }
-
     }
 
     // Draw controls hint

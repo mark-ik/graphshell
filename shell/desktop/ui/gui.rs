@@ -75,11 +75,11 @@ use crate::util::CoordBridge;
 
 #[path = "gui/accessibility.rs"]
 mod accessibility;
+#[cfg(test)]
+pub(crate) use accessibility::selected_node_affordance_projection_from_annotations;
 pub(crate) use accessibility::{
     TileAffordanceAccessibilityProjection, WebViewAccessibilityBridgeHealthSnapshot,
 };
-#[cfg(test)]
-pub(crate) use accessibility::selected_node_affordance_projection_from_annotations;
 #[path = "gui/accesskit_events.rs"]
 mod accesskit_events;
 #[path = "gui/accesskit_input.rs"]

@@ -24,13 +24,19 @@ use tokio_util::sync::CancellationToken;
 #[allow(dead_code)]
 pub enum SyncCommand {
     /// Initiate sync with a peer for a specific workspace
-    SyncWorkspace { peer: EndpointId, workspace_id: String },
+    SyncWorkspace {
+        peer: EndpointId,
+        workspace_id: String,
+    },
     /// Accept an incoming connection
     AcceptIncoming {
         conn_info: String, // Connection metadata
     },
     /// Update access grant for a peer
-    UpdateGrant { peer: EndpointId, grant: WorkspaceGrant },
+    UpdateGrant {
+        peer: EndpointId,
+        grant: WorkspaceGrant,
+    },
     /// Revoke all access for a peer
     RevokeAccess { peer: EndpointId },
     /// Discover nearby peers via mDNS without blocking the UI thread.
