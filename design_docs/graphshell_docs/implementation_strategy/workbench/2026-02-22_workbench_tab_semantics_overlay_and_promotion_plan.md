@@ -5,7 +5,7 @@
 # Workbench Semantic Tab Overlay and Pane-Rest Execution Note
 
 **Date**: 2026-02-22
-**Status**: Active execution note — Stages 8B-8D landed; simplify-safe semantic reapply (8E) remains
+**Status**: Complete execution note — Stage 8 rollout landed; archive-ready after any follow-up ownership cleanup
 
 **Canonical authority chain**:
 
@@ -331,7 +331,7 @@ success is reported.
 
 ### Stage 8E: Simplify-Safe Restore Integration
 
-**Status**: Not started
+**Status**: Complete
 
 Goal: allow `egui_tiles::simplify()` to run without losing Graphshell tab semantics.
 
@@ -342,9 +342,10 @@ Goal: allow `egui_tiles::simplify()` to run without losing Graphshell tab semant
   4. If a group collapsed to a single pane, keep overlay metadata (pane rest state).
   5. If pane IDs were remapped by simplify (currently not the case with stable PaneId, but guard
      against it), update overlay membership accordingly.
+- Post-render runtime reconciliation now treats simplify-driven tab-group membership drift like other structural tab edits, and preserves surviving single-pane groups as pane-rest semantic state instead of dropping the overlay outright (landed).
 - Add cross-transform roundtrip tests: `save → restore → simplify → reapply → save` preserves
-  overlay semantics.
-- Document compatibility guarantees in this plan's Findings section once confirmed.
+  overlay semantics (landed).
+- Document compatibility guarantees in this plan's Findings section once confirmed (landed).
 
 Done gate: `egui_tiles::simplify()` no longer conflicts with Graphshell tab semantics. No pane loss
 or tab metadata loss under supported transforms.
@@ -415,8 +416,12 @@ This section absorbs and replaces the 2026-02-24 frame-routing polish plan.
 
 ## Findings
 
-To be populated during and after Stage 8B–8E implementation. Document compatibility guarantees from
-Stage 8E here once confirmed.
+- Compatibility confirmed for supported simplify-driven structural collapse: when a semantic tab
+  group loses visual tab-container shape but retains one or more surviving panes, post-render
+  reconciliation preserves the group as pane-rest semantic state instead of dropping it.
+- Compatibility confirmed for persisted roundtrip coverage: `save -> simplify -> reapply -> save ->
+  restore` preserves surviving semantic tab membership in saved bundles and restored runtime
+  semantics.
 
 ---
 
@@ -449,3 +454,12 @@ Stage 8E here once confirmed.
 - Canonical authority chain updated to point at `../graph/multi_view_pane_spec.md` for the semantic contract.
 - Stale ownership wording replaced with current reducer/app-layer and desktop/workbench apply-layer language.
 - Runtime gap closed for Stage 8D: restore/collapse now confirms the resulting semantic tab state before reporting success, while Stage 8E remains future work.
+
+### 2026-04-02 (Stage 8E closure)
+
+- Stage 8E completed: post-render reconciliation now treats simplify-driven structural tab collapse
+  as semantic drift to repair, preserving surviving single-pane groups as pane-rest semantic state.
+- Cross-transform regression coverage landed for `save -> simplify -> reapply -> save -> restore`
+  so persisted bundles and restored runtime semantics keep the surviving semantic group intact.
+- Top-level status updated from in-progress rollout to complete execution note; the plan is now
+  archive-ready.
