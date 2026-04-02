@@ -70,23 +70,9 @@ impl GraphBrowserApp {
         initial_url: Option<String>,
     ) {
         let parent_node = self.get_node_for_webview(parent_webview_id);
-        let position = if let Some(parent_key) = parent_node {
-            use rand::Rng;
-
-            let mut rng = rand::thread_rng();
-            let jitter_x = rng.gen_range(-50.0_f32..50.0_f32);
-            let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
-            self.workspace
-                .domain
-                .graph
-                .node_projected_position(parent_key)
-                .map(|position| {
-                    Point2D::new(position.x + 140.0 + jitter_x, position.y + 80.0 + jitter_y)
-                })
-                .unwrap_or_else(|| Point2D::new(400.0, 300.0))
-        } else {
-            Point2D::new(400.0, 300.0)
-        };
+        let position = parent_node
+            .and_then(|parent_key| self.anchored_new_node_position(parent_key))
+            .unwrap_or_else(|| Point2D::new(400.0, 300.0));
         let node_url = initial_url
             .filter(|url| !url.is_empty() && url != "about:blank")
             .unwrap_or_else(|| self.next_placeholder_url());
@@ -121,19 +107,8 @@ impl GraphBrowserApp {
     ) -> Point2D<f32> {
         if source == OpenSurfaceSource::ChildWebview {
             if let Some(parent_key) = parent_node {
-                use rand::Rng;
-
-                let mut rng = rand::thread_rng();
-                let jitter_x = rng.gen_range(-50.0_f32..50.0_f32);
-                let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
                 return self
-                    .workspace
-                    .domain
-                    .graph
-                    .node_projected_position(parent_key)
-                    .map(|position| {
-                        Point2D::new(position.x + 140.0 + jitter_x, position.y + 80.0 + jitter_y)
-                    })
+                    .anchored_new_node_position(parent_key)
                     .unwrap_or_else(|| Point2D::new(400.0, 300.0));
             }
         }

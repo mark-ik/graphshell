@@ -1,7 +1,7 @@
 # WebRender wgpu Renderer — Implementation Plan
 
 **Date**: 2026-03-01
-**Status**: Incubating / upstream-first (reframed 2026-03-14) — Graphshell still ships on `egui_glow`, but WebRender `wgpu` work is now treated as upstream renderer development first, with thin Servo integration and Graphshell-local validation. See `PLANNING_REGISTER.md` §0.12/§0.13.
+**Status**: Incubating / upstream-first (reframed 2026-03-14, current-state corrected 2026-04-02) — Graphshell still ships on `egui_glow`, but WebRender `wgpu` work is now treated as upstream renderer development first, with thin Servo integration and Graphshell-local validation. The current WebRender branch already contains a hybrid proof backend, so active planning now emphasizes convergence from that branch shape rather than an immediate clean-slate backend split. See `PLANNING_REGISTER.md` §0.12/§0.13.
 **Author**: Arc
 **Source research**: `research/2026-03-01_webrender_wgpu_renderer_research.md`
 **Active audit log**: `2026-03-03_servo_wgpu_upgrade_audit_report.md`
@@ -46,6 +46,80 @@ editable WebRender checkout. See `2026-03-03_servo_wgpu_upgrade_audit_report.md`
 - Use Graphshell as the final downstream validation environment.
 - Avoid a long-lived behavioral Servo fork unless Cargo/source topology makes it unavoidable.
 
+**Current-state correction (2026-04-02)**:
+
+- The local WebRender `wgpu-backend-0.68-minimal` branch is no longer a hypothetical starting
+     point; it already executes real wgpu rendering work.
+- The current implementation is a hybrid backend shape centered on `Renderer` owning both
+     `device: Option<Device>` and `wgpu_device: Option<WgpuDevice>`, with wgpu execution routed
+     through dedicated renderer methods rather than a settled backend-neutral executor seam.
+- Several renderer subsystems still expose placeholder `Wgpu(...)` variants or compatibility
+     carriers, so the branch should be treated as a proof backend, not as the final architecture.
+- GL remains mandatory for parity testing, fallback behavior, compositor maturity, and richer
+     diagnostics while the wgpu path converges.
+
+### 0.1 Active Convergence Tracks
+
+The original phase map below remains valuable as a dependency and validation inventory, but it
+is no longer the only reasonable ordering for active work. Current execution should be organized
+around four convergence tracks.
+
+#### Track C1 — Typed Backend Metadata
+
+Replace stringly pipeline, shader, and layout metadata with typed descriptors where practical.
+Immediate targets include:
+
+- pipeline identity and blend/depth variants,
+- shader family / batch-kind mapping,
+- resource binding declarations,
+- compatibility metadata currently inferred from shader-name prefixes.
+
+#### Track C2 — Subsystem Execution Seams
+
+Move toward backend-specific execution seams subsystem-by-subsystem instead of attempting a
+single renderer-wide abstraction jump. Immediate seam candidates are:
+
+- texture cache updates,
+- GPU cache uploads,
+- frame-data texture or buffer upload,
+- pass-local draw submission.
+
+The goal is to make backend ownership honest without freezing the branch behind a large
+trait-extraction rewrite.
+
+#### Track C3 — GL Parity and Diagnostics Preservation
+
+Keep GL available as:
+
+- the correctness oracle for pixel and geometry comparisons,
+- the fallback backend when wgpu parity is incomplete,
+- the richer diagnostics path for capture/profiler/compositor investigation.
+
+All active wgpu work should improve, not weaken, the ability to compare behavior against GL.
+
+#### Track C4 — Thin Servo / Stable Graphshell Integration
+
+Continue to keep:
+
+- Servo integration thin and primarily dependency-topology oriented,
+- Graphshell bridge contracts stable,
+- Graphshell compositor assumptions anchored to the existing three-pass model,
+- `GlowCallback` as the current production-safe bridge policy until readiness evidence closes.
+
+### 0.2 Working Rule For This Document
+
+Use the convergence tracks above as the default execution guide for current work.
+
+Use the `P0`-`P12` plan below as:
+
+- a dependency checklist,
+- a validation ledger,
+- a risk inventory,
+- a record of the fuller March target architecture.
+
+Do **not** read `P3` as meaning that a renderer-wide backend trait extraction must happen before
+useful wgpu improvements can continue.
+
 ---
 
 ## 1. Phase Map
@@ -65,6 +139,10 @@ editable WebRender checkout. See `2026-03-03_servo_wgpu_upgrade_audit_report.md`
 | **P10** | Performance Validation | G5 | Frame budget measurements meeting §5.3 targets | Medium |
 | **P11** | Platform Matrix Validation | G4 | Per-platform pass/fail evidence | Medium |
 | **P12** | Production Cutover Preparation | G1–G5 | Switch authorization evidence package | Low |
+
+**Interpretation note (2026-04-02)**: keep this phase map as the long-range inventory, but route
+near-term work through Tracks C1-C4 above. In particular, `P3` is now an optional convergence
+destination, not the mandatory first major implementation step.
 
 ---
 

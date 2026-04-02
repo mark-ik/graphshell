@@ -1947,6 +1947,48 @@ fn test_intent_webview_created_places_child_near_parent() {
 }
 
 #[test]
+fn test_host_open_request_places_child_near_parent() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let parent = app
+        .workspace
+        .domain
+        .graph
+        .add_node("https://parent.com".into(), Point2D::new(25.0, 35.0));
+    let parent_wv = test_webview_id();
+    app.map_webview_to_node(parent_wv, parent);
+
+    app.handle_host_open_request(HostOpenRequest {
+        url: "https://child-host-open.com".to_string(),
+        source: OpenSurfaceSource::ChildWebview,
+        parent_webview_id: Some(parent_wv),
+        pending_create_token: None,
+    });
+
+    let child = app.get_single_selected_node().unwrap();
+    let child_pos = app
+        .workspace
+        .domain
+        .graph
+        .get_node(child)
+        .unwrap()
+        .projected_position();
+
+    assert!(child_pos.x >= 25.0 + 140.0 - 50.0 && child_pos.x <= 25.0 + 140.0 + 50.0);
+    assert!(child_pos.y >= 35.0 + 80.0 - 50.0 && child_pos.y <= 35.0 + 80.0 + 50.0);
+}
+
+#[test]
+fn test_suggested_new_node_position_uses_explicit_anchor() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let anchor = app.add_node_and_sync("https://anchor.test".to_string(), Point2D::new(50.0, 75.0));
+
+    let suggested = app.suggested_new_node_position(Some(anchor));
+
+    assert!(suggested.x >= 50.0 + 140.0 - 50.0 && suggested.x <= 50.0 + 140.0 + 50.0);
+    assert!(suggested.y >= 75.0 + 80.0 - 50.0 && suggested.y <= 75.0 + 80.0 + 50.0);
+}
+
+#[test]
 fn test_intent_webview_created_about_blank_uses_placeholder() {
     let mut app = GraphBrowserApp::new_for_testing();
     let child_wv = test_webview_id();

@@ -618,3 +618,237 @@ implementation plan is written. They are the inputs to the spike work in §7.2.
 | **QA definition** | Pixel parity with GL baseline; frame budget ≤4 ms/tile; fallback path valid; diagnostics channels emitting |
 | **Upstreaming model** | Spike locally first; upstream WebRender changes to Servo; keep Graphshell bridge layer local |
 | **Current gate** | `#180` spike authorized; full implementation blocked by G1–G5 readiness gates |
+
+---
+
+## 10. Current Branch Reality Update (2026-04-02)
+
+The research above remains directionally useful, but the local `wgpu-backend-0.68-minimal`
+branch has changed the practical starting point.
+
+The March framing assumed that the next meaningful move would be a relatively clean parallel
+`Device` + `Renderer` backend split. The branch now proves something narrower and more concrete:
+
+- WebRender can construct a `RendererBackend::Wgpu` path and execute real wgpu rendering work.
+- The current implementation is a **hybrid proof path**, not yet the long-term dual-backend
+  architecture described in §3.
+- GL is still the correctness oracle, compatibility backend, and fallback path for both
+  WebRender and Graphshell.
+
+In code, the most important current-state facts are:
+
+- `Renderer` still has GL-shaped ownership, now with `device: Option<Device>` plus
+  `wgpu_device: Option<WgpuDevice>` in
+  `webrender/webrender/src/renderer/mod.rs`.
+- The wgpu path is routed through `render_wgpu()` rather than through a settled shared
+  executor seam.
+- Several renderer subsystems have `Wgpu(...)` enum variants, but those variants are still
+  placeholders or no-op carriers rather than true backend-neutral abstractions.
+- Shader translation succeeds today, but it still depends on build-time compatibility passes
+  and string-keyed metadata rather than typed shader or pipeline descriptions.
+
+### 10.1 Proposal Consequence
+
+This changes the implementation advice.
+
+The right next step is **not** an immediate renderer-wide trait or generic rewrite.
+The right next step is a staged convergence plan:
+
+1. keep GL as the parity oracle and production-safe fallback,
+2. improve the wgpu backend subsystem-by-subsystem,
+3. replace stringly backend metadata with typed metadata,
+4. move toward backend-specific executors at explicit seams,
+5. retain Graphshell's bridge/fallback contract while parity evidence is gathered.
+
+### 10.2 Practical Reading Rule
+
+Read §§3-7 in this document as the architectural direction and problem framing.
+Do **not** read them as a claim that the current branch already has that architecture.
+
+For active implementation planning, the branch reality is:
+
+- current WebRender work is still GL-shaped internally,
+- current wgpu work is already useful and worth improving,
+- GL must remain available for parity testing, fallback behavior, and downstream safety.
+
+---
+
+## 11. Architectural Overview: Current WebRender GL Backend
+
+This section is an orientation map for the current GL backend as it exists in the tree now.
+It is intentionally code-grounded, because the GL backend is still the reference path used
+to judge wgpu parity.
+
+### 11.1 High-Level Shape
+
+The GL backend is concentrated in two major runtime owners:
+
+- `Device` in `webrender/webrender/src/device/gl.rs`
+- `Renderer` in `webrender/webrender/src/renderer/mod.rs`
+
+Everything above those two layers is closer to backend-neutral scene construction:
+
+- scene building
+- display list processing
+- render task graph construction
+- batching policy
+- primitive and clip data generation
+
+The GL backend is therefore best understood as the **execution layer** for a largely shared
+render policy stack.
+
+### 11.2 `Device`: GL Resource and State Owner
+
+`Device` in `webrender/webrender/src/device/gl.rs` owns the concrete OpenGL execution model.
+Its responsibilities include:
+
+- bound GL state tracking: textures, programs, VAOs, read/draw FBOs,
+- capability detection and policy decisions,
+- texture creation and upload behavior,
+- depth target sharing,
+- shader/program lifetime,
+- draw target binding,
+- frame begin/end lifecycle.
+
+Representative state carried directly on `Device` includes:
+
+- bound texture slots,
+- currently bound program,
+- currently bound VAO,
+- read/draw framebuffer bindings,
+- upload method and batching policy,
+- hardware/API capability cache,
+- shared depth target pool,
+- program cache and frame ID.
+
+This is a classic stateful GL executor. It is efficient for the existing backend, but it also
+shows why a second backend cannot simply "slot in" without either mirroring these concerns or
+moving the execution seam upward.
+
+### 11.3 `Renderer`: Frame Orchestrator and Backend Aggregator
+
+`Renderer` in `webrender/webrender/src/renderer/mod.rs` owns per-frame orchestration. In the
+GL path it coordinates:
+
+- result-message processing from backend threads,
+- texture cache updates,
+- GPU cache uploads,
+- vertex-data texture binding,
+- shader selection,
+- render pass execution,
+- compositing,
+- profiler/debug state,
+- screenshots/capture integration.
+
+Important GL-owned or GL-shaped renderer members include:
+
+- `device: Option<Device>`
+- `shaders`
+- `vaos`
+- `gpu_cache_texture`
+- `vertex_data_textures`
+- `texture_resolver`
+- `upload_state`
+- `aux_textures`
+- `async_frame_recorder` and `async_screenshots`
+
+The current branch adds wgpu state next to those fields rather than replacing the ownership
+shape, which is why the current backend story is still hybrid.
+
+### 11.4 Shader Management
+
+The GL backend uses a substantial runtime shader catalog in
+`webrender/webrender/src/renderer/shade.rs`.
+
+That layer is responsible for:
+
+- lazily compiling many specialized shader programs,
+- selecting shader feature variants,
+- keeping the GL shader catalog coherent with batch kinds and pass needs,
+- surfacing compile and link errors,
+- supporting shader caching and precache flows.
+
+The important architectural fact is that shader identity today is strongly tied to backend
+execution details. This is one reason the current wgpu path still relies on string-based
+pipeline naming and compatibility metadata: the GL backend's shader organization is a mature,
+runtime-oriented program catalog, not yet a shared typed pipeline description system.
+
+### 11.5 GPU Cache and Data Upload Model
+
+The GL backend uses several data movement strategies that are deeply GL-shaped:
+
+- GPU cache textures in `webrender/webrender/src/renderer/gpu_cache.rs`
+- texture upload staging and PBO pools in `webrender/webrender/src/renderer/upload.rs`
+- vertex-data textures in `webrender/webrender/src/renderer/vertex.rs`
+
+These layers collectively handle:
+
+- persistent GPU cache storage,
+- row- or scatter-style cache updates,
+- staging and batched texture upload,
+- per-frame primitive header, transform, and render-task data upload,
+- VAO-oriented instance submission.
+
+This matters for wgpu planning because the current wgpu backend is still largely emulating the
+same data model, rather than replacing it with a more native buffer-first model.
+
+### 11.6 Render Pass Execution
+
+At frame time, `Renderer` executes the render-task graph by drawing into:
+
+- texture cache targets,
+- alpha/color targets,
+- picture cache targets,
+- final composite outputs.
+
+The GL backend owns the concrete mechanics for:
+
+- draw target binding,
+- clears,
+- scissor and depth state,
+- shader binding,
+- texture binding,
+- instanced draw submission,
+- final composite presentation.
+
+This is the key execution surface any backend proposal must reckon with. The scene-building
+side may be largely backend-neutral, but draw submission is still organized around explicit
+GL execution primitives.
+
+### 11.7 Compositing
+
+The GL backend also still owns the mature compositor integration paths:
+
+- draw compositing,
+- layer compositing,
+- native compositor support.
+
+In Graphshell terms, this is especially important because the current product contract still
+depends on GL compositor behavior at the Servo boundary, and the Graphshell bridge policy keeps
+`GlowCallback` as the current production path.
+
+### 11.8 Profiler, Queries, and Capture
+
+`webrender/webrender/src/device/query_gl.rs` and `webrender/webrender/src/screen_capture.rs`
+show two further reasons GL remains first-class:
+
+- profiler/query plumbing is GL-backed,
+- asynchronous screen capture and related tooling are GL-backed,
+- debug marker behavior is GL-backed.
+
+The wgpu path currently uses no-op or parallel logic for some of this, but not full feature
+parity. That makes GL valuable not just as a fallback renderer, but as the richer diagnostic
+and observability backend during transition.
+
+### 11.9 Pressure Points for a Dual-Backend Future
+
+The current GL architecture suggests five practical pressure points for future dual-backend work:
+
+1. execution metadata is still too stringly,
+2. renderer ownership is still too GL-shaped,
+3. upload/cache/data-texture flows are still compatibility-driven,
+4. compositor/profiler/capture facilities remain uneven across backends,
+5. parity testing still depends on GL being available and trustworthy.
+
+These are not reasons to avoid the wgpu backend. They are reasons to preserve GL while the
+wgpu backend is improved.

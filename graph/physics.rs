@@ -98,6 +98,14 @@ pub(crate) fn apply_graph_physics_extensions(
         return;
     }
 
+    if extensions.degree_repulsion {
+        apply_degree_repulsion_forces(app);
+    }
+
+    if extensions.domain_clustering {
+        apply_domain_clustering_forces(app);
+    }
+
     apply_semantic_clustering_forces(app, extensions.semantic_clustering_args());
 
     if extensions.frame_affinity {
@@ -105,6 +113,177 @@ pub(crate) fn apply_graph_physics_extensions(
             crate::graph::frame_affinity::derive_frame_affinity_regions(app.domain_graph());
         crate::graph::frame_affinity::apply_frame_affinity_forces(app, &regions, None);
     }
+}
+
+fn apply_position_deltas(
+    app: &mut GraphBrowserApp,
+    position_deltas: HashMap<NodeKey, egui::Vec2>,
+) {
+    if position_deltas.is_empty() {
+        return;
+    }
+
+    for (key, delta) in &position_deltas {
+        if let Some(node) = app.domain_graph().get_node(*key)
+            && !node.is_pinned
+            && let Some(position) = app.domain_graph().node_projected_position(*key)
+        {
+            let next_pos =
+                euclid::default::Point2D::new(position.x + delta.x, position.y + delta.y);
+            let _ = app
+                .domain_graph_mut()
+                .set_node_projected_position(*key, next_pos);
+        }
+    }
+
+    let projected_positions: Vec<_> = position_deltas
+        .iter()
+        .filter_map(|(key, _delta)| {
+            let node = app.domain_graph().get_node(*key)?;
+            if node.is_pinned {
+                return None;
+            }
+            let position = app.domain_graph().node_projected_position(*key)?;
+            Some((*key, position))
+        })
+        .collect();
+    if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
+        for (key, position) in projected_positions {
+            if let Some(egui_node) = state_mut.graph.node_mut(key) {
+                egui_node.set_location(position.to_pos2());
+            }
+        }
+    }
+}
+
+pub(crate) fn apply_degree_repulsion_forces(app: &mut GraphBrowserApp) {
+    const NEIGHBOR_RADIUS: f32 = 220.0;
+    const DEGREE_REPULSION_STRENGTH: f32 = 8.0;
+
+    if !app.workspace.graph_runtime.physics.base.is_running {
+        return;
+    }
+
+    let nodes: Vec<_> = app.domain_graph().nodes().map(|(key, _)| key).collect();
+    if nodes.len() < 2 {
+        return;
+    }
+
+    let degrees: HashMap<NodeKey, usize> = nodes
+        .iter()
+        .map(|&key| (key, app.domain_graph().inner.edges(key).count()))
+        .collect();
+    let positions: HashMap<NodeKey, egui::Pos2> = nodes
+        .iter()
+        .filter_map(|&key| {
+            app.domain_graph()
+                .node_projected_position(key)
+                .map(|pos| (key, pos.to_pos2()))
+        })
+        .collect();
+
+    let mut position_deltas: HashMap<NodeKey, egui::Vec2> = HashMap::new();
+
+    for i in 0..nodes.len() {
+        for j in (i + 1)..nodes.len() {
+            let key_a = nodes[i];
+            let key_b = nodes[j];
+            let (Some(pos_a), Some(pos_b)) = (positions.get(&key_a), positions.get(&key_b)) else {
+                continue;
+            };
+
+            let delta = *pos_b - *pos_a;
+            let distance = delta.length();
+            if distance <= 1.0 || distance > NEIGHBOR_RADIUS {
+                continue;
+            }
+
+            let degree_a = degrees.get(&key_a).copied().unwrap_or(0);
+            let degree_b = degrees.get(&key_b).copied().unwrap_or(0);
+            let max_degree = degree_a.max(degree_b);
+            if max_degree <= 1 {
+                continue;
+            }
+
+            let proximity = 1.0 - (distance / NEIGHBOR_RADIUS);
+            let degree_bonus = (max_degree as f32).ln_1p();
+            let push = delta.normalized() * proximity * degree_bonus * DEGREE_REPULSION_STRENGTH;
+
+            *position_deltas.entry(key_a).or_insert(egui::Vec2::ZERO) -= push;
+            *position_deltas.entry(key_b).or_insert(egui::Vec2::ZERO) += push;
+        }
+    }
+
+    apply_position_deltas(app, position_deltas);
+}
+
+pub(crate) fn apply_domain_clustering_forces(app: &mut GraphBrowserApp) {
+    const DOMAIN_CLUSTER_STRENGTH: f32 = 0.04;
+
+    if !app.workspace.graph_runtime.physics.base.is_running {
+        return;
+    }
+
+    let mut domain_members: HashMap<String, Vec<(NodeKey, egui::Pos2)>> = HashMap::new();
+    for (key, node) in app.domain_graph().nodes() {
+        let Some(domain_key) = registrable_domain_key(node.url()) else {
+            continue;
+        };
+        let Some(position) = app.domain_graph().node_projected_position(key) else {
+            continue;
+        };
+        domain_members
+            .entry(domain_key)
+            .or_default()
+            .push((key, position.to_pos2()));
+    }
+
+    let mut position_deltas: HashMap<NodeKey, egui::Vec2> = HashMap::new();
+    for members in domain_members.into_values() {
+        if members.len() < 2 {
+            continue;
+        }
+
+        let centroid = members
+            .iter()
+            .fold(egui::Vec2::ZERO, |acc, (_, pos)| acc + pos.to_vec2())
+            / members.len() as f32;
+
+        for (key, position) in members {
+            let delta = centroid - position.to_vec2();
+            *position_deltas.entry(key).or_insert(egui::Vec2::ZERO) +=
+                delta * DOMAIN_CLUSTER_STRENGTH;
+        }
+    }
+
+    apply_position_deltas(app, position_deltas);
+}
+
+fn registrable_domain_key(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    let host = parsed.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return Some(host);
+    }
+
+    let labels: Vec<&str> = host.split('.').filter(|segment| !segment.is_empty()).collect();
+    if labels.len() <= 2 {
+        return Some(host);
+    }
+
+    let common_country_slds = ["ac", "co", "com", "edu", "gov", "net", "org"];
+    let tail_len = if labels.last().is_some_and(|tld| tld.len() == 2)
+        && labels
+            .get(labels.len().saturating_sub(2))
+            .is_some_and(|sld| common_country_slds.contains(sld))
+        && labels.len() >= 3
+    {
+        3
+    } else {
+        2
+    };
+
+    Some(labels[labels.len() - tail_len..].join("."))
 }
 
 pub(crate) fn apply_semantic_clustering_forces(
@@ -166,37 +345,7 @@ pub(crate) fn apply_semantic_clustering_forces(
         }
     }
 
-    for (key, delta) in &position_deltas {
-        if let Some(node) = app.domain_graph().get_node(*key)
-            && !node.is_pinned
-            && let Some(position) = app.domain_graph().node_projected_position(*key)
-        {
-            let next_pos =
-                euclid::default::Point2D::new(position.x + delta.x, position.y + delta.y);
-            let _ = app
-                .domain_graph_mut()
-                .set_node_projected_position(*key, next_pos);
-        }
-    }
-
-    let projected_positions: Vec<_> = position_deltas
-        .iter()
-        .filter_map(|(key, _delta)| {
-            let node = app.domain_graph().get_node(*key)?;
-            if node.is_pinned {
-                return None;
-            }
-            let position = app.domain_graph().node_projected_position(*key)?;
-            Some((*key, position))
-        })
-        .collect();
-    if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
-        for (key, position) in projected_positions {
-            if let Some(egui_node) = state_mut.graph.node_mut(key) {
-                egui_node.set_location(position.to_pos2());
-            }
-        }
-    }
+    apply_position_deltas(app, position_deltas);
 }
 
 fn semantic_pair_similarity(a: &SemanticClassVector, b: &SemanticClassVector) -> f32 {
@@ -379,5 +528,97 @@ mod tests {
 
         assert!(!disabled.any_enabled());
         assert!(enabled.any_enabled());
+    }
+
+    #[test]
+    fn registrable_domain_key_uses_common_etld_plus_one_heuristic() {
+        assert_eq!(
+            registrable_domain_key("https://www.docs.example.co.uk/page"),
+            Some("example.co.uk".to_string())
+        );
+        assert_eq!(
+            registrable_domain_key("https://blog.example.com/post"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn degree_repulsion_moves_high_degree_hub_neighbors_apart() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.graph_runtime.physics.base.is_running = true;
+
+        let hub = app.add_node_and_sync(
+            "https://hub.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let left = app.add_node_and_sync(
+            "https://left.example".to_string(),
+            euclid::default::Point2D::new(-5.0, 0.0),
+        );
+        let right = app.add_node_and_sync(
+            "https://right.example".to_string(),
+            euclid::default::Point2D::new(5.0, 0.0),
+        );
+        let extra = app.add_node_and_sync(
+            "https://extra.example".to_string(),
+            euclid::default::Point2D::new(0.0, 20.0),
+        );
+
+        app.add_edge_and_sync(
+            hub,
+            left,
+            crate::graph::EdgeType::Hyperlink,
+            None,
+        );
+        app.add_edge_and_sync(
+            hub,
+            right,
+            crate::graph::EdgeType::Hyperlink,
+            None,
+        );
+        app.add_edge_and_sync(
+            hub,
+            extra,
+            crate::graph::EdgeType::Hyperlink,
+            None,
+        );
+
+        let before_left = app.domain_graph().node_projected_position(left).unwrap();
+        let before_right = app.domain_graph().node_projected_position(right).unwrap();
+
+        apply_degree_repulsion_forces(&mut app);
+
+        let after_left = app.domain_graph().node_projected_position(left).unwrap();
+        let after_right = app.domain_graph().node_projected_position(right).unwrap();
+        let before_distance = before_right.x - before_left.x;
+        let after_distance = after_right.x - after_left.x;
+
+        assert!(after_distance > before_distance);
+    }
+
+    #[test]
+    fn domain_clustering_pulls_same_domain_nodes_toward_shared_centroid() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.graph_runtime.physics.base.is_running = true;
+
+        let a = app.add_node_and_sync(
+            "https://a.example.com/one".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://b.example.com/two".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+
+        let before_a = app.domain_graph().node_projected_position(a).unwrap();
+        let before_b = app.domain_graph().node_projected_position(b).unwrap();
+
+        apply_domain_clustering_forces(&mut app);
+
+        let after_a = app.domain_graph().node_projected_position(a).unwrap();
+        let after_b = app.domain_graph().node_projected_position(b).unwrap();
+
+        assert!(after_a.x > before_a.x);
+        assert!(after_b.x < before_b.x);
     }
 }

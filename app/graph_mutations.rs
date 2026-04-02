@@ -425,20 +425,36 @@ impl GraphBrowserApp {
         })
     }
 
+    pub(crate) fn anchored_new_node_position(
+        &self,
+        anchor: NodeKey,
+    ) -> Option<euclid::default::Point2D<f32>> {
+        use rand::Rng;
+
+        let base = self.domain_graph().node_projected_position(anchor)?;
+        let mut rng = rand::thread_rng();
+        let jitter_x = rng.gen_range(-50.0_f32..50.0_f32);
+        let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
+        Some(euclid::default::Point2D::new(
+            base.x + 140.0 + jitter_x,
+            base.y + 80.0 + jitter_y,
+        ))
+    }
+
     pub(crate) fn suggested_new_node_position(
         &self,
         anchor: Option<NodeKey>,
     ) -> euclid::default::Point2D<f32> {
-        let base = self
+        if let Some(position) = self
             .preferred_new_node_anchor(anchor)
-            .and_then(|key| self.domain_graph().node_projected_position(key))
-            .unwrap_or_else(|| {
-                self.workspace
-                    .domain
-                    .graph
-                    .projected_centroid()
-                    .unwrap_or_else(|| euclid::default::Point2D::new(400.0, 300.0))
-            });
+            .and_then(|key| self.anchored_new_node_position(key))
+        {
+            return position;
+        }
+
+        let base = self.workspace.domain.graph.projected_centroid().unwrap_or_else(|| {
+            euclid::default::Point2D::new(400.0, 300.0)
+        });
         let n = self.domain_graph().node_count() as f32;
         let angle = n * std::f32::consts::FRAC_PI_4;
         let radius = 90.0;

@@ -4,15 +4,16 @@
 
 # Physics Engine Extensibility Plan (2026-02-24)
 
-**Status**: Research / Design (updated 2026-03-12 — revised for custom graph and layout ownership;
-egui_graphs `ExtraForce` / `Layout<S>` extension model replaced by Graphshell-owned equivalents;
-original expansion: crate landscape, WASM layout mod architecture, fractal layouts, rapier2d
-functional physics layer, mobile considerations, 2D↔3D hotswitch architecture)
+**Status**: Active research note / partial implementation (updated 2026-04-02 — current code uses
+Graphshell-owned post-physics extension helpers plus an `ActiveLayout` dispatcher; the
+`egui_graphs` `Layout<S>` / `LayoutState` trait seam is still imported behind `graph::physics`;
+later sections retain exploratory follow-ons including WASM layouts, rapier2d, and 2D↔3D
+hotswitch architecture)
 **Relates to**:
 
 - `2026-02-22_registry_layer_plan.md` — `PhysicsProfileRegistry` owns named presets; `CanvasRegistry` owns engine execution; `LayoutRegistry` owns positioning algorithms
-- `2026-02-24_layout_behaviors_plan.md` — behavioral micro-features (reheat, clustering, magnetic zones) that build on top of whichever engine is active
-- `layout_behaviors_and_physics_spec.md` — viewport-relative gravity locus and dampening contract for the `GravityLocus` force
+- `layout_behaviors_and_physics_spec.md` — canonical active behavior contract for reheat, clustering, gravity locus, and frame-affinity policy
+- `archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/graph/2026-02-24_layout_behaviors_plan.md` — archived execution record for the behavioral layout slices that now sit on this physics seam
 - `multi_view_pane_spec.md` — pane-hosted multi-view architecture, per-`GraphViewId` layout ownership, and `ViewDimension` as graph-view state
 - `design_docs/PROJECT_DESCRIPTION.md` — 2D↔3D hotswitch with position parity is a named first-class vision feature
 
@@ -20,43 +21,49 @@ functional physics layer, mobile considerations, 2D↔3D hotswitch architecture)
 
 ## Context: What We Have Today
 
-**Updated 2026-03-12**: Graphshell has moved to a custom graph and layout implementation.
-`egui_graphs` is still used for rendering (`GraphView`, `DrawContext`, node/edge display traits),
-but the force-directed physics loop is no longer delegated to egui_graphs internals. The
-`ExtraForce` composable extras system and the `Layout<S>`/`LayoutState` trait surface that
-egui_graphs exposes are not reliably public API; Graphshell now owns equivalent abstractions.
+**Updated 2026-04-02**: this document needed a reality pass. The core direction is still good,
+but the codebase landed a narrower seam than this file previously claimed. Graphshell owns the
+policy and post-physics extension layer; it does not yet fully own the underlying
+`Layout<S>` / `LayoutState` traits.
 
 Current architecture:
 
 - `graph/layouts/graphshell_force_directed.rs` — Graphshell-owned FR implementation;
-  wraps `GraphPhysicsLayout` (re-export from egui_graphs) but the extension seam lives in
-  Graphshell, not upstream.
+  implements the layout trait imported through `graph::physics`.
 - `graph/layouts/barnes_hut_force_directed.rs` — Graphshell-owned Barnes-Hut layout.
 - `graph/layouts/active.rs` — `ActiveLayout` enum dispatcher; `ActiveLayoutState` is the
   canonical `set_layout_state`/`get_layout_state` type in `render/mod.rs`.
-- `graph/physics.rs` — canonical physics types and Graphshell-defined `Layout` / `LayoutState`
-  traits; re-exports from egui_graphs where stable public API exists, owns the rest.
+- `graph/physics.rs` — canonical physics import seam; re-exports the upstream FR state/layout
+  types and `Layout` / `LayoutState` traits, and owns Graphshell tuning + extension helpers.
+- `registries/atomic/lens/physics.rs` — `PhysicsProfile` maps registry presets into base FR
+  tuning plus Graphshell extension flags.
+- `render/mod.rs` — reads back the updated layout state after the `egui_graphs` simulation step,
+  then applies Graphshell post-physics behaviors per view.
 
-Graphshell-owned trait surface (defined in `graph/physics.rs`):
+Current seam ownership:
 
 | Graphshell type | What it is |
 | --- | --- |
-| `Layout<S>` | Graphshell-owned layout trait; `next()` drives one simulation step |
-| `LayoutState` | Companion state contract (`Default + Debug + Serialize + Deserialize`) |
-| `GraphPhysicsState` | Canonical FR state (re-exported from egui_graphs where available, owned otherwise) |
+| `Layout<S>` / `LayoutState` | Imported from `egui_graphs` and re-exported centrally via `graph/physics.rs` |
+| `GraphPhysicsLayout` / `GraphPhysicsState` | Canonical FR layout/state re-exported from `egui_graphs` |
 | `GraphPhysicsTuning` | Tuning parameters: repulsion, attraction, gravity, damping |
 | `GraphPhysicsExtensionConfig` | Extension force enable flags: degree repulsion, domain clustering, semantic clustering |
+| `ActiveLayout` / `ActiveLayoutState` | Graphshell-owned built-in layout dispatcher and persisted state wrapper |
 
 The `ActiveLayoutState` struct carries both `kind: ActiveLayoutKind` and
 `physics: GraphPhysicsState`. The `set_layout_state`/`get_layout_state` call sites in
 `render/mod.rs` use `ActiveLayoutState` as the concrete type; the render layer does not see
 individual layout variants.
 
-**What changed from the original plan**: The egui_graphs `ExtraForce` composable extras tuple
-system (Level 2 below) is not available as public API. Force injection is instead implemented as
-Graphshell-owned post-physics hooks in `graph/layouts/`. The `Layout<S>` / `LayoutState` traits
-(Level 3 seam) are now defined by Graphshell rather than re-exported from egui_graphs. Behaviorally
-the extension model is identical; only ownership moved.
+**Interpretation guide for the rest of this file (2026-04-02)**:
+
+- References below to `ExtraForce`, tuple-based extras, and `graph/forces/` are retained as
+  exploratory architecture notes, not as descriptions of current production code.
+- The current production extension path is the post-physics helper layer in `graph/physics.rs`
+  plus frame-affinity helpers in `graph/frame_affinity.rs`.
+- References to the old `2026-02-24_layout_behaviors_plan.md` should be read as historical;
+  active behavior authority moved to `layout_behaviors_and_physics_spec.md` and the archived
+  checkpoint copy.
 
 ### External pattern note (2026-04-01): RustGrapher / WasmGrapher
 
@@ -72,141 +79,99 @@ The important constraint for Graphshell is still ownership, not asymptotics:
 
 ## Three Levels of Extension
 
-These are not competing options. They are a progression. **Updated 2026-03-12**: Level 1 is
-complete and the seam is owned by Graphshell. Level 2 and Level 3 use Graphshell-owned traits,
-not egui_graphs re-exports.
+These are not competing options. They are a progression. **Updated 2026-04-02**: Level 1 is
+landed, Level 2 is landed in post-physics-helper form, and Level 3 is partially landed via the
+`ActiveLayout` dispatcher. The remaining distinction is that the trait seam still routes through
+`egui_graphs`, even though Graphshell owns the dispatcher and policy layer.
 
-### Level 1 — Naming and Seam Ownership (Complete)
+### Level 1 — Naming and Seam Ownership (Landed)
 
 `graph/physics.rs` is the single import point for all physics/layout types. Every Graphshell file
 imports from `graph::physics`, never from `egui_graphs` directly. This is landed.
 
-The module re-exports stable public types from egui_graphs where they exist, and defines
-Graphshell-owned equivalents where egui_graphs does not expose a stable public API:
+The module re-exports stable public types from `egui_graphs` and keeps Graphshell-owned tuning and
+extension policy in one place:
 
 ```rust
 // graph/physics.rs — current state
 
-// Re-exported where egui_graphs has stable public surface
+// Re-exported from egui_graphs through one Graphshell seam
 pub use egui_graphs::FruchtermanReingoldWithCenterGravity       as GraphPhysicsLayout;
 pub use egui_graphs::FruchtermanReingoldWithCenterGravityState  as GraphPhysicsState;
 pub use egui_graphs::FruchtermanReingoldState                   as FrBaseState;
+pub use egui_graphs::{Layout, LayoutState};
 
-// Graphshell-owned — egui_graphs does not expose these as stable public API
-pub trait Layout<S: LayoutState> { ... }
-pub trait LayoutState: Default + Debug + Serialize + DeserializeOwned { ... }
-
-// Tuning and extension config
+// Graphshell-owned policy layer
 pub struct GraphPhysicsTuning { ... }
 pub struct GraphPhysicsExtensionConfig { ... }
 ```
 
 ---
 
-### Level 2 — Extend via Post-Physics Force Injection (Graphshell-Owned)
+### Level 2 — Extend via Post-Physics Injection (Landed Production Path)
 
-Implement custom forces as Graphshell types in `graph/forces/`, invoked through the
-post-physics injection hook in the active layout implementation. The FR core (repulsion,
-attraction, damping, convergence) runs first; Graphshell-owned forces run after each step.
+This is the part that changed most since the original draft. Current Graphshell code does not use
+an external `ExtraForce` implementation surface. Instead, it lets the FR/Barnes-Hut layout step
+run, reads back the updated `ActiveLayoutState` in `render/mod.rs`, and then applies
+Graphshell-owned post-physics helpers.
 
-**Location**: `graph/forces/` submodule under `graph/physics.rs`.
+**Current locations**:
 
-**Important**: This is no longer the egui_graphs `ExtraForce` composable extras tuple approach
-from the original plan. Force injection is Graphshell-owned and not bound by the upstream
-`ExtraForce` trait signature. The behavioral contract (forces registered by name, run in
-deterministic order, gated by `CanvasRegistry` flags) is unchanged.
+- `graph/physics.rs` — `GraphPhysicsExtensionConfig`, `apply_graph_physics_extensions`,
+  `apply_degree_repulsion_forces`, `apply_domain_clustering_forces`,
+  `apply_semantic_clustering_forces`
+- `graph/frame_affinity.rs` — derives and applies frame-affinity regions
+- `registries/atomic/lens/physics.rs` — `PhysicsProfile::graph_physics_extensions(...)`
+  resolves which post-physics helpers are enabled for the active view
 
 ```rust
-// graph/forces/gravity_locus.rs
-pub struct GravityLocus;
+// graph/physics.rs — current production seam
+pub(crate) fn apply_graph_physics_extensions(
+    app: &mut GraphBrowserApp,
+    extensions: Option<GraphPhysicsExtensionConfig>,
+) {
+    let Some(extensions) = extensions else {
+        return;
+    };
+    if !extensions.any_enabled() {
+        return;
+    }
 
-impl ExtraForce for GravityLocus {
-    type Params = GravityLocusParams;
-    fn apply<...>(params: &Self::Params, g, indices, disp, area, k) {
-        for (i, idx) in indices.iter().enumerate() {
-            let pos = g.node(*idx).location();
-            let delta = params.target - pos;
-            disp[i] += delta * params.strength * k;
-        }
+    if extensions.degree_repulsion {
+        apply_degree_repulsion_forces(app);
+    }
+
+    if extensions.domain_clustering {
+        apply_domain_clustering_forces(app);
+    }
+
+    apply_semantic_clustering_forces(app, extensions.semantic_clustering_args());
+
+    if extensions.frame_affinity {
+        let regions =
+            crate::graph::frame_affinity::derive_frame_affinity_regions(app.domain_graph());
+        crate::graph::frame_affinity::apply_frame_affinity_forces(app, &regions, None);
     }
 }
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct GravityLocusParams {
-    pub target: egui::Pos2,   // updated per-frame from viewport center (lerped)
-    pub strength: f32,        // driven by PhysicsProfile.gravity_strength
-}
 ```
 
-The gravity locus dampening from `layout_behaviors_and_physics_spec.md`
-(`gravity_target.lerp(viewport_center, 0.05)`)
-becomes a per-frame param update — set `params.target` before `set_layout_state` instead of
-applying the lerp inside the render loop.
-
-```rust
-// graph/physics.rs — the active compound type used everywhere in Graphshell
-
-pub type GraphPhysicsState = FruchtermanReingoldWithExtrasState<(
-    Extra<CenterGravity, true>,     // center-gravity (existing)
-    Extra<GravityLocus, false>,     // viewport-relative gravity locus
-    Extra<DomainCluster, false>,    // domain clustering (Phase 2.2)
-    Extra<DegreeRepulsion, false>,  // degree-dependent repulsion (Phase 2.1)
-    (),
-)>;
-
-pub type GraphPhysicsLayout = FruchtermanReingoldWithExtras<(
-    Extra<CenterGravity, true>,
-    Extra<GravityLocus, false>,
-    Extra<DomainCluster, false>,
-    Extra<DegreeRepulsion, false>,
-    (),
-)>;
-```
-
-`apply_to_state()` maps each extra's `enabled` flag and `params` from the active `PhysicsProfile`:
-
-```rust
-pub fn apply_to_state(&self, state: &mut GraphPhysicsState) {
-    state.base.c_repulse = self.repulsion_strength;
-    state.base.c_attract = self.attraction_strength;
-    state.base.damping   = self.damping;
-    state.extras.0.params.c  = self.gravity_strength;   // CenterGravity
-    state.extras.1.enabled   = self.viewport_gravity;   // GravityLocus
-    state.extras.2.enabled   = self.domain_clustering;  // DomainCluster
-    state.extras.3.enabled   = self.degree_repulsion;   // DegreeRepulsion
-}
-```
-
-Implementation status note (2026-03-11): Graphshell is not at true Level 2 yet, but it now has
-the first adapter boundary needed to get there. `PhysicsProfile` no longer needs to write FR state
-fields directly everywhere; a local graph-physics tuning adapter owns that mapping, and the first
-extension config shape now exists for semantic clustering and related extra-force policy flags.
-The remaining missing step is to replace the current post-layout semantic-clustering helper with a
-real `ExtraForce` path rather than a render-phase position mutation.
-
-Practical blocker note (2026-03-11): with egui_graphs 0.29.0, `ExtraForce` and `ExtrasTuple`
-exist in the crate internals but are not publicly re-exported through a stable external path.
-That means Graphshell cannot currently implement a true external `ExtraForce` type without either
-patching/forking egui_graphs or waiting for that API to be exposed upstream. Until then, the
-correct interim move is to keep extension policy centralized under `graph/physics.rs` so the
-eventual swap from render-phase helpers to real extras is mechanical rather than architectural.
-
-**Compile-time tuple constraint**: The extras tuple is fixed at compile time. Adding a new
-`ExtraForce` requires one new tuple slot and one new line in `apply_to_state()`. This is a
-small local change but requires a recompile. It is not a runtime-extensible plugin surface.
-For runtime extensibility without recompilation, see Level 3 and the WASM layout mod section.
+This keeps the behavior contract intact: extension policy is Graphshell-owned, ordered, and gated
+by per-view profile state. What is *not* landed is a general runtime plugin system for arbitrary
+force modules. If that becomes a requirement, it belongs in a future follow-on rather than being
+assumed by the current implementation.
 
 ---
 
-### Level 3 — Implement Custom Layout via Graphshell `Layout<S>` Trait
+### Level 3 — Implement Custom Layout via the Active Layout Dispatcher
 
-**Updated 2026-03-12**: The `Layout<S>` and `LayoutState` traits are now Graphshell-owned
-(defined in `graph/physics.rs`), not re-exported from egui_graphs. This is already the
-production path — `ActiveLayout` and `ActiveLayoutState` use these traits today.
+**Updated 2026-04-02**: the dispatcher architecture is real, but the trait seam is not fully
+Graphshell-owned. `graph/physics.rs` re-exports `egui_graphs::Layout` and `LayoutState`, and
+Graphshell owns the built-in layout modules plus the `ActiveLayout` / `ActiveLayoutState`
+dispatcher that the render layer uses.
 
-The egui_graphs rendering machinery (`GraphView`, node/edge display traits) is independent of
-the layout engine — swapping the engine does not touch render code, only the concrete type
-passed to `set_layout_state` / `get_layout_state` in `render/mod.rs`.
+The `egui_graphs` rendering machinery (`GraphView`, node/edge display traits) is independent of
+the concrete built-in layout variant. Swapping the active built-in engine does not touch render
+code beyond the `ActiveLayoutState` / `ActiveLayout` pair passed to the `GraphView`.
 
 **When a new Level 3 layout is warranted**:
 
@@ -225,11 +190,15 @@ impl Layout<MyLayoutState> for MyLayout { ... }
 impl LayoutState for MyLayoutState { ... }
 
 // graph/layouts/active.rs — add variant to ActiveLayoutKind + ActiveLayout enum
-// render/mod.rs — ActiveLayoutState already routes via the enum; no change needed
-//                 unless MyLayoutState needs its own fields on ActiveLayoutState
+// render/mod.rs — the concrete GraphView type already routes through ActiveLayoutState
+//                 unless MyLayoutState needs additional persisted fields
 ```
 
-`PhysicsProfile.apply_to_state()` maps onto the relevant `LayoutState` fields.
+`PhysicsProfile.apply_to_state()` still maps the base FR tuning onto `GraphPhysicsState`, and
+`PhysicsProfile::graph_physics_extensions(...)` carries the auxiliary post-physics behavior flags.
+
+The sections below on WASM adapters, rapier-backed layouts, and 2D↔3D transitions remain useful
+as future architecture exploration, but they are not landed production behavior.
 
 ---
 
@@ -548,7 +517,7 @@ named capability in the registry."
 | What | Location | Why |
 | --- | --- | --- |
 | Type aliases (`GraphPhysicsState`, etc.) | `graph/physics.rs` | Plain module — naming only |
-| `ExtraForce` impls | `graph/forces/` | Plain module — pure math |
+| Post-physics helper passes | `graph/physics.rs`, `graph/frame_affinity.rs` | Plain module — pure math + graph-derived adjustments |
 | `PhysicsProfile` presets | `app.rs` → `registries/presentation/physics_profile.rs` | Data presets; registry migration Phase 6 |
 | `Layout<S>` custom engines | `graph/layouts/` | Plain module — algorithm impl |
 | Named `layout:*` in `LayoutRegistry` | `graph/layouts/<name>.rs` + `inventory::submit!` | **Native mod scope** — only for user-visible Lens options |
@@ -567,20 +536,19 @@ algorithm needs to appear as a named Lens option selectable by users.
 The registry currently vends three presets as hardcoded constructors in `app.rs`. Migration path:
 
 1. ~~Add `graph/physics.rs` with aliases (Level 1).~~ **Done.**
-2. Add `graph/forces/` with Graphshell-owned post-physics force impls (Level 2).
-3. Expand `PhysicsProfile` to carry `enabled` flags for each force.
-4. Add new preset constructors for the ten thematic profiles (see below).
+2. ~~Land Graphshell-owned post-physics extension helpers (Level 2).~~ **Done in `graph/physics.rs` / `graph/frame_affinity.rs`.**
+3. ~~Expand `PhysicsProfile` to carry extension flags for the current helper set.~~ **Done for degree/domain/semantic clustering; frame-affinity derives from canvas zone policy.**
+4. Add new preset constructors for the ten thematic profiles (see below) if they still make sense after the current helper architecture settles.
 5. ~~Add `graph/layouts/active.rs` — `ActiveLayout` enum dispatcher + `ActiveLayoutState`.~~ **Done.**
 6. ~~Migrate `render/mod.rs` to use `ActiveLayout` / `ActiveLayoutState` as the concrete type.~~ **Done.**
 7. Move presets to `registries/presentation/physics_profile.rs` (Phase 6 cleanup).
 8. Wire `PhysicsProfileRegistry` into `LensCompositor` resolution (Phase 6.2).
 
-Steps 2–4 are the active work. Steps 7–8 are Phase 6 registry work.
+Steps 4, 7, and 8 are still follow-on work. The extension seam itself is no longer blocked.
 
-Status (2026-03-12): Steps 1, 5, 6 are landed. `graph/physics.rs` owns the trait surface.
-`ActiveLayout` / `ActiveLayoutState` are the production types in `render/mod.rs`.
-`graph/forces/` does not yet exist — post-physics force injection is the immediate next step
-for the extension model.
+Status (2026-04-02): Steps 1, 2, 3, 5, and 6 are landed. `ActiveLayout` /
+`ActiveLayoutState` are the production types in `render/mod.rs`, and the current extension model
+lives in `graph/physics.rs` rather than a dedicated `graph/forces/` module.
 
 ---
 
@@ -639,10 +607,12 @@ registerable as `physics:*` IDs. All build on Level 2 — no engine replacement 
 
 ### 9. `physics:magnet`
 
-**Theme**: User-defined magnetic zones dominate; FR is a secondary tie-breaker.
-**Extras**: `ZoneGravity` (reads `GraphWorkspace.zones`), `CenterGravity` (weak fallback).
-**Use case**: Explicitly organized nodes in named zones. Requires Phase 3 Magnetic Zones.
-**Dependency**: `2026-02-24_layout_behaviors_plan.md` Phase 3.
+**Theme**: Explicit frame-affinity or region-centric organization dominates; FR is a secondary tie-breaker.
+**Exploratory force model**: `ZoneGravity`-style attraction plus weak fallback center gravity.
+**Use case**: Explicitly organized nodes in named regions or frame-derived groupings.
+**Current reality**: the landed production slice is frame-affinity under `lane:layout-semantics`,
+not the older `GraphWorkspace.zones` model described in early drafts.
+**Dependency**: `layout_behaviors_and_physics_spec.md` and the archived layout-behaviors execution record.
 
 ### 10. `physics:void`
 
@@ -660,9 +630,10 @@ type-system concern.
 
 **`apply_to_state()` grows linearly**: Use a structured helper once the list exceeds ~5 forces.
 
-**Level 3 state serialization**: Custom `LayoutState` must satisfy `Default + Debug + Serialize +
-Deserialize` (serde derives sufficient). Test roundtrip persistence before committing to a new
-state type. `SerializableAny` is no longer required since the traits are Graphshell-owned.
+**Level 3 state serialization**: Custom layout state still has to satisfy the imported
+`LayoutState` contract (`Default + Debug + Serialize + Deserialize`). Test roundtrip persistence
+before committing to a new state type. `SerializableAny` is not part of the current production
+path because `ActiveLayoutState` is the concrete persisted render-facing wrapper.
 
 **ActiveLayout enum grows**: Adding a new built-in layout adds a variant. Fine for a bounded set
 (~8–10 layouts). If the set is unbounded, prefer the `Box<dyn DynLayout>` approach — accepting
@@ -1173,14 +1144,16 @@ force). The connection is not yet specified:
 
 **`apply_to_state()` helper pattern**
 
-`PhysicsProfile::apply_to_state()` currently maps profile fields to `FruchtermanReingoldWithCenterGravityState`.
-When `GraphPhysicsState` is promoted to the full type alias (Level 2), `apply_to_state()` must
-set fields for all `ExtraForce` extras. Open questions:
+`PhysicsProfile::apply_to_state()` currently maps base profile tuning fields onto
+`GraphPhysicsState`, and `PhysicsProfile::graph_physics_extensions(...)` carries the auxiliary
+behavior toggles into the post-physics helper layer. That split is the landed shape.
 
-- Should `apply_to_state()` take a mutable reference to the extras tuple by trait method, or
-  is it a concrete method on the full type alias?
-- The extras tuple is heterogeneous. Does each `Extra<T, _>` expose a `set_params()` method,
-  or does `apply_to_state()` hard-code the index-based field access?
+If Graphshell ever revisits a richer pluggable force architecture, the open question is not
+"how do we promote the current state type," but rather "do we keep base tuning and extension
+policy as two explicit adapters, or collapse them into one larger profile-to-layout mapping?"
+
+- Keep the current split if the helper layer remains Graphshell-owned and render-driven.
+- Collapse the split only if a future runtime/plugin force surface makes that indirection noisy.
 
 **PhysicsProfile preset migration schema**
 
@@ -1290,20 +1263,22 @@ surfaced through `AppPreferences`, per-view settings, or per-layout UI controls.
 require new data structures — they are toggles and sliders wiring into fields that already
 exist in the design.
 
-**Per-ExtraForce enable/disable toggle UI**
+**Refactor note (2026-04-02)**: the items in this section are exploratory UI ideas. Current
+production code exposes coarse profile-level toggles (`degree_repulsion`, `domain_clustering`,
+`semantic_clustering`, plus canvas-gated frame-affinity), not a generic per-force plugin UI.
 
-Each `Extra<T, DEFAULT>` has a compile-time default but should be runtime-togglable. The physics
-settings panel should render one toggle per active `ExtraForce` type, labelled by the force's
-display name. Toggling off suspends the force without removing it from the type tuple.
-Implementation: `ExtraForce` trait adds a `fn is_enabled(&self) -> bool` method; the force's
-`apply()` body checks it.
+**Per-force enable/disable toggle UI**
 
-**ExtraForce parameter sliders**
+If Graphshell adds a richer force registry later, the physics settings panel could render one
+toggle per active force type, labelled by the force's display name. In the current architecture,
+the equivalent UX is simply wiring more explicit profile flags into
+`GraphPhysicsExtensionConfig`.
 
-Each `ExtraForce` exposes named parameters (strength, radius, decay). The physics settings
-panel renders sliders for these, with min/max bounds defined by the force. Implementation:
-`ExtraForce` trait adds a `fn params_ui(&mut self, ui: &mut egui::Ui)` method, called from
-the settings panel.
+**Per-force parameter sliders**
+
+Likewise, a future force-registry UI could expose named parameters (strength, radius, decay) per
+force. Until then, the practical implementation path is to add explicit fields on
+`PhysicsProfile` and map them through the existing tuning / extension adapter split.
 
 **Per-node physics overrides persistence**
 
@@ -1373,7 +1348,8 @@ The following items require coordination with other plans and are not fully reso
 - **`CanvasRegistry` authority**: This plan invents several new `CanvasRegistry` fields
   (`degree_repulsion_enabled`, `domain_clustering_enabled`, `edge_routing_enabled`, etc.).
   These must be registered in `2026-02-22_registry_layer_plan.md §Layout Domain` to avoid
-  duplication. Resolve before implementing Level 2 ExtraForce forces.
+  duplication. Resolve before expanding the helper set beyond the currently landed
+  `GraphPhysicsExtensionConfig` fields.
 
 - **`LensCompositor` + physics preset binding** *(resolved — see `layout_behaviors_and_physics_spec.md §§5–6`)*:
   `LensConfig.physics_profile_id: Option<PhysicsProfileId>` is now formally specified.
@@ -1389,9 +1365,10 @@ The following items require coordination with other plans and are not fully reso
   per local simulation instance. Specify whether that local simulation state owns both the
   shadow positions and the rapier world, or whether rapier is always global.
 
-- **Snapshot format for `PhysicsRegion`**: Regions reference `GraphWorkspace.zones`. The
-  snapshot format (`persistence_ops.rs`) must be extended to include `physics_regions`. Confirm
-  this is tracked in the persistence plan.
+- **Snapshot format for `PhysicsRegion`**: early drafts described these in terms of the old
+  `GraphWorkspace.zones` model. If this feature revives, the snapshot format
+  (`persistence_ops.rs`) should persist explicit `physics_regions` records rather than depending
+  on that older zone abstraction. Confirm this is tracked in the persistence plan.
 
 - **burn semantic force data contract**: The interface between `LocalIntelligenceAgent` and
   the `DomainCluster` / semantic ExtraForce must be defined as a trait or data structure,
@@ -1450,18 +1427,32 @@ These are not yet specified in the plan and should be resolved before shipping e
   `PhysicsRegion`/`RegionRule`, Canvas Editor, GPU pipeline separation, burn-wgpu
   relationship.
 - Research gaps, secondary mod candidates, and user configuration surface documented (38 items
-  across 7 categories). Implementation work begins with Level 1 (naming) then Level 2 (ExtraForce).
+  across 7 categories). Original recommended sequencing at that point was Level 1 (naming) and
+  then a richer Level 2 force-extension surface.
 
 ### 2026-03-12
 
 - Revised for custom graph/layout ownership. egui_graphs `ExtraForce` composable extras and
-  upstream `Layout<S>`/`LayoutState` not used as extension mechanism — egui_graphs does not expose
-  these as stable public API.
+  upstream `Layout<S>`/`LayoutState` were identified as an unstable place to build a larger
+  external force-plugin surface.
 - Level 1 (naming seam via `graph/physics.rs`): complete.
 - `ActiveLayout` / `ActiveLayoutState` dispatcher: complete (`graph/layouts/active.rs`,
   `render/mod.rs` uses these as production types).
 - `graph/layouts/barnes_hut_force_directed.rs`: prototype landed.
-- `graph/forces/` (post-physics force injection): not yet created — immediate next step for
-  Level 2.
-- `Layout<S>` / `LayoutState` traits: now Graphshell-owned in `graph/physics.rs`.
-- Risks section updated: tuple-arity risk resolved; `SerializableAny` constraint removed.
+- Risks section updated: tuple-arity risk resolved; `SerializableAny` constraint removed from
+  the production path.
+
+### 2026-04-02
+
+- Refactored for current accuracy after the layout-behavior slices landed and the archival pass
+  removed the old active-path behavior plan.
+- Corrected the ownership story: Graphshell owns the policy seam, dispatcher, and post-physics
+  helper layer, but still imports `Layout<S>` / `LayoutState` through `graph/physics.rs`.
+- Rewrote Level 2 to match the landed `apply_graph_physics_extensions(...)` architecture in
+  `graph/physics.rs` plus `graph/frame_affinity.rs`.
+- Rewrote Level 3 to describe the real built-in layout dispatcher rather than claiming the trait
+  surface is fully Graphshell-owned.
+- Updated registry-integration notes, risks, and profile-mapping guidance to match
+  `PhysicsProfile::apply_to_state()` plus `PhysicsProfile::graph_physics_extensions(...)`.
+- Marked the later WASM / rapier / richer force-surface sections as exploratory follow-on
+  architecture, not landed implementation.
