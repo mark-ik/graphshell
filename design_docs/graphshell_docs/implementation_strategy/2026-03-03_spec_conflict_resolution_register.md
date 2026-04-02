@@ -33,7 +33,7 @@ Without this, UI/UX regressions reappear because different docs authorize differ
 
 ### D1 — Pane Opening Mode work is a separate plan
 
-Decision: create a **separate Pane Opening Mode + SimplificationSuppressed plan**, not a subsection inside `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`.
+Decision: create a **separate Pane Opening Mode + SimplificationSuppressed plan**, not a subsection inside the archived `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` rollout note.
 
 Reason:
 - Tab-semantics plan is structural (`egui_tiles` semantics).
@@ -77,7 +77,7 @@ Decision: internal address scheme implementation is a precondition for fully clo
 ## P3 — Terminology and lifecycle consistency
 
 4. `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
-   - Current path: `implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
+   - Archived path: `archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
    - Terminology cleanup: remove structural use of Promote/Demote.
 
 5. `viewer/node_lifecycle_and_runtime_reconcile_spec.md`

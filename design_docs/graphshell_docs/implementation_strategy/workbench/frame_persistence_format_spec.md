@@ -8,7 +8,7 @@
 
 - [`workbench_frame_tile_interaction_spec.md`](./workbench_frame_tile_interaction_spec.md)
 - [`pane_chrome_and_promotion_spec.md`](./pane_chrome_and_promotion_spec.md)
-- [`2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`](./2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md)
+- [`../../archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`](../../archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) — archived rollout record
 - [`../subsystem_storage/storage_and_persistence_integrity_spec.md`](../subsystem_storage/storage_and_persistence_integrity_spec.md)
 - [`../system/2026-03-12_workspace_decomposition_and_renaming_plan.md`](../system/2026-03-12_workspace_decomposition_and_renaming_plan.md)
 - [`../../technical_architecture/2026-03-12_specification_coverage_register.md`](../../technical_architecture/2026-03-12_specification_coverage_register.md)

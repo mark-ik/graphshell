@@ -10,7 +10,7 @@
 - `workbench_frame_tile_interaction_spec.md`
 - `pane_presentation_and_locking_spec.md` — **canonical authority for `PaneLock`** (§7 here defers to it)
 - `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — canonical authority for `PaneOpeningMode` and `SimplificationSuppressed`
-- `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` — execution note for the in-progress `FrameTabSemantics` overlay rollout; canonical semantic-tab contract lives in `../graph/multi_view_pane_spec.md §7`
+- `../../archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` — archived execution note for the completed `FrameTabSemantics` rollout; canonical semantic-tab contract lives in `../graph/multi_view_pane_spec.md §7`
 - `../canvas/node_badge_and_tagging_spec.md` — badge strip rendering contract referenced in §3.1
 - `../../../TERMINOLOGY.md` — `Tiled Pane`, `Docked Pane`, `Pane Presentation Mode`, `Tile`
 

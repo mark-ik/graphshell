@@ -5,27 +5,30 @@
 # Workbench Semantic Tab Overlay and Pane-Rest Execution Note
 
 **Date**: 2026-02-22
-**Status**: Complete execution note — Stage 8 rollout landed; archive-ready after any follow-up ownership cleanup
+**Status**: Closed / Archived 2026-04-02 — retained as implementation history; canonical semantic-tab authority now lives in `../../../../../graphshell_docs/implementation_strategy/graph/multi_view_pane_spec.md §7`
+**Archived on**: 2026-04-02
+**Reason**: Stage 8 rollout landed in runtime code; active authority remains with the semantic contract and persisted format specs, not this execution note
 
 **Canonical authority chain**:
 
-- `../graph/multi_view_pane_spec.md §7` — canonical contract for `FrameTabSemantics`, hoist/unhoist, pane-rest semantics, and simplify-safe invariants
-- `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — canonical authority for `PaneOpeningMode`, `SimplificationSuppressed`, and graph-enrollment promotion semantics
-- `pane_chrome_and_promotion_spec.md` — pane chrome and opening semantics cross-reference only; not the canonical owner of `FrameTabSemantics`
+- `../../../../../graphshell_docs/implementation_strategy/graph/multi_view_pane_spec.md §7` — canonical contract for `FrameTabSemantics`, hoist/unhoist, pane-rest semantics, and simplify-safe invariants
+- `../../../../../graphshell_docs/implementation_strategy/workbench/2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — canonical authority for `PaneOpeningMode`, `SimplificationSuppressed`, and graph-enrollment promotion semantics
+- `../../../../../graphshell_docs/implementation_strategy/workbench/pane_chrome_and_promotion_spec.md` — pane chrome and opening semantics cross-reference only; not the canonical owner of `FrameTabSemantics`
 
 **Relates to**:
 
-- `../../archive_docs/checkpoint_2026-02-22/2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation (archived 2026-02-24); `PaneId` and `FrameManifest` types defined there, plus frame membership/routing context lineage
-- `frame_persistence_format_spec.md` — canonical current persisted frame-bundle shape, including the optional additive `frame_tab_semantics` field
-- `../system/register/workbench_surface_registry_spec.md` — `WorkbenchSurfaceRegistry` owns layout/interaction policy for tile containers, including simplification options; overlay restore/collapse logic must read those options (the former `2026-02-22_registry_layer_plan.md` Phase 3 is now canonicalized here)
-- `../system/2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md` — current `GraphWorkspace`/`AppServices` field-ownership status; `FrameTabSemantics` target home after state-ownership migration
+- `../../../../checkpoint_2026-02-22/2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation (archived 2026-02-24); `PaneId` and `FrameManifest` types defined there, plus frame membership/routing context lineage
+- `../../../../../graphshell_docs/implementation_strategy/workbench/frame_persistence_format_spec.md` — canonical current persisted frame-bundle shape, including the optional additive `frame_tab_semantics` field
+- `../../../../../graphshell_docs/implementation_strategy/system/register/workbench_surface_registry_spec.md` — `WorkbenchSurfaceRegistry` owns layout/interaction policy for tile containers, including simplification options; overlay restore/collapse logic must read those options (the former `2026-02-22_registry_layer_plan.md` Phase 3 is now canonicalized here)
+- `../../../../../graphshell_docs/implementation_strategy/system/2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md` — current `GraphWorkspace`/`AppServices` field-ownership status; `FrameTabSemantics` target home after state-ownership migration
 
 ---
 
 ## Purpose
 
-This note keeps the `FrameTabSemantics` direction active as an implementation guide while
-tracking the partial runtime slice that has now landed.
+This note is retained as the historical execution record for the `FrameTabSemantics` rollout.
+Do not treat it as the canonical active implementation guide; use the active contract and
+format specs listed above for ongoing work.
 
 The target remains the same:
 
@@ -451,7 +454,7 @@ This section absorbs and replaces the 2026-02-24 frame-routing polish plan.
 - Retitled from the older overlay-and-promotion wording to keep `promotion` reserved for graph enrollment only.
 - Status corrected: `FrameTabSemantics` is now partially implemented in runtime code, but the
   simplify-safe restore integration still remains planned work.
-- Canonical authority chain updated to point at `../graph/multi_view_pane_spec.md` for the semantic contract.
+- Canonical authority chain updated to point at `../../../../../graphshell_docs/implementation_strategy/graph/multi_view_pane_spec.md` for the semantic contract.
 - Stale ownership wording replaced with current reducer/app-layer and desktop/workbench apply-layer language.
 - Runtime gap closed for Stage 8D: restore/collapse now confirms the resulting semantic tab state before reporting success, while Stage 8E remains future work.
 

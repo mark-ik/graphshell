@@ -7,7 +7,7 @@
 **Status**: In Progress (Stages 0-E complete; Stage F backlog)
 **Related plans**:
 - `2026-02-22_workbench_workspace_manifest_persistence_plan.md` (archived; manifest migration record)
-- `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` (active workbench tab semantics follow-on)
+- `../../archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` (archived workbench tab semantics rollout record)
 
 ---
 
