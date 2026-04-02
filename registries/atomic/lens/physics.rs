@@ -1,6 +1,7 @@
 use crate::graph::physics::{
     GraphPhysicsExtensionConfig, GraphPhysicsState, GraphPhysicsTuning, apply_graph_physics_tuning,
 };
+use crate::graph::scene_runtime::SceneCollisionPolicy;
 
 pub(crate) const PHYSICS_ID_DEFAULT: &str = "physics:liquid";
 pub(crate) const PHYSICS_ID_GAS: &str = "physics:gas";
@@ -18,6 +19,10 @@ pub struct PhysicsProfile {
     pub domain_clustering: bool,
     pub semantic_clustering: bool,
     pub semantic_strength: f32,
+    #[serde(default)]
+    pub node_separation: bool,
+    #[serde(default)]
+    pub viewport_containment: bool,
     pub auto_pause: bool,
 }
 
@@ -55,6 +60,14 @@ impl PhysicsProfile {
         }
     }
 
+    pub(crate) fn scene_collision_policy(&self) -> SceneCollisionPolicy {
+        SceneCollisionPolicy {
+            node_separation_enabled: self.node_separation,
+            viewport_containment_enabled: self.viewport_containment,
+            node_padding: 4.0,
+        }
+    }
+
     pub fn liquid() -> Self {
         Self {
             name: "Liquid".to_string(),
@@ -66,6 +79,8 @@ impl PhysicsProfile {
             domain_clustering: false,
             semantic_clustering: false,
             semantic_strength: 0.05,
+            node_separation: true,
+            viewport_containment: true,
             auto_pause: true,
         }
     }
@@ -81,6 +96,8 @@ impl PhysicsProfile {
             domain_clustering: false,
             semantic_clustering: false,
             semantic_strength: 0.05,
+            node_separation: false,
+            viewport_containment: false,
             auto_pause: false,
         }
     }
@@ -96,6 +113,8 @@ impl PhysicsProfile {
             domain_clustering: true,
             semantic_clustering: false,
             semantic_strength: 0.05,
+            node_separation: true,
+            viewport_containment: true,
             auto_pause: true,
         }
     }
@@ -196,6 +215,8 @@ mod tests {
             domain_clustering: false,
             semantic_clustering: false,
             semantic_strength: 0.05,
+            node_separation: true,
+            viewport_containment: false,
             auto_pause: true,
         };
 
@@ -219,6 +240,8 @@ mod tests {
             domain_clustering: true,
             semantic_clustering: true,
             semantic_strength: 0.23,
+            node_separation: true,
+            viewport_containment: true,
             auto_pause: true,
         };
 
@@ -229,6 +252,10 @@ mod tests {
         assert!(extensions.semantic_clustering);
         assert_eq!(extensions.semantic_strength, 0.23);
         assert!(!extensions.frame_affinity);
+
+        let collision_policy = profile.scene_collision_policy();
+        assert!(collision_policy.node_separation_enabled);
+        assert!(collision_policy.viewport_containment_enabled);
 
         let extensions_zones = profile.graph_physics_extensions(true);
         assert!(extensions_zones.frame_affinity);

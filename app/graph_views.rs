@@ -1,5 +1,9 @@
 use super::*;
 use crate::graph::{ArrangementSubKind, NodeKey, RelationSelector, SemanticSubKind};
+use crate::graph::scene_runtime::{
+    GraphViewSceneRuntime, SceneRegionId, SceneRegionResizeHandle, SceneRegionRuntime,
+    resize_region_to_pointer, translate_region,
+};
 
 fn default_edge_projection_selectors() -> Vec<RelationSelector> {
     vec![
@@ -166,7 +170,271 @@ impl Default for GraphViewId {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default,
+)]
+pub enum SceneMode {
+    #[default]
+    Browse,
+    Arrange,
+    Simulate,
+}
+
 impl GraphBrowserApp {
+    pub fn graph_view_scene_mode(&self, view_id: GraphViewId) -> SceneMode {
+        self.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .map(|view| view.scene_mode)
+            .unwrap_or_default()
+    }
+
+    pub fn set_graph_view_scene_mode(&mut self, view_id: GraphViewId, mode: SceneMode) {
+        if !self.workspace.graph_runtime.views.contains_key(&view_id) {
+            let name = self.next_graph_view_slot_name();
+            self.workspace
+                .graph_runtime
+                .views
+                .insert(view_id, GraphViewState::new_with_id(view_id, name));
+        }
+        let view = self
+            .workspace
+            .graph_runtime
+            .views
+            .get_mut(&view_id)
+            .expect("view inserted above");
+        if view.scene_mode == mode {
+            return;
+        }
+        view.scene_mode = mode;
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn graph_view_scene_runtime(&self, view_id: GraphViewId) -> Option<&GraphViewSceneRuntime> {
+        self.workspace.graph_runtime.scene_runtimes.get(&view_id)
+    }
+
+    pub fn graph_view_selected_scene_region(&self, view_id: GraphViewId) -> Option<SceneRegionId> {
+        self.workspace
+            .graph_runtime
+            .selected_scene_regions
+            .get(&view_id)
+            .copied()
+            .filter(|region_id| {
+                self.workspace
+                    .graph_runtime
+                    .scene_runtimes
+                    .get(&view_id)
+                    .is_some_and(|runtime| runtime.regions.iter().any(|region| region.id == *region_id))
+            })
+    }
+
+    pub fn graph_view_scene_region(
+        &self,
+        view_id: GraphViewId,
+        region_id: SceneRegionId,
+    ) -> Option<&SceneRegionRuntime> {
+        self.workspace
+            .graph_runtime
+            .scene_runtimes
+            .get(&view_id)
+            .and_then(|runtime| runtime.regions.iter().find(|region| region.id == region_id))
+    }
+
+    fn ensure_graph_view_scene_runtime_entry(
+        &mut self,
+        view_id: GraphViewId,
+    ) -> &mut GraphViewSceneRuntime {
+        self.workspace
+            .graph_runtime
+            .scene_runtimes
+            .entry(view_id)
+            .or_default()
+    }
+
+    pub fn set_graph_view_selected_scene_region(
+        &mut self,
+        view_id: GraphViewId,
+        region_id: Option<SceneRegionId>,
+    ) {
+        if let Some(region_id) = region_id {
+            let exists = self
+                .workspace
+                .graph_runtime
+                .scene_runtimes
+                .get(&view_id)
+                .is_some_and(|runtime| runtime.regions.iter().any(|region| region.id == region_id));
+            if exists {
+                self.workspace
+                    .graph_runtime
+                    .selected_scene_regions
+                    .insert(view_id, region_id);
+            } else {
+                self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+            }
+        } else {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+        }
+    }
+
+    pub fn set_graph_view_scene_bounds_override(
+        &mut self,
+        view_id: GraphViewId,
+        bounds: Option<egui::Rect>,
+    ) {
+        self.ensure_graph_view_registered(view_id);
+        if let Some(bounds) = bounds {
+            self.ensure_graph_view_scene_runtime_entry(view_id).bounds_override = Some(bounds);
+        } else if let Some(runtime) = self.workspace.graph_runtime.scene_runtimes.get_mut(&view_id)
+        {
+            runtime.bounds_override = None;
+            if runtime.regions.is_empty() {
+                self.workspace.graph_runtime.scene_runtimes.remove(&view_id);
+            }
+        }
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn set_graph_view_scene_regions(
+        &mut self,
+        view_id: GraphViewId,
+        regions: Vec<SceneRegionRuntime>,
+    ) {
+        self.ensure_graph_view_registered(view_id);
+        if regions.is_empty() {
+            if let Some(runtime) = self.workspace.graph_runtime.scene_runtimes.get_mut(&view_id) {
+                runtime.regions.clear();
+                if runtime.bounds_override.is_none() {
+                    self.workspace.graph_runtime.scene_runtimes.remove(&view_id);
+                }
+            }
+        } else {
+            self.ensure_graph_view_scene_runtime_entry(view_id).regions = regions;
+        }
+        if self.graph_view_selected_scene_region(view_id).is_none() {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+        }
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn add_graph_view_scene_region(&mut self, view_id: GraphViewId, region: SceneRegionRuntime) {
+        self.ensure_graph_view_registered(view_id);
+        self.ensure_graph_view_scene_runtime_entry(view_id)
+            .regions
+            .push(region);
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn translate_graph_view_scene_region(
+        &mut self,
+        view_id: GraphViewId,
+        region_id: SceneRegionId,
+        delta: egui::Vec2,
+    ) -> bool {
+        if delta.length_sq() <= f32::EPSILON {
+            return false;
+        }
+        let Some(runtime) = self.workspace.graph_runtime.scene_runtimes.get_mut(&view_id) else {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+            return false;
+        };
+        let Some(region) = runtime.regions.iter_mut().find(|region| region.id == region_id) else {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+            return false;
+        };
+        translate_region(region, delta);
+        true
+    }
+
+    pub fn resize_graph_view_scene_region_to_pointer(
+        &mut self,
+        view_id: GraphViewId,
+        region_id: SceneRegionId,
+        handle: SceneRegionResizeHandle,
+        pointer_canvas_pos: egui::Pos2,
+    ) -> bool {
+        let Some(runtime) = self.workspace.graph_runtime.scene_runtimes.get_mut(&view_id) else {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+            return false;
+        };
+        let Some(region) = runtime.regions.iter_mut().find(|region| region.id == region_id) else {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+            return false;
+        };
+        resize_region_to_pointer(region, handle, pointer_canvas_pos);
+        true
+    }
+
+    pub fn replace_graph_view_scene_region(
+        &mut self,
+        view_id: GraphViewId,
+        region: SceneRegionRuntime,
+    ) -> bool {
+        let Some(runtime) = self.workspace.graph_runtime.scene_runtimes.get_mut(&view_id) else {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+            return false;
+        };
+        let Some(existing) = runtime.regions.iter_mut().find(|existing| existing.id == region.id) else {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+            return false;
+        };
+        *existing = region;
+        true
+    }
+
+    pub fn remove_graph_view_scene_region(
+        &mut self,
+        view_id: GraphViewId,
+        region_id: SceneRegionId,
+    ) -> bool {
+        let Some(runtime) = self.workspace.graph_runtime.scene_runtimes.get_mut(&view_id) else {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+            return false;
+        };
+        let original_len = runtime.regions.len();
+        runtime.regions.retain(|region| region.id != region_id);
+        let removed = runtime.regions.len() != original_len;
+        if !removed {
+            return false;
+        }
+        if runtime.regions.is_empty() && runtime.bounds_override.is_none() {
+            self.workspace.graph_runtime.scene_runtimes.remove(&view_id);
+        }
+        if self.graph_view_selected_scene_region(view_id) == Some(region_id) {
+            self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+        }
+        self.workspace.graph_runtime.hovered_scene_region = self
+            .workspace
+            .graph_runtime
+            .hovered_scene_region
+            .filter(|(hovered_view_id, hovered_region_id)| {
+                *hovered_view_id != view_id || *hovered_region_id != region_id
+            });
+        self.workspace.graph_runtime.active_scene_region_drag = self
+            .workspace
+            .graph_runtime
+            .active_scene_region_drag
+            .filter(|drag| drag.view_id != view_id || drag.region_id != region_id);
+        true
+    }
+
+    pub fn clear_graph_view_scene_runtime(&mut self, view_id: GraphViewId) {
+        self.workspace.graph_runtime.scene_runtimes.remove(&view_id);
+        self.workspace.graph_runtime.selected_scene_regions.remove(&view_id);
+        self.workspace.graph_runtime.hovered_scene_region = self
+            .workspace
+            .graph_runtime
+            .hovered_scene_region
+            .filter(|(hovered_view_id, _)| *hovered_view_id != view_id);
+        self.workspace.graph_runtime.active_scene_region_drag = self
+            .workspace
+            .graph_runtime
+            .active_scene_region_drag
+            .filter(|drag| drag.view_id != view_id);
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
     pub fn workbench_edge_projection(&self) -> &EdgeProjectionState {
         &self.workspace.workbench_session.edge_projection
     }
@@ -1548,6 +1816,9 @@ pub struct GraphViewState {
     /// if 3D rendering is unavailable on the target platform.
     #[serde(default)]
     pub dimension: ViewDimension,
+    /// User-facing scene interaction mode for this graph view.
+    #[serde(default)]
+    pub scene_mode: SceneMode,
     #[serde(skip)]
     pub last_layout_algorithm_id: Option<String>,
     #[serde(skip)]
@@ -1603,6 +1874,7 @@ impl std::fmt::Debug for GraphViewState {
             .field("relation_policy", &self.relation_policy)
             .field("local_simulation", &self.local_simulation)
             .field("dimension", &self.dimension)
+            .field("scene_mode", &self.scene_mode)
             .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
             .field("active_filter", &self.active_filter)
             .field("edge_projection_override", &self.edge_projection_override)
@@ -1634,6 +1906,7 @@ impl Clone for GraphViewState {
             relation_policy: self.relation_policy.clone(),
             local_simulation: self.local_simulation.clone(),
             dimension: self.dimension.clone(),
+            scene_mode: self.scene_mode,
             last_layout_algorithm_id: self.last_layout_algorithm_id.clone(),
             egui_state: None,
             active_filter: self.active_filter.clone(),
@@ -1672,6 +1945,8 @@ struct GraphViewStateSerde {
     local_simulation: Option<LocalSimulation>,
     #[serde(default)]
     dimension: ViewDimension,
+    #[serde(default)]
+    scene_mode: SceneMode,
     #[serde(skip)]
     last_layout_algorithm_id: Option<String>,
     #[serde(skip)]
@@ -1711,6 +1986,7 @@ impl<'de> serde::Deserialize<'de> for GraphViewState {
             relation_policy: helper.relation_policy,
             local_simulation: helper.local_simulation,
             dimension: helper.dimension,
+            scene_mode: helper.scene_mode,
             last_layout_algorithm_id: helper.last_layout_algorithm_id,
             egui_state: helper.egui_state,
             active_filter: helper.active_filter,
@@ -1962,6 +2238,7 @@ impl GraphViewState {
             relation_policy: ViewRelationPolicy::default(),
             local_simulation: None,
             dimension: ViewDimension::default(),
+            scene_mode: SceneMode::Browse,
             last_layout_algorithm_id: None,
             egui_state: None,
             active_filter: None,
@@ -2275,6 +2552,37 @@ mod tests {
     }
 
     #[test]
+    fn graph_view_state_defaults_to_browse_scene_mode() {
+        let view = GraphViewState::new("Scene");
+        assert_eq!(view.scene_mode, SceneMode::Browse);
+    }
+
+    #[test]
+    fn graph_view_state_scene_mode_round_trips_through_serde() {
+        let view_id = GraphViewId::new();
+        let mut view = GraphViewState::new_with_id(view_id, "Scene");
+        view.scene_mode = SceneMode::Arrange;
+
+        let json = serde_json::to_string(&view).expect("graph view should serialize");
+        let decoded: GraphViewState =
+            serde_json::from_str(&json).expect("graph view should deserialize");
+
+        assert_eq!(decoded.scene_mode, SceneMode::Arrange);
+    }
+
+    #[test]
+    fn set_graph_view_scene_mode_creates_missing_view_and_marks_dirty() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+
+        app.set_graph_view_scene_mode(view_id, SceneMode::Arrange);
+
+        assert_eq!(app.graph_view_scene_mode(view_id), SceneMode::Arrange);
+        assert!(app.workspace.graph_runtime.views.contains_key(&view_id));
+        assert!(app.workspace.graph_runtime.egui_state_dirty);
+    }
+
+    #[test]
     fn apply_filter_override_marks_view_override_provenance() {
         let mut view = GraphViewState::new("Filter");
         let expr = crate::model::graph::filter::FacetExpr::Predicate(
@@ -2297,5 +2605,205 @@ mod tests {
         view.apply_filter_override(None);
 
         assert_eq!(view.effective_filter_source(), None);
+    }
+
+    #[test]
+    fn set_graph_view_scene_regions_registers_runtime_regions() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let region = crate::graph::scene_runtime::SceneRegionRuntime::rect(
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(64.0, 64.0)),
+            crate::graph::scene_runtime::SceneRegionEffect::Attractor { strength: 0.2 },
+        );
+
+        app.set_graph_view_scene_regions(view_id, vec![region.clone()]);
+
+        let runtime = app
+            .graph_view_scene_runtime(view_id)
+            .expect("scene runtime should exist");
+        assert_eq!(runtime.regions, vec![region]);
+        assert!(app.workspace.graph_runtime.views.contains_key(&view_id));
+        assert!(app.workspace.graph_runtime.egui_state_dirty);
+    }
+
+    #[test]
+    fn clearing_scene_regions_removes_empty_runtime_entry() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.set_graph_view_scene_regions(
+            view_id,
+            vec![crate::graph::scene_runtime::SceneRegionRuntime::rect(
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(64.0, 64.0)),
+                crate::graph::scene_runtime::SceneRegionEffect::Wall,
+            )],
+        );
+
+        app.set_graph_view_scene_regions(view_id, Vec::new());
+
+        assert!(app.graph_view_scene_runtime(view_id).is_none());
+    }
+
+    #[test]
+    fn clearing_scene_regions_preserves_bounds_override_runtime() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.set_graph_view_scene_bounds_override(
+            view_id,
+            Some(egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(100.0, 100.0),
+            )),
+        );
+        app.add_graph_view_scene_region(
+            view_id,
+            crate::graph::scene_runtime::SceneRegionRuntime::rect(
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(64.0, 64.0)),
+                crate::graph::scene_runtime::SceneRegionEffect::Wall,
+            ),
+        );
+
+        app.set_graph_view_scene_regions(view_id, Vec::new());
+
+        let runtime = app
+            .graph_view_scene_runtime(view_id)
+            .expect("bounds override should keep runtime entry alive");
+        assert!(runtime.regions.is_empty());
+        assert!(runtime.bounds_override.is_some());
+    }
+
+    #[test]
+    fn clear_graph_view_scene_runtime_removes_all_scene_state() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.set_graph_view_scene_bounds_override(
+            view_id,
+            Some(egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(100.0, 100.0),
+            )),
+        );
+        app.add_graph_view_scene_region(
+            view_id,
+            crate::graph::scene_runtime::SceneRegionRuntime::circle(
+                egui::pos2(20.0, 20.0),
+                12.0,
+                crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
+            ),
+        );
+
+        app.clear_graph_view_scene_runtime(view_id);
+
+        assert!(app.graph_view_scene_runtime(view_id).is_none());
+    }
+
+    #[test]
+    fn translate_graph_view_scene_region_moves_region_shape() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let region = crate::graph::scene_runtime::SceneRegionRuntime::rect(
+            egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(40.0, 60.0)),
+            crate::graph::scene_runtime::SceneRegionEffect::Wall,
+        );
+        let region_id = region.id;
+        app.add_graph_view_scene_region(view_id, region);
+
+        assert!(app.translate_graph_view_scene_region(view_id, region_id, egui::vec2(5.0, -4.0)));
+
+        let runtime = app
+            .graph_view_scene_runtime(view_id)
+            .expect("scene runtime should still exist");
+        assert_eq!(
+            runtime.regions[0].shape,
+            crate::graph::scene_runtime::SceneRegionShape::Rect {
+                rect: egui::Rect::from_min_max(egui::pos2(15.0, 16.0), egui::pos2(45.0, 56.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn clearing_scene_runtime_removes_selected_scene_region() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let region = crate::graph::scene_runtime::SceneRegionRuntime::circle(
+            egui::pos2(20.0, 20.0),
+            12.0,
+            crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
+        );
+        let region_id = region.id;
+        app.add_graph_view_scene_region(view_id, region);
+        app.set_graph_view_selected_scene_region(view_id, Some(region_id));
+
+        app.clear_graph_view_scene_runtime(view_id);
+
+        assert_eq!(app.graph_view_selected_scene_region(view_id), None);
+    }
+
+    #[test]
+    fn resize_graph_view_scene_region_to_pointer_updates_circle_radius() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let region = crate::graph::scene_runtime::SceneRegionRuntime::circle(
+            egui::pos2(20.0, 20.0),
+            12.0,
+            crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
+        );
+        let region_id = region.id;
+        app.add_graph_view_scene_region(view_id, region);
+
+        assert!(app.resize_graph_view_scene_region_to_pointer(
+            view_id,
+            region_id,
+            crate::graph::scene_runtime::SceneRegionResizeHandle::CircleRadius,
+            egui::pos2(80.0, 20.0),
+        ));
+
+        let runtime = app
+            .graph_view_scene_runtime(view_id)
+            .expect("scene runtime should still exist");
+        assert_eq!(
+            runtime.regions[0].shape,
+            crate::graph::scene_runtime::SceneRegionShape::Circle {
+                center: egui::pos2(20.0, 20.0),
+                radius: 60.0,
+            }
+        );
+    }
+
+    #[test]
+    fn replace_graph_view_scene_region_updates_label_and_effect() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let region = crate::graph::scene_runtime::SceneRegionRuntime::circle(
+            egui::pos2(20.0, 20.0),
+            12.0,
+            crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
+        );
+        let region_id = region.id;
+        app.add_graph_view_scene_region(view_id, region.clone());
+
+        let mut updated = region;
+        updated.label = Some("Focus Basin".to_string());
+        updated.effect = crate::graph::scene_runtime::SceneRegionEffect::Attractor { strength: 0.3 };
+
+        assert!(app.replace_graph_view_scene_region(view_id, updated.clone()));
+        assert_eq!(app.graph_view_scene_region(view_id, region_id), Some(&updated));
+    }
+
+    #[test]
+    fn remove_graph_view_scene_region_clears_selection_when_deleted() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let region = crate::graph::scene_runtime::SceneRegionRuntime::circle(
+            egui::pos2(20.0, 20.0),
+            12.0,
+            crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
+        );
+        let region_id = region.id;
+        app.add_graph_view_scene_region(view_id, region);
+        app.set_graph_view_selected_scene_region(view_id, Some(region_id));
+
+        assert!(app.remove_graph_view_scene_region(view_id, region_id));
+        assert_eq!(app.graph_view_selected_scene_region(view_id), None);
+        assert!(app.graph_view_scene_runtime(view_id).is_none());
     }
 }

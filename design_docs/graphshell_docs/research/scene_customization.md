@@ -7,10 +7,13 @@
 **Related**:
 
 - `../implementation_strategy/graph/2026-02-24_physics_engine_extensibility_plan.md`
+- `../implementation_strategy/graph/2026-04-02_parry2d_scene_enrichment_plan.md`
+- `../implementation_strategy/graph/2026-04-02_scene_mode_ux_plan.md`
 - `../implementation_strategy/graph/layout_behaviors_and_physics_spec.md`
 - `../implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
 - `../implementation_strategy/graph/node_badge_and_tagging_spec.md`
 - `../implementation_strategy/graph/2026-02-25_doi_fisheye_plan.md`
+- `2026-04-02_scene_mode_ux_sketch.md`
 - `../research/2026-02-18_graph_ux_research_report.md`
 - `../implementation_strategy/system/register/canvas_registry_spec.md`
 - `../implementation_strategy/system/register/physics_profile_registry_spec.md`

@@ -105,6 +105,7 @@ pub(crate) enum SemanticRegionFocus {
     RadialPalette,
     ClipInspector,
     HelpPanel,
+    SceneOverlay,
     SettingsOverlay,
     Toolbar,
     GraphSurface {
@@ -203,6 +204,7 @@ pub(crate) enum FocusCaptureSurface {
     RadialPalette,
     ClipInspector,
     HelpPanel,
+    SceneOverlay,
     SettingsOverlay,
 }
 
@@ -292,6 +294,7 @@ pub(crate) struct RuntimeFocusInputs {
     pub(crate) show_context_palette: bool,
     pub(crate) command_palette_contextual_mode: bool,
     pub(crate) show_help_panel: bool,
+    pub(crate) show_scene_overlay: bool,
     pub(crate) show_settings_overlay: bool,
     pub(crate) show_radial_menu: bool,
     pub(crate) show_clip_inspector: bool,

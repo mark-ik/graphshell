@@ -362,9 +362,11 @@ This step integrates with `../graph/node_badge_and_tagging_spec.md`:
   `mime_hint`, pre-populate the suggestions with relevant UDC codes from `KnowledgeRegistry`.
   Example: `mime: application/pdf` → suggest `udc:002` (Bibliography, reference; documents).
 
-- **Clipboard-kind node shape**: The `#clip` reserved tag already marks DOM-extracted nodes
-  (from the clipping plan). The `address_kind` field complements this — file and audio nodes
-  get distinct node shapes in the graph canvas alongside the clip shape.
+- **Clipboard-kind node shape**: the current bridge uses the `#clip` reserved tag to mark
+  DOM-extracted nodes. Recommended follow-on direction is an explicit clip content facet
+  (for example `NodeContentFacet::Clip(ClipFacetData)`) with `#clip` retained as a derived
+  compatibility projection for badge/query surfaces. The `address_kind` field complements this —
+  file and audio nodes get distinct node shapes in the graph canvas alongside the clip shape.
 
 **Done gate**: A PDF node in graph view shows a 📄 badge. An image node shows a 🖼 badge.
 Badge ordering follows the priority table from the badge plan (ContentType lower priority than

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::physics::GraphPhysicsState;
+use crate::graph::scene_runtime::{GraphViewSceneRuntime, SceneRegionDragState, SceneRegionId};
 use crate::graph::{FrameLayoutHint, Graph, NodeKey};
 use crate::registries::atomic::knowledge::SemanticClassVector;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
@@ -240,6 +241,18 @@ pub struct GraphViewRuntimeState {
 
     /// Last rendered graph-canvas rect per visible graph view, expressed in graph space.
     pub graph_view_canvas_rects: HashMap<GraphViewId, egui::Rect>,
+
+    /// Runtime-only per-view scene enrichment state.
+    pub scene_runtimes: HashMap<GraphViewId, GraphViewSceneRuntime>,
+
+    /// Hovered authored scene region under the pointer, if any.
+    pub hovered_scene_region: Option<(GraphViewId, SceneRegionId)>,
+
+    /// Selected authored scene region per view.
+    pub selected_scene_regions: HashMap<GraphViewId, SceneRegionId>,
+
+    /// Active authored scene-region drag state.
+    pub active_scene_region_drag: Option<SceneRegionDragState>,
 
     /// Computed visible workbench region after reserved panels and host overlays.
     pub workbench_navigation_geometry: Option<WorkbenchNavigationGeometry>,
@@ -545,6 +558,12 @@ pub struct ChromeUiState {
 
     /// Whether the graph-scoped settings overlay is open.
     pub show_settings_overlay: bool,
+
+    /// Whether the graph-scoped scene overlay is open.
+    pub show_scene_overlay: bool,
+
+    /// Graph view targeted by the scene overlay, if any.
+    pub scene_overlay_view: Option<GraphViewId>,
 
     /// Whether the keyboard shortcut help panel is open.
     pub show_help_panel: bool,

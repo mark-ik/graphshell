@@ -45,7 +45,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: April 1, 2026
+Last updated: April 2, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -158,6 +158,8 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/viewer/](graphshell_docs/implementation_strategy/viewer/) - Viewer specs and viewer/backend plans.
 - [graphshell_docs/implementation_strategy/system/](graphshell_docs/implementation_strategy/system/) - System-level specs, registry architecture, and register component docs.
 - [graphshell_docs/implementation_strategy/subsystem_history/](graphshell_docs/implementation_strategy/subsystem_history/) - History subsystem specs: traversal, node navigation, node audit, temporal replay, unified architecture plan, and mixed-timeline contract.
+- [graphshell_docs/implementation_strategy/subsystem_history/2026-04-02_bookmarks_import_plan.md](graphshell_docs/implementation_strategy/subsystem_history/2026-04-02_bookmarks_import_plan.md) - Current bookmark-import plan: imported provenance/import-record integration, bookmark-folder semantics, and ActionRegistry-backed command entry.
+- [graphshell_docs/implementation_strategy/subsystem_history/2026-04-02_browser_history_import_plan.md](graphshell_docs/implementation_strategy/subsystem_history/2026-04-02_browser_history_import_plan.md) - Current browser-history import plan: imported-data seeding without violating live traversal/history authority.
 
 ### Graphshell Design
 
@@ -315,3 +317,4 @@ Graphshell social-domain docs cover hosted communication surfaces and related sh
 - [archive_docs/checkpoint_2026-03-18/](archive_docs/checkpoint_2026-03-18/) — completed registry/sector plans (`system/2026-02-22_registry_layer_plan.md`, `system/register/` Sectors A/D/F), stabilization progress receipt, C+F backend bridge receipt, foundational-reset `GraphBrowserApp` field ownership snapshot, and superseded wgpu/WebRender deferred strategy docs (`aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`, `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md`).
 - [archive_docs/checkpoint_2026-03-27/](archive_docs/checkpoint_2026-03-27/) — archived completed `graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md` after its open items were resolved and its historical references were superseded by active specs and overview docs.
 - [archive_docs/checkpoint_2026-04-01/](archive_docs/checkpoint_2026-04-01/) — archived completed node-tagging plan history: `graphshell_docs/implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md` and `graphshell_docs/implementation_strategy/graph/2026-03-31_node_badge_and_tagging_follow_on_plan.md`; active authority remains `graphshell_docs/implementation_strategy/graph/node_badge_and_tagging_spec.md`.
+- [archive_docs/checkpoint_2026-04-02/](archive_docs/checkpoint_2026-04-02/) — archived split-note compatibility redirects and superseded implementation-plan history, including `graphshell_docs/implementation_strategy/subsystem_history/2026-02-11_bookmarks_history_import_plan.md` after splitting it into the active bookmark-import and browser-history-import plans.

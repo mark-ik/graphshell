@@ -658,6 +658,7 @@ impl GraphBrowserApp {
 
     pub fn chrome_overlay_active(&self) -> bool {
         self.workspace.chrome_ui.show_settings_overlay
+            || self.workspace.chrome_ui.show_scene_overlay
             || self.workspace.chrome_ui.show_help_panel
             || self.workspace.chrome_ui.show_command_palette
             || self.workspace.chrome_ui.show_context_palette

@@ -1,163 +1,235 @@
-# Clipping & DOM Extraction Plan (Refactored 2026-02-24)
+# Clipping And DOM Extraction Plan (Refactored 2026-04-02)
 
-**Status**: Partially Implemented
-**Phase**: Registry Phase X (Feature Target 9)
-**Architecture**: Servo context-menu adapter + Graphshell-owned inspector surface + `WebView::evaluate_javascript(...)` extraction + explicit clip materialization into graph nodes.
+**Status**: Active current-state execution plan
+**Phase**: Viewer lane, capture-focused
+**Architecture**: backend context-menu adapter -> Graphshell-owned inspector surface -> read-only DOM extraction -> explicit clip materialization into graph nodes
 
-**Compatibility note (2026-03-03):**
-This plan preserves the original `graphshell://clip/<uuid>` wording as the historical address proposal. Runtime canonical internal routing is now `verso://...`, but clip authority remains intentionally unresolved, so the exact clip address family should be treated as pending rather than final.
+**Related**:
 
-## Context
-Clipping allows a user to inspect page structure inside a webview, choose meaningful DOM elements, and optionally extract selected elements into independent graph nodes. The clip node preserves the content (HTML/Image) even if the original source changes or goes offline.
-
-The longer-term product is not just "clip this element." It is an **exploded inspector view** of a web node: a temporary Graphshell projection of the page's document-element structure that users can inspect, filter, copy from, and then collapse back into the original page view.
-
----
-
-## Architecture
-
-### 1. The Trigger: Context Menu as Adapter
-The Servo embedder already surfaces native context-menu requests through `Dialog::ContextMenu`.
-- **Current seam**: graphshell extends the existing egui-rendered context menu with app-defined "Clip Element" and "Inspect Page Elements" actions.
-- **Architectural direction**: the browser/embedder context menu is an adapter, not the final product surface. Graphshell's inspector/palette surface is the authoritative UI for web-element inspection and clip actions.
-- **Important refactor**: this no longer needs a new `GraphSemanticEvent::ContextMenu` variant. The authoritative path is dialog action -> host extraction request -> event-loop callback -> Graphshell-owned inspector state.
-
-### 2. The Extraction: Script Injection
-Servo does expose `WebView::evaluate_javascript(...)`, so extraction can be performed directly against the active webview.
-- **Script**: resolve the target with `document.elementFromPoint(...)`, then return JSON containing `outerHTML`, text excerpt, element tag, page URL/title, and link/image hints.
-- **Execution**: triggered when the user selects "Clip Element" from the context menu.
-- **Inspector mode**: a sibling extraction path scores salient DOM regions (`article`, `section`, `figure`, headings, images, etc.), deduplicates them, and returns a bounded batch of candidate elements for user inspection/filtering.
-
-### 2.5 Exploded Inspector Projection
-The exploded inspector should be understood as a **Graphshell projection of the document element tree**.
-- **Base topology**: the page's rendered element tree (parent/child/sibling relationships).
-- **Graphshell projection**: a temporary graph over that tree, which may add semantic/grouping edges on top of structural parent/child edges.
-- **Why this matters**: the DOM is a tree, but the inspector projection may become a DAG once Graphshell adds repeated-component grouping, semantic-role grouping, or other cross-links.
-
-This means the exploded inspector is not just "show source HTML" and not just "highlight pixels." It is a structured, rendered, inspectable element graph.
-
-### 3. The Data Model: Inspector First, Clip Node Second
-The first durable artifact is no longer "a batch of clip nodes." The first artifact is an inspector selection surface fed by extracted DOM candidates. A clip node is created only when the user explicitly materializes one or more inspected elements.
-
-When materialized, a clip node is a regular node with specific metadata:
-- **URL**: `data:text/html;base64,...` is the current MVP carrier because it renders immediately in the existing webview viewer and persists with no new storage authority.
-- **Tags**: `#clip` is canonical node-owned tag state.
-- **Edge**: `UserGrouped` edge from Source Node -> Clip Node, labeled `clip-source`.
-- **Deferred route authority**: `verso://clip/<id>` remains a future addressing family for durable clip identities and dedicated clip viewers.
-
-### 4. Clip Fidelity Modes
-Clip creation should support multiple fidelity/context modes rather than a single clip format:
-- **Clean**: extracted element(s) only, minimal wrapper, no surrounding visual context.
-- **Contextual**: extracted element(s) plus a preserved page-context backdrop so the clip can be viewed in situ.
-- **Screenshot Note**: raster page/region capture used as a note-like background with optional semantic clip overlays.
-- **Offline Slice**: richer local package that can preserve DOM, backdrop texture/screenshot, assets, and metadata depending on user intent.
-
-The important architectural split is:
-- **Foreground**: semantic element payloads that remain clip-selectable and inspectable.
-- **Backdrop**: optional visual page context (screenshot/texture/page slice) preserved for context.
-- **Packaging depth**: how much offline fidelity is stored locally.
-
-Those fidelity modes sit on top of four distinct extraction outputs:
-- **Structural extract**: HTML fragment plus relationships/metadata.
-- **Semantic extract**: the meaningful content unit Graphshell thinks the element represents.
-- **Layout-aware extract**: element plus bounding box / page-context placement.
-- **Contextual extract**: element plus some preserved surrounding page state.
-
-The user-facing clip modes are different ways of packaging these underlying extraction outputs.
+- `clipping_and_dom_extraction_spec.md`
+- `VIEWER.md`
+- `../graph/2026-03-11_graph_enrichment_plan.md`
+- `../aspect_projection/ASPECT_PROJECTION.md`
+- `../aspect_distillery/ASPECT_DISTILLERY.md`
+- `../system/2026-03-12_architectural_inconsistency_register.md`
 
 ---
 
-## Implementation Phases
+## Summary
 
-### Phase 1: Context Menu Plumbing
-1.  **Landed**: reuse Servo's existing context-menu plumbing and extend the egui dialog with an app-owned "Clip Element" action.
-2.  **Landed**: use `ContextMenu::position()` as the extraction anchor instead of introducing a parallel coordinate event path.
-3.  **Landed (initial)**: add an app-owned "Inspect Page Elements" action that routes through the same headed event-loop callback seam.
-4.  **Deferred**: fully replace this adapter path with a Graphshell-owned contextual palette invocation over web content.
+This plan is the **viewer-owned clipping plan**, not a general document-analysis roadmap.
 
-### Phase 2: Content Extraction
-1.  **Landed MVP**: `request_clip_element(...)` runs `WebView::evaluate_javascript(...)` and serializes extraction data back through the headed event loop.
-2.  **Current payload**: `outerHTML`, text excerpt, page URL/title, tag name, and link/image hints.
-3.  **Landed (initial inspector feed)**: `request_page_inspector_candidates(...)` returns a bounded list of salient DOM components for inspection/filtering.
-4.  **Deferred fidelity work**: computed-style capture, screenshot crop, iframe/shadow-root handling, stronger salience heuristics, and stacked-element traversal under pointer.
+Its job is to keep one product lane clear:
 
-### Phase 3: Inspector Surface
-1.  **Landed (initial)**: Graphshell now opens a web inspector panel fed by extracted page candidates instead of immediately materializing batch clips.
-    -   Search and category filters (`All`, `Text`, `Link`, `Image`, `Structure`, `Media`)
-    -   Explicit actions for "Clip Selected" and "Clip Filtered"
-    -   Node creation moved behind deliberate user action
-2.  **Landed (early interaction loop)**: in-situ overlay highlighting and stacked-element traversal under pointer now exist as the first step toward live page inspection.
-3.  **Deferred**: ancestor/descendant stepping, semantic grouping, temporary exploded element-tree projection view, and palette-mode parity with the rest of Graphshell's contextual command surfaces.
+- inspect live page structure inside a viewer,
+- select the correct element or small set of elements,
+- materialize clips explicitly,
+- preserve enough local metadata for provenance, display, and re-open.
 
-### Phase 4: Clip Node Creation
-1.  **Landed MVP**: `GraphBrowserApp::create_clip_node_from_capture(...)` creates a self-contained clip node from the extraction result.
-    -   Generate `data:` URL from extracted HTML wrapped in a minimal standalone document.
-    -   Set `#clip`, `text/html`, and `AddressKind::Custom`.
-    -   Create a labeled `UserGrouped` edge from source node to clip node.
-    -   Open the new clip in a split node pane.
-2.  **Landed (internal helper)**: `GraphBrowserApp::create_clip_nodes_from_captures(...)` remains available as the explicit "Clip Filtered" materialization path from inspector selections.
-3.  **Deferred**: clip fidelity-mode choice (`Clean`, `Contextual`, `Screenshot Note`, `Offline Slice`), durable clip IDs, dedicated clip metadata fields, and `verso://clip/<id>` route resolution.
-
-### Phase 5: Clip Rendering
-1.  **Landed**: existing webview viewer already renders `data:` URLs.
-2.  **Landed**: graph-node `#clip` visual treatment is already in place.
-3.  **Landed (intermediate)**: inspector-selected multi-clip materialization can still produce a graph fan-out of ordinary `#clip` nodes.
-4.  **Deferred**: dedicated clip viewer, richer provenance chrome, and a true temporary exploded element-tree view that can be entered/collapsed from a page node.
+This document no longer treats clipping as the owner of broader site/document analysis features such as outbound-link harvesting, selector recipes, or typed extraction artifacts. Those remain valid follow-on ideas, but they must live under the correct downstream lanes.
 
 ---
 
+## Current Product Shape
+
+The current runtime shape is no longer greenfield. The following are already landed in code:
+
+- clip inspector runtime state and non-modal inspector surface,
+- clip materialization helpers for single and batch capture,
+- pointer-stack inspection / stacked-element stepping in the inspector,
+- inherited source-classification carryover onto clip nodes with explicit inherited provenance,
+- clip route handling through `Address::Clip(...)` / `AddressKind::GraphshellClip`,
+- bridge acceptance for both `verso://clip/...` and legacy `graphshell://clip/...`.
+
+This plan therefore focuses on:
+
+- tightening the viewer-lane contract,
+- recording what is landed versus deferred,
+- preventing broader analysis ideas from silently becoming viewer-lane scope.
+
 ---
 
-## Phase 5: Nostr Publication (Optional, Identity-Gated)
+## Scope
 
-**Status**: Design-ready. Implementation deferred until Nostr identity (keypair) is available in graphshell. Not required for Phases 1–4.
+### In scope
 
-**Reference implementation**: Lantern by fiatjaf (`nostrapps.com/lantern`) — a Hypothesis fork that publishes NIP-84 highlights to Nostr. Lantern is the standard reference for the NIP-84 wire format; graphshell does not depend on or embed it.
+- context-menu or contextual-surface entry into page inspection,
+- single-hit clip capture for simple cases,
+- inspector-first candidate discovery for complex pages,
+- pointer-stack and candidate inspection over live page content,
+- explicit materialization of one or more selected clips,
+- clip-local metadata capture needed for provenance, display, re-open, and enrichment handoff.
 
-### Data model
+### Out of scope for this plan
 
-A clip or text selection may optionally be published as a **NIP-84 Highlight** event:
+- site-wide link harvesting as graph mutation,
+- automatic document-to-graph projection of full extracted structure,
+- selector-driven batch extraction recipes that create graph artifacts without a separate analysis contract,
+- distillation or intelligence workflows beyond clip-local metadata inheritance,
+- treating the entire page element tree as durable graph truth by default.
 
-```json
-{
-  "kind": 9802,
-  "content": "<selected text or empty for full-element clips>",
-  "tags": [
-    ["r", "<canonical source URL>"],
-    ["context", "<surrounding text for text selections>"],
-    ["alt", "Highlight"]
-  ]
-}
+---
+
+## Architectural Direction
+
+### 1. Viewer-owned inspection first
+
+The clipping lane is owned by the viewer stack. Browser-native context meaning is an adapter seam that feeds Graphshell-owned inspection and clip actions.
+
+The canonical complex-page workflow is:
+
+1. user invokes clip/inspect from page context,
+2. Graphshell extracts one hit or a bounded candidate set,
+3. user inspects/filter/selects in a Graphshell-owned surface,
+4. Graphshell materializes clips explicitly.
+
+Direct clipping outside inspector mode remains allowed for simple one-hit capture. It is a convenience path, not the canonical multi-element discovery path.
+
+### 2. Temporary inspection state, not durable graph mutation
+
+The exploded inspector direction remains valuable, but it must be read as **temporary inspection state** unless and until a later projection contract gives it stronger semantics.
+
+For this plan:
+
+- inspector state is viewer/runtime state,
+- clip nodes are durable graph artifacts created only on explicit materialization,
+- entering inspector mode must not materialize the page structure into the user graph by default.
+
+### 3. Bridge status of `#clip`
+
+`#clip` remains the current bridge carrier for clip semantics. That is acceptable for the current slice, but it is still an active architectural inconsistency: the system is using a tag like a content/type facet.
+
+This plan must not deepen that ambiguity. Treat `#clip` as a current bridge, not settled long-term authority. See `../system/2026-03-12_architectural_inconsistency_register.md`.
+
+**Recommended resolution**:
+
+- keep nodes as the primary identity model,
+- introduce an explicit clip content facet rather than a broad top-level node-type hierarchy,
+- treat `#clip`, clip badge state, and `is:clip`-style query affordances as derived compatibility projections from that facet.
+
+Recommended shape:
+
+```rust
+NodeContentFacet::Clip(ClipFacetData)
 ```
 
-For full-element clips (HTML extraction, not text selection), `content` is the visible text content of the element; the full `outerHTML` is stored locally only and is never published to relays.
+Where `ClipFacetData` owns clip-specific truth such as stable clip identity, source provenance, capture metadata, and future storage references.
 
-**URL normalization**: The `r` tag must use a canonical URL (scheme + host + path, no tracking parameters). Strip UTM/tracking query params, normalize trailing slashes, prefer `https`. This same normalization feeds graphshell node deduplication (`cached_host`).
+### 4. Clip route reality
 
-### Publication flow
+Clip route handling is no longer just a historical `graphshell://clip/<uuid>` idea.
 
-1. User completes a clip action (Phase 3).
-2. If a Nostr keypair is configured in graphshell settings, a "Publish to Nostr" option appears in the clip node context menu (not automatic — always explicit).
-3. User selects "Publish to Nostr" → graphshell signs and publishes a kind 9802 event to the user's configured relay set (NIP-65 relay list).
-4. The clip node gains a `nostr_event_id` metadata field; the published event ID is stored locally for deduplication and link-back.
-5. NIP-22 replies to the published highlight (from other Nostr users) may be imported as annotation edges on the clip node — this is a Verse Tier 2 feature (kind 5401 DVM), deferred.
+Current effective contract:
 
-### Scope boundaries
+- clip addresses are represented as `Address::Clip(...)`,
+- they surface as `AddressKind::GraphshellClip`,
+- runtime bridge accepts both `verso://clip/...` and legacy `graphshell://clip/...`.
 
-- **Local-first is the default.** Clips are useful without Nostr. Publication is always a user-initiated action, never automatic.
-- **No Lantern dependency.** NIP-84 is a published standard; graphshell implements it directly via the `nostr` crate (already in the codebase as `mods/native/nostr`).
-- **Verso scope only for extraction.** Clip DOM extraction (script injection via `EmbedderApi`) requires the Verso mod. The Nostr publication step uses the `nostr` mod and is independent of Verso — it can be triggered from any clip node regardless of how it was created.
-- **Verse Tier 2 extension point.** When Verse communities annotate pages (NIP-84 highlights from community members), those events may surface as ghost nodes or annotation edges in the graph. This is tracked in `verse_docs/technical_architecture/2026-03-05_verse_nostr_dvm_integration.md` §4 (kind 5401) and is out of scope for the clipping plan itself.
+This plan therefore stops presenting `graphshell://clip/...` as the likely runtime direction. The route family remains a bridge period with `verso://clip/...` accepted and the legacy alias retained.
+
+---
+
+## Landed Runtime Shape
+
+### Landed: inspector and materialization seam
+
+- Graphshell has a clip inspector state carrier and inspector panel.
+- Graphshell supports single clip creation and multi-clip materialization from extracted captures.
+- Pointer-stack stepping exists as the current in-situ inspection affordance.
+
+### Landed: clip metadata and enrichment handoff
+
+- clip capture payload already includes the local metadata needed for clip rendering and provenance handoff,
+- source classifications can be inherited onto clips with `InheritedFromSource` provenance and non-accepted status,
+- clip creation already participates in the enrichment lane as a concrete Stage C producer.
+
+### Landed: route and address typing
+
+- clip route typing exists in the graph model via `Address::Clip(...)` and `AddressKind::GraphshellClip`,
+- both `verso://clip/...` and `graphshell://clip/...` are accepted during the bridge period.
+
+---
+
+## Deferred Work Inside The Viewer Lane
+
+These remain valid viewer-lane follow-ons:
+
+- stronger inspector ergonomics beyond the current panel and pointer-stack flow,
+- richer clip fidelity choices (`Clean`, `Contextual`, `Screenshot Note`, `Offline Slice`),
+- more robust extraction coverage for complex page structures,
+- dedicated clip content storage/route cleanup after the route bridge settles,
+- clearer clip presentation and provenance chrome.
+
+These are deferred viewer improvements, not separate feature lanes.
+
+---
+
+## Follow-On Lanes Outside This Plan
+
+### Projection follow-on
+
+If the exploded inspector grows into a richer temporary element-tree or element-graph view, that work belongs under the Projection aspect as a derived local world rather than durable graph truth.
+
+### Enrichment follow-on
+
+Clip-derived classifications, content-kind hints, inherited metadata, and explanation/filter surfaces continue under the graph enrichment lane. This plan only hands off clip-local metadata; it does not own the enrichment system.
+
+### Analysis follow-on
+
+Outbound-link extraction, selector-driven extraction recipes, and broader document-analysis batches are intentionally split out from clipping. They require their own contract under graph/projection or graph/enrichment depending on whether the output is temporary derived representation or durable graph metadata.
+
+### Distillery follow-on
+
+Any future workflow that turns page or clip content into typed extracted artifacts must depend on the Distillery aspect and privacy-boundary rules. That work does not belong inside the viewer clipping plan.
+
+### Downstream publication follow-on
+
+Nostr publication is no longer part of the core clipping execution path in this plan. It may remain a downstream integration that consumes clip artifacts, but it should not shape the viewer-lane clipping architecture.
+
+---
+
+## Execution Slices
+
+### Slice 1: Keep the viewer capture contract current
+
+- keep the plan and spec aligned with the real runtime seam,
+- document inspector-first as the canonical complex-page workflow,
+- document direct one-hit clipping as a narrow convenience path.
+
+### Slice 2: Keep route and bridge language accurate
+
+- describe clips in terms of `Address::Clip(...)` / `AddressKind::GraphshellClip`,
+- record `verso://clip/...` plus legacy `graphshell://clip/...` bridge behavior,
+- avoid reasserting `data:` URLs as the long-term clip authority model.
+
+### Slice 3: Keep the analysis boundary explicit
+
+- preserve broader ideas in roadmap language,
+- attach them to projection, enrichment, analysis, or distillery follow-ons,
+- do not let viewer-lane docs imply ownership of those future systems.
+
+### Slice 4: Keep the `#clip` bridge visible
+
+- continue using `#clip` as the current bridge carrier,
+- link explicitly to the architectural inconsistency rather than treating the issue as settled,
+- avoid adding new semantics that depend on `#clip` being the final node-type carrier,
+- prepare the bridge to collapse into an explicit clip content facet rather than a broad node-type system.
 
 ---
 
 ## Validation
 
-1.  **Right-Click**: Context menu appears at correct coordinates over webview.
-2.  **Extraction**: "Clip" creates a new node.
-3.  **Inspector**: "Inspect Page Elements" opens a Graphshell-owned selection surface with candidate filtering and explicit clip actions.
-4.  **Materialization**: "Clip Selected" and "Clip Filtered" create the expected linked `#clip` nodes.
-5.  **Content Fidelity**: Opening a clip node shows the extracted HTML element (isolated from original page).
-6.  **Persistence**: Clip node survives restart (data URL is persisted).
-7.  **Linkage**: Edge exists between Source and each Clip.
-8.  **Nostr publication (Phase 6)**: "Publish to Nostr" action produces a valid kind 9802 event with canonical `r` tag; `nostr_event_id` is stored on the clip node; action is absent when no keypair is configured.
+1. A reader can tell which parts of clipping are already landed versus future work.
+2. A reader can tell where viewer-owned clipping ends and broader document/site analysis begins.
+3. The plan no longer implies that entering inspector mode materializes graph truth by default.
+4. The route/address story reflects current code reality rather than historical `graphshell://clip/...` assumptions.
+5. Broader ideas like link extraction and selector-driven analysis remain on the roadmap, but are attached to explicit downstream lanes rather than hidden inside the viewer plan.
+
+---
+
+## Defaults
+
+- Default workflow: inspector-first for complex pages, direct clipping allowed for simple cases.
+- Default ownership: viewer lane owns inspection and explicit clip creation only.
+- Default bridge stance: `#clip` remains current bridge carrier, not final content/type authority; recommended destination is an explicit clip content facet with derived tag/badge/query projections.
+- Default projection stance: exploded inspector remains temporary derived inspection state until a projection contract says otherwise.

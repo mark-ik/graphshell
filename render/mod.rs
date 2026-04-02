@@ -17,6 +17,9 @@ use crate::graph::badge::is_archived_tag;
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
 use crate::graph::physics::apply_graph_physics_extensions;
+use crate::graph::scene_runtime::{
+    SceneRegionDragMode, SceneRegionDragState, apply_scene_runtime_pass,
+};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -55,7 +58,8 @@ use canvas_input::{
 };
 use canvas_overlays::{
     draw_frame_affinity_backdrops, draw_highlighted_edge_overlay, draw_hovered_edge_tooltip,
-    draw_hovered_node_tooltip, edge_endpoints_at_pointer, frame_anchor_at_pointer,
+    draw_hovered_node_tooltip, draw_scene_runtime_backdrops, edge_endpoints_at_pointer,
+    frame_anchor_at_pointer, scene_region_at_pointer, scene_region_resize_handle_at_pointer,
 };
 #[cfg(test)]
 use canvas_visuals::filtered_graph_for_search;
@@ -70,7 +74,8 @@ pub(crate) use panels::history_manager_entry_limit_for_tests;
 pub use panels::{
     render_clip_inspector_panel, render_help_panel, render_history_manager_in_ui,
     render_navigator_tool_pane_in_ui, render_settings_node_viewer_in_ui,
-    render_settings_overlay_panel, render_settings_tool_pane_in_ui_with_control_panel,
+    render_scene_overlay_panel, render_settings_overlay_panel,
+    render_settings_tool_pane_in_ui_with_control_panel,
 };
 use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
 use semantic_tags::semantic_badges_by_key;
@@ -220,6 +225,60 @@ fn should_clear_selection_on_background_click(
         && !graph_handled_primary_click
         && !radial_open
         && !lasso_active
+}
+
+fn pointer_canvas_pos(
+    ui: &Ui,
+    metadata_id: egui::Id,
+    screen_pos: egui::Pos2,
+) -> egui::Pos2 {
+    ui.ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
+        .map(|meta| meta.screen_to_canvas_pos(screen_pos))
+        .unwrap_or(screen_pos)
+}
+
+fn apply_active_scene_region_drag(
+    ui: &Ui,
+    app: &mut GraphBrowserApp,
+    metadata_id: egui::Id,
+) -> bool {
+    let Some(drag) = app.workspace.graph_runtime.active_scene_region_drag else {
+        return false;
+    };
+    let primary_down = ui.input(|i| i.pointer.primary_down());
+    if !primary_down {
+        app.workspace.graph_runtime.active_scene_region_drag = None;
+        app.set_interacting(false);
+        return false;
+    }
+
+    let Some(pointer) = ui.input(|i| i.pointer.latest_pos()) else {
+        return false;
+    };
+    let pointer_canvas = pointer_canvas_pos(ui, metadata_id, pointer);
+    app.workspace.graph_runtime.active_scene_region_drag = Some(
+        SceneRegionDragState {
+            last_pointer_canvas_pos: pointer_canvas,
+            ..drag
+        },
+    );
+    match drag.mode {
+        SceneRegionDragMode::Move => {
+            let delta = pointer_canvas - drag.last_pointer_canvas_pos;
+            app.translate_graph_view_scene_region(drag.view_id, drag.region_id, delta)
+        }
+        SceneRegionDragMode::Resize(handle) => app.resize_graph_view_scene_region_to_pointer(
+            drag.view_id,
+            drag.region_id,
+            handle,
+            pointer_canvas,
+        ),
+    }
+}
+
+fn scene_arrange_mode_active(app: &GraphBrowserApp, view_id: crate::app::GraphViewId) -> bool {
+    app.graph_view_scene_mode(view_id) == crate::app::SceneMode::Arrange
 }
 
 fn node_key_or_emit_ambiguous_hit(node_key: Option<NodeKey>) -> Option<NodeKey> {
@@ -614,6 +673,8 @@ pub fn render_graph_in_ui_collect_actions(
             .profile
             .zones_enabled();
 
+    draw_scene_runtime_backdrops(ui, app, view_id, graph_view_metadata_id(None));
+
     // Render frame-affinity backdrops below nodes when zones are enabled.
     if canvas_zones_enabled {
         draw_frame_affinity_backdrops(ui, app, graph_view_metadata_id(None));
@@ -667,6 +728,15 @@ pub fn render_graph_in_ui_collect_actions(
             .graph_physics_extensions(canvas_zones_enabled)
     });
     apply_graph_physics_extensions(app, physics_extensions);
+    if let Some(collision_policy) = app
+        .workspace
+        .graph_runtime
+        .views
+        .get(&view_id)
+        .map(|v| v.resolved_physics_profile().scene_collision_policy())
+    {
+        apply_scene_runtime_pass(app, view_id, collision_policy);
+    }
 
     app.workspace.graph_runtime.hovered_graph_node = pointer_in_visible_graph_region
         .then(|| {
@@ -696,6 +766,78 @@ pub fn render_graph_in_ui_collect_actions(
         app.lasso_binding_preference(),
         &visible_graph_regions,
     );
+    let arrange_scene_active = scene_arrange_mode_active(app, view_id);
+    app.workspace.graph_runtime.hovered_scene_region = if arrange_scene_active
+        && pointer_in_visible_graph_region
+        && app.workspace.graph_runtime.hovered_graph_node.is_none()
+        && !radial_open
+        && lasso.action.is_none()
+    {
+        scene_region_at_pointer(ui, app, view_id, metadata_id).map(|region_id| (view_id, region_id))
+    } else {
+        None
+    };
+    let scene_resize_handle_hit = if arrange_scene_active
+        && pointer_in_visible_graph_region
+        && app.workspace.graph_runtime.hovered_graph_node.is_none()
+        && !radial_open
+        && lasso.action.is_none()
+    {
+        scene_region_resize_handle_at_pointer(ui, app, view_id, metadata_id)
+    } else {
+        None
+    };
+    let scene_primary_click_eligible = arrange_scene_active
+        && pointer_in_visible_graph_region
+        && !radial_open
+        && lasso.action.is_none()
+        && app.workspace.graph_runtime.hovered_graph_node.is_none();
+    let scene_handled_primary_click = if scene_primary_click_eligible
+        && ui.input(|i| i.pointer.primary_clicked())
+        && let Some(pointer) = ui.input(|i| i.pointer.latest_pos())
+    {
+        let target = scene_resize_handle_hit
+            .map(|handle_hit| {
+                (
+                    handle_hit.region_id,
+                    SceneRegionDragMode::Resize(handle_hit.handle),
+                )
+            })
+            .or_else(|| {
+                app.workspace
+                    .graph_runtime
+                    .hovered_scene_region
+                    .filter(|(hovered_view_id, _)| *hovered_view_id == view_id)
+                    .map(|(_, hovered_region_id)| (hovered_region_id, SceneRegionDragMode::Move))
+            });
+        if let Some((region_id, mode)) = target {
+            let pointer_canvas = pointer_canvas_pos(ui, metadata_id, pointer);
+            app.set_graph_view_selected_scene_region(view_id, Some(region_id));
+            app.workspace.graph_runtime.active_scene_region_drag = Some(SceneRegionDragState {
+                view_id,
+                region_id,
+                mode,
+                last_pointer_canvas_pos: pointer_canvas,
+            });
+            app.set_interacting(true);
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    let scene_drag_moved = if arrange_scene_active
+        && app
+        .workspace
+        .graph_runtime
+        .active_scene_region_drag
+        .is_some_and(|drag| drag.view_id == view_id)
+    {
+        apply_active_scene_region_drag(ui, app, metadata_id)
+    } else {
+        false
+    };
 
     if pointer_in_visible_graph_region
         && ui.input(|i| i.pointer.secondary_clicked())
@@ -714,6 +856,8 @@ pub fn render_graph_in_ui_collect_actions(
         && ui.input(|i| i.pointer.secondary_clicked())
         && !lasso.suppress_context_menu
         && app.workspace.graph_runtime.hovered_graph_node.is_none()
+        && app.workspace.graph_runtime.hovered_scene_region.is_none()
+        && scene_resize_handle_hit.is_none()
         && let Some(frame_anchor) = frame_anchor_at_pointer(ui, app, metadata_id)
         && let Some(frame_node) = app.domain_graph().get_node(frame_anchor)
     {
@@ -816,6 +960,8 @@ pub fn render_graph_in_ui_collect_actions(
     let edge_click_eligible = pointer_in_visible_graph_region
         && ui.input(|i| i.pointer.primary_clicked())
         && app.workspace.graph_runtime.hovered_graph_node.is_none()
+        && app.workspace.graph_runtime.hovered_scene_region.is_none()
+        && scene_resize_handle_hit.is_none()
         && !radial_open
         && lasso.action.is_none();
     if edge_click_eligible && let Some((from, to)) = edge_endpoints_at_pointer(ui, app, metadata_id)
@@ -824,6 +970,8 @@ pub fn render_graph_in_ui_collect_actions(
     }
     let frame_backdrop_click_eligible = pointer_in_visible_graph_region
         && app.workspace.graph_runtime.hovered_graph_node.is_none()
+        && app.workspace.graph_runtime.hovered_scene_region.is_none()
+        && scene_resize_handle_hit.is_none()
         && !radial_open
         && lasso.action.is_none();
     if frame_backdrop_click_eligible
@@ -858,7 +1006,24 @@ pub fn render_graph_in_ui_collect_actions(
             });
         }
     }
-    let graph_handled_primary_click = actions.iter().any(action_handles_primary_click);
+    let node_or_frame_primary_click = actions.iter().any(|action| {
+        matches!(
+            action,
+            GraphAction::FocusNode(_)
+                | GraphAction::FocusFrame { .. }
+                | GraphAction::FocusNodeSplit(_)
+                | GraphAction::DragStart
+                | GraphAction::DragEnd(_, _)
+                | GraphAction::MoveNode(_, _)
+                | GraphAction::SelectNode { .. }
+                | GraphAction::SelectFrame(_)
+        )
+    });
+    if node_or_frame_primary_click {
+        app.set_graph_view_selected_scene_region(view_id, None);
+    }
+    let graph_handled_primary_click =
+        scene_handled_primary_click || actions.iter().any(action_handles_primary_click);
     let clear_selection_on_background_click = ui.input(|i| {
         should_clear_selection_on_background_click(
             pointer_in_visible_graph_region && i.pointer.primary_clicked(),
@@ -870,6 +1035,7 @@ pub fn render_graph_in_ui_collect_actions(
         )
     });
     if clear_selection_on_background_click {
+        app.set_graph_view_selected_scene_region(view_id, None);
         actions.push(GraphAction::ClearSelection);
         if app.workspace.graph_runtime.highlighted_graph_edge.is_some() {
             actions.push(GraphAction::ClearHighlightedEdge);
@@ -881,7 +1047,7 @@ pub fn render_graph_in_ui_collect_actions(
     if let Some(zoom) = custom_zoom {
         actions.push(GraphAction::Zoom(zoom));
     }
-    if clear_selection_on_background_click || !actions.is_empty() {
+    if clear_selection_on_background_click || scene_handled_primary_click || scene_drag_moved || !actions.is_empty() {
         set_focused_view_with_transition(app, Some(view_id));
     }
     actions

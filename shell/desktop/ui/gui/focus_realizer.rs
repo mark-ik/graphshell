@@ -173,6 +173,9 @@ impl<'a> FocusRealizer<'a> {
             crate::shell::desktop::ui::gui_state::FocusCaptureSurface::HelpPanel => {
                 self.graph_app.close_help_panel();
             }
+            crate::shell::desktop::ui::gui_state::FocusCaptureSurface::SceneOverlay => {
+                self.graph_app.close_scene_overlay();
+            }
             crate::shell::desktop::ui::gui_state::FocusCaptureSurface::RadialPalette => {
                 self.graph_app.close_radial_menu();
             }

@@ -11,7 +11,7 @@
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../../research/2026-02-27_viewer_state_matrix.md`
-- `../subsystem_history/2026-02-11_bookmarks_history_import_plan.md`
+- `../subsystem_history/2026-04-02_bookmarks_import_plan.md`
 - `../../TERMINOLOGY.md`
 
 ---

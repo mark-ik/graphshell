@@ -26,6 +26,7 @@ use crate::shell::desktop::workbench::tile_compositor::CompositorFrameActivitySu
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
 use super::reducer_bridge::apply_reducer_graph_intents_hardened;
+use super::graph_info::{render_scene_surface_in_ui, resolve_scene_surface_view_id};
 
 fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::GraphViewId> {
     if let Some(view_id) = app.workspace.graph_runtime.focused_view {
@@ -2835,6 +2836,35 @@ pub fn render_settings_overlay_panel(
         app.close_settings_overlay();
     } else {
         app.workspace.chrome_ui.show_settings_overlay = open;
+    }
+}
+
+pub fn render_scene_overlay_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+    if !app.workspace.chrome_ui.show_scene_overlay {
+        return;
+    }
+
+    let mut open = app.workspace.chrome_ui.show_scene_overlay;
+    let title = resolve_scene_surface_view_id(app)
+        .map(|view_id| {
+            let id = view_id.as_uuid().to_string();
+            format!("Scene - Graph {}", &id[..8])
+        })
+        .unwrap_or_else(|| "Scene".to_string());
+
+    Window::new(title)
+        .open(&mut open)
+        .default_width(420.0)
+        .default_height(420.0)
+        .resizable(true)
+        .show(ctx, |ui| {
+            render_scene_surface_in_ui(ui, app);
+        });
+
+    if app.workspace.chrome_ui.show_scene_overlay && !open {
+        app.close_scene_overlay();
+    } else {
+        app.workspace.chrome_ui.show_scene_overlay = open;
     }
 }
 

@@ -354,19 +354,22 @@ fn close_settings_tool_pane_restores_previous_graph_focus() {
 #[test]
 fn ui_overlay_active_flags_include_radial_menu_capture() {
     assert!(!super::ui_overlay_active_from_flags(
-        false, false, false, false, false, false, false
+        false, false, false, false, false, false, false, false
     ));
     assert!(super::ui_overlay_active_from_flags(
-        true, false, false, false, false, false, false
+        true, false, false, false, false, false, false, false
     ));
     assert!(super::ui_overlay_active_from_flags(
-        false, true, false, false, false, false, false
+        false, true, false, false, false, false, false, false
     ));
     assert!(super::ui_overlay_active_from_flags(
-        false, false, true, false, false, false, false
+        false, false, true, false, false, false, false, false
     ));
     assert!(super::ui_overlay_active_from_flags(
-        false, false, false, false, false, false, true
+        false, false, false, true, false, false, false, false
+    ));
+    assert!(super::ui_overlay_active_from_flags(
+        false, false, false, false, false, false, false, true
     ));
 }
 

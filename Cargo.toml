@@ -151,6 +151,7 @@ arboard = "3"
 nucleo = "0.5.0"
 parking_lot = "0.12"
 petgraph = { version = "0.8.3", features = ["serde-1"] }
+parry2d = "0.26"
 rstar = "0.12"
 fjall = "3"
 redb = "3"

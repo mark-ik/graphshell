@@ -115,7 +115,7 @@ pub(crate) fn apply_graph_physics_extensions(
     }
 }
 
-fn apply_position_deltas(
+pub(crate) fn apply_position_deltas(
     app: &mut GraphBrowserApp,
     position_deltas: HashMap<NodeKey, egui::Vec2>,
 ) {

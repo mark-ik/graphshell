@@ -340,6 +340,12 @@ Include:
 * clip inheritance from source node and extracted text
 * suggestion queue for future agent/model proposals
 
+Boundary note:
+
+* clipping is a **concrete Stage C producer**, not the owner of broader document-analysis logic.
+* the viewer clipping lane owns page inspection, element selection, explicit clip materialization, and clip-local metadata capture.
+* outbound-link extraction, selector-recipe extraction, and other broader document-analysis batches belong in separate analysis/projection follow-ons, not in the clipping viewer plan itself.
+
 Blocking note:
 
 * new capture paths must terminate in the same visible explanation/filter surfaces landed in Stage 0 and Stage B, not in hidden metadata only.

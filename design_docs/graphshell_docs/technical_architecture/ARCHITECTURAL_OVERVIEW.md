@@ -58,12 +58,14 @@ defined in `implementation_strategy/system/system_architecture_spec.md`.
 | Graph-first frame semantics | `implementation_strategy/workbench/graph_first_frame_semantics_spec.md` |
 | Input routing and modal ownership | `implementation_strategy/aspect_input/input_interaction_spec.md` |
 | Command surfaces and omnibar/radial/context parity | `implementation_strategy/aspect_command/command_surface_interaction_spec.md` |
+| Interdomain projection and graphlet-first correspondence rules | `implementation_strategy/aspect_projection/projection_interdomain_contract_spec.md` |
 | UX semantic projection, probes, scenarios | `implementation_strategy/subsystem_ux_semantics/SUBSYSTEM_UX_SEMANTICS.md` |
 | Diagnostics contracts and health summaries | `implementation_strategy/subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md` |
 | Render/compositor pass ownership | `implementation_strategy/aspect_render/frame_assembly_and_compositor_spec.md` |
 | Focus authority and region navigation | `implementation_strategy/subsystem_focus/SUBSYSTEM_FOCUS.md` |
 | Storage, persistence, WAL integrity | `implementation_strategy/subsystem_storage/SUBSYSTEM_STORAGE.md` |
 | Accessibility, AccessKit bridge, Graph Reader | `implementation_strategy/subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md` |
+| Intelligence distillation and typed artifact ownership | `implementation_strategy/aspect_distillery/ASPECT_DISTILLERY.md` |
 
 ---
 
@@ -89,8 +91,10 @@ Status legend: ✅ Done / 🔨 Active (current milestone) / 📋 Planned (spec e
 | **Viewer — Non-Web Types** | 📋 Planned | Wry native overlay (scaffold); PDF; CSV; Markdown; Settings pane; DOM inspector | `viewer/universal_content_model_spec.md` |
 | **Viewer — TileRenderMode** | 🔨 Active | CompositedTexture / NativeOverlay / EmbeddedEgui / Placeholder enum active; pane-targeted mode dispatch live | `aspect_render/frame_assembly_and_compositor_spec.md` |
 | **Command Surfaces** | 🔨 Active | ActionRegistry routing done; Command Palette + Omnibar + Radial + Context surfaces active; palette/radial contract in closure | `aspect_command/command_surface_interaction_spec.md` |
+| **Projection Aspect** | 📋 Planned | Cross-domain representation model for linked/unlinked hosting, descriptor-driven projection, and graphlet-first local-world derivation without truth transfer | `aspect_projection/ASPECT_PROJECTION.md` |
 | **Input Architecture** | ✅ Done | Input context stack; chord/sequence keybindings; Gamepad support; modal capture | `aspect_input/input_interaction_spec.md` |
 | **Render / Compositor** | 🔨 Active | Three-pass composition (UI Chrome → Content → Overlay Affordance) done; CompositorAdapter GL isolation active; differential composition planned | `aspect_render/frame_assembly_and_compositor_spec.md` |
+| **Distillery Aspect** | 🔭 Speculative | Security-gated transform layer from approved graph/history/clip/`AWAL` sources into typed intelligence artifacts; local-first and policy-bound by design | `aspect_distillery/ASPECT_DISTILLERY.md` |
 
 ### Cross-Cutting Subsystems
 

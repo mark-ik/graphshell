@@ -56,6 +56,7 @@ pub(crate) fn workspace_runtime_focus_state(
             .chrome_ui
             .command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
+        show_scene_overlay: graph_app.workspace.chrome_ui.show_scene_overlay,
         show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
         show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
         show_clip_inspector: graph_app.workspace.chrome_ui.show_clip_inspector,
@@ -128,6 +129,7 @@ pub(crate) fn workbench_runtime_focus_state(
             .chrome_ui
             .command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
+        show_scene_overlay: graph_app.workspace.chrome_ui.show_scene_overlay,
         show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
         show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
         show_clip_inspector: graph_app.workspace.chrome_ui.show_clip_inspector,
@@ -235,6 +237,7 @@ pub(crate) fn refresh_realized_runtime_focus_state(
             .chrome_ui
             .command_palette_contextual_mode,
         show_help_panel: graph_app.workspace.chrome_ui.show_help_panel,
+        show_scene_overlay: graph_app.workspace.chrome_ui.show_scene_overlay,
         show_settings_overlay: graph_app.workspace.chrome_ui.show_settings_overlay,
         show_radial_menu: graph_app.workspace.chrome_ui.show_radial_menu,
         show_clip_inspector: graph_app.workspace.chrome_ui.show_clip_inspector,
@@ -286,6 +289,7 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
         show_context_palette,
         command_palette_contextual_mode: _command_palette_contextual_mode,
         show_help_panel,
+        show_scene_overlay,
         show_settings_overlay,
         show_radial_menu,
         show_clip_inspector,
@@ -323,6 +327,14 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
                 .map(ReturnAnchor::ToolSurface),
         });
     }
+    if show_scene_overlay {
+        capture_stack.push(FocusCaptureEntry {
+            surface: FocusCaptureSurface::SceneOverlay,
+            return_anchor: transient_surface_return_target
+                .clone()
+                .map(ReturnAnchor::ToolSurface),
+        });
+    }
     if show_settings_overlay {
         capture_stack.push(FocusCaptureEntry {
             surface: FocusCaptureSurface::SettingsOverlay,
@@ -354,6 +366,8 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
         SemanticRegionFocus::CommandPalette
     } else if show_radial_menu {
         SemanticRegionFocus::RadialPalette
+    } else if show_scene_overlay {
+        SemanticRegionFocus::SceneOverlay
     } else if show_settings_overlay {
         SemanticRegionFocus::SettingsOverlay
     } else if show_clip_inspector {
@@ -529,6 +543,7 @@ fn semantic_region_for_capture_surface(surface: FocusCaptureSurface) -> Semantic
         FocusCaptureSurface::CommandPalette => SemanticRegionFocus::CommandPalette,
         FocusCaptureSurface::ContextPalette => SemanticRegionFocus::ContextPalette,
         FocusCaptureSurface::RadialPalette => SemanticRegionFocus::RadialPalette,
+        FocusCaptureSurface::SceneOverlay => SemanticRegionFocus::SceneOverlay,
         FocusCaptureSurface::SettingsOverlay => SemanticRegionFocus::SettingsOverlay,
         FocusCaptureSurface::ClipInspector => SemanticRegionFocus::ClipInspector,
         FocusCaptureSurface::HelpPanel => SemanticRegionFocus::HelpPanel,
@@ -623,6 +638,7 @@ pub(crate) fn apply_focus_command(
                 &focus_authority.semantic_region,
                 Some(
                     SemanticRegionFocus::RadialPalette
+                        | SemanticRegionFocus::SceneOverlay
                         | SemanticRegionFocus::SettingsOverlay
                         | SemanticRegionFocus::HelpPanel
                 )
@@ -821,6 +837,7 @@ pub(super) fn ui_overlay_active_from_flags(
     show_command_palette: bool,
     show_context_palette: bool,
     show_help_panel: bool,
+    show_scene_overlay: bool,
     show_settings_overlay: bool,
     show_radial_menu: bool,
     show_clip_inspector: bool,
@@ -840,6 +857,7 @@ pub(super) fn ui_overlay_active_from_flags(
         show_context_palette,
         command_palette_contextual_mode: show_context_palette,
         show_help_panel,
+        show_scene_overlay,
         show_settings_overlay,
         show_radial_menu,
         show_clip_inspector,
@@ -898,6 +916,7 @@ mod tests {
             show_context_palette: true,
             command_palette_contextual_mode: true,
             show_help_panel: false,
+            show_scene_overlay: false,
             show_settings_overlay: false,
             show_radial_menu: false,
             show_clip_inspector: false,
@@ -948,6 +967,7 @@ mod tests {
             show_context_palette: false,
             command_palette_contextual_mode: false,
             show_help_panel: false,
+            show_scene_overlay: false,
             show_settings_overlay: false,
             show_radial_menu: false,
             show_clip_inspector: false,

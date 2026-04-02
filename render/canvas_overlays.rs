@@ -5,10 +5,13 @@
 //! Canvas overlay passes: frame-affinity backdrops, highlighted-edge overlay,
 //! hovered-edge tooltip, and hovered-node tooltip.
 
-use crate::app::GraphBrowserApp;
+use crate::app::{GraphBrowserApp, GraphViewId};
 use crate::graph::{
     EdgeFamily, EdgePayload, FrameLayoutHint, NodeLifecycle, RelationSelector, SemanticSubKind,
     SplitOrientation,
+};
+use crate::graph::scene_runtime::{
+    SceneRegionEffect, SceneRegionId, SceneRegionResizeHandle, SceneRegionRuntime, SceneRegionShape,
 };
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use crate::util::VersoAddress;
@@ -190,6 +193,335 @@ pub(super) fn draw_frame_affinity_backdrops(
                 egui::Color32::from_rgba_unmultiplied(255, 255, 255, 220),
             );
         }
+    }
+}
+
+pub(super) fn draw_scene_runtime_backdrops(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+    metadata_id: egui::Id,
+) {
+    let Some(runtime) = app.graph_view_scene_runtime(view_id) else {
+        return;
+    };
+
+    if runtime.regions.is_empty() && runtime.bounds_override.is_none() {
+        return;
+    }
+
+    let meta = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
+    let painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
+        egui::Order::Middle,
+        egui::Id::new(("scene_runtime_backdrops", view_id)),
+    ));
+    let arrange_mode = app.graph_view_scene_mode(view_id) == crate::app::SceneMode::Arrange;
+    let pointer = ui.input(|i| i.pointer.latest_pos());
+    let selected_region = arrange_mode.then(|| app.graph_view_selected_scene_region(view_id)).flatten();
+    let hovered_region = arrange_mode
+        .then(|| {
+            app.workspace
+                .graph_runtime
+                .hovered_scene_region
+                .filter(|(hovered_view_id, _)| *hovered_view_id == view_id)
+                .map(|(_, region_id)| region_id)
+        })
+        .flatten();
+
+    if let Some(bounds) = runtime.bounds_override {
+        let screen_rect = screen_rect_from_canvas_rect(bounds, meta.as_ref());
+        let stroke = egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(220, 220, 235, 96));
+        painter.rect(
+            screen_rect,
+            egui::CornerRadius::same(10),
+            egui::Color32::TRANSPARENT,
+            stroke,
+            egui::StrokeKind::Outside,
+        );
+        painter.text(
+            screen_rect.left_top() + egui::vec2(8.0, 6.0),
+            egui::Align2::LEFT_TOP,
+            "Scene Bounds",
+            egui::FontId::proportional(10.0),
+            egui::Color32::from_rgba_unmultiplied(235, 235, 245, 140),
+        );
+    }
+
+    for region in &runtime.regions {
+        if !region.visible {
+            continue;
+        }
+
+        let colors = scene_region_colors(region.effect);
+        let is_selected = selected_region == Some(region.id);
+        let is_hovered = hovered_region == Some(region.id);
+        let stroke_width = if is_selected {
+            2.5
+        } else if is_hovered {
+            2.0
+        } else {
+            1.5
+        };
+        let fill = if is_selected {
+            colors.fill.gamma_multiply(1.35)
+        } else if is_hovered {
+            colors.fill.gamma_multiply(1.15)
+        } else {
+            colors.fill
+        };
+        let stroke = if is_selected {
+            colors.stroke.gamma_multiply(1.25)
+        } else if is_hovered {
+            colors.stroke.gamma_multiply(1.1)
+        } else {
+            colors.stroke
+        };
+        match region_screen_shape(region, meta.as_ref()) {
+            Some(SceneBackdropScreenShape::Rect(rect)) => {
+                painter.rect(
+                    rect,
+                    egui::CornerRadius::same(12),
+                    fill,
+                    egui::Stroke::new(stroke_width, stroke),
+                    egui::StrokeKind::Outside,
+                );
+                if let Some(label) = region.label.as_deref() {
+                    painter.text(
+                        rect.left_top() + egui::vec2(8.0, 6.0),
+                        egui::Align2::LEFT_TOP,
+                        label,
+                        egui::FontId::proportional(11.0),
+                        colors.label,
+                    );
+                }
+            }
+            Some(SceneBackdropScreenShape::Circle { center, radius }) => {
+                painter.circle_filled(center, radius, fill);
+                painter.circle_stroke(center, radius, egui::Stroke::new(stroke_width, stroke));
+                if let Some(label) = region.label.as_deref() {
+                    painter.text(
+                        center + egui::vec2(0.0, -(radius + 8.0)),
+                        egui::Align2::CENTER_BOTTOM,
+                        label,
+                        egui::FontId::proportional(11.0),
+                        colors.label,
+                    );
+                }
+            }
+            None => {}
+        }
+        if arrange_mode && is_selected {
+            let hovered_handle = pointer.and_then(|pointer| scene_region_resize_handle_hit(region, pointer, meta.as_ref()));
+            for handle in scene_region_resize_handles(region, meta.as_ref()) {
+                let handle_fill = if hovered_handle.is_some_and(|hit| hit.handle == handle.handle) {
+                    colors.stroke
+                } else {
+                    colors.label
+                };
+                painter.circle_filled(handle.center, SCENE_REGION_HANDLE_RADIUS, handle_fill);
+                painter.circle_stroke(
+                    handle.center,
+                    SCENE_REGION_HANDLE_RADIUS,
+                    egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(18, 18, 24, 220)),
+                );
+            }
+        }
+    }
+}
+
+pub(super) fn scene_region_at_pointer(
+    ui: &Ui,
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+    metadata_id: egui::Id,
+) -> Option<SceneRegionId> {
+    let pointer = ui.input(|i| i.pointer.latest_pos())?;
+    let runtime = app.graph_view_scene_runtime(view_id)?;
+    let meta = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
+    scene_region_at_screen_pos(runtime.regions.as_slice(), pointer, meta.as_ref()).map(|region| region.id)
+}
+
+pub(super) fn scene_region_resize_handle_at_pointer(
+    ui: &Ui,
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+    metadata_id: egui::Id,
+) -> Option<SceneRegionResizeHandleHit> {
+    let selected_region_id = app.graph_view_selected_scene_region(view_id)?;
+    let pointer = ui.input(|i| i.pointer.latest_pos())?;
+    let runtime = app.graph_view_scene_runtime(view_id)?;
+    let region = runtime.regions.iter().find(|region| region.id == selected_region_id)?;
+    let meta = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
+    scene_region_resize_handle_hit(region, pointer, meta.as_ref())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SceneBackdropScreenShape {
+    Rect(egui::Rect),
+    Circle { center: egui::Pos2, radius: f32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SceneRegionResizeHandleHit {
+    pub(super) region_id: SceneRegionId,
+    pub(super) handle: SceneRegionResizeHandle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SceneRegionResizeHandleScreen {
+    handle: SceneRegionResizeHandle,
+    center: egui::Pos2,
+}
+
+const SCENE_REGION_HANDLE_RADIUS: f32 = 7.0;
+
+fn scene_region_at_screen_pos<'a>(
+    regions: &'a [SceneRegionRuntime],
+    pointer: egui::Pos2,
+    meta: Option<&MetadataFrame>,
+) -> Option<&'a SceneRegionRuntime> {
+    regions
+        .iter()
+        .filter(|region| region.visible)
+        .filter_map(|region| {
+            let shape = region_screen_shape(region, meta)?;
+            screen_shape_contains(shape, pointer).then_some((region, screen_shape_area(shape)))
+        })
+        .min_by(|(_, left_area), (_, right_area)| {
+            left_area
+                .partial_cmp(right_area)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(region, _)| region)
+}
+
+fn scene_region_resize_handle_hit(
+    region: &SceneRegionRuntime,
+    pointer: egui::Pos2,
+    meta: Option<&MetadataFrame>,
+) -> Option<SceneRegionResizeHandleHit> {
+    scene_region_resize_handles(region, meta)
+        .into_iter()
+        .find(|handle| (pointer - handle.center).length_sq() <= SCENE_REGION_HANDLE_RADIUS * SCENE_REGION_HANDLE_RADIUS)
+        .map(|handle| SceneRegionResizeHandleHit {
+            region_id: region.id,
+            handle: handle.handle,
+        })
+}
+
+fn scene_region_resize_handles(
+    region: &SceneRegionRuntime,
+    meta: Option<&MetadataFrame>,
+) -> Vec<SceneRegionResizeHandleScreen> {
+    match region_screen_shape(region, meta) {
+        Some(SceneBackdropScreenShape::Circle { center, radius }) => vec![SceneRegionResizeHandleScreen {
+            handle: SceneRegionResizeHandle::CircleRadius,
+            center: center + egui::vec2(radius, 0.0),
+        }],
+        Some(SceneBackdropScreenShape::Rect(rect)) => vec![
+            SceneRegionResizeHandleScreen {
+                handle: SceneRegionResizeHandle::RectTopLeft,
+                center: rect.left_top(),
+            },
+            SceneRegionResizeHandleScreen {
+                handle: SceneRegionResizeHandle::RectTopRight,
+                center: rect.right_top(),
+            },
+            SceneRegionResizeHandleScreen {
+                handle: SceneRegionResizeHandle::RectBottomLeft,
+                center: rect.left_bottom(),
+            },
+            SceneRegionResizeHandleScreen {
+                handle: SceneRegionResizeHandle::RectBottomRight,
+                center: rect.right_bottom(),
+            },
+        ],
+        None => Vec::new(),
+    }
+}
+
+fn screen_shape_contains(shape: SceneBackdropScreenShape, pointer: egui::Pos2) -> bool {
+    match shape {
+        SceneBackdropScreenShape::Rect(rect) => rect.contains(pointer),
+        SceneBackdropScreenShape::Circle { center, radius } => {
+            (pointer - center).length_sq() <= radius * radius
+        }
+    }
+}
+
+fn screen_shape_area(shape: SceneBackdropScreenShape) -> f32 {
+    match shape {
+        SceneBackdropScreenShape::Rect(rect) => rect.width().max(0.0) * rect.height().max(0.0),
+        SceneBackdropScreenShape::Circle { radius, .. } => std::f32::consts::PI * radius * radius,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SceneBackdropColors {
+    fill: egui::Color32,
+    stroke: egui::Color32,
+    label: egui::Color32,
+}
+
+fn scene_region_colors(effect: SceneRegionEffect) -> SceneBackdropColors {
+    match effect {
+        SceneRegionEffect::Attractor { .. } => SceneBackdropColors {
+            fill: egui::Color32::from_rgba_unmultiplied(56, 122, 196, 28),
+            stroke: egui::Color32::from_rgba_unmultiplied(96, 168, 245, 110),
+            label: egui::Color32::from_rgba_unmultiplied(176, 216, 255, 180),
+        },
+        SceneRegionEffect::Repulsor { .. } => SceneBackdropColors {
+            fill: egui::Color32::from_rgba_unmultiplied(186, 82, 82, 26),
+            stroke: egui::Color32::from_rgba_unmultiplied(232, 124, 124, 110),
+            label: egui::Color32::from_rgba_unmultiplied(255, 210, 210, 180),
+        },
+        SceneRegionEffect::Dampener { .. } => SceneBackdropColors {
+            fill: egui::Color32::from_rgba_unmultiplied(110, 124, 132, 24),
+            stroke: egui::Color32::from_rgba_unmultiplied(168, 182, 190, 96),
+            label: egui::Color32::from_rgba_unmultiplied(220, 228, 235, 164),
+        },
+        SceneRegionEffect::Wall => SceneBackdropColors {
+            fill: egui::Color32::from_rgba_unmultiplied(188, 164, 94, 20),
+            stroke: egui::Color32::from_rgba_unmultiplied(232, 208, 128, 120),
+            label: egui::Color32::from_rgba_unmultiplied(248, 236, 188, 180),
+        },
+    }
+}
+
+fn region_screen_shape(
+    region: &SceneRegionRuntime,
+    meta: Option<&MetadataFrame>,
+) -> Option<SceneBackdropScreenShape> {
+    match region.shape {
+        SceneRegionShape::Circle { center, radius } => Some(SceneBackdropScreenShape::Circle {
+            center: meta
+                .map(|m| m.canvas_to_screen_pos(center))
+                .unwrap_or(center),
+            radius: meta
+                .map(|m| m.canvas_to_screen_size(radius))
+                .unwrap_or(radius)
+                .max(1.0),
+        }),
+        SceneRegionShape::Rect { rect } => Some(SceneBackdropScreenShape::Rect(
+            screen_rect_from_canvas_rect(rect, meta),
+        )),
+    }
+}
+
+fn screen_rect_from_canvas_rect(rect: egui::Rect, meta: Option<&MetadataFrame>) -> egui::Rect {
+    if let Some(meta) = meta {
+        egui::Rect::from_min_max(
+            meta.canvas_to_screen_pos(rect.min),
+            meta.canvas_to_screen_pos(rect.max),
+        )
+    } else {
+        rect
     }
 }
 
@@ -621,9 +953,15 @@ pub(super) fn format_elapsed_ago(elapsed: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{frame_anchor_is_current_frame, frame_layout_hint_indicator};
+    use super::{
+        SceneBackdropScreenShape, frame_anchor_is_current_frame, frame_layout_hint_indicator,
+        region_screen_shape, scene_region_at_screen_pos, scene_region_resize_handle_hit,
+        screen_rect_from_canvas_rect,
+    };
     use crate::app::GraphBrowserApp;
+    use crate::graph::scene_runtime::SceneRegionResizeHandle;
     use crate::graph::{DominantEdge, FrameLayoutHint, SplitOrientation};
+    use crate::graph::scene_runtime::{SceneRegionEffect, SceneRegionRuntime};
     use euclid::default::Point2D;
 
     #[test]
@@ -687,5 +1025,103 @@ mod tests {
             .expect("frame anchor should exist");
 
         assert!(frame_anchor_is_current_frame(&app, frame_key));
+    }
+
+    #[test]
+    fn screen_rect_from_canvas_rect_returns_identity_without_metadata() {
+        let rect = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(40.0, 60.0));
+
+        assert_eq!(screen_rect_from_canvas_rect(rect, None), rect);
+    }
+
+    #[test]
+    fn region_screen_shape_returns_rect_identity_without_metadata() {
+        let rect = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(40.0, 60.0));
+        let region = SceneRegionRuntime::rect(rect, SceneRegionEffect::Wall);
+
+        assert_eq!(
+            region_screen_shape(&region, None),
+            Some(SceneBackdropScreenShape::Rect(rect))
+        );
+    }
+
+    #[test]
+    fn region_screen_shape_returns_circle_identity_without_metadata() {
+        let center = egui::pos2(16.0, 24.0);
+        let region = SceneRegionRuntime::circle(center, 18.0, SceneRegionEffect::Attractor { strength: 0.2 });
+
+        assert_eq!(
+            region_screen_shape(&region, None),
+            Some(SceneBackdropScreenShape::Circle {
+                center,
+                radius: 18.0,
+            })
+        );
+    }
+
+    #[test]
+    fn scene_region_hit_prefers_smallest_overlapping_region() {
+        let outer = SceneRegionRuntime::rect(
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+            SceneRegionEffect::Wall,
+        );
+        let inner = SceneRegionRuntime::rect(
+            egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(60.0, 60.0)),
+            SceneRegionEffect::Attractor { strength: 0.2 },
+        );
+        let regions = vec![outer.clone(), inner.clone()];
+
+        let hit = scene_region_at_screen_pos(&regions, egui::pos2(50.0, 50.0), None)
+            .expect("pointer should hit overlapping regions");
+
+        assert_eq!(hit.id, inner.id);
+    }
+
+    #[test]
+    fn scene_region_hit_ignores_invisible_regions() {
+        let visible = SceneRegionRuntime::rect(
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+            SceneRegionEffect::Wall,
+        );
+        let hidden = SceneRegionRuntime::rect(
+            egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(60.0, 60.0)),
+            SceneRegionEffect::Attractor { strength: 0.2 },
+        )
+        .with_visibility(false);
+        let regions = vec![visible.clone(), hidden];
+
+        let hit = scene_region_at_screen_pos(&regions, egui::pos2(50.0, 50.0), None)
+            .expect("pointer should hit visible region");
+
+        assert_eq!(hit.id, visible.id);
+    }
+
+    #[test]
+    fn scene_region_resize_handle_hit_detects_circle_radius_handle() {
+        let region = SceneRegionRuntime::circle(
+            egui::pos2(20.0, 20.0),
+            30.0,
+            SceneRegionEffect::Attractor { strength: 0.2 },
+        );
+
+        let hit = scene_region_resize_handle_hit(&region, egui::pos2(50.0, 20.0), None)
+            .expect("pointer should hit the circle radius handle");
+
+        assert_eq!(hit.region_id, region.id);
+        assert_eq!(hit.handle, SceneRegionResizeHandle::CircleRadius);
+    }
+
+    #[test]
+    fn scene_region_resize_handle_hit_detects_rect_corner_handle() {
+        let region = SceneRegionRuntime::rect(
+            egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(60.0, 80.0)),
+            SceneRegionEffect::Wall,
+        );
+
+        let hit = scene_region_resize_handle_hit(&region, egui::pos2(10.0, 20.0), None)
+            .expect("pointer should hit the rect top-left handle");
+
+        assert_eq!(hit.region_id, region.id);
+        assert_eq!(hit.handle, SceneRegionResizeHandle::RectTopLeft);
     }
 }

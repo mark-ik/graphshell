@@ -249,6 +249,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
     render::render_help_panel(ctx, graph_app);
+    render::render_scene_overlay_panel(ctx, graph_app);
     render::render_settings_overlay_panel(ctx, graph_app, Some(control_panel));
     render::render_clip_inspector_panel(ctx, graph_app);
     if let Some(webview_id) = graph_app

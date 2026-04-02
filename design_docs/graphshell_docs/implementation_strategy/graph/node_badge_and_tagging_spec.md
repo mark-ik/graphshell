@@ -70,13 +70,15 @@ UDC rule:
 | `#monitor` | Background scheduler | Periodically reload and compare DOM hash; badge/toast on content change (**behavioral implementation deferred; tag is reserved**) |
 | `#unread` | Badge / DOI | Auto-applied on node creation or URL change; cleared on first node activation; not user-assignable |
 | `#focus` | DOI weight | Boosts degree-of-interest score; floats node toward center in layout |
-| `#clip` | Node type | Node is a clipped DOM element; distinct node shape/border in graph view |
+| `#clip` | Clip compatibility projection | Bridge marker for clipped DOM elements; distinct node shape/border in graph view while clip truth remains tag-backed |
 
 **Forward-compatibility rule**: A `#`-prefixed tag not in the reserved list is accepted as user-defined and carries no system effect. The tag assignment UI warns on unrecognized `#` prefixes but does not block. Future versions may upgrade an inert `#foo` to reserved status without breaking existing data.
 
 **`#unread` invariant**: `#unread` is system-managed only. It must not be user-assignable through the tag panel. It is removed automatically on first node activation via the lifecycle intent path, not by user action.
 
 **`#monitor` status**: The tag constant is reserved. Behavioral implementation (background scheduler, DOM hash comparison, notification path) requires a separate plan before any implementation begins.
+
+**`#clip` bridge note**: `#clip` currently behaves like a type/content indicator, but the recommended long-term direction is an explicit clip content facet with `#clip` derived as a compatibility projection for badge, filter, and query surfaces.
 
 ---
 

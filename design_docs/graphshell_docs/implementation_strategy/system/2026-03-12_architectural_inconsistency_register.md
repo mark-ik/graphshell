@@ -39,7 +39,7 @@ This is not a bug list. Some entries are intentional bridges. The point is to ma
 | P2 | `GraphViewState` mixes durable view state with runtime cache state | `GraphViewState` | View identity/prefs coexist with `local_simulation` and `egui_state` | split into persisted view state + per-view runtime state |
 | P2 | Camera authority is spread across multiple carriers | global `camera`, per-view `camera`, `graph_view_frames` | unclear authoritative camera state | per-view session truth + runtime frame cache |
 | P2 | Undo/redo snapshot scope crosses layers | graph bytes + selection + highlighted edge + layout JSON | one transaction bundle spans domain, session, and UI targeting state | explicit layered history model or declared mixed boundary |
-| P2 | `#clip` is acting like a node type while modeled as a tag | `#clip` in tag set | semantic type/classification carried as a behavior-tag | explicit node kind/content facet |
+| P2 | `#clip` is acting like a node type while modeled as a tag | `#clip` in tag set | semantic type/classification carried as a behavior-tag | explicit clip content facet |
 | P3 | Pending orchestration/control-plane state is still spread across ad hoc fields | `pending_*`, app queues, focus queues | command/control authority not fully centralized | explicit runtime authority/control-plane state |
 | P3 | Derived indexes read as if they are primary truth | `semantic_index`, `node_workspace_membership`, `graph_view_frames` | caches sit beside canonical state and look authoritative | dedicated derived/runtime cache families |
 | P3 | `file_tree_projection_state` naming/ownership mismatch | `GraphWorkspace` | comment frames it as graph-owned projection state; behavior is closer to workbench/tool projection | `WorkbenchSessionState` or dedicated projection state |
@@ -218,12 +218,14 @@ That means one history boundary spans multiple ownership layers without an expli
 
 **Target owner**:
 
-- explicit node kind/content facet, or
-- a documented “behavior-tag” class if tags remain the intended carrier
+- explicit node content facet (recommended),
+- or a documented “behavior-tag” class if tags remain the intended carrier
 
 **Next action**:
 
-- keep it as a tag only if that is explicitly treated as a type-tag pattern across the system.
+- prefer a narrow explicit content-facet carrier over a broad node-type hierarchy here.
+- recommended direction: `NodeContentFacet::Clip(ClipFacetData)` with `#clip` retained as a derived compatibility projection for badge/query/tag surfaces.
+- until that decision is made, clipping docs should treat `#clip` as a bridge carrier and avoid deepening assumptions that tag state is the final clip-type authority.
 
 ---
 

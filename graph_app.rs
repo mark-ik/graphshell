@@ -170,7 +170,7 @@ pub(crate) use graph_views::PersistedGraphViewLayoutManager;
 #[allow(unused_imports)]
 pub use graph_views::{
     Camera, EdgeProjectionState, GraphViewFrame, GraphViewId, GraphViewLayoutDirection,
-    GraphViewLayoutManagerState, GraphViewState, PolicyValueSource, ResolvedLensPreset,
+    GraphViewLayoutManagerState, GraphViewState, PolicyValueSource, ResolvedLensPreset, SceneMode,
     SelectionEdgeProjectionOverride, ThreeDMode, ViewDimension, ZSource,
 };
 pub(crate) use graph_views::{default_semantic_depth_dimension, is_semantic_depth_dimension};
@@ -911,6 +911,10 @@ impl GraphBrowserApp {
                     graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                     graph_view_frames: HashMap::new(),
                     graph_view_canvas_rects: HashMap::new(),
+                    scene_runtimes: HashMap::new(),
+                    hovered_scene_region: None,
+                    selected_scene_regions: HashMap::new(),
+                    active_scene_region_drag: None,
                     workbench_navigation_geometry: None,
                     focused_view: None,
                     graph_reader_state: GraphReaderState::default(),
@@ -991,6 +995,8 @@ impl GraphBrowserApp {
                     history_manager_tab: HistoryManagerTab::Timeline,
                     settings_tool_page: SettingsToolPage::General,
                     show_settings_overlay: false,
+                    show_scene_overlay: false,
+                    scene_overlay_view: None,
                     show_help_panel: false,
                     show_command_palette: false,
                     show_context_palette: false,
@@ -1072,6 +1078,10 @@ impl GraphBrowserApp {
                     graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                     graph_view_frames: HashMap::new(),
                     graph_view_canvas_rects: HashMap::new(),
+                    scene_runtimes: HashMap::new(),
+                    hovered_scene_region: None,
+                    selected_scene_regions: HashMap::new(),
+                    active_scene_region_drag: None,
                     workbench_navigation_geometry: None,
                     focused_view: None,
                     graph_reader_state: GraphReaderState::default(),
@@ -1152,6 +1162,8 @@ impl GraphBrowserApp {
                     history_manager_tab: HistoryManagerTab::Timeline,
                     settings_tool_page: SettingsToolPage::General,
                     show_settings_overlay: false,
+                    show_scene_overlay: false,
+                    scene_overlay_view: None,
                     show_help_panel: false,
                     show_command_palette: false,
                     show_context_palette: false,

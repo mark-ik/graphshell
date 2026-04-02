@@ -122,7 +122,7 @@ concerns.
 | Component | Notes |
 | --- | --- |
 | NIP-84 `kind 9802` event struct | Content, `r` tag (canonical URL), `context` tag |
-| Clip node type | DOM-extracted content node; same schema on all platforms |
+| Clip content facet | DOM-extracted content facet/schema; same cross-platform clip truth model |
 | `nostr_event_id` metadata field | Set after publication; stored for deduplication and link-back |
 | URL normalization (canonical form) | Strips UTM/tracking params; shared with `Address::Http` deduplication |
 
@@ -232,7 +232,7 @@ impl Graph {
 | Address / history | `Address`, `HistoryEntry`, `viewer_override: Option<ViewerId>` | `ContentRenderer`, `ProtocolResolver` |
 | Node identity | `NodeId` (UUID), URL normalization | — |
 | Session authority | `CoopSessionId`, role enum, approval state machine, snapshot contract | Cursor rendering, presence UX, command filtering |
-| Publication schema | NIP-84 event struct, clip node type, `nostr_event_id` | Nostr signing, relay pool, network I/O |
+| Publication schema | NIP-84 event struct, clip content facet, `nostr_event_id` | Nostr signing, relay pool, network I/O |
 | Persistence schema | WAL log entry types, snapshot serialization | fjall storage, iroh-docs transport |
 | UDC | `CompactCode`, `semantic_tags`, `semantic_index_dirty`, `TagNode`/`UntagNode` | `KnowledgeRegistry`, `reconcile_semantics`, dataset |
 | Layout | `GraphPos2`, `LayoutHint`, topology classifier, MST seed, physics `step()` | `PhysicsProfile.apply_to_state()`, egui_graphs |
@@ -437,7 +437,7 @@ graphshell-core/
       authority.rs    — approval state machine, policy enforcement
       snapshot.rs     — CoopSnapshot serialization contract
     publication/
-      nip84.rs        — kind 9802 event struct, clip node type, nostr_event_id field
+      nip84.rs        — kind 9802 event struct, clip content facet, nostr_event_id field
     persistence/
       wal.rs          — WAL log entry types
       snapshot.rs     — GraphSnapshot serialization
@@ -627,7 +627,7 @@ Move `CoopSessionId`, role enum, approval state machine, and `CoopSnapshot` seri
 
 ### Step 6 — Publication schema in core
 
-Move NIP-84 event struct, clip node type, `nostr_event_id` field, and URL normalization into
+Move NIP-84 event struct, clip content facet, `nostr_event_id` field, and URL normalization into
 `graphshell-core/src/publication/`. Signing and relay I/O remain in the host.
 
 **Effort**: Small. **Gate**: After Step 4.
