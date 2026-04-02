@@ -272,7 +272,7 @@ fn render_tab_ui_impl(
             let node_key = state.node;
             if modifiers.shift {
                 let ordered_nodes =
-                    crate::shell::desktop::workbench::tile_view_ops::semantic_tab_node_order_for_tile_in_tiles(
+                    crate::shell::desktop::workbench::semantic_tabs::semantic_tab_node_order_for_tile_in_tiles(
                         tiles,
                         behavior.graph_app,
                         tile_id,
@@ -322,7 +322,7 @@ fn render_tab_ui_impl(
             let node_key = state.node;
             if modifiers.shift {
                 let ordered_nodes =
-                    crate::shell::desktop::workbench::tile_view_ops::semantic_tab_node_order_for_tile_in_tiles(
+                    crate::shell::desktop::workbench::semantic_tabs::semantic_tab_node_order_for_tile_in_tiles(
                         tiles,
                         behavior.graph_app,
                         tile_id,

@@ -26,6 +26,7 @@ use crate::shell::desktop::runtime::registries::{
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
+use crate::shell::desktop::workbench::semantic_tabs;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_render_pass;
 use crate::shell::desktop::workbench::tile_view_ops;
@@ -224,7 +225,7 @@ pub(crate) struct WorkbenchPaneEntry {
     pub(crate) title: String,
     pub(crate) subtitle: Option<String>,
     pub(crate) arrangement_memberships: Vec<String>,
-    pub(crate) semantic_tab_affordance: Option<tile_view_ops::SemanticTabAffordance>,
+    pub(crate) semantic_tab_affordance: Option<semantic_tabs::SemanticTabAffordance>,
     pub(crate) is_active: bool,
     pub(crate) closable: bool,
 }
@@ -1295,7 +1296,7 @@ fn pane_entry_for_tile(
                     .get(&state.node)
                     .cloned()
                     .unwrap_or_default(),
-                semantic_tab_affordance: tile_view_ops::semantic_tab_affordance_for_pane(
+                semantic_tab_affordance: semantic_tabs::semantic_tab_affordance_for_pane(
                     tiles_tree,
                     graph_app,
                     state.pane_id,
@@ -1356,7 +1357,7 @@ fn pane_entry_for_tile(
                     .get(&state.node)
                     .cloned()
                     .unwrap_or_default(),
-                semantic_tab_affordance: tile_view_ops::semantic_tab_affordance_for_pane(
+                semantic_tab_affordance: semantic_tabs::semantic_tab_affordance_for_pane(
                     tiles_tree,
                     graph_app,
                     state.pane_id,
@@ -2732,7 +2733,7 @@ fn render_semantic_tab_affordance_button(
     };
 
     match affordance {
-        tile_view_ops::SemanticTabAffordance::Restore {
+        semantic_tabs::SemanticTabAffordance::Restore {
             group_id,
             member_count,
         } => {
@@ -2750,7 +2751,7 @@ fn render_semantic_tab_affordance_button(
                 });
             }
         }
-        tile_view_ops::SemanticTabAffordance::Collapse {
+        semantic_tabs::SemanticTabAffordance::Collapse {
             group_id,
             member_count,
         } => {
@@ -4064,7 +4065,7 @@ mod tests {
 
         assert_eq!(
             entry.semantic_tab_affordance,
-            Some(tile_view_ops::SemanticTabAffordance::Restore {
+            Some(semantic_tabs::SemanticTabAffordance::Restore {
                 group_id: group.group_id,
                 member_count: 2,
             })

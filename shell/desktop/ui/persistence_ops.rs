@@ -217,9 +217,7 @@ impl FrameTabSemanticsRepairReport {
     }
 }
 
-pub(crate) fn log_frame_tab_semantics_repair_report(
-    report: &FrameTabSemanticsRepairReport,
-) {
+pub(crate) fn log_frame_tab_semantics_repair_report(report: &FrameTabSemanticsRepairReport) {
     for repair in &report.repairs {
         debug!("frame '{}': {}", report.frame_name, repair.describe());
     }
@@ -1098,7 +1096,8 @@ pub(crate) fn load_named_frame_bundle(
         .load_workspace_layout_json(name)
         .ok_or_else(|| format!("frame snapshot '{name}' not found"))?;
     let mut bundle: PersistedWorkspace = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    let repairs = repair_frame_bundle_before_semantic_read(&mut bundle).map_err(|e| e.to_string())?;
+    let repairs =
+        repair_frame_bundle_before_semantic_read(&mut bundle).map_err(|e| e.to_string())?;
     let report = FrameTabSemanticsRepairReport::new(bundle.name.clone(), repairs);
     log_frame_tab_semantics_repair_report(&report);
     Ok(bundle)
@@ -1112,7 +1111,8 @@ pub(crate) fn repair_named_frame_tab_semantics(
         .load_workspace_layout_json(name)
         .ok_or_else(|| format!("frame snapshot '{name}' not found"))?;
     let mut bundle: PersistedWorkspace = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    let repairs = repair_frame_bundle_before_semantic_read(&mut bundle).map_err(|e| e.to_string())?;
+    let repairs =
+        repair_frame_bundle_before_semantic_read(&mut bundle).map_err(|e| e.to_string())?;
     let report = FrameTabSemanticsRepairReport::new(bundle.name.clone(), repairs);
 
     if !report.has_repairs() {
@@ -3455,28 +3455,19 @@ mod tests {
         assert!(report.repairs.iter().any(|repair| {
             matches!(
                 repair,
-                FrameTabSemanticsRepair::DroppedDuplicatePaneWithinGroup {
-                    pane_id: 1,
-                    ..
-                }
+                FrameTabSemanticsRepair::DroppedDuplicatePaneWithinGroup { pane_id: 1, .. }
             )
         }));
         assert!(report.repairs.iter().any(|repair| {
             matches!(
                 repair,
-                FrameTabSemanticsRepair::DroppedMissingPaneId {
-                    pane_id: 999,
-                    ..
-                }
+                FrameTabSemanticsRepair::DroppedMissingPaneId { pane_id: 999, .. }
             )
         }));
         assert!(report.repairs.iter().any(|repair| {
             matches!(
                 repair,
-                FrameTabSemanticsRepair::RemovedLaterDuplicateMembership {
-                    pane_id: 1,
-                    ..
-                }
+                FrameTabSemanticsRepair::RemovedLaterDuplicateMembership { pane_id: 1, .. }
             )
         }));
         assert!(report.user_warning.is_some());

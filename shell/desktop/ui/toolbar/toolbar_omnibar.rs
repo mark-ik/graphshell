@@ -415,7 +415,7 @@ fn tab_node_keys_in_tree(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) -> HashSet<NodeKey> {
-    crate::shell::desktop::workbench::tile_view_ops::semantic_tab_node_keys(tiles_tree, graph_app)
+    crate::shell::desktop::workbench::semantic_tabs::semantic_tab_node_keys(tiles_tree, graph_app)
 }
 
 fn omnibar_graph_view_context(

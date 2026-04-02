@@ -58,6 +58,16 @@ Graphshell-owned post-physics hooks in `graph/layouts/`. The `Layout<S>` / `Layo
 (Level 3 seam) are now defined by Graphshell rather than re-exported from egui_graphs. Behaviorally
 the extension model is identical; only ownership moved.
 
+### External pattern note (2026-04-01): RustGrapher / WasmGrapher
+
+RustGrapher is evidence that Barnes-Hut or similar spatial acceleration becomes worthwhile once node counts and simulation throughput targets rise. WasmGrapher is evidence that a reusable headless graph engine can target native and wasm without changing the conceptual model.
+
+The important constraint for Graphshell is still ownership, not asymptotics:
+
+- acceleration and wasm reuse are follow-ons after layout state, velocity state, and scene derivation are Graphshell-owned rather than widget-owned,
+- custom forces and layout variants should stay behind Graphshell-owned seams so backend swaps remain mechanical,
+- workerization and acceleration should be justified by measured frame-budget pressure rather than adopted as architecture by default.
+
 ---
 
 ## Three Levels of Extension

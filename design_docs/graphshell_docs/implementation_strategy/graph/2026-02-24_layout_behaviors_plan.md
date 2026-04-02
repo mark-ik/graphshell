@@ -9,6 +9,15 @@
 
 This plan covers *behavioral layout features* (how the graph arranges itself), not frame-time optimization.
 
+### External pattern note (2026-04-01): RustGrapher / WasmGrapher
+
+Reviews of RustGrapher and WasmGrapher reinforce two boundaries already implicit in this plan.
+
+- First, behavioral layout policy and force composition should remain Graphshell-owned rather than widget-owned; external graph libraries are most useful as evidence about engine structure, not as authority over Graphshell semantics.
+- Second, acceleration structures such as Barnes-Hut or quadtree indexing are legitimate follow-on work, but only after simulation ownership and per-view runtime boundaries are clean. They are not a reason to bypass the current injection-hook and policy-first sequencing.
+
+Practical consequence: this plan should keep prioritizing explicit behavior hooks, per-view isolation, and deterministic policy gates before deeper performance specialization.
+
 ---
 
 ## Scope and Constraints

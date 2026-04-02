@@ -5,7 +5,7 @@
 # Workbench Semantic Tab Overlay and Pane-Rest Execution Note
 
 **Date**: 2026-02-22
-**Status**: Active execution note — partially implemented runtime slice; broader semantic-tab rollout remains in progress
+**Status**: Active execution note — Stages 8B-8D landed; simplify-safe semantic reapply (8E) remains
 
 **Canonical authority chain**:
 
@@ -40,7 +40,7 @@ Current reality:
 - explicit `RepairFrameTabSemantics` intent plumbing now exists via runtime lifecycle bridge -> app command -> frame persistence repair/resave path
 - repair paths now emit typed `FrameTabSemanticsRepairReport` data plus one aggregated warning summary per load/restore/repair operation by default
 - omnibar saved-frame and live local-tab discovery now use overlay-first semantic helper paths
-- live workbench tab-shape queries now flow through shared `tile_grouping` helpers instead of duplicating node-tab membership rules per consumer
+- live workbench tab-aware queries now flow through a dedicated `desktop/workbench/semantic_tabs.rs` helper surface, while `tile_grouping` remains structural-only fallback/reconciliation logic
 - restore-time frame loading can now rewrap pane-rest bundles back into visual tabs when saved semantic metadata provides the missing group members
 - runtime code now contains reducer-owned `RestorePaneToSemanticTabGroup` / `CollapseSemanticTabGroupToPaneRest` intent carriers, workbench-surface application, and runtime-resident semantic overlay state for the active frame
 - live collapse-to-pane-rest state now persists through named-frame bundle saves instead of being lost when saving from a structurally collapsed tree
@@ -158,17 +158,15 @@ For all tab-aware behavior (omnibar saved tabs, pin UI, tab affordances):
 
 Implement through shared helper APIs — not per-feature ad hoc logic.
 
-Current gap this work is meant to close:
-
-- some remaining live consumers still read tab meaning from tree shape instead of a shared overlay-first semantic query surface
-
-Proposed helper surface (exact module TBD; name/location should be chosen to fit the current desktop/workbench module layout rather than the older monolithic owner-file era structure):
+Landed helper surface:
 
 ```rust
 fn semantic_tab_groups_for_frame(semantics: &FrameTabSemantics) -> &[TabGroupMetadata];
 fn saved_tab_nodes_for_frame(semantics: Option<&FrameTabSemantics>, tree: &Tree<TileKind>) -> Vec<NodeKey>;
 fn pane_semantic_tab_state(pane_id: PaneId, semantics: Option<&FrameTabSemantics>) -> PaneSemanticState;
 ```
+
+The exact helper names evolved with the current module layout, but the work is now consolidated under the dedicated `desktop/workbench/semantic_tabs.rs` query surface. Structural post-render reconciliation remains in `tile_grouping` on purpose and is not treated as a user-facing semantic-query consumer.
 
 ---
 
@@ -262,8 +260,8 @@ Example: `Frame 'research-1': repaired tab group g42 (missing active pane p9). P
 
 ## Stage 8 Execution Plan
 
-Stage 8A (design lock) is complete as documentation only. Stages 8B and 8C now have an initial
-runtime slice landed; Stages 8D–8E remain implementation work.
+Stage 8A (design lock) is complete as documentation only. Stages 8B-8D are now complete in the
+current runtime slice; Stage 8E remains implementation work.
 
 ### Stage 8B: Overlay Persistence + Validation
 
@@ -288,24 +286,25 @@ explicit repair/resave plumbing, typed repair reports, and aggregated warning su
 
 ### Stage 8C: Overlay-First Query APIs + Consumer Migration
 
-**Status**: Partial
+**Status**: Complete
 
 Goal: route all tab-aware features through shared semantic queries; eliminate direct tree-shape
 inference from consumers.
 
 - Add overlay-first helper APIs in a current desktop/workbench semantic-query module
-  (initial persistence helper path landed in `persistence_ops`; shared live-tree helper coverage landed in `tile_grouping`).
+  (landed via `desktop/workbench/semantic_tabs.rs`, with persisted bundle helpers remaining in `persistence_ops` and structural fallback/reconciliation remaining in `tile_grouping`).
 - Update omnibar saved-tab discovery to use `saved_tab_nodes_for_frame()` (landed via
   bundle-level semantic helper path).
 - Consolidate live tab-group ordering/membership queries onto shared helpers so omnibar, post-render
-  grouping, and tab chrome stop duplicating node-tab membership rules (landed for current
-  tree-shape consumers).
-- Update pin UI tab-aware queries to use `pane_semantic_tab_state()`.
+  grouping, and tab chrome stop duplicating node-tab membership rules (landed for the active user-facing
+  tab-aware consumers).
+- Keep `tile_grouping` structural-only for post-render reconciliation instead of treating it as the semantic-query owner (landed).
 - Preserve tree-shape fallback in the helpers during rollout; do not require overlay presence.
 - No new direct tree-shape inference paths in migrated consumers.
 
-Remaining gate: migrate the rest of the tab-aware consumers, then consolidate the helper surface
-into a shared semantic-query module.
+Done gate met for Stage 8C: active tab-aware consumers now route through the shared overlay-first
+semantic query surface, while structural tree-shape reconciliation remains isolated in
+`tile_grouping`.
 
 ### Stage 8D: Restore / Collapse + Pane Rest State
 

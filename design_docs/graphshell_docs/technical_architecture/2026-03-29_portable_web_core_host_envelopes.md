@@ -92,6 +92,12 @@ Interpretation:
 The discussion rejected the idea that the repo should present many peer "core-ish" crates as the
 primary mental model. The user-facing and team-facing model should be: **one core, many hosts**.
 
+### External pattern note (2026-04-01): Grafeo / SparrowDB
+
+Grafeo is a useful reminder that broad host reach is valuable only if the reusable engine remains singular and host capability envelopes stay explicit. SparrowDB is a useful reminder that the embedded story should remain blunt about startup model, workload, and durability promises.
+
+Together they support the one-core-many-host framing in this note and argue against per-host semantic drift, hidden transport or storage ownership inside the portable engine, or vague platform-parity claims without explicit capability ladders.
+
 ---
 
 ## 4. What the Portable Web Core Owns

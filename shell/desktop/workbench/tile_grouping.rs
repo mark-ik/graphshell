@@ -10,6 +10,10 @@ use crate::app::GraphIntent;
 use crate::graph::NodeKey;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
+// Structural tab-container helpers only. User-facing tab-aware queries should
+// flow through `semantic_tabs`, which consults the runtime overlay first and
+// falls back to these tree-shape utilities when semantic metadata is absent.
+
 fn nearest_tabs_container_for_tile(tiles: &Tiles<TileKind>, mut tile_id: TileId) -> Option<TileId> {
     while let Some(parent_id) = tiles.parent_of(tile_id) {
         if matches!(

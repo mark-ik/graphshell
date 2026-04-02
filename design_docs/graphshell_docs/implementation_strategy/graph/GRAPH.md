@@ -111,6 +111,12 @@ Archive note:
 - Treat that document as implementation history and rationale, not an active
   execution plan.
 
+### External pattern note (2026-04-01): RustGrapher / WasmGrapher
+
+External graph-rendering libraries are a useful reminder that the canvas should be treated as a subsystem, not just a widget. The Graph domain should own simulation policy, scene derivation, interaction semantics, and diagnostics contracts; rendering backends should consume those contracts rather than define them.
+
+This supports the current Graph-versus-Workbench boundary and the deferred custom-canvas direction: backend replacement should not change graph truth or graph-space semantics.
+
 ---
 
 ## 3. Cross-Domain / Cross-Subsystem Policy Layer

@@ -6,6 +6,7 @@ pub(crate) mod compositor_adapter;
 pub(crate) mod interaction_policy;
 pub(crate) mod pane_model;
 pub(crate) mod selection_range;
+pub(crate) mod semantic_tabs;
 pub(crate) mod tile_behavior;
 pub(crate) mod tile_compositor;
 pub(crate) mod tile_grouping;

@@ -15,7 +15,6 @@ use super::tile_runtime;
 use super::ux_tree;
 use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
 use crate::graph::NodeKey;
-use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_LAYOUT_GUTTER_DETECTED,
@@ -23,6 +22,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
 };
 use crate::shell::desktop::ui::persistence_ops;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 
 pub(crate) struct TileRenderOutputs {
     pub(crate) pending_open_nodes: Vec<PendingOpenNode>,
@@ -194,7 +194,12 @@ fn reconcile_runtime_semantics_for_touched_panes(
             let tab_groups: Vec<_> = current
                 .tab_groups
                 .into_iter()
-                .filter(|group| !group.pane_ids.iter().any(|pane_id| touched_pane_ids.contains(pane_id)))
+                .filter(|group| {
+                    !group
+                        .pane_ids
+                        .iter()
+                        .any(|pane_id| touched_pane_ids.contains(pane_id))
+                })
                 .collect();
             if tab_groups.is_empty() {
                 None
@@ -641,12 +646,9 @@ mod tests {
         };
         let touched = HashSet::from([a, b]);
 
-        let reconciled = reconcile_runtime_semantics_for_touched_panes(
-            Some(current),
-            None,
-            &touched,
-        )
-        .expect("untouched group should remain");
+        let reconciled =
+            reconcile_runtime_semantics_for_touched_panes(Some(current), None, &touched)
+                .expect("untouched group should remain");
 
         assert_eq!(reconciled.tab_groups.len(), 1);
         assert_eq!(reconciled.tab_groups[0].group_id, untouched_group_id);
@@ -676,12 +678,9 @@ mod tests {
         };
         let touched = HashSet::from([a, b]);
 
-        let reconciled = reconcile_runtime_semantics_for_touched_panes(
-            Some(current),
-            Some(derived),
-            &touched,
-        )
-        .expect("reconciled semantics");
+        let reconciled =
+            reconcile_runtime_semantics_for_touched_panes(Some(current), Some(derived), &touched)
+                .expect("reconciled semantics");
 
         assert_eq!(reconciled.tab_groups.len(), 1);
         assert_eq!(reconciled.tab_groups[0].group_id, preserved_group_id);

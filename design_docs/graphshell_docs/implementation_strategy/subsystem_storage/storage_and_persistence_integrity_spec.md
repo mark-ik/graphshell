@@ -49,6 +49,12 @@ Address-as-identity corollary:
 - ephemeral pane opens are not durable writes by themselves,
 - address issuance and address persistence must not be conflated.
 
+### External pattern note (2026-04-01): SparrowDB / Grafeo
+
+Embedded graph and database systems such as SparrowDB and Grafeo reinforce that local-first trust depends on inspectability as much as durability. WAL and snapshot correctness should be paired with explicit validate, info, and checkpoint-style surfaces, clear workload and non-goal statements, and visible compatibility rules for on-disk evolution.
+
+For Graphshell this argues for operator-facing persistence health surfaces and explicit recovery tooling layered on top of the existing single-write-path contract, not for relaxing that contract or burying integrity behind internal-only diagnostics.
+
 ---
 
 ## 3. Normative Core

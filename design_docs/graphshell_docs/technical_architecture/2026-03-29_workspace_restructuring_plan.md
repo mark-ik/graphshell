@@ -182,6 +182,12 @@ Recommended packaging classes:
 This gives later extraction work a canonical target for deciding whether a
 protocol belongs in a portable crate, a host crate, or a non-engine subsystem.
 
+### External pattern note (2026-04-01): SparrowDB / Grafeo
+
+Reviews of SparrowDB and Grafeo support the current workspace split, especially the distinction between portable semantic crates and thin host envelopes. The useful lesson is to keep one product mental model while allowing several internal crates with sharp authority boundaries.
+
+Graphshell should still present as one system with several hosts rather than a loose federation of peer "core-ish" packages. Feature gating, bindings, and operator tools should follow the authority boundaries defined here rather than introduce alternative centers of truth.
+
 ---
 
 ## 4. Protocol Server Placement

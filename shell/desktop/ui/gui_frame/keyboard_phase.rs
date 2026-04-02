@@ -131,7 +131,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     if keyboard_actions.toggle_semantic_tab_group
         && let Some(focused_pane) = window.focused_pane()
         && let Some(intent) =
-            crate::shell::desktop::workbench::tile_view_ops::semantic_tab_toggle_intent_for_pane(
+            crate::shell::desktop::workbench::semantic_tabs::semantic_tab_toggle_intent_for_pane(
                 tiles_tree,
                 graph_app,
                 focused_pane,

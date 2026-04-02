@@ -51,6 +51,16 @@ iroh ships a `libp2p-iroh` crate that bridges the two transport layers. Nostr si
 
 See [`2026-03-17_matrix_layer_positioning.md`](2026-03-17_matrix_layer_positioning.md) for the full Matrix positioning analysis including room hosting gradient, cross-carrying rules, and concept resurfacing.
 
+### External pattern note (2026-04-01): FIPS
+
+A review of FIPS supports the current substrate split rather than suggesting a replacement transport stack. The main lesson is operational rigor:
+
+- identity, transport, routing, metrics, and operator tooling should be documented and surfaced as separate layers,
+- peer and sync health should be first-class inspectable runtime state,
+- packet loss, reconnect churn, and delayed delivery should be treated as planned chaos-test cases rather than post-hoc debugging incidents.
+
+Graphshell should borrow that discipline while keeping the current assignments intact: iroh for bilateral and session-scoped exchange, libp2p for Verse and community scale, Nostr for social capability surfaces, and WebRTC for media.
+
 ---
 
 ## 2. Protocol Roles in Detail

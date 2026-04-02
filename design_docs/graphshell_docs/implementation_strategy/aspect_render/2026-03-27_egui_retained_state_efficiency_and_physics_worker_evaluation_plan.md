@@ -90,6 +90,18 @@ Therefore:
 - each `GraphViewId` owns ephemeral retained graph runtime state
 - Shell and Workbench chrome state must not piggyback on graph rebuild flags
 
+### External pattern note (2026-04-01): RustGrapher / WasmGrapher
+
+Reviews of RustGrapher and WasmGrapher support the ordering in this plan. The useful lesson is not "move physics off-thread first"; it is "separate simulation ownership from widget-retained state first". Both projects validate force-directed simulation as a reusable plain-data engine and keep acceleration structures such as Barnes-Hut or quadtree indexing as engine concerns rather than UI-state concerns.
+
+For Graphshell this reinforces the existing sequencing:
+
+- per-`GraphViewId` retained-state isolation first,
+- single-owner physics second,
+- worker evaluation third.
+
+A worker remains conditional. Acceleration remains a legitimate follow-on once `EguiGraph` is no longer the cross-frame authority for velocity and positions.
+
 ---
 
 ## 3. Target Runtime Shape
