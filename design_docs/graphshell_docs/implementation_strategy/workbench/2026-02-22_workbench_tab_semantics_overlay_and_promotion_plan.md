@@ -38,6 +38,7 @@ Current reality:
 - runtime code now contains a persisted `FrameTabSemantics` carrier on saved frame bundles
 - save/load paths now derive, validate, and repair semantic tab metadata as frame state
 - explicit `RepairFrameTabSemantics` intent plumbing now exists via runtime lifecycle bridge -> app command -> frame persistence repair/resave path
+- repair paths now emit typed `FrameTabSemanticsRepairReport` data plus one aggregated warning summary per load/restore/repair operation by default
 - omnibar saved-frame and live local-tab discovery now use overlay-first semantic helper paths
 - live workbench tab-shape queries now flow through shared `tile_grouping` helpers instead of duplicating node-tab membership rules per consumer
 - restore-time frame loading can now rewrap pane-rest bundles back into visual tabs when saved semantic metadata provides the missing group members
@@ -266,7 +267,7 @@ runtime slice landed; Stages 8D–8E remain implementation work.
 
 ### Stage 8B: Overlay Persistence + Validation
 
-**Status**: Partial
+**Status**: Complete
 
 Goal: persist optional tab semantics metadata in the frame bundle and validate/repair it on load.
 
@@ -274,15 +275,16 @@ Goal: persist optional tab semantics metadata in the frame bundle and validate/r
 - Implement validation helpers: check each invariant in order, collect all violations before repairing
   (initial load-time repair landed for persisted bundle invariants).
 - Implement repair helpers: drop/correct invalid entries; preserve valid entries; return repair log
-  (load-time repair log strings landed; explicit repair command path now lands repair + resave for named frames).
+  (typed repair reports now landed; explicit repair command path lands repair + resave for named frames).
 - Implement `RepairFrameTabSemantics` intent handling in reducer
   (intent carrier landed through runtime lifecycle bridge and app command path; reducer-owned graph-delta semantics are still not needed here).
 - Add roundtrip tests: bundle with overlay, bundle without overlay, bundle with invalid overlay
   (initial save/load and repair coverage landed).
 - Add repair invariant tests: duplicate pane, invalid active pane, missing pane (landed).
+- Aggregate one warning summary per load/restore/repair operation by default while keeping per-repair detail in typed report data and debug logs (landed).
 
-Remaining gate: structured repair events and any future reducer-owned graph-state coupling still
-need to land before Stage 8B can be called complete.
+Done gate met for Stage 8B: persisted frame bundles now have additive semantic-tab state, validation/repair,
+explicit repair/resave plumbing, typed repair reports, and aggregated warning summaries.
 
 ### Stage 8C: Overlay-First Query APIs + Consumer Migration
 

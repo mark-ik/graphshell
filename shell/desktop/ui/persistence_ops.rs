@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tiles, Tree};
-use log::warn;
+use log::{debug, warn};
 use servo::{OffscreenRenderingContext, WebViewId};
 use uuid::Uuid;
 
@@ -114,6 +114,119 @@ pub(crate) type WorkspaceLayout = FrameLayout;
 pub(crate) type WorkspaceManifest = FrameManifest;
 pub(crate) type WorkspaceMetadata = FrameMetadata;
 pub(crate) type PersistedWorkspace = PersistedFrame;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FrameTabSemanticsRepair {
+    RepairedManifestMembership,
+    UpgradedVersion {
+        from: u32,
+        to: u32,
+    },
+    RegeneratedDuplicateGroupId {
+        prior_group_id: Uuid,
+        replacement_group_id: Uuid,
+    },
+    DroppedMissingPaneId {
+        group_id: Uuid,
+        pane_id: PaneId,
+    },
+    DroppedDuplicatePaneWithinGroup {
+        group_id: Uuid,
+        pane_id: PaneId,
+    },
+    RemovedLaterDuplicateMembership {
+        group_id: Uuid,
+        pane_id: PaneId,
+    },
+    RemovedEmptyGroup {
+        group_id: Uuid,
+    },
+    ResetInvalidActivePane {
+        group_id: Uuid,
+        pane_id: PaneId,
+    },
+    RemovedEmptyOverlay,
+}
+
+impl FrameTabSemanticsRepair {
+    pub(crate) fn describe(&self) -> String {
+        match self {
+            Self::RepairedManifestMembership => {
+                "repaired manifest membership before semantic tab repair".to_string()
+            }
+            Self::UpgradedVersion { from, to } => {
+                format!("upgraded FrameTabSemantics version {from} -> {to}")
+            }
+            Self::RegeneratedDuplicateGroupId {
+                prior_group_id,
+                replacement_group_id,
+            } => {
+                format!(
+                    "regenerated duplicate tab group id {prior_group_id} as {replacement_group_id}"
+                )
+            }
+            Self::DroppedMissingPaneId { group_id, pane_id } => {
+                format!("dropped missing pane id {pane_id} from tab group {group_id}")
+            }
+            Self::DroppedDuplicatePaneWithinGroup { group_id, pane_id } => {
+                format!("dropped duplicate pane id {pane_id} within tab group {group_id}")
+            }
+            Self::RemovedLaterDuplicateMembership { group_id, pane_id } => {
+                format!(
+                    "removed pane id {pane_id} from later duplicate membership in tab group {group_id}"
+                )
+            }
+            Self::RemovedEmptyGroup { group_id } => {
+                format!("removed empty tab group {group_id} after pane repair")
+            }
+            Self::ResetInvalidActivePane { group_id, pane_id } => {
+                format!("reset invalid active pane {pane_id} for tab group {group_id}")
+            }
+            Self::RemovedEmptyOverlay => "removed empty FrameTabSemantics overlay".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FrameTabSemanticsRepairReport {
+    pub frame_name: String,
+    pub repairs: Vec<FrameTabSemanticsRepair>,
+    pub user_warning: Option<String>,
+}
+
+impl FrameTabSemanticsRepairReport {
+    fn new(frame_name: impl Into<String>, repairs: Vec<FrameTabSemanticsRepair>) -> Self {
+        let frame_name = frame_name.into();
+        let user_warning = (!repairs.is_empty()).then(|| {
+            let details = repairs
+                .iter()
+                .map(FrameTabSemanticsRepair::describe)
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!("Frame '{frame_name}': repaired semantic tab metadata: {details}")
+        });
+        Self {
+            frame_name,
+            repairs,
+            user_warning,
+        }
+    }
+
+    pub(crate) fn has_repairs(&self) -> bool {
+        !self.repairs.is_empty()
+    }
+}
+
+pub(crate) fn log_frame_tab_semantics_repair_report(
+    report: &FrameTabSemanticsRepairReport,
+) {
+    for repair in &report.repairs {
+        debug!("frame '{}': {}", report.frame_name, repair.describe());
+    }
+    if let Some(warning) = &report.user_warning {
+        warn!("{warning}");
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum FrameBundleError {
@@ -474,7 +587,7 @@ pub(crate) fn saved_tab_node_keys_for_frame_bundle(
         .collect()
 }
 
-fn repair_frame_tab_semantics(bundle: &mut PersistedWorkspace) -> Vec<String> {
+fn repair_frame_tab_semantics(bundle: &mut PersistedWorkspace) -> Vec<FrameTabSemanticsRepair> {
     let Some(semantics) = bundle.frame_tab_semantics.as_mut() else {
         return Vec::new();
     };
@@ -486,10 +599,10 @@ fn repair_frame_tab_semantics(bundle: &mut PersistedWorkspace) -> Vec<String> {
     let mut repaired_groups = Vec::new();
 
     if semantics.version != FRAME_TAB_SEMANTICS_VERSION {
-        repairs.push(format!(
-            "upgraded FrameTabSemantics version {} -> {}",
-            semantics.version, FRAME_TAB_SEMANTICS_VERSION
-        ));
+        repairs.push(FrameTabSemanticsRepair::UpgradedVersion {
+            from: semantics.version,
+            to: FRAME_TAB_SEMANTICS_VERSION,
+        });
         semantics.version = FRAME_TAB_SEMANTICS_VERSION;
     }
 
@@ -499,33 +612,34 @@ fn repair_frame_tab_semantics(bundle: &mut PersistedWorkspace) -> Vec<String> {
         if !seen_group_ids.insert(repaired_group.group_id) {
             let prior_group_id = repaired_group.group_id;
             repaired_group.group_id = Uuid::new_v4();
-            repairs.push(format!(
-                "regenerated duplicate tab group id {prior_group_id}"
-            ));
+            repairs.push(FrameTabSemanticsRepair::RegeneratedDuplicateGroupId {
+                prior_group_id,
+                replacement_group_id: repaired_group.group_id,
+            });
         }
 
         let mut local_seen = BTreeSet::new();
         let mut repaired_pane_ids = Vec::new();
         for pane_id in &repaired_group.pane_ids {
             if !valid_pane_ids.contains(pane_id) {
-                repairs.push(format!(
-                    "dropped missing pane id {pane_id} from tab group {}",
-                    repaired_group.group_id
-                ));
+                repairs.push(FrameTabSemanticsRepair::DroppedMissingPaneId {
+                    group_id: repaired_group.group_id,
+                    pane_id: *pane_id,
+                });
                 continue;
             }
             if !local_seen.insert(*pane_id) {
-                repairs.push(format!(
-                    "dropped duplicate pane id {pane_id} within tab group {}",
-                    repaired_group.group_id
-                ));
+                repairs.push(FrameTabSemanticsRepair::DroppedDuplicatePaneWithinGroup {
+                    group_id: repaired_group.group_id,
+                    pane_id: *pane_id,
+                });
                 continue;
             }
             if !seen_pane_ids.insert(*pane_id) {
-                repairs.push(format!(
-                    "removed pane id {pane_id} from later duplicate membership in tab group {}",
-                    repaired_group.group_id
-                ));
+                repairs.push(FrameTabSemanticsRepair::RemovedLaterDuplicateMembership {
+                    group_id: repaired_group.group_id,
+                    pane_id: *pane_id,
+                });
                 continue;
             }
             repaired_pane_ids.push(*pane_id);
@@ -533,21 +647,19 @@ fn repair_frame_tab_semantics(bundle: &mut PersistedWorkspace) -> Vec<String> {
         repaired_group.pane_ids = repaired_pane_ids;
 
         if repaired_group.pane_ids.is_empty() {
-            repairs.push(format!(
-                "removed empty tab group {} after pane repair",
-                repaired_group.group_id
-            ));
+            repairs.push(FrameTabSemanticsRepair::RemovedEmptyGroup {
+                group_id: repaired_group.group_id,
+            });
             continue;
         }
 
-        if repaired_group
-            .active_pane_id
-            .is_some_and(|pane_id| !repaired_group.pane_ids.contains(&pane_id))
+        if let Some(active_pane_id) = repaired_group.active_pane_id
+            && !repaired_group.pane_ids.contains(&active_pane_id)
         {
-            repairs.push(format!(
-                "reset invalid active pane for tab group {}",
-                repaired_group.group_id
-            ));
+            repairs.push(FrameTabSemanticsRepair::ResetInvalidActivePane {
+                group_id: repaired_group.group_id,
+                pane_id: active_pane_id,
+            });
             repaired_group.active_pane_id = None;
         }
 
@@ -557,10 +669,27 @@ fn repair_frame_tab_semantics(bundle: &mut PersistedWorkspace) -> Vec<String> {
     semantics.tab_groups = repaired_groups;
     if semantics.tab_groups.is_empty() {
         bundle.frame_tab_semantics = None;
-        repairs.push("removed empty FrameTabSemantics overlay".to_string());
+        repairs.push(FrameTabSemanticsRepair::RemovedEmptyOverlay);
     }
 
     repairs
+}
+
+fn repair_frame_bundle_before_semantic_read(
+    bundle: &mut PersistedWorkspace,
+) -> Result<Vec<FrameTabSemanticsRepair>, FrameBundleError> {
+    let mut repairs = Vec::new();
+    if let Err(err) = validate_frame_bundle(bundle) {
+        match err {
+            FrameBundleError::MembershipMismatch { .. } => {
+                repair_manifest_membership(bundle);
+                repairs.push(FrameTabSemanticsRepair::RepairedManifestMembership);
+            }
+            _ => return Err(err),
+        }
+    }
+    repairs.extend(repair_frame_tab_semantics(bundle));
+    Ok(repairs)
 }
 
 fn runtime_tile_from_manifest_pane(
@@ -969,50 +1098,25 @@ pub(crate) fn load_named_frame_bundle(
         .load_workspace_layout_json(name)
         .ok_or_else(|| format!("frame snapshot '{name}' not found"))?;
     let mut bundle: PersistedWorkspace = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    if let Err(err) = validate_frame_bundle(&bundle) {
-        match err {
-            FrameBundleError::MembershipMismatch { .. } => {
-                repair_manifest_membership(&mut bundle);
-            }
-            _ => return Err(err.to_string()),
-        }
-    }
-    for repair in repair_frame_tab_semantics(&mut bundle) {
-        warn!("frame '{}': {repair}", bundle.name);
-    }
+    let repairs = repair_frame_bundle_before_semantic_read(&mut bundle).map_err(|e| e.to_string())?;
+    let report = FrameTabSemanticsRepairReport::new(bundle.name.clone(), repairs);
+    log_frame_tab_semantics_repair_report(&report);
     Ok(bundle)
 }
 
 pub(crate) fn repair_named_frame_tab_semantics(
     graph_app: &mut GraphBrowserApp,
     name: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<FrameTabSemanticsRepairReport, String> {
     let json = graph_app
         .load_workspace_layout_json(name)
         .ok_or_else(|| format!("frame snapshot '{name}' not found"))?;
     let mut bundle: PersistedWorkspace = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    let mut repairs = Vec::new();
-    let mut changed = false;
+    let repairs = repair_frame_bundle_before_semantic_read(&mut bundle).map_err(|e| e.to_string())?;
+    let report = FrameTabSemanticsRepairReport::new(bundle.name.clone(), repairs);
 
-    if let Err(err) = validate_frame_bundle(&bundle) {
-        match err {
-            FrameBundleError::MembershipMismatch { .. } => {
-                repair_manifest_membership(&mut bundle);
-                repairs.push("repaired manifest membership before semantic tab repair".to_string());
-                changed = true;
-            }
-            _ => return Err(err.to_string()),
-        }
-    }
-
-    let semantic_repairs = repair_frame_tab_semantics(&mut bundle);
-    if !semantic_repairs.is_empty() {
-        changed = true;
-        repairs.extend(semantic_repairs);
-    }
-
-    if !changed {
-        return Ok(repairs);
+    if !report.has_repairs() {
+        return Ok(report);
     }
 
     let bundle_json = serde_json::to_string(&bundle).map_err(|e| e.to_string())?;
@@ -1021,7 +1125,7 @@ pub(crate) fn repair_named_frame_tab_semantics(
     crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
         "frame_tab_semantics_repaired",
     );
-    Ok(repairs)
+    Ok(report)
 }
 
 pub(crate) fn apply_workbench_profile_from_bundle(
@@ -1037,15 +1141,9 @@ pub(crate) fn runtime_frame_tab_semantics_from_restored_bundle(
     runtime_tree: &Tree<TileKind>,
 ) -> Option<crate::app::RuntimeFrameTabSemantics> {
     let mut repaired = bundle.clone();
-    if let Err(err) = validate_frame_bundle(&repaired) {
-        match err {
-            FrameBundleError::MembershipMismatch { .. } => {
-                repair_manifest_membership(&mut repaired)
-            }
-            _ => return derive_runtime_frame_tab_semantics_from_tree(runtime_tree),
-        }
+    if repair_frame_bundle_before_semantic_read(&mut repaired).is_err() {
+        return derive_runtime_frame_tab_semantics_from_tree(runtime_tree);
     }
-    let _ = repair_frame_tab_semantics(&mut repaired);
 
     let persisted_semantics = repaired
         .frame_tab_semantics
@@ -1105,17 +1203,10 @@ pub(crate) fn restore_runtime_tree_from_frame_bundle(
     bundle: &PersistedWorkspace,
 ) -> Result<(Tree<TileKind>, Vec<NodeKey>), String> {
     let mut repaired = bundle.clone();
-    if let Err(err) = validate_frame_bundle(&repaired) {
-        match err {
-            FrameBundleError::MembershipMismatch { .. } => {
-                repair_manifest_membership(&mut repaired)
-            }
-            _ => return Err(err.to_string()),
-        }
-    }
-    for repair in repair_frame_tab_semantics(&mut repaired) {
-        warn!("frame '{}': {repair}", repaired.name);
-    }
+    let repairs =
+        repair_frame_bundle_before_semantic_read(&mut repaired).map_err(|e| e.to_string())?;
+    let report = FrameTabSemanticsRepairReport::new(repaired.name.clone(), repairs);
+    log_frame_tab_semantics_repair_report(&report);
 
     let mut serde_tree: Tree<serde_json::Value> = serde_json::from_value(
         serde_json::to_value(&repaired.layout.tree).map_err(|e| e.to_string())?,
@@ -3351,9 +3442,44 @@ mod tests {
             &serde_json::to_string(&bundle).expect("serialize bundle"),
         );
 
-        let repairs = repair_named_frame_tab_semantics(&mut app, "persist-repair-semantics")
+        let report = repair_named_frame_tab_semantics(&mut app, "persist-repair-semantics")
             .expect("repair named frame semantics");
-        assert!(!repairs.is_empty());
+        assert!(report.has_repairs());
+        assert!(matches!(
+            report.repairs.first(),
+            Some(FrameTabSemanticsRepair::UpgradedVersion {
+                from: 0,
+                to: FRAME_TAB_SEMANTICS_VERSION
+            })
+        ));
+        assert!(report.repairs.iter().any(|repair| {
+            matches!(
+                repair,
+                FrameTabSemanticsRepair::DroppedDuplicatePaneWithinGroup {
+                    pane_id: 1,
+                    ..
+                }
+            )
+        }));
+        assert!(report.repairs.iter().any(|repair| {
+            matches!(
+                repair,
+                FrameTabSemanticsRepair::DroppedMissingPaneId {
+                    pane_id: 999,
+                    ..
+                }
+            )
+        }));
+        assert!(report.repairs.iter().any(|repair| {
+            matches!(
+                repair,
+                FrameTabSemanticsRepair::RemovedLaterDuplicateMembership {
+                    pane_id: 1,
+                    ..
+                }
+            )
+        }));
+        assert!(report.user_warning.is_some());
 
         let persisted_json = app
             .load_workspace_layout_json("persist-repair-semantics")
@@ -3368,6 +3494,61 @@ mod tests {
         assert_eq!(semantics.tab_groups.len(), 1);
         assert_eq!(semantics.tab_groups[0].pane_ids, vec![1]);
         assert_eq!(semantics.tab_groups[0].active_pane_id, None);
+    }
+
+    #[test]
+    fn repair_named_frame_tab_semantics_reports_manifest_repair_once() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let node_key =
+            app.add_node_and_sync("https://manifest-repair.example".into(), Point2D::zero());
+        let node_uuid = app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_key)
+            .expect("node")
+            .id;
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(PersistedPaneTile::Pane(1));
+        let bundle = PersistedWorkspace {
+            version: 1,
+            name: "manifest-repair-semantics".to_string(),
+            layout: WorkspaceLayout {
+                tree: Tree::new("manifest-repair-tree", root, tiles),
+            },
+            manifest: WorkspaceManifest {
+                panes: BTreeMap::from([(1, PaneContent::NodePane { node_uuid })]),
+                member_node_uuids: BTreeSet::new(),
+            },
+            frame_tab_semantics: None,
+            metadata: WorkspaceMetadata {
+                created_at_ms: 1,
+                updated_at_ms: 1,
+                last_activated_at_ms: None,
+            },
+            workbench_profile: WorkbenchProfile::default(),
+        };
+        app.save_workspace_layout_json(
+            "manifest-repair-semantics",
+            &serde_json::to_string(&bundle).expect("serialize bundle"),
+        );
+
+        let report = repair_named_frame_tab_semantics(&mut app, "manifest-repair-semantics")
+            .expect("repair named frame semantics");
+
+        assert_eq!(
+            report.repairs,
+            vec![FrameTabSemanticsRepair::RepairedManifestMembership]
+        );
+        assert_eq!(
+            report.user_warning,
+            Some(
+                "Frame 'manifest-repair-semantics': repaired semantic tab metadata: repaired manifest membership before semantic tab repair"
+                    .to_string()
+            )
+        );
     }
 
     #[test]

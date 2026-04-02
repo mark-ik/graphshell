@@ -111,10 +111,8 @@ fn handle_pending_frame_save_layout_actions(
 fn handle_pending_repair_frame_tab_semantics(graph_app: &mut GraphBrowserApp) {
     while let Some(frame_name) = graph_app.take_pending_repair_frame_tab_semantics() {
         match persistence_ops::repair_named_frame_tab_semantics(graph_app, &frame_name) {
-            Ok(repairs) => {
-                for repair in repairs {
-                    warn!("frame '{frame_name}': {repair}");
-                }
+            Ok(report) => {
+                persistence_ops::log_frame_tab_semantics_repair_report(&report);
             }
             Err(error) => warn!("Failed to repair frame tab semantics for '{frame_name}': {error}"),
         }
