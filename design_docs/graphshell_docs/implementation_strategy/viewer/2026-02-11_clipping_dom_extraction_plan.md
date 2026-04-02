@@ -28,6 +28,8 @@ Its job is to keep one product lane clear:
 
 This document no longer treats clipping as the owner of broader site/document analysis features such as outbound-link harvesting, selector recipes, or typed extraction artifacts. Those remain valid follow-on ideas, but they must live under the correct downstream lanes.
 
+**Posterity note (2026-04-02):** this plan was intentionally rewritten after the viewer/runtime and enrichment seams were clearer in code. The main change was not feature removal; it was boundary cleanup. Clipping was narrowed to inspect/select/materialize/hand-off, broader document analysis was split into follow-on lanes, and the recommended bridge resolution changed from "maybe explicit node type" toward an explicit clip content facet with `#clip` retained as derived compatibility state.
+
 ---
 
 ## Current Product Shape
