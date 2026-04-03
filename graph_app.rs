@@ -1226,6 +1226,22 @@ impl GraphBrowserApp {
         &mut self.workspace.domain.graph
     }
 
+    /// Graph surface that should currently be rendered.
+    ///
+    /// During Stage F history preview, rendering reads from the detached replay
+    /// graph so live graph truth remains untouched until "Return to Present".
+    pub fn render_graph(&self) -> &Graph {
+        if self.workspace.graph_runtime.history_preview_mode_active {
+            self.workspace
+                .graph_runtime
+                .history_preview_graph
+                .as_ref()
+                .unwrap_or(&self.workspace.domain.graph)
+        } else {
+            &self.workspace.domain.graph
+        }
+    }
+
     pub fn canonical_tags_for_node(&self, key: NodeKey) -> HashSet<String> {
         self.workspace
             .domain

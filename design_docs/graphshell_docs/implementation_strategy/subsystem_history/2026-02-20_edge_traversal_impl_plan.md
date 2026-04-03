@@ -4,7 +4,7 @@
 
 # Edge Traversal Model — Implementation Plan (2026-02-20)
 
-**Status**: In Progress (Stages 0-E complete; Stage F backlog)
+**Status**: Complete / archived implementation record (Stages 0-F closed)
 **Related plans**:
 - `2026-02-22_workbench_workspace_manifest_persistence_plan.md` (archived; manifest migration record)
 - `../../archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` (archived workbench tab semantics rollout record)
@@ -25,14 +25,24 @@ The goal is to avoid a "data model first, UI later" rewrite that cuts across the
 
 ---
 
-## Current Reality (2026-03-10)
+## Current Reality (2026-04-03)
 
-Core traversal semantics are implemented through Stage E:
+This plan is now an implementation record. Ongoing canonical behavior belongs in:
+
+- `edge_traversal_spec.md`
+- `history_timeline_and_temporal_navigation_spec.md`
+- `SUBSYSTEM_HISTORY.md`
+
+Core traversal semantics and the planned temporal-navigation slice are implemented to the
+shipped Stage F scope:
 
 - repeated traversals are preserved via traversal records
 - edge semantics are split into durable edge payload + temporal traversal history
 - traversal events are persisted and replayable
 - History Manager UI (Timeline + Dissolved) is active with clear/export and auto-curation controls
+- timeline preview mode can be entered/exited from the History Manager with banner + scrubber-style controls
+- replay-to-timestamp builds and renders a detached preview graph instead of mutating live graph state
+- preview isolation diagnostics and return-to-present bookkeeping are active
 
 **Payload-first single-edge model landed (2026-03-10)**: The Stage A goal of replacing
 `EdgeType` selectors with a traversal-capable payload is now fully realised. `EdgePayload`
@@ -45,17 +55,21 @@ paths (`apply.rs`, persistence WAL, `graph_app.rs`, `egui_adapter.rs`, `render/m
 updated. **Behaviour note**: removing a semantic kind from an edge reports `1` for one
 merged edge-kind removal, not the old duplicate-edge count.
 
-Remaining gap is Stage F temporal navigation hardening/polish work.
+Explicit Stage F scope decision:
+
+- ghost rendering was cut from the required done gate rather than kept open as a blocker
+- the shippable closeout is detached replay + isolation + in-pane preview banner/scrubber + return-to-present
 
 ---
 
-## Progress Snapshot (2026-03-06)
+## Progress Snapshot (2026-04-03)
 
 Implementation status:
 
-- **Stages 0-E are complete**
-- Active stage: **Stage F backlog**
+- **Stages 0-F are complete**
 - Completed stages: **Stage 0 (Design Lock), Stage A (Data Model), Stage B (WAL Integration), Stage C (Rendering), Stage D (History Panel PoC), Stage E (History Manager)**
+- **Stage F complete scope**: detached replay rendering, preview isolation, replay cursor/scrubber controls, return-to-present
+- **Archived outcome**: use the subsystem specs for future semantic changes rather than reopening this plan doc
 
 ### Stage D completion summary (2026-02-22):
 
@@ -103,8 +117,6 @@ Delivered (UI consolidation slice):
 Notes:
 - Legacy `Traversal History` panel state/render path has been removed from runtime UI flow.
 - Stage D PoC remains documented as historical context, but is no longer an active runtime surface.
-
-Update this section when Stage E work begins.
 
 ---
 
@@ -534,9 +546,8 @@ Minimum shippable boundary (Stage E):
 
 ### Stage F: Temporal Navigation (Preview Mode)
 
-**Backlog status**: Tracked staged deliverable (promoted from distant concept 2026-02-25).
-**Prerequisite**: Stage E maturity — history manager archival/dissolution behaviors and tiered
-storage must be stable and test-covered before Stage F design work begins.
+**Status**: COMPLETE (2026-04-03).
+**Prerequisite**: satisfied and closed.
 
 ### Stage F groundwork update (2026-03-06)
 
@@ -546,7 +557,7 @@ Delivered (foundational index slice):
 3. Added unit coverage for persistence mapping and app-level exposure.
 
 Notes:
-- This is groundwork only; replay-to-timestamp semantics and full preview-state replay remain in Stage F remaining scope.
+- This groundwork is no longer speculative; it is part of the active replay path used by preview mode.
 
 ### Stage F incremental implementation update (2026-03-06)
 
@@ -555,10 +566,17 @@ Delivered (first executable replay slice):
 2. Wired History Timeline replay advance to consume timeline index entries and build a detached preview graph state.
 3. Added preview baseline snapshot capture on preview enter and explicit return-to-present restore path on preview exit.
 4. Added validation coverage for replay subset behavior and detached preview replay without live graph mutation.
+5. Added History Manager preview controls (`Enter Preview`, `Return to Present`, replay step controls) and preview health/diagnostics surfacing.
 
-Remaining Stage F scope:
-- Complete preview-mode side-effect gating audit across any remaining runtime/effect paths outside current `gui_frame` suppression points.
-- Timeline slider/ghost rendering polish.
+Delivered closeout slice:
+
+- preview-mode intent blocking at the reducer boundary
+- detached preview graph state and replay cursor bookkeeping
+- replay diagnostics channels and health summary reporting
+- `gui_frame`/post-render suppression of major runtime and persistence side effects
+- preview rendering now reads from the detached history-preview graph
+- History Manager preview controls now include a visible preview banner and scrubber-style slider
+- explicit ghost-rendering requirement removed from the Stage F done gate
 
 Preview-effect isolation progress (2026-03-06 follow-up):
 - `gui_frame` now suppresses lifecycle reconcile/apply while preview is active.
@@ -582,8 +600,8 @@ Deliverables:
 1. timeline index (`timestamp -> WAL position`)
 2. `replay_to_timestamp(...)`
 3. preview-only graph state
-4. timeline slider + "Return to present"
-5. ghost rendering in preview mode
+4. explicit preview controls + "Return to present"
+5. final scrubber/banner render surface
 
 #### Preview-Mode Effect Isolation Contract
 
@@ -611,25 +629,30 @@ Non-goals (Stage F):
 - Scrubber UX polish or ghost visual fidelity (secondary to isolation correctness)
 - Exporting timeline snapshots (out of scope; belongs to a future export deliverable)
 
-Tasks:
+Final task closure:
 
 - [x] Build timeline index from WAL
 - [x] Implement replay-to-timestamp from nearest snapshot
 - [x] Add preview state container
-- [ ] Gate persistence/webview side effects while preview is active
-- [ ] Add timeline UI controls and ghost rendering
+- [x] Add reducer/runtime preview isolation and major side-effect suppression paths
+- [x] Add initial preview enter/exit and replay step controls in History Manager
+- [x] Route graph rendering through the detached preview graph while preview is active
+- [x] Land the canonical scrubber/banner UX from the Stage F surface spec
+- [x] Remove ghost rendering from the required Stage F done gate
 
 Stage F validation:
 
-- `test_replay_to_timestamp_produces_subset_of_full_graph`
-- `test_preview_mode_does_not_write_wal`
-- `test_close_timeline_preview_restores_live_state`
-- headed slider/return-to-present flow
+- `history_preview_blocks_graph_mutations_and_records_isolation_violation`
+- `history_replay_advance_and_reset_follow_cursor_contract`
+- `history_preview_replay_builds_detached_graph_without_mutating_live_state`
+- `history_preview_replay_does_not_append_persistence_log_entries`
+- `history_preview_and_replay_intents_emit_timeline_channels`
+- headed scrubber/return-to-present flow
 
 Minimum shippable boundary (Stage F):
 
-- preview-state isolation + side-effect suppression correctness ships before timeline UX polish
-- scrubber/ghost UI polish is secondary to proving non-live mode cannot mutate persistence/runtime
+- detached replay correctness + preview isolation + render-path hookup + visible preview controls
+- ghost rendering intentionally excluded from the required Stage F boundary
 
 ---
 
@@ -723,3 +746,10 @@ Mitigation:
 - Reworked into architecture-first staged delivery plan aligned with current module boundaries.
 - Made reducer/render/persistence/desktop ownership explicit.
 - Preserved original feature scope while improving sequencing for lower migration risk.
+
+### 2026-04-03 — Stage F Closure And Archive
+
+- Closed Stage F by wiring preview rendering to the detached replay graph.
+- Replaced button-only preview controls with a banner + scrubber-style replay surface in History Manager.
+- Explicitly cut ghost rendering from the required Stage F boundary.
+- Archived this document as an implementation record; future semantic changes belong in the subsystem specs.

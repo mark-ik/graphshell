@@ -198,9 +198,11 @@ The following visual affordances mark the app as being in preview:
 
 ### 6.1 Required
 
-- **Preview banner** — a persistent topbar/status stripe labeling the current
-  graph state as "Viewing history" and showing the timestamp of the preview
-  position. Must be visible without scrolling on any canvas size.
+- **Preview banner** — a persistent preview-status banner labeling the current
+  graph state as "Viewing history" and showing the timestamp/step of the
+  preview position. It may live in the History Manager pane or a detached
+  overlay, but it must remain visible while preview is active without requiring
+  row-by-row inspection of the timeline list.
 - **Scrubber timeline** — a horizontal scrubber bar in the History Manager pane
   (or detached overlay) showing position within the timeline index.
 - **Return to present button** — a labelled action target that emits

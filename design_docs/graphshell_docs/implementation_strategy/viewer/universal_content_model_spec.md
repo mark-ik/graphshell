@@ -10,7 +10,7 @@
 - `viewer_presentation_and_fallback_spec.md`
 - `2026-02-24_universal_content_model_plan.md` — implementation plan with done gates
 - `2026-03-08_servo_text_editor_architecture_plan.md` — `viewer:text-editor` selection rule and edit-intent policy
-- `2026-03-08_simple_document_engine_target_spec.md` — `SimpleDocument` / `EngineTarget` / `RenderPolicy` canonical contract (UCM Steps 11–12)
+- `../../technical_architecture/2026-03-29_middlenet_engine_spec.md` — current architectural authority for the shared document-model / adaptation direction behind UCM Track B; extract narrower `SimpleDocument` / target contracts from here if needed
 - `../system/register/canvas_registry_spec.md`
 - `../../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md` — core/host split for node fields (§ below)
 - `../../TERMINOLOGY.md` — `Viewer`, `ViewerRegistry`, `TileRenderMode`, `AddressKind`

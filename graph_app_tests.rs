@@ -2881,6 +2881,21 @@ fn history_preview_replay_builds_detached_graph_without_mutating_live_state() {
 }
 
 #[test]
+fn history_preview_render_graph_prefers_detached_preview_graph() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
+    let _b = app.add_node_and_sync("https://b.example".into(), Point2D::new(32.0, 0.0));
+
+    app.apply_reducer_intents([GraphIntent::EnterHistoryTimelinePreview]);
+    let mut detached = app.workspace.domain.graph.clone();
+    detached.remove_node(a);
+    app.workspace.graph_runtime.history_preview_graph = Some(detached);
+
+    assert_eq!(app.domain_graph().node_count(), 2);
+    assert_eq!(app.render_graph().node_count(), 1);
+}
+
+#[test]
 fn history_preview_replay_does_not_append_persistence_log_entries() {
     let dir = TempDir::new().expect("temp dir");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());

@@ -222,10 +222,10 @@ misreported as complete.
 | WAL-based traversal logging | ✅ Done | `subsystem_history/edge_traversal_spec.md` |
 | History Manager pane (Timeline + Dissolved tabs) | ✅ Done | Canonical tool pane; legacy standalone nav history panel retired; see `subsystem_history/2026-02-20_edge_traversal_impl_plan.md` |
 | Timeline visualization of traversals | ✅ Done | Recent traversal timeline is active in History Manager |
-| Temporal navigation / time-travel preview | 📋 Planned | |
-| Traversal scrubber (timeline replay) | 📋 Planned | |
-| Graph state snapshots for recovery | 📋 Planned | |
-| "Return to present" from temporal navigation | 📋 Planned | |
+| Temporal navigation / time-travel preview | ✅ Done | Detached replay graph + preview isolation + History Manager preview controls |
+| Traversal scrubber (timeline replay) | ✅ Done | History Manager preview slider / replay cursor surface |
+| Graph state snapshots for recovery | ✅ Done | Preview baseline snapshot + replay-to-timestamp recovery path |
+| "Return to present" from temporal navigation | ✅ Done | Explicit preview exit restores live graph snapshot |
 | Back / forward within node pane | ✅ Done | WebView history |
 | Intra-node navigation separate from edge history | ✅ Done | Node history vs graph edge traversals |
 | Stop / cancel in-progress page load | 📋 Planned | Focused viewer control; distinct from reload |

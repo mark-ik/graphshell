@@ -54,9 +54,7 @@ pub(super) fn apply_search_node_visuals(
     let theme_tokens = &theme_resolution.tokens;
     let highlighted_endpoint_color = theme_tokens.edge_tokens.selection.foreground_color;
     let colors: Vec<(NodeKey, Color32)> = app
-        .workspace
-        .domain
-        .graph
+        .render_graph()
         .nodes()
         .map(|(key, node)| {
             let mut color = lifecycle_color(&presentation, node.lifecycle);
@@ -146,9 +144,9 @@ pub(super) fn hovered_adjacency_set(
 ) -> HashSet<NodeKey> {
     hovered
         .map(|hover_key| {
-            app.domain_graph()
+            app.render_graph()
                 .out_neighbors(hover_key)
-                .chain(app.domain_graph().in_neighbors(hover_key))
+                .chain(app.render_graph().in_neighbors(hover_key))
                 .chain(std::iter::once(hover_key))
                 .collect()
         })
@@ -284,7 +282,7 @@ pub(super) fn viewport_culled_graph(
     let screen_rect = effective_graph_screen_rect(ui.max_rect(), app)?;
     let canvas_rect = canvas_rect_from_view_frame(screen_rect, *frame)?;
 
-    viewport_culled_graph_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
+    viewport_culled_graph_for_canvas_rect(app.render_graph(), canvas_rect)
 }
 
 pub(super) fn graph_visible_screen_rects(
@@ -352,7 +350,7 @@ pub(super) fn node_bounds_for_keys(
     let mut max_y = f32::NEG_INFINITY;
 
     for key in keys {
-        if let Some(position) = app.domain_graph().node_projected_position(key) {
+        if let Some(position) = app.render_graph().node_projected_position(key) {
             min_x = min_x.min(position.x);
             max_x = max_x.max(position.x);
             min_y = min_y.min(position.y);
@@ -392,14 +390,14 @@ pub(super) fn evaluate_active_view_filter(
     view_id: GraphViewId,
 ) -> Option<FilterEvaluationSummary> {
     active_view_filter_expr(app, view_id)
-        .map(|expr| evaluate_filter_result(app.domain_graph(), expr))
+        .map(|expr| evaluate_filter_result(app.render_graph(), expr))
 }
 
 pub(super) fn filtered_graph_for_visible_nodes(
     app: &GraphBrowserApp,
     visible_nodes: &HashSet<NodeKey>,
 ) -> crate::graph::Graph {
-    let mut filtered = app.domain_graph().clone();
+    let mut filtered = app.render_graph().clone();
     let to_remove: Vec<NodeKey> = filtered
         .nodes()
         .map(|(key, _)| key)
@@ -434,7 +432,7 @@ pub(super) fn visible_nodes_for_view_filters(
     let view_state = app.workspace.graph_runtime.views.get(&view_id);
     let tombstones_hidden = view_state.is_some_and(|v| !v.tombstones_visible);
     let tombstone_filter: Option<HashSet<NodeKey>> = tombstones_hidden.then(|| {
-        app.domain_graph()
+        app.render_graph()
             .nodes()
             .filter(|(_, node)| node.lifecycle != NodeLifecycle::Tombstone)
             .map(|(key, _)| key)

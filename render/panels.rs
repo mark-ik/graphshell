@@ -25,8 +25,8 @@ use crate::shell::desktop::runtime::registries::{
 use crate::shell::desktop::workbench::tile_compositor::CompositorFrameActivitySummary;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
-use super::reducer_bridge::apply_reducer_graph_intents_hardened;
 use super::graph_info::{render_scene_surface_in_ui, resolve_scene_surface_view_id};
+use super::reducer_bridge::apply_reducer_graph_intents_hardened;
 
 fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::GraphViewId> {
     if let Some(view_id) = app.workspace.graph_runtime.focused_view {
@@ -183,7 +183,8 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
     if dynamics_id != previous_dynamics_id {
         apply_node_dynamics_profile_selection(app, &dynamics_id);
     }
-    let dynamics_resolution = crate::registries::atomic::lens::resolve_physics_profile(&dynamics_id);
+    let dynamics_resolution =
+        crate::registries::atomic::lens::resolve_physics_profile(&dynamics_id);
     ui.small(format!(
         "{}: {}",
         dynamics_resolution.display_name, dynamics_resolution.summary
@@ -599,7 +600,12 @@ pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserAp
                     ("Structure", ClipInspectorFilter::Structure),
                     ("Media", ClipInspectorFilter::Media),
                 ] {
-                    ui.selectable_value(&mut state.filter, filter, label);
+                    let count = state
+                        .captures
+                        .iter()
+                        .filter(|capture| clip_capture_matches_filter(capture, filter))
+                        .count();
+                    ui.selectable_value(&mut state.filter, filter, format!("{label} ({count})"));
                 }
             });
             ui.separator();
@@ -615,12 +621,22 @@ pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserAp
                 })
                 .collect::<Vec<_>>();
 
+            let hovered_capture = state.pointer_stack.get(state.pointer_stack_index);
+
             if filtered_indices.is_empty() {
                 ui.label("No page elements match the current filter.");
             } else {
                 if state.selected_index >= filtered_indices.len() {
                     state.selected_index = 0;
                 }
+                ui.small(format!(
+                    "{} matching candidates out of {} extracted{}",
+                    filtered_indices.len(),
+                    state.captures.len(),
+                    hovered_capture
+                        .map(|_| format!(" • {} hovered stack items", state.pointer_stack.len()))
+                        .unwrap_or_default()
+                ));
                 ui.horizontal(|ui| {
                     if ui.button("Prev").clicked() && state.selected_index > 0 {
                         state.selected_index -= 1;
@@ -639,6 +655,18 @@ pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserAp
                         action = Some(InspectorAction::ClipSelected(
                             state.captures[filtered_indices[state.selected_index]].clone(),
                         ));
+                    }
+                    let hovered_match_index = hovered_capture.and_then(|hovered| {
+                        filtered_indices.iter().position(|capture_index| {
+                            clip_capture_identity_matches(&state.captures[*capture_index], hovered)
+                        })
+                    });
+                    if ui
+                        .add_enabled(hovered_match_index.is_some(), egui::Button::new("Use Hovered"))
+                        .clicked()
+                        && let Some(index) = hovered_match_index
+                    {
+                        state.selected_index = index;
                     }
                     if ui
                         .button(format!("Clip Filtered ({})", filtered_indices.len()))
@@ -667,16 +695,15 @@ pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserAp
                                 {
                                     let capture = &state.captures[*capture_index];
                                     let selected = visible_index == state.selected_index;
-                                    let label = format!(
-                                        "{} [{}]",
-                                        capture.clip_title,
-                                        capture.tag_name
-                                    );
+                                    let label = clip_capture_candidate_label(capture);
                                     if ui.selectable_label(selected, label).clicked() {
                                         state.selected_index = visible_index;
                                     }
                                     if !capture.text_excerpt.is_empty() {
                                         ui.small(ellipsis(&capture.text_excerpt, 88));
+                                    }
+                                    if let Some(dom_path) = capture.dom_path.as_deref() {
+                                        ui.small(ellipsis(dom_path, 72));
                                     }
                                     ui.add_space(4.0);
                                 }
@@ -689,11 +716,28 @@ pub fn render_clip_inspector_panel(ctx: &egui::Context, app: &mut GraphBrowserAp
                         ui.separator();
                         ui.strong(&selected.clip_title);
                         ui.small(format!("Tag: <{}>", selected.tag_name));
+                        ui.small(format!("Source: {}", ellipsis(&selected.source_url, 96)));
+                        if let Some(page_title) = selected.page_title.as_deref()
+                            && !page_title.trim().is_empty()
+                        {
+                            ui.small(format!("Page: {}", ellipsis(page_title, 72)));
+                        }
                         if let Some(href) = selected.href.as_ref() {
                             ui.small(format!("Link: {href}"));
                         }
                         if let Some(image_url) = selected.image_url.as_ref() {
                             ui.small(format!("Media: {image_url}"));
+                        }
+                        if let Some(dom_path) = selected.dom_path.as_deref() {
+                            ui.small(format!("DOM: {}", ellipsis(dom_path, 104)));
+                        }
+                        if let Some(hovered) = hovered_capture {
+                            ui.add_space(6.0);
+                            ui.small(format!(
+                                "Hovered stack target: {} [{}]",
+                                hovered.clip_title,
+                                hovered.tag_name
+                            ));
                         }
                         ui.add_space(6.0);
                         ui.label(ellipsis(
@@ -743,6 +787,43 @@ fn ellipsis(value: &str, max_chars: usize) -> String {
         out.push(ch);
     }
     out
+}
+
+fn clip_capture_identity_matches(
+    left: &crate::app::ClipCaptureData,
+    right: &crate::app::ClipCaptureData,
+) -> bool {
+    left.dom_path == right.dom_path
+        && left.source_url == right.source_url
+        && left.tag_name.eq_ignore_ascii_case(&right.tag_name)
+        && left.clip_title == right.clip_title
+}
+
+fn clip_capture_candidate_label(capture: &crate::app::ClipCaptureData) -> String {
+    let mut badges = Vec::new();
+    if capture.href.is_some() {
+        badges.push("link");
+    }
+    if capture.image_url.is_some()
+        || [
+            "img", "picture", "video", "audio", "svg", "canvas", "figure",
+        ]
+        .iter()
+        .any(|tag| capture.tag_name.eq_ignore_ascii_case(tag))
+    {
+        badges.push("media");
+    }
+
+    if badges.is_empty() {
+        format!("{} [{}]", capture.clip_title, capture.tag_name)
+    } else {
+        format!(
+            "{} [{} · {}]",
+            capture.clip_title,
+            capture.tag_name,
+            badges.join(", ")
+        )
+    }
 }
 
 pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> Vec<GraphIntent> {
@@ -882,47 +963,82 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 "Auto-curation keeps latest {} timeline entries.",
                 auto_curate_keep
             ));
+            let mut chronological_index = app.history_timeline_index_entries(timeline_total.max(1));
+            chronological_index.sort_by(|a, b| {
+                a.timestamp_ms
+                    .cmp(&b.timestamp_ms)
+                    .then_with(|| a.log_position.cmp(&b.log_position))
+            });
             if health.preview_mode_active {
                 let theme_tokens =
                     phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
+                let current_cursor = health.replay_cursor.unwrap_or(0).min(timeline_total);
+                let mut scrubber_cursor = current_cursor;
+                let preview_step_label =
+                    history_preview_step_label(&chronological_index, scrubber_cursor);
                 ui.add_space(4.0);
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        egui::RichText::new("Viewing history")
-                            .color(theme_tokens.command_notice)
-                            .strong(),
-                    );
-                    if ui.button("Return to Present").clicked() {
-                        intents.push(GraphIntent::ExitHistoryTimelinePreview);
-                    }
-                    ui.separator();
-                    ui.small("Replay:");
-                    if ui.button("Reset").clicked() {
-                        intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
-                            total_steps: timeline_total,
-                        });
-                        intents.push(GraphIntent::HistoryTimelineReplayReset);
-                    }
-                    if ui.button("+1").clicked() {
-                        intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
-                            total_steps: timeline_total,
-                        });
-                        intents.push(GraphIntent::HistoryTimelineReplayAdvance { steps: 1 });
-                    }
-                    if ui.button("+10").clicked() {
-                        intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
-                            total_steps: timeline_total,
-                        });
-                        intents.push(GraphIntent::HistoryTimelineReplayAdvance { steps: 10 });
-                    }
-                    if ui.button("Finish").clicked() {
-                        intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
-                            total_steps: timeline_total,
-                        });
-                        intents.push(GraphIntent::HistoryTimelineReplayAdvance {
-                            steps: timeline_total.max(1),
-                        });
-                    }
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            egui::RichText::new("Viewing history")
+                                .color(theme_tokens.command_notice)
+                                .strong(),
+                        );
+                        ui.separator();
+                        ui.small(preview_step_label);
+                        ui.separator();
+                        if ui.button("Return to Present").clicked() {
+                            intents.push(GraphIntent::ExitHistoryTimelinePreview);
+                        }
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.small("Present");
+                        let slider = egui::Slider::new(&mut scrubber_cursor, 0..=timeline_total)
+                            .show_value(false);
+                        let response = ui.add_enabled(timeline_total > 0, slider);
+                        if response.changed() {
+                            intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
+                                total_steps: timeline_total,
+                            });
+                            if scrubber_cursor == 0 {
+                                intents.push(GraphIntent::HistoryTimelineReplayReset);
+                            } else if scrubber_cursor <= current_cursor {
+                                intents.push(GraphIntent::HistoryTimelineReplayReset);
+                                intents.push(GraphIntent::HistoryTimelineReplayAdvance {
+                                    steps: scrubber_cursor,
+                                });
+                            } else {
+                                intents.push(GraphIntent::HistoryTimelineReplayAdvance {
+                                    steps: scrubber_cursor.saturating_sub(current_cursor),
+                                });
+                            }
+                        }
+                        ui.small("History");
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button("Reset").clicked() {
+                            intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
+                                total_steps: timeline_total,
+                            });
+                            intents.push(GraphIntent::HistoryTimelineReplayReset);
+                        }
+                        if ui.button("Step +1").clicked() {
+                            intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
+                                total_steps: timeline_total,
+                            });
+                            intents.push(GraphIntent::HistoryTimelineReplayAdvance { steps: 1 });
+                        }
+                        if ui.button("Jump to Oldest").clicked() {
+                            intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
+                                total_steps: timeline_total,
+                            });
+                            intents.push(GraphIntent::HistoryTimelineReplayAdvance {
+                                steps: timeline_total.max(1),
+                            });
+                        }
+                    });
                 });
                 ui.add_space(4.0);
             } else if timeline_total > 0 {
@@ -1327,6 +1443,44 @@ fn render_history_manager_rows(
             ui.add_space(2.0);
         }
     });
+}
+
+fn history_preview_step_label(
+    chronological_index: &[crate::services::persistence::TimelineIndexEntry],
+    cursor: usize,
+) -> String {
+    if cursor == 0 {
+        return "Present baseline".to_string();
+    }
+
+    let total_steps = chronological_index.len();
+    let Some(target) = chronological_index.get(cursor.saturating_sub(1)) else {
+        return format!("Step {cursor}/{total_steps}");
+    };
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(target.timestamp_ms);
+
+    format!(
+        "Step {cursor}/{total_steps} • {}",
+        relative_time_label(now_ms.saturating_sub(target.timestamp_ms))
+    )
+}
+
+fn relative_time_label(elapsed_ms: u64) -> String {
+    if elapsed_ms < 1_000 {
+        "just now".to_string()
+    } else if elapsed_ms < 60_000 {
+        format!("{}s ago", elapsed_ms / 1_000)
+    } else if elapsed_ms < 3_600_000 {
+        format!("{}m ago", elapsed_ms / 60_000)
+    } else if elapsed_ms < 86_400_000 {
+        format!("{}h ago", elapsed_ms / 3_600_000)
+    } else {
+        format!("{}d ago", elapsed_ms / 86_400_000)
+    }
 }
 
 const HISTORY_MANAGER_ACTIVITY_FRAME_WINDOW: usize = 8;

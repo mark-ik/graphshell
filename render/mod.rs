@@ -9,7 +9,8 @@
 
 use crate::app::{
     ChooseFramePickerMode, GraphBrowserApp, GraphIntent, SearchDisplayMode, SelectionUpdateMode,
-    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewAction, WorkbenchIntent,
+    SimulateBehaviorPreset, UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewAction,
+    WorkbenchIntent,
     graph_layout::{GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT},
 };
 use crate::graph::NodeKey;
@@ -18,7 +19,7 @@ use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape}
 use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
 use crate::graph::physics::apply_graph_physics_extensions;
 use crate::graph::scene_runtime::{
-    SceneRegionDragMode, SceneRegionDragState, apply_scene_runtime_pass,
+    SceneCollisionPolicy, SceneRegionDragMode, SceneRegionDragState, apply_scene_runtime_pass,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -58,8 +59,9 @@ use canvas_input::{
 };
 use canvas_overlays::{
     draw_frame_affinity_backdrops, draw_highlighted_edge_overlay, draw_hovered_edge_tooltip,
-    draw_hovered_node_tooltip, draw_scene_runtime_backdrops, edge_endpoints_at_pointer,
-    frame_anchor_at_pointer, scene_region_at_pointer, scene_region_resize_handle_at_pointer,
+    draw_hovered_node_tooltip, draw_scene_region_action_overlay, draw_scene_runtime_backdrops,
+    draw_scene_simulate_overlays, edge_endpoints_at_pointer, frame_anchor_at_pointer,
+    scene_region_at_pointer, scene_region_resize_handle_at_pointer,
 };
 #[cfg(test)]
 use canvas_visuals::filtered_graph_for_search;
@@ -73,8 +75,8 @@ use graph_info::{draw_graph_info, requested_layout_algorithm_id, should_apply_la
 pub(crate) use panels::history_manager_entry_limit_for_tests;
 pub use panels::{
     render_clip_inspector_panel, render_help_panel, render_history_manager_in_ui,
-    render_navigator_tool_pane_in_ui, render_settings_node_viewer_in_ui,
-    render_scene_overlay_panel, render_settings_overlay_panel,
+    render_navigator_tool_pane_in_ui, render_scene_overlay_panel,
+    render_settings_node_viewer_in_ui, render_settings_overlay_panel,
     render_settings_tool_pane_in_ui_with_control_panel,
 };
 use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
@@ -227,11 +229,7 @@ fn should_clear_selection_on_background_click(
         && !lasso_active
 }
 
-fn pointer_canvas_pos(
-    ui: &Ui,
-    metadata_id: egui::Id,
-    screen_pos: egui::Pos2,
-) -> egui::Pos2 {
+fn pointer_canvas_pos(ui: &Ui, metadata_id: egui::Id, screen_pos: egui::Pos2) -> egui::Pos2 {
     ui.ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
         .map(|meta| meta.screen_to_canvas_pos(screen_pos))
@@ -257,12 +255,10 @@ fn apply_active_scene_region_drag(
         return false;
     };
     let pointer_canvas = pointer_canvas_pos(ui, metadata_id, pointer);
-    app.workspace.graph_runtime.active_scene_region_drag = Some(
-        SceneRegionDragState {
-            last_pointer_canvas_pos: pointer_canvas,
-            ..drag
-        },
-    );
+    app.workspace.graph_runtime.active_scene_region_drag = Some(SceneRegionDragState {
+        last_pointer_canvas_pos: pointer_canvas,
+        ..drag
+    });
     match drag.mode {
         SceneRegionDragMode::Move => {
             let delta = pointer_canvas - drag.last_pointer_canvas_pos;
@@ -279,6 +275,40 @@ fn apply_active_scene_region_drag(
 
 fn scene_arrange_mode_active(app: &GraphBrowserApp, view_id: crate::app::GraphViewId) -> bool {
     app.graph_view_scene_mode(view_id) == crate::app::SceneMode::Arrange
+}
+
+fn simulate_scene_collision_policy(
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    base: SceneCollisionPolicy,
+) -> SceneCollisionPolicy {
+    if app.graph_view_scene_mode(view_id) != crate::app::SceneMode::Simulate {
+        return base;
+    }
+
+    match app.graph_view_simulate_behavior_preset(view_id) {
+        SimulateBehaviorPreset::Float => SceneCollisionPolicy {
+            node_separation_enabled: true,
+            viewport_containment_enabled: true,
+            node_padding: base.node_padding.max(6.0),
+            region_effect_scale: base.region_effect_scale.max(0.8),
+            containment_response_scale: base.containment_response_scale.max(0.45),
+        },
+        SimulateBehaviorPreset::Packed => SceneCollisionPolicy {
+            node_separation_enabled: true,
+            viewport_containment_enabled: true,
+            node_padding: base.node_padding.max(12.0),
+            region_effect_scale: base.region_effect_scale.max(1.1),
+            containment_response_scale: base.containment_response_scale.max(1.0),
+        },
+        SimulateBehaviorPreset::Magnetic => SceneCollisionPolicy {
+            node_separation_enabled: true,
+            viewport_containment_enabled: true,
+            node_padding: base.node_padding.max(8.0),
+            region_effect_scale: base.region_effect_scale.max(1.85),
+            containment_response_scale: base.containment_response_scale.max(0.7),
+        },
+    }
 }
 
 fn node_key_or_emit_ambiguous_hit(node_key: Option<NodeKey>) -> Option<NodeKey> {
@@ -510,7 +540,7 @@ pub fn render_graph_in_ui_collect_actions(
     let graph_for_render = culled_graph
         .as_ref()
         .or(filtered_graph.as_ref())
-        .unwrap_or(&app.workspace.domain.graph);
+        .unwrap_or(app.render_graph());
 
     // Compute the current culled key set for change detection.
     let culled_node_keys: Option<HashSet<NodeKey>> = culled_graph
@@ -735,7 +765,11 @@ pub fn render_graph_in_ui_collect_actions(
         .get(&view_id)
         .map(|v| v.resolved_physics_profile().scene_collision_policy())
     {
-        apply_scene_runtime_pass(app, view_id, collision_policy);
+        apply_scene_runtime_pass(
+            app,
+            view_id,
+            simulate_scene_collision_policy(app, view_id, collision_policy),
+        );
     }
 
     app.workspace.graph_runtime.hovered_graph_node = pointer_in_visible_graph_region
@@ -829,10 +863,10 @@ pub fn render_graph_in_ui_collect_actions(
     };
     let scene_drag_moved = if arrange_scene_active
         && app
-        .workspace
-        .graph_runtime
-        .active_scene_region_drag
-        .is_some_and(|drag| drag.view_id == view_id)
+            .workspace
+            .graph_runtime
+            .active_scene_region_drag
+            .is_some_and(|drag| drag.view_id == view_id)
     {
         apply_active_scene_region_drag(ui, app, metadata_id)
     } else {
@@ -859,7 +893,7 @@ pub fn render_graph_in_ui_collect_actions(
         && app.workspace.graph_runtime.hovered_scene_region.is_none()
         && scene_resize_handle_hit.is_none()
         && let Some(frame_anchor) = frame_anchor_at_pointer(ui, app, metadata_id)
-        && let Some(frame_node) = app.domain_graph().get_node(frame_anchor)
+        && let Some(frame_node) = app.render_graph().get_node(frame_anchor)
     {
         handle_frame_backdrop_secondary_click(
             ui.ctx(),
@@ -897,8 +931,10 @@ pub fn render_graph_in_ui_collect_actions(
         }
     }
     draw_highlighted_edge_overlay(ui, app, response.id, metadata_id);
+    draw_scene_simulate_overlays(ui, app, view_id, metadata_id);
     draw_hovered_node_tooltip(ui, app, response.id, metadata_id);
     draw_hovered_edge_tooltip(ui, app, response.id, metadata_id);
+    let scene_action_overlay = draw_scene_region_action_overlay(ui, app, view_id, metadata_id);
 
     // Custom navigation handling (Zoom/Pan/Fit)
     // metadata_id targets the same slot egui_graphs uses, so writes are visible.
@@ -962,6 +998,7 @@ pub fn render_graph_in_ui_collect_actions(
         && app.workspace.graph_runtime.hovered_graph_node.is_none()
         && app.workspace.graph_runtime.hovered_scene_region.is_none()
         && scene_resize_handle_hit.is_none()
+        && !scene_action_overlay.pointer_over
         && !radial_open
         && lasso.action.is_none();
     if edge_click_eligible && let Some((from, to)) = edge_endpoints_at_pointer(ui, app, metadata_id)
@@ -972,12 +1009,13 @@ pub fn render_graph_in_ui_collect_actions(
         && app.workspace.graph_runtime.hovered_graph_node.is_none()
         && app.workspace.graph_runtime.hovered_scene_region.is_none()
         && scene_resize_handle_hit.is_none()
+        && !scene_action_overlay.pointer_over
         && !radial_open
         && lasso.action.is_none();
     if frame_backdrop_click_eligible
         && ui.input(|i| i.pointer.primary_clicked())
         && let Some(frame_anchor) = frame_anchor_at_pointer(ui, app, metadata_id)
-        && let Some(frame_node) = app.domain_graph().get_node(frame_anchor)
+        && let Some(frame_node) = app.render_graph().get_node(frame_anchor)
     {
         let frame_name = frame_node.title.clone();
         actions.push(GraphAction::SelectFrame(frame_name));
@@ -988,7 +1026,7 @@ pub fn render_graph_in_ui_collect_actions(
                 .button_double_clicked(egui::PointerButton::Primary)
         })
         && let Some(frame_anchor) = frame_anchor_at_pointer(ui, app, metadata_id)
-        && let Some(frame_node) = app.domain_graph().get_node(frame_anchor)
+        && let Some(frame_node) = app.render_graph().get_node(frame_anchor)
     {
         let frame_name = frame_node.title.clone();
         if let Some(member_key) = app
@@ -1022,11 +1060,14 @@ pub fn render_graph_in_ui_collect_actions(
     if node_or_frame_primary_click {
         app.set_graph_view_selected_scene_region(view_id, None);
     }
-    let graph_handled_primary_click =
-        scene_handled_primary_click || actions.iter().any(action_handles_primary_click);
+    let graph_handled_primary_click = scene_handled_primary_click
+        || scene_action_overlay.action_invoked
+        || actions.iter().any(action_handles_primary_click);
     let clear_selection_on_background_click = ui.input(|i| {
         should_clear_selection_on_background_click(
-            pointer_in_visible_graph_region && i.pointer.primary_clicked(),
+            pointer_in_visible_graph_region
+                && i.pointer.primary_clicked()
+                && !scene_action_overlay.pointer_over,
             i.modifiers,
             app.workspace.graph_runtime.hovered_graph_node,
             graph_handled_primary_click,
@@ -1047,7 +1088,12 @@ pub fn render_graph_in_ui_collect_actions(
     if let Some(zoom) = custom_zoom {
         actions.push(GraphAction::Zoom(zoom));
     }
-    if clear_selection_on_background_click || scene_handled_primary_click || scene_drag_moved || !actions.is_empty() {
+    if clear_selection_on_background_click
+        || scene_handled_primary_click
+        || scene_drag_moved
+        || scene_action_overlay.action_invoked
+        || !actions.is_empty()
+    {
         set_focused_view_with_transition(app, Some(view_id));
     }
     actions
@@ -1178,21 +1224,28 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     // the node whose egui_graphs position diverged from app.workspace.domain.graph this frame.
     // This is the node the user is physically dragging.
     let focused_selection = app.focused_selection().clone();
+    let selection_drag_deltas: HashMap<NodeKey, egui::Vec2> =
+        if app.workspace.graph_runtime.is_interacting && !focused_selection.is_empty() {
+            layout_positions
+                .iter()
+                .filter_map(|(key, egui_pos)| {
+                    if !focused_selection.contains(key) {
+                        return None;
+                    }
+                    let app_pos = app.domain_graph().node_projected_position(*key)?;
+                    let delta = egui::Vec2::new(egui_pos.x - app_pos.x, egui_pos.y - app_pos.y);
+                    (delta.length() > 0.01).then_some((*key, delta))
+                })
+                .collect()
+        } else {
+            HashMap::new()
+        };
     let group_drag_delta: Option<(NodeKey, egui::Vec2)> =
         if app.workspace.graph_runtime.is_interacting && focused_selection.len() > 1 {
-            layout_positions.iter().find_map(|(key, egui_pos)| {
-                if !focused_selection.contains(key) {
-                    return None;
-                }
-                let app_pos = app.domain_graph().node_projected_position(*key)?;
-                let delta = egui::Vec2::new(egui_pos.x - app_pos.x, egui_pos.y - app_pos.y);
-                // Only consider it a drag if it actually moved (filter float noise).
-                if delta.length() > 0.01 {
-                    Some((*key, delta))
-                } else {
-                    None
-                }
-            })
+            selection_drag_deltas
+                .iter()
+                .next()
+                .map(|(key, delta)| (*key, *delta))
         } else {
             None
         };
@@ -1211,6 +1264,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     }
 
     // Propagate the drag delta to secondary selected nodes.
+    let mut simulate_release_impulses = selection_drag_deltas;
     if let Some((dragged_key, delta)) = group_drag_delta {
         let secondary_keys: Vec<NodeKey> = focused_selection
             .iter()
@@ -1230,6 +1284,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
                     .domain_graph_mut()
                     .set_node_projected_position(other_key, next_pos);
                 secondary_updates.push((other_key, next_pos.to_pos2()));
+                simulate_release_impulses.insert(other_key, delta);
             }
         }
         if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
@@ -1241,6 +1296,8 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
         }
     }
 
+    record_simulate_release_impulses(app, simulate_release_impulses);
+
     if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
         for (key, pos) in pinned_positions {
             if let Some(egui_node) = state_mut.graph.node_mut(key) {
@@ -1248,6 +1305,32 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
             }
         }
     }
+}
+
+fn record_simulate_release_impulses(
+    app: &mut GraphBrowserApp,
+    impulses: HashMap<NodeKey, egui::Vec2>,
+) {
+    let Some(view_id) = app.workspace.graph_runtime.focused_view else {
+        return;
+    };
+
+    if app.graph_view_scene_mode(view_id) != crate::app::SceneMode::Simulate {
+        app.workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .remove(&view_id);
+        return;
+    }
+
+    if impulses.is_empty() {
+        return;
+    }
+
+    app.workspace
+        .graph_runtime
+        .simulate_release_impulses
+        .insert(view_id, impulses);
 }
 
 pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) -> bool {

@@ -21,8 +21,8 @@ capabilities layered around it.
 - [`GRAPHSHELL_AS_BROWSER.md`](GRAPHSHELL_AS_BROWSER.md) — user-visible browser model summary
 - [`../../verso_docs/technical_architecture/VERSO_AS_PEER.md`](../../verso_docs/technical_architecture/VERSO_AS_PEER.md)
   — current web-peer and browser-capability placement
-- [`../../verso_docs/implementation_strategy/2026-03-08_simple_document_engine_target_spec.md`](../../verso_docs/implementation_strategy/2026-03-08_simple_document_engine_target_spec.md)
-  — existing content adaptation pipeline
+- [`2026-03-29_middlenet_engine_spec.md`](2026-03-29_middlenet_engine_spec.md)
+  — current content adaptation and shared document-model direction
 - [`../research/2026-03-01_webrender_wgpu_renderer_research.md`](../research/2026-03-01_webrender_wgpu_renderer_research.md)
   — WebRender/WGPU research context
 
