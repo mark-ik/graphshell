@@ -245,6 +245,10 @@ pub struct GraphViewRuntimeState {
     /// Runtime-only per-view scene enrichment state.
     pub scene_runtimes: HashMap<GraphViewId, GraphViewSceneRuntime>,
 
+    /// Short-lived per-view release impulses used by `Simulate` mode so dragged
+    /// node-objects can coast and settle briefly after pointer release.
+    pub simulate_release_impulses: HashMap<GraphViewId, HashMap<NodeKey, egui::Vec2>>,
+
     /// Hovered authored scene region under the pointer, if any.
     pub hovered_scene_region: Option<(GraphViewId, SceneRegionId)>,
 

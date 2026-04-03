@@ -7,17 +7,20 @@
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry, GraphSearchOrigin, SceneMode,
-    SearchDisplayMode, ThreeDMode, ViewAction, ViewDimension, ZSource,
+    SearchDisplayMode, SimulateBehaviorPreset, ThreeDMode, ViewAction, ViewDimension, ZSource,
 };
 use crate::graph::NodeKey;
 use crate::graph::format_imported_at_secs;
 use crate::graph::scene_runtime::{SceneRegionEffect, SceneRegionRuntime, SceneRegionShape};
+use crate::model::graph::ClassificationStatus;
 use crate::util::CoordBridge;
 use egui::Vec2;
 use euclid::default::Point2D;
+use std::collections::HashSet;
 
 use super::canvas_visuals::{
     active_presentation_profile, active_view_filter_expr, evaluate_active_view_filter,
+    visible_nodes_for_view_filters,
 };
 use super::reducer_bridge::apply_ui_intents_with_checkpoint;
 use super::semantic_tags::{
@@ -625,14 +628,9 @@ fn render_scene_quick_actions(
                             );
                         }
                         SceneMode::Simulate => {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(egui::RichText::new("Scene").small().strong());
-                                if ui.small_button("Open Panel").clicked() {
-                                    app.open_scene_overlay(Some(view_id));
-                                }
-                            });
+                            render_scene_simulate_toolbar(ui, app, view_id, true);
                             ui.small(
-                                "Simulate scaffolding is present, but richer object-world behavior is still upcoming. Use Arrange for authoring today.",
+                                "Simulate now foregrounds object legibility: reveal all node-objects and turn on scoped relation x-ray without leaving the graph. Use Arrange for region authoring.",
                             );
                         }
                     }
@@ -678,11 +676,7 @@ pub(crate) fn render_scene_surface_in_ui(ui: &mut egui::Ui, app: &mut GraphBrows
             .selected_text(graph_view_scene_label(view_id))
             .show_ui(ui, |ui| {
                 for candidate in view_ids.iter().copied() {
-                    ui.selectable_value(
-                        &mut view_id,
-                        candidate,
-                        graph_view_scene_label(candidate),
-                    );
+                    ui.selectable_value(&mut view_id, candidate, graph_view_scene_label(candidate));
                 }
             });
         if app.workspace.chrome_ui.scene_overlay_view != Some(view_id) {
@@ -721,18 +715,25 @@ pub(crate) fn render_scene_surface_in_ui(ui: &mut egui::Ui, app: &mut GraphBrows
         "{region_count} regions | Selected: {selected_label} | {bounds_status}"
     ));
     ui.separator();
-    let arrange_mode = app.graph_view_scene_mode(view_id) == SceneMode::Arrange;
-    ui.add_enabled_ui(arrange_mode, |ui| {
-        render_scene_authoring_toolbar(ui, app, view_id, false);
-        ui.small(
-            "Scene regions are runtime-only for now. Drag or resize them on-canvas to shape the current graph view.",
-        );
-        render_selected_scene_region_inspector(ui, app, view_id);
-    });
-    if !arrange_mode {
-        ui.small(
-            "Switch this graph view to Arrange to foreground scene authoring and direct region manipulation.",
-        );
+    match app.graph_view_scene_mode(view_id) {
+        SceneMode::Arrange => {
+            render_scene_authoring_toolbar(ui, app, view_id, false);
+            ui.small(
+                "Scene regions are runtime-only for now. Drag or resize them on-canvas to shape the current graph view.",
+            );
+            render_selected_scene_region_inspector(ui, app, view_id);
+        }
+        SceneMode::Simulate => {
+            render_scene_simulate_toolbar(ui, app, view_id, false);
+            ui.small(
+                "Simulate keeps authoring quieter and foregrounds scene legibility. Reveal Nodes halos every node-object; Relation X-Ray exposes the hovered or primary selected node's local graph structure.",
+            );
+        }
+        SceneMode::Browse => {
+            ui.small(
+                "Switch this graph view to Arrange to foreground scene authoring, or Simulate to foreground object-world legibility.",
+            );
+        }
     }
 }
 
@@ -863,6 +864,149 @@ fn render_scene_mode_selector(
     }
 }
 
+fn render_scene_simulate_toolbar(
+    ui: &mut egui::Ui,
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    compact: bool,
+) {
+    let mut reveal_nodes = app.graph_view_scene_reveal_nodes(view_id);
+    let mut relation_xray = app.graph_view_scene_relation_xray(view_id);
+    let mut preset = app.graph_view_simulate_behavior_preset(view_id);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Simulate").small().strong());
+        let panel_label = if app.workspace.chrome_ui.show_scene_overlay
+            && resolve_scene_surface_view_id(app) == Some(view_id)
+        {
+            "Hide Panel"
+        } else {
+            "Open Panel"
+        };
+        if ui.small_button(panel_label).clicked() {
+            if app.workspace.chrome_ui.show_scene_overlay
+                && resolve_scene_surface_view_id(app) == Some(view_id)
+            {
+                app.close_scene_overlay();
+            } else {
+                app.open_scene_overlay(Some(view_id));
+            }
+        }
+        if ui.toggle_value(&mut reveal_nodes, "Reveal Nodes").changed() {
+            app.set_graph_view_scene_reveal_nodes(view_id, reveal_nodes);
+        }
+        if ui
+            .toggle_value(&mut relation_xray, "Relation X-Ray")
+            .changed()
+        {
+            app.set_graph_view_scene_relation_xray(view_id, relation_xray);
+        }
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Preset");
+        ui.selectable_value(&mut preset, SimulateBehaviorPreset::Float, "Float");
+        ui.selectable_value(&mut preset, SimulateBehaviorPreset::Packed, "Packed");
+        ui.selectable_value(&mut preset, SimulateBehaviorPreset::Magnetic, "Magnetic");
+    });
+    if preset != app.graph_view_simulate_behavior_preset(view_id) {
+        app.set_graph_view_simulate_behavior_preset(view_id, preset);
+    }
+    if compact {
+        render_simulate_preset_compact_legend(ui, preset);
+    } else {
+        render_simulate_preset_preview(ui, preset);
+    }
+    if !compact {
+        ui.small(simulate_preset_description(preset));
+    }
+}
+
+fn simulate_preset_description(preset: SimulateBehaviorPreset) -> &'static str {
+    match preset {
+        SimulateBehaviorPreset::Float => {
+            "Float keeps the scene gentle and roomy: light separation, contained drift, and soft region influence."
+        }
+        SimulateBehaviorPreset::Packed => {
+            "Packed makes node-objects settle with stronger personal space and firmer containment, closer to a solid tabletop."
+        }
+        SimulateBehaviorPreset::Magnetic => {
+            "Magnetic keeps objects contained but makes scene regions exert much stronger pull and push, so zones feel decisively active."
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SimulatePresetVisualCue {
+    accent: egui::Color32,
+    cue: &'static str,
+}
+
+fn simulate_preset_visual_cue(preset: SimulateBehaviorPreset) -> SimulatePresetVisualCue {
+    match preset {
+        SimulateBehaviorPreset::Float => SimulatePresetVisualCue {
+            accent: egui::Color32::from_rgb(176, 208, 236),
+            cue: "Airy bounds, long glide",
+        },
+        SimulateBehaviorPreset::Packed => SimulatePresetVisualCue {
+            accent: egui::Color32::from_rgb(236, 212, 164),
+            cue: "Firm bounds, quick settle",
+        },
+        SimulateBehaviorPreset::Magnetic => SimulatePresetVisualCue {
+            accent: egui::Color32::from_rgb(168, 224, 204),
+            cue: "Strong zones, medium coast",
+        },
+    }
+}
+
+fn render_simulate_preset_compact_legend(ui: &mut egui::Ui, preset: SimulateBehaviorPreset) {
+    let cue = simulate_preset_visual_cue(preset);
+    ui.horizontal_wrapped(|ui| {
+        ui.colored_label(cue.accent, "●");
+        ui.small(cue.cue);
+    });
+}
+
+fn render_simulate_preset_preview(ui: &mut egui::Ui, selected: SimulateBehaviorPreset) {
+    ui.add_space(4.0);
+    ui.horizontal_wrapped(|ui| {
+        for preset in [
+            SimulateBehaviorPreset::Float,
+            SimulateBehaviorPreset::Packed,
+            SimulateBehaviorPreset::Magnetic,
+        ] {
+            let cue = simulate_preset_visual_cue(preset);
+            let selected_preset = preset == selected;
+            egui::Frame::group(ui.style())
+                .fill(if selected_preset {
+                    cue.accent.linear_multiply(0.16)
+                } else {
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 8)
+                })
+                .stroke(egui::Stroke::new(
+                    if selected_preset { 1.5 } else { 1.0 },
+                    if selected_preset {
+                        cue.accent
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 24)
+                    },
+                ))
+                .corner_radius(egui::CornerRadius::same(8))
+                .inner_margin(egui::Margin::symmetric(8, 6))
+                .show(ui, |ui| {
+                    ui.set_min_width(116.0);
+                    ui.horizontal(|ui| {
+                        ui.colored_label(cue.accent, "●");
+                        ui.label(match preset {
+                            SimulateBehaviorPreset::Float => "Float",
+                            SimulateBehaviorPreset::Packed => "Packed",
+                            SimulateBehaviorPreset::Magnetic => "Magnetic",
+                        });
+                    });
+                    ui.small(cue.cue);
+                });
+        }
+    });
+}
+
 fn render_selected_scene_region_inspector(
     ui: &mut egui::Ui,
     app: &mut GraphBrowserApp,
@@ -899,7 +1043,8 @@ fn render_selected_scene_region_inspector(
     ui.horizontal_wrapped(|ui| {
         ui.label("Effect");
         for (name, effect) in selected_scene_region_effect_options(region.effect) {
-            let is_selected = scene_region_effect_kind(region.effect) == scene_region_effect_kind(effect);
+            let is_selected =
+                scene_region_effect_kind(region.effect) == scene_region_effect_kind(effect);
             if ui.selectable_label(is_selected, name).clicked() && !is_selected {
                 let mut updated = region.clone();
                 updated.effect = effect;
@@ -969,9 +1114,12 @@ fn render_selected_scene_region_inspector(
     } else {
         app.graphlet_members_for_nodes_in_view(&selected_nodes, Some(view_id))
     };
+    let classification_candidates = gather_classification_candidates(app, &selected_nodes);
     let tag_candidates = gather_tag_candidates(app, &selected_nodes);
     let domain_candidates = gather_domain_candidates(app, &selected_nodes);
     let frame_candidates = gather_frame_candidates(app, &selected_nodes);
+    let search_result_nodes = active_graph_search_node_keys(app);
+    let filtered_view_nodes = filtered_view_node_keys(app, view_id);
 
     ui.separator();
     ui.label(egui::RichText::new("Gather Here").small().strong());
@@ -994,7 +1142,38 @@ fn render_selected_scene_region_inspector(
         {
             gather_node_keys_into_scene_region(app, &region, graphlet_nodes.clone());
         }
+        if ui
+            .add_enabled(
+                !search_result_nodes.is_empty(),
+                egui::Button::new(format!("Search Results ({})", search_result_nodes.len())),
+            )
+            .clicked()
+        {
+            gather_node_keys_into_scene_region(app, &region, search_result_nodes.clone());
+        }
+        if ui
+            .add_enabled(
+                !filtered_view_nodes.is_empty(),
+                egui::Button::new(format!("Filtered View ({})", filtered_view_nodes.len())),
+            )
+            .clicked()
+        {
+            gather_node_keys_into_scene_region(app, &region, filtered_view_nodes.clone());
+        }
     });
+    render_scene_gather_candidate_picker(
+        ui,
+        "Class",
+        ui.make_persistent_id(("scene_gather_class", view_id, format!("{region_id:?}"))),
+        &classification_candidates,
+        |classification| {
+            gather_node_keys_into_scene_region(
+                app,
+                &region,
+                node_keys_for_classification(app, classification),
+            )
+        },
+    );
     render_scene_gather_candidate_picker(
         ui,
         "Tag",
@@ -1019,7 +1198,7 @@ fn render_selected_scene_region_inspector(
         |frame| gather_node_keys_into_scene_region(app, &region, node_keys_for_frame(app, frame)),
     );
     ui.small(
-        "Gather packs the chosen nodes into this region using a stable layout. Pinned nodes stay put. Tag/Domain/Frame candidates are derived from the current view selection.",
+        "Gather packs the chosen nodes into this region using a stable layout. Pinned nodes stay put. Class/Tag/Domain/Frame candidates are derived from the current view selection, while Search Results and Filtered View reuse the active graph search and view filter state.",
     );
 
     if ui.small_button("Delete Region").clicked() {
@@ -1082,10 +1261,7 @@ fn scene_region_around_selected_node(
 ) -> Option<SceneRegionRuntime> {
     let key = app.get_single_selected_node_for_view(view_id)?;
     let center = app.domain_graph().node_projected_position(key)?.to_pos2();
-    Some(
-        SceneRegionRuntime::circle(center, 120.0, effect)
-            .with_label(format!("{label} Region")),
-    )
+    Some(SceneRegionRuntime::circle(center, 120.0, effect).with_label(format!("{label} Region")))
 }
 
 fn scene_rect_around_selected_node(
@@ -1100,14 +1276,18 @@ fn scene_rect_around_selected_node(
     Some(SceneRegionRuntime::rect(rect, effect).with_label(format!("{label} Region")))
 }
 
-fn gather_node_keys_into_scene_region(
+pub(crate) fn gather_node_keys_into_scene_region(
     app: &mut GraphBrowserApp,
     region: &SceneRegionRuntime,
     keys: Vec<NodeKey>,
 ) {
     let mut movable: Vec<NodeKey> = keys
         .into_iter()
-        .filter(|key| app.domain_graph().get_node(*key).is_some_and(|node| !node.is_pinned))
+        .filter(|key| {
+            app.domain_graph()
+                .get_node(*key)
+                .is_some_and(|node| !node.is_pinned)
+        })
         .collect();
     movable.sort_by_key(|key| key.index());
     movable.dedup();
@@ -1118,7 +1298,9 @@ fn gather_node_keys_into_scene_region(
     let placements = scene_region_gather_positions(region, movable.len());
     for (key, position) in movable.into_iter().zip(placements.into_iter()) {
         let next = Point2D::new(position.x, position.y);
-        let _ = app.domain_graph_mut().set_node_projected_position(key, next);
+        let _ = app
+            .domain_graph_mut()
+            .set_node_projected_position(key, next);
         if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut()
             && let Some(node) = state_mut.graph.node_mut(key)
         {
@@ -1128,32 +1310,60 @@ fn gather_node_keys_into_scene_region(
     app.workspace.graph_runtime.egui_state_dirty = true;
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SceneGatherCandidate {
+    id: String,
+    label: String,
+}
+
+impl SceneGatherCandidate {
+    fn plain(value: impl Into<String>) -> Self {
+        let value = value.into();
+        Self {
+            id: value.clone(),
+            label: value,
+        }
+    }
+}
+
 fn render_scene_gather_candidate_picker(
     ui: &mut egui::Ui,
     label: &str,
     id: egui::Id,
-    candidates: &[String],
+    candidates: &[SceneGatherCandidate],
     mut on_gather: impl FnMut(&str),
 ) {
     ui.horizontal_wrapped(|ui| {
         ui.label(label);
-        let mut selected = ui.ctx().data_mut(|data| {
+        let mut selected_id = ui.ctx().data_mut(|data| {
             data.get_persisted::<String>(id)
-                .filter(|value| candidates.iter().any(|candidate| candidate == value))
-                .or_else(|| candidates.first().cloned())
+                .filter(|value| candidates.iter().any(|candidate| candidate.id == *value))
+                .or_else(|| candidates.first().map(|candidate| candidate.id.clone()))
         });
         let enabled = !candidates.is_empty();
-        let selected_text = selected.as_deref().unwrap_or("None");
+        let selected_text = selected_id
+            .as_deref()
+            .and_then(|selected| {
+                candidates
+                    .iter()
+                    .find(|candidate| candidate.id == selected)
+                    .map(|candidate| candidate.label.as_str())
+            })
+            .unwrap_or("None");
         egui::ComboBox::from_id_salt(id)
             .selected_text(selected_text)
             .width(180.0)
             .show_ui(ui, |ui| {
                 for candidate in candidates {
-                    ui.selectable_value(&mut selected, Some(candidate.clone()), candidate);
+                    ui.selectable_value(
+                        &mut selected_id,
+                        Some(candidate.id.clone()),
+                        candidate.label.as_str(),
+                    );
                 }
             });
         ui.ctx().data_mut(|data| {
-            if let Some(selected) = selected.clone() {
+            if let Some(selected) = selected_id.clone() {
                 data.insert_persisted(id, selected);
             } else {
                 data.remove::<String>(id);
@@ -1162,7 +1372,7 @@ fn render_scene_gather_candidate_picker(
         if ui
             .add_enabled(enabled, egui::Button::new(format!("Gather {label}")))
             .clicked()
-            && let Some(selected) = selected.as_deref()
+            && let Some(selected) = selected_id.as_deref()
         {
             on_gather(selected);
         }
@@ -1184,7 +1394,44 @@ fn node_keys_for_tag(app: &GraphBrowserApp, tag: &str) -> Vec<NodeKey> {
     keys
 }
 
-fn gather_tag_candidates(app: &GraphBrowserApp, selected_nodes: &[NodeKey]) -> Vec<String> {
+fn gather_classification_candidates(
+    app: &GraphBrowserApp,
+    selected_nodes: &[NodeKey],
+) -> Vec<SceneGatherCandidate> {
+    let mut candidates: Vec<SceneGatherCandidate> = selected_nodes
+        .iter()
+        .filter_map(|&key| app.domain_graph().node_classifications(key))
+        .flat_map(|classifications| classifications.iter())
+        .filter(|classification| classification.status != ClassificationStatus::Rejected)
+        .map(|classification| {
+            let label = classification
+                .label
+                .as_ref()
+                .filter(|label| !label.trim().is_empty())
+                .map_or_else(
+                    || format!("{:?}: {}", classification.scheme, classification.value),
+                    |label| {
+                        format!(
+                            "{:?}: {} ({})",
+                            classification.scheme, label, classification.value
+                        )
+                    },
+                );
+            SceneGatherCandidate {
+                id: classification_key(classification.scheme.clone(), &classification.value),
+                label,
+            }
+        })
+        .collect();
+    candidates.sort_by(|a, b| a.label.cmp(&b.label).then_with(|| a.id.cmp(&b.id)));
+    candidates.dedup_by(|a, b| a.id == b.id);
+    candidates
+}
+
+fn gather_tag_candidates(
+    app: &GraphBrowserApp,
+    selected_nodes: &[NodeKey],
+) -> Vec<SceneGatherCandidate> {
     let mut tags: Vec<String> = selected_nodes
         .iter()
         .filter_map(|&key| app.domain_graph().node_tags(key))
@@ -1192,10 +1439,13 @@ fn gather_tag_candidates(app: &GraphBrowserApp, selected_nodes: &[NodeKey]) -> V
         .collect();
     tags.sort();
     tags.dedup();
-    tags
+    tags.into_iter().map(SceneGatherCandidate::plain).collect()
 }
 
-fn gather_domain_candidates(app: &GraphBrowserApp, selected_nodes: &[NodeKey]) -> Vec<String> {
+fn gather_domain_candidates(
+    app: &GraphBrowserApp,
+    selected_nodes: &[NodeKey],
+) -> Vec<SceneGatherCandidate> {
     let mut domains: Vec<String> = selected_nodes
         .iter()
         .filter_map(|&key| app.domain_graph().get_node(key))
@@ -1204,9 +1454,15 @@ fn gather_domain_candidates(app: &GraphBrowserApp, selected_nodes: &[NodeKey]) -
     domains.sort();
     domains.dedup();
     domains
+        .into_iter()
+        .map(SceneGatherCandidate::plain)
+        .collect()
 }
 
-fn gather_frame_candidates(app: &GraphBrowserApp, selected_nodes: &[NodeKey]) -> Vec<String> {
+fn gather_frame_candidates(
+    app: &GraphBrowserApp,
+    selected_nodes: &[NodeKey],
+) -> Vec<SceneGatherCandidate> {
     let mut frames: Vec<String> = selected_nodes
         .iter()
         .flat_map(|&key| app.frames_for_node_key(key).iter().cloned())
@@ -1214,6 +1470,111 @@ fn gather_frame_candidates(app: &GraphBrowserApp, selected_nodes: &[NodeKey]) ->
     frames.sort();
     frames.dedup();
     frames
+        .into_iter()
+        .map(SceneGatherCandidate::plain)
+        .collect()
+}
+
+fn classification_key(scheme: crate::model::graph::ClassificationScheme, value: &str) -> String {
+    format!("{scheme:?}|{value}")
+}
+
+fn node_keys_for_classification(app: &GraphBrowserApp, classification: &str) -> Vec<NodeKey> {
+    let mut keys: Vec<NodeKey> = app
+        .domain_graph()
+        .nodes()
+        .filter_map(|(key, node)| {
+            node.classifications
+                .iter()
+                .any(|candidate| {
+                    candidate.status != ClassificationStatus::Rejected
+                        && classification_key(candidate.scheme.clone(), &candidate.value)
+                            == classification
+                })
+                .then_some(key)
+        })
+        .collect();
+    keys.sort_by_key(|key| key.index());
+    keys
+}
+
+pub(crate) fn active_graph_search_node_keys(app: &GraphBrowserApp) -> Vec<NodeKey> {
+    let query = app.workspace.graph_runtime.active_graph_search_query.trim();
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let mut ranked =
+        crate::shell::desktop::runtime::registries::phase3_index_search(app, query, 64)
+            .into_iter()
+            .filter_map(|result| {
+                match result.kind {
+            crate::shell::desktop::runtime::registries::index::SearchResultKind::Node(key) => {
+                Some(key)
+            }
+            crate::shell::desktop::runtime::registries::index::SearchResultKind::HistoryUrl(_)
+            | crate::shell::desktop::runtime::registries::index::SearchResultKind::KnowledgeTag {
+                ..
+            } => None,
+        }
+            })
+            .collect::<Vec<_>>();
+    ranked.dedup();
+
+    let Some(anchor) = app
+        .workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_anchor
+    else {
+        return ranked;
+    };
+    if app.domain_graph().get_node(anchor).is_none() {
+        return ranked;
+    }
+
+    let mut seen: HashSet<NodeKey> = ranked.iter().copied().collect();
+    let depth = app
+        .workspace
+        .graph_runtime
+        .active_graph_search_neighborhood_depth
+        .clamp(1, 2);
+    for neighbor in std::iter::once(anchor).chain(
+        app.domain_graph()
+            .connected_candidates_with_depth(anchor, depth)
+            .into_iter()
+            .map(|(neighbor, _)| neighbor),
+    ) {
+        if seen.insert(neighbor) {
+            ranked.push(neighbor);
+        }
+    }
+    ranked
+}
+
+pub(crate) fn filtered_view_node_keys(
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+) -> Vec<NodeKey> {
+    let search_matches: HashSet<NodeKey> = active_graph_search_node_keys(app).into_iter().collect();
+    let query_active = !app
+        .workspace
+        .graph_runtime
+        .active_graph_search_query
+        .trim()
+        .is_empty();
+    let Some(visible) = visible_nodes_for_view_filters(
+        app,
+        view_id,
+        &search_matches,
+        app.workspace.graph_runtime.search_display_mode,
+        query_active,
+    ) else {
+        return Vec::new();
+    };
+
+    let mut keys: Vec<NodeKey> = visible.into_iter().collect();
+    keys.sort_by_key(|key| key.index());
+    keys
 }
 
 fn node_keys_for_domain(app: &GraphBrowserApp, domain: &str) -> Vec<NodeKey> {
@@ -1244,7 +1605,9 @@ fn node_keys_for_frame(app: &GraphBrowserApp, frame: &str) -> Vec<NodeKey> {
 fn scene_region_gather_positions(region: &SceneRegionRuntime, count: usize) -> Vec<egui::Pos2> {
     match region.shape {
         SceneRegionShape::Rect { rect } => rect_gather_positions(rect, count),
-        SceneRegionShape::Circle { center, radius } => circle_gather_positions(center, radius, count),
+        SceneRegionShape::Circle { center, radius } => {
+            circle_gather_positions(center, radius, count)
+        }
     }
 }
 
@@ -1294,12 +1657,18 @@ fn circle_gather_positions(center: egui::Pos2, radius: f32, count: usize) -> Vec
 
 fn registrable_domain_key(url: &str) -> Option<String> {
     let parsed = url::Url::parse(url).ok()?;
-    let host = parsed.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    let host = parsed
+        .host_str()?
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
     if host.parse::<std::net::IpAddr>().is_ok() {
         return Some(host);
     }
 
-    let labels: Vec<&str> = host.split('.').filter(|segment| !segment.is_empty()).collect();
+    let labels: Vec<&str> = host
+        .split('.')
+        .filter(|segment| !segment.is_empty())
+        .collect();
     if labels.len() <= 2 {
         return Some(host);
     }
@@ -1512,15 +1881,27 @@ pub(super) fn selected_node_enrichment_summary(
 #[cfg(test)]
 mod tests {
     use super::{
+        SceneGatherCandidate, filtered_view_node_keys, gather_classification_candidates,
         gather_domain_candidates, gather_frame_candidates, gather_node_keys_into_scene_region,
-        gather_tag_candidates, node_keys_for_domain, node_keys_for_frame, node_keys_for_tag,
-        resolve_scene_surface_view_id,
+        gather_tag_candidates, node_keys_for_classification, node_keys_for_domain,
+        node_keys_for_frame, node_keys_for_tag, resolve_scene_surface_view_id,
         scene_rect_around_selected_node, scene_region_around_selected_node,
     };
     use crate::app::{GraphBrowserApp, GraphViewId, GraphViewState};
     use crate::graph::scene_runtime::{SceneRegionEffect, SceneRegionShape};
+    use crate::model::graph::filter::{FacetExpr, FacetOperand, FacetOperator, FacetPredicate};
+    use crate::model::graph::{
+        ClassificationProvenance, ClassificationScheme, ClassificationStatus, NodeClassification,
+    };
     use crate::util::CoordBridge;
     use euclid::default::Point2D;
+
+    fn plain_candidates(values: &[&str]) -> Vec<SceneGatherCandidate> {
+        values
+            .iter()
+            .map(|value| SceneGatherCandidate::plain((*value).to_string()))
+            .collect()
+    }
 
     #[test]
     fn scene_region_around_selected_node_builds_labeled_circle() {
@@ -1564,8 +1945,9 @@ mod tests {
         let key = app.add_node_and_sync("https://example.com".into(), Point2D::new(10.0, 20.0));
         app.select_node(key, false);
 
-        let region = scene_rect_around_selected_node(&app, view_id, "Wall", SceneRegionEffect::Wall)
-            .expect("selected node should produce a wall box region");
+        let region =
+            scene_rect_around_selected_node(&app, view_id, "Wall", SceneRegionEffect::Wall)
+                .expect("selected node should produce a wall box region");
 
         assert_eq!(region.label.as_deref(), Some("Wall Region"));
         assert_eq!(
@@ -1678,8 +2060,10 @@ mod tests {
     #[test]
     fn gather_node_keys_into_region_skips_pinned_nodes() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let pinned = app.add_node_and_sync("https://pinned.example".into(), Point2D::new(10.0, 15.0));
-        let moved = app.add_node_and_sync("https://moved.example".into(), Point2D::new(300.0, 250.0));
+        let pinned =
+            app.add_node_and_sync("https://pinned.example".into(), Point2D::new(10.0, 15.0));
+        let moved =
+            app.add_node_and_sync("https://moved.example".into(), Point2D::new(300.0, 250.0));
         app.domain_graph_mut()
             .get_node_mut(pinned)
             .expect("pinned node exists")
@@ -1726,8 +2110,14 @@ mod tests {
     #[test]
     fn node_keys_for_domain_groups_by_registrable_domain() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let a = app.add_node_and_sync("https://www.docs.example.co.uk/a".into(), Point2D::new(0.0, 0.0));
-        let b = app.add_node_and_sync("https://blog.example.co.uk/b".into(), Point2D::new(10.0, 0.0));
+        let a = app.add_node_and_sync(
+            "https://www.docs.example.co.uk/a".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://blog.example.co.uk/b".into(),
+            Point2D::new(10.0, 0.0),
+        );
         let c = app.add_node_and_sync("https://other.test/c".into(), Point2D::new(20.0, 0.0));
 
         assert_eq!(node_keys_for_domain(&app, "example.co.uk"), vec![a, b]);
@@ -1759,30 +2149,129 @@ mod tests {
     }
 
     #[test]
+    fn gather_classification_candidates_dedup_and_skip_rejected_records() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(10.0, 0.0));
+        app.workspace.domain.graph.add_node_classification(
+            a,
+            NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:51".to_string(),
+                label: Some("Mathematics".to_string()),
+                confidence: 0.9,
+                provenance: ClassificationProvenance::RegistryDerived,
+                status: ClassificationStatus::Accepted,
+                primary: true,
+            },
+        );
+        app.workspace.domain.graph.add_node_classification(
+            b,
+            NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:51".to_string(),
+                label: Some("Mathematics".to_string()),
+                confidence: 0.7,
+                provenance: ClassificationProvenance::AgentSuggested,
+                status: ClassificationStatus::Suggested,
+                primary: false,
+            },
+        );
+        app.workspace.domain.graph.add_node_classification(
+            b,
+            NodeClassification {
+                scheme: ClassificationScheme::ContentKind,
+                value: "article".to_string(),
+                label: Some("Article".to_string()),
+                confidence: 0.3,
+                provenance: ClassificationProvenance::AgentSuggested,
+                status: ClassificationStatus::Rejected,
+                primary: false,
+            },
+        );
+
+        assert_eq!(
+            gather_classification_candidates(&app, &[a, b]),
+            vec![SceneGatherCandidate {
+                id: "Udc|udc:51".to_string(),
+                label: "Udc: Mathematics (udc:51)".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn node_keys_for_classification_returns_matching_non_rejected_nodes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(10.0, 0.0));
+        app.workspace.domain.graph.add_node_classification(
+            a,
+            NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:51".to_string(),
+                label: None,
+                confidence: 1.0,
+                provenance: ClassificationProvenance::UserAuthored,
+                status: ClassificationStatus::Accepted,
+                primary: true,
+            },
+        );
+        app.workspace.domain.graph.add_node_classification(
+            b,
+            NodeClassification {
+                scheme: ClassificationScheme::Udc,
+                value: "udc:51".to_string(),
+                label: None,
+                confidence: 0.4,
+                provenance: ClassificationProvenance::AgentSuggested,
+                status: ClassificationStatus::Rejected,
+                primary: false,
+            },
+        );
+
+        assert_eq!(node_keys_for_classification(&app, "Udc|udc:51"), vec![a]);
+    }
+
+    #[test]
     fn gather_tag_candidates_dedup_and_sort_selection_tags() {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(10.0, 0.0));
-        let _ = app.workspace.domain.graph.insert_node_tag(a, "focus".to_string());
-        let _ = app.workspace.domain.graph.insert_node_tag(a, "work".to_string());
-        let _ = app.workspace.domain.graph.insert_node_tag(b, "focus".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(a, "focus".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(a, "work".to_string());
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .insert_node_tag(b, "focus".to_string());
 
         assert_eq!(
             gather_tag_candidates(&app, &[a, b]),
-            vec!["focus".to_string(), "work".to_string()]
+            plain_candidates(&["focus", "work"])
         );
     }
 
     #[test]
     fn gather_domain_candidates_dedup_and_sort_selection_domains() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let a = app.add_node_and_sync("https://www.docs.example.com/a".into(), Point2D::new(0.0, 0.0));
+        let a = app.add_node_and_sync(
+            "https://www.docs.example.com/a".into(),
+            Point2D::new(0.0, 0.0),
+        );
         let b = app.add_node_and_sync("https://blog.example.com/b".into(), Point2D::new(10.0, 0.0));
         let c = app.add_node_and_sync("https://other.test/c".into(), Point2D::new(20.0, 0.0));
 
         assert_eq!(
             gather_domain_candidates(&app, &[a, b, c]),
-            vec!["example.com".to_string(), "other.test".to_string()]
+            plain_candidates(&["example.com", "other.test"])
         );
     }
 
@@ -1808,7 +2297,165 @@ mod tests {
 
         assert_eq!(
             gather_frame_candidates(&app, &[a, b]),
-            vec!["Archive".to_string(), "Research".to_string()]
+            plain_candidates(&["Archive", "Research"])
         );
+    }
+
+    #[test]
+    fn filtered_view_node_keys_returns_current_view_filter_matches() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let mut view = GraphViewState::new_with_id(view_id, "Scene");
+        view.apply_filter_override(Some(FacetExpr::Predicate(FacetPredicate {
+            facet_key: "domain".to_string(),
+            operator: FacetOperator::Eq,
+            operand: FacetOperand::Scalar(crate::model::graph::filter::FacetScalar::Text(
+                "example.com".to_string(),
+            )),
+        })));
+        app.workspace.graph_runtime.views.insert(view_id, view);
+
+        let a = app.add_node_and_sync("https://example.com/a".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://other.test/b".into(), Point2D::new(10.0, 0.0));
+
+        assert_eq!(filtered_view_node_keys(&app, view_id), vec![a]);
+        assert_ne!(filtered_view_node_keys(&app, view_id), vec![b]);
+    }
+
+    #[test]
+    fn search_result_gather_reuses_active_graph_search_query() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app.add_node_and_sync("https://example.com/alpha".into(), Point2D::new(0.0, 0.0));
+        let _ = app.add_node_and_sync("https://other.test/beta".into(), Point2D::new(10.0, 0.0));
+        app.workspace.graph_runtime.active_graph_search_query = "alpha".to_string();
+
+        let matches = super::active_graph_search_node_keys(&app);
+        assert!(matches.contains(&a));
+        assert_eq!(matches.len(), 1);
+    }
+
+    #[test]
+    fn search_result_gather_extends_with_active_anchor_neighborhood() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let anchor =
+            app.add_node_and_sync("https://example.com/anchor".into(), Point2D::new(0.0, 0.0));
+        let neighbor = app.add_node_and_sync(
+            "https://other.test/neighbor".into(),
+            Point2D::new(10.0, 0.0),
+        );
+        let _ = app.domain_graph_mut().add_edge(
+            anchor,
+            neighbor,
+            crate::graph::EdgeType::Hyperlink,
+            None,
+        );
+        app.workspace.graph_runtime.active_graph_search_query = "anchor".to_string();
+        app.workspace
+            .graph_runtime
+            .active_graph_search_neighborhood_anchor = Some(anchor);
+        app.workspace
+            .graph_runtime
+            .active_graph_search_neighborhood_depth = 1;
+
+        let matches = super::active_graph_search_node_keys(&app);
+        assert!(matches.contains(&anchor));
+        assert!(matches.contains(&neighbor));
+        assert_eq!(matches.len(), 2);
+    }
+
+    #[test]
+    fn filtered_view_node_keys_intersects_search_filter_and_view_filter() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let mut view = GraphViewState::new_with_id(view_id, "Scene");
+        view.apply_filter_override(Some(FacetExpr::Predicate(FacetPredicate {
+            facet_key: "domain".to_string(),
+            operator: FacetOperator::Eq,
+            operand: FacetOperand::Scalar(crate::model::graph::filter::FacetScalar::Text(
+                "example.com".to_string(),
+            )),
+        })));
+        app.workspace.graph_runtime.views.insert(view_id, view);
+        let alpha =
+            app.add_node_and_sync("https://example.com/alpha".into(), Point2D::new(0.0, 0.0));
+        let _beta =
+            app.add_node_and_sync("https://example.com/beta".into(), Point2D::new(10.0, 0.0));
+        let _other =
+            app.add_node_and_sync("https://other.test/alpha".into(), Point2D::new(20.0, 0.0));
+        app.workspace.graph_runtime.active_graph_search_query = "alpha".to_string();
+        app.workspace.graph_runtime.search_display_mode = crate::app::SearchDisplayMode::Filter;
+
+        assert_eq!(filtered_view_node_keys(&app, view_id), vec![alpha]);
+    }
+
+    #[test]
+    fn filtered_view_node_keys_respects_owned_node_mask_even_without_filter_expr() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let mut view = GraphViewState::new_with_id(view_id, "Scene");
+        let a = app.add_node_and_sync("https://example.com/a".into(), Point2D::new(0.0, 0.0));
+        let _b = app.add_node_and_sync("https://example.com/b".into(), Point2D::new(10.0, 0.0));
+        view.owned_node_mask = Some([a].into_iter().collect());
+        app.workspace.graph_runtime.views.insert(view_id, view);
+
+        assert_eq!(filtered_view_node_keys(&app, view_id), vec![a]);
+    }
+
+    #[test]
+    fn filtered_view_node_keys_respects_graphlet_mask_even_without_filter_expr() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let mut view = GraphViewState::new_with_id(view_id, "Scene");
+        let a = app.add_node_and_sync("https://example.com/a".into(), Point2D::new(0.0, 0.0));
+        let _b = app.add_node_and_sync("https://example.com/b".into(), Point2D::new(10.0, 0.0));
+        view.graphlet_node_mask = Some([a].into_iter().collect());
+        app.workspace.graph_runtime.views.insert(view_id, view);
+
+        assert_eq!(filtered_view_node_keys(&app, view_id), vec![a]);
+    }
+
+    #[test]
+    fn filtered_view_node_keys_respects_tombstone_visibility() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let view = GraphViewState::new_with_id(view_id, "Scene");
+        app.workspace.graph_runtime.views.insert(view_id, view);
+        let hidden =
+            app.add_node_and_sync("https://example.com/hidden".into(), Point2D::new(0.0, 0.0));
+        app.domain_graph_mut()
+            .get_node_mut(hidden)
+            .expect("node exists")
+            .lifecycle = crate::graph::NodeLifecycle::Tombstone;
+
+        assert!(filtered_view_node_keys(&app, view_id).contains(&hidden) == false);
+    }
+
+    #[test]
+    fn filtered_view_node_keys_handles_missing_view() {
+        let app = GraphBrowserApp::new_for_testing();
+        assert!(filtered_view_node_keys(&app, GraphViewId::new()).is_empty());
+    }
+
+    #[test]
+    fn search_result_gather_returns_empty_for_blank_query() {
+        let app = GraphBrowserApp::new_for_testing();
+        assert!(super::active_graph_search_node_keys(&app).is_empty());
+    }
+
+    #[test]
+    fn search_result_gather_dedups_anchor_and_result_overlap() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let anchor =
+            app.add_node_and_sync("https://example.com/anchor".into(), Point2D::new(0.0, 0.0));
+        app.workspace.graph_runtime.active_graph_search_query = "anchor".to_string();
+        app.workspace
+            .graph_runtime
+            .active_graph_search_neighborhood_anchor = Some(anchor);
+        app.workspace
+            .graph_runtime
+            .active_graph_search_neighborhood_depth = 1;
+
+        let matches = super::active_graph_search_node_keys(&app);
+        assert_eq!(matches, vec![anchor]);
     }
 }

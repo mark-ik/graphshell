@@ -5,13 +5,13 @@
 //! Canvas overlay passes: frame-affinity backdrops, highlighted-edge overlay,
 //! hovered-edge tooltip, and hovered-node tooltip.
 
-use crate::app::{GraphBrowserApp, GraphViewId};
+use crate::app::{GraphBrowserApp, GraphViewId, SimulateBehaviorPreset};
+use crate::graph::scene_runtime::{
+    SceneRegionEffect, SceneRegionId, SceneRegionResizeHandle, SceneRegionRuntime, SceneRegionShape,
+};
 use crate::graph::{
     EdgeFamily, EdgePayload, FrameLayoutHint, NodeLifecycle, RelationSelector, SemanticSubKind,
     SplitOrientation,
-};
-use crate::graph::scene_runtime::{
-    SceneRegionEffect, SceneRegionId, SceneRegionResizeHandle, SceneRegionRuntime, SceneRegionShape,
 };
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use crate::util::VersoAddress;
@@ -19,6 +19,10 @@ use egui::{Stroke, Ui, Vec2};
 use egui_graphs::MetadataFrame;
 use std::collections::BTreeSet;
 use std::time::{Duration, UNIX_EPOCH};
+
+use super::graph_info::{
+    active_graph_search_node_keys, filtered_view_node_keys, gather_node_keys_into_scene_region,
+};
 
 // ── Edge helpers ──────────────────────────────────────────────────────────────
 
@@ -218,8 +222,13 @@ pub(super) fn draw_scene_runtime_backdrops(
         egui::Id::new(("scene_runtime_backdrops", view_id)),
     ));
     let arrange_mode = app.graph_view_scene_mode(view_id) == crate::app::SceneMode::Arrange;
+    let simulate_mode = app.graph_view_scene_mode(view_id) == crate::app::SceneMode::Simulate;
+    let simulate_visuals = simulate_mode
+        .then(|| simulate_visual_profile(app.graph_view_simulate_behavior_preset(view_id)));
     let pointer = ui.input(|i| i.pointer.latest_pos());
-    let selected_region = arrange_mode.then(|| app.graph_view_selected_scene_region(view_id)).flatten();
+    let selected_region = arrange_mode
+        .then(|| app.graph_view_selected_scene_region(view_id))
+        .flatten();
     let hovered_region = arrange_mode
         .then(|| {
             app.workspace
@@ -232,11 +241,23 @@ pub(super) fn draw_scene_runtime_backdrops(
 
     if let Some(bounds) = runtime.bounds_override {
         let screen_rect = screen_rect_from_canvas_rect(bounds, meta.as_ref());
-        let stroke = egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(220, 220, 235, 96));
+        let stroke = simulate_visuals
+            .map(|visuals| {
+                egui::Stroke::new(visuals.boundary_stroke_width, visuals.boundary_stroke)
+            })
+            .unwrap_or_else(|| {
+                egui::Stroke::new(
+                    1.5,
+                    egui::Color32::from_rgba_unmultiplied(220, 220, 235, 96),
+                )
+            });
+        let fill = simulate_visuals
+            .map(|visuals| visuals.boundary_fill)
+            .unwrap_or(egui::Color32::TRANSPARENT);
         painter.rect(
             screen_rect,
             egui::CornerRadius::same(10),
-            egui::Color32::TRANSPARENT,
+            fill,
             stroke,
             egui::StrokeKind::Outside,
         );
@@ -245,7 +266,9 @@ pub(super) fn draw_scene_runtime_backdrops(
             egui::Align2::LEFT_TOP,
             "Scene Bounds",
             egui::FontId::proportional(10.0),
-            egui::Color32::from_rgba_unmultiplied(235, 235, 245, 140),
+            simulate_visuals
+                .map(|visuals| visuals.boundary_label)
+                .unwrap_or_else(|| egui::Color32::from_rgba_unmultiplied(235, 235, 245, 140)),
         );
     }
 
@@ -268,6 +291,8 @@ pub(super) fn draw_scene_runtime_backdrops(
             colors.fill.gamma_multiply(1.35)
         } else if is_hovered {
             colors.fill.gamma_multiply(1.15)
+        } else if simulate_mode && matches!(region.effect, SceneRegionEffect::Wall) {
+            colors.fill.gamma_multiply(1.1)
         } else {
             colors.fill
         };
@@ -275,6 +300,10 @@ pub(super) fn draw_scene_runtime_backdrops(
             colors.stroke.gamma_multiply(1.25)
         } else if is_hovered {
             colors.stroke.gamma_multiply(1.1)
+        } else if simulate_mode && matches!(region.effect, SceneRegionEffect::Wall) {
+            simulate_visuals
+                .map(|visuals| visuals.boundary_stroke)
+                .unwrap_or(colors.stroke.gamma_multiply(1.05))
         } else {
             colors.stroke
         };
@@ -313,7 +342,8 @@ pub(super) fn draw_scene_runtime_backdrops(
             None => {}
         }
         if arrange_mode && is_selected {
-            let hovered_handle = pointer.and_then(|pointer| scene_region_resize_handle_hit(region, pointer, meta.as_ref()));
+            let hovered_handle = pointer
+                .and_then(|pointer| scene_region_resize_handle_hit(region, pointer, meta.as_ref()));
             for handle in scene_region_resize_handles(region, meta.as_ref()) {
                 let handle_fill = if hovered_handle.is_some_and(|hit| hit.handle == handle.handle) {
                     colors.stroke
@@ -331,6 +361,310 @@ pub(super) fn draw_scene_runtime_backdrops(
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct SceneRegionActionOverlayResult {
+    pub(super) pointer_over: bool,
+    pub(super) action_invoked: bool,
+}
+
+pub(super) fn draw_scene_region_action_overlay(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    view_id: GraphViewId,
+    metadata_id: egui::Id,
+) -> SceneRegionActionOverlayResult {
+    if app.graph_view_scene_mode(view_id) != crate::app::SceneMode::Arrange {
+        return SceneRegionActionOverlayResult::default();
+    }
+
+    let Some(region_id) = app.graph_view_selected_scene_region(view_id) else {
+        return SceneRegionActionOverlayResult::default();
+    };
+    let Some(region) = app.graph_view_scene_region(view_id, region_id).cloned() else {
+        return SceneRegionActionOverlayResult::default();
+    };
+
+    let meta = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
+    let Some(anchor) = region_screen_shape(&region, meta.as_ref())
+        .map(|shape| scene_region_action_anchor(shape, ui.max_rect()))
+    else {
+        return SceneRegionActionOverlayResult::default();
+    };
+
+    let view_selection = app.selection_for_view(view_id).clone();
+    let selected_nodes: Vec<_> = view_selection.iter().copied().collect();
+    let graphlet_nodes = if selected_nodes.is_empty() {
+        Vec::new()
+    } else {
+        app.graphlet_members_for_nodes_in_view(&selected_nodes, Some(view_id))
+    };
+    let search_result_nodes = active_graph_search_node_keys(app);
+    let filtered_view_nodes = filtered_view_node_keys(app, view_id);
+
+    egui::Area::new(egui::Id::new(("scene_region_actions", view_id, region_id)))
+        .order(egui::Order::Foreground)
+        .fixed_pos(anchor)
+        .show(ui.ctx(), |ui| {
+            let frame = egui::Frame::window(ui.style())
+                .corner_radius(egui::CornerRadius::same(10))
+                .inner_margin(egui::Margin::symmetric(8, 6))
+                .show(ui, |ui| {
+                    let mut action_invoked = false;
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(egui::RichText::new("Gather").small().strong());
+                        if ui
+                            .add_enabled(
+                                !selected_nodes.is_empty(),
+                                egui::Button::new(format!("Selection {}", selected_nodes.len())),
+                            )
+                            .clicked()
+                        {
+                            gather_node_keys_into_scene_region(
+                                app,
+                                &region,
+                                selected_nodes.clone(),
+                            );
+                            action_invoked = true;
+                        }
+                        if ui
+                            .add_enabled(
+                                !graphlet_nodes.is_empty(),
+                                egui::Button::new(format!("Graphlet {}", graphlet_nodes.len())),
+                            )
+                            .clicked()
+                        {
+                            gather_node_keys_into_scene_region(
+                                app,
+                                &region,
+                                graphlet_nodes.clone(),
+                            );
+                            action_invoked = true;
+                        }
+                        if ui
+                            .add_enabled(
+                                !search_result_nodes.is_empty(),
+                                egui::Button::new(format!("Search {}", search_result_nodes.len())),
+                            )
+                            .clicked()
+                        {
+                            gather_node_keys_into_scene_region(
+                                app,
+                                &region,
+                                search_result_nodes.clone(),
+                            );
+                            action_invoked = true;
+                        }
+                        if ui
+                            .add_enabled(
+                                !filtered_view_nodes.is_empty(),
+                                egui::Button::new(format!(
+                                    "Filtered {}",
+                                    filtered_view_nodes.len()
+                                )),
+                            )
+                            .clicked()
+                        {
+                            gather_node_keys_into_scene_region(
+                                app,
+                                &region,
+                                filtered_view_nodes.clone(),
+                            );
+                            action_invoked = true;
+                        }
+                        if ui.small_button("Panel").clicked() {
+                            app.open_scene_overlay(Some(view_id));
+                            action_invoked = true;
+                        }
+                    });
+                    action_invoked
+                });
+            SceneRegionActionOverlayResult {
+                pointer_over: frame.response.hovered(),
+                action_invoked: frame.inner,
+            }
+        })
+        .inner
+}
+
+pub(super) fn draw_scene_simulate_overlays(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+    metadata_id: egui::Id,
+) {
+    if app.graph_view_scene_mode(view_id) != crate::app::SceneMode::Simulate {
+        return;
+    }
+
+    let reveal_nodes = app.graph_view_scene_reveal_nodes(view_id);
+    let relation_xray = app.graph_view_scene_relation_xray(view_id);
+    if !reveal_nodes && !relation_xray {
+        return;
+    }
+
+    let Some(state) = app.workspace.graph_runtime.egui_state.as_ref() else {
+        return;
+    };
+    let meta = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
+    let theme_tokens = phase3_resolve_active_theme(app.default_registry_theme_id()).tokens;
+    let painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new(("scene_simulate_overlay", view_id)),
+    ));
+    let simulate_visuals =
+        simulate_visual_profile(app.graph_view_simulate_behavior_preset(view_id));
+
+    if let Some(impulses) = app
+        .workspace
+        .graph_runtime
+        .simulate_release_impulses
+        .get(&view_id)
+    {
+        for (key, impulse) in impulses {
+            let magnitude = impulse.length();
+            if magnitude <= 0.05 {
+                continue;
+            }
+            let Some(node) = state.graph.node(*key) else {
+                continue;
+            };
+            let (screen_pos, screen_radius) = if let Some(meta) = meta.as_ref() {
+                (
+                    meta.canvas_to_screen_pos(node.location()),
+                    meta.canvas_to_screen_size(node.display().radius()),
+                )
+            } else {
+                (node.location(), node.display().radius())
+            };
+            let settle_alpha = ((magnitude / 10.0).clamp(0.12, 1.0) * 255.0) as u8;
+            let settle_color = egui::Color32::from_rgba_unmultiplied(
+                simulate_visuals.settle_glow.r(),
+                simulate_visuals.settle_glow.g(),
+                simulate_visuals.settle_glow.b(),
+                settle_alpha.min(simulate_visuals.settle_glow.a()),
+            );
+            painter.circle_stroke(
+                screen_pos,
+                screen_radius + 13.0,
+                egui::Stroke::new(1.75, settle_color),
+            );
+        }
+    }
+
+    if reveal_nodes {
+        let node_count = state.graph.nodes_iter().count();
+        let show_labels = node_count <= 40;
+        for (key, node) in state.graph.nodes_iter() {
+            let (screen_pos, screen_radius) = if let Some(meta) = meta.as_ref() {
+                (
+                    meta.canvas_to_screen_pos(node.location()),
+                    meta.canvas_to_screen_size(node.display().radius()),
+                )
+            } else {
+                (node.location(), node.display().radius())
+            };
+            painter.circle_stroke(
+                screen_pos,
+                screen_radius + 8.0,
+                egui::Stroke::new(
+                    2.0,
+                    egui::Color32::from_rgba_unmultiplied(
+                        theme_tokens.graph_node_focus_ring.r(),
+                        theme_tokens.graph_node_focus_ring.g(),
+                        theme_tokens.graph_node_focus_ring.b(),
+                        170,
+                    ),
+                ),
+            );
+            if show_labels && let Some(source) = app.domain_graph().get_node(key) {
+                let label = compact_scene_node_label(source);
+                if !label.is_empty() {
+                    painter.text(
+                        screen_pos + egui::vec2(0.0, -(screen_radius + 10.0)),
+                        egui::Align2::CENTER_BOTTOM,
+                        label,
+                        egui::FontId::proportional(11.0),
+                        egui::Color32::from_rgba_unmultiplied(245, 245, 250, 210),
+                    );
+                }
+            }
+        }
+    }
+
+    if relation_xray
+        && let Some(focus_key) = scene_relation_xray_focus_node(app, view_id)
+        && let Some(focus_node) = state.graph.node(focus_key)
+    {
+        let focus_pos = if let Some(meta) = meta.as_ref() {
+            meta.canvas_to_screen_pos(focus_node.location())
+        } else {
+            focus_node.location()
+        };
+        let xray_color = theme_tokens.edge_tokens.selection.foreground_color;
+        let mut seen = BTreeSet::new();
+        for neighbor in app
+            .domain_graph()
+            .out_neighbors(focus_key)
+            .chain(app.domain_graph().in_neighbors(focus_key))
+        {
+            if !seen.insert(neighbor.index()) {
+                continue;
+            }
+            let Some(neighbor_node) = state.graph.node(neighbor) else {
+                continue;
+            };
+            let neighbor_pos = if let Some(meta) = meta.as_ref() {
+                meta.canvas_to_screen_pos(neighbor_node.location())
+            } else {
+                neighbor_node.location()
+            };
+            painter.line_segment(
+                [focus_pos, neighbor_pos],
+                Stroke::new(
+                    3.0,
+                    egui::Color32::from_rgba_unmultiplied(
+                        xray_color.r(),
+                        xray_color.g(),
+                        xray_color.b(),
+                        190,
+                    ),
+                ),
+            );
+            painter.circle_filled(
+                neighbor_pos,
+                4.0,
+                egui::Color32::from_rgba_unmultiplied(
+                    xray_color.r(),
+                    xray_color.g(),
+                    xray_color.b(),
+                    220,
+                ),
+            );
+        }
+        painter.circle_stroke(
+            focus_pos,
+            if let Some(meta) = meta.as_ref() {
+                meta.canvas_to_screen_size(focus_node.display().radius()) + 10.0
+            } else {
+                focus_node.display().radius() + 10.0
+            },
+            Stroke::new(
+                2.5,
+                egui::Color32::from_rgba_unmultiplied(
+                    xray_color.r(),
+                    xray_color.g(),
+                    xray_color.b(),
+                    230,
+                ),
+            ),
+        );
+    }
+}
+
 pub(super) fn scene_region_at_pointer(
     ui: &Ui,
     app: &GraphBrowserApp,
@@ -342,7 +676,8 @@ pub(super) fn scene_region_at_pointer(
     let meta = ui
         .ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
-    scene_region_at_screen_pos(runtime.regions.as_slice(), pointer, meta.as_ref()).map(|region| region.id)
+    scene_region_at_screen_pos(runtime.regions.as_slice(), pointer, meta.as_ref())
+        .map(|region| region.id)
 }
 
 pub(super) fn scene_region_resize_handle_at_pointer(
@@ -354,7 +689,10 @@ pub(super) fn scene_region_resize_handle_at_pointer(
     let selected_region_id = app.graph_view_selected_scene_region(view_id)?;
     let pointer = ui.input(|i| i.pointer.latest_pos())?;
     let runtime = app.graph_view_scene_runtime(view_id)?;
-    let region = runtime.regions.iter().find(|region| region.id == selected_region_id)?;
+    let region = runtime
+        .regions
+        .iter()
+        .find(|region| region.id == selected_region_id)?;
     let meta = ui
         .ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id));
@@ -380,6 +718,52 @@ struct SceneRegionResizeHandleScreen {
 }
 
 const SCENE_REGION_HANDLE_RADIUS: f32 = 7.0;
+
+fn scene_region_action_anchor(
+    shape: SceneBackdropScreenShape,
+    canvas_rect: egui::Rect,
+) -> egui::Pos2 {
+    let anchor = match shape {
+        SceneBackdropScreenShape::Rect(rect) => rect.right_top() + egui::vec2(12.0, -8.0),
+        SceneBackdropScreenShape::Circle { center, radius } => {
+            center + egui::vec2(radius + 12.0, -(radius + 12.0))
+        }
+    };
+    egui::pos2(
+        anchor
+            .x
+            .clamp(canvas_rect.left() + 8.0, canvas_rect.right() - 220.0),
+        anchor
+            .y
+            .clamp(canvas_rect.top() + 8.0, canvas_rect.bottom() - 36.0),
+    )
+}
+
+fn scene_relation_xray_focus_node(
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+) -> Option<crate::graph::NodeKey> {
+    app.workspace
+        .graph_runtime
+        .hovered_graph_node
+        .or_else(|| app.selection_for_view(view_id).primary())
+}
+
+fn compact_scene_node_label(node: &crate::graph::Node) -> String {
+    let raw = if node.title.trim().is_empty() {
+        node.cached_host
+            .clone()
+            .unwrap_or_else(|| node.url().trim().to_string())
+    } else {
+        node.title.trim().to_string()
+    };
+    if raw.chars().count() <= 28 {
+        raw
+    } else {
+        let shortened: String = raw.chars().take(27).collect();
+        format!("{shortened}…")
+    }
+}
 
 fn scene_region_at_screen_pos<'a>(
     regions: &'a [SceneRegionRuntime],
@@ -408,7 +792,10 @@ fn scene_region_resize_handle_hit(
 ) -> Option<SceneRegionResizeHandleHit> {
     scene_region_resize_handles(region, meta)
         .into_iter()
-        .find(|handle| (pointer - handle.center).length_sq() <= SCENE_REGION_HANDLE_RADIUS * SCENE_REGION_HANDLE_RADIUS)
+        .find(|handle| {
+            (pointer - handle.center).length_sq()
+                <= SCENE_REGION_HANDLE_RADIUS * SCENE_REGION_HANDLE_RADIUS
+        })
         .map(|handle| SceneRegionResizeHandleHit {
             region_id: region.id,
             handle: handle.handle,
@@ -420,10 +807,12 @@ fn scene_region_resize_handles(
     meta: Option<&MetadataFrame>,
 ) -> Vec<SceneRegionResizeHandleScreen> {
     match region_screen_shape(region, meta) {
-        Some(SceneBackdropScreenShape::Circle { center, radius }) => vec![SceneRegionResizeHandleScreen {
-            handle: SceneRegionResizeHandle::CircleRadius,
-            center: center + egui::vec2(radius, 0.0),
-        }],
+        Some(SceneBackdropScreenShape::Circle { center, radius }) => {
+            vec![SceneRegionResizeHandleScreen {
+                handle: SceneRegionResizeHandle::CircleRadius,
+                center: center + egui::vec2(radius, 0.0),
+            }]
+        }
         Some(SceneBackdropScreenShape::Rect(rect)) => vec![
             SceneRegionResizeHandleScreen {
                 handle: SceneRegionResizeHandle::RectTopLeft,
@@ -467,6 +856,41 @@ struct SceneBackdropColors {
     fill: egui::Color32,
     stroke: egui::Color32,
     label: egui::Color32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SimulateVisualProfile {
+    boundary_stroke_width: f32,
+    boundary_stroke: egui::Color32,
+    boundary_fill: egui::Color32,
+    boundary_label: egui::Color32,
+    settle_glow: egui::Color32,
+}
+
+fn simulate_visual_profile(preset: SimulateBehaviorPreset) -> SimulateVisualProfile {
+    match preset {
+        SimulateBehaviorPreset::Float => SimulateVisualProfile {
+            boundary_stroke_width: 1.25,
+            boundary_stroke: egui::Color32::from_rgba_unmultiplied(176, 208, 236, 84),
+            boundary_fill: egui::Color32::from_rgba_unmultiplied(128, 168, 212, 12),
+            boundary_label: egui::Color32::from_rgba_unmultiplied(224, 236, 248, 132),
+            settle_glow: egui::Color32::from_rgba_unmultiplied(188, 220, 245, 110),
+        },
+        SimulateBehaviorPreset::Packed => SimulateVisualProfile {
+            boundary_stroke_width: 2.2,
+            boundary_stroke: egui::Color32::from_rgba_unmultiplied(236, 212, 164, 132),
+            boundary_fill: egui::Color32::from_rgba_unmultiplied(196, 172, 120, 20),
+            boundary_label: egui::Color32::from_rgba_unmultiplied(246, 236, 210, 164),
+            settle_glow: egui::Color32::from_rgba_unmultiplied(245, 224, 176, 126),
+        },
+        SimulateBehaviorPreset::Magnetic => SimulateVisualProfile {
+            boundary_stroke_width: 1.75,
+            boundary_stroke: egui::Color32::from_rgba_unmultiplied(168, 224, 204, 112),
+            boundary_fill: egui::Color32::from_rgba_unmultiplied(112, 180, 160, 16),
+            boundary_label: egui::Color32::from_rgba_unmultiplied(220, 246, 236, 152),
+            settle_glow: egui::Color32::from_rgba_unmultiplied(178, 236, 214, 120),
+        },
+    }
 }
 
 fn scene_region_colors(effect: SceneRegionEffect) -> SceneBackdropColors {
@@ -956,12 +1380,12 @@ mod tests {
     use super::{
         SceneBackdropScreenShape, frame_anchor_is_current_frame, frame_layout_hint_indicator,
         region_screen_shape, scene_region_at_screen_pos, scene_region_resize_handle_hit,
-        screen_rect_from_canvas_rect,
+        screen_rect_from_canvas_rect, simulate_visual_profile,
     };
-    use crate::app::GraphBrowserApp;
+    use crate::app::{GraphBrowserApp, SimulateBehaviorPreset};
     use crate::graph::scene_runtime::SceneRegionResizeHandle;
-    use crate::graph::{DominantEdge, FrameLayoutHint, SplitOrientation};
     use crate::graph::scene_runtime::{SceneRegionEffect, SceneRegionRuntime};
+    use crate::graph::{DominantEdge, FrameLayoutHint, SplitOrientation};
     use euclid::default::Point2D;
 
     #[test]
@@ -1048,7 +1472,11 @@ mod tests {
     #[test]
     fn region_screen_shape_returns_circle_identity_without_metadata() {
         let center = egui::pos2(16.0, 24.0);
-        let region = SceneRegionRuntime::circle(center, 18.0, SceneRegionEffect::Attractor { strength: 0.2 });
+        let region = SceneRegionRuntime::circle(
+            center,
+            18.0,
+            SceneRegionEffect::Attractor { strength: 0.2 },
+        );
 
         assert_eq!(
             region_screen_shape(&region, None),
@@ -1057,6 +1485,16 @@ mod tests {
                 radius: 18.0,
             })
         );
+    }
+
+    #[test]
+    fn simulate_visual_profiles_have_distinct_boundary_weights() {
+        let float = simulate_visual_profile(SimulateBehaviorPreset::Float);
+        let packed = simulate_visual_profile(SimulateBehaviorPreset::Packed);
+        let magnetic = simulate_visual_profile(SimulateBehaviorPreset::Magnetic);
+
+        assert!(packed.boundary_stroke_width > magnetic.boundary_stroke_width);
+        assert!(magnetic.boundary_stroke_width > float.boundary_stroke_width);
     }
 
     #[test]

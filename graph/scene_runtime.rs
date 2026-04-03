@@ -102,11 +102,7 @@ pub(crate) struct SceneRegionRuntime {
 }
 
 impl SceneRegionRuntime {
-    pub(crate) fn circle(
-        center: egui::Pos2,
-        radius: f32,
-        effect: SceneRegionEffect,
-    ) -> Self {
+    pub(crate) fn circle(center: egui::Pos2, radius: f32, effect: SceneRegionEffect) -> Self {
         Self {
             id: SceneRegionId::new(),
             label: None,
@@ -220,7 +216,10 @@ pub(crate) fn apply_scene_runtime_pass(
 
 fn apply_simulate_release_impulses(app: &mut GraphBrowserApp, view_id: GraphViewId) {
     if app.graph_view_scene_mode(view_id) != SceneMode::Simulate {
-        app.workspace.graph_runtime.simulate_release_impulses.remove(&view_id);
+        app.workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .remove(&view_id);
         return;
     }
 
@@ -261,7 +260,10 @@ fn apply_simulate_release_impulses(app: &mut GraphBrowserApp, view_id: GraphView
     }
 
     if next.is_empty() {
-        app.workspace.graph_runtime.simulate_release_impulses.remove(&view_id);
+        app.workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .remove(&view_id);
     } else {
         app.workspace
             .graph_runtime
@@ -368,8 +370,12 @@ fn apply_viewport_containment(
         }
 
         let clamped = egui::Pos2::new(
-            node.position.x.clamp(bounds.left() + inset, bounds.right() - inset),
-            node.position.y.clamp(bounds.top() + inset, bounds.bottom() - inset),
+            node.position
+                .x
+                .clamp(bounds.left() + inset, bounds.right() - inset),
+            node.position
+                .y
+                .clamp(bounds.top() + inset, bounds.bottom() - inset),
         );
         let delta = (clamped - node.position) * response_scale.max(0.0);
         if delta.length_sq() > f32::EPSILON {
@@ -546,7 +552,9 @@ pub(crate) fn resize_shape_to_pointer(
         (SceneRegionShape::Circle { center, .. }, SceneRegionResizeHandle::CircleRadius) => {
             SceneRegionShape::Circle {
                 center,
-                radius: (pointer_canvas_pos - center).length().max(MIN_SCENE_REGION_RADIUS),
+                radius: (pointer_canvas_pos - center)
+                    .length()
+                    .max(MIN_SCENE_REGION_RADIUS),
             }
         }
         (SceneRegionShape::Rect { rect }, handle) => {
@@ -629,7 +637,11 @@ mod tests {
         let before_a = app.domain_graph().node_projected_position(a).unwrap();
         let before_b = app.domain_graph().node_projected_position(b).unwrap();
 
-        apply_scene_runtime_pass(&mut app, GraphViewId::new(), profile.scene_collision_policy());
+        apply_scene_runtime_pass(
+            &mut app,
+            GraphViewId::new(),
+            profile.scene_collision_policy(),
+        );
 
         let after_a = app.domain_graph().node_projected_position(a).unwrap();
         let after_b = app.domain_graph().node_projected_position(b).unwrap();
@@ -642,12 +654,19 @@ mod tests {
         let profile = PhysicsProfile::settle();
         let pinned = app.add_node_and_sync("https://pinned.example".into(), Point2D::new(0.0, 0.0));
         let other = app.add_node_and_sync("https://other.example".into(), Point2D::new(4.0, 0.0));
-        app.domain_graph_mut().get_node_mut(pinned).unwrap().is_pinned = true;
+        app.domain_graph_mut()
+            .get_node_mut(pinned)
+            .unwrap()
+            .is_pinned = true;
 
         let before_pinned = app.domain_graph().node_projected_position(pinned).unwrap();
         let before_other = app.domain_graph().node_projected_position(other).unwrap();
 
-        apply_scene_runtime_pass(&mut app, GraphViewId::new(), profile.scene_collision_policy());
+        apply_scene_runtime_pass(
+            &mut app,
+            GraphViewId::new(),
+            profile.scene_collision_policy(),
+        );
 
         let after_pinned = app.domain_graph().node_projected_position(pinned).unwrap();
         let after_other = app.domain_graph().node_projected_position(other).unwrap();
@@ -659,7 +678,8 @@ mod tests {
     fn viewport_containment_clamps_nodes_inside_canvas_bounds() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
-        let node = app.add_node_and_sync("https://outside.example".into(), Point2D::new(200.0, 200.0));
+        let node =
+            app.add_node_and_sync("https://outside.example".into(), Point2D::new(200.0, 200.0));
         app.workspace.graph_runtime.graph_view_canvas_rects.insert(
             view_id,
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
@@ -688,8 +708,8 @@ mod tests {
 
         let mut loose_app = GraphBrowserApp::new_for_testing();
         let loose_view = GraphViewId::new();
-        let loose_node = loose_app
-            .add_node_and_sync("https://loose.example".into(), Point2D::new(200.0, 200.0));
+        let loose_node =
+            loose_app.add_node_and_sync("https://loose.example".into(), Point2D::new(200.0, 200.0));
         loose_app
             .workspace
             .graph_runtime
@@ -731,7 +751,10 @@ mod tests {
                 containment_response_scale: 1.0,
             },
         );
-        let firm_after = firm_app.domain_graph().node_projected_position(firm_node).unwrap();
+        let firm_after = firm_app
+            .domain_graph()
+            .node_projected_position(firm_node)
+            .unwrap();
 
         assert!(loose_after.x > firm_after.x);
         assert!(loose_after.y > firm_after.y);
@@ -822,8 +845,10 @@ mod tests {
 
         let mut loose_app = GraphBrowserApp::new_for_testing();
         let loose_view = GraphViewId::new();
-        let loose_node = loose_app
-            .add_node_and_sync("https://wall-loose.example".into(), Point2D::new(50.0, 50.0));
+        let loose_node = loose_app.add_node_and_sync(
+            "https://wall-loose.example".into(),
+            Point2D::new(50.0, 50.0),
+        );
         loose_app.workspace.graph_runtime.scene_runtimes.insert(
             loose_view,
             GraphViewSceneRuntime {
@@ -846,8 +871,8 @@ mod tests {
 
         let mut firm_app = GraphBrowserApp::new_for_testing();
         let firm_view = GraphViewId::new();
-        let firm_node =
-            firm_app.add_node_and_sync("https://wall-firm.example".into(), Point2D::new(50.0, 50.0));
+        let firm_node = firm_app
+            .add_node_and_sync("https://wall-firm.example".into(), Point2D::new(50.0, 50.0));
         firm_app.workspace.graph_runtime.scene_runtimes.insert(
             firm_view,
             GraphViewSceneRuntime {
@@ -863,7 +888,10 @@ mod tests {
                 ..SceneCollisionPolicy::default()
             },
         );
-        let firm_after = firm_app.domain_graph().node_projected_position(firm_node).unwrap();
+        let firm_after = firm_app
+            .domain_graph()
+            .node_projected_position(firm_node)
+            .unwrap();
 
         let loose_displacement = (loose_after - Point2D::new(50.0, 50.0)).length();
         let firm_displacement = (firm_after - Point2D::new(50.0, 50.0)).length();
@@ -877,10 +905,10 @@ mod tests {
         let node = app.add_node_and_sync("https://coast.example".into(), Point2D::new(20.0, 20.0));
         app.set_graph_view_scene_mode(view_id, SceneMode::Simulate);
         app.workspace.graph_runtime.drag_release_frames_remaining = 5;
-        app.workspace.graph_runtime.simulate_release_impulses.insert(
-            view_id,
-            HashMap::from([(node, egui::vec2(10.0, 0.0))]),
-        );
+        app.workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .insert(view_id, HashMap::from([(node, egui::vec2(10.0, 0.0))]));
 
         apply_scene_runtime_pass(&mut app, view_id, SceneCollisionPolicy::default());
 
@@ -905,28 +933,50 @@ mod tests {
         let float_node =
             float_app.add_node_and_sync("https://float.example".into(), Point2D::new(20.0, 20.0));
         float_app.set_graph_view_scene_mode(float_view, SceneMode::Simulate);
-        float_app.set_graph_view_simulate_behavior_preset(float_view, SimulateBehaviorPreset::Float);
-        float_app.workspace.graph_runtime.drag_release_frames_remaining = 5;
-        float_app.workspace.graph_runtime.simulate_release_impulses.insert(
-            float_view,
-            HashMap::from([(float_node, egui::vec2(10.0, 0.0))]),
-        );
+        float_app
+            .set_graph_view_simulate_behavior_preset(float_view, SimulateBehaviorPreset::Float);
+        float_app
+            .workspace
+            .graph_runtime
+            .drag_release_frames_remaining = 5;
+        float_app
+            .workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .insert(
+                float_view,
+                HashMap::from([(float_node, egui::vec2(10.0, 0.0))]),
+            );
         apply_scene_runtime_pass(&mut float_app, float_view, SceneCollisionPolicy::default());
-        let float_after = float_app.domain_graph().node_projected_position(float_node).unwrap();
+        let float_after = float_app
+            .domain_graph()
+            .node_projected_position(float_node)
+            .unwrap();
 
         let mut packed_app = GraphBrowserApp::new_for_testing();
         let packed_view = GraphViewId::new();
-        let packed_node = packed_app
-            .add_node_and_sync("https://packed.example".into(), Point2D::new(20.0, 20.0));
+        let packed_node =
+            packed_app.add_node_and_sync("https://packed.example".into(), Point2D::new(20.0, 20.0));
         packed_app.set_graph_view_scene_mode(packed_view, SceneMode::Simulate);
         packed_app
             .set_graph_view_simulate_behavior_preset(packed_view, SimulateBehaviorPreset::Packed);
-        packed_app.workspace.graph_runtime.drag_release_frames_remaining = 5;
-        packed_app.workspace.graph_runtime.simulate_release_impulses.insert(
+        packed_app
+            .workspace
+            .graph_runtime
+            .drag_release_frames_remaining = 5;
+        packed_app
+            .workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .insert(
+                packed_view,
+                HashMap::from([(packed_node, egui::vec2(10.0, 0.0))]),
+            );
+        apply_scene_runtime_pass(
+            &mut packed_app,
             packed_view,
-            HashMap::from([(packed_node, egui::vec2(10.0, 0.0))]),
+            SceneCollisionPolicy::default(),
         );
-        apply_scene_runtime_pass(&mut packed_app, packed_view, SceneCollisionPolicy::default());
         let packed_after = packed_app
             .domain_graph()
             .node_projected_position(packed_node)
@@ -941,10 +991,10 @@ mod tests {
         let view_id = GraphViewId::new();
         let node = app.add_node_and_sync("https://quiet.example".into(), Point2D::new(20.0, 20.0));
         app.workspace.graph_runtime.drag_release_frames_remaining = 5;
-        app.workspace.graph_runtime.simulate_release_impulses.insert(
-            view_id,
-            HashMap::from([(node, egui::vec2(10.0, 0.0))]),
-        );
+        app.workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .insert(view_id, HashMap::from([(node, egui::vec2(10.0, 0.0))]));
 
         apply_scene_runtime_pass(&mut app, view_id, SceneCollisionPolicy::default());
 
