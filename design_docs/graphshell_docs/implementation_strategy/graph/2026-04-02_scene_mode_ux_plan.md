@@ -36,14 +36,21 @@ The purpose of this plan is to make that distinction explicit in runtime state, 
 - `Arrange` is now the first mode with concrete behavioral effect:
   - scene authoring affordances are foregrounded,
   - on-canvas authored-region interactions are enabled,
+  - selected regions now carry a small canvas-local action strip for quick gather commands,
   - the floating `Scene` surface behaves as the richer editing companion for the active graph view.
 - `Arrange` also now carries the first `Gather Here` interaction:
   - selected regions can gather the current selection,
   - selected regions can gather the current projection-aware graphlet,
-  - selected regions can gather by selection-derived tag, domain, or frame candidates.
-- `Browse` and `Simulate` are still scaffolding-heavy:
-  - `Browse` intentionally quiets authoring affordances,
-  - `Simulate` is visible as a mode choice but does not yet introduce richer scene/world behavior.
+  - selected regions can gather by selection-derived classification, tag, domain, or frame candidates,
+  - selected regions can gather the active graph search result set,
+  - selected regions can gather the current filtered-view node set.
+- `Browse` remains intentionally quiet, while `Simulate` now has a first concrete legibility slice:
+  - `Browse` keeps authoring affordances subdued,
+  - `Simulate` now exposes `Reveal Nodes` and `Relation X-Ray` as per-view scene controls,
+  - `Simulate` now also exposes `Float`, `Packed`, and `Magnetic` as per-view behavior presets that tune the existing scene-runtime pass,
+  - `Float` now glides longer, settles softly, and responds more loosely to bounds; `Packed` settles quickly with firmer personal space and stronger boundary response; `Magnetic` sits in the middle while making regions feel more assertive,
+  - dragged node-objects in `Simulate` now retain a short decaying release impulse after pointer release so they coast and settle instead of stopping dead,
+  - richer object-world behavior beyond those overlays, preset biases, and release coasting is still future work.
 
 ---
 
@@ -85,6 +92,7 @@ This mode is view-owned state, not graph-canonical state.
 - richer scene rules are available
 - relationship overlays are demand-driven
 - the canvas behaves as a scene without losing graph explainability
+- per-view behavior presets can bias the scene feel without changing graph truth
 
 ---
 
@@ -179,7 +187,8 @@ Required first-class actions:
 - reveal nodes when scene richness obscures them
 - semantic x-ray / relation reveal overlay
 - toggle object-vs-graph emphasis
-- use richer scene presets
+- choose a simulate behavior preset such as `Float`, `Packed`, or `Magnetic`
+- let released objects coast briefly before settling
 
 Expected visual result:
 
@@ -249,6 +258,7 @@ When the mode is `Arrange` or `Simulate`, foreground relevant actions in graph c
 - reveal nodes
 - x-ray relations
 - choose scene preset
+- choose simulate behavior preset
 
 ### 6.3 Progressive disclosure
 
@@ -280,6 +290,16 @@ This slice does **not** require:
 - a scene editor,
 - or major render-path replacement.
 
+**Execution update (2026-04-02, later)**:
+
+The initial mode slice is now materially beyond scaffolding:
+
+1. `SceneMode` persists per view,
+2. `Arrange` owns authored-region interaction and semantic gather actions,
+3. `Simulate` owns `Reveal Nodes` and `Relation X-Ray`,
+4. `Simulate` also owns first behavior presets (`Float`, `Packed`, `Magnetic`) that bias scene-runtime separation, containment feel, and region response per view,
+5. `Simulate` now gives dragged node-objects a short decaying release coast so object motion feels less abruptly halted.
+
 ---
 
 ## 8. Acceptance Criteria
@@ -290,6 +310,7 @@ The mode model is established when:
 - `Browse`, `Arrange`, and `Simulate` are user-visible view states,
 - relationship peeking is demand-driven rather than all-or-nothing,
 - node visibility can be clarified in busy scenes via `Reveal Nodes`,
+- `Simulate` exposes at least one concrete behavior-control surface beyond overlays,
 - arrange-oriented commands exist conceptually as scene actions rather than hidden future behavior,
 - the graph remains canonical and none of the new mode logic becomes graph truth.
 
@@ -303,4 +324,5 @@ After the first mode slice lands, the next follow-on decisions are:
 
 - how much of `Arrange` should become persistable scene overlay state,
 - when `parry2d` runtime scene regions become user-authored UI,
-- whether `Simulate` remains a mostly-overlay mode for a while or becomes the entry point to a future `rapier2d` scene mode.
+- how much farther `Simulate` should be pushed with `parry2d`-backed behavior before introducing `rapier2d`,
+- whether `Simulate` eventually becomes the entry point to a future `rapier2d` scene mode.

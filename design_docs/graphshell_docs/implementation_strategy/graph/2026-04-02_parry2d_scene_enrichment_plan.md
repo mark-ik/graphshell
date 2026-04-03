@@ -47,11 +47,27 @@
 - `Arrange` is now the first mode that meaningfully changes scene behavior:
   - scene authoring affordances are foregrounded in the graph overlay and Scene panel,
   - on-canvas authored-region hover/select/drag/resize interactions are gated to `Arrange`,
+  - selected regions now expose a canvas-local action strip for the most common gather commands and panel access,
   - `Browse` and `Simulate` currently retain backdrop visibility while keeping authoring quieter.
+- `Simulate` now has a first concrete object-legibility slice:
+  - per-view `Reveal Nodes` and `Relation X-Ray` toggles persist with `GraphViewState`,
+  - the graph overlay and summoned Scene panel expose those controls directly,
+  - the canvas now renders node-object halos/labels and a scoped relation x-ray overlay for the hovered or primary selected node.
+- `Simulate` now also has first behavior presets:
+  - per-view `Float`, `Packed`, and `Magnetic` presets persist with `GraphViewState`,
+  - the graph overlay and summoned Scene panel expose those presets directly,
+  - the scene-runtime pass now biases node separation, containment feel, and region-effect strength from the active preset without introducing a separate physics world,
+  - preset personalities are now visibly distinct: `Float` glides longer and responds more loosely to bounds, `Packed` settles faster with firmer containment, and `Magnetic` keeps moderate coast while letting regions feel strongest.
+- `Simulate` now also has a first object-motion slice:
+  - active drag deltas for the focused simulate view are captured as short-lived release impulses,
+  - released node-objects coast briefly and decay through the existing post-drag release window,
+  - the effect stays per-view, runtime-only, and non-canonical.
 - Selected regions now expose first semantic `Gather Here` actions in `Arrange`:
   - gather the current view selection into the region,
   - gather the current projection-aware graphlet into the region,
-  - gather nodes matching selection-derived tag, registrable-domain, or frame candidates,
+  - gather nodes matching selection-derived classification, tag, registrable-domain, or frame candidates,
+  - gather the active graph search result set into the region,
+  - gather the current filtered-view node set into the region,
   - packing is stable and pinned nodes are respected.
 - The first scene authoring bug surfaced during this pass is fixed:
   - quick-action region creation now uses `get_single_selected_node_for_view(view_id)` instead of the globally focused selection, so multi-view scene authoring targets the correct view.
@@ -61,8 +77,8 @@ Still open in this plan:
 - persistence,
 - richer geometry beyond rect/circle,
 - richer region editing/manipulation UI beyond first-pass drag/select/resize/inspect,
-- broader semantic gather/sort actions inside `Arrange` beyond the current selection-derived candidate pickers,
-- fuller `Simulate`-mode behavior beyond scaffolding.
+- broader semantic gather/sort actions inside `Arrange` beyond the current classification/tag/domain/frame/search/filter set,
+- fuller `Simulate`-mode behavior beyond the current legibility/preset/release-coast slice.
 
 **Relates to**:
 
@@ -128,7 +144,7 @@ This slice does **not** include:
 - scene-file persistence,
 - external import/export,
 - a new `ActiveLayoutKind`,
-- a canvas-editor UI,
+- a separate full canvas-editor mode or render stack,
 - fluid simulation (`salva2d`),
 - graph-canonical scene authority.
 
@@ -230,6 +246,7 @@ struct SceneCollisionPolicy {
     node_separation_enabled: bool,
     wall_containment_enabled: bool,
     node_padding: f32,
+    region_effect_scale: f32,
 }
 ```
 
@@ -237,6 +254,7 @@ Keep the first slice intentionally simple:
 
 - node-vs-node overlap resolution,
 - node-vs-wall containment,
+- region-effect strength scaling,
 - pinned nodes opt out of displacement.
 
 ---
