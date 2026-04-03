@@ -142,13 +142,22 @@ This plan therefore stops presenting `graphshell://clip/...` as the likely runti
 ### Landed: clip metadata and enrichment handoff
 
 - clip capture payload already includes the local metadata needed for clip rendering and provenance handoff,
+- clip content now persists through an explicit clip content facet bridge stored in node-owned state,
+- runtime viewer display for clip nodes is synthesized from stored clip HTML rather than treating the route URL itself as render authority,
 - source classifications can be inherited onto clips with `InheritedFromSource` provenance and non-accepted status,
 - clip creation already participates in the enrichment lane as a concrete Stage C producer.
 
 ### Landed: route and address typing
 
 - clip route typing exists in the graph model via `Address::Clip(...)` and `AddressKind::GraphshellClip`,
+- clip route identity now survives snapshot restore rather than being rewritten back to the source page URL,
 - both `verso://clip/...` and `graphshell://clip/...` are accepted during the bridge period.
+
+### Landed: re-open and presentation cleanup
+
+- opening a clip route now resolves to the matching clip node pane rather than only pivoting to History Manager,
+- live and historical omnibar/search surfaces now match and label clips by user-visible clip title and source URL rather than leaking internal `verso://clip/...` identity strings,
+- user-facing workbench, navigator, accessibility, toolbar, and tag-panel labels now prefer clip-visible metadata over internal route identity.
 
 ---
 
@@ -160,7 +169,7 @@ These remain valid viewer-lane follow-ons:
 - richer clip fidelity choices (`Clean`, `Contextual`, `Screenshot Note`, `Offline Slice`),
 - more robust extraction coverage for complex page structures,
 - dedicated clip content storage/route cleanup after the route bridge settles,
-- clearer clip presentation and provenance chrome.
+- richer clip presentation and provenance chrome beyond the now-landed visible title/source cleanup.
 
 These are deferred viewer improvements, not separate feature lanes.
 
@@ -202,6 +211,7 @@ Nostr publication is no longer part of the core clipping execution path in this 
 
 - describe clips in terms of `Address::Clip(...)` / `AddressKind::GraphshellClip`,
 - record `verso://clip/...` plus legacy `graphshell://clip/...` bridge behavior,
+- keep route identity distinct from runtime render URL synthesis,
 - avoid reasserting `data:` URLs as the long-term clip authority model.
 
 ### Slice 3: Keep the analysis boundary explicit
@@ -225,7 +235,8 @@ Nostr publication is no longer part of the core clipping execution path in this 
 2. A reader can tell where viewer-owned clipping ends and broader document/site analysis begins.
 3. The plan no longer implies that entering inspector mode materializes graph truth by default.
 4. The route/address story reflects current code reality rather than historical `graphshell://clip/...` assumptions.
-5. Broader ideas like link extraction and selector-driven analysis remain on the roadmap, but are attached to explicit downstream lanes rather than hidden inside the viewer plan.
+5. User-facing clip labels and search surfaces no longer depend on internal route identity for display.
+6. Broader ideas like link extraction and selector-driven analysis remain on the roadmap, but are attached to explicit downstream lanes rather than hidden inside the viewer plan.
 
 ---
 
