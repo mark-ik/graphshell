@@ -241,15 +241,13 @@ impl<'de> serde::Deserialize<'de> for PhysicsProfile {
                     .then(DegreeRepulsionConfig::medium),
                 domain_clustering: domain_clustering
                     .unwrap_or(false)
-                    .then_some(DomainClusteringConfig {
-                        strength: 0.04,
-                    }),
-                semantic_clustering: semantic_clustering
-                    .unwrap_or(false)
-                    .then_some(SemanticClusteringConfig {
+                    .then_some(DomainClusteringConfig { strength: 0.04 }),
+                semantic_clustering: semantic_clustering.unwrap_or(false).then_some(
+                    SemanticClusteringConfig {
                         strength: semantic_strength.unwrap_or(0.05),
                         similarity_floor: 0.10,
-                    }),
+                    },
+                ),
                 hub_pull: None,
             }
         } else {

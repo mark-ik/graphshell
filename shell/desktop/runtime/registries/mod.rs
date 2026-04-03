@@ -5178,7 +5178,10 @@ mod tests {
     fn phase3_physics_profile_switches_and_falls_back() {
         let scatter = phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SCATTER);
         assert!(scatter.matched);
-        assert_eq!(scatter.resolved_id, physics_profile::PHYSICS_PROFILE_SCATTER);
+        assert_eq!(
+            scatter.resolved_id,
+            physics_profile::PHYSICS_PROFILE_SCATTER
+        );
 
         let fallback = phase3_set_active_physics_profile("physics:missing");
         assert!(fallback.fallback_used);

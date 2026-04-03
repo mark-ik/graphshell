@@ -303,8 +303,7 @@ pub(crate) fn apply_domain_clustering_forces(
 
         for (key, position) in members {
             let delta = centroid - position.to_vec2();
-            *position_deltas.entry(key).or_insert(egui::Vec2::ZERO) +=
-                delta * config.strength;
+            *position_deltas.entry(key).or_insert(egui::Vec2::ZERO) += delta * config.strength;
         }
     }
 
@@ -313,12 +312,18 @@ pub(crate) fn apply_domain_clustering_forces(
 
 fn registrable_domain_key(url: &str) -> Option<String> {
     let parsed = url::Url::parse(url).ok()?;
-    let host = parsed.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    let host = parsed
+        .host_str()?
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
     if host.parse::<std::net::IpAddr>().is_ok() {
         return Some(host);
     }
 
-    let labels: Vec<&str> = host.split('.').filter(|segment| !segment.is_empty()).collect();
+    let labels: Vec<&str> = host
+        .split('.')
+        .filter(|segment| !segment.is_empty())
+        .collect();
     if labels.len() <= 2 {
         return Some(host);
     }
@@ -699,24 +704,9 @@ mod tests {
             euclid::default::Point2D::new(0.0, 20.0),
         );
 
-        app.add_edge_and_sync(
-            hub,
-            left,
-            crate::graph::EdgeType::Hyperlink,
-            None,
-        );
-        app.add_edge_and_sync(
-            hub,
-            right,
-            crate::graph::EdgeType::Hyperlink,
-            None,
-        );
-        app.add_edge_and_sync(
-            hub,
-            extra,
-            crate::graph::EdgeType::Hyperlink,
-            None,
-        );
+        app.add_edge_and_sync(hub, left, crate::graph::EdgeType::Hyperlink, None);
+        app.add_edge_and_sync(hub, right, crate::graph::EdgeType::Hyperlink, None);
+        app.add_edge_and_sync(hub, extra, crate::graph::EdgeType::Hyperlink, None);
 
         let before_left = app.domain_graph().node_projected_position(left).unwrap();
         let before_right = app.domain_graph().node_projected_position(right).unwrap();
@@ -804,7 +794,12 @@ mod tests {
         );
 
         let mut archipelago_app = GraphBrowserApp::new_for_testing();
-        archipelago_app.workspace.graph_runtime.physics.base.is_running = true;
+        archipelago_app
+            .workspace
+            .graph_runtime
+            .physics
+            .base
+            .is_running = true;
         let arch_a = archipelago_app.add_node_and_sync(
             "https://a.example.com/one".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
@@ -823,7 +818,10 @@ mod tests {
             Some(PhysicsProfile::archipelago().graph_physics_extensions(false)),
         );
 
-        assert!(node_distance(&archipelago_app, arch_a, arch_b) < node_distance(&drift_app, drift_a, drift_b));
+        assert!(
+            node_distance(&archipelago_app, arch_a, arch_b)
+                < node_distance(&drift_app, drift_a, drift_b)
+        );
     }
 
     #[test]
@@ -852,7 +850,12 @@ mod tests {
             .insert(drift_b, vector.clone());
 
         let mut resonance_app = GraphBrowserApp::new_for_testing();
-        resonance_app.workspace.graph_runtime.physics.base.is_running = true;
+        resonance_app
+            .workspace
+            .graph_runtime
+            .physics
+            .base
+            .is_running = true;
         let resonance_a = resonance_app.add_node_and_sync(
             "https://alpha.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
@@ -881,7 +884,10 @@ mod tests {
             Some(PhysicsProfile::resonance().graph_physics_extensions(false)),
         );
 
-        assert!(node_distance(&resonance_app, resonance_a, resonance_b) < node_distance(&drift_app, drift_a, drift_b));
+        assert!(
+            node_distance(&resonance_app, resonance_a, resonance_b)
+                < node_distance(&drift_app, drift_a, drift_b)
+        );
     }
 
     #[test]
@@ -910,7 +916,12 @@ mod tests {
         }
 
         let mut constellation_app = GraphBrowserApp::new_for_testing();
-        constellation_app.workspace.graph_runtime.physics.base.is_running = true;
+        constellation_app
+            .workspace
+            .graph_runtime
+            .physics
+            .base
+            .is_running = true;
         let constellation_hub = constellation_app.add_node_and_sync(
             "https://hub.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
@@ -928,7 +939,11 @@ mod tests {
             euclid::default::Point2D::new(194.0, 0.0),
         );
 
-        for leaf in [constellation_leaf_a, constellation_leaf_b, constellation_leaf_c] {
+        for leaf in [
+            constellation_leaf_a,
+            constellation_leaf_b,
+            constellation_leaf_c,
+        ] {
             constellation_app.add_edge_and_sync(
                 constellation_hub,
                 leaf,
@@ -951,10 +966,14 @@ mod tests {
             .map(|leaf| node_distance(&settle_app, settle_hub, leaf))
             .sum::<f32>()
             / 3.0;
-        let constellation_avg = [constellation_leaf_a, constellation_leaf_b, constellation_leaf_c]
-            .into_iter()
-            .map(|leaf| node_distance(&constellation_app, constellation_hub, leaf))
-            .sum::<f32>()
+        let constellation_avg = [
+            constellation_leaf_a,
+            constellation_leaf_b,
+            constellation_leaf_c,
+        ]
+        .into_iter()
+        .map(|leaf| node_distance(&constellation_app, constellation_hub, leaf))
+        .sum::<f32>()
             / 3.0;
 
         assert!(constellation_avg < settle_avg);

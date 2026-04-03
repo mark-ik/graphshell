@@ -452,9 +452,12 @@ impl GraphBrowserApp {
             return position;
         }
 
-        let base = self.workspace.domain.graph.projected_centroid().unwrap_or_else(|| {
-            euclid::default::Point2D::new(400.0, 300.0)
-        });
+        let base = self
+            .workspace
+            .domain
+            .graph
+            .projected_centroid()
+            .unwrap_or_else(|| euclid::default::Point2D::new(400.0, 300.0));
         let n = self.domain_graph().node_count() as f32;
         let angle = n * std::f32::consts::FRAC_PI_4;
         let radius = 90.0;
