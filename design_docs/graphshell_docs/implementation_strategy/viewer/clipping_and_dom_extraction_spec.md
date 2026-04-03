@@ -7,7 +7,7 @@
 **Related**:
 
 - `VIEWER.md`
-- `2026-02-11_clipping_dom_extraction_plan.md`
+- `2026-04-03_clipping_viewer_follow_on_plan.md`
 - `../graph/2026-03-11_graph_enrichment_plan.md`
 - `../aspect_projection/ASPECT_PROJECTION.md`
 - `../aspect_distillery/ASPECT_DISTILLERY.md`

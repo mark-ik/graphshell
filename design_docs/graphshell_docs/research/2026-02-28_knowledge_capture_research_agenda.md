@@ -4,7 +4,7 @@
 **Status**: Research / Active
 **Author**: Arc
 **Feeds Into**:
-- `implementation_strategy/viewer/2026-02-11_clipping_dom_extraction_plan.md`
+- `implementation_strategy/viewer/2026-04-03_clipping_viewer_follow_on_plan.md`
 - `implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
 - `implementation_strategy/graph/2026-03-11_graph_enrichment_plan.md`
 - `implementation_strategy/graph/node_badge_and_tagging_spec.md`
@@ -20,8 +20,7 @@ Browsing with a graph UI is interesting; capturing, organizing, and re-surfacing
 that graph is where the differentiated value lives. The current implementation has the
 foundations:
 
-- **Clipping**: `GraphSemanticEvent::ContextMenu` → script injection → `data:` node + `#clip`
-  tag + `UserGrouped` edge. Architecturally sound but not yet shipped; friction of use is
+- **Clipping**: the current viewer lane already supports inspector-first DOM extraction, explicit clip materialization, route-backed clip nodes, clip-content facet storage, and visible clip title/source presentation. Remaining work is now follow-on refinement rather than first landing.
   unvalidated.
 - **UDC semantic tagging**: `KnowledgeRegistry` routing, `UdcProvider`, reconciliation path,
   semantic physics force. Phase 1 in progress; assumes label-first (`"math" → udc:51`)
@@ -128,7 +127,7 @@ study, aggregate clips per session. If median clips/session ≥ 5, add a keyboar
 
 ### Deliverable
 
-A **Clip UX Requirements Addendum** to `2026-02-11_clipping_dom_extraction_plan.md`
+A **Clip UX Requirements Addendum** to `2026-04-03_clipping_viewer_follow_on_plan.md`
 specifying:
 - Whether interactive element boundary selection is required in Phase 2.
 - The required success-signal design (toast / node highlight / both / neither).
@@ -337,7 +336,7 @@ A **Clip Node Information Model** document specifying:
 - Retrieval surface requirements: whether a dedicated clips pane is justified, and what the
   `is:clip` omnibar behavior must produce.
 
-Feeds into `2026-02-11_clipping_dom_extraction_plan.md` Phase 3 (Clip Node Creation) and
+Feeds into `2026-04-03_clipping_viewer_follow_on_plan.md` and
 Phase 4 (Clip Rendering).
 
 ---
@@ -501,7 +500,7 @@ emerge from cross-thread findings.
 
 ## References
 
-- `implementation_strategy/viewer/2026-02-11_clipping_dom_extraction_plan.md`
+- `implementation_strategy/viewer/2026-04-03_clipping_viewer_follow_on_plan.md`
 - `implementation_strategy/graph/semantic_tagging_and_knowledge_spec.md`
 - `implementation_strategy/graph/2026-03-11_graph_enrichment_plan.md`
 - `implementation_strategy/graph/node_badge_and_tagging_spec.md`

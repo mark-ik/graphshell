@@ -1,8 +1,10 @@
 # Clipping And DOM Extraction Plan (Refactored 2026-04-02)
 
-**Status**: Active current-state execution plan
+**Status**: Archived 2026-04-03 after landing the current-state viewer clipping slice
 **Phase**: Viewer lane, capture-focused
 **Architecture**: backend context-menu adapter -> Graphshell-owned inspector surface -> read-only DOM extraction -> explicit clip materialization into graph nodes
+
+**Archive note**: This file is retained as the record of the landed clipping execution slice. Active remaining viewer-lane work now lives in `graphshell_docs/implementation_strategy/viewer/2026-04-03_clipping_viewer_follow_on_plan.md`.
 
 **Related**:
 

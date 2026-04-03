@@ -170,7 +170,7 @@ Covered in `verso_docs/implementation_strategy/coop_session_spec.md §16.3`. Enc
 
 ### 3.7 NIP-84 Highlights (kind 9802) — clip publication
 
-Covered in `viewer/2026-02-11_clipping_dom_extraction_plan.md §5`. When a user clips a DOM element and chooses to publish it, Graphshell signs a kind 9802 highlight event with the canonical source URL (`r` tag) and publishes to the user's relay set. This is an explicit user action — never automatic. The `nostr` mod (`mods/native/nostr`) handles signing and publication without a Lantern dependency.
+Current clipping docs now treat highlight publication as a downstream integration rather than core viewer-lane scope. When a user clips a DOM element and chooses to publish it, Graphshell signs a kind 9802 highlight event with the canonical source URL (`r` tag) and publishes to the user's relay set. This is an explicit user action — never automatic. The `nostr` mod (`mods/native/nostr`) handles signing and publication without a Lantern dependency.
 
 ### 3.6 Data Vending Machines (NIP-90) — future
 
