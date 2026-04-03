@@ -2441,14 +2441,14 @@ mod tests {
             ACTION_GRAPH_SET_PHYSICS_PROFILE,
             &app,
             ActionPayload::GraphSetPhysicsProfile {
-                profile_id: crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
+                profile_id: crate::registries::atomic::lens::PHYSICS_ID_SCATTER.to_string(),
             },
         );
 
         assert!(matches!(
             execution.into_intents().first(),
             Some(GraphIntent::SetPhysicsProfile { profile_id })
-                if profile_id == crate::registries::atomic::lens::PHYSICS_ID_GAS
+                if profile_id == crate::registries::atomic::lens::PHYSICS_ID_SCATTER
         ));
     }
 

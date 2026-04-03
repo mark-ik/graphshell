@@ -180,6 +180,16 @@ pub enum SceneMode {
     Simulate,
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default,
+)]
+pub enum SimulateBehaviorPreset {
+    #[default]
+    Float,
+    Packed,
+    Magnetic,
+}
+
 impl GraphBrowserApp {
     pub fn graph_view_scene_mode(&self, view_id: GraphViewId) -> SceneMode {
         self.workspace
@@ -208,6 +218,101 @@ impl GraphBrowserApp {
             return;
         }
         view.scene_mode = mode;
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn graph_view_scene_reveal_nodes(&self, view_id: GraphViewId) -> bool {
+        self.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .is_some_and(|view| view.scene_reveal_nodes)
+    }
+
+    pub fn set_graph_view_scene_reveal_nodes(&mut self, view_id: GraphViewId, enabled: bool) {
+        if !self.workspace.graph_runtime.views.contains_key(&view_id) {
+            let name = self.next_graph_view_slot_name();
+            self.workspace
+                .graph_runtime
+                .views
+                .insert(view_id, GraphViewState::new_with_id(view_id, name));
+        }
+        let view = self
+            .workspace
+            .graph_runtime
+            .views
+            .get_mut(&view_id)
+            .expect("view inserted above");
+        if view.scene_reveal_nodes == enabled {
+            return;
+        }
+        view.scene_reveal_nodes = enabled;
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn graph_view_scene_relation_xray(&self, view_id: GraphViewId) -> bool {
+        self.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .is_some_and(|view| view.scene_relation_xray)
+    }
+
+    pub fn set_graph_view_scene_relation_xray(&mut self, view_id: GraphViewId, enabled: bool) {
+        if !self.workspace.graph_runtime.views.contains_key(&view_id) {
+            let name = self.next_graph_view_slot_name();
+            self.workspace
+                .graph_runtime
+                .views
+                .insert(view_id, GraphViewState::new_with_id(view_id, name));
+        }
+        let view = self
+            .workspace
+            .graph_runtime
+            .views
+            .get_mut(&view_id)
+            .expect("view inserted above");
+        if view.scene_relation_xray == enabled {
+            return;
+        }
+        view.scene_relation_xray = enabled;
+        self.workspace.graph_runtime.egui_state_dirty = true;
+    }
+
+    pub fn graph_view_simulate_behavior_preset(
+        &self,
+        view_id: GraphViewId,
+    ) -> SimulateBehaviorPreset {
+        self.workspace
+            .graph_runtime
+            .views
+            .get(&view_id)
+            .map(|view| view.simulate_behavior_preset)
+            .unwrap_or_default()
+    }
+
+    pub fn set_graph_view_simulate_behavior_preset(
+        &mut self,
+        view_id: GraphViewId,
+        preset: SimulateBehaviorPreset,
+    ) {
+        if !self.workspace.graph_runtime.views.contains_key(&view_id) {
+            let name = self.next_graph_view_slot_name();
+            self.workspace
+                .graph_runtime
+                .views
+                .insert(view_id, GraphViewState::new_with_id(view_id, name));
+        }
+        let view = self
+            .workspace
+            .graph_runtime
+            .views
+            .get_mut(&view_id)
+            .expect("view inserted above");
+        if view.simulate_behavior_preset == preset {
+            return;
+        }
+        view.simulate_behavior_preset = preset;
         self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
@@ -1673,9 +1778,12 @@ pub struct ViewPhysicsPolicy {
 
 impl Default for ViewPhysicsPolicy {
     fn default() -> Self {
+        let resolution = crate::registries::atomic::lens::resolve_physics_profile(
+            crate::registries::atomic::lens::PHYSICS_ID_DEFAULT,
+        );
         Self {
-            profile_id: Some(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT.to_string()),
-            profile: PhysicsProfile::default(),
+            profile_id: Some(resolution.resolved_id),
+            profile: resolution.profile,
             source: default_registry_policy_value_source(),
         }
     }
@@ -1715,16 +1823,6 @@ pub struct ViewPresentationPolicy {
 pub struct ViewRelationPolicy {
     #[serde(default)]
     pub edge_projection_override: Option<EdgeProjectionState>,
-}
-
-pub(crate) fn canonical_physics_profile_id(profile: &PhysicsProfile) -> &'static str {
-    if *profile == PhysicsProfile::gas() {
-        crate::registries::atomic::lens::PHYSICS_ID_GAS
-    } else if *profile == PhysicsProfile::solid() {
-        crate::registries::atomic::lens::PHYSICS_ID_SOLID
-    } else {
-        crate::registries::atomic::lens::PHYSICS_ID_DEFAULT
-    }
 }
 
 fn default_registry_policy_value_source() -> PolicyValueSource {
@@ -1819,6 +1917,15 @@ pub struct GraphViewState {
     /// User-facing scene interaction mode for this graph view.
     #[serde(default)]
     pub scene_mode: SceneMode,
+    /// Whether simulate mode should explicitly halo all node-objects for legibility.
+    #[serde(default)]
+    pub scene_reveal_nodes: bool,
+    /// Whether simulate mode should draw a scoped relation x-ray around the current focus node.
+    #[serde(default)]
+    pub scene_relation_xray: bool,
+    /// Lightweight per-view behavior preset for the current non-Rapier simulate mode.
+    #[serde(default)]
+    pub simulate_behavior_preset: SimulateBehaviorPreset,
     #[serde(skip)]
     pub last_layout_algorithm_id: Option<String>,
     #[serde(skip)]
@@ -1875,6 +1982,9 @@ impl std::fmt::Debug for GraphViewState {
             .field("local_simulation", &self.local_simulation)
             .field("dimension", &self.dimension)
             .field("scene_mode", &self.scene_mode)
+            .field("scene_reveal_nodes", &self.scene_reveal_nodes)
+            .field("scene_relation_xray", &self.scene_relation_xray)
+            .field("simulate_behavior_preset", &self.simulate_behavior_preset)
             .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
             .field("active_filter", &self.active_filter)
             .field("edge_projection_override", &self.edge_projection_override)
@@ -1907,6 +2017,9 @@ impl Clone for GraphViewState {
             local_simulation: self.local_simulation.clone(),
             dimension: self.dimension.clone(),
             scene_mode: self.scene_mode,
+            scene_reveal_nodes: self.scene_reveal_nodes,
+            scene_relation_xray: self.scene_relation_xray,
+            simulate_behavior_preset: self.simulate_behavior_preset,
             last_layout_algorithm_id: self.last_layout_algorithm_id.clone(),
             egui_state: None,
             active_filter: self.active_filter.clone(),
@@ -1947,6 +2060,12 @@ struct GraphViewStateSerde {
     dimension: ViewDimension,
     #[serde(default)]
     scene_mode: SceneMode,
+    #[serde(default)]
+    scene_reveal_nodes: bool,
+    #[serde(default)]
+    scene_relation_xray: bool,
+    #[serde(default)]
+    simulate_behavior_preset: SimulateBehaviorPreset,
     #[serde(skip)]
     last_layout_algorithm_id: Option<String>,
     #[serde(skip)]
@@ -1987,6 +2106,9 @@ impl<'de> serde::Deserialize<'de> for GraphViewState {
             local_simulation: helper.local_simulation,
             dimension: helper.dimension,
             scene_mode: helper.scene_mode,
+            scene_reveal_nodes: helper.scene_reveal_nodes,
+            scene_relation_xray: helper.scene_relation_xray,
+            simulate_behavior_preset: helper.simulate_behavior_preset,
             last_layout_algorithm_id: helper.last_layout_algorithm_id,
             egui_state: helper.egui_state,
             active_filter: helper.active_filter,
@@ -2012,6 +2134,20 @@ impl<'de> serde::Deserialize<'de> for GraphViewState {
             }
         }
 
+        let resolved_profile_id = view
+            .physics_policy
+            .profile_id
+            .as_deref()
+            .map(crate::registries::atomic::lens::resolve_physics_profile)
+            .unwrap_or_else(|| {
+                let hinted = crate::registries::atomic::lens::canonical_physics_profile_id_hint(
+                    &view.physics_policy.profile,
+                );
+                crate::registries::atomic::lens::resolve_physics_profile(hinted)
+            });
+        view.physics_policy.profile_id = Some(resolved_profile_id.resolved_id.clone());
+        view.physics_policy.profile = resolved_profile_id.profile;
+
         Ok(view)
     }
 }
@@ -2027,9 +2163,14 @@ impl GraphViewState {
             algorithm_id: legacy_lens.layout_algorithm_id,
             source: PolicyValueSource::LegacySnapshot,
         };
+        let resolution = crate::registries::atomic::lens::resolve_physics_profile(
+            crate::registries::atomic::lens::canonical_physics_profile_id_hint(
+                &legacy_lens.physics,
+            ),
+        );
         self.physics_policy = ViewPhysicsPolicy {
-            profile_id: Some(canonical_physics_profile_id(&legacy_lens.physics).to_string()),
-            profile: legacy_lens.physics,
+            profile_id: Some(resolution.resolved_id),
+            profile: resolution.profile,
             source: PolicyValueSource::LegacySnapshot,
         };
         self.filter_policy = ViewFilterPolicy {
@@ -2170,10 +2311,7 @@ impl GraphViewState {
     }
 
     pub fn resolved_physics_profile_id(&self) -> Option<&str> {
-        self.physics_policy.profile_id.as_deref().or_else(|| {
-            (!self.physics_policy.profile.name.trim().is_empty())
-                .then(|| canonical_physics_profile_id(&self.physics_policy.profile))
-        })
+        self.physics_policy.profile_id.as_deref()
     }
 
     pub fn resolved_theme(&self) -> Option<&ThemeData> {
@@ -2239,6 +2377,9 @@ impl GraphViewState {
             local_simulation: None,
             dimension: ViewDimension::default(),
             scene_mode: SceneMode::Browse,
+            scene_reveal_nodes: false,
+            scene_relation_xray: false,
+            simulate_behavior_preset: SimulateBehaviorPreset::default(),
             last_layout_algorithm_id: None,
             egui_state: None,
             active_filter: None,
@@ -2351,16 +2492,16 @@ mod tests {
         let mut view = GraphViewState::new("Physics");
 
         view.apply_physics_policy_override(
-            crate::registries::atomic::lens::PHYSICS_ID_GAS,
-            crate::registries::atomic::lens::PhysicsProfile::gas(),
+            crate::registries::atomic::lens::PHYSICS_ID_SCATTER,
+            crate::registries::atomic::lens::PhysicsProfile::scatter(),
         );
 
         assert_eq!(
             view.resolved_physics_profile_id(),
-            Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
+            Some(crate::registries::atomic::lens::PHYSICS_ID_SCATTER)
         );
-        assert_eq!(view.physics_policy.profile.name, "Gas");
-        assert_eq!(view.resolved_physics_profile().name, "Gas");
+        assert_eq!(view.physics_policy.profile.name, "Scatter");
+        assert_eq!(view.resolved_physics_profile().name, "Scatter");
         assert_eq!(view.physics_policy.source, PolicyValueSource::ViewOverride);
     }
 
@@ -2399,8 +2540,8 @@ mod tests {
             crate::app::graph_layout::GRAPH_LAYOUT_GRID,
         );
         view.apply_physics_policy_override(
-            crate::registries::atomic::lens::PHYSICS_ID_GAS,
-            crate::registries::atomic::lens::PhysicsProfile::gas(),
+            crate::registries::atomic::lens::PHYSICS_ID_SCATTER,
+            crate::registries::atomic::lens::PhysicsProfile::scatter(),
         );
 
         let resolved = crate::shell::desktop::runtime::registries::phase2_resolve_lens(
@@ -2419,7 +2560,7 @@ mod tests {
         );
         assert_eq!(
             view.resolved_physics_profile_id(),
-            Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
+            Some(crate::registries::atomic::lens::PHYSICS_ID_SCATTER)
         );
         assert!(view.resolved_overlay_descriptor().is_some());
         assert_eq!(view.resolved_filter_count(), 1);
@@ -2444,8 +2585,8 @@ mod tests {
             crate::app::graph_layout::GRAPH_LAYOUT_GRID,
         );
         view.apply_physics_policy_override(
-            crate::registries::atomic::lens::PHYSICS_ID_GAS,
-            crate::registries::atomic::lens::PhysicsProfile::gas(),
+            crate::registries::atomic::lens::PHYSICS_ID_SCATTER,
+            crate::registries::atomic::lens::PhysicsProfile::scatter(),
         );
         view.apply_filter_override(Some(crate::model::graph::filter::FacetExpr::Predicate(
             crate::model::graph::filter::FacetPredicate {
@@ -2479,7 +2620,7 @@ mod tests {
         );
         assert_eq!(
             view.resolved_physics_profile_id(),
-            Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
+            Some(crate::registries::atomic::lens::PHYSICS_ID_SCATTER)
         );
         assert!(view.filter_policy.active_filter_override.is_some());
         assert!(view.resolved_overlay_descriptor().is_some());
@@ -2538,7 +2679,8 @@ mod tests {
             view.resolved_layout_algorithm_id(),
             crate::app::graph_layout::GRAPH_LAYOUT_GRID
         );
-        assert_eq!(view.resolved_physics_profile().name, "Gas");
+        assert_eq!(view.resolved_physics_profile_id(), Some("physics:scatter"));
+        assert_eq!(view.resolved_physics_profile().name, "Scatter");
         assert_eq!(
             view.filter_policy.legacy_filters,
             vec!["legacy".to_string()]
@@ -2562,12 +2704,18 @@ mod tests {
         let view_id = GraphViewId::new();
         let mut view = GraphViewState::new_with_id(view_id, "Scene");
         view.scene_mode = SceneMode::Arrange;
+        view.scene_reveal_nodes = true;
+        view.scene_relation_xray = true;
+        view.simulate_behavior_preset = SimulateBehaviorPreset::Magnetic;
 
         let json = serde_json::to_string(&view).expect("graph view should serialize");
         let decoded: GraphViewState =
             serde_json::from_str(&json).expect("graph view should deserialize");
 
         assert_eq!(decoded.scene_mode, SceneMode::Arrange);
+        assert!(decoded.scene_reveal_nodes);
+        assert!(decoded.scene_relation_xray);
+        assert_eq!(decoded.simulate_behavior_preset, SimulateBehaviorPreset::Magnetic);
     }
 
     #[test]
@@ -2578,6 +2726,33 @@ mod tests {
         app.set_graph_view_scene_mode(view_id, SceneMode::Arrange);
 
         assert_eq!(app.graph_view_scene_mode(view_id), SceneMode::Arrange);
+        assert!(app.workspace.graph_runtime.views.contains_key(&view_id));
+        assert!(app.workspace.graph_runtime.egui_state_dirty);
+    }
+
+    #[test]
+    fn graph_view_state_scene_simulate_toggles_default_off() {
+        let view = GraphViewState::new("Scene");
+        assert!(!view.scene_reveal_nodes);
+        assert!(!view.scene_relation_xray);
+        assert_eq!(view.simulate_behavior_preset, SimulateBehaviorPreset::Float);
+    }
+
+    #[test]
+    fn set_graph_view_scene_simulate_toggles_create_missing_view_and_mark_dirty() {
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+
+        app.set_graph_view_scene_reveal_nodes(view_id, true);
+        app.set_graph_view_scene_relation_xray(view_id, true);
+        app.set_graph_view_simulate_behavior_preset(view_id, SimulateBehaviorPreset::Packed);
+
+        assert!(app.graph_view_scene_reveal_nodes(view_id));
+        assert!(app.graph_view_scene_relation_xray(view_id));
+        assert_eq!(
+            app.graph_view_simulate_behavior_preset(view_id),
+            SimulateBehaviorPreset::Packed
+        );
         assert!(app.workspace.graph_runtime.views.contains_key(&view_id));
         assert!(app.workspace.graph_runtime.egui_state_dirty);
     }

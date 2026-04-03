@@ -30,30 +30,77 @@ pub(crate) struct GraphPhysicsTuning {
     pub(crate) damping: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DegreeRepulsionConfig {
+    pub radius_px: f32,
+    pub strength: f32,
+}
+
+impl DegreeRepulsionConfig {
+    pub const fn mild() -> Self {
+        Self {
+            radius_px: 220.0,
+            strength: 4.0,
+        }
+    }
+
+    pub const fn medium() -> Self {
+        Self {
+            radius_px: 220.0,
+            strength: 8.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainClusteringConfig {
+    pub strength: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SemanticClusteringConfig {
+    pub strength: f32,
+    pub similarity_floor: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HubPullConfig {
+    pub radius_px: f32,
+    pub strength: f32,
+    pub degree_floor: usize,
+}
+
+impl Default for HubPullConfig {
+    fn default() -> Self {
+        Self {
+            radius_px: 260.0,
+            strength: 0.05,
+            degree_floor: 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct GraphPhysicsExtensionConfig {
-    pub(crate) degree_repulsion: bool,
-    pub(crate) domain_clustering: bool,
-    pub(crate) semantic_clustering: bool,
-    pub(crate) semantic_strength: f32,
+    pub(crate) degree_repulsion: Option<DegreeRepulsionConfig>,
+    pub(crate) domain_clustering: Option<DomainClusteringConfig>,
+    pub(crate) semantic_clustering: Option<SemanticClusteringConfig>,
+    pub(crate) hub_pull: Option<HubPullConfig>,
     /// Enable frame-affinity soft-attraction post-physics force.
     ///
     /// Derived from `CanvasRegistry.zones_enabled` at call site.  Defaults
     /// `false`; wired to the registry gate once `lane:layout-semantics` is
     /// fully executed.
-    pub(crate) frame_affinity: bool,
+    pub(crate) frame_affinity_enabled: bool,
 }
 
 impl GraphPhysicsExtensionConfig {
-    pub(crate) fn semantic_clustering_args(self) -> Option<(bool, f32)> {
-        Some((self.semantic_clustering, self.semantic_strength))
-    }
-
     pub(crate) fn any_enabled(self) -> bool {
-        self.degree_repulsion
-            || self.domain_clustering
-            || self.semantic_clustering
-            || self.frame_affinity
+        self.degree_repulsion.is_some()
+            || self.domain_clustering.is_some()
+            || self.semantic_clustering.is_some()
+            || self.hub_pull.is_some()
+            || self.frame_affinity_enabled
     }
 }
 
@@ -98,17 +145,21 @@ pub(crate) fn apply_graph_physics_extensions(
         return;
     }
 
-    if extensions.degree_repulsion {
-        apply_degree_repulsion_forces(app);
+    if let Some(config) = extensions.degree_repulsion {
+        apply_degree_repulsion_forces(app, config);
     }
 
-    if extensions.domain_clustering {
-        apply_domain_clustering_forces(app);
+    if let Some(config) = extensions.domain_clustering {
+        apply_domain_clustering_forces(app, config);
     }
 
-    apply_semantic_clustering_forces(app, extensions.semantic_clustering_args());
+    apply_semantic_clustering_forces(app, extensions.semantic_clustering);
 
-    if extensions.frame_affinity {
+    if let Some(config) = extensions.hub_pull {
+        apply_hub_pull_forces(app, config);
+    }
+
+    if extensions.frame_affinity_enabled {
         let regions =
             crate::graph::frame_affinity::derive_frame_affinity_regions(app.domain_graph());
         crate::graph::frame_affinity::apply_frame_affinity_forces(app, &regions, None);
@@ -156,10 +207,10 @@ pub(crate) fn apply_position_deltas(
     }
 }
 
-pub(crate) fn apply_degree_repulsion_forces(app: &mut GraphBrowserApp) {
-    const NEIGHBOR_RADIUS: f32 = 220.0;
-    const DEGREE_REPULSION_STRENGTH: f32 = 8.0;
-
+pub(crate) fn apply_degree_repulsion_forces(
+    app: &mut GraphBrowserApp,
+    config: DegreeRepulsionConfig,
+) {
     if !app.workspace.graph_runtime.physics.base.is_running {
         return;
     }
@@ -194,7 +245,7 @@ pub(crate) fn apply_degree_repulsion_forces(app: &mut GraphBrowserApp) {
 
             let delta = *pos_b - *pos_a;
             let distance = delta.length();
-            if distance <= 1.0 || distance > NEIGHBOR_RADIUS {
+            if distance <= 1.0 || distance > config.radius_px {
                 continue;
             }
 
@@ -205,9 +256,9 @@ pub(crate) fn apply_degree_repulsion_forces(app: &mut GraphBrowserApp) {
                 continue;
             }
 
-            let proximity = 1.0 - (distance / NEIGHBOR_RADIUS);
+            let proximity = 1.0 - (distance / config.radius_px);
             let degree_bonus = (max_degree as f32).ln_1p();
-            let push = delta.normalized() * proximity * degree_bonus * DEGREE_REPULSION_STRENGTH;
+            let push = delta.normalized() * proximity * degree_bonus * config.strength;
 
             *position_deltas.entry(key_a).or_insert(egui::Vec2::ZERO) -= push;
             *position_deltas.entry(key_b).or_insert(egui::Vec2::ZERO) += push;
@@ -217,9 +268,10 @@ pub(crate) fn apply_degree_repulsion_forces(app: &mut GraphBrowserApp) {
     apply_position_deltas(app, position_deltas);
 }
 
-pub(crate) fn apply_domain_clustering_forces(app: &mut GraphBrowserApp) {
-    const DOMAIN_CLUSTER_STRENGTH: f32 = 0.04;
-
+pub(crate) fn apply_domain_clustering_forces(
+    app: &mut GraphBrowserApp,
+    config: DomainClusteringConfig,
+) {
     if !app.workspace.graph_runtime.physics.base.is_running {
         return;
     }
@@ -252,7 +304,7 @@ pub(crate) fn apply_domain_clustering_forces(app: &mut GraphBrowserApp) {
         for (key, position) in members {
             let delta = centroid - position.to_vec2();
             *position_deltas.entry(key).or_insert(egui::Vec2::ZERO) +=
-                delta * DOMAIN_CLUSTER_STRENGTH;
+                delta * config.strength;
         }
     }
 
@@ -288,15 +340,13 @@ fn registrable_domain_key(url: &str) -> Option<String> {
 
 pub(crate) fn apply_semantic_clustering_forces(
     app: &mut GraphBrowserApp,
-    semantic_config: Option<(bool, f32)>,
+    semantic_config: Option<SemanticClusteringConfig>,
 ) {
-    let (enabled, strength) = if let Some((enabled, strength)) = semantic_config {
-        (enabled, strength)
-    } else {
-        (false, 0.05)
+    let Some(config) = semantic_config else {
+        return;
     };
 
-    if !enabled || strength < 1e-6 {
+    if config.strength < 1e-6 {
         return;
     }
 
@@ -328,7 +378,7 @@ pub(crate) fn apply_semantic_clustering_forces(
             let (key_b, vector_b) = &tagged_nodes[j];
 
             let similarity = semantic_pair_similarity(vector_a, vector_b);
-            if similarity < 0.1 {
+            if similarity < config.similarity_floor {
                 continue;
             }
 
@@ -337,11 +387,77 @@ pub(crate) fn apply_semantic_clustering_forces(
 
             if let (Some(pa), Some(pb)) = (pos_a, pos_b) {
                 let delta = egui::Vec2::new(pb.x - pa.x, pb.y - pa.y);
-                let force = delta * similarity * strength;
+                let force = delta * similarity * config.strength;
 
                 *position_deltas.entry(*key_a).or_insert(egui::Vec2::ZERO) += force;
                 *position_deltas.entry(*key_b).or_insert(egui::Vec2::ZERO) -= force;
             }
+        }
+    }
+
+    apply_position_deltas(app, position_deltas);
+}
+
+pub(crate) fn apply_hub_pull_forces(app: &mut GraphBrowserApp, config: HubPullConfig) {
+    if !app.workspace.graph_runtime.physics.base.is_running {
+        return;
+    }
+
+    let nodes: Vec<_> = app.domain_graph().nodes().map(|(key, _)| key).collect();
+    if nodes.len() < 2 {
+        return;
+    }
+
+    let degrees: HashMap<NodeKey, usize> = nodes
+        .iter()
+        .map(|&key| (key, app.domain_graph().inner.edges(key).count()))
+        .collect();
+    let positions: HashMap<NodeKey, egui::Pos2> = nodes
+        .iter()
+        .filter_map(|&key| {
+            app.domain_graph()
+                .node_projected_position(key)
+                .map(|pos| (key, pos.to_pos2()))
+        })
+        .collect();
+
+    let mut position_deltas: HashMap<NodeKey, egui::Vec2> = HashMap::new();
+
+    for i in 0..nodes.len() {
+        for j in (i + 1)..nodes.len() {
+            let key_a = nodes[i];
+            let key_b = nodes[j];
+            let (Some(pos_a), Some(pos_b)) = (positions.get(&key_a), positions.get(&key_b)) else {
+                continue;
+            };
+
+            let degree_a = degrees.get(&key_a).copied().unwrap_or(0);
+            let degree_b = degrees.get(&key_b).copied().unwrap_or(0);
+            if degree_a == degree_b {
+                continue;
+            }
+
+            let (hub_pos, hub_degree, leaf_degree, leaf_key, leaf_pos) = if degree_a > degree_b {
+                (*pos_a, degree_a, degree_b, key_b, *pos_b)
+            } else {
+                (*pos_b, degree_b, degree_a, key_a, *pos_a)
+            };
+
+            if hub_degree < config.degree_floor {
+                continue;
+            }
+
+            let delta = hub_pos - leaf_pos;
+            let distance = delta.length();
+            if distance <= 1.0 || distance > config.radius_px {
+                continue;
+            }
+
+            let proximity = 1.0 - (distance / config.radius_px);
+            let degree_gap = hub_degree.saturating_sub(leaf_degree).max(1) as f32;
+            let pull =
+                delta * proximity * (hub_degree as f32).ln_1p() * degree_gap * config.strength;
+            *position_deltas.entry(leaf_key).or_insert(egui::Vec2::ZERO) += pull;
         }
     }
 
@@ -477,6 +593,14 @@ pub(crate) mod scenario_helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registries::atomic::knowledge::{CompactCode, SemanticClassVector};
+    use crate::registries::atomic::lens::PhysicsProfile;
+
+    fn node_distance(app: &GraphBrowserApp, a: NodeKey, b: NodeKey) -> f32 {
+        let pa = app.domain_graph().node_projected_position(a).unwrap();
+        let pb = app.domain_graph().node_projected_position(b).unwrap();
+        ((pb.x - pa.x).powi(2) + (pb.y - pa.y).powi(2)).sqrt()
+    }
 
     #[test]
     fn apply_graph_physics_tuning_updates_force_directed_state() {
@@ -497,33 +621,44 @@ mod tests {
     }
 
     #[test]
-    fn graph_physics_extension_config_exposes_semantic_clustering_args() {
+    fn graph_physics_extension_config_preserves_parameterized_helpers() {
         let config = GraphPhysicsExtensionConfig {
-            degree_repulsion: true,
-            domain_clustering: false,
-            semantic_clustering: true,
-            semantic_strength: 0.17,
-            frame_affinity: false,
+            degree_repulsion: Some(DegreeRepulsionConfig::mild()),
+            domain_clustering: None,
+            semantic_clustering: Some(SemanticClusteringConfig {
+                strength: 0.17,
+                similarity_floor: 0.10,
+            }),
+            hub_pull: Some(HubPullConfig::default()),
+            frame_affinity_enabled: false,
         };
 
-        assert_eq!(config.semantic_clustering_args(), Some((true, 0.17)));
+        assert_eq!(config.degree_repulsion, Some(DegreeRepulsionConfig::mild()));
+        assert_eq!(
+            config.semantic_clustering,
+            Some(SemanticClusteringConfig {
+                strength: 0.17,
+                similarity_floor: 0.10,
+            })
+        );
+        assert_eq!(config.hub_pull, Some(HubPullConfig::default()));
     }
 
     #[test]
     fn graph_physics_extension_config_reports_enabled_extensions() {
         let disabled = GraphPhysicsExtensionConfig {
-            degree_repulsion: false,
-            domain_clustering: false,
-            semantic_clustering: false,
-            semantic_strength: 0.17,
-            frame_affinity: false,
+            degree_repulsion: None,
+            domain_clustering: None,
+            semantic_clustering: None,
+            hub_pull: None,
+            frame_affinity_enabled: false,
         };
         let enabled = GraphPhysicsExtensionConfig {
-            degree_repulsion: false,
-            domain_clustering: true,
-            semantic_clustering: false,
-            semantic_strength: 0.17,
-            frame_affinity: false,
+            degree_repulsion: None,
+            domain_clustering: Some(DomainClusteringConfig { strength: 0.08 }),
+            semantic_clustering: None,
+            hub_pull: None,
+            frame_affinity_enabled: false,
         };
 
         assert!(!disabled.any_enabled());
@@ -586,7 +721,7 @@ mod tests {
         let before_left = app.domain_graph().node_projected_position(left).unwrap();
         let before_right = app.domain_graph().node_projected_position(right).unwrap();
 
-        apply_degree_repulsion_forces(&mut app);
+        apply_degree_repulsion_forces(&mut app, DegreeRepulsionConfig::medium());
 
         let after_left = app.domain_graph().node_projected_position(left).unwrap();
         let after_right = app.domain_graph().node_projected_position(right).unwrap();
@@ -613,12 +748,215 @@ mod tests {
         let before_a = app.domain_graph().node_projected_position(a).unwrap();
         let before_b = app.domain_graph().node_projected_position(b).unwrap();
 
-        apply_domain_clustering_forces(&mut app);
+        apply_domain_clustering_forces(&mut app, DomainClusteringConfig { strength: 0.08 });
 
         let after_a = app.domain_graph().node_projected_position(a).unwrap();
         let after_b = app.domain_graph().node_projected_position(b).unwrap();
 
         assert!(after_a.x > before_a.x);
         assert!(after_b.x < before_b.x);
+    }
+
+    #[test]
+    fn hub_pull_moves_leaf_toward_nearby_hub() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.graph_runtime.physics.base.is_running = true;
+
+        let hub = app.add_node_and_sync(
+            "https://hub.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let leaf = app.add_node_and_sync(
+            "https://leaf.example".to_string(),
+            euclid::default::Point2D::new(80.0, 0.0),
+        );
+        let extra_a = app.add_node_and_sync(
+            "https://extra-a.example".to_string(),
+            euclid::default::Point2D::new(-20.0, 20.0),
+        );
+        let extra_b = app.add_node_and_sync(
+            "https://extra-b.example".to_string(),
+            euclid::default::Point2D::new(20.0, 20.0),
+        );
+
+        app.add_edge_and_sync(hub, leaf, crate::graph::EdgeType::Hyperlink, None);
+        app.add_edge_and_sync(hub, extra_a, crate::graph::EdgeType::Hyperlink, None);
+        app.add_edge_and_sync(hub, extra_b, crate::graph::EdgeType::Hyperlink, None);
+
+        let before_leaf = app.domain_graph().node_projected_position(leaf).unwrap();
+        apply_hub_pull_forces(&mut app, HubPullConfig::default());
+        let after_leaf = app.domain_graph().node_projected_position(leaf).unwrap();
+
+        assert!(after_leaf.x < before_leaf.x);
+    }
+
+    #[test]
+    fn archipelago_profile_reduces_same_domain_distance_vs_drift() {
+        let mut drift_app = GraphBrowserApp::new_for_testing();
+        drift_app.workspace.graph_runtime.physics.base.is_running = true;
+        let drift_a = drift_app.add_node_and_sync(
+            "https://a.example.com/one".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let drift_b = drift_app.add_node_and_sync(
+            "https://b.example.com/two".to_string(),
+            euclid::default::Point2D::new(120.0, 0.0),
+        );
+
+        let mut archipelago_app = GraphBrowserApp::new_for_testing();
+        archipelago_app.workspace.graph_runtime.physics.base.is_running = true;
+        let arch_a = archipelago_app.add_node_and_sync(
+            "https://a.example.com/one".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let arch_b = archipelago_app.add_node_and_sync(
+            "https://b.example.com/two".to_string(),
+            euclid::default::Point2D::new(120.0, 0.0),
+        );
+
+        apply_graph_physics_extensions(
+            &mut drift_app,
+            Some(PhysicsProfile::drift().graph_physics_extensions(false)),
+        );
+        apply_graph_physics_extensions(
+            &mut archipelago_app,
+            Some(PhysicsProfile::archipelago().graph_physics_extensions(false)),
+        );
+
+        assert!(node_distance(&archipelago_app, arch_a, arch_b) < node_distance(&drift_app, drift_a, drift_b));
+    }
+
+    #[test]
+    fn resonance_profile_reduces_semantic_pair_distance_vs_drift() {
+        let vector = SemanticClassVector::from_codes(vec![CompactCode(vec![5, 1, 2])]);
+
+        let mut drift_app = GraphBrowserApp::new_for_testing();
+        drift_app.workspace.graph_runtime.physics.base.is_running = true;
+        let drift_a = drift_app.add_node_and_sync(
+            "https://alpha.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let drift_b = drift_app.add_node_and_sync(
+            "https://beta.example".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+        drift_app
+            .workspace
+            .graph_runtime
+            .semantic_index
+            .insert(drift_a, vector.clone());
+        drift_app
+            .workspace
+            .graph_runtime
+            .semantic_index
+            .insert(drift_b, vector.clone());
+
+        let mut resonance_app = GraphBrowserApp::new_for_testing();
+        resonance_app.workspace.graph_runtime.physics.base.is_running = true;
+        let resonance_a = resonance_app.add_node_and_sync(
+            "https://alpha.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let resonance_b = resonance_app.add_node_and_sync(
+            "https://beta.example".to_string(),
+            euclid::default::Point2D::new(100.0, 0.0),
+        );
+        resonance_app
+            .workspace
+            .graph_runtime
+            .semantic_index
+            .insert(resonance_a, vector.clone());
+        resonance_app
+            .workspace
+            .graph_runtime
+            .semantic_index
+            .insert(resonance_b, vector);
+
+        apply_graph_physics_extensions(
+            &mut drift_app,
+            Some(PhysicsProfile::drift().graph_physics_extensions(false)),
+        );
+        apply_graph_physics_extensions(
+            &mut resonance_app,
+            Some(PhysicsProfile::resonance().graph_physics_extensions(false)),
+        );
+
+        assert!(node_distance(&resonance_app, resonance_a, resonance_b) < node_distance(&drift_app, drift_a, drift_b));
+    }
+
+    #[test]
+    fn constellation_profile_keeps_leaves_closer_to_hub_than_settle() {
+        let mut settle_app = GraphBrowserApp::new_for_testing();
+        settle_app.workspace.graph_runtime.physics.base.is_running = true;
+        let settle_hub = settle_app.add_node_and_sync(
+            "https://hub.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let settle_leaf_a = settle_app.add_node_and_sync(
+            "https://leaf-a.example".to_string(),
+            euclid::default::Point2D::new(180.0, -20.0),
+        );
+        let settle_leaf_b = settle_app.add_node_and_sync(
+            "https://leaf-b.example".to_string(),
+            euclid::default::Point2D::new(186.0, 18.0),
+        );
+        let settle_leaf_c = settle_app.add_node_and_sync(
+            "https://leaf-c.example".to_string(),
+            euclid::default::Point2D::new(194.0, 0.0),
+        );
+
+        for leaf in [settle_leaf_a, settle_leaf_b, settle_leaf_c] {
+            settle_app.add_edge_and_sync(settle_hub, leaf, crate::graph::EdgeType::Hyperlink, None);
+        }
+
+        let mut constellation_app = GraphBrowserApp::new_for_testing();
+        constellation_app.workspace.graph_runtime.physics.base.is_running = true;
+        let constellation_hub = constellation_app.add_node_and_sync(
+            "https://hub.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let constellation_leaf_a = constellation_app.add_node_and_sync(
+            "https://leaf-a.example".to_string(),
+            euclid::default::Point2D::new(180.0, -20.0),
+        );
+        let constellation_leaf_b = constellation_app.add_node_and_sync(
+            "https://leaf-b.example".to_string(),
+            euclid::default::Point2D::new(186.0, 18.0),
+        );
+        let constellation_leaf_c = constellation_app.add_node_and_sync(
+            "https://leaf-c.example".to_string(),
+            euclid::default::Point2D::new(194.0, 0.0),
+        );
+
+        for leaf in [constellation_leaf_a, constellation_leaf_b, constellation_leaf_c] {
+            constellation_app.add_edge_and_sync(
+                constellation_hub,
+                leaf,
+                crate::graph::EdgeType::Hyperlink,
+                None,
+            );
+        }
+
+        apply_graph_physics_extensions(
+            &mut settle_app,
+            Some(PhysicsProfile::settle().graph_physics_extensions(false)),
+        );
+        apply_graph_physics_extensions(
+            &mut constellation_app,
+            Some(PhysicsProfile::constellation().graph_physics_extensions(false)),
+        );
+
+        let settle_avg = [settle_leaf_a, settle_leaf_b, settle_leaf_c]
+            .into_iter()
+            .map(|leaf| node_distance(&settle_app, settle_hub, leaf))
+            .sum::<f32>()
+            / 3.0;
+        let constellation_avg = [constellation_leaf_a, constellation_leaf_b, constellation_leaf_c]
+            .into_iter()
+            .map(|leaf| node_distance(&constellation_app, constellation_hub, leaf))
+            .sum::<f32>()
+            / 3.0;
+
+        assert!(constellation_avg < settle_avg);
     }
 }

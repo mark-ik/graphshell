@@ -101,7 +101,7 @@ fn run_scenario(
     physics.base.max_step = 3.0;
     // Enable center gravity for all scenarios (as in production default)
     physics.extras.0.enabled = true;
-    physics.extras.0.params.c = profile.gravity_strength;
+    physics.extras.0.params.c = profile.motion.gravity_strength;
 
     let mut layout = BarnesHutForceDirectedLayout::new_from_state(physics);
     let rect = test_canvas();
@@ -124,126 +124,129 @@ fn run_scenario(
     (egui_state.graph, converged_at)
 }
 
-/// P1 — Small connected ring, Solid preset.
+/// P1 — Small connected ring, Settle preset.
 ///
 /// Spec: `canvas_behavior_contract.md §3 Scenario P1`
 /// Assertions: no overlap, converges within 800 steps, edge_len_cv ≤ 0.45.
 #[test]
-fn p1_solid_ring_converges_no_overlap_tight_cv() {
+fn p1_settle_ring_converges_no_overlap_tight_cv() {
     let graph = build_ring_graph(6);
-    let profile = PhysicsProfile::solid();
+    let profile = PhysicsProfile::settle();
     let (egui_graph, converged_at) = run_scenario(&graph, &profile, 800);
 
     assert!(
         converged_at.is_some(),
-        "P1: Solid ring must converge within 800 steps; physics may be oscillating or over-damped"
+        "P1: Settle ring must converge within 800 steps; physics may be oscillating or over-damped"
     );
     assert_eq!(
         overlap_count(&egui_graph, NODE_RADIUS, OVERLAP_MARGIN),
         0,
-        "P1: Solid ring must have zero node overlaps at convergence"
+        "P1: Settle ring must have zero node overlaps at convergence"
     );
     let cv = edge_len_cv(&egui_graph);
     assert!(
         cv <= 0.45,
-        "P1: Solid ring edge_len_cv {cv:.3} must be ≤ 0.45 (spec §2.4 small-graph target)"
+        "P1: Settle ring edge_len_cv {cv:.3} must be ≤ 0.45 (spec §2.4 small-graph target)"
     );
 }
 
-/// P2 — Small connected ring, Gas preset.
+/// P2 — Small connected ring, Scatter preset.
 ///
 /// Spec: `canvas_behavior_contract.md §3 Scenario P2`
 /// Assertions: no overlap, converges within 1200 steps, edge_len_cv ≤ 0.65,
-/// mean edge length in Gas ≥ mean edge length in Solid × 1.3.
+/// mean edge length in Scatter ≥ mean edge length in Settle × 1.3.
 #[test]
-fn p2_gas_ring_spreads_wider_than_solid() {
+fn p2_scatter_ring_spreads_wider_than_settle() {
     let graph = build_ring_graph(6);
-    let solid_profile = PhysicsProfile::solid();
-    let gas_profile = PhysicsProfile::gas();
+    let settle_profile = PhysicsProfile::settle();
+    let scatter_profile = PhysicsProfile::scatter();
 
-    let (solid_graph, solid_converged) = run_scenario(&graph, &solid_profile, 800);
-    let (gas_graph, gas_converged) = run_scenario(&graph, &gas_profile, 1200);
+    let (settle_graph, settle_converged) = run_scenario(&graph, &settle_profile, 800);
+    let (scatter_graph, scatter_converged) = run_scenario(&graph, &scatter_profile, 1200);
 
     assert!(
-        solid_converged.is_some(),
-        "P2: Solid baseline must converge within 800 steps"
+        settle_converged.is_some(),
+        "P2: Settle baseline must converge within 800 steps"
     );
     assert!(
-        gas_converged.is_some(),
-        "P2: Gas ring must converge within 1200 steps; physics may be diverging"
+        scatter_converged.is_some(),
+        "P2: Scatter ring must converge within 1200 steps; physics may be diverging"
     );
     assert_eq!(
-        overlap_count(&gas_graph, NODE_RADIUS, OVERLAP_MARGIN),
+        overlap_count(&scatter_graph, NODE_RADIUS, OVERLAP_MARGIN),
         0,
-        "P2: Gas ring must have zero node overlaps at convergence"
+        "P2: Scatter ring must have zero node overlaps at convergence"
     );
-    let cv = edge_len_cv(&gas_graph);
+    let cv = edge_len_cv(&scatter_graph);
     assert!(
         cv <= 0.65,
-        "P2: Gas ring edge_len_cv {cv:.3} must be ≤ 0.65 (full portfolio threshold)"
+        "P2: Scatter ring edge_len_cv {cv:.3} must be ≤ 0.65 (full portfolio threshold)"
     );
 
-    let solid_mean = mean_edge_length(&solid_graph);
-    let gas_mean = mean_edge_length(&gas_graph);
+    let settle_mean = mean_edge_length(&settle_graph);
+    let scatter_mean = mean_edge_length(&scatter_graph);
     assert!(
-        gas_mean >= solid_mean * 1.3,
-        "P2: Gas mean edge length {gas_mean:.1} must be ≥ Solid {solid_mean:.1} × 1.3 = {:.1}; \
+        scatter_mean >= settle_mean * 1.3,
+        "P2: Scatter mean edge length {scatter_mean:.1} must be ≥ Settle {settle_mean:.1} × 1.3 = {:.1}; \
          presets are not meaningfully differentiated (spec §3 P2 assertion)",
-        solid_mean * 1.3
+        settle_mean * 1.3
     );
 }
 
-/// P3 — Small connected ring, Liquid preset.
+/// P3 — Small connected ring, Drift preset.
 ///
 /// Spec: `canvas_behavior_contract.md §3 Scenario P3`
 /// Assertions: no overlap, converges within 1000 steps,
-/// mean edge length Liquid is between Solid and Gas (ordering invariant).
+/// mean edge length Drift is between Settle and Scatter (ordering invariant).
 #[test]
-fn p3_liquid_ring_is_intermediate_between_solid_and_gas() {
+fn p3_drift_ring_is_intermediate_between_settle_and_scatter() {
     let graph = build_ring_graph(6);
-    let solid_profile = PhysicsProfile::solid();
-    let liquid_profile = PhysicsProfile::liquid();
-    let gas_profile = PhysicsProfile::gas();
+    let settle_profile = PhysicsProfile::settle();
+    let drift_profile = PhysicsProfile::drift();
+    let scatter_profile = PhysicsProfile::scatter();
 
-    let (solid_graph, solid_converged) = run_scenario(&graph, &solid_profile, 800);
-    let (liquid_graph, liquid_converged) = run_scenario(&graph, &liquid_profile, 1000);
-    let (gas_graph, gas_converged) = run_scenario(&graph, &gas_profile, 1200);
+    let (settle_graph, settle_converged) = run_scenario(&graph, &settle_profile, 800);
+    let (drift_graph, drift_converged) = run_scenario(&graph, &drift_profile, 1000);
+    let (scatter_graph, scatter_converged) = run_scenario(&graph, &scatter_profile, 1200);
 
     assert!(
-        solid_converged.is_some(),
-        "P3: Solid baseline must converge"
+        settle_converged.is_some(),
+        "P3: Settle baseline must converge"
     );
     assert!(
-        liquid_converged.is_some(),
-        "P3: Liquid ring must converge within 1000 steps"
+        drift_converged.is_some(),
+        "P3: Drift ring must converge within 1000 steps"
     );
-    assert!(gas_converged.is_some(), "P3: Gas baseline must converge");
+    assert!(
+        scatter_converged.is_some(),
+        "P3: Scatter baseline must converge"
+    );
 
     assert_eq!(
-        overlap_count(&liquid_graph, NODE_RADIUS, OVERLAP_MARGIN),
+        overlap_count(&drift_graph, NODE_RADIUS, OVERLAP_MARGIN),
         0,
-        "P3: Liquid ring must have zero node overlaps at convergence"
+        "P3: Drift ring must have zero node overlaps at convergence"
     );
 
-    let solid_mean = mean_edge_length(&solid_graph);
-    let liquid_mean = mean_edge_length(&liquid_graph);
-    let gas_mean = mean_edge_length(&gas_graph);
+    let settle_mean = mean_edge_length(&settle_graph);
+    let drift_mean = mean_edge_length(&drift_graph);
+    let scatter_mean = mean_edge_length(&scatter_graph);
 
     assert!(
-        liquid_mean >= solid_mean,
-        "P3: Liquid mean edge length {liquid_mean:.1} must be ≥ Solid {solid_mean:.1} \
-         (ordering invariant: Solid tightest → Liquid middle → Gas loosest)"
+        drift_mean >= settle_mean,
+        "P3: Drift mean edge length {drift_mean:.1} must be ≥ Settle {settle_mean:.1} \
+         (ordering invariant: Settle tightest → Drift middle → Scatter loosest)"
     );
     assert!(
-        liquid_mean <= gas_mean,
-        "P3: Liquid mean edge length {liquid_mean:.1} must be ≤ Gas {gas_mean:.1} \
-         (ordering invariant: Solid tightest → Liquid middle → Gas loosest)"
+        drift_mean <= scatter_mean,
+        "P3: Drift mean edge length {drift_mean:.1} must be ≤ Scatter {scatter_mean:.1} \
+         (ordering invariant: Settle tightest → Drift middle → Scatter loosest)"
     );
 
-    // Preset ordering invariant (spec §4): Gas ≥ Solid × 1.25
+    // Preset ordering invariant (spec §4): Scatter ≥ Settle × 1.25
     assert!(
-        gas_mean >= solid_mean * 1.25,
-        "Preset ordering invariant: Gas mean {gas_mean:.1} must be ≥ Solid {solid_mean:.1} × 1.25 = {:.1}",
-        solid_mean * 1.25
+        scatter_mean >= settle_mean * 1.25,
+        "Preset ordering invariant: Scatter mean {scatter_mean:.1} must be ≥ Settle {settle_mean:.1} × 1.25 = {:.1}",
+        settle_mean * 1.25
     );
 }

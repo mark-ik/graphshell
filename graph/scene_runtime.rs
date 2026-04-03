@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::app::{GraphBrowserApp, GraphViewId};
+use crate::app::{GraphBrowserApp, GraphViewId, SceneMode, SimulateBehaviorPreset};
 use crate::graph::NodeKey;
 use crate::graph::physics::apply_position_deltas;
 use crate::util::CoordBridge;
@@ -17,6 +17,34 @@ const MAX_REGION_DELTA_PER_PASS: f32 = 18.0;
 const NODE_SEPARATION_PASSES: usize = 3;
 const MIN_SCENE_REGION_RADIUS: f32 = 24.0;
 const MIN_SCENE_RECT_SIDE: f32 = 48.0;
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SimulateMotionProfile {
+    release_impulse_scale: f32,
+    release_decay: f32,
+    min_impulse: f32,
+}
+
+impl SimulateMotionProfile {
+    fn for_preset(preset: SimulateBehaviorPreset) -> Self {
+        match preset {
+            SimulateBehaviorPreset::Float => Self {
+                release_impulse_scale: 1.15,
+                release_decay: 0.84,
+                min_impulse: 0.03,
+            },
+            SimulateBehaviorPreset::Packed => Self {
+                release_impulse_scale: 0.45,
+                release_decay: 0.45,
+                min_impulse: 0.05,
+            },
+            SimulateBehaviorPreset::Magnetic => Self {
+                release_impulse_scale: 0.7,
+                release_decay: 0.62,
+                min_impulse: 0.04,
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SceneRegionId(uuid::Uuid);
@@ -114,6 +142,8 @@ pub(crate) struct SceneCollisionPolicy {
     pub(crate) node_separation_enabled: bool,
     pub(crate) viewport_containment_enabled: bool,
     pub(crate) node_padding: f32,
+    pub(crate) region_effect_scale: f32,
+    pub(crate) containment_response_scale: f32,
 }
 
 impl SceneCollisionPolicy {
@@ -128,6 +158,8 @@ impl Default for SceneCollisionPolicy {
             node_separation_enabled: false,
             viewport_containment_enabled: false,
             node_padding: DEFAULT_NODE_PADDING,
+            region_effect_scale: 1.0,
+            containment_response_scale: 1.0,
         }
     }
 }
@@ -143,6 +175,8 @@ pub(crate) fn apply_scene_runtime_pass(
     view_id: GraphViewId,
     profile_collision_policy: SceneCollisionPolicy,
 ) {
+    apply_simulate_release_impulses(app, view_id);
+
     let runtime = app
         .workspace
         .graph_runtime
@@ -164,12 +198,75 @@ pub(crate) fn apply_scene_runtime_pass(
                 .copied()
         });
         if let Some(bounds) = bounds {
-            apply_viewport_containment(app, bounds, profile_collision_policy.node_padding);
+            apply_viewport_containment(
+                app,
+                bounds,
+                profile_collision_policy.node_padding,
+                profile_collision_policy.containment_response_scale,
+            );
         }
     }
 
     if !runtime.regions.is_empty() {
-        apply_region_effects(app, &runtime.regions, profile_collision_policy.node_padding);
+        apply_region_effects(
+            app,
+            &runtime.regions,
+            profile_collision_policy.node_padding,
+            profile_collision_policy.region_effect_scale,
+            profile_collision_policy.containment_response_scale,
+        );
+    }
+}
+
+fn apply_simulate_release_impulses(app: &mut GraphBrowserApp, view_id: GraphViewId) {
+    if app.graph_view_scene_mode(view_id) != SceneMode::Simulate {
+        app.workspace.graph_runtime.simulate_release_impulses.remove(&view_id);
+        return;
+    }
+
+    let motion_profile =
+        SimulateMotionProfile::for_preset(app.graph_view_simulate_behavior_preset(view_id));
+
+    let remaining_frames = app.workspace.graph_runtime.drag_release_frames_remaining;
+    if remaining_frames == 0 || app.workspace.graph_runtime.is_interacting {
+        return;
+    }
+
+    let Some(impulses) = app
+        .workspace
+        .graph_runtime
+        .simulate_release_impulses
+        .get(&view_id)
+        .cloned()
+    else {
+        return;
+    };
+
+    let frame_scale = (remaining_frames as f32 / 10.0).clamp(0.1, 1.0);
+    let deltas: HashMap<NodeKey, egui::Vec2> = impulses
+        .iter()
+        .filter_map(|(key, impulse)| {
+            let delta = *impulse * frame_scale * motion_profile.release_impulse_scale;
+            (delta.length_sq() > f32::EPSILON).then_some((*key, delta))
+        })
+        .collect();
+    apply_position_deltas(app, deltas);
+
+    let mut next = HashMap::new();
+    for (key, impulse) in impulses {
+        let decayed = impulse * motion_profile.release_decay;
+        if decayed.length() >= motion_profile.min_impulse {
+            next.insert(key, decayed);
+        }
+    }
+
+    if next.is_empty() {
+        app.workspace.graph_runtime.simulate_release_impulses.remove(&view_id);
+    } else {
+        app.workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .insert(view_id, next);
     }
 }
 
@@ -254,7 +351,12 @@ fn apply_node_separation(app: &mut GraphBrowserApp, padding: f32) {
     apply_position_deltas(app, deltas);
 }
 
-fn apply_viewport_containment(app: &mut GraphBrowserApp, bounds: egui::Rect, padding: f32) {
+fn apply_viewport_containment(
+    app: &mut GraphBrowserApp,
+    bounds: egui::Rect,
+    padding: f32,
+    response_scale: f32,
+) {
     let mut deltas = HashMap::new();
     for node in movable_node_snapshots(app) {
         if node.pinned {
@@ -269,7 +371,7 @@ fn apply_viewport_containment(app: &mut GraphBrowserApp, bounds: egui::Rect, pad
             node.position.x.clamp(bounds.left() + inset, bounds.right() - inset),
             node.position.y.clamp(bounds.top() + inset, bounds.bottom() - inset),
         );
-        let delta = clamped - node.position;
+        let delta = (clamped - node.position) * response_scale.max(0.0);
         if delta.length_sq() > f32::EPSILON {
             deltas.insert(node.key, delta);
         }
@@ -281,6 +383,8 @@ fn apply_region_effects(
     app: &mut GraphBrowserApp,
     regions: &[SceneRegionRuntime],
     padding: f32,
+    effect_scale: f32,
+    containment_response_scale: f32,
 ) {
     let nodes = movable_node_snapshots(app);
     if nodes.is_empty() {
@@ -297,7 +401,12 @@ fn apply_region_effects(
             if !region.visible {
                 continue;
             }
-            delta += region_delta_for_node(region, node.position, node.radius + padding);
+            delta += region_delta_for_node(
+                region,
+                node.position,
+                node.radius + padding,
+                containment_response_scale,
+            ) * effect_scale;
         }
         if delta.length() > MAX_REGION_DELTA_PER_PASS {
             delta = delta.normalized() * MAX_REGION_DELTA_PER_PASS;
@@ -313,6 +422,7 @@ fn region_delta_for_node(
     region: &SceneRegionRuntime,
     position: egui::Pos2,
     padded_radius: f32,
+    containment_response_scale: f32,
 ) -> egui::Vec2 {
     match region.effect {
         SceneRegionEffect::Attractor { strength } => {
@@ -341,7 +451,9 @@ fn region_delta_for_node(
             let center = shape_center(region.shape);
             (center - position) * -(factor.abs() * 0.1)
         }
-        SceneRegionEffect::Wall => wall_pushout_delta(region.shape, position, padded_radius),
+        SceneRegionEffect::Wall => {
+            wall_pushout_delta(region.shape, position, padded_radius) * containment_response_scale
+        }
     }
 }
 
@@ -510,7 +622,7 @@ mod tests {
     #[test]
     fn node_separation_moves_overlapping_nodes_apart() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let profile = PhysicsProfile::solid();
+        let profile = PhysicsProfile::settle();
         let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(4.0, 0.0));
 
@@ -527,7 +639,7 @@ mod tests {
     #[test]
     fn pinned_nodes_do_not_move_during_node_separation() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let profile = PhysicsProfile::solid();
+        let profile = PhysicsProfile::settle();
         let pinned = app.add_node_and_sync("https://pinned.example".into(), Point2D::new(0.0, 0.0));
         let other = app.add_node_and_sync("https://other.example".into(), Point2D::new(4.0, 0.0));
         app.domain_graph_mut().get_node_mut(pinned).unwrap().is_pinned = true;
@@ -560,12 +672,69 @@ mod tests {
                 node_separation_enabled: false,
                 viewport_containment_enabled: true,
                 node_padding: DEFAULT_NODE_PADDING,
+                region_effect_scale: 1.0,
+                containment_response_scale: 1.0,
             },
         );
 
         let after = app.domain_graph().node_projected_position(node).unwrap();
         assert!(after.x <= 100.0);
         assert!(after.y <= 100.0);
+    }
+
+    #[test]
+    fn lower_containment_response_leaves_more_drift_after_one_pass() {
+        let bounds = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+
+        let mut loose_app = GraphBrowserApp::new_for_testing();
+        let loose_view = GraphViewId::new();
+        let loose_node = loose_app
+            .add_node_and_sync("https://loose.example".into(), Point2D::new(200.0, 200.0));
+        loose_app
+            .workspace
+            .graph_runtime
+            .graph_view_canvas_rects
+            .insert(loose_view, bounds);
+        apply_scene_runtime_pass(
+            &mut loose_app,
+            loose_view,
+            SceneCollisionPolicy {
+                node_separation_enabled: false,
+                viewport_containment_enabled: true,
+                node_padding: DEFAULT_NODE_PADDING,
+                region_effect_scale: 1.0,
+                containment_response_scale: 0.45,
+            },
+        );
+        let loose_after = loose_app
+            .domain_graph()
+            .node_projected_position(loose_node)
+            .unwrap();
+
+        let mut firm_app = GraphBrowserApp::new_for_testing();
+        let firm_view = GraphViewId::new();
+        let firm_node =
+            firm_app.add_node_and_sync("https://firm.example".into(), Point2D::new(200.0, 200.0));
+        firm_app
+            .workspace
+            .graph_runtime
+            .graph_view_canvas_rects
+            .insert(firm_view, bounds);
+        apply_scene_runtime_pass(
+            &mut firm_app,
+            firm_view,
+            SceneCollisionPolicy {
+                node_separation_enabled: false,
+                viewport_containment_enabled: true,
+                node_padding: DEFAULT_NODE_PADDING,
+                region_effect_scale: 1.0,
+                containment_response_scale: 1.0,
+            },
+        );
+        let firm_after = firm_app.domain_graph().node_projected_position(firm_node).unwrap();
+
+        assert!(loose_after.x > firm_after.x);
+        assert!(loose_after.y > firm_after.y);
     }
 
     #[test]
@@ -612,6 +781,181 @@ mod tests {
         let after = app.domain_graph().node_projected_position(node).unwrap();
         assert!(after.x < 30.0);
         assert!(after.y < 30.0);
+    }
+
+    #[test]
+    fn region_effect_scale_amplifies_scene_region_motion() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let node = app.add_node_and_sync("https://inside.example".into(), Point2D::new(20.0, 20.0));
+        app.workspace.graph_runtime.scene_runtimes.insert(
+            view_id,
+            GraphViewSceneRuntime {
+                regions: vec![SceneRegionRuntime::rect(
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+                    SceneRegionEffect::Attractor { strength: 0.2 },
+                )],
+                bounds_override: None,
+            },
+        );
+
+        apply_scene_runtime_pass(
+            &mut app,
+            view_id,
+            SceneCollisionPolicy {
+                region_effect_scale: 2.0,
+                ..SceneCollisionPolicy::default()
+            },
+        );
+
+        let after = app.domain_graph().node_projected_position(node).unwrap();
+        assert!(after.x > 26.0);
+        assert!(after.y > 26.0);
+    }
+
+    #[test]
+    fn wall_regions_respect_containment_response_scale() {
+        let wall = SceneRegionRuntime::rect(
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+            SceneRegionEffect::Wall,
+        );
+
+        let mut loose_app = GraphBrowserApp::new_for_testing();
+        let loose_view = GraphViewId::new();
+        let loose_node = loose_app
+            .add_node_and_sync("https://wall-loose.example".into(), Point2D::new(50.0, 50.0));
+        loose_app.workspace.graph_runtime.scene_runtimes.insert(
+            loose_view,
+            GraphViewSceneRuntime {
+                regions: vec![wall.clone()],
+                bounds_override: None,
+            },
+        );
+        apply_scene_runtime_pass(
+            &mut loose_app,
+            loose_view,
+            SceneCollisionPolicy {
+                containment_response_scale: 0.05,
+                ..SceneCollisionPolicy::default()
+            },
+        );
+        let loose_after = loose_app
+            .domain_graph()
+            .node_projected_position(loose_node)
+            .unwrap();
+
+        let mut firm_app = GraphBrowserApp::new_for_testing();
+        let firm_view = GraphViewId::new();
+        let firm_node =
+            firm_app.add_node_and_sync("https://wall-firm.example".into(), Point2D::new(50.0, 50.0));
+        firm_app.workspace.graph_runtime.scene_runtimes.insert(
+            firm_view,
+            GraphViewSceneRuntime {
+                regions: vec![wall],
+                bounds_override: None,
+            },
+        );
+        apply_scene_runtime_pass(
+            &mut firm_app,
+            firm_view,
+            SceneCollisionPolicy {
+                containment_response_scale: 0.2,
+                ..SceneCollisionPolicy::default()
+            },
+        );
+        let firm_after = firm_app.domain_graph().node_projected_position(firm_node).unwrap();
+
+        let loose_displacement = (loose_after - Point2D::new(50.0, 50.0)).length();
+        let firm_displacement = (firm_after - Point2D::new(50.0, 50.0)).length();
+        assert!(firm_displacement > loose_displacement);
+    }
+
+    #[test]
+    fn simulate_release_impulses_coast_then_decay() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let node = app.add_node_and_sync("https://coast.example".into(), Point2D::new(20.0, 20.0));
+        app.set_graph_view_scene_mode(view_id, SceneMode::Simulate);
+        app.workspace.graph_runtime.drag_release_frames_remaining = 5;
+        app.workspace.graph_runtime.simulate_release_impulses.insert(
+            view_id,
+            HashMap::from([(node, egui::vec2(10.0, 0.0))]),
+        );
+
+        apply_scene_runtime_pass(&mut app, view_id, SceneCollisionPolicy::default());
+
+        let after = app.domain_graph().node_projected_position(node).unwrap();
+        assert!(after.x > 24.0);
+        let stored = app
+            .workspace
+            .graph_runtime
+            .simulate_release_impulses
+            .get(&view_id)
+            .and_then(|impulses| impulses.get(&node))
+            .copied()
+            .expect("impulse should decay and remain stored");
+        assert!(stored.x < 10.0);
+        assert!(stored.x > 0.0);
+    }
+
+    #[test]
+    fn float_preset_coasts_farther_than_packed() {
+        let mut float_app = GraphBrowserApp::new_for_testing();
+        let float_view = GraphViewId::new();
+        let float_node =
+            float_app.add_node_and_sync("https://float.example".into(), Point2D::new(20.0, 20.0));
+        float_app.set_graph_view_scene_mode(float_view, SceneMode::Simulate);
+        float_app.set_graph_view_simulate_behavior_preset(float_view, SimulateBehaviorPreset::Float);
+        float_app.workspace.graph_runtime.drag_release_frames_remaining = 5;
+        float_app.workspace.graph_runtime.simulate_release_impulses.insert(
+            float_view,
+            HashMap::from([(float_node, egui::vec2(10.0, 0.0))]),
+        );
+        apply_scene_runtime_pass(&mut float_app, float_view, SceneCollisionPolicy::default());
+        let float_after = float_app.domain_graph().node_projected_position(float_node).unwrap();
+
+        let mut packed_app = GraphBrowserApp::new_for_testing();
+        let packed_view = GraphViewId::new();
+        let packed_node = packed_app
+            .add_node_and_sync("https://packed.example".into(), Point2D::new(20.0, 20.0));
+        packed_app.set_graph_view_scene_mode(packed_view, SceneMode::Simulate);
+        packed_app
+            .set_graph_view_simulate_behavior_preset(packed_view, SimulateBehaviorPreset::Packed);
+        packed_app.workspace.graph_runtime.drag_release_frames_remaining = 5;
+        packed_app.workspace.graph_runtime.simulate_release_impulses.insert(
+            packed_view,
+            HashMap::from([(packed_node, egui::vec2(10.0, 0.0))]),
+        );
+        apply_scene_runtime_pass(&mut packed_app, packed_view, SceneCollisionPolicy::default());
+        let packed_after = packed_app
+            .domain_graph()
+            .node_projected_position(packed_node)
+            .unwrap();
+
+        assert!(float_after.x > packed_after.x);
+    }
+
+    #[test]
+    fn simulate_release_impulses_clear_outside_simulate_mode() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        let node = app.add_node_and_sync("https://quiet.example".into(), Point2D::new(20.0, 20.0));
+        app.workspace.graph_runtime.drag_release_frames_remaining = 5;
+        app.workspace.graph_runtime.simulate_release_impulses.insert(
+            view_id,
+            HashMap::from([(node, egui::vec2(10.0, 0.0))]),
+        );
+
+        apply_scene_runtime_pass(&mut app, view_id, SceneCollisionPolicy::default());
+
+        let after = app.domain_graph().node_projected_position(node).unwrap();
+        assert_eq!(after, Point2D::new(20.0, 20.0));
+        assert!(
+            !app.workspace
+                .graph_runtime
+                .simulate_release_impulses
+                .contains_key(&view_id)
+        );
     }
 
     #[test]

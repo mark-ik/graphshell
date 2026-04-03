@@ -204,7 +204,7 @@ fn light_profile() -> PresentationProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registries::atomic::lens::PHYSICS_ID_GAS;
+    use crate::registries::atomic::lens::PHYSICS_ID_SCATTER;
 
     #[test]
     fn presentation_domain_resolves_default_profile() {
@@ -239,10 +239,10 @@ mod tests {
     #[test]
     fn presentation_domain_uses_dark_profile_for_dark_theme() {
         let domain = PresentationDomainRegistry::default();
-        let resolution = domain.resolve_profile(PHYSICS_ID_GAS, THEME_ID_DARK);
+        let resolution = domain.resolve_profile(PHYSICS_ID_SCATTER, THEME_ID_DARK);
 
         assert_eq!(resolution.theme.resolved_id, THEME_ID_DARK);
-        assert_eq!(resolution.physics.resolved_id, PHYSICS_ID_GAS);
+        assert_eq!(resolution.physics.resolved_id, PHYSICS_ID_SCATTER);
         assert_eq!(resolution.resolved_profile_id, PRESENTATION_PROFILE_DARK);
         assert_eq!(
             resolution.profile.focus_ring,

@@ -552,73 +552,58 @@ lives in `graph/physics.rs` rather than a dedicated `graph/forces/` module.
 
 ---
 
-## Ten Thematic/Topological Physics Presets
+## Helper-Era Physics Profile Portfolio
 
-These are named `PhysicsProfile` presets backed by Graphshell-owned post-physics force hooks,
-registerable as `physics:*` IDs. All build on Level 2 — no engine replacement required.
+The original ten-profile list assumed a broader force-plugin vocabulary than the current
+production architecture actually has. The shipped helper seam is narrower and cleaner:
+`PhysicsProfile` owns motion semantics plus helper composition, while frame-affinity remains
+canvas-owned and layout/snapping/manual modes remain outside the physics-profile taxonomy.
 
-### 1. `physics:liquid` (existing, refined)
+Current rule set:
 
-**Theme**: Organic, free-flowing exploration.
-**Extras**: `CenterGravity` (weak), `GravityLocus` (lerp toward viewport center).
-**Use case**: Default browsing mode. Nodes breathe and settle organically.
+- Physics profiles describe **motion semantics + helper composition**.
+- Frame-affinity is **canvas policy**, not a profile toggle.
+- Grid/manual/ambient/depth-specific ideas are not physics presets unless they become real
+  helper-driven motion slices.
+- The runtime uses a smaller seeded portfolio with alias-based migration from the older
+  `physics:liquid` / `physics:gas` / `physics:solid` names.
 
-### 2. `physics:gas` (existing, refined)
+### Canonical Seeded Profiles
 
-**Theme**: Explosive spread.
-**Extras**: `CenterGravity` off, `GravityLocus` off.
-**Use case**: Blow apart a dense cluster; initial placement on import.
+| ID | Intent | Motion tuning (`repulsion / attraction / gravity / damping`) | Organizer helpers |
+| --- | --- | --- | --- |
+| `physics:drift` | Default browse / gentle exploration | `0.28 / 0.22 / 0.18 / 0.55` | none |
+| `physics:scatter` | Overview / import explode | `0.80 / 0.05 / 0.00 / 0.80` | none |
+| `physics:settle` | Stable working set | `0.12 / 0.42 / 0.24 / 0.40` | degree repulsion (mild) |
+| `physics:archipelago` | Domain islands | `0.18 / 0.34 / 0.12 / 0.48` | domain clustering (strong) + degree repulsion (mild) |
+| `physics:resonance` | Semantic neighborhoods | `0.20 / 0.28 / 0.16 / 0.50` | semantic clustering (strong) |
+| `physics:constellation` | Hub-and-spoke readability | `0.16 / 0.30 / 0.16 / 0.46` | degree repulsion (medium) + hub-pull |
 
-### 3. `physics:solid` (existing, refined)
+### Helper-Era Interpretation
 
-**Theme**: Stable, domain-clustered.
-**Extras**: `CenterGravity` (medium), `DomainCluster` on, `DegreeRepulsion` on.
-**Use case**: Working set of familiar sites; settles into a domain map.
+`physics:drift` replaces the old "liquid" default without implying a richer fluid simulation.
+It is simply the gentle FR baseline with collision/containment enabled.
 
-### 4. `physics:archipelago`
+`physics:scatter` replaces the old "gas" overview preset: high repulsion, no gravity, no
+containment, no organizer helpers.
 
-**Theme**: Islands of related content with clear open water between them.
-**Extras**: `DomainCluster` (strong), `DegreeRepulsion` on, `GravityLocus` off.
-**Use case**: Research session with multiple distinct topic threads.
+`physics:settle` replaces the old "solid" working-set preset: tighter attraction plus mild
+degree repulsion so the graph stabilizes quickly without pretending to be a hard-constraint mode.
 
-### 5. `physics:constellation`
+`physics:archipelago`, `physics:resonance`, and `physics:constellation` are the three helper-era
+specializations that earn their keep because they map directly onto currently implemented or
+near-term helper passes.
 
-**Theme**: Hub-and-spoke — high-degree nodes become spatial attractors.
-**Extras**: `DegreeRepulsion` (strong), `HubGravity` (gravity scales with log(degree)).
-**Use case**: Scale-free graphs; social/reference graphs with dominant link targets.
+### Retired From Physics Taxonomy
 
-### 6. `physics:crystal`
+These remain valid product ideas, but they should not be represented as default
+`PhysicsProfileRegistry` presets in the current architecture:
 
-**Theme**: Grid-aligned, minimal motion.
-**Extras**: `GridSnap` (spring force toward nearest grid position).
-**Use case**: Structured note-taking, Zettelkasten with spatial discipline.
-
-### 7. `physics:tide`
-
-**Theme**: Slow rhythmic current — never fully settled.
-**Extras**: `GravityLocus` target oscillates on a slow sine (`ui.ctx().input(|i| i.time)`).
-**Use case**: Ambient display / "living graph" mode.
-
-### 8. `physics:sediment`
-
-**Theme**: Topological depth drives vertical position — roots float, leaves sink.
-**Extras**: `DepthGravity` (downward force proportional to BFS depth from root nodes).
-**Use case**: Directed graphs with identifiable roots; reading-flow visualization.
-
-### 9. `physics:magnet`
-
-**Theme**: Explicit frame-affinity or region-centric organization dominates; FR is a secondary tie-breaker.
-**Exploratory force model**: `ZoneGravity`-style attraction plus weak fallback center gravity.
-**Use case**: Explicitly organized nodes in named regions or frame-derived groupings.
-**Current reality**: the landed production slice is frame-affinity under `lane:layout-semantics`,
-not the older `GraphWorkspace.zones` model described in early drafts.
-**Dependency**: `layout_behaviors_and_physics_spec.md` and the archived layout-behaviors execution record.
-
-### 10. `physics:void`
-
-**Theme**: No forces. Fully manual positions.
-**Extras**: None. `is_running = false`. All strengths zero.
-**Use case**: Manual spatial arrangement; pin-and-place Zettelkasten; "lock this layout."
+- `crystal` → future layout/snapping mode, not physics.
+- `magnet` → future canvas/workflow bundle built around frame-affinity.
+- `tide` → future ambient animation mode, not a default profile.
+- `sediment` → future topology-aware helper or layout once depth contracts exist.
+- `void` → explicit pause/manual-lock behavior, not a semantic motion preset.
 
 ---
 

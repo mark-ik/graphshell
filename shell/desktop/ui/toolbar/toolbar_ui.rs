@@ -56,9 +56,6 @@ use crate::services::search::{fuzzy_match_items, fuzzy_match_node_keys};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::registries::lens::{LENS_ID_DEFAULT, LENS_ID_SEMANTIC_OVERLAY};
-use crate::shell::desktop::runtime::registries::physics_profile::{
-    PHYSICS_PROFILE_GAS, PHYSICS_PROFILE_LIQUID, PHYSICS_PROFILE_SOLID,
-};
 use crate::shell::desktop::runtime::registries::{
     input::action_id, phase2_binding_display_labels_for_action,
 };
@@ -429,8 +426,9 @@ fn graph_bar_physics_label(graph_app: &GraphBrowserApp) -> String {
         .and_then(|id| graph_app.workspace.graph_runtime.views.get(&id))
         .and_then(|view| view.resolved_physics_profile_id().map(str::to_owned))
         .or_else(|| graph_app.default_registry_physics_id().map(str::to_owned))
-        .unwrap_or_else(|| PHYSICS_PROFILE_LIQUID.to_string());
-    format!("Physics: {}", physics_id.trim_start_matches("physics:"))
+        .unwrap_or_else(|| crate::registries::atomic::lens::PHYSICS_ID_DEFAULT.to_string());
+    let resolution = crate::registries::atomic::lens::resolve_physics_profile(&physics_id);
+    format!("Physics: {}", resolution.display_name)
 }
 
 fn active_graph_view_id(graph_app: &GraphBrowserApp) -> Option<crate::app::GraphViewId> {
@@ -497,20 +495,16 @@ fn render_graph_bar_physics_menu(
                 .views
                 .contains_key(view_id)
         });
-        for (label, profile_id) in [
-            ("Liquid", PHYSICS_PROFILE_LIQUID),
-            ("Gas", PHYSICS_PROFILE_GAS),
-            ("Solid", PHYSICS_PROFILE_SOLID),
-        ] {
-            if ui.button(label).clicked() {
+        for descriptor in crate::registries::atomic::lens::physics_profile_descriptors() {
+            if ui.button(descriptor.display_name.as_str()).clicked() {
                 if let Some(view_id) = active_view_id {
                     frame_intents.push(GraphIntent::SetViewPhysicsProfile {
                         view_id,
-                        profile_id: profile_id.to_string(),
+                        profile_id: descriptor.id.clone(),
                     });
                 } else {
                     frame_intents.push(GraphIntent::SetPhysicsProfile {
-                        profile_id: profile_id.to_string(),
+                        profile_id: descriptor.id.clone(),
                     });
                 }
                 ui.close();

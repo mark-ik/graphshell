@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::registries::atomic::lens::{
-    LENS_ID_DEFAULT, PHYSICS_ID_DEFAULT, PHYSICS_ID_GAS, PHYSICS_ID_SOLID, THEME_ID_DARK,
+    LENS_ID_DEFAULT, PHYSICS_ID_DEFAULT, PHYSICS_ID_SCATTER, PHYSICS_ID_SETTLE, THEME_ID_DARK,
     THEME_ID_DEFAULT,
 };
 use crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT;
@@ -209,7 +209,7 @@ fn builtin_workflows() -> [WorkflowDescriptor; 5] {
             lens_profile: LENS_ID_DEFAULT.to_string(),
             workbench_profile: WORKBENCH_PROFILE_COMPARE.to_string(),
             canvas_profile: CANVAS_PROFILE_DEFAULT.to_string(),
-            physics_profile: PHYSICS_ID_GAS.to_string(),
+            physics_profile: PHYSICS_ID_SCATTER.to_string(),
             theme_profile: Some(THEME_ID_DARK.to_string()),
             implemented: true,
         },
@@ -219,7 +219,7 @@ fn builtin_workflows() -> [WorkflowDescriptor; 5] {
             lens_profile: LENS_ID_DEFAULT.to_string(),
             workbench_profile: WORKBENCH_PROFILE_FOCUS.to_string(),
             canvas_profile: CANVAS_PROFILE_DEFAULT.to_string(),
-            physics_profile: PHYSICS_ID_SOLID.to_string(),
+            physics_profile: PHYSICS_ID_SETTLE.to_string(),
             theme_profile: Some(THEME_ID_DEFAULT.to_string()),
             implemented: true,
         },
@@ -229,7 +229,7 @@ fn builtin_workflows() -> [WorkflowDescriptor; 5] {
             lens_profile: LENS_ID_DEFAULT.to_string(),
             workbench_profile: WORKBENCH_PROFILE_FOCUS.to_string(),
             canvas_profile: CANVAS_PROFILE_DEFAULT.to_string(),
-            physics_profile: PHYSICS_ID_SOLID.to_string(),
+            physics_profile: PHYSICS_ID_SETTLE.to_string(),
             theme_profile: Some(THEME_ID_DARK.to_string()),
             implemented: false,
         },
@@ -239,7 +239,7 @@ fn builtin_workflows() -> [WorkflowDescriptor; 5] {
             lens_profile: LENS_ID_DEFAULT.to_string(),
             workbench_profile: WORKBENCH_PROFILE_COMPARE.to_string(),
             canvas_profile: CANVAS_PROFILE_DEFAULT.to_string(),
-            physics_profile: PHYSICS_ID_GAS.to_string(),
+            physics_profile: PHYSICS_ID_SCATTER.to_string(),
             theme_profile: Some(THEME_ID_DARK.to_string()),
             implemented: false,
         },
@@ -288,7 +288,7 @@ mod tests {
 
         assert_eq!(activation.workflow_id, WORKFLOW_RESEARCH);
         assert_eq!(app.default_registry_lens_id(), Some(LENS_ID_DEFAULT));
-        assert_eq!(app.default_registry_physics_id(), Some(PHYSICS_ID_GAS));
+        assert_eq!(app.default_registry_physics_id(), Some(PHYSICS_ID_SCATTER));
         assert_eq!(app.default_registry_theme_id(), Some(THEME_ID_DARK));
         assert!(matches!(
             activation.wal_intent,

@@ -767,17 +767,19 @@ impl GraphBrowserApp {
 
     pub fn set_default_registry_physics_id(&mut self, physics_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(physics_id.map(str::to_owned));
-        self.workspace.chrome_ui.default_registry_physics_id = normalized.clone();
-        let resolution =
-            crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
-                normalized
-                    .as_deref()
-                    .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT),
-            );
-        self.apply_physics_profile(&resolution.profile);
+        let resolution = crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
+            normalized
+                .as_deref()
+                .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT),
+        );
+        let persisted = normalized
+            .as_ref()
+            .map(|_| resolution.resolved_id.clone());
+        self.workspace.chrome_ui.default_registry_physics_id = persisted.clone();
+        self.apply_physics_profile(&resolution.resolved_id, &resolution.profile);
         self.save_workspace_layout_json(
             Self::SETTINGS_REGISTRY_PHYSICS_ID_NAME,
-            normalized.as_deref().unwrap_or(""),
+            persisted.as_deref().unwrap_or(""),
         );
     }
 
@@ -1118,13 +1120,15 @@ impl GraphBrowserApp {
                 crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
                     physics_id,
                 );
-            self.apply_physics_profile(&resolution.profile);
+            self.workspace.chrome_ui.default_registry_physics_id =
+                Some(resolution.resolved_id.clone());
+            self.apply_physics_profile(&resolution.resolved_id, &resolution.profile);
         } else {
             let resolution =
                 crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
                     crate::registries::atomic::lens::PHYSICS_ID_DEFAULT,
                 );
-            self.apply_physics_profile(&resolution.profile);
+            self.apply_physics_profile(&resolution.resolved_id, &resolution.profile);
         }
         if let Some(profile_id) = canvas_profile_id.as_deref() {
             crate::shell::desktop::runtime::registries::phase3_set_active_canvas_profile(

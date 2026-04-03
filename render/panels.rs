@@ -167,43 +167,27 @@ fn containment_folder_from_row_key(row_key: &str) -> Option<&str> {
 
 pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
     ui.label("Node Dynamics");
-    ui.small("Liquid/Gas/Solid control node motion behavior. They do not control camera policy.");
+    ui.small("Physics profiles control node motion and helper composition. They do not control camera policy.");
 
     let mut dynamics_id = selected_node_dynamics_profile_id(app);
     let previous_dynamics_id = dynamics_id.clone();
     ui.horizontal_wrapped(|ui| {
-        ui.radio_value(
-            &mut dynamics_id,
-            crate::registries::atomic::lens::PHYSICS_ID_DEFAULT.to_string(),
-            "Liquid",
-        );
-        ui.radio_value(
-            &mut dynamics_id,
-            crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
-            "Gas",
-        );
-        ui.radio_value(
-            &mut dynamics_id,
-            crate::registries::atomic::lens::PHYSICS_ID_SOLID.to_string(),
-            "Solid",
-        );
+        for descriptor in crate::registries::atomic::lens::physics_profile_descriptors() {
+            ui.radio_value(
+                &mut dynamics_id,
+                descriptor.id.clone(),
+                descriptor.display_name.as_str(),
+            );
+        }
     });
     if dynamics_id != previous_dynamics_id {
         apply_node_dynamics_profile_selection(app, &dynamics_id);
     }
-    let dynamics_summary = match dynamics_id.as_str() {
-        crate::registries::atomic::lens::PHYSICS_ID_DEFAULT => {
-            "Liquid: motile clustering with bounded drift."
-        }
-        crate::registries::atomic::lens::PHYSICS_ID_GAS => {
-            "Gas: stronger mutual repulsion and broader spread."
-        }
-        crate::registries::atomic::lens::PHYSICS_ID_SOLID => {
-            "Solid: heavily damped movement that settles quickly."
-        }
-        _ => "Custom profile ID: fallback resolves through registry defaults.",
-    };
-    ui.small(dynamics_summary);
+    let dynamics_resolution = crate::registries::atomic::lens::resolve_physics_profile(&dynamics_id);
+    ui.small(format!(
+        "{}: {}",
+        dynamics_resolution.display_name, dynamics_resolution.summary
+    ));
 
     ui.separator();
     ui.label("Physics Engine Settings");

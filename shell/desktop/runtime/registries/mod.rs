@@ -3881,10 +3881,11 @@ mod tests {
             Ok(())
         });
 
-        let resolution = runtime.set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SOLID);
+        let resolution =
+            runtime.set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SETTLE);
         assert_eq!(
             resolution.resolved_id,
-            physics_profile::PHYSICS_PROFILE_SOLID
+            physics_profile::PHYSICS_PROFILE_SETTLE
         );
 
         let observed = observed.lock().expect("observer lock poisoned");
@@ -3892,7 +3893,7 @@ mod tests {
             signal,
             SignalKind::RegistryEvent(RegistryEventSignal::PhysicsProfileChanged {
                 new_profile_id,
-            }) if new_profile_id == physics_profile::PHYSICS_PROFILE_SOLID
+            }) if new_profile_id == physics_profile::PHYSICS_PROFILE_SETTLE
         )));
     }
 
@@ -4848,7 +4849,7 @@ mod tests {
             filters_legacy: Vec::new(),
             overlay_descriptor: None,
         };
-        lens.physics = crate::registries::atomic::lens::PhysicsProfile::gas();
+        lens.physics = crate::registries::atomic::lens::PhysicsProfile::scatter();
         lens.layout = crate::registries::atomic::lens::LayoutMode::Grid { gap: 32.0 };
         lens.theme = Some(crate::registries::atomic::lens::ThemeData {
             background_rgb: (1, 2, 3),
@@ -4857,7 +4858,7 @@ mod tests {
             stroke_width: 2.0,
         });
 
-        assert_eq!(lens.physics.name, "Gas");
+        assert_eq!(lens.physics.name, "Scatter");
         assert!(matches!(
             lens.layout,
             crate::registries::atomic::lens::LayoutMode::Grid { gap: 32.0 }
@@ -5175,28 +5176,28 @@ mod tests {
 
     #[test]
     fn phase3_physics_profile_switches_and_falls_back() {
-        let gas = phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_GAS);
-        assert!(gas.matched);
-        assert_eq!(gas.resolved_id, physics_profile::PHYSICS_PROFILE_GAS);
+        let scatter = phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SCATTER);
+        assert!(scatter.matched);
+        assert_eq!(scatter.resolved_id, physics_profile::PHYSICS_PROFILE_SCATTER);
 
         let fallback = phase3_set_active_physics_profile("physics:missing");
         assert!(fallback.fallback_used);
         assert_eq!(
             fallback.resolved_id,
-            physics_profile::PHYSICS_PROFILE_LIQUID
+            physics_profile::PHYSICS_PROFILE_DEFAULT
         );
     }
 
     #[test]
     fn phase3_presentation_profile_tracks_active_physics_and_theme() {
-        phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SOLID);
+        phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SETTLE);
 
         let dark = phase3_resolve_active_presentation_profile(Some(
             crate::registries::atomic::lens::THEME_ID_DARK,
         ));
         assert_eq!(
             dark.physics.resolved_id,
-            physics_profile::PHYSICS_PROFILE_SOLID
+            physics_profile::PHYSICS_PROFILE_SETTLE
         );
         assert_eq!(
             dark.theme.resolved_id,
@@ -5253,7 +5254,7 @@ mod tests {
             phase3_resolve_active_workbench_surface_profile().resolved_id,
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_FOCUS
         );
-        assert_eq!(app.default_registry_physics_id(), Some("physics:solid"));
+        assert_eq!(app.default_registry_physics_id(), Some("physics:settle"));
     }
 
     #[test]
@@ -5276,7 +5277,7 @@ mod tests {
             phase3_resolve_active_workbench_surface_profile().resolved_id,
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
         );
-        assert_eq!(app.default_registry_physics_id(), Some("physics:gas"));
+        assert_eq!(app.default_registry_physics_id(), Some("physics:scatter"));
     }
 
     #[test]

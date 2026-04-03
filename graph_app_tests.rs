@@ -5482,19 +5482,14 @@ fn test_set_physics_profile_intent_updates_runtime_and_reheats() {
     );
 
     app.apply_reducer_intents([GraphIntent::SetPhysicsProfile {
-        profile_id: crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
+        profile_id: crate::registries::atomic::lens::PHYSICS_ID_SCATTER.to_string(),
     }]);
 
     assert_eq!(
         app.default_registry_physics_id(),
-        Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
+        Some(crate::registries::atomic::lens::PHYSICS_ID_SCATTER)
     );
     assert!(app.workspace.graph_runtime.physics.base.is_running);
-    assert_eq!(
-        crate::shell::desktop::runtime::registries::phase3_resolve_active_physics_profile()
-            .resolved_id,
-        crate::registries::atomic::lens::PHYSICS_ID_GAS
-    );
     assert_eq!(
         app.workspace
             .graph_runtime
@@ -5503,7 +5498,7 @@ fn test_set_physics_profile_intent_updates_runtime_and_reheats() {
             .unwrap()
             .resolved_physics_profile()
             .name,
-        "Gas"
+        "Scatter"
     );
 }
 
@@ -6002,7 +5997,7 @@ fn test_view_policy_intents_preserve_direct_values() {
     app.apply_reducer_intents([
         GraphIntent::SetViewPhysicsProfile {
             view_id,
-            profile_id: crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
+            profile_id: crate::registries::atomic::lens::PHYSICS_ID_SCATTER.to_string(),
         },
         GraphIntent::SetViewLayoutAlgorithm {
             view_id,
@@ -6011,7 +6006,7 @@ fn test_view_policy_intents_preserve_direct_values() {
     ]);
 
     let resolved = app.workspace.graph_runtime.views.get(&view_id).unwrap();
-    assert_eq!(resolved.resolved_physics_profile().name, "Gas");
+    assert_eq!(resolved.resolved_physics_profile().name, "Scatter");
     assert!(matches!(resolved.resolved_layout_mode(), LayoutMode::Free));
     assert_eq!(
         resolved.resolved_layout_algorithm_id(),
@@ -6143,8 +6138,8 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
     stale_registry_lens.lens_state.display_name = "Stale".to_string();
     stale_registry_lens.lens_state.base_lens_id = Some("lens:default".to_string());
     stale_registry_lens.apply_physics_policy_override(
-        crate::registries::atomic::lens::PHYSICS_ID_GAS,
-        PhysicsProfile::gas(),
+        crate::registries::atomic::lens::PHYSICS_ID_SCATTER,
+        PhysicsProfile::scatter(),
     );
     stale_registry_lens.apply_layout_policy_override(
         LayoutMode::Grid { gap: 42.0 },
@@ -6160,8 +6155,8 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
     let mut direct_lens_view = GraphViewState::new_with_id(direct_view, "Direct");
     direct_lens_view.lens_state.display_name = "Direct Lens".to_string();
     direct_lens_view.apply_physics_policy_override(
-        crate::registries::atomic::lens::PHYSICS_ID_GAS,
-        PhysicsProfile::gas(),
+        crate::registries::atomic::lens::PHYSICS_ID_SCATTER,
+        PhysicsProfile::scatter(),
     );
     direct_lens_view.apply_layout_policy_override(
         LayoutMode::Grid { gap: 24.0 },

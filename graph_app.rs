@@ -171,7 +171,7 @@ pub(crate) use graph_views::PersistedGraphViewLayoutManager;
 pub use graph_views::{
     Camera, EdgeProjectionState, GraphViewFrame, GraphViewId, GraphViewLayoutDirection,
     GraphViewLayoutManagerState, GraphViewState, PolicyValueSource, ResolvedLensPreset, SceneMode,
-    SelectionEdgeProjectionOverride, ThreeDMode, ViewDimension, ZSource,
+    SelectionEdgeProjectionOverride, SimulateBehaviorPreset, ThreeDMode, ViewDimension, ZSource,
 };
 pub(crate) use graph_views::{default_semantic_depth_dimension, is_semantic_depth_dimension};
 
@@ -912,6 +912,7 @@ impl GraphBrowserApp {
                     graph_view_frames: HashMap::new(),
                     graph_view_canvas_rects: HashMap::new(),
                     scene_runtimes: HashMap::new(),
+                    simulate_release_impulses: HashMap::new(),
                     hovered_scene_region: None,
                     selected_scene_regions: HashMap::new(),
                     active_scene_region_drag: None,
@@ -1079,6 +1080,7 @@ impl GraphBrowserApp {
                     graph_view_frames: HashMap::new(),
                     graph_view_canvas_rects: HashMap::new(),
                     scene_runtimes: HashMap::new(),
+                    simulate_release_impulses: HashMap::new(),
                     hovered_scene_region: None,
                     selected_scene_regions: HashMap::new(),
                     active_scene_region_drag: None,
@@ -2128,7 +2130,7 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.physics = config;
     }
 
-    fn apply_physics_profile(&mut self, profile: &PhysicsProfile) {
+    fn apply_physics_profile(&mut self, profile_id: &str, profile: &PhysicsProfile) {
         let was_running = self.workspace.graph_runtime.physics.base.is_running;
         let mut config = Self::default_physics_state();
         profile.apply_to_state(&mut config);
@@ -2147,7 +2149,6 @@ impl GraphBrowserApp {
         }
 
         for view in self.workspace.graph_runtime.views.values_mut() {
-            let profile_id = crate::app::graph_views::canonical_physics_profile_id(&profile);
             view.apply_physics_policy(
                 profile_id,
                 profile.clone(),

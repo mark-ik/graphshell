@@ -1,24 +1,30 @@
+use std::sync::OnceLock;
+
 use crate::graph::physics::{
-    GraphPhysicsExtensionConfig, GraphPhysicsState, GraphPhysicsTuning, apply_graph_physics_tuning,
+    DegreeRepulsionConfig, DomainClusteringConfig, GraphPhysicsExtensionConfig, GraphPhysicsState,
+    GraphPhysicsTuning, HubPullConfig, SemanticClusteringConfig, apply_graph_physics_tuning,
 };
 use crate::graph::scene_runtime::SceneCollisionPolicy;
 
-pub(crate) const PHYSICS_ID_DEFAULT: &str = "physics:liquid";
-pub(crate) const PHYSICS_ID_GAS: &str = "physics:gas";
-pub(crate) const PHYSICS_ID_SOLID: &str = "physics:solid";
+pub(crate) const PHYSICS_ID_DRIFT: &str = "physics:drift";
+pub(crate) const PHYSICS_ID_SCATTER: &str = "physics:scatter";
+pub(crate) const PHYSICS_ID_SETTLE: &str = "physics:settle";
+pub(crate) const PHYSICS_ID_ARCHIPELAGO: &str = "physics:archipelago";
+pub(crate) const PHYSICS_ID_RESONANCE: &str = "physics:resonance";
+pub(crate) const PHYSICS_ID_CONSTELLATION: &str = "physics:constellation";
+pub(crate) const PHYSICS_ID_DEFAULT: &str = PHYSICS_ID_DRIFT;
+
 const PHYSICS_ID_LEGACY_DEFAULT: &str = "physics:default";
+const PHYSICS_ID_LEGACY_LIQUID: &str = "physics:liquid";
+const PHYSICS_ID_LEGACY_GAS: &str = "physics:gas";
+const PHYSICS_ID_LEGACY_SOLID: &str = "physics:solid";
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PhysicsProfile {
-    pub name: String,
+pub struct PhysicsMotionTuning {
     pub repulsion_strength: f32,
     pub attraction_strength: f32,
     pub gravity_strength: f32,
     pub damping: f32,
-    pub degree_repulsion: bool,
-    pub domain_clustering: bool,
-    pub semantic_clustering: bool,
-    pub semantic_strength: f32,
     #[serde(default)]
     pub node_separation: bool,
     #[serde(default)]
@@ -26,102 +32,112 @@ pub struct PhysicsProfile {
     pub auto_pause: bool,
 }
 
-impl Default for PhysicsProfile {
+impl Default for PhysicsMotionTuning {
     fn default() -> Self {
-        Self::liquid()
+        Self::drift()
     }
 }
 
-impl PhysicsProfile {
-    pub(crate) fn graph_physics_tuning(&self) -> GraphPhysicsTuning {
-        GraphPhysicsTuning {
-            repulsion_strength: self.repulsion_strength,
-            attraction_strength: self.attraction_strength,
-            gravity_strength: self.gravity_strength,
-            damping: self.damping,
-        }
-    }
-
-    /// Build the physics extension config, gating frame-affinity by the
-    /// canvas-level `zones_enabled` flag (spec §4.3).
-    ///
-    /// `zones_enabled` comes from `CanvasSurfaceProfile::zones_enabled()`,
-    /// resolved via `phase3_resolve_active_canvas_profile()` at the render callsite.
-    pub(crate) fn graph_physics_extensions(
-        &self,
-        zones_enabled: bool,
-    ) -> GraphPhysicsExtensionConfig {
-        GraphPhysicsExtensionConfig {
-            degree_repulsion: self.degree_repulsion,
-            domain_clustering: self.domain_clustering,
-            semantic_clustering: self.semantic_clustering,
-            semantic_strength: self.semantic_strength,
-            frame_affinity: zones_enabled,
-        }
-    }
-
-    pub(crate) fn scene_collision_policy(&self) -> SceneCollisionPolicy {
-        SceneCollisionPolicy {
-            node_separation_enabled: self.node_separation,
-            viewport_containment_enabled: self.viewport_containment,
-            node_padding: 4.0,
-        }
-    }
-
-    pub fn liquid() -> Self {
+impl PhysicsMotionTuning {
+    pub fn drift() -> Self {
         Self {
-            name: "Liquid".to_string(),
             repulsion_strength: 0.28,
             attraction_strength: 0.22,
             gravity_strength: 0.18,
             damping: 0.55,
-            degree_repulsion: true,
-            domain_clustering: false,
-            semantic_clustering: false,
-            semantic_strength: 0.05,
             node_separation: true,
             viewport_containment: true,
             auto_pause: true,
         }
     }
 
-    pub fn gas() -> Self {
+    pub fn scatter() -> Self {
         Self {
-            name: "Gas".to_string(),
-            repulsion_strength: 0.8,
+            repulsion_strength: 0.80,
             attraction_strength: 0.05,
-            gravity_strength: 0.0,
-            damping: 0.8,
-            degree_repulsion: false,
-            domain_clustering: false,
-            semantic_clustering: false,
-            semantic_strength: 0.05,
+            gravity_strength: 0.00,
+            damping: 0.80,
             node_separation: false,
             viewport_containment: false,
             auto_pause: false,
         }
     }
 
-    pub fn solid() -> Self {
+    pub fn settle() -> Self {
         Self {
-            name: "Solid".to_string(),
             repulsion_strength: 0.12,
             attraction_strength: 0.42,
             gravity_strength: 0.24,
-            damping: 0.4,
-            degree_repulsion: true,
-            domain_clustering: true,
-            semantic_clustering: false,
-            semantic_strength: 0.05,
+            damping: 0.40,
             node_separation: true,
             viewport_containment: true,
             auto_pause: true,
         }
     }
 
-    pub fn apply_to_state(&self, state: &mut GraphPhysicsState) {
-        apply_graph_physics_tuning(state, self.graph_physics_tuning());
+    pub fn archipelago() -> Self {
+        Self {
+            repulsion_strength: 0.18,
+            attraction_strength: 0.34,
+            gravity_strength: 0.12,
+            damping: 0.48,
+            node_separation: true,
+            viewport_containment: true,
+            auto_pause: true,
+        }
     }
+
+    pub fn resonance() -> Self {
+        Self {
+            repulsion_strength: 0.20,
+            attraction_strength: 0.28,
+            gravity_strength: 0.16,
+            damping: 0.50,
+            node_separation: true,
+            viewport_containment: true,
+            auto_pause: true,
+        }
+    }
+
+    pub fn constellation() -> Self {
+        Self {
+            repulsion_strength: 0.16,
+            attraction_strength: 0.30,
+            gravity_strength: 0.16,
+            damping: 0.46,
+            node_separation: true,
+            viewport_containment: true,
+            auto_pause: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct PhysicsOrganizerConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degree_repulsion: Option<DegreeRepulsionConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_clustering: Option<DomainClusteringConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_clustering: Option<SemanticClusteringConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hub_pull: Option<HubPullConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct PhysicsProfile {
+    pub name: String,
+    pub motion: PhysicsMotionTuning,
+    #[serde(default)]
+    pub organizers: PhysicsOrganizerConfig,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PhysicsProfileDescriptor {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+    pub(crate) summary: String,
+    pub(crate) profile: PhysicsProfile,
 }
 
 #[derive(Debug, Clone)]
@@ -130,61 +146,360 @@ pub(crate) struct PhysicsProfileResolution {
     pub(crate) resolved_id: String,
     pub(crate) matched: bool,
     pub(crate) fallback_used: bool,
+    pub(crate) display_name: String,
+    pub(crate) summary: String,
     pub(crate) profile: PhysicsProfile,
 }
 
-pub(crate) fn resolve_physics_profile(physics_id: &str) -> PhysicsProfileResolution {
-    let requested = physics_id.trim().to_ascii_lowercase();
-    let canonical_requested = if requested == PHYSICS_ID_LEGACY_DEFAULT {
-        PHYSICS_ID_DEFAULT.to_string()
-    } else {
-        requested.clone()
-    };
-    let fallback_profile = PhysicsProfile::default();
+#[derive(Debug, serde::Deserialize)]
+struct PhysicsProfileSerde {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    motion: Option<PhysicsMotionTuning>,
+    #[serde(default)]
+    organizers: Option<PhysicsOrganizerConfig>,
+    #[serde(default)]
+    repulsion_strength: Option<f32>,
+    #[serde(default)]
+    attraction_strength: Option<f32>,
+    #[serde(default)]
+    gravity_strength: Option<f32>,
+    #[serde(default)]
+    damping: Option<f32>,
+    #[serde(default)]
+    degree_repulsion: Option<bool>,
+    #[serde(default)]
+    domain_clustering: Option<bool>,
+    #[serde(default)]
+    semantic_clustering: Option<bool>,
+    #[serde(default)]
+    semantic_strength: Option<f32>,
+    #[serde(default)]
+    node_separation: Option<bool>,
+    #[serde(default)]
+    viewport_containment: Option<bool>,
+    #[serde(default)]
+    auto_pause: Option<bool>,
+}
+
+impl<'de> serde::Deserialize<'de> for PhysicsProfile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = PhysicsProfileSerde::deserialize(deserializer)?;
+        let PhysicsProfileSerde {
+            name,
+            motion,
+            organizers,
+            repulsion_strength,
+            attraction_strength,
+            gravity_strength,
+            damping,
+            degree_repulsion,
+            domain_clustering,
+            semantic_clustering,
+            semantic_strength,
+            node_separation,
+            viewport_containment,
+            auto_pause,
+        } = raw;
+
+        let has_legacy_motion = repulsion_strength.is_some()
+            || attraction_strength.is_some()
+            || gravity_strength.is_some()
+            || damping.is_some()
+            || node_separation.is_some()
+            || viewport_containment.is_some()
+            || auto_pause.is_some();
+        let motion = if let Some(motion) = motion {
+            motion
+        } else if has_legacy_motion {
+            PhysicsMotionTuning {
+                repulsion_strength: repulsion_strength.unwrap_or(0.28),
+                attraction_strength: attraction_strength.unwrap_or(0.22),
+                gravity_strength: gravity_strength.unwrap_or(0.18),
+                damping: damping.unwrap_or(0.55),
+                node_separation: node_separation.unwrap_or(false),
+                viewport_containment: viewport_containment.unwrap_or(false),
+                auto_pause: auto_pause.unwrap_or(true),
+            }
+        } else {
+            PhysicsMotionTuning::default()
+        };
+
+        let has_legacy_organizers = degree_repulsion.unwrap_or(false)
+            || domain_clustering.unwrap_or(false)
+            || semantic_clustering.unwrap_or(false);
+        let organizers = if let Some(organizers) = organizers {
+            organizers
+        } else if has_legacy_organizers {
+            PhysicsOrganizerConfig {
+                degree_repulsion: degree_repulsion
+                    .unwrap_or(false)
+                    .then(DegreeRepulsionConfig::medium),
+                domain_clustering: domain_clustering
+                    .unwrap_or(false)
+                    .then_some(DomainClusteringConfig {
+                        strength: 0.04,
+                    }),
+                semantic_clustering: semantic_clustering
+                    .unwrap_or(false)
+                    .then_some(SemanticClusteringConfig {
+                        strength: semantic_strength.unwrap_or(0.05),
+                        similarity_floor: 0.10,
+                    }),
+                hub_pull: None,
+            }
+        } else {
+            PhysicsOrganizerConfig::default()
+        };
+
+        Ok(Self {
+            name,
+            motion,
+            organizers,
+        })
+    }
+}
+
+impl Default for PhysicsProfile {
+    fn default() -> Self {
+        Self::drift()
+    }
+}
+
+impl PhysicsProfile {
+    pub(crate) fn graph_physics_tuning(&self) -> GraphPhysicsTuning {
+        GraphPhysicsTuning {
+            repulsion_strength: self.motion.repulsion_strength,
+            attraction_strength: self.motion.attraction_strength,
+            gravity_strength: self.motion.gravity_strength,
+            damping: self.motion.damping,
+        }
+    }
+
+    pub(crate) fn graph_physics_extensions(
+        &self,
+        frame_affinity_enabled: bool,
+    ) -> GraphPhysicsExtensionConfig {
+        GraphPhysicsExtensionConfig {
+            degree_repulsion: self.organizers.degree_repulsion,
+            domain_clustering: self.organizers.domain_clustering,
+            semantic_clustering: self.organizers.semantic_clustering,
+            hub_pull: self.organizers.hub_pull,
+            frame_affinity_enabled,
+        }
+    }
+
+    pub(crate) fn scene_collision_policy(&self) -> SceneCollisionPolicy {
+        SceneCollisionPolicy {
+            node_separation_enabled: self.motion.node_separation,
+            viewport_containment_enabled: self.motion.viewport_containment,
+            node_padding: 4.0,
+            region_effect_scale: 1.0,
+            containment_response_scale: 1.0,
+        }
+    }
+
+    pub fn drift() -> Self {
+        Self {
+            name: "Drift".to_string(),
+            motion: PhysicsMotionTuning::drift(),
+            organizers: PhysicsOrganizerConfig::default(),
+        }
+    }
+
+    pub fn scatter() -> Self {
+        Self {
+            name: "Scatter".to_string(),
+            motion: PhysicsMotionTuning::scatter(),
+            organizers: PhysicsOrganizerConfig::default(),
+        }
+    }
+
+    pub fn settle() -> Self {
+        Self {
+            name: "Settle".to_string(),
+            motion: PhysicsMotionTuning::settle(),
+            organizers: PhysicsOrganizerConfig {
+                degree_repulsion: Some(DegreeRepulsionConfig::mild()),
+                ..PhysicsOrganizerConfig::default()
+            },
+        }
+    }
+
+    pub fn archipelago() -> Self {
+        Self {
+            name: "Archipelago".to_string(),
+            motion: PhysicsMotionTuning::archipelago(),
+            organizers: PhysicsOrganizerConfig {
+                degree_repulsion: Some(DegreeRepulsionConfig::mild()),
+                domain_clustering: Some(DomainClusteringConfig { strength: 0.08 }),
+                ..PhysicsOrganizerConfig::default()
+            },
+        }
+    }
+
+    pub fn resonance() -> Self {
+        Self {
+            name: "Resonance".to_string(),
+            motion: PhysicsMotionTuning::resonance(),
+            organizers: PhysicsOrganizerConfig {
+                semantic_clustering: Some(SemanticClusteringConfig {
+                    strength: 0.12,
+                    similarity_floor: 0.10,
+                }),
+                ..PhysicsOrganizerConfig::default()
+            },
+        }
+    }
+
+    pub fn constellation() -> Self {
+        Self {
+            name: "Constellation".to_string(),
+            motion: PhysicsMotionTuning::constellation(),
+            organizers: PhysicsOrganizerConfig {
+                degree_repulsion: Some(DegreeRepulsionConfig::medium()),
+                hub_pull: Some(HubPullConfig::default()),
+                ..PhysicsOrganizerConfig::default()
+            },
+        }
+    }
+
+    pub fn apply_to_state(&self, state: &mut GraphPhysicsState) {
+        apply_graph_physics_tuning(state, self.graph_physics_tuning());
+    }
+}
+
+pub(crate) fn physics_profile_descriptors() -> &'static [PhysicsProfileDescriptor] {
+    static DESCRIPTORS: OnceLock<Vec<PhysicsProfileDescriptor>> = OnceLock::new();
+    DESCRIPTORS
+        .get_or_init(|| {
+            vec![
+                PhysicsProfileDescriptor {
+                    id: PHYSICS_ID_DRIFT.to_string(),
+                    display_name: "Drift".to_string(),
+                    summary: "Gentle browsing motion with bounded drift.".to_string(),
+                    profile: PhysicsProfile::drift(),
+                },
+                PhysicsProfileDescriptor {
+                    id: PHYSICS_ID_SCATTER.to_string(),
+                    display_name: "Scatter".to_string(),
+                    summary: "Broad overview spread for imports and zoomed-out scans.".to_string(),
+                    profile: PhysicsProfile::scatter(),
+                },
+                PhysicsProfileDescriptor {
+                    id: PHYSICS_ID_SETTLE.to_string(),
+                    display_name: "Settle".to_string(),
+                    summary: "Quickly stabilizes into a readable working set.".to_string(),
+                    profile: PhysicsProfile::settle(),
+                },
+                PhysicsProfileDescriptor {
+                    id: PHYSICS_ID_ARCHIPELAGO.to_string(),
+                    display_name: "Archipelago".to_string(),
+                    summary: "Forms separated domain islands with open space between them."
+                        .to_string(),
+                    profile: PhysicsProfile::archipelago(),
+                },
+                PhysicsProfileDescriptor {
+                    id: PHYSICS_ID_RESONANCE.to_string(),
+                    display_name: "Resonance".to_string(),
+                    summary: "Pulls semantically related nodes into soft neighborhoods."
+                        .to_string(),
+                    profile: PhysicsProfile::resonance(),
+                },
+                PhysicsProfileDescriptor {
+                    id: PHYSICS_ID_CONSTELLATION.to_string(),
+                    display_name: "Constellation".to_string(),
+                    summary: "Makes hubs legible anchors without collapsing nearby leaves."
+                        .to_string(),
+                    profile: PhysicsProfile::constellation(),
+                },
+            ]
+        })
+        .as_slice()
+}
+
+pub(crate) fn resolve_physics_profile(requested_id: &str) -> PhysicsProfileResolution {
+    let requested = requested_id.trim().to_ascii_lowercase();
+    let fallback = descriptor_by_id(PHYSICS_ID_DEFAULT)
+        .cloned()
+        .expect("default physics profile must exist");
 
     if requested.is_empty() {
         return PhysicsProfileResolution {
             requested_id: requested,
-            resolved_id: PHYSICS_ID_DEFAULT.to_string(),
+            resolved_id: fallback.id.clone(),
             matched: false,
             fallback_used: true,
-            profile: fallback_profile,
+            display_name: fallback.display_name.clone(),
+            summary: fallback.summary.clone(),
+            profile: fallback.profile.clone(),
         };
     }
 
-    let profile = match canonical_requested.as_str() {
-        PHYSICS_ID_DEFAULT => Some(PhysicsProfile::default()),
-        PHYSICS_ID_GAS => Some(PhysicsProfile::gas()),
-        PHYSICS_ID_SOLID => Some(PhysicsProfile::solid()),
-        _ => None,
-    };
-
-    if let Some(profile) = profile {
+    if let Some(canonical_id) = canonical_physics_profile_alias(&requested)
+        && let Some(descriptor) = descriptor_by_id(canonical_id)
+    {
         return PhysicsProfileResolution {
             requested_id: requested,
-            resolved_id: canonical_requested,
+            resolved_id: descriptor.id.clone(),
             matched: true,
             fallback_used: false,
-            profile,
+            display_name: descriptor.display_name.clone(),
+            summary: descriptor.summary.clone(),
+            profile: descriptor.profile.clone(),
         };
     }
 
     PhysicsProfileResolution {
         requested_id: requested,
-        resolved_id: PHYSICS_ID_DEFAULT.to_string(),
+        resolved_id: fallback.id.clone(),
         matched: false,
         fallback_used: true,
-        profile: fallback_profile,
+        display_name: fallback.display_name,
+        summary: fallback.summary,
+        profile: fallback.profile,
     }
 }
 
-pub(crate) fn physics_profile_id(profile: &PhysicsProfile) -> &'static str {
-    if *profile == PhysicsProfile::gas() {
-        PHYSICS_ID_GAS
-    } else if *profile == PhysicsProfile::solid() {
-        PHYSICS_ID_SOLID
-    } else {
-        PHYSICS_ID_DEFAULT
+pub(crate) fn canonical_physics_profile_id_hint(profile: &PhysicsProfile) -> &'static str {
+    let normalized_name = profile.name.trim().to_ascii_lowercase();
+    match normalized_name.as_str() {
+        "drift" | "default" | "liquid" => PHYSICS_ID_DRIFT,
+        "scatter" | "gas" => PHYSICS_ID_SCATTER,
+        "settle" | "solid" => PHYSICS_ID_SETTLE,
+        "archipelago" => PHYSICS_ID_ARCHIPELAGO,
+        "resonance" => PHYSICS_ID_RESONANCE,
+        "constellation" => PHYSICS_ID_CONSTELLATION,
+        _ if *profile == PhysicsProfile::scatter() => PHYSICS_ID_SCATTER,
+        _ if *profile == PhysicsProfile::settle() => PHYSICS_ID_SETTLE,
+        _ if *profile == PhysicsProfile::archipelago() => PHYSICS_ID_ARCHIPELAGO,
+        _ if *profile == PhysicsProfile::resonance() => PHYSICS_ID_RESONANCE,
+        _ if *profile == PhysicsProfile::constellation() => PHYSICS_ID_CONSTELLATION,
+        _ => PHYSICS_ID_DRIFT,
+    }
+}
+
+fn descriptor_by_id(profile_id: &str) -> Option<&'static PhysicsProfileDescriptor> {
+    physics_profile_descriptors()
+        .iter()
+        .find(|descriptor| descriptor.id == profile_id)
+}
+
+fn canonical_physics_profile_alias(requested: &str) -> Option<&'static str> {
+    match requested {
+        PHYSICS_ID_DRIFT | PHYSICS_ID_LEGACY_DEFAULT | PHYSICS_ID_LEGACY_LIQUID => {
+            Some(PHYSICS_ID_DRIFT)
+        }
+        PHYSICS_ID_SCATTER | PHYSICS_ID_LEGACY_GAS => Some(PHYSICS_ID_SCATTER),
+        PHYSICS_ID_SETTLE | PHYSICS_ID_LEGACY_SOLID => Some(PHYSICS_ID_SETTLE),
+        PHYSICS_ID_ARCHIPELAGO => Some(PHYSICS_ID_ARCHIPELAGO),
+        PHYSICS_ID_RESONANCE => Some(PHYSICS_ID_RESONANCE),
+        PHYSICS_ID_CONSTELLATION => Some(PHYSICS_ID_CONSTELLATION),
+        _ => None,
     }
 }
 
@@ -193,13 +508,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn physics_profile_lookup_maps_legacy_default_to_liquid_id() {
-        let resolution = resolve_physics_profile(PHYSICS_ID_LEGACY_DEFAULT);
+    fn physics_profile_lookup_maps_legacy_profiles_to_helper_era_ids() {
+        let liquid = resolve_physics_profile(PHYSICS_ID_LEGACY_LIQUID);
+        assert!(liquid.matched);
+        assert_eq!(liquid.resolved_id, PHYSICS_ID_DRIFT);
 
-        assert!(resolution.matched);
-        assert_eq!(resolution.requested_id, PHYSICS_ID_LEGACY_DEFAULT);
-        assert_eq!(resolution.resolved_id, PHYSICS_ID_DEFAULT);
-        assert_eq!(resolution.profile.name, "Liquid");
+        let gas = resolve_physics_profile(PHYSICS_ID_LEGACY_GAS);
+        assert!(gas.matched);
+        assert_eq!(gas.resolved_id, PHYSICS_ID_SCATTER);
+
+        let solid = resolve_physics_profile(PHYSICS_ID_LEGACY_SOLID);
+        assert!(solid.matched);
+        assert_eq!(solid.resolved_id, PHYSICS_ID_SETTLE);
     }
 
     #[test]
@@ -207,17 +527,21 @@ mod tests {
         let mut state = GraphPhysicsState::default();
         let profile = PhysicsProfile {
             name: "Custom".to_string(),
-            repulsion_strength: 0.61,
-            attraction_strength: 0.19,
-            gravity_strength: 0.27,
-            damping: 0.48,
-            degree_repulsion: true,
-            domain_clustering: false,
-            semantic_clustering: false,
-            semantic_strength: 0.05,
-            node_separation: true,
-            viewport_containment: false,
-            auto_pause: true,
+            motion: PhysicsMotionTuning {
+                repulsion_strength: 0.61,
+                attraction_strength: 0.19,
+                gravity_strength: 0.27,
+                damping: 0.48,
+                node_separation: true,
+                viewport_containment: false,
+                auto_pause: true,
+            },
+            organizers: PhysicsOrganizerConfig {
+                degree_repulsion: Some(DegreeRepulsionConfig::mild()),
+                domain_clustering: None,
+                semantic_clustering: None,
+                hub_pull: None,
+            },
         };
 
         profile.apply_to_state(&mut state);
@@ -232,32 +556,83 @@ mod tests {
     fn physics_profile_exposes_graph_physics_extensions() {
         let profile = PhysicsProfile {
             name: "Custom".to_string(),
-            repulsion_strength: 0.61,
-            attraction_strength: 0.19,
-            gravity_strength: 0.27,
-            damping: 0.48,
-            degree_repulsion: false,
-            domain_clustering: true,
-            semantic_clustering: true,
-            semantic_strength: 0.23,
-            node_separation: true,
-            viewport_containment: true,
-            auto_pause: true,
+            motion: PhysicsMotionTuning::default(),
+            organizers: PhysicsOrganizerConfig {
+                degree_repulsion: None,
+                domain_clustering: Some(DomainClusteringConfig { strength: 0.08 }),
+                semantic_clustering: Some(SemanticClusteringConfig {
+                    strength: 0.23,
+                    similarity_floor: 0.10,
+                }),
+                hub_pull: Some(HubPullConfig::default()),
+            },
         };
 
         let extensions = profile.graph_physics_extensions(false);
 
-        assert!(!extensions.degree_repulsion);
-        assert!(extensions.domain_clustering);
-        assert!(extensions.semantic_clustering);
-        assert_eq!(extensions.semantic_strength, 0.23);
-        assert!(!extensions.frame_affinity);
+        assert!(extensions.degree_repulsion.is_none());
+        assert_eq!(
+            extensions.domain_clustering,
+            Some(DomainClusteringConfig { strength: 0.08 })
+        );
+        assert_eq!(
+            extensions.semantic_clustering,
+            Some(SemanticClusteringConfig {
+                strength: 0.23,
+                similarity_floor: 0.10,
+            })
+        );
+        assert_eq!(extensions.hub_pull, Some(HubPullConfig::default()));
+        assert!(!extensions.frame_affinity_enabled);
 
         let collision_policy = profile.scene_collision_policy();
         assert!(collision_policy.node_separation_enabled);
         assert!(collision_policy.viewport_containment_enabled);
 
         let extensions_zones = profile.graph_physics_extensions(true);
-        assert!(extensions_zones.frame_affinity);
+        assert!(extensions_zones.frame_affinity_enabled);
+    }
+
+    #[test]
+    fn physics_profile_deserializes_legacy_flat_shape() {
+        let raw = r#"{
+            "name":"Gas",
+            "repulsion_strength":0.8,
+            "attraction_strength":0.05,
+            "gravity_strength":0.0,
+            "damping":0.8,
+            "degree_repulsion":true,
+            "domain_clustering":false,
+            "semantic_clustering":false,
+            "semantic_strength":0.0,
+            "auto_pause":false
+        }"#;
+
+        let decoded: PhysicsProfile =
+            serde_json::from_str(raw).expect("legacy physics profile should deserialize");
+
+        assert_eq!(decoded.name, "Gas");
+        assert_eq!(decoded.motion.repulsion_strength, 0.8);
+        assert_eq!(
+            decoded.organizers.degree_repulsion,
+            Some(DegreeRepulsionConfig::medium())
+        );
+        assert!(!decoded.motion.auto_pause);
+    }
+
+    #[test]
+    fn canonical_physics_profile_id_hint_maps_new_and_legacy_names() {
+        assert_eq!(
+            canonical_physics_profile_id_hint(&PhysicsProfile::drift()),
+            PHYSICS_ID_DRIFT
+        );
+        assert_eq!(
+            canonical_physics_profile_id_hint(&PhysicsProfile {
+                name: "Gas".to_string(),
+                motion: PhysicsMotionTuning::scatter(),
+                organizers: PhysicsOrganizerConfig::default(),
+            }),
+            PHYSICS_ID_SCATTER
+        );
     }
 }
