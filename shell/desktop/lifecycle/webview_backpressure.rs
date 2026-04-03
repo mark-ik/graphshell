@@ -44,7 +44,17 @@ enum WebviewCreationProbeOutcome {
     TimedOut,
 }
 
-fn cold_restore_url_for_node(node: &crate::graph::Node) -> String {
+fn cold_restore_url_for_node(
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+    node: &crate::graph::Node,
+) -> String {
+    if node.address.address_kind() == crate::graph::AddressKind::GraphshellClip {
+        return graph_app
+            .runtime_display_url_for_node(node_key)
+            .unwrap_or_else(|| "about:blank".to_string());
+    }
+
     if !node.history_entries.is_empty() {
         let idx = node
             .history_index
@@ -127,7 +137,7 @@ pub(crate) fn ensure_webview_for_node(
         webview_creation_backpressure.remove(&node_key);
         return;
     }
-    let node_url = cold_restore_url_for_node(node);
+    let node_url = cold_restore_url_for_node(graph_app, node_key, node);
 
     if !mod_loader::runtime_has_capability("viewer:webview") {
         emit_event(DiagnosticEvent::MessageSent {
@@ -447,6 +457,7 @@ mod tests {
 
     #[test]
     fn test_cold_restore_url_for_node_prefers_history_index_entry() {
+        let app = GraphBrowserApp::new_for_testing();
         let mut node = test_node("https://fallback.example");
         node.history_entries = vec![
             "https://example.com/one".to_string(),
@@ -454,16 +465,17 @@ mod tests {
         ];
         node.history_index = 1;
         assert_eq!(
-            cold_restore_url_for_node(&node),
+            cold_restore_url_for_node(&app, NodeKey::new(0), &node),
             "https://example.com/two".to_string()
         );
     }
 
     #[test]
     fn test_cold_restore_url_for_node_falls_back_to_node_url_without_history() {
+        let app = GraphBrowserApp::new_for_testing();
         let node = test_node("https://fallback.example");
         assert_eq!(
-            cold_restore_url_for_node(&node),
+            cold_restore_url_for_node(&app, NodeKey::new(0), &node),
             "https://fallback.example".to_string()
         );
     }

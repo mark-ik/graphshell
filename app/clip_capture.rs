@@ -4,6 +4,7 @@ use euclid::default::Point2D;
 use crate::app::{GraphBrowserApp, RendererId};
 use crate::graph::NodeKey;
 use crate::model::graph::{ClassificationProvenance, ClassificationStatus, NodeClassification};
+use crate::util::VersoAddress;
 
 const CLIP_EDGE_LABEL: &str = "clip-source";
 const CLIP_TITLE_FALLBACK: &str = "Clipped element";
@@ -25,6 +26,19 @@ pub struct ClipCaptureData {
     pub href: Option<String>,
     pub image_url: Option<String>,
     pub dom_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ClipContentFacetData {
+    pub source_url: String,
+    pub page_title: Option<String>,
+    pub clip_title: String,
+    pub text_excerpt: String,
+    pub tag_name: String,
+    pub href: Option<String>,
+    pub image_url: Option<String>,
+    pub dom_path: Option<String>,
+    pub document_html: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +66,42 @@ pub struct ClipInspectorState {
 }
 
 impl GraphBrowserApp {
+    pub fn clip_route_url(clip_id: impl Into<String>) -> String {
+        VersoAddress::clip(clip_id).to_string()
+    }
+
+    pub fn find_clip_node_by_id(&self, clip_id: &str) -> Option<NodeKey> {
+        let route = Self::clip_route_url(clip_id);
+        self.domain_graph()
+            .get_node_by_url(&route)
+            .map(|(key, _)| key)
+    }
+
+    pub fn runtime_display_url_for_node(&self, node_key: NodeKey) -> Option<String> {
+        let node = self.domain_graph().get_node(node_key)?;
+        if node.address.address_kind() == crate::graph::AddressKind::GraphshellClip {
+            return Some(clip_data_url(
+                self.clip_content_facet_for_node(node_key)?.document_html.as_str(),
+            ));
+        }
+        Some(node.url().to_string())
+    }
+
+    pub fn clip_content_facet_for_node(&self, node_key: NodeKey) -> Option<ClipContentFacetData> {
+        let node = self.domain_graph().get_node(node_key)?;
+        clip_content_facet_from_node(node)
+    }
+
+    pub fn user_visible_node_url(&self, node_key: NodeKey) -> Option<String> {
+        let node = self.domain_graph().get_node(node_key)?;
+        Some(user_visible_node_url_from_data(node))
+    }
+
+    pub fn user_visible_node_title(&self, node_key: NodeKey) -> Option<String> {
+        let node = self.domain_graph().get_node(node_key)?;
+        Some(user_visible_node_title_from_data(node))
+    }
+
     pub fn create_clip_node_from_capture(
         &mut self,
         capture: &ClipCaptureData,
@@ -204,7 +254,8 @@ impl GraphBrowserApp {
         capture: &ClipCaptureData,
         clip_position: Point2D<f32>,
     ) -> NodeKey {
-        let clip_url = clip_data_url(build_clip_document(capture).as_str());
+        let clip_facet = ClipContentFacetData::from_capture(capture);
+        let clip_url = Self::clip_route_url(uuid::Uuid::new_v4().to_string());
         let clip_key = self.add_node_and_sync(clip_url, clip_position);
         let clip_title = resolved_clip_title(capture);
         // Stage C: collect source classifications before mutating graph
@@ -234,6 +285,10 @@ impl GraphBrowserApp {
         let graph = &mut self.workspace.domain.graph;
         let _ = graph.set_node_title(clip_key, clip_title);
         let _ = graph.insert_node_tag(clip_key, Self::TAG_CLIP.to_string());
+        let _ = graph.set_node_form_draft(
+            clip_key,
+            Some(serialize_clip_content_facet(&clip_facet)),
+        );
         let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
         let _ = graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
         for inherited in &inherited_classifications {
@@ -269,6 +324,79 @@ impl GraphBrowserApp {
     }
 }
 
+impl ClipContentFacetData {
+    fn from_capture(capture: &ClipCaptureData) -> Self {
+        Self {
+            source_url: capture.source_url.clone(),
+            page_title: capture.page_title.clone(),
+            clip_title: capture.clip_title.clone(),
+            text_excerpt: capture.text_excerpt.clone(),
+            tag_name: capture.tag_name.clone(),
+            href: capture.href.clone(),
+            image_url: capture.image_url.clone(),
+            dom_path: capture.dom_path.clone(),
+            document_html: build_clip_document(capture),
+        }
+    }
+}
+
+fn serialize_clip_content_facet(facet: &ClipContentFacetData) -> String {
+    serde_json::to_string(facet).unwrap_or_else(|_| facet.document_html.clone())
+}
+
+fn clip_content_facet_from_node(node: &crate::graph::Node) -> Option<ClipContentFacetData> {
+    if node.address.address_kind() != crate::graph::AddressKind::GraphshellClip {
+        return None;
+    }
+
+    let stored = node.session_form_draft.as_deref()?;
+    if let Ok(facet) = serde_json::from_str::<ClipContentFacetData>(stored) {
+        return Some(facet);
+    }
+
+    let source_url = node
+        .history_entries
+        .get(node.history_index.min(node.history_entries.len().saturating_sub(1)))
+        .cloned()
+        .unwrap_or_default();
+    Some(ClipContentFacetData {
+        source_url,
+        page_title: None,
+        clip_title: node.title.clone(),
+        text_excerpt: String::new(),
+        tag_name: String::new(),
+        href: None,
+        image_url: None,
+        dom_path: None,
+        document_html: stored.to_string(),
+    })
+}
+
+pub(crate) fn user_visible_node_url_from_data(node: &crate::graph::Node) -> String {
+    if let Some(facet) = clip_content_facet_from_node(node)
+        && !facet.source_url.trim().is_empty()
+    {
+        return facet.source_url;
+    }
+
+    node.url().to_string()
+}
+
+pub(crate) fn user_visible_node_title_from_data(node: &crate::graph::Node) -> String {
+    let title = node.title.trim();
+    if !title.is_empty() {
+        return title.to_string();
+    }
+
+    if let Some(facet) = clip_content_facet_from_node(node)
+        && !facet.clip_title.trim().is_empty()
+    {
+        return facet.clip_title;
+    }
+
+    user_visible_node_url_from_data(node)
+}
+
 pub fn clip_capture_matches_filter(capture: &ClipCaptureData, filter: ClipInspectorFilter) -> bool {
     match filter {
         ClipInspectorFilter::All => true,
@@ -277,18 +405,25 @@ pub fn clip_capture_matches_filter(capture: &ClipCaptureData, filter: ClipInspec
         }
         ClipInspectorFilter::Link => capture.href.is_some(),
         ClipInspectorFilter::Image => {
-            capture.image_url.is_some() || capture.tag_name.eq_ignore_ascii_case("img")
+            capture.image_url.is_some() || clip_capture_tag_is_one_of(capture, &["img", "picture"])
         }
-        ClipInspectorFilter::Structure => matches!(
-            capture.tag_name.as_str(),
-            "article" | "section" | "aside" | "figure" | "main" | "nav" | "header" | "footer"
+        ClipInspectorFilter::Structure => clip_capture_tag_is_one_of(
+            capture,
+            &[
+                "article",
+                "section",
+                "aside",
+                "figure",
+                "main",
+                "nav",
+                "header",
+                "footer",
+                "table",
+                "blockquote",
+                "pre",
+            ],
         ),
-        ClipInspectorFilter::Media => {
-            matches!(
-                capture.tag_name.as_str(),
-                "img" | "picture" | "video" | "audio" | "svg" | "canvas" | "figure"
-            ) || capture.image_url.is_some()
-        }
+        ClipInspectorFilter::Media => clip_capture_has_media(capture),
     }
 }
 
@@ -300,13 +435,31 @@ pub fn clip_capture_matches_query(capture: &ClipCaptureData, query: &str) -> boo
     let query = query.to_ascii_lowercase();
     [
         capture.clip_title.as_str(),
+        capture.page_title.as_deref().unwrap_or_default(),
         capture.text_excerpt.as_str(),
         capture.tag_name.as_str(),
+        capture.source_url.as_str(),
+        capture.dom_path.as_deref().unwrap_or_default(),
         capture.href.as_deref().unwrap_or_default(),
         capture.image_url.as_deref().unwrap_or_default(),
     ]
     .into_iter()
     .any(|field| field.to_ascii_lowercase().contains(&query))
+}
+
+fn clip_capture_tag_is_one_of(capture: &ClipCaptureData, tags: &[&str]) -> bool {
+    tags.iter()
+        .any(|tag| capture.tag_name.trim().eq_ignore_ascii_case(tag))
+}
+
+fn clip_capture_has_media(capture: &ClipCaptureData) -> bool {
+    capture.image_url.is_some()
+        || clip_capture_tag_is_one_of(
+            capture,
+            &[
+                "img", "picture", "video", "audio", "svg", "canvas", "figure",
+            ],
+        )
 }
 
 fn exploded_clip_position(
@@ -406,8 +559,11 @@ mod tests {
     use servo::WebViewId;
 
     use super::{
-        CLIP_EDGE_LABEL, ClipCaptureData, build_clip_document, exploded_clip_position,
-        resolved_clip_title,
+        CLIP_EDGE_LABEL, ClipCaptureData, ClipContentFacetData, ClipInspectorFilter,
+        build_clip_document, clip_capture_matches_filter, clip_capture_matches_query,
+        clip_content_facet_from_node, exploded_clip_position, resolved_clip_title,
+        serialize_clip_content_facet, user_visible_node_title_from_data,
+        user_visible_node_url_from_data,
     };
     use crate::app::GraphBrowserApp;
 
@@ -496,7 +652,23 @@ mod tests {
             clip_node.history_entries,
             vec!["https://example.com".to_string()]
         );
-        assert!(clip_node.url().starts_with("data:text/html"));
+        assert!(clip_node.url().starts_with("verso://clip/"));
+        assert!(
+            clip_node
+                .session_form_draft
+                .as_deref()
+                .is_some_and(|stored| stored.contains("\"document_html\""))
+        );
+        assert!(
+            app.runtime_display_url_for_node(clip_key)
+                .is_some_and(|url| url.starts_with("data:text/html"))
+        );
+        let clip_facet = app
+            .clip_content_facet_for_node(clip_key)
+            .expect("clip facet should exist");
+        assert!(clip_facet
+            .document_html
+            .contains("<article><h2>Card</h2></article>"));
 
         let has_clip_edge = app
             .workspace
@@ -582,6 +754,159 @@ mod tests {
             .filter(|edge| edge.from == source_key && clip_keys.contains(&edge.to))
             .count();
         assert_eq!(clip_edges, 2);
+    }
+
+    #[test]
+    fn clip_capture_query_matches_source_and_dom_context_fields() {
+        let capture = ClipCaptureData {
+            webview_id: test_webview_id(),
+            source_url: "https://example.com/article".to_string(),
+            page_title: Some("Example Article".to_string()),
+            clip_title: "Card".to_string(),
+            outer_html: "<article><h2>Card</h2></article>".to_string(),
+            text_excerpt: "Card excerpt".to_string(),
+            tag_name: "article".to_string(),
+            href: Some("https://example.com/link".to_string()),
+            image_url: None,
+            dom_path: Some("body > main:nth-of-type(1) > article:nth-of-type(2)".to_string()),
+        };
+
+        assert!(clip_capture_matches_query(&capture, "Example Article"));
+        assert!(clip_capture_matches_query(&capture, "example.com/article"));
+        assert!(clip_capture_matches_query(
+            &capture,
+            "article:nth-of-type(2)"
+        ));
+    }
+
+    #[test]
+    fn clip_capture_filters_match_structure_and_media_case_insensitively() {
+        let structure_capture = ClipCaptureData {
+            webview_id: test_webview_id(),
+            source_url: "https://example.com".to_string(),
+            page_title: Some("Example".to_string()),
+            clip_title: "Header".to_string(),
+            outer_html: "<header>Header</header>".to_string(),
+            text_excerpt: "Header".to_string(),
+            tag_name: "HEADER".to_string(),
+            href: None,
+            image_url: None,
+            dom_path: None,
+        };
+        let media_capture = ClipCaptureData {
+            webview_id: test_webview_id(),
+            source_url: "https://example.com".to_string(),
+            page_title: Some("Example".to_string()),
+            clip_title: "Video".to_string(),
+            outer_html: "<video src=\"demo.mp4\"></video>".to_string(),
+            text_excerpt: String::new(),
+            tag_name: "ViDeO".to_string(),
+            href: None,
+            image_url: None,
+            dom_path: None,
+        };
+
+        assert!(clip_capture_matches_filter(
+            &structure_capture,
+            ClipInspectorFilter::Structure
+        ));
+        assert!(clip_capture_matches_filter(
+            &media_capture,
+            ClipInspectorFilter::Media
+        ));
+    }
+
+    #[test]
+    fn clip_content_facet_round_trips_through_form_draft_storage() {
+        let facet = ClipContentFacetData {
+            source_url: "https://example.com/article".to_string(),
+            page_title: Some("Example Article".to_string()),
+            clip_title: "Card".to_string(),
+            text_excerpt: "Card excerpt".to_string(),
+            tag_name: "article".to_string(),
+            href: Some("https://example.com/link".to_string()),
+            image_url: None,
+            dom_path: Some("body > main:nth-of-type(1) > article:nth-of-type(2)".to_string()),
+            document_html: "<html><body>clip</body></html>".to_string(),
+        };
+        let stored = serialize_clip_content_facet(&facet);
+        let mut node = crate::graph::Node::test_stub("verso://clip/clip-123");
+        node.session_form_draft = Some(stored);
+        node.history_entries = vec![facet.source_url.clone()];
+
+        let restored = clip_content_facet_from_node(&node).expect("clip facet should restore");
+        assert_eq!(restored, facet);
+    }
+
+    #[test]
+    fn legacy_raw_html_clip_storage_still_projects_to_clip_content_facet() {
+        let mut node = crate::graph::Node::test_stub("verso://clip/clip-legacy");
+        node.title = "Legacy Clip".to_string();
+        node.session_form_draft = Some("<html><body>legacy clip</body></html>".to_string());
+        node.history_entries = vec!["https://example.com/source".to_string()];
+
+        let restored = clip_content_facet_from_node(&node).expect("legacy clip facet should restore");
+        assert_eq!(restored.clip_title, "Legacy Clip");
+        assert_eq!(restored.source_url, "https://example.com/source");
+        assert_eq!(restored.document_html, "<html><body>legacy clip</body></html>");
+    }
+
+    #[test]
+    fn user_visible_clip_node_fields_prefer_facet_metadata_over_internal_route() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source_key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://example.com/source".to_string(), Point2D::new(10.0, 20.0));
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, source_key);
+
+        let clip_key = app
+            .create_clip_node_from_capture(&ClipCaptureData {
+                webview_id,
+                source_url: "https://example.com/source".to_string(),
+                page_title: Some("Example Source".to_string()),
+                clip_title: "Hero Card".to_string(),
+                outer_html: "<article><h2>Hero Card</h2></article>".to_string(),
+                text_excerpt: "Hero Card excerpt".to_string(),
+                tag_name: "article".to_string(),
+                href: None,
+                image_url: None,
+                dom_path: Some("body > article:nth-of-type(1)".to_string()),
+            })
+            .expect("clip capture should create a node");
+
+        assert_eq!(
+            app.user_visible_node_title(clip_key).as_deref(),
+            Some("Hero Card")
+        );
+        assert_eq!(
+            app.user_visible_node_url(clip_key).as_deref(),
+            Some("https://example.com/source")
+        );
+    }
+
+    #[test]
+    fn user_visible_node_data_helpers_prefer_clip_facet_metadata() {
+        let facet = ClipContentFacetData {
+            source_url: "https://example.com/source".to_string(),
+            page_title: Some("Example Source".to_string()),
+            clip_title: "Facet Clip".to_string(),
+            text_excerpt: "Facet Clip excerpt".to_string(),
+            tag_name: "article".to_string(),
+            href: None,
+            image_url: None,
+            dom_path: Some("body > article:nth-of-type(1)".to_string()),
+            document_html: "<html><body>clip</body></html>".to_string(),
+        };
+        let mut node = crate::graph::Node::test_stub("verso://clip/clip-archived");
+        node.title.clear();
+        node.session_form_draft = Some(serialize_clip_content_facet(&facet));
+        node.history_entries = vec![facet.source_url.clone()];
+
+        assert_eq!(user_visible_node_title_from_data(&node), "Facet Clip");
+        assert_eq!(user_visible_node_url_from_data(&node), "https://example.com/source");
     }
 
     #[test]

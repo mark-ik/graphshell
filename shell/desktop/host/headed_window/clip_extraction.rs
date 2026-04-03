@@ -23,21 +23,23 @@ pub(super) fn build_clip_extraction_script(element_rect: DeviceIntRect) -> Strin
                 return JSON.stringify({{ ok: false, error: "No element found under context menu target." }});
             }}
 
+            const titleFor = (target, tagName, textValue) =>
+                (textValue ||
+                    target.getAttribute("aria-label") ||
+                    target.getAttribute("title") ||
+                    target.getAttribute("alt") ||
+                    target.querySelector?.("h1,h2,h3,h4,strong,b,figcaption,caption")?.textContent ||
+                    (tagName ? `Clip: <${{tagName}}>` : "Clipped element"));
             const textValue = (element.innerText || element.textContent || "")
                 .replace(/\s+/g, " ")
                 .trim();
             const tagName = (element.tagName || "").toLowerCase();
-            const titleValue =
-                textValue ||
-                element.getAttribute("aria-label") ||
-                element.getAttribute("title") ||
-                element.getAttribute("alt") ||
-                (tagName ? `Clip: <${{tagName}}>` : "Clipped element");
+            const titleValue = titleFor(element, tagName, textValue);
             const link = element.closest ? element.closest("a") : null;
             const image =
                 tagName === "img"
                     ? element
-                    : (element.querySelector ? element.querySelector("img") : null);
+                    : (element.querySelector ? element.querySelector("img,picture source,video,canvas,svg") : null);
             const domPathFor = (target) => {{
                 if (!(target instanceof Element)) return null;
                 const segments = [];
@@ -84,7 +86,7 @@ pub(super) fn build_page_inspector_extraction_script() -> String {
                 element.getAttribute("aria-label") ||
                 element.getAttribute("title") ||
                 element.getAttribute("alt") ||
-                element.querySelector?.("h1,h2,h3,h4,strong,b")?.textContent ||
+                element.querySelector?.("h1,h2,h3,h4,strong,b,figcaption,caption")?.textContent ||
                 (tagName ? `Clip: <${tagName}>` : "Clipped element")
             );
         const domPathFor = (element) => {
@@ -113,7 +115,7 @@ pub(super) fn build_page_inspector_extraction_script() -> String {
             const image =
                 tagName === "img"
                     ? element
-                    : (element.querySelector ? element.querySelector("img") : null);
+                    : (element.querySelector ? element.querySelector("img,picture source,video,canvas,svg") : null);
             return {
                 source_url: window.location.href,
                 page_title: document.title || null,
@@ -128,7 +130,9 @@ pub(super) fn build_page_inspector_extraction_script() -> String {
         };
 
         const candidates = Array.from(
-            document.querySelectorAll("main article, article, section, aside, figure, img, h1, h2, h3, li")
+            document.querySelectorAll(
+                "main article, article, section, aside, figure, nav, header, footer, picture, video, audio, svg, canvas, img, table, pre, blockquote, h1, h2, h3, li"
+            )
         );
 
         const seen = new Set();
@@ -145,8 +149,9 @@ pub(super) fn build_page_inspector_extraction_script() -> String {
             const score =
                 Math.min(textValue.length, 280) +
                 Math.min(rect.width * rect.height / 1800, 180) +
-                (element.querySelector?.("img") ? 60 : 0) +
-                (/^(article|section|figure|aside)$/i.test(element.tagName || "") ? 45 : 0) +
+                (element.querySelector?.("img,picture,video,canvas,svg") ? 60 : 0) +
+                (/^(article|section|figure|aside|nav|header|footer|table|blockquote|pre)$/i.test(element.tagName || "") ? 45 : 0) +
+                (/^(picture|video|audio|svg|canvas|img)$/i.test(element.tagName || "") ? 55 : 0) +
                 (/^h[1-3]$/i.test(element.tagName || "") ? 35 : 0);
             clips.push({ element, score, rectTop: rect.top });
             seen.add(element);
@@ -160,10 +165,15 @@ pub(super) fn build_page_inspector_extraction_script() -> String {
             if (!payload.outer_html || payload.outer_html.length > 24000) {
                 continue;
             }
-            if (!payload.text_excerpt && !payload.image_url) {
+            if (
+                !payload.text_excerpt &&
+                !payload.image_url &&
+                !payload.href &&
+                !/^(picture|video|audio|svg|canvas|figure|img)$/i.test(payload.tag_name || "")
+            ) {
                 continue;
             }
-            const titleKey = payload.clip_title.toLowerCase();
+            const titleKey = (payload.dom_path || payload.clip_title).toLowerCase();
             if (selectedTitles.has(titleKey)) {
                 continue;
             }
@@ -217,7 +227,7 @@ pub(super) fn build_clip_inspector_stack_script(
                 const image =
                     tagName === "img"
                         ? element
-                        : (element.querySelector ? element.querySelector("img") : null);
+                        : (element.querySelector ? element.querySelector("img,picture source,video,canvas,svg") : null);
                 return {{
                     source_url: window.location.href,
                     page_title: document.title || null,
@@ -226,6 +236,7 @@ pub(super) fn build_clip_inspector_stack_script(
                         element.getAttribute("aria-label") ||
                         element.getAttribute("title") ||
                         element.getAttribute("alt") ||
+                        element.querySelector?.("h1,h2,h3,h4,strong,b,figcaption,caption")?.textContent ||
                         (tagName ? `Clip: <${{tagName}}>` : "Clipped element"),
                     outer_html: element.outerHTML || "",
                     text_excerpt: textValue,
@@ -400,4 +411,45 @@ fn clip_capture_data_from_value(
             .and_then(JsonValue::as_str)
             .map(str::to_owned),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_clip_extraction_script, build_clip_inspector_stack_script,
+        build_page_inspector_extraction_script,
+    };
+    use euclid::Point2D;
+    use servo::{DeviceIndependentPixel, DeviceIntRect, DeviceIntSize};
+
+    #[test]
+    fn page_inspector_script_includes_broadened_candidate_selectors() {
+        let script = build_page_inspector_extraction_script();
+
+        assert!(script.contains("nav, header, footer, picture, video, audio, svg, canvas"));
+        assert!(script.contains("table, pre, blockquote"));
+    }
+
+    #[test]
+    fn page_inspector_script_prefers_dom_path_for_dedup_keys() {
+        let script = build_page_inspector_extraction_script();
+
+        assert!(script.contains("const titleKey = (payload.dom_path || payload.clip_title).toLowerCase();"));
+        assert!(script.contains("figcaption,caption"));
+    }
+
+    #[test]
+    fn extraction_scripts_cover_richer_media_targets() {
+        let single = build_clip_extraction_script(DeviceIntRect::from_origin_and_size(
+            euclid::point2(0, 0),
+            DeviceIntSize::new(120, 60),
+        ));
+        let stack = build_clip_inspector_stack_script(Point2D::<f32, DeviceIndependentPixel>::new(
+            24.0, 48.0,
+        ));
+
+        assert!(single.contains("img,picture source,video,canvas,svg"));
+        assert!(stack.contains("img,picture source,video,canvas,svg"));
+        assert!(stack.contains("figcaption,caption"));
+    }
 }

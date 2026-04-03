@@ -994,6 +994,28 @@ fn pending_clip_open_request_is_consumed_by_orchestration_semantic_phase() {
 }
 
 #[test]
+fn pending_clip_open_request_opens_matching_clip_node_pane() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(graph_pane(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+
+    let clip_route = GraphBrowserApp::clip_route_url("clip-semantic");
+    let clip_key = app.add_node_and_sync(clip_route, euclid::default::Point2D::new(24.0, 36.0));
+
+    app.request_open_clip_by_id("clip-semantic");
+
+    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree);
+
+    assert!(app.take_pending_open_clip_request().is_none());
+    assert!(tree.tiles.iter().any(|(_, tile)| {
+        matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == clip_key)
+    }));
+    assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
+}
+
+#[test]
 fn pending_clip_open_request_is_noop_when_queue_empty() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();

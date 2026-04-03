@@ -3661,12 +3661,18 @@ impl Graph {
             if let Some(current_url) = restore_url_from_session
                 && !current_url.is_empty()
             {
-                // Recompute MIME hint and address from the restored URL.
-                if let Some(node) = graph.inner.node_weight_mut(key) {
-                    node.mime_hint = detect_mime(&current_url, None);
-                    node.address = address_from_url(&current_url);
+                let preserve_route_identity = graph
+                    .inner
+                    .node_weight(key)
+                    .is_some_and(|node| node.address.address_kind() == AddressKind::GraphshellClip);
+                if !preserve_route_identity {
+                    // Recompute MIME hint and address from the restored URL.
+                    if let Some(node) = graph.inner.node_weight_mut(key) {
+                        node.mime_hint = detect_mime(&current_url, None);
+                        node.address = address_from_url(&current_url);
+                    }
+                    let _ = graph.update_node_url(key, current_url);
                 }
-                let _ = graph.update_node_url(key, current_url);
             }
         }
 

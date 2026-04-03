@@ -285,12 +285,10 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         for node_key in active_wry_nodes.iter().copied() {
             let url = args
                 .graph_app
-                .domain_graph()
-                .get_node(node_key)
-                .map(|node| node.url())
-                .unwrap_or("about:blank");
-            verso::ensure_wry_overlay_for_node(node_key, url, parent_handle);
-            verso::navigate_wry_overlay_for_node(node_key, url);
+                .runtime_display_url_for_node(node_key)
+                .unwrap_or_else(|| "about:blank".to_string());
+            verso::ensure_wry_overlay_for_node(node_key, &url, parent_handle);
+            verso::navigate_wry_overlay_for_node(node_key, &url);
         }
     }
 

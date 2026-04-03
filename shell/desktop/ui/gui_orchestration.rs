@@ -676,9 +676,16 @@ fn clipboard_copy_value_for_node(
         return None;
     };
 
+    let visible_url = graph_app
+        .user_visible_node_url(key)
+        .unwrap_or_else(|| node.url().to_string());
+    let visible_title = graph_app
+        .user_visible_node_title(key)
+        .unwrap_or_else(|| node.title.clone());
+
     let value = match kind {
-        ClipboardCopyKind::Url => node.url().to_string(),
-        ClipboardCopyKind::Title => clipboard_title_or_url(node.title.as_str(), node.url()),
+        ClipboardCopyKind::Url => visible_url,
+        ClipboardCopyKind::Title => clipboard_title_or_url(visible_title.as_str(), visible_url.as_str()),
     };
 
     if value.trim().is_empty() {
@@ -813,9 +820,15 @@ pub(crate) fn handle_pending_open_clip_after_intents(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) {
-    let Some(_clip_id) = graph_app.take_pending_open_clip_request() else {
+    let Some(clip_id) = graph_app.take_pending_open_clip_request() else {
         return;
     };
+
+    if let Some(node_key) = graph_app.find_clip_node_by_id(&clip_id) {
+        crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
+            tiles_tree, graph_app, node_key,
+        );
+    }
 
     crate::shell::desktop::workbench::tile_view_ops::open_or_focus_tool_pane(
         tiles_tree,
