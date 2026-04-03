@@ -28,18 +28,24 @@ Verse's primary abstractions at this layer are **community primitives**:
 - `CommunityManifest` and related governance state that define who a community is and how it operates
 - `VerseBlob` payloads and their content-addressed retrieval model
 - distributed index shards and announcement records that make community knowledge discoverable
-- FLora checkpoints and engram payloads that carry community adaptation work
+- FLora checkpoints and engram payloads that carry community adaptation work and shared discovery policy
 - Proof of Access and adjacent receipts that record contribution, retrieval, and compensation events
 
 In this framing:
+
 - Graphshell helps the user collect, curate, and classify data locally.
 - A local mini-adapter pipeline converts local data into private model customizations first.
 - The canonical transferable payload is an **Engram** (a `TransferProfile` plus optional memories), not a bare LoRA file.
-- FLora is the community adaptation economy built around these engram payloads, with LoRA memories as the main trainable component.
+- FLora is the community adaptation and discovery-policy economy built around these engram payloads, with LoRA memories as one important trainable component rather than the whole concept.
 - Communities may optionally use stake-backed budgets (for example, Filecoin-funded treasuries) to pay bounties for accepted engram submissions, storage service, indexing, or moderation work.
 - The local Verse node can remain private, selectively join libp2p communities, or host its own self-curated/private verse with custom policy.
 
+In this framing, FLora is best understood as a **signed, shared, forkable ranking policy package** for a verse.
+That package may combine reviewable heuristics, trust modifiers, source preferences, evals, provenance, and optional learned artifacts such as embeddings or local adapters.
+The point is not to converge on one opaque recommender. The point is to let many verses publish distinct, inspectable discovery policies that members can run locally, compare, remix, or fork.
+
 This means the same local node can act as:
+
 - a sovereign private memory and model-customization environment
 - a storage provider and wallet-adjacent treasury manager
 - a host for persistent graphs, applets, feeds, forums, and access points to shared web processes
@@ -244,16 +250,19 @@ Apply intents to local graph + add blob to DHT
 
 ### 4.4 Federated Adaptation Layer (FLora)
 
-Tier 2 communities may optionally operate a **federated LoRA (FLora)** pipeline alongside graph and index exchange. In this model, a community maintains one or more domain-specific LoRA adapters that members can use as portable knowledge overlays for local AI tooling.
+Tier 2 communities may optionally operate a **federated LoRA (FLora)** pipeline alongside graph and index exchange. In the broader sense, FLora is a verse's shared, forkable discovery policy package. Some FLora checkpoints may include domain-specific LoRA adapters, but others may lean more heavily on ranking parameters, trust modifiers, embeddings, heuristics, and review metadata.
 
-The canonical submission object is an **Engram payload**. A LoRA delta/checkpoint is the primary trainable memory inside that payload, but the surrounding engram fields carry the context needed to rank, merge, gate, and trust the contribution.
+The canonical submission object is an **Engram payload**. A LoRA delta/checkpoint is one primary trainable memory inside that payload, but the surrounding engram fields carry the context needed to rank, merge, gate, trust, compare, and explain the contribution.
 
 **Core properties:**
+
 - Raw training data remains local to the contributor.
-- Contributors run a local mini-adapter pass and publish an engram bundle that may include adapter weights, dataset lineage summaries, UDC characterization, evaluation receipts, and compatibility metadata.
+- Contributors publish an engram bundle that may include adapter weights, ranking-policy artifacts, dataset lineage summaries, UDC characterization, evaluation receipts, and compatibility metadata.
 - A community treasury (for example, Filecoin-backed stake) funds rewards for accepted updates.
 - Access to the resulting adapters can be open, contribution-gated, reputation-gated, or private to a closed membership list.
 - Engram submissions may be sparse. A verse may accept partial engrams and score them according to which memories are present and which policies it enforces.
+- Checkpoints should be inspectable enough that a community can say what they boost, suppress, or prioritize in human terms.
+- FLora should resist becoming a giant opaque personalization engine; provenance, auditability, and capture-resistance are core design constraints.
 
 ```rust
 struct FloraSubmission {
@@ -279,13 +288,14 @@ struct FloraCheckpoint {
 ```
 
 **Operational flow:**
-1. A community defines an adapter domain and stakes treasury funds behind it.
-2. Contributors train locally on the data they control and publish a `FloraSubmission`.
-3. Moderators, stakers, or trusted reviewers evaluate the engram in a confirmation buffer, using its metadata as weighting/context for acceptance, payout, and merge policy.
-4. Accepted submissions become a new checkpoint or are merged into a curated checkpoint line.
-5. Community members fetch approved checkpoints and mount them in their own AI stack.
 
-This gives a Verse community a portable "skill chip" that can evolve over time without forcing members to disclose their raw private corpora.
+1. A community defines a ranking or adaptation domain and stakes treasury funds behind it.
+2. Contributors train locally or author policy artifacts locally on the data and judgments they control, then publish a `FloraSubmission`.
+3. Moderators, stakers, or trusted reviewers evaluate the engram in a confirmation buffer, using its metadata as weighting/context for acceptance, payout, privacy review, and merge policy.
+4. Accepted submissions become a new checkpoint or are merged into a curated checkpoint line.
+5. Community members fetch approved checkpoints and mount them in their own ranking, retrieval, or AI stack.
+
+This gives a Verse community a portable ranking recipe or "skill chip" that can evolve over time without forcing members to disclose their raw private corpora.
 
 ---
 

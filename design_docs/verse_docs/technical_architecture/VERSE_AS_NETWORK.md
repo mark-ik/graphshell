@@ -43,7 +43,7 @@ Its core building blocks are **community primitives**: community manifests, cont
 
 The Verse is not a server. It is not a platform. It is a set of protocols and data formats that Graphshell peers speak to each other. Every user running Graphshell with Verso enabled is a Verse peer.
 
-Each local Verse instance is best understood as a **private-by-default, self-hosted portal**: a sovereign node that can keep data and model customizations private, or selectively participate in consensual storage, indexing, and adaptation economies.
+Each local Verse instance is best understood as a **private-by-default, self-hosted portal**: a sovereign node that can keep data, ranking policies, and model customizations private, or selectively participate in consensual storage, indexing, and adaptation economies.
 
 Historically the docs described Verse as having two tiers. The current architectural split is narrower and cleaner:
 
@@ -67,6 +67,7 @@ The current web has a structural problem: search engines decide what you see, an
 
 - **Your index, your graph**: you decide what to save and how to organize it.
 - **Your trust network curates discovery**: when you search, you search your own graph first, then your trusted peers' graphs, then the broader community — in that order.
+- **Your verse can publish its own ranking recipe**: communities can share auditable discovery policies instead of forcing everyone through one central recommender.
 - **Resilience**: if a website goes offline, the Verse (via content addressing and peer replication) may still have a snapshot of it.
 - **Portable identity**: your graph relationships and reputation travel with you. Blocking or platform bans cannot sever your connections.
 
@@ -166,7 +167,7 @@ Verse extends the bilateral model to larger groups of peers who share knowledge 
 - **Community model**: communities form around shared knowledge domains (a topic, a workspace template, a research group). Membership is opt-in. A community has rebroadcast levels (Core → Extended → Public) governing who relays content.
 - **Federated search**: community members share sharded tantivy index segments as `VerseBlob`s. Searching a community means querying peers' indexes, not a central server.
 - **Proof of Access**: a lightweight economic layer where peers earn reputation (or credits) by storing and serving `VerseBlob`s for others. Deferred to post-Tier-1 research.
-- **Federated adaptation (FLora)**: communities can also maintain shared domain-specific LoRA adapters, where contributors keep raw data local and publish engram payloads containing adapter memories plus contextual metadata, letting members load community-trained knowledge into their own AI tooling.
+- **Federated adaptation (FLora)**: communities can maintain shared, forkable ranking-policy packages expressed as engram payloads. Some checkpoints include domain-specific LoRA adapters; others may emphasize heuristics, trust modifiers, source preferences, embeddings, or eval-backed ranking metadata. Contributors keep raw data local and publish only the derived artifacts and context needed for review.
 
 Tier 2 validation begins Q3 2026 after Tier 1 is proven in production. Tier 2 is additive — it does not change Tier 1's bilateral sync model.
 
@@ -230,7 +231,7 @@ A Graphshell user can participate in the Verse at any level:
 | Verso workspace sharing | Verso + iroh | Share specific workspaces in read-only or read-write mode |
 | Verse community participation | Verso + libp2p | Participate in topic communities; share index segments; search across community |
 | Verse storage contributor | Verso + libp2p + storage quota | Earn reputation by hosting blobs for the community |
-| Verse FLora contributor | Verso + libp2p + local model runtime | Submit local engrams with adapter memories to community FLora pipelines; consume approved domain adapters |
+| Verse FLora contributor | Verso + libp2p + local model runtime | Submit local engrams with ranking-policy artifacts or adapter memories to community FLora pipelines; consume approved checkpoints locally |
 | Self-hosted Verse operator | Verso + libp2p + local storage/treasury policy | Run a private-by-default Verse node, set storage and bounty policy, and selectively expose services or communities |
 
 Participation is always opt-in and can be revoked. Revoking access to a workspace removes the peer from the trust store and stops syncing; it does not delete data already on the peer's device.

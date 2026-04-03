@@ -137,18 +137,12 @@ Scope clarification:
 
 Requirements for future adoption work:
 
-- Use **storage key** terminology rather than `origin` in the public authority
-	model.
-- Model the hierarchy in memory as storage shed -> storage shelf -> storage
-	bucket -> storage bottle.
-- Persist shelf/bucket/bottle metadata through an implementation-defined backend
-	so named buckets survive restart.
-- Keep the live hierarchy authoritative in memory; physical backends are
-	pluggable persistence/allocation services, not the conceptual owner of the
-	model.
+- Use **storage key** terminology rather than `origin` in the public authority model.
+- Model the hierarchy in memory as storage shed -> storage shelf -> storage bucket -> storage bottle.
+- Persist shelf/bucket/bottle metadata through an implementation-defined backend so named buckets survive restart.
+- Keep the live hierarchy authoritative in memory; physical backends are pluggable persistence/allocation services, not the conceptual owner of the model.
 - Preserve the local-vs-session distinction from the standard.
-- Support asynchronous bucket deletion and site-data purge semantics compatible
-	with storage proxy maps.
+- Support asynchronous bucket deletion and site-data purge semantics compatible with storage proxy maps.
 
 The WICG Storage Buckets draft is referenced as prior art for future named-
 bucket behavior, but the core adopted storage authority is the WHATWG Storage
