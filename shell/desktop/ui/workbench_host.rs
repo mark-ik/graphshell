@@ -13,6 +13,7 @@ use crate::app::{
     CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, NavigatorHostScope,
     PendingTileOpenMode, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent,
     WorkbenchLayoutConstraint, WorkbenchNavigationGeometry,
+    user_visible_node_title_from_data, user_visible_node_url_from_data,
 };
 use crate::graph::{
     ArrangementSubKind, DominantEdge, FrameLayoutHint, GraphletKind, NodeKey, SplitOrientation,
@@ -1224,14 +1225,33 @@ fn navigator_member_sort_key(app: &GraphBrowserApp, key: NodeKey) -> (String, us
 }
 
 fn node_primary_label(node: &crate::graph::Node) -> String {
-    let title = node.title.trim();
-    if !title.is_empty() {
-        title.to_string()
+    let title = user_visible_node_title_from_data(node);
+    if !title.trim().is_empty() {
+        title
     } else if !node.url().trim().is_empty() {
         node.url().to_string()
     } else {
         "Untitled node".to_string()
     }
+}
+
+fn node_pane_entry_title(key: NodeKey, node: &crate::graph::Node) -> String {
+    let title = node.title.trim();
+    if !title.is_empty() {
+        return title.to_string();
+    }
+    if node.address.address_kind() == crate::graph::AddressKind::GraphshellClip {
+        let visible_title = user_visible_node_title_from_data(node);
+        if !visible_title.trim().is_empty() {
+            return visible_title;
+        }
+    }
+    format!("Node {}", key.index())
+}
+
+fn node_pane_entry_subtitle(node: &crate::graph::Node) -> Option<String> {
+    let visible_url = user_visible_node_url_from_data(node);
+    (!visible_url.trim().is_empty()).then_some(visible_url)
 }
 
 fn is_internal_surface_node(node: &crate::graph::Node) -> bool {
@@ -1275,16 +1295,12 @@ fn pane_entry_for_tile(
             let title = graph_app
                 .domain_graph()
                 .get_node(state.node)
-                .and_then(|node| {
-                    let title = node.title.trim();
-                    (!title.is_empty()).then(|| title.to_string())
-                })
+                .map(|node| node_pane_entry_title(state.node, node))
                 .unwrap_or_else(|| format!("Node {}", state.node.index()));
             let subtitle = graph_app
                 .domain_graph()
                 .get_node(state.node)
-                .map(|node| node.url().to_string())
-                .filter(|url| !url.trim().is_empty());
+                .and_then(node_pane_entry_subtitle);
             WorkbenchPaneEntry {
                 pane_id: state.pane_id,
                 kind: WorkbenchPaneKind::Node {
@@ -1336,16 +1352,12 @@ fn pane_entry_for_tile(
             let title = graph_app
                 .domain_graph()
                 .get_node(state.node)
-                .and_then(|node| {
-                    let title = node.title.trim();
-                    (!title.is_empty()).then(|| title.to_string())
-                })
+                .map(|node| node_pane_entry_title(state.node, node))
                 .unwrap_or_else(|| format!("Node {}", state.node.index()));
             let subtitle = graph_app
                 .domain_graph()
                 .get_node(state.node)
-                .map(|node| node.url().to_string())
-                .filter(|url| !url.trim().is_empty());
+                .and_then(node_pane_entry_subtitle);
             WorkbenchPaneEntry {
                 pane_id: state.pane_id,
                 kind: WorkbenchPaneKind::Node {
@@ -3163,12 +3175,7 @@ fn apply_workbench_host_action(
 
 fn frame_pin_name_for_node(node_key: NodeKey, graph_app: &GraphBrowserApp) -> Option<String> {
     let node = graph_app.domain_graph().get_node(node_key)?;
-    let title = node.title.trim();
-    let label = if title.is_empty() {
-        node.url().trim()
-    } else {
-        title
-    };
+    let label = node_primary_label(node);
     let sanitized = label
         .chars()
         .map(|ch| {
@@ -3479,6 +3486,19 @@ mod tests {
         assert_eq!(projection.host_layout.cross_axis_margin_start_px, 24.0);
         assert_eq!(projection.host_layout.cross_axis_margin_end_px, 16.0);
         assert!(!projection.host_layout.resizable);
+    }
+
+    #[test]
+    fn node_primary_label_uses_clip_visible_metadata() {
+        let mut node = crate::graph::Node::test_stub("verso://clip/clip-host-label");
+        node.title.clear();
+        node.history_entries = vec!["https://example.com/source".to_string()];
+        node.session_form_draft = Some(
+            r#"{"source_url":"https://example.com/source","page_title":"Example Source","clip_title":"Host Label Clip","text_excerpt":"excerpt","tag_name":"article","href":null,"image_url":null,"dom_path":"body > article:nth-of-type(1)","document_html":"<html><body>clip</body></html>"}"#.to_string(),
+        );
+
+        assert_eq!(node_primary_label(&node), "Host Label Clip");
+        assert_eq!(node_pane_entry_subtitle(&node).as_deref(), Some("https://example.com/source"));
     }
 
     #[test]

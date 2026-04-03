@@ -138,6 +138,9 @@ pub use clip_capture::{
     ClipInspectorFilter, ClipInspectorState, clip_capture_matches_filter,
     clip_capture_matches_query,
 };
+pub(crate) use clip_capture::{
+    user_visible_node_title_from_data, user_visible_node_url_from_data,
+};
 
 #[path = "app/agents/mod.rs"]
 pub(crate) mod agents;

@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::app::GraphBrowserApp;
+use crate::app::{
+    GraphBrowserApp, user_visible_node_title_from_data, user_visible_node_url_from_data,
+};
 use crate::graph::NodeKey;
 use crate::services::search::{fuzzy_match_items, fuzzy_match_node_keys};
 
@@ -216,14 +218,16 @@ impl SearchProvider for LocalSearchProvider {
             .domain_graph()
             .nodes()
             .map(|(key, node)| {
+                let visible_title = user_visible_node_title_from_data(node);
+                let visible_url = user_visible_node_url_from_data(node);
                 let semantic_tags = app.canonical_tags_for_node_sorted(key).join(" ");
                 let import_search = import_record_search_text(app, key);
                 LocalSearchCandidate {
                     key,
                     text: format!(
                         "{} {} {} {}",
-                        node.title,
-                        node.url(),
+                        visible_title,
+                        visible_url,
                         semantic_tags,
                         import_search
                     ),
@@ -257,18 +261,16 @@ impl SearchProvider for LocalSearchProvider {
             .enumerate()
             .filter_map(|(idx, key)| {
                 let node = app.domain_graph().get_node(key)?;
+                let visible_title = user_visible_node_title_from_data(node);
+                let visible_url = user_visible_node_url_from_data(node);
                 let mut semantic_tags = app.canonical_tags_for_node_sorted(key);
                 semantic_tags.extend(import_semantic_tags_for_node(app, key));
                 semantic_tags.sort();
                 semantic_tags.dedup();
                 Some(SearchResult {
-                    title: if node.title.trim().is_empty() {
-                        node.url().to_string()
-                    } else {
-                        node.title.clone()
-                    },
-                    url: Some(node.url().to_string()),
-                    snippet: Some(local_result_snippet(app, key, node.url())),
+                    title: visible_title,
+                    url: Some(visible_url.clone()),
+                    snippet: Some(local_result_snippet(app, key, &visible_url)),
                     source: self.id().to_string(),
                     relevance: 1.0 - (idx as f32 * 0.01),
                     semantic_tags,
@@ -304,17 +306,13 @@ fn local_udc_class_matches(
         .nodes()
         .filter_map(|(key, node)| {
             let semantic_tags = app.canonical_tags_for_node_sorted(key);
+            let visible_title = user_visible_node_title_from_data(node);
+            let visible_url = user_visible_node_url_from_data(node);
             let match_rank = semantic_tags
                 .iter()
                 .filter_map(|tag| hierarchical_udc_match_rank(tag, udc_query))
                 .min()?;
-            Some((
-                key,
-                node.title.clone(),
-                node.url().to_string(),
-                semantic_tags,
-                match_rank,
-            ))
+            Some((key, visible_title, visible_url, semantic_tags, match_rank))
         })
         .collect::<Vec<_>>();
 
@@ -484,9 +482,19 @@ fn text_relevance(query: &str, haystack: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use crate::graph::{ImportRecord, ImportRecordMembership};
     use euclid::default::Point2D;
+    use servo::WebViewId;
 
+    fn test_webview_id() -> WebViewId {
+        PIPELINE_NAMESPACE.with(|tls| {
+            if tls.get().is_none() {
+                PipelineNamespace::install(TEST_NAMESPACE);
+            }
+        });
+        WebViewId::new(PainterId::next())
+    }
     #[test]
     fn index_registry_fans_out_to_local_history_and_knowledge_providers() {
         let registry = IndexRegistry::default();
@@ -707,5 +715,45 @@ mod tests {
                 |snippet| snippet.contains("import-record:firefox-bookmarks-2026-03-17")
             )
         );
+    }
+
+    #[test]
+    fn local_search_provider_uses_clip_facet_display_metadata() {
+        let provider = LocalSearchProvider;
+        let knowledge = KnowledgeRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source_key = app.add_node_and_sync(
+            "https://example.com/source".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, source_key);
+        let clip_key = app
+            .create_clip_node_from_capture(&crate::app::ClipCaptureData {
+                webview_id,
+                source_url: "https://example.com/source".to_string(),
+                page_title: Some("Example Source".to_string()),
+                clip_title: "Indexed Clip".to_string(),
+                outer_html: "<article><h2>Indexed Clip</h2></article>".to_string(),
+                text_excerpt: "Indexed Clip excerpt".to_string(),
+                tag_name: "article".to_string(),
+                href: None,
+                image_url: None,
+                dom_path: Some("body > article:nth-of-type(1)".to_string()),
+            })
+            .expect("clip node should be created");
+
+        let results = provider.search(&app, &knowledge, "example.com/source", 10);
+        let clip_result = results
+            .into_iter()
+            .find(|result| result.kind == SearchResultKind::Node(clip_key))
+            .expect("clip result should be indexed");
+
+        assert_eq!(clip_result.title, "Indexed Clip");
+        assert_eq!(clip_result.url.as_deref(), Some("https://example.com/source"));
+        assert!(clip_result
+            .snippet
+            .as_deref()
+            .is_some_and(|snippet| snippet.contains("https://example.com/source")));
     }
 }

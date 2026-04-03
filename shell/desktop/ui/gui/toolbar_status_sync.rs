@@ -79,13 +79,5 @@ fn selected_node_url_for_toolbar(graph_app: &GraphBrowserApp) -> Option<String> 
 }
 
 fn selected_node_url(graph_app: &GraphBrowserApp, key: NodeKey) -> Option<String> {
-    node_url_in_workspace_graph(graph_app.domain_graph(), key)
-}
-
-fn node_url_in_workspace_graph(graph: &crate::graph::Graph, key: NodeKey) -> Option<String> {
-    graph.get_node(key).map(|node| clone_node_url(node.url()))
-}
-
-fn clone_node_url(url: &str) -> String {
-    url.to_owned()
+    graph_app.user_visible_node_url(key)
 }

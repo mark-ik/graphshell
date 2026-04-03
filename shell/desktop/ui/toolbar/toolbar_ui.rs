@@ -10,6 +10,7 @@ use egui_tiles::Tree;
 use euclid::default::Point2D;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 use winit::window::Window;
 
@@ -97,10 +98,43 @@ enum OmnibarSearchMode {
     EdgesAll,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct HistoricalNodeMatch {
+    pub(crate) url: String,
+    pub(crate) display_label: Option<String>,
+}
+
+impl HistoricalNodeMatch {
+    pub(crate) fn new(url: impl Into<String>, display_label: Option<String>) -> Self {
+        Self {
+            url: url.into(),
+            display_label,
+        }
+    }
+
+    pub(crate) fn without_label(url: impl Into<String>) -> Self {
+        Self::new(url, None)
+    }
+}
+
+impl PartialEq for HistoricalNodeMatch {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url
+    }
+}
+
+impl Eq for HistoricalNodeMatch {}
+
+impl Hash for HistoricalNodeMatch {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.url.hash(state);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum OmnibarMatch {
     Node(NodeKey),
-    NodeUrl(String),
+    NodeUrl(HistoricalNodeMatch),
     SearchQuery {
         query: String,
         provider: SearchProviderKind,

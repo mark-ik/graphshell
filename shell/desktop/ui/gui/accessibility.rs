@@ -461,11 +461,7 @@ fn build_graph_reader_map_item_plan(
 ) -> Option<UxTreeA11yNodePlan> {
     let node = graph_app.domain_graph().get_node(node_key)?;
     let affordance = selected_node_affordance_projection_from_annotations(node_key, annotations);
-    let label = if node.title.is_empty() {
-        node.url().to_string()
-    } else {
-        node.title.clone()
-    };
+    let label = graph_reader_node_label(graph_app, node_key, node);
     Some(UxTreeA11yNodePlan {
         ux_node_id: format!("{map_root_id}/node/{node_key:?}"),
         parent_ux_node_id: Some(map_root_id.to_string()),
@@ -497,11 +493,7 @@ fn build_graph_reader_room_nodes(
     };
 
     let mut nodes = Vec::new();
-    let label = if node.title.is_empty() {
-        node.url().to_string()
-    } else {
-        node.title.clone()
-    };
+    let label = graph_reader_node_label(graph_app, selected_key, node);
     let room_root_id = format!("a11y://graph-reader/{graph_view_id:?}/room/{selected_key:?}");
     nodes.push(UxTreeA11yNodePlan {
         ux_node_id: room_root_id.clone(),
@@ -594,11 +586,7 @@ fn build_graph_reader_room_item_plan(
 ) -> Option<UxTreeA11yNodePlan> {
     let node = graph_app.domain_graph().get_node(node_key)?;
     let affordance = selected_node_affordance_projection_from_annotations(node_key, annotations);
-    let label = if node.title.is_empty() {
-        node.url().to_string()
-    } else {
-        node.title.clone()
-    };
+    let label = graph_reader_node_label(graph_app, node_key, node);
     Some(UxTreeA11yNodePlan {
         ux_node_id: format!("{group_id}/node/{node_key:?}"),
         parent_ux_node_id: Some(group_id.to_string()),
@@ -615,6 +603,20 @@ fn build_graph_reader_room_item_plan(
         disabled: false,
         action_route: Some(UxTreeA11yActionRoute::GraphReaderRoomItem { node_key }),
         attached_child_ids: Vec::new(),
+    })
+}
+
+fn graph_reader_node_label(
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+    node: &crate::graph::Node,
+) -> String {
+    graph_app.user_visible_node_title(node_key).unwrap_or_else(|| {
+        if node.title.is_empty() {
+            node.url().to_string()
+        } else {
+            node.title.clone()
+        }
     })
 }
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::{user_visible_node_title_from_data, user_visible_node_url_from_data};
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::workbench::pane_model::PaneViewState;
 use egui_tiles::Tile;
@@ -595,14 +596,18 @@ fn edge_candidates_for_graph(
         let Some(to_node) = graph.get_node(to) else {
             continue;
         };
+        let from_title = user_visible_node_title_from_data(from_node);
+        let from_url = user_visible_node_url_from_data(from_node);
+        let to_title = user_visible_node_title_from_data(to_node);
+        let to_url = user_visible_node_url_from_data(to_node);
         out.push(OmnibarSearchCandidate {
             text: format!(
                 "{} {} {} {} {}",
                 edge_payload_label_text(edge.weight()),
-                from_node.title,
-                from_node.url(),
-                to_node.title,
-                to_node.url()
+                from_title,
+                from_url,
+                to_title,
+                to_url
             ),
             target: OmnibarMatch::Edge { from, to },
         });
@@ -614,14 +619,22 @@ fn node_candidates_for_graph(graph_app: &GraphBrowserApp) -> Vec<OmnibarSearchCa
     graph_app
         .domain_graph()
         .nodes()
-        .map(|(key, node)| OmnibarSearchCandidate {
-            text: format!(
-                "{} {} {}",
-                node.title,
-                node.url(),
-                omnibar_import_search_text(graph_app, key)
-            ),
-            target: OmnibarMatch::Node(key),
+        .map(|(key, node)| {
+            let visible_title = graph_app
+                .user_visible_node_title(key)
+                .unwrap_or_else(|| node.title.clone());
+            let visible_url = graph_app
+                .user_visible_node_url(key)
+                .unwrap_or_else(|| node.url().to_string());
+            OmnibarSearchCandidate {
+                text: format!(
+                    "{} {} {}",
+                    visible_title,
+                    visible_url,
+                    omnibar_import_search_text(graph_app, key)
+                ),
+                target: OmnibarMatch::Node(key),
+            }
         })
         .collect()
 }
@@ -635,14 +648,22 @@ fn tab_candidates_for_keys(
             graph_app
                 .domain_graph()
                 .get_node(*key)
-                .map(|node| OmnibarSearchCandidate {
-                    text: format!(
-                        "{} {} {}",
-                        node.title,
-                        node.url(),
-                        omnibar_import_search_text(graph_app, *key)
-                    ),
-                    target: OmnibarMatch::Node(*key),
+                .map(|node| {
+                    let visible_title = graph_app
+                        .user_visible_node_title(*key)
+                        .unwrap_or_else(|| node.title.clone());
+                    let visible_url = graph_app
+                        .user_visible_node_url(*key)
+                        .unwrap_or_else(|| node.url().to_string());
+                    OmnibarSearchCandidate {
+                        text: format!(
+                            "{} {} {}",
+                            visible_title,
+                            visible_url,
+                            omnibar_import_search_text(graph_app, *key)
+                        ),
+                        target: OmnibarMatch::Node(*key),
+                    }
                 })
         })
         .collect()
@@ -695,33 +716,47 @@ pub(super) fn omnibar_match_label(graph_app: &GraphBrowserApp, m: &OmnibarMatch)
             .domain_graph()
             .get_node(*key)
             .map(|node| {
+                let visible_title = graph_app
+                    .user_visible_node_title(*key)
+                    .unwrap_or_else(|| node.title.clone());
+                let visible_url = graph_app
+                    .user_visible_node_url(*key)
+                    .unwrap_or_else(|| node.url().to_string());
                 format!(
                     "{}  {}{}",
-                    node.title,
-                    node.url(),
+                    visible_title,
+                    visible_url,
                     omnibar_import_label_suffix(graph_app, *key)
                 )
             })
             .unwrap_or_else(|| format!("node {}", key.index())),
-        OmnibarMatch::NodeUrl(url) => url.clone(),
+        OmnibarMatch::NodeUrl(entry) => entry
+            .display_label
+            .clone()
+            .filter(|label| !label.trim().is_empty())
+            .unwrap_or_else(|| entry.url.clone()),
         OmnibarMatch::SearchQuery { query, .. } => query.clone(),
         OmnibarMatch::Edge { from, to } => {
             let from_label = graph_app
-                .domain_graph()
-                .get_node(*from)
-                .map(|n| n.title.clone())
+                .user_visible_node_title(*from)
                 .unwrap_or_else(|| from.index().to_string());
             let to_label = graph_app
-                .domain_graph()
-                .get_node(*to)
-                .map(|n| n.title.clone())
+                .user_visible_node_title(*to)
                 .unwrap_or_else(|| to.index().to_string());
             format!("{from_label} -> {to_label}")
         }
         OmnibarMatch::ColdGraphletMember(key) => graph_app
             .domain_graph()
             .get_node(*key)
-            .map(|node| format!("○ {}  {}", node.title, node.url()))
+            .map(|node| {
+                let visible_title = graph_app
+                    .user_visible_node_title(*key)
+                    .unwrap_or_else(|| node.title.clone());
+                let visible_url = graph_app
+                    .user_visible_node_url(*key)
+                    .unwrap_or_else(|| node.url().to_string());
+                format!("○ {}  {}", visible_title, visible_url)
+            })
             .unwrap_or_else(|| format!("○ node {}", key.index())),
     }
 }
@@ -772,7 +807,8 @@ pub(super) fn apply_omnibar_match(
                 }
             }
         }
-        OmnibarMatch::NodeUrl(url) => {
+        OmnibarMatch::NodeUrl(entry) => {
+            let url = entry.url;
             frame_intents.push(GraphIntent::ClearHighlightedEdge);
             if let Some((key, _)) = graph_app.domain_graph().get_node_by_url(&url) {
                 if has_node_panes {
@@ -884,9 +920,14 @@ pub(super) fn omnibar_matches_for_query(
     if let Some(snapshot) = graph_app.peek_latest_graph_snapshot() {
         for (_, node) in snapshot.nodes() {
             if node_urls_seen.insert(node.url().to_string()) {
+                let visible_title = user_visible_node_title_from_data(node);
+                let visible_url = user_visible_node_url_from_data(node);
                 all_graph_node_candidates.push(OmnibarSearchCandidate {
-                    text: format!("{} {}", node.title, node.url()),
-                    target: OmnibarMatch::NodeUrl(node.url().to_string()),
+                    text: format!("{} {}", visible_title, visible_url),
+                    target: OmnibarMatch::NodeUrl(HistoricalNodeMatch::new(
+                        node.url().to_string(),
+                        Some(format!("{}  {}", visible_title, visible_url)),
+                    )),
                 });
             }
         }
@@ -908,20 +949,17 @@ pub(super) fn omnibar_matches_for_query(
             if let (Some(from_key), Some(to_key)) = (current_from, current_to)
                 && mapped_edge_keys_seen.insert((from_key, to_key))
             {
+                let from_title = user_visible_node_title_from_data(from_node);
+                let from_url = user_visible_node_url_from_data(from_node);
+                let to_title = user_visible_node_title_from_data(to_node);
+                let to_url = user_visible_node_url_from_data(to_node);
                 let edge_label = snapshot
                     .find_edge_key(edge.from, edge.to)
                     .and_then(|edge_key| snapshot.get_edge(edge_key))
                     .map(edge_payload_label_text)
                     .unwrap_or_else(|| "edge".to_string());
                 all_graph_edge_candidates.push(OmnibarSearchCandidate {
-                    text: format!(
-                        "{} {} {} {} {}",
-                        edge_label,
-                        from_node.title,
-                        from_node.url(),
-                        to_node.title,
-                        to_node.url()
-                    ),
+                    text: format!("{} {} {} {} {}", edge_label, from_title, from_url, to_title, to_url),
                     target: OmnibarMatch::Edge {
                         from: from_key,
                         to: to_key,
@@ -935,9 +973,14 @@ pub(super) fn omnibar_matches_for_query(
         if let Some(snapshot) = graph_app.peek_named_graph_snapshot(&name) {
             for (_, node) in snapshot.nodes() {
                 if node_urls_seen.insert(node.url().to_string()) {
+                    let visible_title = user_visible_node_title_from_data(node);
+                    let visible_url = user_visible_node_url_from_data(node);
                     all_graph_node_candidates.push(OmnibarSearchCandidate {
-                        text: format!("{} {}", node.title, node.url()),
-                        target: OmnibarMatch::NodeUrl(node.url().to_string()),
+                        text: format!("{} {}", visible_title, visible_url),
+                        target: OmnibarMatch::NodeUrl(HistoricalNodeMatch::new(
+                            node.url().to_string(),
+                            Some(format!("{}  {}", visible_title, visible_url)),
+                        )),
                     });
                 }
             }
@@ -959,20 +1002,17 @@ pub(super) fn omnibar_matches_for_query(
                 if let (Some(from_key), Some(to_key)) = (current_from, current_to)
                     && mapped_edge_keys_seen.insert((from_key, to_key))
                 {
+                    let from_title = user_visible_node_title_from_data(from_node);
+                    let from_url = user_visible_node_url_from_data(from_node);
+                    let to_title = user_visible_node_title_from_data(to_node);
+                    let to_url = user_visible_node_url_from_data(to_node);
                     let edge_label = snapshot
                         .find_edge_key(edge.from, edge.to)
                         .and_then(|edge_key| snapshot.get_edge(edge_key))
                         .map(edge_payload_label_text)
                         .unwrap_or_else(|| "edge".to_string());
                     all_graph_edge_candidates.push(OmnibarSearchCandidate {
-                        text: format!(
-                            "{} {} {} {} {}",
-                            edge_label,
-                            from_node.title,
-                            from_node.url(),
-                            to_node.title,
-                            to_node.url()
-                        ),
+                        text: format!("{} {} {} {} {}", edge_label, from_title, from_url, to_title, to_url),
                         target: OmnibarMatch::Edge {
                             from: from_key,
                             to: to_key,
@@ -1101,9 +1141,20 @@ mod tests {
     use crate::graph::{ImportRecord, ImportRecordMembership};
     use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
     use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use egui_tiles::Tree;
     use euclid::default::Point2D;
+    use servo::WebViewId;
     use tempfile::TempDir;
+
+    fn test_webview_id() -> WebViewId {
+        PIPELINE_NAMESPACE.with(|tls| {
+            if tls.get().is_none() {
+                PipelineNamespace::install(TEST_NAMESPACE);
+            }
+        });
+        WebViewId::new(PainterId::next())
+    }
 
     #[test]
     fn test_provider_suggest_url_duckduckgo() {
@@ -1112,6 +1163,41 @@ mod tests {
             url.starts_with("https://duckduckgo.com/ac/?q=rust+graph"),
             "unexpected duckduckgo suggest url: {url}"
         );
+    }
+
+    #[test]
+    fn node_candidates_for_graph_use_clip_facet_display_metadata() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source_key = app.add_node_and_sync(
+            "https://example.com/source".into(),
+            Point2D::new(10.0, 20.0),
+        );
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, source_key);
+
+        let clip_key = app
+            .create_clip_node_from_capture(&crate::app::ClipCaptureData {
+                webview_id,
+                source_url: "https://example.com/source".to_string(),
+                page_title: Some("Example Source".to_string()),
+                clip_title: "Facet Clip".to_string(),
+                outer_html: "<article><h2>Facet Clip</h2></article>".to_string(),
+                text_excerpt: "Facet Clip excerpt".to_string(),
+                tag_name: "article".to_string(),
+                href: None,
+                image_url: None,
+                dom_path: Some("body > article:nth-of-type(1)".to_string()),
+            })
+            .expect("clip node should be created");
+
+        let candidate = node_candidates_for_graph(&app)
+            .into_iter()
+            .find(|candidate| candidate.target == OmnibarMatch::Node(clip_key))
+            .expect("clip node candidate should exist");
+
+        assert!(candidate.text.contains("Facet Clip"));
+        assert!(candidate.text.contains("https://example.com/source"));
+        assert!(!candidate.text.contains("verso://clip/"));
     }
 
     #[test]
@@ -1573,9 +1659,90 @@ mod tests {
             false,
         );
         assert!(
-            matches.contains(&OmnibarMatch::NodeUrl("https://saved-node.example".into())),
+            matches.contains(&OmnibarMatch::NodeUrl(HistoricalNodeMatch::without_label(
+                "https://saved-node.example",
+            ))),
             "expected @N results to include saved graph node by URL"
         );
+    }
+
+    #[test]
+    fn test_omnibar_nodes_all_matches_saved_clip_snapshots_by_source_url() {
+        let temp = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
+        let source_key = app.add_node_and_sync("https://saved-source.example".into(), Point2D::zero());
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, source_key);
+        let _clip_key = app
+            .create_clip_node_from_capture(&crate::app::ClipCaptureData {
+                webview_id,
+                source_url: "https://saved-source.example".to_string(),
+                page_title: Some("Saved Source".to_string()),
+                clip_title: "Saved Clip".to_string(),
+                outer_html: "<article><h2>Saved Clip</h2></article>".to_string(),
+                text_excerpt: "Saved Clip excerpt".to_string(),
+                tag_name: "article".to_string(),
+                href: None,
+                image_url: None,
+                dom_path: Some("body > article:nth-of-type(1)".to_string()),
+            })
+            .expect("clip node should be created");
+        app.save_named_graph_snapshot("saved-clip-graph")
+            .expect("save named graph snapshot");
+
+        app.clear_graph();
+
+        let mut tiles = egui_tiles::Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let tree = Tree::new("saved_clip_nodes_all_test", root, tiles);
+
+        let matches = omnibar_matches_for_query(
+            &mut app,
+            &tree,
+            OmnibarSearchMode::NodesAll,
+            "saved-source",
+            false,
+        );
+        let historical = matches
+            .iter()
+            .find(|m| matches!(m, OmnibarMatch::NodeUrl(entry) if entry.url.starts_with("verso://clip/")))
+            .expect("saved clip snapshot should produce historical match");
+        let label = omnibar_match_label(&app, historical);
+        assert!(label.contains("Saved Clip"));
+        assert!(label.contains("https://saved-source.example"));
+        assert!(!label.contains("verso://clip/"));
+    }
+
+    #[test]
+    fn omnibar_match_label_uses_clip_visible_metadata() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source_key = app.add_node_and_sync(
+            "https://example.com/source".into(),
+            Point2D::new(10.0, 20.0),
+        );
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, source_key);
+
+        let clip_key = app
+            .create_clip_node_from_capture(&crate::app::ClipCaptureData {
+                webview_id,
+                source_url: "https://example.com/source".to_string(),
+                page_title: Some("Example Source".to_string()),
+                clip_title: "Visible Label Clip".to_string(),
+                outer_html: "<article><h2>Visible Label Clip</h2></article>".to_string(),
+                text_excerpt: "Visible Label Clip excerpt".to_string(),
+                tag_name: "article".to_string(),
+                href: None,
+                image_url: None,
+                dom_path: Some("body > article:nth-of-type(1)".to_string()),
+            })
+            .expect("clip node should be created");
+
+        let label = omnibar_match_label(&app, &OmnibarMatch::Node(clip_key));
+
+        assert!(label.contains("Visible Label Clip"));
+        assert!(label.contains("https://example.com/source"));
+        assert!(!label.contains("verso://clip/"));
     }
 
     #[test]
@@ -1877,7 +2044,9 @@ mod tests {
 
         apply_omnibar_match(
             &app,
-            OmnibarMatch::NodeUrl("https://node-url.example".into()),
+            OmnibarMatch::NodeUrl(HistoricalNodeMatch::without_label(
+                "https://node-url.example",
+            )),
             true,
             false,
             &mut intents,
@@ -1904,7 +2073,9 @@ mod tests {
 
         apply_omnibar_match(
             &app,
-            OmnibarMatch::NodeUrl("https://new-node-url.example".into()),
+            OmnibarMatch::NodeUrl(HistoricalNodeMatch::without_label(
+                "https://new-node-url.example",
+            )),
             true,
             false,
             &mut intents,

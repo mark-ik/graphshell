@@ -131,16 +131,7 @@ fn apply_semantic_depth_view_toggle(app: &mut GraphBrowserApp) {
 }
 
 fn navigator_node_title(app: &GraphBrowserApp, node_key: NodeKey) -> String {
-    app.domain_graph()
-        .get_node(node_key)
-        .map(|node| {
-            let title = node.title.trim();
-            if title.is_empty() {
-                node.url().to_string()
-            } else {
-                title.to_string()
-            }
-        })
+    app.user_visible_node_title(node_key)
         .unwrap_or_else(|| format!("Node {}", node_key.index()))
 }
 

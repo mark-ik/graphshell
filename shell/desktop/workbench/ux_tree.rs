@@ -950,11 +950,7 @@ fn push_nodes(
                     ux_node_id: graph_node_ux_id.clone(),
                     parent_ux_node_id: Some(ux_node_id.clone()),
                     role: UxNodeRole::GraphNode,
-                    label: if node.title.is_empty() {
-                        node.url().to_string()
-                    } else {
-                        node.title.clone()
-                    },
+                    label: ux_tree_node_label(graph_app, node_key, node),
                     state: UxNodeState {
                         focused: focused_graph_node,
                         selected,
@@ -1105,11 +1101,7 @@ fn push_nodes(
                     ux_node_id: graph_node_ux_id.clone(),
                     parent_ux_node_id: Some(ux_node_id.clone()),
                     role: UxNodeRole::GraphNode,
-                    label: if node.title.is_empty() {
-                        node.url().to_string()
-                    } else {
-                        node.title.clone()
-                    },
+                    label: ux_tree_node_label(graph_app, node_key, node),
                     state: UxNodeState {
                         focused: focused_graph_node,
                         selected,
@@ -1533,6 +1525,20 @@ pub(crate) fn run_coverage_analysis(
         gutter_pair_count,
         overlap_pair_count,
     }
+}
+
+fn ux_tree_node_label(
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+    node: &crate::graph::Node,
+) -> String {
+    graph_app.user_visible_node_title(node_key).unwrap_or_else(|| {
+        if node.title.is_empty() {
+            node.url().to_string()
+        } else {
+            node.title.clone()
+        }
+    })
 }
 
 #[cfg(test)]

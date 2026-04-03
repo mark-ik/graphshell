@@ -169,11 +169,15 @@ pub(crate) fn render_tag_panel(
         return;
     };
 
-    let title = if node.title.is_empty() {
-        node.url().to_string()
-    } else {
-        node.title.clone()
-    };
+    let title = app
+        .user_visible_node_title(snapshot.node_key)
+        .unwrap_or_else(|| {
+            if node.title.is_empty() {
+                node.url().to_string()
+            } else {
+                node.title.clone()
+            }
+        });
     let current_tags = tags_for_node(app, &snapshot.node_key);
     let suggestions = ranked_tag_suggestions(app, snapshot.node_key, &snapshot.text_input);
     let warning = reserved_tag_warning(&snapshot.text_input);
