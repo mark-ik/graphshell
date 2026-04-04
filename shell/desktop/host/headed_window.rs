@@ -56,6 +56,7 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::ui::dialog::Dialog;
 use crate::shell::desktop::ui::gui::Gui;
+use crate::shell::desktop::ui::toolbar_routing::ToolbarNavAction;
 
 mod clip_extraction;
 mod embedder_controls;
@@ -421,14 +422,16 @@ impl HeadedWindow {
                 button: MouseButton::Forward,
                 ..
             } => {
-                if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window)
-                    && let Some(webview) = window.webview_by_id(webview_id)
-                {
+                if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window) {
                     self.gui
                         .borrow_mut()
                         .set_embedded_content_focus_webview(Some(webview_id));
                     window.retarget_input_to_webview(webview_id);
-                    webview.go_forward(1);
+                    self.gui.borrow_mut().request_toolbar_nav_action_for_webview(
+                        &window,
+                        webview_id,
+                        ToolbarNavAction::Forward,
+                    );
                     window.set_needs_update();
                 }
                 consumed = true;
@@ -438,14 +441,16 @@ impl HeadedWindow {
                 button: MouseButton::Back,
                 ..
             } => {
-                if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window)
-                    && let Some(webview) = window.webview_by_id(webview_id)
-                {
+                if let Some(webview_id) = input_routing::resolved_input_webview_id(self, &window) {
                     self.gui
                         .borrow_mut()
                         .set_embedded_content_focus_webview(Some(webview_id));
                     window.retarget_input_to_webview(webview_id);
-                    webview.go_back(1);
+                    self.gui.borrow_mut().request_toolbar_nav_action_for_webview(
+                        &window,
+                        webview_id,
+                        ToolbarNavAction::Back,
+                    );
                     window.set_needs_update();
                 }
                 consumed = true;
