@@ -216,6 +216,16 @@ Concrete slices:
      frame boundaries.
 4. Emit diagnostics for failed handoff, stale mailbox delivery, and interruption-return routing.
 
+Current status:
+
+- first host-thread cleanup slice landed: `Gui::new` no longer spawns raw signal subscription
+     tasks for Shell-facing frame relays; `GuiFrameInbox::spawn(...)` now installs those relays
+     under `ControlPanel` supervision with an explicit Shell signal-relay worker tier while
+     preserving frame-bound drain semantics
+- next Workstream D slice should audit one-shot Shell-owned background requests that still bypass
+     typed mailbox/result carriers and move the smallest user-visible path under supervised
+     request delivery
+
 Done shape:
 
 - Shell-owned visible state is frame-thread authoritative

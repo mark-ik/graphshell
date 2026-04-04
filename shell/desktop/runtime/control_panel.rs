@@ -72,6 +72,8 @@ pub(crate) enum WorkerTier {
     Tier1NostrRelay,
     /// Matrix client worker. Session-scoped; stub/no-op until MatrixCore lands.
     Tier1MatrixCore,
+    /// Shell-owned signal relays drained through the frame inbox.
+    Tier1ShellSignalRelay,
 }
 
 /// CP3 policy channel payload for prefetch scheduling behavior.
@@ -705,6 +707,26 @@ impl ControlPanel {
         Ok(())
     }
 
+    /// Spawn a long-lived Shell-owned signal relay under ControlPanel
+    /// supervision so frame-bound relays do not outlive the session or bypass
+    /// the shared cancellation boundary.
+    pub(crate) fn spawn_shell_signal_relay<F>(&mut self, label: &'static str, task: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let cancel = self.cancel.clone();
+        self.workers.spawn(async move {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    log::debug!("control_panel: shell signal relay cancelled ({label})");
+                }
+                _ = task => {}
+            }
+        });
+        self.register_worker_tier(WorkerTier::Tier1ShellSignalRelay);
+        log::debug!("control_panel: shell signal relay spawned ({label})");
+    }
+
     /// Stub spawn point for the Matrix client worker (plan-only until MatrixCore lands).
     ///
     /// Registers `Tier1MatrixCore` so the tier classification is declared at
@@ -1164,6 +1186,23 @@ mod tests {
         .await
         .expect("join should succeed");
         assert_eq!(value, 42);
+
+        panel.shutdown().await;
+        assert_eq!(panel.worker_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn spawn_shell_signal_relay_is_supervised_and_registered() {
+        let mut panel = ControlPanel::new(None);
+
+        panel.spawn_shell_signal_relay("test_shell_relay", std::future::pending());
+        tokio::task::yield_now().await;
+
+        assert_eq!(panel.worker_count(), 1);
+        assert_eq!(
+            panel.registered_tier_counts().get(&WorkerTier::Tier1ShellSignalRelay),
+            Some(&1)
+        );
 
         panel.shutdown().await;
         assert_eq!(panel.worker_count(), 0);

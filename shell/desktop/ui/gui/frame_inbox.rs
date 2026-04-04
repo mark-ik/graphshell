@@ -4,6 +4,12 @@
 
 use std::sync::mpsc::Receiver;
 
+use crate::shell::desktop::runtime::control_panel::ControlPanel;
+use crate::shell::desktop::runtime::registries::phase3_subscribe_signal_async;
+use crate::shell::desktop::runtime::registries::signal_routing::{
+    LifecycleSignal, RegistryEventSignal, SignalKind, SignalTopic,
+};
+
 /// Typed frame-bound relay set for Shell-facing async signals.
 ///
 /// Long-lived subscriptions such as registry or lifecycle signals are not a
@@ -18,6 +24,65 @@ pub(crate) struct GuiFrameInbox {
 }
 
 impl GuiFrameInbox {
+    pub(crate) fn spawn(control_panel: &mut ControlPanel) -> Self {
+        let (semantic_index_updates_tx, semantic_index_updates_rx) = std::sync::mpsc::channel();
+        let (workbench_projection_refreshes_tx, workbench_projection_refreshes_rx) =
+            std::sync::mpsc::channel();
+        let (settings_route_requests_tx, settings_route_requests_rx) = std::sync::mpsc::channel();
+        let (profile_invalidations_tx, profile_invalidations_rx) = std::sync::mpsc::channel();
+
+        control_panel.spawn_shell_signal_relay(
+            "shell_frame_inbox_lifecycle",
+            async move {
+                let mut subscription = phase3_subscribe_signal_async(SignalTopic::Lifecycle);
+                while let Some(signal) = subscription.recv().await {
+                    if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated { indexed_nodes }) =
+                        signal.kind
+                    {
+                        let _ = semantic_index_updates_tx.send(indexed_nodes);
+                    }
+                }
+            },
+        );
+
+        control_panel.spawn_shell_signal_relay(
+            "shell_frame_inbox_registry",
+            async move {
+                let mut subscription = phase3_subscribe_signal_async(SignalTopic::RegistryEvent);
+                while let Some(signal) = subscription.recv().await {
+                    if let SignalKind::RegistryEvent(registry_signal) = signal.kind {
+                        match registry_signal {
+                            RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. } => {
+                                let _ = workbench_projection_refreshes_tx.send(());
+                            }
+                            RegistryEventSignal::SettingsRouteRequested {
+                                url,
+                                prefer_overlay,
+                            } => {
+                                let _ = settings_route_requests_tx.send((url, prefer_overlay));
+                            }
+                            RegistryEventSignal::ThemeChanged { .. }
+                            | RegistryEventSignal::LensChanged { .. }
+                            | RegistryEventSignal::PhysicsProfileChanged { .. }
+                            | RegistryEventSignal::CanvasProfileChanged { .. }
+                            | RegistryEventSignal::WorkbenchSurfaceChanged { .. } => {
+                                let _ = profile_invalidations_tx.send(());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            },
+        );
+
+        Self::new(
+            semantic_index_updates_rx,
+            workbench_projection_refreshes_rx,
+            settings_route_requests_rx,
+            profile_invalidations_rx,
+        )
+    }
+
     pub(crate) fn new(
         semantic_index_updates: Receiver<usize>,
         workbench_projection_refreshes: Receiver<()>,

@@ -56,13 +56,10 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::nip07_bridge;
-use crate::shell::desktop::runtime::registries::signal_routing::{
-    LifecycleSignal, RegistryEventSignal, SignalKind, SignalTopic,
-};
 use crate::shell::desktop::runtime::registries::workbench_surface;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime,
-    phase3_resolve_active_theme, phase3_shared_runtime, phase3_subscribe_signal_async,
+    phase3_resolve_active_theme, phase3_shared_runtime,
 };
 use crate::shell::desktop::ui::thumbnail_pipeline::{
     RendererFaviconTextureCache, ThumbnailCaptureResult,
@@ -341,7 +338,7 @@ impl Gui {
             .expect("Failed to create tokio runtime for async workers");
 
         // Initialize ControlPanel and spawn workers inside runtime context
-        let control_panel = {
+        let mut control_panel = {
             let _guard = tokio_runtime.enter();
             let mut panel = ControlPanel::new(worker_idle_threshold_secs);
             panel.spawn_memory_monitor();
@@ -358,49 +355,7 @@ impl Gui {
             panel
         };
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
-        let (semantic_index_signal_tx, semantic_index_signal_rx) = channel();
-        let mut semantic_index_signal_async = phase3_subscribe_signal_async(SignalTopic::Lifecycle);
-        tokio_runtime.spawn(async move {
-            while let Some(signal) = semantic_index_signal_async.recv().await {
-                if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated {
-                    indexed_nodes,
-                }) = signal.kind
-                {
-                    let _ = semantic_index_signal_tx.send(indexed_nodes);
-                }
-            }
-        });
-        let (workbench_projection_refresh_signal_tx, workbench_projection_refresh_signal_rx) =
-            channel();
-        let (settings_route_signal_tx, settings_route_signal_rx) = channel();
-        let (profile_invalidation_signal_tx, profile_invalidation_signal_rx) = channel();
-        let mut workbench_projection_refresh_signal_async =
-            phase3_subscribe_signal_async(SignalTopic::RegistryEvent);
-        tokio_runtime.spawn(async move {
-            while let Some(signal) = workbench_projection_refresh_signal_async.recv().await {
-                if let SignalKind::RegistryEvent(registry_signal) = signal.kind {
-                    match registry_signal {
-                        RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. } => {
-                            let _ = workbench_projection_refresh_signal_tx.send(());
-                        }
-                        RegistryEventSignal::SettingsRouteRequested {
-                            url,
-                            prefer_overlay,
-                        } => {
-                            let _ = settings_route_signal_tx.send((url, prefer_overlay));
-                        }
-                        RegistryEventSignal::ThemeChanged { .. }
-                        | RegistryEventSignal::LensChanged { .. }
-                        | RegistryEventSignal::PhysicsProfileChanged { .. }
-                        | RegistryEventSignal::CanvasProfileChanged { .. }
-                        | RegistryEventSignal::WorkbenchSurfaceChanged { .. } => {
-                            let _ = profile_invalidation_signal_tx.send(());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        });
+        let frame_inbox = GuiFrameInbox::spawn(&mut control_panel);
 
         let mut gui = Self {
             rendering_context,
@@ -455,12 +410,7 @@ impl Gui {
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
             registry_runtime,
-            frame_inbox: GuiFrameInbox::new(
-                semantic_index_signal_rx,
-                workbench_projection_refresh_signal_rx,
-                settings_route_signal_rx,
-                profile_invalidation_signal_rx,
-            ),
+            frame_inbox,
             tokio_runtime,
             control_panel,
         };
