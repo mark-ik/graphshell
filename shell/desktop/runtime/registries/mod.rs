@@ -233,6 +233,12 @@ pub(crate) const CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED: &str =
     "runtime.ui.graph.view_transfer_blocked";
 pub(crate) const CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED: &str =
     "runtime.ui.command_bar.command_palette_requested";
+pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_REQUESTED: &str =
+    "runtime.ui.command_bar.nav_action.requested";
+pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED: &str =
+    "runtime.ui.command_bar.nav_action.blocked";
+pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_NO_TARGET: &str =
+    "runtime.ui.command_bar.nav_action.no_target";
 pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED: &str =
     "runtime.ui.omnibar.provider_mailbox.request_started";
 pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED: &str =
