@@ -128,6 +128,9 @@ Current checkpoint as of `2026-04-04`:
 - omnibar provider suggestions already run through `ControlPanel::spawn_blocking_host_request(...)`
      and a frame-bound mailbox with diagnostics, so the first Workstream D audit did not expose a
      new shell-visible detached-worker bug to fix.
+- `gui.rs` now centralizes its long-lived lifecycle/registry signal bridges behind a typed
+     `GuiFrameInbox`, making frame-bound drain semantics explicit without collapsing those relays
+     into a generic request/result mailbox.
 
 Next bypass seam after the current checkpoint:
 
@@ -142,6 +145,9 @@ Next bypass seam after the current checkpoint:
      already-routed chrome actions: the remaining Shell-facing async bridges are the frame-bound
      signal relays in `shell/desktop/ui/gui.rs`, which should either stay documented as intentional
      channel bridges or be folded into a shared mailbox abstraction if a stronger contract is needed.
+4. Future Shell-facing async subscriptions should prefer the typed frame-inbox/signal-relay-set
+     pattern when they are long-lived and frame-drained; request/result mailboxes should remain the
+     default only for one-shot background jobs such as omnibar provider suggestion fetches.
 
 ### Workstream C — Overview Surface
 
@@ -184,8 +190,9 @@ Concrete slices:
      or top-level chrome paths.
 2. Move those tasks under `ControlPanel`/Register supervision where they represent real background
      work.
-3. Define mailbox/result carriers for Shell-owned frame-bound surfaces and drain them only at frame
-     boundaries.
+3. Define mailbox/result carriers for one-shot Shell-owned background requests, and use a typed
+     frame inbox / signal relay set for long-lived subscription bridges that Shell drains only at
+     frame boundaries.
 4. Emit diagnostics for failed handoff, stale mailbox delivery, and interruption-return routing.
 
 Done shape:

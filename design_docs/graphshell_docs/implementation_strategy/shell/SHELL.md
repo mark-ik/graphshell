@@ -279,6 +279,12 @@ The required split is:
   that Shell drains at frame boundaries; background tasks do not directly
   mutate Shell-owned UI state
 
+For long-lived typed subscriptions, prefer a typed frame inbox / signal relay
+set over a generic request/result mailbox. That keeps coalescing policy explicit
+per relay: some signals are latest-wins invalidation flags, while others are
+ordered queues such as settings-route requests. Reserve mailboxes for one-shot
+background requests that naturally produce a discrete result.
+
 This means accessibility, UX-tree, and top-level diagnostics presentation
 remain frame-projected host concerns even when their data sources depend on
 background runtime activity. They are not independent UI threads.

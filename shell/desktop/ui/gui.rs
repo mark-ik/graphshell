@@ -88,6 +88,8 @@ mod accesskit_events;
 mod accesskit_input;
 #[path = "gui/focus_state.rs"]
 mod focus_state;
+#[path = "gui/frame_inbox.rs"]
+mod frame_inbox;
 #[path = "gui/gui_update_coordinator.rs"]
 mod gui_update_coordinator;
 #[path = "gui/hit_testing.rs"]
@@ -115,6 +117,7 @@ mod update_frame_phases;
 mod window_input;
 
 use update_frame_phases::ExecuteUpdateFrameArgs;
+use frame_inbox::GuiFrameInbox;
 
 #[allow(unused_imports)]
 pub(crate) use focus_state::{
@@ -202,17 +205,8 @@ pub struct Gui {
     /// Registry runtime for semantic services
     registry_runtime: Arc<RegistryRuntime>,
 
-    /// Pending lifecycle notifications for semantic-index-driven lens refresh.
-    semantic_index_signal_rx: Receiver<usize>,
-
-    /// Pending register-event notifications for workbench projection refresh.
-    workbench_projection_refresh_signal_rx: Receiver<()>,
-
-    /// Pending register-event notifications for settings route requests.
-    settings_route_signal_rx: Receiver<(String, bool)>,
-
-    /// Pending register-event notifications for lens/profile invalidation refresh.
-    profile_invalidation_signal_rx: Receiver<()>,
+    /// Typed frame-bound relay set for Shell-facing async signal bridges.
+    frame_inbox: GuiFrameInbox,
 
     /// Tokio runtime for async background workers
     tokio_runtime: tokio::runtime::Runtime,
@@ -461,10 +455,12 @@ impl Gui {
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
             registry_runtime,
-            semantic_index_signal_rx,
-            workbench_projection_refresh_signal_rx,
-            settings_route_signal_rx,
-            profile_invalidation_signal_rx,
+            frame_inbox: GuiFrameInbox::new(
+                semantic_index_signal_rx,
+                workbench_projection_refresh_signal_rx,
+                settings_route_signal_rx,
+                profile_invalidation_signal_rx,
+            ),
             tokio_runtime,
             control_panel,
         };
@@ -576,37 +572,20 @@ impl Gui {
     }
 
     fn apply_pending_semantic_index_updates(&mut self) {
-        let mut saw_update = false;
-        while self.semantic_index_signal_rx.try_recv().is_ok() {
-            saw_update = true;
-        }
-        if saw_update {
+        if self.frame_inbox.take_semantic_index_refresh() {
             self.graph_app.refresh_registry_backed_view_lenses();
         }
     }
 
     fn apply_pending_workbench_projection_refresh_updates(&mut self) {
-        let mut saw_update = false;
-        while self
-            .workbench_projection_refresh_signal_rx
-            .try_recv()
-            .is_ok()
-        {
-            saw_update = true;
-        }
-        if saw_update {
+        if self.frame_inbox.take_workbench_projection_refresh() {
             let _ =
                 persistence_ops::refresh_workbench_projection_from_manifests(&mut self.graph_app);
         }
     }
 
     fn apply_pending_settings_route_updates(&mut self) {
-        let mut pending_routes = Vec::new();
-        while let Ok((url, prefer_overlay)) = self.settings_route_signal_rx.try_recv() {
-            pending_routes.push((url, prefer_overlay));
-        }
-
-        for (url, prefer_overlay) in pending_routes {
+        for (url, prefer_overlay) in self.frame_inbox.take_settings_routes() {
             apply_requested_settings_route_update(
                 &mut self.graph_app,
                 &mut self.tiles_tree,
@@ -617,11 +596,7 @@ impl Gui {
     }
 
     fn apply_pending_profile_invalidation_updates(&mut self) {
-        let mut saw_update = false;
-        while self.profile_invalidation_signal_rx.try_recv().is_ok() {
-            saw_update = true;
-        }
-        if saw_update {
+        if self.frame_inbox.take_profile_invalidation() {
             self.graph_app.refresh_registry_backed_view_lenses();
             self.apply_runtime_theme_visuals();
         }
