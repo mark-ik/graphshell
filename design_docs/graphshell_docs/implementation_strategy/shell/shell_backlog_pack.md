@@ -187,8 +187,9 @@ Current status:
 - viewer/content summaries now expose effective backend, override-vs-auto selection, placeholder
      fallback reasons, and runtime blocked/crashed state, with a viewer-owned diagnostics route
      when the active pane is degraded
-- next Workstream C slice should broaden acceptance evidence for the full overview surface or move
-     on once this level of diagnosability is sufficient
+- focused `DI05` evidence now also covers an integrated overview reorientation scenario spanning
+     graph, workbench, viewer fallback, runtime attention, and compact-chip surfacing
+- Workstream C can close here unless broader end-to-end overview UI rendering evidence is needed
 
 Done shape:
 

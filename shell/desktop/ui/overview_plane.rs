@@ -2487,6 +2487,109 @@ mod tests {
     }
 
     #[test]
+    fn di05_overview_surface_reorients_across_domain_cards() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.graph_runtime.history_preview_mode_active = true;
+        app.workspace.graph_runtime.active_graph_search_query = "focus".to_string();
+        app.workspace.graph_runtime.active_graph_search_match_count = 2;
+        app.workspace.graph_runtime.active_graph_search_origin = GraphSearchOrigin::Manual;
+
+        let view_id = GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_workspace_focused_view_with_transition(Some(view_id));
+        let node_key = app.workspace.domain.graph.add_node(
+            "https://di05.example".to_string(),
+            euclid::point2(0.0, 0.0),
+        );
+        app.select_in_focused_view(node_key, false);
+
+        let pane_id = PaneId::new();
+        let host_layout = test_host_layout();
+        let projection = WorkbenchChromeProjection {
+            layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_pane_title: Some("Node Pane".to_string()),
+            active_frame_name: Some("frame-a".to_string()),
+            saved_frame_names: vec!["frame-a".to_string()],
+            navigator_groups: vec![],
+            pane_entries: vec![WorkbenchPaneEntry {
+                pane_id,
+                kind: WorkbenchPaneKind::Node { node_key },
+                title: "Node".to_string(),
+                subtitle: Some("text/html".to_string()),
+                arrangement_memberships: vec!["triage".to_string()],
+                semantic_tab_affordance: Some(SemanticTabAffordance::Collapse {
+                    group_id: uuid::Uuid::nil(),
+                    member_count: 2,
+                }),
+                node_viewer_summary: Some(WorkbenchNodeViewerSummary {
+                    effective_viewer_id: Some("viewer:wry".to_string()),
+                    viewer_override: Some("viewer:wry".to_string()),
+                    viewer_switch_reason: ViewerSwitchReason::UserRequested,
+                    render_mode: TileRenderMode::Placeholder,
+                    runtime_blocked: true,
+                    runtime_crashed: false,
+                    fallback_reason: Some(
+                        "Wry backend is disabled. Enable it in Settings -> Viewer Backends."
+                            .to_string(),
+                    ),
+                }),
+                is_active: true,
+                closable: true,
+            }],
+            tree_root: None,
+            active_graphlet_roster: vec![
+                GraphletRosterEntry {
+                    node_key,
+                    title: "Warm seed".to_string(),
+                    is_cold: false,
+                },
+                GraphletRosterEntry {
+                    node_key,
+                    title: "Cold peer".to_string(),
+                    is_cold: true,
+                },
+            ],
+        };
+        let slot = OverviewSlotSnapshot {
+            view_id,
+            name: "Focus".to_string(),
+            row: 0,
+            col: 0,
+            archived: false,
+        };
+
+        let graph_lines = graph_context_lines(&app, &projection, Some(&slot));
+        let workbench_lines = workbench_context_lines(&projection);
+        let viewer_lines = viewer_content_lines(&projection);
+        let runtime_lines = runtime_attention_lines(&app);
+        let graph_actions = graph_context_actions(&app, Some(&slot));
+        let workbench_actions = workbench_context_actions(&projection, Some(&slot));
+        let viewer_actions = viewer_content_actions(&projection);
+        let chips = compact_overview_chips(&app, &projection, Some(&slot), 1);
+
+        assert!(graph_lines.iter().any(|line| line.contains("Active pane graphlet: 1 warm node(s) · 1 cold node(s)")));
+        assert!(graph_lines.iter().any(|line| line.contains("Search: focus · 2 matches")));
+        assert!(workbench_lines.iter().any(|line| line == "Workbench binding: linked semantic tab group (2 pane(s))"));
+        assert!(viewer_lines.iter().any(|line| line == "Viewer backend: viewer:wry · placeholder"));
+        assert!(viewer_lines.iter().any(|line| line.contains("Fallback: Wry backend is disabled")));
+        assert!(runtime_lines.iter().any(|line| line == "History preview active: live runtime side effects suppressed"));
+        assert!(graph_actions.iter().any(|action| action.owner == OverviewActionOwner::Graph));
+        assert!(workbench_actions.iter().any(|action| action.owner == OverviewActionOwner::Workbench));
+        assert!(viewer_actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Viewer
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenToolUrl { .. })
+                )
+        }));
+        assert!(chips.iter().any(|chip| chip.contains("Viewer fallback")));
+        assert!(chips.iter().any(|chip| chip.contains("Tabs: linked semantic")));
+    }
+
+    #[test]
     fn graph_context_lines_surface_graphlet_frontier_breakdown() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
