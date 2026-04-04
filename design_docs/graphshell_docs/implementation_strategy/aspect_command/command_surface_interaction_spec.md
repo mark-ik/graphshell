@@ -6,6 +6,7 @@
 
 **Related**:
 - `../2026-02-28_ux_contract_register.md`
+- `../shell/2026-04-03_shell_command_bar_execution_plan.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`

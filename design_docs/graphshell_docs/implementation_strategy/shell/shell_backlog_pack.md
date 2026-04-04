@@ -11,7 +11,11 @@
 **Related docs**:
 
 - [SHELL.md](SHELL.md) — Shell domain spec and authority boundaries
+- [2026-04-03_shell_command_bar_execution_plan.md](2026-04-03_shell_command_bar_execution_plan.md) — concrete Workstream A plan for command-bar ownership, omnibar session state, and command-route cleanup
+- [shell_composition_model_spec.md](shell_composition_model_spec.md) — top-level slot composition, command-bar seam, and host-thread panel rules
 - [shell_overview_surface_spec.md](shell_overview_surface_spec.md) — concrete Shell overview UI and routing model
+- [../aspect_command/command_surface_interaction_spec.md](../aspect_command/command_surface_interaction_spec.md) — canonical command-entry and dispatch contract consumed by Shell
+- [../aspect_control/settings_and_control_surfaces_spec.md](../aspect_control/settings_and_control_surfaces_spec.md) — control-surface routing and page-hosting contract consumed by Shell
 - [../domain_interaction_acceptance_matrix.md](../domain_interaction_acceptance_matrix.md) — cross-domain review matrix
 - [../../technical_architecture/domain_interaction_scenarios.md](../../technical_architecture/domain_interaction_scenarios.md) — canonical cross-domain scenario flows
 - [../navigator/NAVIGATOR.md](../navigator/NAVIGATOR.md) — Navigator projection/navigation peer domain
@@ -34,6 +38,134 @@
 4. `SH04` Shell Ambient Status / Attention Contract. Depends: `SH01`, `SH03`. Done gate: runtime warnings, trust state, and background task surfacing are distinct from domain truth and have explicit return-context rules.
 5. `SH05` Shell Diagnostics / Routing Evidence Pack. Depends: `SH02`, `SH04`. Done gate: failed handoff, blocked route, and interruption-return paths emit diagnosable evidence.
 6. `SH06` Shell Milestone Closure Receipt. Depends: `SH01`-`SH05`. Done gate: one closure doc states what Shell host behavior is canonical and what downstream lanes can safely assume.
+
+---
+
+## Practical Execution Worklist
+
+This section translates the Wave 1 backlog into the concrete Shell workstreams most likely to
+produce visible architectural progress without blurring domain ownership.
+
+### Workstream A — Command / Omnibar Seam
+
+Primary backlog IDs: `SH02`, `SH05`
+
+Execution plan: `2026-04-03_shell_command_bar_execution_plan.md`
+
+Purpose:
+
+- make Shell command entry points honest about what they own
+- unify omnibar input, command palette dispatch, and focused-surface target resolution
+- stop legacy or embedder paths from bypassing Graphshell command authority
+
+Concrete slices:
+
+1. Define the `CommandBar` surface as Shell-owned input/dispatch UI that consumes Navigator
+     breadcrumb/context projection without owning that projection.
+2. Land explicit focused-surface targeting for command-bar controls so per-pane viewer actions are
+     resolved from a first-class Shell input rather than whichever subsystem rendered last.
+3. Audit legacy context-menu / new-tab / open-in-new-view flows and reroute them through the
+     Graphshell command authority or document them as explicit bridged exceptions.
+4. Ensure background suggestion/search providers feed the omnibar through a Shell-owned mailbox
+     rather than detached toolbar threads.
+
+Done shape:
+
+- omnibar input, palette dispatch, and focused-target resolution have one canonical Shell seam
+- blocked or legacy-bypassed command routes emit diagnosable evidence
+
+### Workstream B — App Chrome And Ambient Status
+
+Primary backlog IDs: `SH01`, `SH04`
+
+Purpose:
+
+- make the Shell visibly present as the host layer
+- separate system-facing status/chrome from Navigator content navigation
+
+Concrete slices:
+
+1. Harden the `CommandBar` / `StatusBar` slot model from `shell_composition_model_spec.md` as the
+     canonical top-level shell chrome.
+2. Define what ambient status belongs in persistent Shell chrome: sync state, background jobs,
+     trust/security warnings, worker/process indicators, and current interruption-return anchor.
+3. Keep content-navigation affordances out of Shell chrome unless they are truly system-oriented.
+4. Define attention severity/order so warnings, trust issues, and background activity do not render
+     as one flat undifferentiated strip.
+
+Done shape:
+
+- persistent Shell chrome has explicit authority and content rules
+- ambient status is legible as system/runtime truth, not graph or workbench truth
+
+### Workstream C — Overview Surface
+
+Primary backlog IDs: `SH03`, `SHS02`
+
+Purpose:
+
+- give Shell a concrete cross-domain summary surface
+- make reorientation routes explicit without flattening Graph, Navigator, Workbench, Viewer, and
+  Shell/runtime into one blob
+
+Concrete slices:
+
+1. Land the six-module overview structure from `shell_overview_surface_spec.md` in priority order:
+     Active Context strip, Graph Context, Workbench Context, Viewer/Content, Runtime/Attention,
+     Suggested Next Actions.
+2. Define compact and standard modes first; keep diagnostic mode as an extension if the module data
+     sources are not yet stable.
+3. Make every overview action route to the owning domain rather than mutating state directly in
+     Shell.
+4. Add explicit `DI05` acceptance evidence for overview-to-domain handoff behavior.
+
+Done shape:
+
+- Shell overview exists as a real host-owned summary surface
+- overview cards/chips reorient into the correct owning domain predictably and diagnosably
+
+### Workstream D — Host-Thread And Mailbox Cleanup
+
+Primary backlog IDs: `SH04`, `SH05`, `SHS03`
+
+Purpose:
+
+- make the Shell host-thread boundary real in code instead of just architectural prose
+- route user-visible background results through supervised runtime channels
+
+Concrete slices:
+
+1. Audit Shell-facing UI code for ad hoc detached background work launched from toolbar, omnibar,
+     or top-level chrome paths.
+2. Move those tasks under `ControlPanel`/Register supervision where they represent real background
+     work.
+3. Define mailbox/result carriers for Shell-owned frame-bound surfaces and drain them only at frame
+     boundaries.
+4. Emit diagnostics for failed handoff, stale mailbox delivery, and interruption-return routing.
+
+Done shape:
+
+- Shell-owned visible state is frame-thread authoritative
+- background work no longer mutates shell-visible UI state directly
+- interruption and return-context paths have evidence instead of hand-waving
+
+---
+
+## Suggested Order
+
+Recommended practical execution order:
+
+1. Workstream A — Command / Omnibar Seam
+2. Workstream B — App Chrome And Ambient Status
+3. Workstream C — Overview Surface
+4. Workstream D — Host-Thread And Mailbox Cleanup
+
+Reasoning:
+
+- A establishes the Shell's most important user-facing authority boundary.
+- B makes the host layer visible and removes chrome-scope confusion.
+- C becomes much easier once command routing and chrome slots are stable.
+- D should be applied against the concrete host seams from A/B rather than as an abstract cleanup.
 
 ---
 
