@@ -181,8 +181,11 @@ Current status:
      with focused `DI05` evidence tests covering graph-card, viewer-card, and runtime-card routing
 - compact mode now reuses the same live overview summary model inside the Navigator host via a
      compact context/runtime chip bar above the existing mini-grid and region list
-- next Workstream C slice should deepen the domain summaries themselves: richer graphlet/frontier,
-     linked-vs-detached workbench state, and clearer viewer fallback diagnostics
+- overview domain summaries now distinguish warm vs cold active-graphlet members, expose
+     frontier-ready cold peers, and report semantic-tab linked vs detached workbench binding in
+     both standard cards and compact chips
+- next Workstream C slice should focus on clearer viewer fallback/degraded diagnostics now that
+     graphlet/workbench state is explicit in the overview surface
 
 Done shape:
 

@@ -11,8 +11,9 @@ use crate::app::{
 };
 use crate::shell::desktop::runtime::registries::phase3_trusted_peers;
 use crate::shell::desktop::ui::workbench_host::{
-    WorkbenchChromeProjection, WorkbenchPaneEntry, WorkbenchPaneKind,
+    GraphletRosterEntry, WorkbenchChromeProjection, WorkbenchPaneEntry, WorkbenchPaneKind,
 };
+use crate::shell::desktop::workbench::semantic_tabs::SemanticTabAffordance;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
@@ -127,7 +128,7 @@ pub(crate) fn render_overview_plane(
                 render_overview_summary_card(
                     &mut columns[0],
                     "Graph Context",
-                    &graph_context_lines(app, selected_slot),
+                    &graph_context_lines(app, &chrome_projection, selected_slot),
                     &graph_context_actions(app, selected_slot),
                     &mut pending_graph_intents,
                     &mut pending_workbench_intents,
@@ -440,6 +441,7 @@ fn active_context_summary(
 
 fn graph_context_lines(
     app: &GraphBrowserApp,
+    chrome_projection: &WorkbenchChromeProjection,
     selected_slot: Option<&OverviewSlotSnapshot>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
@@ -453,6 +455,14 @@ fn graph_context_lines(
     }
     if selection.len() > 1 {
         lines.push(format!("Secondary targets: {}", selection.len() - 1));
+    }
+    if let Some(summary) = active_graphlet_roster_summary(&chrome_projection.active_graphlet_roster)
+    {
+        lines.push(summary);
+    }
+    if let Some(frontier) = active_graphlet_frontier_summary(&chrome_projection.active_graphlet_roster)
+    {
+        lines.push(frontier);
     }
     if let Some(slot) = selected_slot {
         let node_count = app.graph_view_owned_node_count(slot.view_id).unwrap_or(0);
@@ -538,11 +548,12 @@ fn workbench_context_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec
         "Saved frames: {}",
         chrome_projection.saved_frame_names.len()
     ));
-    if !chrome_projection.active_graphlet_roster.is_empty() {
-        lines.push(format!(
-            "Active graphlet roster: {} related node(s)",
-            chrome_projection.active_graphlet_roster.len()
-        ));
+    if let Some(binding) = active_workbench_binding_summary(chrome_projection) {
+        lines.push(format!("Workbench binding: {binding}"));
+    }
+    if let Some(summary) = active_graphlet_roster_summary(&chrome_projection.active_graphlet_roster)
+    {
+        lines.push(summary);
     }
     lines
 }
@@ -774,6 +785,77 @@ fn graph_search_origin_label(origin: &GraphSearchOrigin) -> &'static str {
         GraphSearchOrigin::Manual => "manual scope",
         GraphSearchOrigin::SemanticTag => "semantic-tag scope",
         GraphSearchOrigin::AnchorSlice => "anchor-slice scope",
+    }
+}
+
+fn active_graphlet_roster_summary(roster: &[GraphletRosterEntry]) -> Option<String> {
+    if roster.is_empty() {
+        return None;
+    }
+
+    let warm_count = roster.iter().filter(|entry| !entry.is_cold).count();
+    let cold_count = roster.iter().filter(|entry| entry.is_cold).count();
+    let mut parts = Vec::new();
+    if warm_count > 0 {
+        parts.push(format!("{warm_count} warm node(s)"));
+    }
+    if cold_count > 0 {
+        parts.push(format!("{cold_count} cold node(s)"));
+    }
+    if parts.is_empty() {
+        parts.push("0 related node(s)".to_string());
+    }
+
+    Some(format!("Active pane graphlet: {}", parts.join(" · ")))
+}
+
+fn active_graphlet_frontier_summary(roster: &[GraphletRosterEntry]) -> Option<String> {
+    let cold_titles: Vec<_> = roster
+        .iter()
+        .filter(|entry| entry.is_cold)
+        .map(|entry| compact_overview_label(&entry.title, 18))
+        .collect();
+    if cold_titles.is_empty() {
+        return None;
+    }
+
+    let preview: Vec<_> = cold_titles.iter().take(2).cloned().collect();
+    let remainder = cold_titles.len().saturating_sub(preview.len());
+    let mut line = format!("Frontier ready to open: {}", preview.join(", "));
+    if remainder > 0 {
+        line.push_str(&format!(" +{remainder} more"));
+    }
+    Some(line)
+}
+
+fn active_workbench_binding_summary(
+    chrome_projection: &WorkbenchChromeProjection,
+) -> Option<String> {
+    let active_entry = active_overview_pane_entry(chrome_projection)?;
+    if let Some(semantic_summary) = semantic_tab_affordance_summary(active_entry.semantic_tab_affordance)
+    {
+        return Some(semantic_summary);
+    }
+    if !active_entry.arrangement_memberships.is_empty() {
+        return Some(format!(
+            "arranged in {}",
+            active_entry.arrangement_memberships.join(", ")
+        ));
+    }
+    None
+}
+
+fn semantic_tab_affordance_summary(
+    affordance: Option<SemanticTabAffordance>,
+) -> Option<String> {
+    match affordance {
+        Some(SemanticTabAffordance::Collapse { member_count, .. }) => {
+            Some(format!("linked semantic tab group ({member_count} pane(s))"))
+        }
+        Some(SemanticTabAffordance::Restore { member_count, .. }) => {
+            Some(format!("detached from semantic tab group ({member_count} pane(s))"))
+        }
+        None => None,
     }
 }
 
@@ -1058,6 +1140,13 @@ fn compact_overview_chips(
     chips.push(format!("Panes: {}", chrome_projection.pane_entries.len()));
     if !chrome_projection.saved_frame_names.is_empty() {
         chips.push(format!("Saved: {}", chrome_projection.saved_frame_names.len()));
+    }
+    if let Some(summary) = active_graphlet_roster_summary(&chrome_projection.active_graphlet_roster)
+    {
+        chips.push(compact_overview_label(&summary, 32));
+    }
+    if let Some(binding) = active_workbench_binding_summary(chrome_projection) {
+        chips.push(compact_overview_label(&format!("Tabs: {binding}"), 32));
     }
     let health = app.history_health_summary();
     if health.preview_mode_active {
@@ -1842,6 +1931,42 @@ fn shifted_slot_position(row: i32, col: i32, direction: GraphViewLayoutDirection
 mod tests {
     use super::*;
 
+    fn test_host_layout() -> crate::shell::desktop::ui::workbench_host::WorkbenchHostLayout {
+        crate::shell::desktop::ui::workbench_host::WorkbenchHostLayout {
+            host: crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Right,
+            ),
+            anchor_edge: crate::app::workbench_layout_policy::AnchorEdge::Right,
+            form_factor:
+                crate::shell::desktop::ui::workbench_host::WorkbenchHostFormFactor::Sidebar,
+            configured_scope: crate::app::NavigatorHostScope::Both,
+            resolved_scope: crate::app::NavigatorHostScope::Both,
+            size_fraction: 0.3,
+            cross_axis_margin_start_px: 0.0,
+            cross_axis_margin_end_px: 0.0,
+            resizable: true,
+        }
+    }
+
+    fn empty_projection() -> WorkbenchChromeProjection {
+        let host_layout = test_host_layout();
+        WorkbenchChromeProjection {
+            layer_state:
+                crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy:
+                crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_pane_title: None,
+            active_frame_name: None,
+            saved_frame_names: vec![],
+            navigator_groups: vec![],
+            pane_entries: vec![],
+            tree_root: None,
+            active_graphlet_roster: vec![],
+        }
+    }
+
     #[test]
     fn drag_target_slot_position_rounds_to_nearest_grid_cell() {
         let slot = OverviewSlotSnapshot {
@@ -2048,7 +2173,8 @@ mod tests {
         app.workspace.graph_runtime.active_graph_search_match_count = 3;
         app.workspace.graph_runtime.active_graph_search_origin = GraphSearchOrigin::AnchorSlice;
 
-        let lines = graph_context_lines(&app, None);
+        let projection = empty_projection();
+        let lines = graph_context_lines(&app, &projection, None);
         assert!(lines.iter().any(|line| line.contains("Search: anchor · 3 matches")));
         assert!(lines.iter().any(|line| line.contains("anchor-slice scope")));
     }
@@ -2105,20 +2231,7 @@ mod tests {
             "https://viewer-actions.example".to_string(),
             euclid::point2(0.0, 0.0),
         );
-        let host_layout = crate::shell::desktop::ui::workbench_host::WorkbenchHostLayout {
-            host: crate::app::SurfaceHostId::Navigator(
-                crate::app::workbench_layout_policy::NavigatorHostId::Right,
-            ),
-            anchor_edge: crate::app::workbench_layout_policy::AnchorEdge::Right,
-            form_factor:
-                crate::shell::desktop::ui::workbench_host::WorkbenchHostFormFactor::Sidebar,
-            configured_scope: crate::app::NavigatorHostScope::Both,
-            resolved_scope: crate::app::NavigatorHostScope::Both,
-            size_fraction: 0.3,
-            cross_axis_margin_start_px: 0.0,
-            cross_axis_margin_end_px: 0.0,
-            resizable: true,
-        };
+        let host_layout = test_host_layout();
         let projection = WorkbenchChromeProjection {
             layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
             chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
@@ -2165,6 +2278,86 @@ mod tests {
     }
 
     #[test]
+    fn graph_context_lines_surface_graphlet_frontier_breakdown() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_workspace_focused_view_with_transition(Some(view_id));
+        let node_key = app.workspace.domain.graph.add_node(
+            "https://graphlet-overview.example".to_string(),
+            euclid::point2(0.0, 0.0),
+        );
+        app.select_in_focused_view(node_key, false);
+        let host_layout = test_host_layout();
+        let projection = WorkbenchChromeProjection {
+            layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_pane_title: Some("Node".to_string()),
+            active_frame_name: Some("frame-a".to_string()),
+            saved_frame_names: vec![],
+            navigator_groups: vec![],
+            pane_entries: vec![],
+            tree_root: None,
+            active_graphlet_roster: vec![
+                GraphletRosterEntry {
+                    node_key,
+                    title: "Warm seed".to_string(),
+                    is_cold: false,
+                },
+                GraphletRosterEntry {
+                    node_key,
+                    title: "Cold peer that will truncate".to_string(),
+                    is_cold: true,
+                },
+            ],
+        };
+
+        let lines = graph_context_lines(&app, &projection, None);
+
+        assert!(lines.iter().any(|line| line == "Active pane graphlet: 1 warm node(s) · 1 cold node(s)"));
+        assert!(lines.iter().any(|line| line.contains("Frontier ready to open: Cold peer that wi…")));
+    }
+
+    #[test]
+    fn workbench_context_lines_surface_semantic_tab_binding_state() {
+        let pane_id = PaneId::new();
+        let host_layout = test_host_layout();
+        let projection = WorkbenchChromeProjection {
+            layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_pane_title: Some("Node".to_string()),
+            active_frame_name: Some("frame-a".to_string()),
+            saved_frame_names: vec!["frame-a".to_string()],
+            navigator_groups: vec![],
+            pane_entries: vec![WorkbenchPaneEntry {
+                pane_id,
+                kind: WorkbenchPaneKind::Node {
+                    node_key: crate::graph::NodeKey::new(7),
+                },
+                title: "Node".to_string(),
+                subtitle: None,
+                arrangement_memberships: vec!["triage".to_string()],
+                semantic_tab_affordance: Some(SemanticTabAffordance::Restore {
+                    group_id: uuid::Uuid::nil(),
+                    member_count: 3,
+                }),
+                is_active: true,
+                closable: true,
+            }],
+            tree_root: None,
+            active_graphlet_roster: vec![],
+        };
+
+        let lines = workbench_context_lines(&projection);
+
+        assert!(lines.iter().any(|line| line == "Workbench binding: detached from semantic tab group (3 pane(s))"));
+    }
+
+    #[test]
     fn runtime_attention_actions_route_to_runtime_owned_surfaces() {
         let app = GraphBrowserApp::new_for_testing();
 
@@ -2192,20 +2385,7 @@ mod tests {
         app.workspace.graph_runtime.history_preview_mode_active = true;
         let view_id = GraphViewId::new();
         let pane_id = PaneId::new();
-        let host_layout = crate::shell::desktop::ui::workbench_host::WorkbenchHostLayout {
-            host: crate::app::SurfaceHostId::Navigator(
-                crate::app::workbench_layout_policy::NavigatorHostId::Right,
-            ),
-            anchor_edge: crate::app::workbench_layout_policy::AnchorEdge::Right,
-            form_factor:
-                crate::shell::desktop::ui::workbench_host::WorkbenchHostFormFactor::Sidebar,
-            configured_scope: crate::app::NavigatorHostScope::Both,
-            resolved_scope: crate::app::NavigatorHostScope::Both,
-            size_fraction: 0.3,
-            cross_axis_margin_start_px: 0.0,
-            cross_axis_margin_end_px: 0.0,
-            resizable: true,
-        };
+        let host_layout = test_host_layout();
         let projection = WorkbenchChromeProjection {
             layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
             chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
@@ -2221,12 +2401,19 @@ mod tests {
                 title: "Graph".to_string(),
                 subtitle: None,
                 arrangement_memberships: vec![],
-                semantic_tab_affordance: None,
+                semantic_tab_affordance: Some(SemanticTabAffordance::Collapse {
+                    group_id: uuid::Uuid::nil(),
+                    member_count: 2,
+                }),
                 is_active: true,
                 closable: true,
             }],
             tree_root: None,
-            active_graphlet_roster: vec![],
+            active_graphlet_roster: vec![GraphletRosterEntry {
+                node_key: crate::graph::NodeKey::new(9),
+                title: "Warm seed".to_string(),
+                is_cold: false,
+            }],
         };
         let slot = OverviewSlotSnapshot {
             view_id,
@@ -2240,6 +2427,8 @@ mod tests {
 
         assert!(chips.iter().any(|chip| chip.contains("View Focus")));
         assert!(chips.iter().any(|chip| chip == "Panes: 1"));
+        assert!(chips.iter().any(|chip| chip.contains("Active pane graphlet")));
+        assert!(chips.iter().any(|chip| chip.contains("Tabs: linked semantic")));
         assert!(chips.iter().any(|chip| chip == "History preview"));
         assert!(chips.iter().any(|chip| chip == "Archived: 2"));
     }
