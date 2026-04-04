@@ -2375,18 +2375,75 @@ impl DiagnosticsState {
     }
 
     pub(crate) fn ambient_attention_summary(&self) -> Option<AmbientDiagnosticsAttention> {
-        let mut alerts = self.analyzer_snapshots().into_iter().filter_map(|snapshot| {
+        let mut candidates = Vec::new();
+
+        let navigation_violations = self.channel_count(CHANNEL_UX_NAVIGATION_VIOLATION);
+        if navigation_violations > 0 {
+            candidates.push((
+                "Navigation violation".to_string(),
+                format!("{} navigation-violation receipt(s) observed", navigation_violations),
+            ));
+        }
+
+        let signal_routing_failures = self.channel_count(CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED)
+            + self.channel_count(CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED);
+        if signal_routing_failures > 0 {
+            candidates.push((
+                "Signal routing failure".to_string(),
+                format!(
+                    "{} routing failure/lag receipt(s) observed",
+                    signal_routing_failures
+                ),
+            ));
+        }
+
+        let compositor_fallbacks = self.channel_count(CHANNEL_VIEWER_FALLBACK_USED)
+            + self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE);
+        if compositor_fallbacks > 0 {
+            candidates.push((
+                "Renderer fallback active".to_string(),
+                format!(
+                    "{} fallback/placeholder compositor receipt(s) observed",
+                    compositor_fallbacks
+                ),
+            ));
+        }
+
+        let access_denied = self.channel_count(CHANNEL_VERSE_SYNC_ACCESS_DENIED);
+        if access_denied > 0 {
+            candidates.push((
+                "Sync access denied".to_string(),
+                format!("{} access-denied receipt(s) observed", access_denied),
+            ));
+        }
+
+        if let Some(rising_latency) = self
+            .top_channel_trends(8)
+            .into_iter()
+            .find(|trend| trend.trend == "rising" && trend.avg_latency_us >= self.bottleneck_latency_us)
+        {
+            candidates.push((
+                "Rising channel latency".to_string(),
+                format!(
+                    "{} is rising at {:.1}ms average latency",
+                    rising_latency.channel_id,
+                    rising_latency.avg_latency_us as f64 / 1000.0
+                ),
+            ));
+        }
+
+        candidates.extend(self.analyzer_snapshots().into_iter().filter_map(|snapshot| {
             let result = snapshot.last_result?;
             if result.signal != AnalyzerSignal::Alert {
                 return None;
             }
             Some((snapshot.label.to_string(), result.summary))
-        });
+        }));
 
-        let (primary_label, primary_summary) = alerts.next()?;
+        let (primary_label, primary_summary) = candidates.first()?.clone();
 
         Some(AmbientDiagnosticsAttention {
-            alert_count: 1 + alerts.count(),
+            alert_count: candidates.len(),
             primary_label,
             primary_summary,
         })
@@ -3320,6 +3377,19 @@ mod tests {
             !attention.primary_summary.is_empty(),
             "expected non-empty alert summary"
         );
+    }
+
+    #[test]
+    fn ambient_attention_summary_surfaces_direct_fallback_risk_without_analyzer_alert() {
+        let mut state = DiagnosticsState::new();
+        state.emit_message_sent_for_tests(CHANNEL_VIEWER_FALLBACK_USED, 1);
+        state.force_drain_for_tests();
+
+        let attention = state
+            .ambient_attention_summary()
+            .expect("direct fallback risk should surface ambient attention");
+        assert_eq!(attention.primary_label, "Renderer fallback active");
+        assert!(attention.primary_summary.contains("fallback/placeholder"));
     }
 
     #[test]

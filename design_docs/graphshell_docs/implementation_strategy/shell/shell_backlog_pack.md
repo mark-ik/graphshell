@@ -98,6 +98,28 @@ Done shape:
 - persistent Shell chrome has explicit authority and content rules
 - ambient status is legible as system/runtime truth, not graph or workbench truth
 
+Current checkpoint as of `2026-04-04`:
+
+- `shell_status_bar` is now a real Shell slot rather than latent layout metadata.
+- sync, interruption-return context, and diagnostics attention are surfaced as ambient Shell chrome
+  instead of being mixed into command-entry controls.
+- ambient attention ordering now admits both analyzer alerts and direct runtime/channel risk
+  signals such as navigation violations and compositor fallback pressure.
+
+Next bypass seam after the current checkpoint:
+
+1. Host-fed settings/open-surface ingress in `shell/desktop/ui/gui.rs`
+     `apply_pending_settings_route_updates()` still converts runtime/registry signals into
+     `WorkbenchIntent` or direct route-target resolution outside a dedicated Shell open-surface
+     router.
+2. Workbench-host chrome actions in `shell/desktop/ui/workbench_host.rs` still dispatch directly
+     to `WorkbenchIntent` or setter calls from host widgets. This is acceptable short-term, but the
+     next audit should either bless it as the canonical Shell -> Workbench host-action seam or wrap
+     it in an explicit Shell host-action router with parity diagnostics.
+3. Overview-plane interactions in `shell/desktop/ui/overview_plane.rs` still push `GraphIntent`
+     directly. Once Workstream C starts, those actions should route through a Shell-owned overview
+     dispatch seam rather than remain a view-local shortcut.
+
 ### Workstream C — Overview Surface
 
 Primary backlog IDs: `SH03`, `SHS02`
