@@ -29,6 +29,21 @@ pub enum BrowserCommand {
     Close,
 }
 
+impl BrowserCommand {
+    pub(crate) fn diagnostic_label(self) -> &'static str {
+        match self {
+            BrowserCommand::Back => "back",
+            BrowserCommand::Forward => "forward",
+            BrowserCommand::Reload => "reload",
+            BrowserCommand::StopLoad => "stop_load",
+            BrowserCommand::ZoomIn => "zoom_in",
+            BrowserCommand::ZoomOut => "zoom_out",
+            BrowserCommand::ZoomReset => "zoom_reset",
+            BrowserCommand::Close => "close",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserCommandTarget {
     FocusedInput,

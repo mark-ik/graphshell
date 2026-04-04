@@ -19,8 +19,41 @@ use servo::{
 };
 use url::Url;
 
+use crate::app::BrowserCommand;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_MISSING_WEBVIEW,
+    CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED, CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED,
+};
+
 use super::running_app_state::RunningAppState;
 use super::window::PlatformWindow;
+
+fn emit_webdriver_browser_action_requested(command: BrowserCommand) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED,
+        byte_len: command.diagnostic_label().len(),
+    });
+}
+
+fn emit_webdriver_browser_action_missing_webview(command: BrowserCommand) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_MISSING_WEBVIEW,
+        byte_len: command.diagnostic_label().len(),
+    });
+}
+
+fn emit_webdriver_load_status_blocked() {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED,
+        byte_len: "blocked".len(),
+    });
+}
+
+fn send_webdriver_load_status_blocked(sender: &GenericSender<WebDriverLoadStatus>) {
+    emit_webdriver_load_status_blocked();
+    let _ = sender.send(WebDriverLoadStatus::Blocked);
+}
 
 #[derive(Default)]
 pub(crate) struct WebDriverEmbedderControls {
@@ -214,9 +247,12 @@ impl WebDriverRuntime {
                     }
                 }
                 WebDriverCommandMsg::CloseWebView(webview_id, response_sender) => {
-                    state
-                        .window_for_webview_id(webview_id)
-                        .close_webview(webview_id);
+                    emit_webdriver_browser_action_requested(BrowserCommand::Close);
+                    if let Some(window) = state.maybe_window_for_webview_id(webview_id) {
+                        window.close_webview(webview_id);
+                    } else {
+                        emit_webdriver_browser_action_missing_webview(BrowserCommand::Close);
+                    }
                     if let Err(error) = response_sender.send(()) {
                         warn!("Failed to send response of CloseWebView: {error}");
                     }
@@ -291,21 +327,33 @@ impl WebDriverRuntime {
                     self.handle_load_url(state, webview_id, url, load_status_sender);
                 }
                 WebDriverCommandMsg::Refresh(webview_id, load_status_sender) => {
+                    emit_webdriver_browser_action_requested(BrowserCommand::Reload);
                     if let Some(webview) = state.webview_by_id(webview_id) {
                         self.set_load_status_sender(webview_id, load_status_sender);
                         webview.reload();
+                    } else {
+                        emit_webdriver_browser_action_missing_webview(BrowserCommand::Reload);
+                        send_webdriver_load_status_blocked(&load_status_sender);
                     }
                 }
                 WebDriverCommandMsg::GoBack(webview_id, load_status_sender) => {
+                    emit_webdriver_browser_action_requested(BrowserCommand::Back);
                     if let Some(webview) = state.webview_by_id(webview_id) {
                         let traversal_id = webview.go_back(1);
                         self.set_pending_traversal(traversal_id, load_status_sender);
+                    } else {
+                        emit_webdriver_browser_action_missing_webview(BrowserCommand::Back);
+                        send_webdriver_load_status_blocked(&load_status_sender);
                     }
                 }
                 WebDriverCommandMsg::GoForward(webview_id, load_status_sender) => {
+                    emit_webdriver_browser_action_requested(BrowserCommand::Forward);
                     if let Some(webview) = state.webview_by_id(webview_id) {
                         let traversal_id = webview.go_forward(1);
                         self.set_pending_traversal(traversal_id, load_status_sender);
+                    } else {
+                        emit_webdriver_browser_action_missing_webview(BrowserCommand::Forward);
+                        send_webdriver_load_status_blocked(&load_status_sender);
                     }
                 }
                 WebDriverCommandMsg::InputEvent(webview_id, input_event, response_sender) => {
@@ -509,7 +557,7 @@ impl WebDriverRuntime {
             .load_status_senders
             .get(&webview_id)
         {
-            let _ = sender.send(WebDriverLoadStatus::Blocked);
+            send_webdriver_load_status_blocked(sender);
         }
     }
 
@@ -529,5 +577,47 @@ impl WebDriverRuntime {
     ) {
         self.embedder_controls
             .hide_embedder_control(webview_id, embedder_control_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
+
+    #[test]
+    fn webdriver_browser_action_helpers_emit_expected_diagnostics() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        emit_webdriver_browser_action_requested(BrowserCommand::Reload);
+        emit_webdriver_browser_action_missing_webview(BrowserCommand::Close);
+        emit_webdriver_load_status_blocked();
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED
+            )),
+            "expected requested diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_MISSING_WEBVIEW
+            )),
+            "expected missing-webview diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED
+            )),
+            "expected blocked-load diagnostic; got: {emitted:?}"
+        );
     }
 }

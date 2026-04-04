@@ -239,6 +239,12 @@ pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED: &str =
     "runtime.ui.command_bar.nav_action.blocked";
 pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_NO_TARGET: &str =
     "runtime.ui.command_bar.nav_action.no_target";
+pub(crate) const CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED: &str =
+    "runtime.host.webdriver.browser_action.requested";
+pub(crate) const CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_MISSING_WEBVIEW: &str =
+    "runtime.host.webdriver.browser_action.missing_webview";
+pub(crate) const CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED: &str =
+    "runtime.host.webdriver.load_status.blocked";
 pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED: &str =
     "runtime.ui.omnibar.provider_mailbox.request_started";
 pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED: &str =

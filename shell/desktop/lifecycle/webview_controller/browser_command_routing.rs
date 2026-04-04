@@ -4,19 +4,6 @@ use crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_BAR_NAV_ACTIO
 
 const WEBVIEW_STOP_LOAD_SUPPORTED: bool = false;
 
-fn browser_command_label(command: BrowserCommand) -> &'static str {
-    match command {
-        BrowserCommand::Back => "back",
-        BrowserCommand::Forward => "forward",
-        BrowserCommand::Reload => "reload",
-        BrowserCommand::StopLoad => "stop_load",
-        BrowserCommand::ZoomIn => "zoom_in",
-        BrowserCommand::ZoomOut => "zoom_out",
-        BrowserCommand::ZoomReset => "zoom_reset",
-        BrowserCommand::Close => "close",
-    }
-}
-
 pub(super) fn resolve_browser_command_target(
     app: &GraphBrowserApp,
     window: &EmbedderWindow,
@@ -35,14 +22,14 @@ pub(super) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: 
         let Some(webview_id) = resolve_browser_command_target(app, window, target) else {
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_UI_COMMAND_BAR_NAV_ACTION_NO_TARGET,
-                byte_len: browser_command_label(command).len(),
+                byte_len: command.diagnostic_label().len(),
             });
             continue;
         };
         let Some(webview) = window.webview_by_id(webview_id) else {
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_UI_COMMAND_BAR_NAV_ACTION_NO_TARGET,
-                byte_len: browser_command_label(command).len(),
+                byte_len: command.diagnostic_label().len(),
             });
             continue;
         };
