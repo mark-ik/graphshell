@@ -539,8 +539,6 @@ pub(super) fn run_toolbar_phase(
             graph_surface_focused,
             focus_authority,
             local_widget_focus,
-            can_go_back: toolbar_state.can_go_back,
-            can_go_forward: toolbar_state.can_go_forward,
             location: &mut toolbar_state.location,
             location_dirty: &mut toolbar_state.location_dirty,
             location_submitted: &mut toolbar_state.location_submitted,

@@ -131,3 +131,101 @@ impl<'a> ShellLayoutPass<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ShellLayoutPass, ShellSlotRects};
+    use crate::app::workbench_layout_policy::{AnchorEdge, NavigatorHostId};
+    use crate::app::{NavigatorHostScope, SurfaceHostId};
+    use crate::shell::desktop::ui::toolbar::toolbar_ui::ToolbarUiOutput;
+    use crate::shell::desktop::ui::workbench_host::{
+        WorkbenchChromeProjection, WorkbenchHostFormFactor, WorkbenchHostLayout,
+        WorkbenchLayerState,
+    };
+    use egui::{Pos2, Rect, Vec2};
+
+    fn workbench_projection(layer_state: WorkbenchLayerState) -> WorkbenchChromeProjection {
+        WorkbenchChromeProjection {
+            layer_state,
+            chrome_policy: layer_state.chrome_policy(),
+            host_layout: WorkbenchHostLayout {
+                host: SurfaceHostId::Navigator(NavigatorHostId::Right),
+                anchor_edge: AnchorEdge::Right,
+                form_factor: WorkbenchHostFormFactor::Sidebar,
+                configured_scope: NavigatorHostScope::Both,
+                resolved_scope: NavigatorHostScope::Both,
+                size_fraction: 0.15,
+                cross_axis_margin_start_px: 0.0,
+                cross_axis_margin_end_px: 0.0,
+                resizable: true,
+            },
+            host_layouts: Vec::new(),
+            active_pane_title: None,
+            active_frame_name: None,
+            saved_frame_names: Vec::new(),
+            navigator_groups: Vec::new(),
+            pane_entries: Vec::new(),
+            tree_root: None,
+            active_graphlet_roster: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn finish_projects_status_bar_into_slot_rects() {
+        let ctx = egui::Context::default();
+        let status_rect = Rect::from_min_size(Pos2::new(0.0, 576.0), Vec2::new(800.0, 24.0));
+
+        let mut shell_layout = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let toolbar_output = ToolbarUiOutput {
+                toggle_tile_view_requested: false,
+                open_selected_mode_after_submit: None,
+                toolbar_visible: true,
+                command_bar_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 40.0))),
+                status_bar_rect: Some(status_rect),
+            };
+            shell_layout = Some(
+                ShellLayoutPass::new(ctx)
+                    .finish(workbench_projection(WorkbenchLayerState::WorkbenchActive), toolbar_output),
+            );
+        });
+
+        let shell_layout = shell_layout.expect("layout pass should produce an output");
+        assert_eq!(shell_layout.slot_rects.status_bar, Some(status_rect));
+        assert!(shell_layout.slot_rects.workbench_area.is_some());
+    }
+
+    #[test]
+    fn finish_leaves_status_bar_empty_when_toolbar_output_has_no_status_rect() {
+        let ctx = egui::Context::default();
+
+        let mut slot_rects = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let toolbar_output = ToolbarUiOutput {
+                toggle_tile_view_requested: false,
+                open_selected_mode_after_submit: None,
+                toolbar_visible: false,
+                command_bar_rect: None,
+                status_bar_rect: None,
+            };
+            slot_rects = Some(
+                ShellLayoutPass::new(ctx)
+                    .finish(workbench_projection(WorkbenchLayerState::GraphOnly), toolbar_output)
+                    .slot_rects,
+            );
+        });
+
+        assert_eq!(
+            slot_rects.expect("slot rects should exist"),
+            ShellSlotRects {
+                command_bar: Rect::from_min_size(Pos2::ZERO, Vec2::ZERO),
+                graph_primary: Rect::from_min_size(Pos2::ZERO, Vec2::ZERO),
+                workbench_area: None,
+                navigator_left: None,
+                navigator_right: None,
+                navigator_bottom: None,
+                status_bar: None,
+            }
+        );
+    }
+}
