@@ -541,6 +541,10 @@ fn enqueue_navigator_view_focus(graph_app: &mut GraphBrowserApp, view_id: GraphV
     graph_app.enqueue_workbench_intent(WorkbenchIntent::FocusGraphView { view_id });
 }
 
+fn enqueue_overview_plane_toggle(graph_app: &mut GraphBrowserApp) {
+    graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleOverviewPlane);
+}
+
 fn render_wry_compat_button(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
@@ -793,7 +797,7 @@ fn render_command_bar_legacy_graph_actions(
         .add(toolbar_button(overview_label))
         .on_hover_text(overview_plane_tooltip(graph_app));
     if overview_button.clicked() {
-        frame_intents.push(GraphIntent::ToggleGraphViewLayoutManager);
+        enqueue_overview_plane_toggle(graph_app);
     }
 }
 
@@ -998,7 +1002,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
 #[cfg(test)]
 mod tests {
     use super::{
-        enqueue_navigator_view_focus,
+        enqueue_navigator_view_focus, enqueue_overview_plane_toggle,
         emit_command_bar_command_palette_requested, emit_omnibar_provider_mailbox_applied,
         emit_omnibar_provider_mailbox_failed, emit_omnibar_provider_mailbox_request_started,
         emit_omnibar_provider_mailbox_stale, render_shell_status_bar, TOOLBAR_HEIGHT,
@@ -1027,6 +1031,18 @@ mod tests {
         assert!(matches!(
             app.take_pending_workbench_intents().as_slice(),
             [WorkbenchIntent::FocusGraphView { view_id: focused }] if *focused == view_id
+        ));
+    }
+
+    #[test]
+    fn overview_button_enqueue_workbench_toggle_intent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        enqueue_overview_plane_toggle(&mut app);
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::ToggleOverviewPlane]
         ));
     }
 
