@@ -22,7 +22,7 @@ use winit::event::{ElementState, KeyEvent, MouseButton, TouchPhase};
 use winit::keyboard::KeyCode;
 use winit::window::CursorIcon;
 
-use crate::app::{BrowserCommand, BrowserCommandTarget, OpenSurfaceSource};
+use crate::app::OpenSurfaceSource;
 use crate::shell::desktop::host::geometry::winit_position_to_euclid_point;
 use crate::shell::desktop::host::keyutils::{
     CMD_OR_ALT, CMD_OR_CONTROL, keyboard_event_from_winit,
@@ -230,7 +230,11 @@ pub(super) fn handle_intercepted_key_bindings(
             headed
                 .gui
                 .borrow_mut()
-                .request_browser_command(BrowserCommandTarget::FocusedInput, BrowserCommand::Close);
+                .request_toolbar_nav_action_for_webview(
+                    window,
+                    active_webview_id,
+                    ToolbarNavAction::Close,
+                );
         })
         .shortcut(CMD_OR_CONTROL, 'P', || {
             let rate = env::var("SAMPLING_RATE")

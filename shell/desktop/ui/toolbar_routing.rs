@@ -18,6 +18,7 @@ pub(crate) enum ToolbarNavAction {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    Close,
 }
 
 pub(crate) enum ToolbarOpenMode {
@@ -44,7 +45,8 @@ pub(crate) fn run_nav_action(
         ToolbarNavAction::StopLoad
         | ToolbarNavAction::ZoomIn
         | ToolbarNavAction::ZoomOut
-        | ToolbarNavAction::ZoomReset => None,
+        | ToolbarNavAction::ZoomReset
+        | ToolbarNavAction::Close => None,
     } {
         if !registries::phase2_resolve_input_binding(binding_id) {
             return false;
@@ -59,6 +61,7 @@ pub(crate) fn run_nav_action(
         ToolbarNavAction::ZoomIn => BrowserCommand::ZoomIn,
         ToolbarNavAction::ZoomOut => BrowserCommand::ZoomOut,
         ToolbarNavAction::ZoomReset => BrowserCommand::ZoomReset,
+        ToolbarNavAction::Close => BrowserCommand::Close,
     };
     let target = BrowserCommandTarget::ChromeProjection {
         fallback_node: nav_targeting::chrome_projection_node(graph_app, _window)
@@ -167,6 +170,29 @@ mod tests {
                     fallback_node: None
                 },
                 BrowserCommand::StopLoad,
+            ))
+        );
+    }
+
+    #[test]
+    fn close_action_enqueues_browser_command_without_binding_lookup() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        assert!(run_nav_action(
+            &mut app,
+            &window,
+            CommandBarFocusTarget::default(),
+            ToolbarNavAction::Close
+        ));
+        assert_eq!(
+            app.take_pending_browser_command(),
+            Some((
+                BrowserCommandTarget::ChromeProjection {
+                    fallback_node: None
+                },
+                BrowserCommand::Close,
             ))
         );
     }
