@@ -1,4 +1,4 @@
-use crate::app::GraphBrowserApp;
+use crate::app::{GraphBrowserApp, WorkbenchIntent};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
@@ -55,11 +55,13 @@ pub(super) fn render_frame_pin_controls(
                 });
         if pane_pin_button.clicked() {
             if pane_is_pinned {
-                if let Err(e) = graph_app.delete_workspace_layout(pane_pin_name) {
-                    log::warn!("Failed to unpin focused pane workspace '{pane_pin_name}': {e}");
-                }
+                graph_app.enqueue_workbench_intent(WorkbenchIntent::DeleteFrame {
+                    frame_name: pane_pin_name.to_string(),
+                });
             } else {
-                graph_app.request_save_frame_snapshot_named(pane_pin_name.to_string());
+                graph_app.enqueue_workbench_intent(WorkbenchIntent::SaveFrameSnapshotNamed {
+                    name: pane_pin_name.to_string(),
+                });
             }
         }
 
@@ -67,7 +69,9 @@ pub(super) fn render_frame_pin_controls(
             .add_enabled(pane_is_pinned, super::toolbar_button("PR"))
             .on_hover_text("Recall focused pane pinned frame");
         if pane_recall_button.clicked() {
-            graph_app.request_restore_frame_snapshot_named(pane_pin_name.to_string());
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::RestoreFrame {
+                name: pane_pin_name.to_string(),
+            });
         }
     }
 
@@ -82,14 +86,13 @@ pub(super) fn render_frame_pin_controls(
         });
     if space_pin_button.clicked() {
         if space_is_pinned {
-            if let Err(e) = graph_app.delete_workspace_layout(super::WORKSPACE_PIN_NAME) {
-                log::warn!(
-                    "Failed to unpin frame snapshot '{}': {e}",
-                    super::WORKSPACE_PIN_NAME
-                );
-            }
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::DeleteFrame {
+                frame_name: super::WORKSPACE_PIN_NAME.to_string(),
+            });
         } else {
-            graph_app.request_save_frame_snapshot_named(super::WORKSPACE_PIN_NAME.to_string());
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SaveFrameSnapshotNamed {
+                name: super::WORKSPACE_PIN_NAME.to_string(),
+            });
         }
     }
 
@@ -97,7 +100,9 @@ pub(super) fn render_frame_pin_controls(
         .add_enabled(space_is_pinned, super::toolbar_button("WR"))
         .on_hover_text("Recall pinned frame snapshot");
     if space_recall_button.clicked() {
-        graph_app.request_restore_frame_snapshot_named(super::WORKSPACE_PIN_NAME.to_string());
+        graph_app.enqueue_workbench_intent(WorkbenchIntent::RestoreFrame {
+            name: super::WORKSPACE_PIN_NAME.to_string(),
+        });
     }
 }
 

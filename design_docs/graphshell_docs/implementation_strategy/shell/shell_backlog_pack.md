@@ -119,21 +119,21 @@ Current checkpoint as of `2026-04-04`:
 - workbench-host rename/delete/save/restore/prune actions now also route through shared
      `WorkbenchIntent`, so `apply_workbench_host_action(...)` no longer performs direct persistence or
      request dispatch itself.
+- workbench-host and toolbar pin/unpin controls now emit shared frame intents instead of calling
+     persistence helpers directly from the view layer.
 
 Next bypass seam after the current checkpoint:
 
-1. Workbench-host chrome in `shell/desktop/ui/workbench_host.rs` still has direct frame pin/unpin
-     affordances outside the host-action router (`delete_workspace_layout(...)` /
-     `request_save_frame_snapshot_named(...)` in the focused-pane and workspace pin buttons). The
-     next audit should decide whether those controls should emit `WorkbenchHostAction` /
-     `WorkbenchIntent` like the rest of Shell chrome or remain explicit local persistence bridges.
+1. Workbench-host routing and frame-persistence chrome now converge on shared `WorkbenchIntent`.
+     The next Shell bypass audit should move to the remaining non-host surfaces that still perform
+     local frame persistence or frame routing shortcuts, or else document them as intentional.
 2. Overview-plane interactions in `shell/desktop/ui/overview_plane.rs` still keep graph-layout
      mutation local (`CreateGraphViewSlot`, `MoveGraphViewSlot`, `RenameGraphViewSlot`, archive /
      restore, exit). That is likely correct, but Workstream C should make the split explicit in the
      Shell overview contract so only graph-owned layout mutations bypass the workbench authority.
-3. Direct frame pin/unpin controls in `shell/desktop/ui/workbench_host.rs` are now the clearest
-     remaining candidates for either a dedicated Shell host-action request contract or a documented
-     exception rather than remaining view-local shortcuts.
+3. Global toolbar frame controls now share the same `WorkbenchIntent` frame-request path as
+     workbench-host chrome. If Shell later introduces a dedicated frame-request contract, keep these
+     non-host controls aligned rather than letting them drift back to direct persistence helpers.
 
 ### Workstream C — Overview Surface
 

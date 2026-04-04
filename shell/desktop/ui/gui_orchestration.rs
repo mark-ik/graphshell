@@ -1442,6 +1442,7 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::DismissFrameSplitOfferForSession { .. }
         | WorkbenchIntent::RenameFrame { .. }
         | WorkbenchIntent::DeleteFrame { .. }
+        | WorkbenchIntent::SaveFrameSnapshotNamed { .. }
         | WorkbenchIntent::SaveCurrentFrame
         | WorkbenchIntent::PruneEmptyFrames
         | WorkbenchIntent::RestoreFrame { .. }

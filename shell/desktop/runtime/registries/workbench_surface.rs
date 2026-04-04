@@ -262,6 +262,7 @@ impl WorkbenchSurfaceRegistry {
                     | WorkbenchIntent::DismissFrameSplitOfferForSession { .. }
                     | WorkbenchIntent::RenameFrame { .. }
                     | WorkbenchIntent::DeleteFrame { .. }
+                    | WorkbenchIntent::SaveFrameSnapshotNamed { .. }
                     | WorkbenchIntent::SaveCurrentFrame
                     | WorkbenchIntent::PruneEmptyFrames
                     | WorkbenchIntent::RestoreFrame { .. }
@@ -410,6 +411,10 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::DeleteFrame { frame_name } => {
                 apply_delete_frame_intent(graph_app, frame_name);
+                None
+            }
+            WorkbenchIntent::SaveFrameSnapshotNamed { name } => {
+                graph_app.request_save_frame_snapshot_named(name);
                 None
             }
             WorkbenchIntent::SaveCurrentFrame => {

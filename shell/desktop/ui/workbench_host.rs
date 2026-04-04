@@ -2143,10 +2143,10 @@ pub(crate) fn render_workbench_host(
                     );
                     render_frame_pin_controls(
                         ui,
-                        graph_app,
                         true,
                         focused_pane_pin_name.as_deref(),
                         &persisted_frame_names,
+                        &mut post_host_actions,
                     );
                     ui.menu_button(
                         format!("Frames ({})", projection.saved_frame_names.len()),
@@ -2688,6 +2688,7 @@ enum WorkbenchHostAction {
         to: String,
     },
     DeleteFrame(String),
+    SaveFrameSnapshotNamed(String),
     MoveFrameLayoutHint {
         frame_name: String,
         from_index: usize,
@@ -2744,16 +2745,17 @@ fn workbench_host_action_diagnostic_code(action: &WorkbenchHostAction) -> usize 
         WorkbenchHostAction::SetFrameSplitOfferSuppressed { .. } => 20,
         WorkbenchHostAction::RenameFrame { .. } => 21,
         WorkbenchHostAction::DeleteFrame(_) => 22,
-        WorkbenchHostAction::MoveFrameLayoutHint { .. } => 23,
-        WorkbenchHostAction::RemoveFrameLayoutHint { .. } => 24,
-        WorkbenchHostAction::SaveCurrentFrame => 25,
-        WorkbenchHostAction::PruneEmptyFrames => 26,
-        WorkbenchHostAction::RestoreFrame(_) => 27,
-        WorkbenchHostAction::FocusGraphView(_) => 28,
-        WorkbenchHostAction::OpenGraphView(_) => 29,
-        WorkbenchHostAction::TransferSelectedNodesToGraphView { .. } => 30,
-        WorkbenchHostAction::ToggleOverviewPlane => 31,
-        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 32,
+        WorkbenchHostAction::SaveFrameSnapshotNamed(_) => 23,
+        WorkbenchHostAction::MoveFrameLayoutHint { .. } => 24,
+        WorkbenchHostAction::RemoveFrameLayoutHint { .. } => 25,
+        WorkbenchHostAction::SaveCurrentFrame => 26,
+        WorkbenchHostAction::PruneEmptyFrames => 27,
+        WorkbenchHostAction::RestoreFrame(_) => 28,
+        WorkbenchHostAction::FocusGraphView(_) => 29,
+        WorkbenchHostAction::OpenGraphView(_) => 30,
+        WorkbenchHostAction::TransferSelectedNodesToGraphView { .. } => 31,
+        WorkbenchHostAction::ToggleOverviewPlane => 32,
+        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 33,
     }
 }
 
@@ -3205,6 +3207,10 @@ fn apply_workbench_host_action(
             graph_app.enqueue_workbench_intent(WorkbenchIntent::DeleteFrame { frame_name });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
+        WorkbenchHostAction::SaveFrameSnapshotNamed(name) => {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SaveFrameSnapshotNamed { name });
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
         WorkbenchHostAction::MoveFrameLayoutHint {
             frame_name,
             from_index,
@@ -3416,10 +3422,10 @@ fn render_navigation_buttons(
 
 fn render_frame_pin_controls(
     ui: &mut egui::Ui,
-    graph_app: &mut GraphBrowserApp,
     has_hosted_panes: bool,
     focused_pane_pin_name: Option<&str>,
     persisted_frame_names: &HashSet<String>,
+    post_host_actions: &mut Vec<WorkbenchHostAction>,
 ) {
     if !has_hosted_panes {
         return;
@@ -3437,11 +3443,10 @@ fn render_frame_pin_controls(
                 });
         if pane_pin_button.clicked() {
             if pane_is_pinned {
-                if let Err(error) = graph_app.delete_workspace_layout(pane_pin_name) {
-                    log::warn!("Failed to unpin focused pane workspace '{pane_pin_name}': {error}");
-                }
+                post_host_actions.push(WorkbenchHostAction::DeleteFrame(pane_pin_name.to_string()));
             } else {
-                graph_app.request_save_frame_snapshot_named(pane_pin_name.to_string());
+                post_host_actions
+                    .push(WorkbenchHostAction::SaveFrameSnapshotNamed(pane_pin_name.to_string()));
             }
         }
     }
@@ -3458,11 +3463,11 @@ fn render_frame_pin_controls(
             });
     if space_pin_button.clicked() {
         if space_is_pinned {
-            if let Err(error) = graph_app.delete_workspace_layout(workspace_pin_name) {
-                log::warn!("Failed to unpin frame snapshot '{workspace_pin_name}': {error}");
-            }
+            post_host_actions.push(WorkbenchHostAction::DeleteFrame(workspace_pin_name.to_string()));
         } else {
-            graph_app.request_save_frame_snapshot_named(workspace_pin_name.to_string());
+            post_host_actions.push(WorkbenchHostAction::SaveFrameSnapshotNamed(
+                workspace_pin_name.to_string(),
+            ));
         }
     }
 }
@@ -4327,6 +4332,11 @@ mod tests {
             &mut tree,
         );
         apply_workbench_host_action(
+            WorkbenchHostAction::SaveFrameSnapshotNamed("workspace-save".to_string()),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
             WorkbenchHostAction::SaveCurrentFrame,
             &mut app,
             &mut tree,
@@ -4347,12 +4357,14 @@ mod tests {
             [
                 WorkbenchIntent::RenameFrame { from, to },
                 WorkbenchIntent::DeleteFrame { frame_name },
+                WorkbenchIntent::SaveFrameSnapshotNamed { name: saved_name },
                 WorkbenchIntent::SaveCurrentFrame,
                 WorkbenchIntent::PruneEmptyFrames,
                 WorkbenchIntent::RestoreFrame { name },
             ] if from == "workspace-old"
                 && to == "workspace-new"
                 && frame_name == "workspace-delete"
+                && saved_name == "workspace-save"
                 && name == "workspace-restore"
         ));
     }
@@ -4465,6 +4477,11 @@ mod tests {
             &mut tree,
         );
         apply_workbench_host_action(
+            WorkbenchHostAction::SaveFrameSnapshotNamed("workspace-explicit-save".to_string()),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
             WorkbenchHostAction::PruneEmptyFrames,
             &mut app,
             &mut tree,
@@ -4480,6 +4497,10 @@ mod tests {
         assert!(app
             .take_pending_save_frame_snapshot_named()
             .is_some_and(|name| name.starts_with("workspace:workbench-host-")));
+        assert_eq!(
+            app.take_pending_save_frame_snapshot_named(),
+            Some("workspace-explicit-save".to_string())
+        );
         assert!(app.take_pending_prune_empty_frames());
         assert_eq!(
             app.take_pending_restore_frame_snapshot_named(),

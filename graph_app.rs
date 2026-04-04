@@ -624,6 +624,9 @@ pub enum WorkbenchIntent {
     DeleteFrame {
         frame_name: String,
     },
+    SaveFrameSnapshotNamed {
+        name: String,
+    },
     SaveCurrentFrame,
     PruneEmptyFrames,
     RestoreFrame {
