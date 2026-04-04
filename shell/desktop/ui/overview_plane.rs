@@ -3,11 +3,18 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use egui::{Color32, Context, Key, Pos2, RichText, Sense, Stroke, StrokeKind, Ui, Vec2, Window};
+use egui_tiles::Tree;
 
 use crate::app::{
-    GraphBrowserApp, GraphIntent, GraphViewId, GraphViewLayoutDirection, PendingTileOpenMode,
-    WorkbenchIntent,
+    GraphBrowserApp, GraphIntent, GraphSearchOrigin, GraphViewId, GraphViewLayoutDirection,
+    PendingTileOpenMode, WorkbenchIntent,
 };
+use crate::shell::desktop::runtime::registries::phase3_trusted_peers;
+use crate::shell::desktop::ui::workbench_host::{
+    WorkbenchChromeProjection, WorkbenchPaneEntry, WorkbenchPaneKind,
+};
+use crate::shell::desktop::workbench::pane_model::PaneId;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 const OVERVIEW_CELL_SIZE: Vec2 = Vec2::new(156.0, 92.0);
 const OVERVIEW_CELL_GAP: f32 = 16.0;
@@ -56,11 +63,17 @@ fn overview_surface_action_to_workbench_intent(action: OverviewSurfaceAction) ->
     }
 }
 
-pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
+pub(crate) fn render_overview_plane(
+    ctx: &Context,
+    app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    active_pane: Option<PaneId>,
+) {
     if !app.graph_view_layout_manager_active() {
         return;
     }
 
+    let chrome_projection = WorkbenchChromeProjection::from_tree(app, tiles_tree, active_pane);
     let slots = sorted_slot_snapshots(app);
     let active_slots: Vec<_> = slots
         .iter()
@@ -85,6 +98,43 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
         .resizable(true)
         .open(&mut open)
         .show(ctx, |ui| {
+            render_overview_active_context_strip(ui, app, &chrome_projection, selected_slot);
+            ui.add_space(8.0);
+            ui.columns(2, |columns| {
+                render_overview_summary_card(
+                    &mut columns[0],
+                    "Graph Context",
+                    &graph_context_lines(app, selected_slot),
+                );
+                render_overview_summary_card(
+                    &mut columns[1],
+                    "Workbench Context",
+                    &workbench_context_lines(&chrome_projection),
+                );
+            });
+            ui.add_space(8.0);
+            ui.columns(2, |columns| {
+                render_overview_summary_card(
+                    &mut columns[0],
+                    "Viewer / Content",
+                    &viewer_content_lines(&chrome_projection),
+                );
+                render_overview_summary_card(
+                    &mut columns[1],
+                    "Runtime / Attention",
+                    &runtime_attention_lines(app),
+                );
+            });
+            ui.add_space(8.0);
+            render_overview_suggested_actions(
+                ui,
+                app,
+                selected_slot,
+                archived_slots.len(),
+                &mut pending_graph_intents,
+                &mut pending_surface_actions,
+            );
+            ui.separator();
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new("Graph-owned graph-view management")
@@ -158,6 +208,332 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
     for action in pending_surface_actions {
         app.enqueue_workbench_intent(overview_surface_action_to_workbench_intent(action));
     }
+}
+
+fn render_overview_active_context_strip(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+    chrome_projection: &WorkbenchChromeProjection,
+    selected_slot: Option<&OverviewSlotSnapshot>,
+) {
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(10))
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("Active Context").strong());
+                ui.separator();
+                ui.label(active_context_summary(app, chrome_projection, selected_slot));
+            });
+        });
+}
+
+fn render_overview_summary_card(ui: &mut Ui, title: &str, lines: &[String]) {
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(10))
+        .show(ui, |ui| {
+            ui.label(RichText::new(title).strong());
+            ui.add_space(4.0);
+            if lines.is_empty() {
+                ui.small("No current state.");
+                return;
+            }
+            for line in lines {
+                ui.small(line);
+            }
+        });
+}
+
+fn render_overview_suggested_actions(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+    selected_slot: Option<&OverviewSlotSnapshot>,
+    archived_count: usize,
+    pending_graph_intents: &mut Vec<GraphIntent>,
+    pending_surface_actions: &mut Vec<OverviewSurfaceAction>,
+) {
+    let transfer_enabled = selected_slot.is_some_and(|slot| {
+        overview_transfer_affordance(app, slot.view_id).enabled
+    });
+    let preview_mode_active = app.history_health_summary().preview_mode_active;
+
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(10))
+        .show(ui, |ui| {
+            ui.label(RichText::new("Suggested Next Actions").strong());
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                for label in overview_suggestion_labels(
+                    selected_slot.is_some(),
+                    transfer_enabled,
+                    archived_count,
+                    preview_mode_active,
+                ) {
+                    ui.label(RichText::new(label).small().weak());
+                }
+            });
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                let Some(slot) = selected_slot else {
+                    return;
+                };
+
+                if ui.button("Focus selected view").clicked() {
+                    pending_surface_actions.push(OverviewSurfaceAction::FocusView(slot.view_id));
+                }
+                if ui.button("Open selected view").clicked() {
+                    pending_surface_actions.push(OverviewSurfaceAction::OpenView(slot.view_id));
+                }
+
+                let transfer_affordance = overview_transfer_affordance(app, slot.view_id);
+                let transfer_button = ui.add_enabled(
+                    transfer_affordance.enabled,
+                    egui::Button::new("Transfer selection"),
+                );
+                let transfer_button = if transfer_affordance.enabled {
+                    transfer_button.on_hover_text(
+                        "Transfer the current focused selection into the selected graph view",
+                    )
+                } else {
+                    transfer_button
+                        .on_disabled_hover_text(transfer_affordance.disabled_reason)
+                };
+                if transfer_button.clicked()
+                    && let Some(action) = overview_transfer_action(app, slot.view_id)
+                {
+                    pending_surface_actions.push(action);
+                }
+
+                if ui.button("Create adjacent view").clicked() {
+                    pending_graph_intents.push(GraphIntent::CreateGraphViewSlot {
+                        anchor_view: Some(slot.view_id),
+                        direction: GraphViewLayoutDirection::Right,
+                        open_mode: Some(PendingTileOpenMode::Tab),
+                    });
+                }
+            });
+        });
+}
+
+fn active_context_summary(
+    app: &GraphBrowserApp,
+    chrome_projection: &WorkbenchChromeProjection,
+    selected_slot: Option<&OverviewSlotSnapshot>,
+) -> String {
+    let mut parts = Vec::new();
+    parts.push(match selected_slot {
+        Some(slot) => format!("View {}", slot.name),
+        None => "View none".to_string(),
+    });
+    parts.push(format!(
+        "Frame {}",
+        chrome_projection
+            .active_frame_name
+            .as_deref()
+            .unwrap_or("session")
+    ));
+    parts.push(format!(
+        "Pane {}",
+        chrome_projection
+            .active_pane_title
+            .as_deref()
+            .unwrap_or("unfocused")
+    ));
+    parts.push(format!(
+        "Focus {}",
+        focus_authority_label(chrome_projection)
+    ));
+    if app.history_health_summary().preview_mode_active {
+        parts.push("History preview".to_string());
+    }
+    parts.join(" · ")
+}
+
+fn graph_context_lines(
+    app: &GraphBrowserApp,
+    selected_slot: Option<&OverviewSlotSnapshot>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let selection = app.focused_selection();
+    if let Some(primary) = selection.primary() {
+        lines.push(format!("Primary target: {}", node_summary_label(app, primary)));
+        let member_count = app.graphlet_peers_for_active_projection(primary).len() + 1;
+        lines.push(format!("Projected graphlet: {member_count} node(s)"));
+    } else {
+        lines.push("Primary target: none".to_string());
+    }
+    if selection.len() > 1 {
+        lines.push(format!("Secondary targets: {}", selection.len() - 1));
+    }
+    if let Some(slot) = selected_slot {
+        let node_count = app.graph_view_owned_node_count(slot.view_id).unwrap_or(0);
+        let external_links = app.graph_view_external_link_count(slot.view_id);
+        lines.push(format!(
+            "{}: {node_count} owned node(s) · {external_links} cross-view link(s)",
+            slot.name
+        ));
+    }
+    let query = app.workspace.graph_runtime.active_graph_search_query.trim();
+    if !query.is_empty() {
+        lines.push(format!(
+            "Search: {query} · {} matches · {}",
+            app.workspace.graph_runtime.active_graph_search_match_count,
+            graph_search_origin_label(&app.workspace.graph_runtime.active_graph_search_origin)
+        ));
+    }
+    lines
+}
+
+fn workbench_context_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Active frame: {}",
+        chrome_projection
+            .active_frame_name
+            .as_deref()
+            .unwrap_or("session")
+    )];
+    lines.push(format!(
+        "Focused pane: {}",
+        chrome_projection
+            .active_pane_title
+            .as_deref()
+            .unwrap_or("none")
+    ));
+    lines.push(format!("Open panes: {}", chrome_projection.pane_entries.len()));
+    lines.push(format!(
+        "Saved frames: {}",
+        chrome_projection.saved_frame_names.len()
+    ));
+    if !chrome_projection.active_graphlet_roster.is_empty() {
+        lines.push(format!(
+            "Active graphlet roster: {} related node(s)",
+            chrome_projection.active_graphlet_roster.len()
+        ));
+    }
+    lines
+}
+
+fn viewer_content_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec<String> {
+    let Some(active_entry) = active_overview_pane_entry(chrome_projection) else {
+        return vec!["Viewer backend: no active workbench pane".to_string()];
+    };
+
+    let mut lines = vec![format!(
+        "Viewer backend: {}",
+        pane_kind_summary_label(active_entry)
+    )];
+    lines.push(format!("Content: {}", active_entry.title));
+    if let Some(subtitle) = active_entry.subtitle.as_deref()
+        && !subtitle.trim().is_empty()
+    {
+        lines.push(format!("Context: {subtitle}"));
+    }
+    if !active_entry.arrangement_memberships.is_empty() {
+        lines.push(format!(
+            "Arrangement: {}",
+            active_entry.arrangement_memberships.join(", ")
+        ));
+    }
+    lines
+}
+
+fn runtime_attention_lines(app: &GraphBrowserApp) -> Vec<String> {
+    let health = app.history_health_summary();
+    let mut lines = vec![format!(
+        "History capture: {}",
+        health.capture_status.as_str()
+    )];
+    if health.preview_mode_active {
+        lines.push("History preview active: live runtime side effects suppressed".to_string());
+    }
+    if health.replay_in_progress {
+        let cursor = health.replay_cursor.unwrap_or(0);
+        let total = health.replay_total_steps.unwrap_or(0);
+        lines.push(format!("Replay in progress: step {cursor}/{total}"));
+    }
+    if health.recent_traversal_append_failures > 0 {
+        lines.push(format!(
+            "Recent traversal append failures: {}",
+            health.recent_traversal_append_failures
+        ));
+    }
+    if let Some(error) = health.last_error.as_deref() {
+        lines.push(format!("Last error: {error}"));
+    }
+    lines.push(format!("Trusted peers: {}", phase3_trusted_peers().len()));
+    lines
+}
+
+fn active_overview_pane_entry(
+    chrome_projection: &WorkbenchChromeProjection,
+) -> Option<&WorkbenchPaneEntry> {
+    chrome_projection
+        .pane_entries
+        .iter()
+        .find(|entry| entry.is_active)
+        .or_else(|| chrome_projection.pane_entries.first())
+}
+
+fn focus_authority_label(chrome_projection: &WorkbenchChromeProjection) -> &'static str {
+    match active_overview_pane_entry(chrome_projection).map(|entry| &entry.kind) {
+        Some(WorkbenchPaneKind::Graph { .. }) => "graph",
+        Some(WorkbenchPaneKind::Node { .. }) => "node pane",
+        Some(WorkbenchPaneKind::Tool { .. }) => "tool pane",
+        None => "overview",
+    }
+}
+
+fn pane_kind_summary_label(entry: &WorkbenchPaneEntry) -> String {
+    match &entry.kind {
+        WorkbenchPaneKind::Graph { .. } => "graph canvas".to_string(),
+        WorkbenchPaneKind::Node { .. } => "node viewer".to_string(),
+        WorkbenchPaneKind::Tool { kind } => format!("tool pane ({})", kind.title()),
+    }
+}
+
+fn node_summary_label(app: &GraphBrowserApp, node_key: crate::graph::NodeKey) -> String {
+    app.domain_graph()
+        .get_node(node_key)
+        .map(|node| {
+            let title = node.title.trim();
+            if title.is_empty() {
+                node.url().to_string()
+            } else {
+                title.to_string()
+            }
+        })
+        .unwrap_or_else(|| format!("Node {node_key:?}"))
+}
+
+fn graph_search_origin_label(origin: &GraphSearchOrigin) -> &'static str {
+    match origin {
+        GraphSearchOrigin::Manual => "manual scope",
+        GraphSearchOrigin::SemanticTag => "semantic-tag scope",
+        GraphSearchOrigin::AnchorSlice => "anchor-slice scope",
+    }
+}
+
+fn overview_suggestion_labels(
+    has_selected_view: bool,
+    transfer_enabled: bool,
+    archived_count: usize,
+    preview_mode_active: bool,
+) -> Vec<&'static str> {
+    let mut labels = Vec::new();
+    if has_selected_view {
+        labels.push("Focus or open the selected region.");
+    } else {
+        labels.push("Select a region to unlock context-aware actions.");
+    }
+    if transfer_enabled {
+        labels.push("Transfer the focused selection into the selected region.");
+    }
+    if archived_count > 0 {
+        labels.push("Review archived regions before creating more layout sprawl.");
+    }
+    if preview_mode_active {
+        labels.push("Return to present before relying on live runtime status.");
+    }
+    labels
 }
 
 pub(crate) fn sorted_slot_snapshots(app: &GraphBrowserApp) -> Vec<OverviewSlotSnapshot> {
@@ -1288,6 +1664,56 @@ mod tests {
             overview_surface_action_to_workbench_intent(OverviewSurfaceAction::ToggleOverviewPlane),
             WorkbenchIntent::ToggleOverviewPlane
         ));
+    }
+
+    #[test]
+    fn graph_search_origin_label_matches_surface_copy() {
+        assert_eq!(graph_search_origin_label(&GraphSearchOrigin::Manual), "manual scope");
+        assert_eq!(
+            graph_search_origin_label(&GraphSearchOrigin::SemanticTag),
+            "semantic-tag scope"
+        );
+        assert_eq!(
+            graph_search_origin_label(&GraphSearchOrigin::AnchorSlice),
+            "anchor-slice scope"
+        );
+    }
+
+    #[test]
+    fn overview_suggestion_labels_include_transfer_archive_and_preview_hints() {
+        let labels = overview_suggestion_labels(true, true, 2, true);
+        assert!(labels.contains(&"Focus or open the selected region."));
+        assert!(labels.contains(&"Transfer the focused selection into the selected region."));
+        assert!(labels.contains(&"Review archived regions before creating more layout sprawl."));
+        assert!(labels.contains(&"Return to present before relying on live runtime status."));
+    }
+
+    #[test]
+    fn node_summary_label_prefers_node_title_over_url() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.workspace.domain.graph.add_node(
+            "https://overview-node.example".to_string(),
+            euclid::point2(0.0, 0.0),
+        );
+        let _ = app
+            .workspace
+            .domain
+            .graph
+            .set_node_title(key, "Overview Node".to_string());
+
+        assert_eq!(node_summary_label(&app, key), "Overview Node");
+    }
+
+    #[test]
+    fn graph_context_lines_report_active_search_summary() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.graph_runtime.active_graph_search_query = "anchor".to_string();
+        app.workspace.graph_runtime.active_graph_search_match_count = 3;
+        app.workspace.graph_runtime.active_graph_search_origin = GraphSearchOrigin::AnchorSlice;
+
+        let lines = graph_context_lines(&app, None);
+        assert!(lines.iter().any(|line| line.contains("Search: anchor · 3 matches")));
+        assert!(lines.iter().any(|line| line.contains("anchor-slice scope")));
     }
 
     #[test]

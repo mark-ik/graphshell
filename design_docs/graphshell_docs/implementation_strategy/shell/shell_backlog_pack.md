@@ -170,6 +170,17 @@ Concrete slices:
      Shell.
 4. Add explicit `DI05` acceptance evidence for overview-to-domain handoff behavior.
 
+Current status:
+
+- first standard-mode slice landed: the overview plane now builds Active Context, Graph Context,
+     Workbench Context, Viewer/Content, Runtime/Attention, and Suggested Next Actions from live
+     `GraphBrowserApp` state plus `WorkbenchChromeProjection::from_tree(...)`, while keeping
+     graph-view slot create/rename/move/archive/restore controls in the graph-owned manager below
+     the summary cards
+- next Workstream C slice should tighten per-card action affordances so each summary chip routes
+     directly into the owning domain with `DI05` evidence instead of relying primarily on the
+     existing region/detail controls
+
 Done shape:
 
 - Shell overview exists as a real host-owned summary surface
