@@ -8,6 +8,7 @@
 
 * `semantic_tagging_and_knowledge_spec.md`
 * `node_badge_and_tagging_spec.md`
+* `2026-04-03_semantic_clustering_follow_on_plan.md`
 * `2026-02-24_layout_behaviors_plan.md`
 * `multi_view_pane_spec.md`
 * `faceted_filter_surface_spec.md`

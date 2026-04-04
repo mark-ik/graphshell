@@ -321,3 +321,21 @@ When written, `canvas_render_pipeline_spec.md` must define the normative contrac
   for node thumbnails and badges,
 - canvas-specific diagnostics channels for draw call counts, cull rates, and
   per-frame geometry budget.
+
+Note: Node glyph resolution — how the system selects and composes a node's visual
+form — is now specified separately in `2026-04-03_node_glyph_spec.md`. The future
+`canvas_render_pipeline_spec.md` will consume resolved glyphs as input to its draw
+architecture.
+
+---
+
+## 10. Node Glyph Authority
+
+`2026-04-03_node_glyph_spec.md` defines the **node glyph**: the visual form of a node
+on the canvas. It owns glyph anatomy (body, content imagery, state rendering, LOD
+presentation), glyph resolution (rule-matching pipeline from node data through theme
+application to resolved shapes), and user-authored glyph rules.
+
+The glyph spec is orthogonal to PMEST facets — facets describe what a node IS; the
+glyph describes how it APPEARS. It is also distinct from the badge system, which composes
+atop the resolved glyph.

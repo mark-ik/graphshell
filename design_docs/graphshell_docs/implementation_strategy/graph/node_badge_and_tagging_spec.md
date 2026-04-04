@@ -14,6 +14,7 @@
 - `2026-03-11_graph_enrichment_plan.md`
 - `../system/register/knowledge_registry_spec.md`
 - `../system/register/action_registry_spec.md`
+- `2026-04-03_node_glyph_spec.md` — node visual form authority; badges compose atop the resolved glyph
 - `../../../archive_docs/checkpoint_2026-04-01/graphshell_docs/implementation_strategy/graph/2026-02-20_node_badge_and_tagging_plan.md`
 - `../../../archive_docs/checkpoint_2026-04-01/graphshell_docs/implementation_strategy/graph/2026-03-31_node_badge_and_tagging_follow_on_plan.md`
 

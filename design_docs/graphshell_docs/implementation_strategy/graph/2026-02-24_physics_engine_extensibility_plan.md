@@ -4,15 +4,26 @@
 
 # Physics Engine Extensibility Plan (2026-02-24)
 
-**Status**: Active research note / partial implementation (updated 2026-04-02 — current code uses
-Graphshell-owned post-physics extension helpers plus an `ActiveLayout` dispatcher; the
-`egui_graphs` `Layout<S>` / `LayoutState` trait seam is still imported behind `graph::physics`;
-later sections retain exploratory follow-ons including WASM layouts, rapier2d, and 2D↔3D
-hotswitch architecture)
+**Status**: Active research note / partial implementation (updated 2026-04-03 — current code uses
+Graphshell-owned post-physics extension helpers plus an `ActiveLayout` dispatcher; helper-era
+seeded physics profiles are landed in the atomic lens registry and active profile resolution is
+wired through the registry runtime; the `egui_graphs` `Layout<S>` / `LayoutState` trait seam is
+still imported behind `graph::physics`; later sections retain exploratory follow-ons including
+WASM layouts, rapier2d, and 2D↔3D hotswitch architecture)
 **Relates to**:
 
 - `2026-02-22_registry_layer_plan.md` — `PhysicsProfileRegistry` owns named presets; `CanvasRegistry` owns engine execution; `LayoutRegistry` owns positioning algorithms
 - `layout_behaviors_and_physics_spec.md` — canonical active behavior contract for reheat, clustering, gravity locus, and frame-affinity policy
+- `2026-04-03_layout_variant_follow_on_plan.md` — extracted execution lane for built-in layout variants beyond FR/Barnes-Hut
+- `2026-04-03_layout_backend_state_ownership_plan.md` — extracted execution lane for widening the persisted layout carrier and deciding how far Graphshell should own backend state
+- `2026-04-03_damping_profile_follow_on_plan.md` — extracted execution lane for named damping curves, profile references, and explicit settle-shape policy
+- `2026-04-03_edge_routing_follow_on_plan.md` — extracted execution lane for post-layout edge-path policy, readability-driven routing suggestions, and bounded bundling strategy
+- `2026-04-03_layout_transition_and_history_plan.md` — extracted execution lane for layout morphing, bounded position snapshots, and view-owned spatial undo/redo
+- `2026-04-03_physics_preferences_surface_plan.md` — extracted execution lane for the page-backed physics settings surface, scope boundaries, preset portability, and advanced control surfacing
+- `2026-04-03_physics_region_plan.md` — extracted execution lane for authored spatial-rule regions, graph-view-aware scope, persistence semantics, and separation from derived frame-affinity behavior
+- `2026-04-03_semantic_clustering_follow_on_plan.md` — extracted execution lane for semantic input selection, out-of-band clustering computation, and layout consumption rules
+- `2026-04-03_wasm_layout_runtime_plan.md` — extracted execution lane for sandboxed runtime-loaded layouts, guest ABI, and fallback behavior
+- `2026-04-03_twod_twopointfive_isometric_plan.md` — extracted execution lane for projection modes short of full reorientable 3D
 - `archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/graph/2026-02-24_layout_behaviors_plan.md` — archived execution record for the behavioral layout slices that now sit on this physics seam
 - `multi_view_pane_spec.md` — pane-hosted multi-view architecture, per-`GraphViewId` layout ownership, and `ViewDimension` as graph-view state
 - `design_docs/PROJECT_DESCRIPTION.md` — 2D↔3D hotswitch with position parity is a named first-class vision feature
@@ -518,13 +529,13 @@ named capability in the registry."
 | --- | --- | --- |
 | Type aliases (`GraphPhysicsState`, etc.) | `graph/physics.rs` | Plain module — naming only |
 | Post-physics helper passes | `graph/physics.rs`, `graph/frame_affinity.rs` | Plain module — pure math + graph-derived adjustments |
-| `PhysicsProfile` presets | `app.rs` → `registries/presentation/physics_profile.rs` | Data presets; registry migration Phase 6 |
+| `PhysicsProfile` presets | `registries/atomic/lens/physics.rs` + `shell/desktop/runtime/registries/mod.rs` | Landed data presets plus active profile resolution/signal wiring |
 | `Layout<S>` custom engines | `graph/layouts/` | Plain module — algorithm impl |
 | Named `layout:*` in `LayoutRegistry` | `graph/layouts/<name>.rs` + `inventory::submit!` | **Native mod scope** — only for user-visible Lens options |
-| `WasmLayoutAdapter` | `registries/layout/wasm_layout.rs` | Native host adapter; loads WASM plugin |
+| `WasmLayoutAdapter` | future `registries/layout/wasm_layout.rs` | Native host adapter if runtime-loaded WASM layouts are pursued |
 | `ActiveLayout` enum dispatcher | `graph/layouts/active.rs` | Hot-swap seam; always one concrete type in `GraphView` |
-| rapier2d physics world | `graph/physics_world.rs` | Plain module — no registry coupling |
-| Canvas Editor UI | `desktop/panels/canvas_editor.rs` | Desktop layer; dispatches `GraphIntent` |
+| rapier2d physics world | future `graph/physics_world.rs` | Plain module — no registry coupling if scene-physics work is pursued |
+| Canvas Editor UI | future `desktop/panels/canvas_editor.rs` | Desktop layer if scene-physics editing becomes a product lane |
 
 **Implement the algorithm as a plain module first.** Add `inventory::submit!` only when the
 algorithm needs to appear as a named Lens option selectable by users.
@@ -533,22 +544,59 @@ algorithm needs to appear as a named Lens option selectable by users.
 
 ## Integration with `PhysicsProfileRegistry`
 
-The registry currently vends three presets as hardcoded constructors in `app.rs`. Migration path:
+**Updated 2026-04-03**: this section was stale. The helper-era seeded profile portfolio is no
+longer follow-on work; it is landed in `registries/atomic/lens/physics.rs`, and active physics
+profile resolution/setter flows are wired through `shell/desktop/runtime/registries/mod.rs`.
+
+Current integration status:
 
 1. ~~Add `graph/physics.rs` with aliases (Level 1).~~ **Done.**
 2. ~~Land Graphshell-owned post-physics extension helpers (Level 2).~~ **Done in `graph/physics.rs` / `graph/frame_affinity.rs`.**
-3. ~~Expand `PhysicsProfile` to carry extension flags for the current helper set.~~ **Done for degree/domain/semantic clustering; frame-affinity derives from canvas zone policy.**
-4. Add new preset constructors for the ten thematic profiles (see below) if they still make sense after the current helper architecture settles.
+3. ~~Expand `PhysicsProfile` to carry extension flags for the current helper set.~~ **Done for degree/domain/semantic clustering, hub-pull, and canvas-derived frame-affinity gating.**
+4. ~~Add helper-era seeded profile constructors.~~ **Done in `registries/atomic/lens/physics.rs` for `drift`, `scatter`, `settle`, `archipelago`, `resonance`, and `constellation`, including legacy alias migration from `physics:liquid` / `physics:gas` / `physics:solid`.**
 5. ~~Add `graph/layouts/active.rs` — `ActiveLayout` enum dispatcher + `ActiveLayoutState`.~~ **Done.**
 6. ~~Migrate `render/mod.rs` to use `ActiveLayout` / `ActiveLayoutState` as the concrete type.~~ **Done.**
-7. Move presets to `registries/presentation/physics_profile.rs` (Phase 6 cleanup).
-8. Wire `PhysicsProfileRegistry` into `LensCompositor` resolution (Phase 6.2).
+7. ~~Wire active physics profile resolution into runtime composition.~~ **Done in `shell/desktop/runtime/registries/mod.rs`; presentation/workflow composition resolves the active physics profile through the registry runtime.**
 
-Steps 4, 7, and 8 are still follow-on work. The extension seam itself is no longer blocked.
+What is **not** a missing seam feature:
 
-Status (2026-04-02): Steps 1, 2, 3, 5, and 6 are landed. `ActiveLayout` /
-`ActiveLayoutState` are the production types in `render/mod.rs`, and the current extension model
-lives in `graph/physics.rs` rather than a dedicated `graph/forces/` module.
+- A move to `registries/presentation/physics_profile.rs` may still happen as cleanup, but the
+  current production location is already the atomic lens registry.
+- The old wording about initial `LensCompositor` wiring should now be read as historical. The
+  production runtime already resolves and publishes active physics-profile changes; any future
+  compositor cleanup is organizational, not a blocker for the physics seam.
+
+Net effect: the extension seam and seeded helper-era profile portfolio are landed. The remaining
+work is no longer registry bootstrapping; it is future layout/runtime expansion.
+
+### What Is Still Actually Left
+
+The meaningful unfinished work after the 2026-04-03 reality check is:
+
+- **Full seam ownership**: `Layout<S>` / `LayoutState` still come from `egui_graphs` via
+  `graph::physics`; Graphshell does not yet own a native trait boundary for layouts.
+- **WASM layout runtime**: no `WasmLayoutAdapter` or stable guest ABI is landed yet.
+- **rapier scene-physics branch**: no `graph/physics_world.rs`, no rapier-backed layout adapter,
+  and no canvas-editor UI are present in production code.
+- **Broader built-in layout portfolio**: the dispatcher currently ships force-directed and
+  Barnes-Hut variants; radial/timeline/phyllotaxis/other layouts remain future additions.
+- **2D↔3D implementation**: the position-parity / render-backend sections below remain
+  architecture notes rather than landed code.
+
+As of 2026-04-03, nine of these future lanes now have their own follow-on execution plans or
+specs so the remaining work is not trapped inside this umbrella research note:
+
+- `2026-04-03_layout_variant_follow_on_plan.md` owns the next built-in layout-variant lane.
+- `2026-04-03_layout_backend_state_ownership_plan.md` owns the state-carrier and backend-ownership decision lane.
+- `2026-04-03_damping_profile_follow_on_plan.md` owns named damping curves, registry references, and settle-shape policy.
+- `2026-04-03_edge_routing_follow_on_plan.md` owns post-layout edge-path policy, readability-triggered routing suggestions, and bounded bundling strategy.
+- `2026-04-03_layout_transition_and_history_plan.md` owns layout morphing, bounded position snapshots, and spatial undo/redo.
+- `2026-04-03_semantic_clustering_follow_on_plan.md` owns semantic input selection, clustering computation, and layout-consumption rules.
+- `2026-04-03_wasm_layout_runtime_plan.md` owns the runtime-loaded layout, guest ABI, and fallback lane.
+- `2026-04-03_twod_twopointfive_isometric_plan.md` owns the narrowed projection-mode lane for
+  `TwoD`, `TwoPointFive`, and `Isometric` without assuming full free-camera 3D.
+- `2026-04-03_node_glyph_spec.md` owns node visual form: glyph anatomy, resolution pipeline,
+  content imagery, LOD presentation, user-authored glyph rules, and the glyph→hull read contract.
 
 ---
 
@@ -937,6 +985,10 @@ than spring forces.
 
 ### Sensor Regions: Physics Rules in Space
 
+*Extracted to `2026-04-03_physics_region_plan.md` for the canonical authored-region authority,
+interaction model, scope/persistence semantics, and integration boundary with settings/editor
+surfaces. The draft below remains the seed sketch, not the full authority.*
+
 rapier `Collider`s with `sensor = true` fire `ContactEvent` callbacks when a rigid body enters
 or exits their volume. This is the foundation for the **physics regions** system:
 
@@ -1188,13 +1240,17 @@ structs that can be referenced by `PhysicsProfile.damping_profile_id`. Different
 presets — these govern the shape of energy dissipation over time, not just the magnitude.
 Useful for achieving specific animation aesthetics (snap-to-rest, oscillate-to-rest, etc.).
 
-**Node glyph renderer plugins**
+**Node glyph renderer plugins** — *extracted to `2026-04-03_node_glyph_spec.md`*
 
 Replace the standard circle/rectangle node renderer with custom SVG, icon, or procedural glyph
 renderers. These are render-phase mods, not physics mods, but they benefit from knowing the
 active physics preset (e.g., render nodes as water droplets when `physics:liquid` is active).
 Registered via the render dispatch table, not `PhysicsProfileRegistry`. Interacts with
 `ThemeRegistry`.
+
+See `2026-04-03_node_glyph_spec.md` for the full glyph resolution pipeline, glyph anatomy,
+user-authored glyph rules, and the boundary contract between glyph visual forms and physics
+hull shapes.
 
 **Gesture recognition mods (mobile and desktop)**
 
@@ -1242,6 +1298,10 @@ Bounded ring buffer (e.g., 20 entries) keeps memory cost predictable.
 ---
 
 ### User Configuration Surface
+
+*Extracted to `2026-04-03_physics_preferences_surface_plan.md` for the canonical page structure,
+scope model, first-slice staging order, and dependency map. The bullets below remain the seed
+inventory for that follow-on plan.*
 
 The architecture implies the following user-facing configuration options. These should be
 surfaced through `AppPreferences`, per-view settings, or per-layout UI controls. Most do not
@@ -1326,38 +1386,37 @@ lost on Canonical switch), per-workspace (persisted in graph snapshot), or per-L
 
 ---
 
-### Cross-Plan Integration Gaps
+### Cross-Plan Integration Notes
 
-The following items require coordination with other plans and are not fully resolved here:
+The remaining items are now a mix of resolved placements and still-open dependency notes:
 
-- **`CanvasRegistry` authority**: This plan invents several new `CanvasRegistry` fields
-  (`degree_repulsion_enabled`, `domain_clustering_enabled`, `edge_routing_enabled`, etc.).
-  These must be registered in `2026-02-22_registry_layer_plan.md §Layout Domain` to avoid
-  duplication. Resolve before expanding the helper set beyond the currently landed
-  `GraphPhysicsExtensionConfig` fields.
+- **`CanvasRegistry` authority** *(re-homed — see `../system/register/canvas_registry_spec.md`)*:
+  future physics-exposed canvas toggles belong in the canonical Canvas Registry policy surface.
+  This note can propose fields, but it is no longer the authority for them.
 
 - **`LensCompositor` + physics preset binding** *(resolved — see `layout_behaviors_and_physics_spec.md §§5–6`)*:
   `LensConfig.physics_profile_id: Option<PhysicsProfileId>` is now formally specified.
   The full `Always/Ask/Never` binding contract and runtime behavior in `LensCompositor::apply_lens`
   are defined in the canonical physics spec.
 
-- **`GraphViewState.dimension` placement**: `ViewDimension` is defined here but belongs to
-  the `GraphViewState` contract in `multi_view_pane_spec.md`. Confirm that the canonical
-  graph-view spec is updated to include the `dimension` field before implementing 3D rendering.
+- **`GraphViewState.dimension` placement** *(resolved — see `multi_view_pane_spec.md §3.1`)*:
+  `GraphViewId` already owns per-view `ViewDimension`. Future projection/3D work should treat that
+  placement as canonical rather than reopening it here.
 
-- **Per-view local simulation + rapier**: graph-view-local simulation state owns the
-  shadow position set. Views that also run rapier physics need a rapier `RigidBodySet`
-  per local simulation instance. Specify whether that local simulation state owns both the
-  shadow positions and the rapier world, or whether rapier is always global.
+- **Per-view local simulation + rapier** *(open dependency note)*: graph-view-local simulation
+  state owns the shadow position set. Views that also run rapier physics still need an owning
+  contract for a per-view `RigidBodySet`/world versus a global rapier world.
 
-- **Snapshot format for `PhysicsRegion`**: early drafts described these in terms of the old
-  `GraphWorkspace.zones` model. If this feature revives, the snapshot format
-  (`persistence_ops.rs`) should persist explicit `physics_regions` records rather than depending
-  on that older zone abstraction. Confirm this is tracked in the persistence plan.
+- **Snapshot format for `PhysicsRegion`** *(open dependency note — see `2026-04-03_physics_region_plan.md`)*:
+  early drafts described these in terms of the old `GraphWorkspace.zones` model. If this feature
+  revives, the snapshot format (`persistence_ops.rs`) should persist explicit `physics_regions`
+  records rather than depending on that older zone abstraction.
 
-- **burn semantic force data contract**: The interface between `LocalIntelligenceAgent` and
-  the `DomainCluster` / semantic ExtraForce must be defined as a trait or data structure,
-  not left as narrative. Coordinate with `2026-02-24_local_intelligence_research.md`.
+- **burn semantic force data contract** *(open dependency note)*: the interface between
+  `LocalIntelligenceAgent` and the `DomainCluster` / semantic ExtraForce must be defined as a trait
+  or data structure, not left as narrative. The layout-side ownership now belongs with
+  `2026-04-03_semantic_clustering_follow_on_plan.md`; model/runtime coordination still depends on
+  `design_docs/verse_docs/research/2026-02-24_local_intelligence_research.md`.
 
 ---
 

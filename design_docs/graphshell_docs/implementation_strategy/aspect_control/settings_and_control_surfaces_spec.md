@@ -5,9 +5,11 @@
 **Priority**: Immediate implementation guidance
 
 **Related**:
+
 - `../2026-02-28_ux_contract_register.md`
 - `../2026-02-20_settings_architecture_plan.md`
 - `../2026-02-24_control_ui_ux_plan.md`
+- `../graph/2026-04-03_physics_preferences_surface_plan.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../workbench/workbench_profile_and_workflow_composition_spec.md`
 - `../subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`

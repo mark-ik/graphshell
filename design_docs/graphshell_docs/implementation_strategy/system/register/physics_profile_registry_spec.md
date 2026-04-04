@@ -4,13 +4,16 @@
 **Status:** Active / canonical
 **Kind:** Atomic registry
 **Related docs:**
+
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry ecosystem and ownership model)
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) (register hub and routing boundary)
+- [../../graph/2026-04-03_damping_profile_follow_on_plan.md](../../graph/2026-04-03_damping_profile_follow_on_plan.md) (named damping curves and settle-shape policy)
 
 **Policy authority**: This file is the canonical policy authority for `physics_profile_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7, 3.9)):
+
 - **Fruchterman-Reingold 1991** — named presets (`Liquid`, `Gas`, `Solid`) are semantic parameter sets over the Fruchterman-Reingold force model; parameter semantics must be documented against the algorithm
 - **OSGi R8** — capability registration, preset lookup, and fallback floor vocabulary
 - **OpenTelemetry Semantic Conventions** — diagnostic channel naming/severity
@@ -30,12 +33,14 @@ Policy in this file should be distilled from canonical specs and accepted resear
 Defines named force/physics parameter presets such as Liquid, Gas, and Solid.
 
 In scope:
+
 - physics preset registration
 - named profile lookup
 - cross-domain semantic labels over numeric parameters
 - shared preset semantics consumed by lens/settings/diagnostics surfaces
 
 Out of scope:
+
 - physics engine execution
 - layout algorithm selection
 - camera command dispatch
@@ -45,6 +50,7 @@ Out of scope:
 This registry is a named capability surface within the Register. It should expose stable lookup and capability contracts, keep failures explicit, and avoid hidden fallback semantics.
 
 Canonical interfaces:
+
 - `get_profile(id)`
 - `describe_profile(id) -> PhysicsCapability`
 - `resolve_preset(mode) -> PhysicsProfile`

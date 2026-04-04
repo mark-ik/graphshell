@@ -445,4 +445,4 @@ lens state passed into the draw context, not hardcoded.
   label overlap metrics
 - Per-edge custom color overrides — not supported; family tokens are the
   encoding, not per-edge properties
-- Edge bundling for dense graphs — separate layout concern, not an encoding concern
+- Edge bundling for dense graphs — separate layout concern, not an encoding concern; see `2026-04-03_edge_routing_follow_on_plan.md`

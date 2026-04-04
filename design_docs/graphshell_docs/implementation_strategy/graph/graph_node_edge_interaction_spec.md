@@ -21,6 +21,7 @@
 - `2026-03-14_graph_relation_families.md` — relation family vocabulary; Navigator replaces "file tree" as the hierarchical projection surface
 - `2026-03-14_edge_visual_encoding_spec.md` — per-family visual encoding and interaction affordances
 - `2026-03-14_edge_operability_matrix.md` — per-family operability contract
+- `2026-04-03_node_glyph_spec.md` — node visual form authority; consumes §4.8 LOD tiers
 
 **Adopted standards** (see [standards report](../../research/2026-03-04_standards_alignment_report.md) §§3.3, 3.5, 3.6):
 

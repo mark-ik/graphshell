@@ -8,6 +8,8 @@
 
 - [`layout_behaviors_and_physics_spec.md`](./layout_behaviors_and_physics_spec.md)
 - [`2026-02-24_physics_engine_extensibility_plan.md`](./2026-02-24_physics_engine_extensibility_plan.md)
+- [`2026-04-03_damping_profile_follow_on_plan.md`](./2026-04-03_damping_profile_follow_on_plan.md)
+- [`2026-04-03_semantic_clustering_follow_on_plan.md`](./2026-04-03_semantic_clustering_follow_on_plan.md)
 - [`GRAPH.md`](./GRAPH.md)
 - [`../system/register/physics_profile_registry_spec.md`](../system/register/physics_profile_registry_spec.md)
 - [`../../technical_architecture/2026-03-12_specification_coverage_register.md`](../../technical_architecture/2026-03-12_specification_coverage_register.md)
@@ -233,9 +235,9 @@ Required coverage:
 
 When Barnes-Hut lands, additional required coverage:
 
-7. algorithm selection policy chooses baseline FR vs Barnes-Hut predictably,
-8. Barnes-Hut approximation parameter is bounded and validated,
-9. switching algorithms preserves higher-level profile semantics.
+1. algorithm selection policy chooses baseline FR vs Barnes-Hut predictably,
+2. Barnes-Hut approximation parameter is bounded and validated,
+3. switching algorithms preserves higher-level profile semantics.
 
 ---
 
