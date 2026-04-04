@@ -30,7 +30,6 @@ use super::gui_state::{
     GuiRuntimeState, LocalFocusTarget, PaneRegionHint, RuntimeFocusAuthorityState,
     RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState, ToolbarDraft, ToolbarState,
 };
-use super::toolbar::toolbar_ui::CommandBarFocusTarget;
 use super::toolbar_routing::{self, ToolbarNavAction};
 use super::persistence_ops;
 #[cfg(test)]
@@ -786,18 +785,13 @@ impl Gui {
 
     pub(crate) fn request_toolbar_nav_action_for_webview(
         &mut self,
-        window: &EmbedderWindow,
         webview_id: WebViewId,
         action: ToolbarNavAction,
     ) -> bool {
-        let command_bar_focus_target = CommandBarFocusTarget::new(
-            window.focused_pane(),
-            self.graph_app.get_node_for_webview(webview_id),
-        );
-        toolbar_routing::run_nav_action(
+        let fallback_node = self.graph_app.get_node_for_webview(webview_id);
+        toolbar_routing::run_nav_action_for_fallback_node(
             &mut self.graph_app,
-            window,
-            command_bar_focus_target,
+            fallback_node,
             action,
         )
     }

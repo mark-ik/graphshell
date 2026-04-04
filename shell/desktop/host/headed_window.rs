@@ -427,11 +427,9 @@ impl HeadedWindow {
                         .borrow_mut()
                         .set_embedded_content_focus_webview(Some(webview_id));
                     window.retarget_input_to_webview(webview_id);
-                    self.gui.borrow_mut().request_toolbar_nav_action_for_webview(
-                        &window,
-                        webview_id,
-                        ToolbarNavAction::Forward,
-                    );
+                    self.gui
+                        .borrow_mut()
+                        .request_toolbar_nav_action_for_webview(webview_id, ToolbarNavAction::Forward);
                     window.set_needs_update();
                 }
                 consumed = true;
@@ -446,11 +444,9 @@ impl HeadedWindow {
                         .borrow_mut()
                         .set_embedded_content_focus_webview(Some(webview_id));
                     window.retarget_input_to_webview(webview_id);
-                    self.gui.borrow_mut().request_toolbar_nav_action_for_webview(
-                        &window,
-                        webview_id,
-                        ToolbarNavAction::Back,
-                    );
+                    self.gui
+                        .borrow_mut()
+                        .request_toolbar_nav_action_for_webview(webview_id, ToolbarNavAction::Back);
                     window.set_needs_update();
                 }
                 consumed = true;
@@ -1195,16 +1191,36 @@ impl PlatformWindowSignals for HeadedWindow {
 
         ShortcutMatcher::from_event(keyboard_event.event)
             .shortcut(CMD_OR_CONTROL, '=', || {
-                webview.set_page_zoom(webview.page_zoom() + 0.1);
+                self.gui
+                    .borrow_mut()
+                    .set_embedded_content_focus_webview(Some(webview.id()));
+                self.gui
+                    .borrow_mut()
+                    .request_toolbar_nav_action_for_webview(webview.id(), ToolbarNavAction::ZoomIn);
             })
             .shortcut(CMD_OR_CONTROL, '+', || {
-                webview.set_page_zoom(webview.page_zoom() + 0.1);
+                self.gui
+                    .borrow_mut()
+                    .set_embedded_content_focus_webview(Some(webview.id()));
+                self.gui
+                    .borrow_mut()
+                    .request_toolbar_nav_action_for_webview(webview.id(), ToolbarNavAction::ZoomIn);
             })
             .shortcut(CMD_OR_CONTROL, '-', || {
-                webview.set_page_zoom(webview.page_zoom() - 0.1);
+                self.gui
+                    .borrow_mut()
+                    .set_embedded_content_focus_webview(Some(webview.id()));
+                self.gui
+                    .borrow_mut()
+                    .request_toolbar_nav_action_for_webview(webview.id(), ToolbarNavAction::ZoomOut);
             })
             .shortcut(CMD_OR_CONTROL, '0', || {
-                webview.set_page_zoom(1.0);
+                self.gui
+                    .borrow_mut()
+                    .set_embedded_content_focus_webview(Some(webview.id()));
+                self.gui
+                    .borrow_mut()
+                    .request_toolbar_nav_action_for_webview(webview.id(), ToolbarNavAction::ZoomReset);
             });
     }
 

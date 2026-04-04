@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use crate::app::{BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent};
+use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -64,10 +65,9 @@ fn emit_command_bar_nav_action_blocked(action: ToolbarNavAction) {
     });
 }
 
-pub(crate) fn run_nav_action(
+pub(crate) fn run_nav_action_for_fallback_node(
     graph_app: &mut GraphBrowserApp,
-    _window: &EmbedderWindow,
-    command_bar_focus_target: CommandBarFocusTarget,
+    fallback_node: Option<NodeKey>,
     action: ToolbarNavAction,
 ) -> bool {
     emit_command_bar_nav_action_requested(action);
@@ -97,12 +97,23 @@ pub(crate) fn run_nav_action(
         ToolbarNavAction::ZoomReset => BrowserCommand::ZoomReset,
         ToolbarNavAction::Close => BrowserCommand::Close,
     };
-    let target = BrowserCommandTarget::ChromeProjection {
-        fallback_node: nav_targeting::chrome_projection_node(graph_app, _window)
-            .or(command_bar_focus_target.focused_node()),
-    };
+    let target = BrowserCommandTarget::ChromeProjection { fallback_node };
     graph_app.request_browser_command(target, command);
     true
+}
+
+pub(crate) fn run_nav_action(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    command_bar_focus_target: CommandBarFocusTarget,
+    action: ToolbarNavAction,
+) -> bool {
+    run_nav_action_for_fallback_node(
+        graph_app,
+        nav_targeting::chrome_projection_node(graph_app, window)
+            .or(command_bar_focus_target.focused_node()),
+        action,
+    )
 }
 
 pub(crate) fn submit_address_bar_intents(
