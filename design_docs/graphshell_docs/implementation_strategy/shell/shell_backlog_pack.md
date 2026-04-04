@@ -121,18 +121,27 @@ Current checkpoint as of `2026-04-04`:
      request dispatch itself.
 - workbench-host and toolbar pin/unpin controls now emit shared frame intents instead of calling
      persistence helpers directly from the view layer.
+- toolbar Navigator view tabs now route graph-view focus through `WorkbenchIntent` instead of
+     writing directly to the raw graph-intent buffer.
+- toolbar Overview toggle now routes through `WorkbenchIntent::ToggleOverviewPlane`, matching the
+     workbench host and overview plane surfaces.
+- omnibar provider suggestions already run through `ControlPanel::spawn_blocking_host_request(...)`
+     and a frame-bound mailbox with diagnostics, so the first Workstream D audit did not expose a
+     new shell-visible detached-worker bug to fix.
 
 Next bypass seam after the current checkpoint:
 
-1. Workbench-host routing and frame-persistence chrome now converge on shared `WorkbenchIntent`.
-     The next Shell bypass audit should move to the remaining non-host surfaces that still perform
-     local frame persistence or frame routing shortcuts, or else document them as intentional.
-2. Overview-plane graph-view-slot edits in `shell/desktop/ui/overview_plane.rs` are now explicitly
-     documented as Graph-owned layout mutations. Any future overview interaction that changes
-     surface routing, focus, or pane activation should stay on the `WorkbenchIntent` path instead.
-3. Global toolbar frame controls now share the same `WorkbenchIntent` frame-request path as
-     workbench-host chrome. If Shell later introduces a dedicated frame-request contract, keep these
-     non-host controls aligned rather than letting them drift back to direct persistence helpers.
+1. Shell chrome routing surfaces are now substantially converged: workbench-host chrome, toolbar
+     frame controls, toolbar Navigator view tabs, and overview-plane surface actions all use the
+     shared `WorkbenchIntent` path for frame requests and surface routing. The next routing audit
+     should only reopen if a newly added Shell surface bypasses that contract.
+2. Overview-plane graph-view-slot edits in `shell/desktop/ui/overview_plane.rs` remain explicitly
+     Graph-owned layout mutations. Any future overview interaction that changes surface routing,
+     focus, or pane activation should stay on the `WorkbenchIntent` path instead.
+3. Workstream D should now focus on proving the host-thread/mailbox boundary rather than chasing
+     already-routed chrome actions: the remaining Shell-facing async bridges are the frame-bound
+     signal relays in `shell/desktop/ui/gui.rs`, which should either stay documented as intentional
+     channel bridges or be folded into a shared mailbox abstraction if a stronger contract is needed.
 
 ### Workstream C — Overview Surface
 
