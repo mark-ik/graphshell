@@ -455,6 +455,58 @@ pub(crate) fn node_pane_uses_composited_runtime(
     TileCoordinator::node_pane_uses_composited_runtime(state, graph_app)
 }
 
+fn wry_placeholder_reason(graph_app: &GraphBrowserApp) -> Option<&'static str> {
+    if !cfg!(feature = "wry") {
+        return Some("Wry backend is not compiled in this build.");
+    }
+    if !crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry") {
+        return Some("Runtime capability 'viewer:wry' is unavailable.");
+    }
+    if !graph_app.wry_enabled() {
+        return Some("Wry backend is disabled. Enable it in Settings -> Viewer Backends.");
+    }
+    None
+}
+
+pub(crate) fn effective_viewer_id_for_node_pane(
+    state: &NodePaneState,
+    graph_app: &GraphBrowserApp,
+) -> Option<String> {
+    TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
+}
+
+pub(crate) fn fallback_reason_for_node_pane(
+    state: &NodePaneState,
+    graph_app: &GraphBrowserApp,
+) -> Option<String> {
+    if state.render_mode != TileRenderMode::Placeholder {
+        return None;
+    }
+
+    let Some(effective_viewer_id) = TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
+    else {
+        return Some("No viewer could be resolved for this node.".to_string());
+    };
+
+    if effective_viewer_id == "viewer:wry"
+        && let Some(reason) = wry_placeholder_reason(graph_app)
+    {
+        return Some(reason.to_string());
+    }
+
+    if crate::shell::desktop::runtime::registries::phase0_describe_viewer(&effective_viewer_id)
+        .is_none()
+    {
+        return Some(format!(
+            "Viewer '{effective_viewer_id}' is unresolved for this build path."
+        ));
+    }
+
+    Some(format!(
+        "'{effective_viewer_id}' currently falls back to placeholder rendering."
+    ))
+}
+
 pub(crate) fn refresh_node_pane_render_modes(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,

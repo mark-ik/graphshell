@@ -28,10 +28,13 @@ use crate::shell::desktop::runtime::registries::{
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
-use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
+use crate::shell::desktop::workbench::pane_model::{
+    NodePaneState, PaneId, SplitDirection, TileRenderMode, ToolPaneState, ViewerSwitchReason,
+};
 use crate::shell::desktop::workbench::semantic_tabs;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_render_pass;
+use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops;
 use crate::util::CoordBridge;
 use crate::util::VersoAddress;
@@ -229,8 +232,20 @@ pub(crate) struct WorkbenchPaneEntry {
     pub(crate) subtitle: Option<String>,
     pub(crate) arrangement_memberships: Vec<String>,
     pub(crate) semantic_tab_affordance: Option<semantic_tabs::SemanticTabAffordance>,
+    pub(crate) node_viewer_summary: Option<WorkbenchNodeViewerSummary>,
     pub(crate) is_active: bool,
     pub(crate) closable: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkbenchNodeViewerSummary {
+    pub(crate) effective_viewer_id: Option<String>,
+    pub(crate) viewer_override: Option<String>,
+    pub(crate) viewer_switch_reason: ViewerSwitchReason,
+    pub(crate) render_mode: TileRenderMode,
+    pub(crate) runtime_blocked: bool,
+    pub(crate) runtime_crashed: bool,
+    pub(crate) fallback_reason: Option<String>,
 }
 
 /// A single entry in the active tile group's graphlet roster shown by the omnibar.
@@ -1288,6 +1303,7 @@ fn pane_entry_for_tile(
             subtitle: Some("Graph".to_string()),
             arrangement_memberships: Vec::new(),
             semantic_tab_affordance: None,
+            node_viewer_summary: None,
             is_active: active_pane == Some(graph_ref.pane_id),
             closable: false,
         },
@@ -1319,6 +1335,7 @@ fn pane_entry_for_tile(
                     graph_app,
                     state.pane_id,
                 ),
+                node_viewer_summary: Some(build_node_viewer_summary(graph_app, state)),
                 is_active: active_pane == Some(state.pane_id),
                 closable: true,
             }
@@ -1334,6 +1351,7 @@ fn pane_entry_for_tile(
                 subtitle: Some("Tool".to_string()),
                 arrangement_memberships: Vec::new(),
                 semantic_tab_affordance: None,
+                node_viewer_summary: None,
                 is_active: active_pane == Some(tool.pane_id),
                 closable: true,
             }
@@ -1347,6 +1365,7 @@ fn pane_entry_for_tile(
             subtitle: Some("Graph".to_string()),
             arrangement_memberships: Vec::new(),
             semantic_tab_affordance: None,
+            node_viewer_summary: None,
             is_active: active_pane == Some(graph_ref.pane_id),
             closable: false,
         },
@@ -1376,6 +1395,7 @@ fn pane_entry_for_tile(
                     graph_app,
                     state.pane_id,
                 ),
+                node_viewer_summary: Some(build_node_viewer_summary(graph_app, state)),
                 is_active: active_pane == Some(state.pane_id),
                 closable: true,
             }
@@ -1390,9 +1410,28 @@ fn pane_entry_for_tile(
             subtitle: Some("Tool".to_string()),
             arrangement_memberships: Vec::new(),
             semantic_tab_affordance: None,
+            node_viewer_summary: None,
             is_active: active_pane == Some(tool.pane_id),
             closable: true,
         },
+    }
+}
+
+fn build_node_viewer_summary(
+    graph_app: &GraphBrowserApp,
+    state: &NodePaneState,
+) -> WorkbenchNodeViewerSummary {
+    WorkbenchNodeViewerSummary {
+        effective_viewer_id: tile_runtime::effective_viewer_id_for_node_pane(state, graph_app),
+        viewer_override: state
+            .viewer_id_override
+            .as_ref()
+            .map(|viewer_id| viewer_id.as_str().to_string()),
+        viewer_switch_reason: state.viewer_switch_reason,
+        render_mode: state.render_mode,
+        runtime_blocked: graph_app.runtime_block_state_for_node(state.node).is_some(),
+        runtime_crashed: graph_app.runtime_crash_state_for_node(state.node).is_some(),
+        fallback_reason: tile_runtime::fallback_reason_for_node_pane(state, graph_app),
     }
 }
 

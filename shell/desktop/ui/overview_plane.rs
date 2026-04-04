@@ -11,10 +11,11 @@ use crate::app::{
 };
 use crate::shell::desktop::runtime::registries::phase3_trusted_peers;
 use crate::shell::desktop::ui::workbench_host::{
-    GraphletRosterEntry, WorkbenchChromeProjection, WorkbenchPaneEntry, WorkbenchPaneKind,
+    GraphletRosterEntry, WorkbenchChromeProjection, WorkbenchNodeViewerSummary,
+    WorkbenchPaneEntry, WorkbenchPaneKind,
 };
 use crate::shell::desktop::workbench::semantic_tabs::SemanticTabAffordance;
-use crate::shell::desktop::workbench::pane_model::PaneId;
+use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode, ViewerSwitchReason};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 const OVERVIEW_CELL_SIZE: Vec2 = Vec2::new(156.0, 92.0);
@@ -599,13 +600,35 @@ fn viewer_content_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec<St
 
     let mut lines = vec![format!(
         "Viewer backend: {}",
-        pane_kind_summary_label(active_entry)
+        viewer_backend_summary(active_entry)
     )];
     lines.push(format!("Content: {}", active_entry.title));
     if let Some(subtitle) = active_entry.subtitle.as_deref()
         && !subtitle.trim().is_empty()
     {
         lines.push(format!("Context: {subtitle}"));
+    }
+    if let Some(summary) = active_entry.node_viewer_summary.as_ref() {
+        let selection_mode = match summary.viewer_override.as_deref() {
+            Some(override_id) => format!(
+                "Override: {override_id} · {}",
+                viewer_switch_reason_label(summary.viewer_switch_reason)
+            ),
+            None => format!(
+                "Selection: auto · {}",
+                viewer_switch_reason_label(summary.viewer_switch_reason)
+            ),
+        };
+        lines.push(selection_mode);
+        if summary.runtime_crashed {
+            lines.push("Degraded: runtime crash recorded for this node".to_string());
+        }
+        if summary.runtime_blocked {
+            lines.push("Runtime blocked: startup or backpressure is holding this pane".to_string());
+        }
+        if let Some(reason) = summary.fallback_reason.as_deref() {
+            lines.push(format!("Fallback: {reason}"));
+        }
     }
     if !active_entry.arrangement_memberships.is_empty() {
         lines.push(format!(
@@ -664,6 +687,25 @@ fn viewer_content_actions(chrome_projection: &WorkbenchChromeProjection) -> Vec<
                     .to_string(),
                 }),
             });
+            if active_entry
+                .node_viewer_summary
+                .as_ref()
+                .is_some_and(viewer_summary_needs_diagnostics)
+            {
+                actions.push(OverviewQuickAction {
+                    label: "Inspect diagnostics".to_string(),
+                    owner: OverviewActionOwner::Viewer,
+                    hover_text:
+                        "Open the shared diagnostics surface for the active pane's viewer fallback or degraded state."
+                            .to_string(),
+                    dispatch: OverviewQuickActionDispatch::Workbench(
+                        WorkbenchIntent::OpenToolUrl {
+                            url: crate::util::VersoAddress::tool("diagnostics", None)
+                                .to_string(),
+                        },
+                    ),
+                });
+            }
         }
         WorkbenchPaneKind::Tool { .. } => actions.push(OverviewQuickAction {
             label: "Tool settings".to_string(),
@@ -764,6 +806,51 @@ fn pane_kind_summary_label(entry: &WorkbenchPaneEntry) -> String {
         WorkbenchPaneKind::Node { .. } => "node viewer".to_string(),
         WorkbenchPaneKind::Tool { kind } => format!("tool pane ({})", kind.title()),
     }
+}
+
+fn viewer_backend_summary(entry: &WorkbenchPaneEntry) -> String {
+    let Some(summary) = entry.node_viewer_summary.as_ref() else {
+        return pane_kind_summary_label(entry);
+    };
+    let viewer = summary
+        .effective_viewer_id
+        .as_deref()
+        .unwrap_or("unresolved viewer");
+    format!("{viewer} · {}", viewer_render_mode_label(summary.render_mode))
+}
+
+fn viewer_render_mode_label(render_mode: TileRenderMode) -> &'static str {
+    match render_mode {
+        TileRenderMode::CompositedTexture => "composited texture",
+        TileRenderMode::NativeOverlay => "native overlay",
+        TileRenderMode::EmbeddedEgui => "embedded egui",
+        TileRenderMode::Placeholder => "placeholder",
+    }
+}
+
+fn viewer_switch_reason_label(reason: ViewerSwitchReason) -> &'static str {
+    match reason {
+        ViewerSwitchReason::UserRequested => "user override",
+        ViewerSwitchReason::RecoveryPromptAccepted => "recovery override",
+        ViewerSwitchReason::PolicyPinned => "policy-selected",
+    }
+}
+
+fn viewer_summary_needs_diagnostics(summary: &WorkbenchNodeViewerSummary) -> bool {
+    summary.runtime_crashed || summary.runtime_blocked || summary.fallback_reason.is_some()
+}
+
+fn viewer_degraded_chip(summary: &WorkbenchNodeViewerSummary) -> Option<String> {
+    if let Some(reason) = summary.fallback_reason.as_deref() {
+        return Some(compact_overview_label(&format!("Viewer fallback: {reason}"), 32));
+    }
+    if summary.runtime_crashed {
+        return Some("Viewer crash recorded".to_string());
+    }
+    if summary.runtime_blocked {
+        return Some("Viewer blocked".to_string());
+    }
+    None
 }
 
 fn node_summary_label(app: &GraphBrowserApp, node_key: crate::graph::NodeKey) -> String {
@@ -1147,6 +1234,12 @@ fn compact_overview_chips(
     }
     if let Some(binding) = active_workbench_binding_summary(chrome_projection) {
         chips.push(compact_overview_label(&format!("Tabs: {binding}"), 32));
+    }
+    if let Some(summary) = active_overview_pane_entry(chrome_projection)
+        .and_then(|entry| entry.node_viewer_summary.as_ref())
+        .and_then(viewer_degraded_chip)
+    {
+        chips.push(summary);
     }
     let health = app.history_health_summary();
     if health.preview_mode_active {
@@ -2248,6 +2341,15 @@ mod tests {
                 subtitle: None,
                 arrangement_memberships: vec![],
                 semantic_tab_affordance: None,
+                node_viewer_summary: Some(WorkbenchNodeViewerSummary {
+                    effective_viewer_id: Some("viewer:webview".to_string()),
+                    viewer_override: None,
+                    viewer_switch_reason: ViewerSwitchReason::PolicyPinned,
+                    render_mode: TileRenderMode::EmbeddedEgui,
+                    runtime_blocked: false,
+                    runtime_crashed: false,
+                    fallback_reason: None,
+                }),
                 is_active: true,
                 closable: true,
             }],
@@ -2273,6 +2375,113 @@ mod tests {
                 && matches!(
                     action.dispatch,
                     OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl { .. })
+                )
+        }));
+        assert!(!actions.iter().any(|action| {
+            matches!(
+                action.dispatch,
+                OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenToolUrl { .. })
+            )
+        }));
+    }
+
+    #[test]
+    fn viewer_content_lines_surface_fallback_and_runtime_diagnostics() {
+        let pane_id = PaneId::new();
+        let host_layout = test_host_layout();
+        let projection = WorkbenchChromeProjection {
+            layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_pane_title: Some("Node".to_string()),
+            active_frame_name: Some("frame-a".to_string()),
+            saved_frame_names: vec![],
+            navigator_groups: vec![],
+            pane_entries: vec![WorkbenchPaneEntry {
+                pane_id,
+                kind: WorkbenchPaneKind::Node {
+                    node_key: crate::graph::NodeKey::new(12),
+                },
+                title: "Node".to_string(),
+                subtitle: Some("text/html".to_string()),
+                arrangement_memberships: vec![],
+                semantic_tab_affordance: None,
+                node_viewer_summary: Some(WorkbenchNodeViewerSummary {
+                    effective_viewer_id: Some("viewer:wry".to_string()),
+                    viewer_override: Some("viewer:wry".to_string()),
+                    viewer_switch_reason: ViewerSwitchReason::UserRequested,
+                    render_mode: TileRenderMode::Placeholder,
+                    runtime_blocked: true,
+                    runtime_crashed: true,
+                    fallback_reason: Some(
+                        "Wry backend is disabled. Enable it in Settings -> Viewer Backends."
+                            .to_string(),
+                    ),
+                }),
+                is_active: true,
+                closable: true,
+            }],
+            tree_root: None,
+            active_graphlet_roster: vec![],
+        };
+
+        let lines = viewer_content_lines(&projection);
+
+        assert!(lines.iter().any(|line| line == "Viewer backend: viewer:wry · placeholder"));
+        assert!(lines.iter().any(|line| line == "Override: viewer:wry · user override"));
+        assert!(lines.iter().any(|line| line == "Degraded: runtime crash recorded for this node"));
+        assert!(lines.iter().any(|line| line == "Runtime blocked: startup or backpressure is holding this pane"));
+        assert!(lines.iter().any(|line| line.contains("Fallback: Wry backend is disabled")));
+    }
+
+    #[test]
+    fn viewer_content_actions_for_degraded_node_include_diagnostics_route() {
+        let pane_id = PaneId::new();
+        let host_layout = test_host_layout();
+        let projection = WorkbenchChromeProjection {
+            layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_pane_title: Some("Node".to_string()),
+            active_frame_name: Some("frame-a".to_string()),
+            saved_frame_names: vec![],
+            navigator_groups: vec![],
+            pane_entries: vec![WorkbenchPaneEntry {
+                pane_id,
+                kind: WorkbenchPaneKind::Node {
+                    node_key: crate::graph::NodeKey::new(14),
+                },
+                title: "Node".to_string(),
+                subtitle: None,
+                arrangement_memberships: vec![],
+                semantic_tab_affordance: None,
+                node_viewer_summary: Some(WorkbenchNodeViewerSummary {
+                    effective_viewer_id: Some("viewer:unknown".to_string()),
+                    viewer_override: Some("viewer:unknown".to_string()),
+                    viewer_switch_reason: ViewerSwitchReason::UserRequested,
+                    render_mode: TileRenderMode::Placeholder,
+                    runtime_blocked: false,
+                    runtime_crashed: false,
+                    fallback_reason: Some(
+                        "Viewer 'viewer:unknown' is unresolved for this build path.".to_string(),
+                    ),
+                }),
+                is_active: true,
+                closable: true,
+            }],
+            tree_root: None,
+            active_graphlet_roster: vec![],
+        };
+
+        let actions = viewer_content_actions(&projection);
+
+        assert!(actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Viewer
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenToolUrl { .. })
                 )
         }));
     }
@@ -2345,6 +2554,7 @@ mod tests {
                     group_id: uuid::Uuid::nil(),
                     member_count: 3,
                 }),
+                node_viewer_summary: None,
                 is_active: true,
                 closable: true,
             }],
@@ -2385,25 +2595,40 @@ mod tests {
         app.workspace.graph_runtime.history_preview_mode_active = true;
         let view_id = GraphViewId::new();
         let pane_id = PaneId::new();
+        let node_key = app.workspace.domain.graph.add_node(
+            "https://compact-viewer.example".to_string(),
+            euclid::point2(0.0, 0.0),
+        );
         let host_layout = test_host_layout();
         let projection = WorkbenchChromeProjection {
             layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
             chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
             host_layout: host_layout.clone(),
             host_layouts: vec![host_layout],
-            active_pane_title: Some("Graph Pane".to_string()),
+            active_pane_title: Some("Node Pane".to_string()),
             active_frame_name: Some("frame-a".to_string()),
             saved_frame_names: vec!["frame-a".to_string()],
             navigator_groups: vec![],
             pane_entries: vec![WorkbenchPaneEntry {
                 pane_id,
-                kind: WorkbenchPaneKind::Graph { view_id },
-                title: "Graph".to_string(),
+                kind: WorkbenchPaneKind::Node { node_key },
+                title: "Node".to_string(),
                 subtitle: None,
                 arrangement_memberships: vec![],
                 semantic_tab_affordance: Some(SemanticTabAffordance::Collapse {
                     group_id: uuid::Uuid::nil(),
                     member_count: 2,
+                }),
+                node_viewer_summary: Some(WorkbenchNodeViewerSummary {
+                    effective_viewer_id: Some("viewer:unknown".to_string()),
+                    viewer_override: Some("viewer:unknown".to_string()),
+                    viewer_switch_reason: ViewerSwitchReason::UserRequested,
+                    render_mode: TileRenderMode::Placeholder,
+                    runtime_blocked: false,
+                    runtime_crashed: false,
+                    fallback_reason: Some(
+                        "Viewer 'viewer:unknown' is unresolved for this build path.".to_string(),
+                    ),
                 }),
                 is_active: true,
                 closable: true,
@@ -2429,6 +2654,7 @@ mod tests {
         assert!(chips.iter().any(|chip| chip == "Panes: 1"));
         assert!(chips.iter().any(|chip| chip.contains("Active pane graphlet")));
         assert!(chips.iter().any(|chip| chip.contains("Tabs: linked semantic")));
+        assert!(chips.iter().any(|chip| chip.contains("Viewer fallback")));
         assert!(chips.iter().any(|chip| chip == "History preview"));
         assert!(chips.iter().any(|chip| chip == "Archived: 2"));
     }

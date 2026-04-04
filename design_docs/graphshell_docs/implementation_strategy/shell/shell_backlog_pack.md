@@ -184,8 +184,11 @@ Current status:
 - overview domain summaries now distinguish warm vs cold active-graphlet members, expose
      frontier-ready cold peers, and report semantic-tab linked vs detached workbench binding in
      both standard cards and compact chips
-- next Workstream C slice should focus on clearer viewer fallback/degraded diagnostics now that
-     graphlet/workbench state is explicit in the overview surface
+- viewer/content summaries now expose effective backend, override-vs-auto selection, placeholder
+     fallback reasons, and runtime blocked/crashed state, with a viewer-owned diagnostics route
+     when the active pane is degraded
+- next Workstream C slice should broaden acceptance evidence for the full overview surface or move
+     on once this level of diagnosability is sufficient
 
 Done shape:
 
