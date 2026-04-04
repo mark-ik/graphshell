@@ -1432,6 +1432,14 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::ToggleHelpPanel
         | WorkbenchIntent::ToggleRadialMenu => UX_DISPATCH_NODE_COMMAND_SURFACE,
         WorkbenchIntent::OpenToolPane { .. }
+        | WorkbenchIntent::SetWorkbenchPinned { .. }
+        | WorkbenchIntent::SetLayoutConstraintDraft { .. }
+        | WorkbenchIntent::CommitLayoutConstraintDraft { .. }
+        | WorkbenchIntent::DiscardLayoutConstraintDraft { .. }
+        | WorkbenchIntent::SetNavigatorHostScope { .. }
+        | WorkbenchIntent::SetFirstUsePolicy { .. }
+        | WorkbenchIntent::SuppressFirstUsePromptForSession { .. }
+        | WorkbenchIntent::DismissFrameSplitOfferForSession { .. }
         | WorkbenchIntent::ClosePane { .. }
         | WorkbenchIntent::DismissTile { .. }
         | WorkbenchIntent::CloseToolPane { .. }
@@ -1442,6 +1450,11 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::OpenGraphUrl { .. }
         | WorkbenchIntent::OpenGraphViewPane { .. }
         | WorkbenchIntent::FocusGraphView { .. }
+        | WorkbenchIntent::OpenFrameAsSplit { .. }
+        | WorkbenchIntent::SetFrameSplitOfferSuppressed { .. }
+        | WorkbenchIntent::MoveFrameLayoutHint { .. }
+        | WorkbenchIntent::RemoveFrameLayoutHint { .. }
+        | WorkbenchIntent::SetNavigatorSpecialtyView { .. }
         | WorkbenchIntent::TransferSelectedNodesToGraphView { .. }
         | WorkbenchIntent::ToggleOverviewPlane
         | WorkbenchIntent::OpenNoteUrl { .. }

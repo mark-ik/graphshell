@@ -591,6 +591,32 @@ pub enum WorkbenchIntent {
     OpenToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
     },
+    SetWorkbenchPinned {
+        pinned: bool,
+    },
+    SetLayoutConstraintDraft {
+        surface_host: SurfaceHostId,
+        constraint: WorkbenchLayoutConstraint,
+    },
+    CommitLayoutConstraintDraft {
+        surface_host: SurfaceHostId,
+    },
+    DiscardLayoutConstraintDraft {
+        surface_host: SurfaceHostId,
+    },
+    SetNavigatorHostScope {
+        surface_host: SurfaceHostId,
+        scope: NavigatorHostScope,
+    },
+    SetFirstUsePolicy {
+        policy: SurfaceFirstUsePolicy,
+    },
+    SuppressFirstUsePromptForSession {
+        surface_host: SurfaceHostId,
+    },
+    DismissFrameSplitOfferForSession {
+        frame_name: String,
+    },
     ClosePane {
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
         restore_previous_focus: bool,
@@ -660,6 +686,27 @@ pub enum WorkbenchIntent {
     },
     FocusGraphView {
         view_id: GraphViewId,
+    },
+    OpenFrameAsSplit {
+        node_key: NodeKey,
+        frame_name: String,
+    },
+    SetFrameSplitOfferSuppressed {
+        frame: NodeKey,
+        suppressed: bool,
+    },
+    MoveFrameLayoutHint {
+        frame: NodeKey,
+        from_index: usize,
+        to_index: usize,
+    },
+    RemoveFrameLayoutHint {
+        frame: NodeKey,
+        hint_index: usize,
+    },
+    SetNavigatorSpecialtyView {
+        host: SurfaceHostId,
+        kind: Option<crate::graph::GraphletKind>,
     },
     TransferSelectedNodesToGraphView {
         source_view: GraphViewId,

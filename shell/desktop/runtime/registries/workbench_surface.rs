@@ -2,8 +2,8 @@ use egui_tiles::{Container, Tile, TileId, Tree};
 
 use super::{
     CHANNEL_UX_CONFIG_MODE_ENTERED, CHANNEL_UX_NAVIGATION_TRANSITION,
-    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_OPEN_DECISION_PATH,
-    CHANNEL_UX_OPEN_DECISION_REASON,
+    CHANNEL_UX_FIRST_USE_PROMPT_SHOWN, CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::app::{
     GraphBrowserApp, GraphIntent, LifecycleCause, PendingTileOpenMode, SelectionUpdateMode,
@@ -251,11 +251,24 @@ impl WorkbenchSurfaceRegistry {
                     | WorkbenchIntent::ClosePane { .. }
                     | WorkbenchIntent::CloseToolPane { .. }
                     | WorkbenchIntent::OpenToolPane { .. }
+                    | WorkbenchIntent::SetWorkbenchPinned { .. }
+                    | WorkbenchIntent::SetLayoutConstraintDraft { .. }
+                    | WorkbenchIntent::CommitLayoutConstraintDraft { .. }
+                    | WorkbenchIntent::DiscardLayoutConstraintDraft { .. }
+                    | WorkbenchIntent::SetNavigatorHostScope { .. }
+                    | WorkbenchIntent::SetFirstUsePolicy { .. }
+                    | WorkbenchIntent::SuppressFirstUsePromptForSession { .. }
+                    | WorkbenchIntent::DismissFrameSplitOfferForSession { .. }
                     | WorkbenchIntent::SetPanePresentationMode { .. }
                     | WorkbenchIntent::PromoteEphemeralPane { .. }
                     | WorkbenchIntent::SetPaneView { .. }
                     | WorkbenchIntent::OpenGraphViewPane { .. }
                     | WorkbenchIntent::FocusGraphView { .. }
+                    | WorkbenchIntent::OpenFrameAsSplit { .. }
+                    | WorkbenchIntent::SetFrameSplitOfferSuppressed { .. }
+                    | WorkbenchIntent::MoveFrameLayoutHint { .. }
+                    | WorkbenchIntent::RemoveFrameLayoutHint { .. }
+                    | WorkbenchIntent::SetNavigatorSpecialtyView { .. }
                     | WorkbenchIntent::TransferSelectedNodesToGraphView { .. }
                     | WorkbenchIntent::ToggleOverviewPlane
                     | WorkbenchIntent::OpenNodeInPane { .. }
@@ -347,6 +360,44 @@ impl WorkbenchSurfaceRegistry {
                 handle_open_tool_pane_intent(graph_app, tiles_tree, kind);
                 None
             }
+            WorkbenchIntent::SetWorkbenchPinned { pinned } => {
+                graph_app.set_workbench_host_pinned(pinned);
+                None
+            }
+            WorkbenchIntent::SetLayoutConstraintDraft {
+                surface_host,
+                constraint,
+            } => {
+                graph_app.set_workbench_layout_constraint_draft(surface_host, constraint);
+                None
+            }
+            WorkbenchIntent::CommitLayoutConstraintDraft { surface_host } => {
+                graph_app.commit_workbench_layout_constraint_draft(&surface_host);
+                None
+            }
+            WorkbenchIntent::DiscardLayoutConstraintDraft { surface_host } => {
+                graph_app.discard_workbench_layout_constraint_draft(&surface_host);
+                None
+            }
+            WorkbenchIntent::SetNavigatorHostScope {
+                surface_host,
+                scope,
+            } => {
+                graph_app.set_navigator_host_scope(surface_host, scope);
+                None
+            }
+            WorkbenchIntent::SetFirstUsePolicy { policy } => {
+                apply_set_first_use_policy_intent(graph_app, policy);
+                None
+            }
+            WorkbenchIntent::SuppressFirstUsePromptForSession { surface_host } => {
+                graph_app.suppress_first_use_prompt_for_session(surface_host);
+                None
+            }
+            WorkbenchIntent::DismissFrameSplitOfferForSession { frame_name } => {
+                graph_app.dismiss_frame_split_offer_for_session(frame_name);
+                None
+            }
             WorkbenchIntent::ClosePane {
                 pane,
                 restore_previous_focus,
@@ -392,6 +443,47 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::FocusGraphView { view_id } => {
                 graph_app.apply_reducer_intents([GraphIntent::FocusGraphView { view_id }]);
+                None
+            }
+            WorkbenchIntent::OpenFrameAsSplit {
+                node_key,
+                frame_name,
+            } => {
+                graph_app.apply_reducer_intents([GraphIntent::OpenNodeFrameRouted {
+                    key: node_key,
+                    prefer_frame: Some(frame_name),
+                }]);
+                None
+            }
+            WorkbenchIntent::SetFrameSplitOfferSuppressed { frame, suppressed } => {
+                graph_app.apply_reducer_intents([GraphIntent::SetFrameSplitOfferSuppressed {
+                    frame,
+                    suppressed,
+                }]);
+                None
+            }
+            WorkbenchIntent::MoveFrameLayoutHint {
+                frame,
+                from_index,
+                to_index,
+            } => {
+                graph_app.apply_reducer_intents([GraphIntent::MoveFrameLayoutHint {
+                    frame,
+                    from_index,
+                    to_index,
+                }]);
+                None
+            }
+            WorkbenchIntent::RemoveFrameLayoutHint { frame, hint_index } => {
+                graph_app.apply_reducer_intents([GraphIntent::RemoveFrameLayoutHint {
+                    frame,
+                    hint_index,
+                }]);
+                None
+            }
+            WorkbenchIntent::SetNavigatorSpecialtyView { host, kind } => {
+                graph_app
+                    .apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView { host, kind }]);
                 None
             }
             WorkbenchIntent::TransferSelectedNodesToGraphView {
@@ -528,6 +620,19 @@ impl WorkbenchSurfaceRegistry {
             }
         }
     }
+}
+
+fn apply_set_first_use_policy_intent(
+    graph_app: &mut GraphBrowserApp,
+    policy: crate::app::SurfaceFirstUsePolicy,
+) {
+    if policy.prompt_shown && policy.outcome.is_none() {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_FIRST_USE_PROMPT_SHOWN,
+            byte_len: policy.surface_host.to_string().len(),
+        });
+    }
+    graph_app.set_surface_first_use_policy(policy);
 }
 
 fn handle_cycle_focus_region_intent(

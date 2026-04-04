@@ -23,7 +23,7 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED, CHANNEL_UX_DISPATCH_STARTED,
-    CHANNEL_UX_FIRST_USE_PROMPT_SHOWN, CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
+    CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
 };
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
@@ -3115,22 +3115,29 @@ fn apply_workbench_host_action(
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetWorkbenchPinned(pinned) => {
-            graph_app.set_workbench_host_pinned(pinned);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetWorkbenchPinned { pinned });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetLayoutConstraintDraft {
             surface_host,
             constraint,
         } => {
-            graph_app.set_workbench_layout_constraint_draft(surface_host, constraint);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetLayoutConstraintDraft {
+                surface_host,
+                constraint,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::CommitLayoutConstraintDraft(surface_host) => {
-            graph_app.commit_workbench_layout_constraint_draft(&surface_host);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::CommitLayoutConstraintDraft {
+                surface_host,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::DiscardLayoutConstraintDraft(surface_host) => {
-            graph_app.discard_workbench_layout_constraint_draft(&surface_host);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::DiscardLayoutConstraintDraft {
+                surface_host,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetSurfaceConfigMode { surface_host, mode } => {
@@ -3144,35 +3151,36 @@ fn apply_workbench_host_action(
             surface_host,
             scope,
         } => {
-            graph_app.set_navigator_host_scope(surface_host, scope);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetNavigatorHostScope {
+                surface_host,
+                scope,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetFirstUsePolicy(policy) => {
-            if policy.prompt_shown && policy.outcome.is_none() {
-                emit_event(DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_UX_FIRST_USE_PROMPT_SHOWN,
-                    byte_len: policy.surface_host.to_string().len(),
-                });
-            }
-            graph_app.set_surface_first_use_policy(policy);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetFirstUsePolicy { policy });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SuppressFirstUsePromptForSession(surface_host) => {
-            graph_app.suppress_first_use_prompt_for_session(surface_host);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SuppressFirstUsePromptForSession {
+                surface_host,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::OpenFrameAsSplit {
             node_key,
             frame_name,
         } => {
-            graph_app.apply_reducer_intents([GraphIntent::OpenNodeFrameRouted {
-                key: node_key,
-                prefer_frame: Some(frame_name),
-            }]);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenFrameAsSplit {
+                node_key,
+                frame_name,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::DismissFrameSplitOfferForSession(frame_name) => {
-            graph_app.dismiss_frame_split_offer_for_session(frame_name);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::DismissFrameSplitOfferForSession {
+                frame_name,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetFrameSplitOfferSuppressed {
@@ -3180,10 +3188,10 @@ fn apply_workbench_host_action(
             suppressed,
         } => {
             if let Some(frame_key) = frame_key_for_name(graph_app, &frame_name) {
-                graph_app.apply_reducer_intents([GraphIntent::SetFrameSplitOfferSuppressed {
+                graph_app.enqueue_workbench_intent(WorkbenchIntent::SetFrameSplitOfferSuppressed {
                     frame: frame_key,
                     suppressed,
-                }]);
+                });
                 WorkbenchHostActionDispatchOutcome::Consumed
             } else {
                 WorkbenchHostActionDispatchOutcome::ContractWarning
@@ -3212,11 +3220,11 @@ fn apply_workbench_host_action(
             to_index,
         } => {
             if let Some(frame_key) = frame_key_for_name(graph_app, &frame_name) {
-                graph_app.apply_reducer_intents([GraphIntent::MoveFrameLayoutHint {
+                graph_app.enqueue_workbench_intent(WorkbenchIntent::MoveFrameLayoutHint {
                     frame: frame_key,
                     from_index,
                     to_index,
-                }]);
+                });
                 WorkbenchHostActionDispatchOutcome::Consumed
             } else {
                 WorkbenchHostActionDispatchOutcome::ContractWarning
@@ -3227,10 +3235,10 @@ fn apply_workbench_host_action(
             hint_index,
         } => {
             if let Some(frame_key) = frame_key_for_name(graph_app, &frame_name) {
-                graph_app.apply_reducer_intents([GraphIntent::RemoveFrameLayoutHint {
+                graph_app.enqueue_workbench_intent(WorkbenchIntent::RemoveFrameLayoutHint {
                     frame: frame_key,
                     hint_index,
-                }]);
+                });
                 WorkbenchHostActionDispatchOutcome::Consumed
             } else {
                 WorkbenchHostActionDispatchOutcome::ContractWarning
@@ -3278,8 +3286,10 @@ fn apply_workbench_host_action(
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetNavigatorSpecialtyView { host, kind } => {
-            graph_app
-                .apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView { host, kind }]);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetNavigatorSpecialtyView {
+                host,
+                kind,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
     };
@@ -3492,6 +3502,18 @@ mod tests {
             .and_then(|m| m.get(channel))
             .and_then(|v| v.as_u64())
             .unwrap_or(0)
+    }
+
+    fn dispatch_pending_workbench_intents(
+        app: &mut GraphBrowserApp,
+        tree: &mut Tree<TileKind>,
+    ) {
+        for intent in app.take_pending_workbench_intents() {
+            assert!(crate::shell::desktop::runtime::registries::dispatch_workbench_surface_intent(
+                app, tree, intent,
+            )
+            .is_none());
+        }
     }
 
     #[test]
@@ -3881,6 +3903,8 @@ mod tests {
             &mut tree,
         );
 
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
         let policy = app
             .workbench_profile()
             .first_use_policies
@@ -3926,6 +3950,8 @@ mod tests {
             &mut tree,
         );
 
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
         let draft_constraint = app
             .workbench_layout_constraint_draft_for_host(&host)
             .cloned()
@@ -3948,6 +3974,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
         app.set_workbench_surface_config_mode(UxConfigMode::Locked);
 
         assert!(
@@ -4072,10 +4099,15 @@ mod tests {
             &mut tree,
         );
 
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
         diagnostics.force_drain_for_tests();
         let snapshot = diagnostics.snapshot_json_for_tests();
         assert_eq!(
-            channel_count(&snapshot, CHANNEL_UX_FIRST_USE_PROMPT_SHOWN),
+            channel_count(
+                &snapshot,
+                crate::shell::desktop::runtime::registries::CHANNEL_UX_FIRST_USE_PROMPT_SHOWN,
+            ),
             1
         );
     }
@@ -4179,6 +4211,206 @@ mod tests {
                 && *opened == destination
                 && *transferred_from == source
                 && *transferred_to == destination
+        ));
+    }
+
+    #[test]
+    fn layout_and_policy_host_actions_enqueue_workbench_intents() {
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Top);
+        let policy = SurfaceFirstUsePolicy {
+            surface_host: host.clone(),
+            prompt_shown: true,
+            outcome: None,
+        };
+        let constraint = WorkbenchLayoutConstraint::AnchoredSplit {
+            surface_host: host.clone(),
+            anchor_edge: AnchorEdge::Left,
+            anchor_size_fraction: 0.22,
+            cross_axis_margin_start_px: 20.0,
+            cross_axis_margin_end_px: 14.0,
+            resizable: true,
+        };
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_layout_policy_intents", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetWorkbenchPinned(true),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetLayoutConstraintDraft {
+                surface_host: host.clone(),
+                constraint: constraint.clone(),
+            },
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::CommitLayoutConstraintDraft(host.clone()),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::DiscardLayoutConstraintDraft(host.clone()),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetNavigatorHostScope {
+                surface_host: host.clone(),
+                scope: NavigatorHostScope::GraphOnly,
+            },
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetFirstUsePolicy(policy.clone()),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SuppressFirstUsePromptForSession(host.clone()),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::DismissFrameSplitOfferForSession(
+                "workspace-session-dismiss".to_string(),
+            ),
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [
+                WorkbenchIntent::SetWorkbenchPinned { pinned: true },
+                WorkbenchIntent::SetLayoutConstraintDraft {
+                    surface_host: drafted_host,
+                    constraint: drafted_constraint,
+                },
+                WorkbenchIntent::CommitLayoutConstraintDraft {
+                    surface_host: committed_host,
+                },
+                WorkbenchIntent::DiscardLayoutConstraintDraft {
+                    surface_host: discarded_host,
+                },
+                WorkbenchIntent::SetNavigatorHostScope {
+                    surface_host: scoped_host,
+                    scope: NavigatorHostScope::GraphOnly,
+                },
+                WorkbenchIntent::SetFirstUsePolicy { policy: queued_policy },
+                WorkbenchIntent::SuppressFirstUsePromptForSession {
+                    surface_host: suppressed_host,
+                },
+                WorkbenchIntent::DismissFrameSplitOfferForSession { frame_name },
+            ] if drafted_host == &host
+                && drafted_constraint == &constraint
+                && committed_host == &host
+                && discarded_host == &host
+                && scoped_host == &host
+                && queued_policy == &policy
+                && suppressed_host == &host
+                && frame_name == "workspace-session-dismiss"
+        ));
+    }
+
+    #[test]
+    fn frame_and_navigator_host_actions_enqueue_workbench_intents() {
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+        let kind = Some(GraphletKind::Component);
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/frame-intent".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let mut tree = Tree::new("workbench_host_frame_intents", root, tiles);
+
+        app.sync_named_workbench_frame_graph_representation("workspace-frame-intents", &tree);
+        let frame_key =
+            frame_key_for_name(&app, "workspace-frame-intents").expect("frame anchor should exist");
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::OpenFrameAsSplit {
+                node_key: node,
+                frame_name: "workspace-frame-intents".to_string(),
+            },
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+                frame_name: "workspace-frame-intents".to_string(),
+                suppressed: true,
+            },
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::MoveFrameLayoutHint {
+                frame_name: "workspace-frame-intents".to_string(),
+                from_index: 2,
+                to_index: 1,
+            },
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::RemoveFrameLayoutHint {
+                frame_name: "workspace-frame-intents".to_string(),
+                hint_index: 3,
+            },
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetNavigatorSpecialtyView {
+                host: host.clone(),
+                kind,
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [
+                WorkbenchIntent::OpenFrameAsSplit {
+                    node_key: opened_node,
+                    frame_name,
+                },
+                WorkbenchIntent::SetFrameSplitOfferSuppressed {
+                    frame: suppressed_frame,
+                    suppressed: true,
+                },
+                WorkbenchIntent::MoveFrameLayoutHint {
+                    frame: moved_frame,
+                    from_index: 2,
+                    to_index: 1,
+                },
+                WorkbenchIntent::RemoveFrameLayoutHint {
+                    frame: removed_frame,
+                    hint_index: 3,
+                },
+                WorkbenchIntent::SetNavigatorSpecialtyView {
+                    host: queued_host,
+                    kind: queued_kind,
+                },
+            ] if *opened_node == node
+                && frame_name == "workspace-frame-intents"
+                && *suppressed_frame == frame_key
+                && *moved_frame == frame_key
+                && *removed_frame == frame_key
+                && queued_host == &host
+                && *queued_kind == kind
         ));
     }
 
@@ -4609,6 +4841,8 @@ mod tests {
             &mut tree,
         );
 
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
         assert_eq!(
             app.take_pending_restore_workspace_snapshot_named(),
             Some("workspace-beta".to_string())
@@ -4645,6 +4879,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
         let frame_key =
             frame_key_for_name(&app, "workspace-action-toggle").expect("frame anchor should exist");
         assert_eq!(
@@ -4660,6 +4895,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
         assert_eq!(
             app.domain_graph().frame_split_offer_suppressed(frame_key),
             Some(false)
@@ -4695,6 +4931,7 @@ mod tests {
                 &mut app,
                 &mut tree,
             );
+            dispatch_pending_workbench_intents(&mut app, &mut tree);
             assert_eq!(
                 app.domain_graph().frame_split_offer_suppressed(frame_key),
                 Some(true)
@@ -4735,6 +4972,8 @@ mod tests {
             &mut app,
             &mut tree,
         );
+
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
 
         assert!(app.is_frame_split_offer_dismissed_for_session("workspace-session-dismiss"));
         assert_eq!(
@@ -4856,6 +5095,8 @@ mod tests {
             &mut tree,
         );
 
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
         let hints = app.domain_graph().frame_layout_hints(frame_key).unwrap();
         assert_eq!(
             hints[0],
@@ -4916,10 +5157,47 @@ mod tests {
             &mut tree,
         );
 
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
         assert!(
             app.domain_graph()
                 .frame_layout_hints(frame_key)
                 .is_some_and(|hints| hints.is_empty())
+        );
+    }
+
+    #[test]
+    fn set_navigator_specialty_view_action_updates_specialty_state_via_workbench_intent() {
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+        let mut app = GraphBrowserApp::new_for_testing();
+        let selected = app.add_node_and_sync(
+            "https://example.com/navigator-specialty".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        app.select_node(selected, false);
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_navigator_specialty", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetNavigatorSpecialtyView {
+                host: host.clone(),
+                kind: Some(GraphletKind::Component),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        assert_eq!(
+            app.workspace
+                .workbench_session
+                .navigator_specialty_views
+                .get(&host)
+                .map(|view| view.kind),
+            Some(GraphletKind::Component)
         );
     }
 
