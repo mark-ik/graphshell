@@ -45,6 +45,28 @@ pub(crate) enum OverviewSurfaceAction {
     ToggleOverviewPlane,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OverviewActionOwner {
+    Graph,
+    Workbench,
+    Viewer,
+    Runtime,
+}
+
+#[derive(Debug, Clone)]
+enum OverviewQuickActionDispatch {
+    Graph(GraphIntent),
+    Workbench(WorkbenchIntent),
+}
+
+#[derive(Debug, Clone)]
+struct OverviewQuickAction {
+    label: String,
+    owner: OverviewActionOwner,
+    hover_text: String,
+    dispatch: OverviewQuickActionDispatch,
+}
+
 fn overview_surface_action_to_workbench_intent(action: OverviewSurfaceAction) -> WorkbenchIntent {
     match action {
         OverviewSurfaceAction::FocusView(view_id) => WorkbenchIntent::FocusGraphView { view_id },
@@ -88,6 +110,7 @@ pub(crate) fn render_overview_plane(
     let mut open = true;
     let mut close_requested = false;
     let mut pending_graph_intents = Vec::new();
+    let mut pending_workbench_intents = Vec::new();
     let mut pending_surface_actions = Vec::new();
 
     let response = Window::new("Overview Plane")
@@ -105,11 +128,17 @@ pub(crate) fn render_overview_plane(
                     &mut columns[0],
                     "Graph Context",
                     &graph_context_lines(app, selected_slot),
+                    &graph_context_actions(app, selected_slot),
+                    &mut pending_graph_intents,
+                    &mut pending_workbench_intents,
                 );
                 render_overview_summary_card(
                     &mut columns[1],
                     "Workbench Context",
                     &workbench_context_lines(&chrome_projection),
+                    &workbench_context_actions(&chrome_projection, selected_slot),
+                    &mut pending_graph_intents,
+                    &mut pending_workbench_intents,
                 );
             });
             ui.add_space(8.0);
@@ -118,11 +147,17 @@ pub(crate) fn render_overview_plane(
                     &mut columns[0],
                     "Viewer / Content",
                     &viewer_content_lines(&chrome_projection),
+                    &viewer_content_actions(&chrome_projection),
+                    &mut pending_graph_intents,
+                    &mut pending_workbench_intents,
                 );
                 render_overview_summary_card(
                     &mut columns[1],
                     "Runtime / Attention",
                     &runtime_attention_lines(app),
+                    &runtime_attention_actions(app),
+                    &mut pending_graph_intents,
+                    &mut pending_workbench_intents,
                 );
             });
             ui.add_space(8.0);
@@ -205,6 +240,9 @@ pub(crate) fn render_overview_plane(
     if !pending_graph_intents.is_empty() {
         app.apply_reducer_intents(pending_graph_intents);
     }
+    for intent in pending_workbench_intents {
+        app.enqueue_workbench_intent(intent);
+    }
     for action in pending_surface_actions {
         app.enqueue_workbench_intent(overview_surface_action_to_workbench_intent(action));
     }
@@ -227,7 +265,14 @@ fn render_overview_active_context_strip(
         });
 }
 
-fn render_overview_summary_card(ui: &mut Ui, title: &str, lines: &[String]) {
+fn render_overview_summary_card(
+    ui: &mut Ui,
+    title: &str,
+    lines: &[String],
+    actions: &[OverviewQuickAction],
+    pending_graph_intents: &mut Vec<GraphIntent>,
+    pending_workbench_intents: &mut Vec<WorkbenchIntent>,
+) {
     egui::Frame::group(ui.style())
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
@@ -240,7 +285,52 @@ fn render_overview_summary_card(ui: &mut Ui, title: &str, lines: &[String]) {
             for line in lines {
                 ui.small(line);
             }
+            if !actions.is_empty() {
+                ui.add_space(6.0);
+                ui.separator();
+                ui.small(
+                    RichText::new(format!(
+                        "Routes: {}",
+                        overview_action_owner_summary(actions)
+                    ))
+                    .weak(),
+                );
+                ui.add_space(4.0);
+                render_overview_quick_actions(
+                    ui,
+                    actions,
+                    pending_graph_intents,
+                    pending_workbench_intents,
+                );
+            }
         });
+}
+
+fn render_overview_quick_actions(
+    ui: &mut Ui,
+    actions: &[OverviewQuickAction],
+    pending_graph_intents: &mut Vec<GraphIntent>,
+    pending_workbench_intents: &mut Vec<WorkbenchIntent>,
+) {
+    ui.horizontal_wrapped(|ui| {
+        for action in actions {
+            let owner = overview_action_owner_label(action.owner);
+            if ui
+                .small_button(&action.label)
+                .on_hover_text(format!("Routes to {owner}: {}", action.hover_text))
+                .clicked()
+            {
+                match &action.dispatch {
+                    OverviewQuickActionDispatch::Graph(intent) => {
+                        pending_graph_intents.push(intent.clone())
+                    }
+                    OverviewQuickActionDispatch::Workbench(intent) => {
+                        pending_workbench_intents.push(intent.clone())
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn render_overview_suggested_actions(
@@ -383,6 +473,51 @@ fn graph_context_lines(
     lines
 }
 
+fn graph_context_actions(
+    app: &GraphBrowserApp,
+    selected_slot: Option<&OverviewSlotSnapshot>,
+) -> Vec<OverviewQuickAction> {
+    let mut actions = Vec::new();
+    if let Some(slot) = selected_slot {
+        actions.push(OverviewQuickAction {
+            label: "Create adjacent view".to_string(),
+            owner: OverviewActionOwner::Graph,
+            hover_text:
+                "Ask Graph to create a neighboring graph-view slot from the selected region."
+                    .to_string(),
+            dispatch: OverviewQuickActionDispatch::Graph(GraphIntent::CreateGraphViewSlot {
+                anchor_view: Some(slot.view_id),
+                direction: GraphViewLayoutDirection::Right,
+                open_mode: Some(PendingTileOpenMode::Tab),
+            }),
+        });
+        actions.push(OverviewQuickAction {
+            label: "Focus region".to_string(),
+            owner: OverviewActionOwner::Workbench,
+            hover_text:
+                "Ask Workbench to foreground the selected graph-view region without mutating graph truth."
+                    .to_string(),
+            dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::FocusGraphView {
+                view_id: slot.view_id,
+            }),
+        });
+    }
+    if let Some(primary) = app.focused_selection().primary() {
+        actions.push(OverviewQuickAction {
+            label: "Open primary node".to_string(),
+            owner: OverviewActionOwner::Workbench,
+            hover_text:
+                "Route the primary graph target into the Workbench node-pane open path."
+                    .to_string(),
+                dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenNodeInPane {
+                    node: primary,
+                    pane: PaneId::new(),
+                }),
+        });
+    }
+    actions
+}
+
 fn workbench_context_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec<String> {
     let mut lines = vec![format!(
         "Active frame: {}",
@@ -412,6 +547,40 @@ fn workbench_context_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec
     lines
 }
 
+fn workbench_context_actions(
+    chrome_projection: &WorkbenchChromeProjection,
+    selected_slot: Option<&OverviewSlotSnapshot>,
+) -> Vec<OverviewQuickAction> {
+    let mut actions = Vec::new();
+    if let Some(frame_name) = chrome_projection.active_frame_name.as_deref() {
+        actions.push(OverviewQuickAction {
+            label: "Open active frame".to_string(),
+            owner: OverviewActionOwner::Workbench,
+            hover_text:
+                "Route the active frame summary through the canonical Workbench frame URL path."
+                    .to_string(),
+            dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenFrameUrl {
+                url: crate::util::VersoAddress::frame(frame_name.to_string()).to_string(),
+                focus_node: None,
+            }),
+        });
+    }
+    if let Some(slot) = selected_slot {
+        actions.push(OverviewQuickAction {
+            label: "Open selected view".to_string(),
+            owner: OverviewActionOwner::Workbench,
+            hover_text:
+                "Open the selected graph-view summary in a Workbench pane via the shared intent path."
+                    .to_string(),
+            dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenGraphViewPane {
+                view_id: slot.view_id,
+                mode: PendingTileOpenMode::Tab,
+            }),
+        });
+    }
+    actions
+}
+
 fn viewer_content_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec<String> {
     let Some(active_entry) = active_overview_pane_entry(chrome_projection) else {
         return vec!["Viewer backend: no active workbench pane".to_string()];
@@ -434,6 +603,72 @@ fn viewer_content_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec<St
         ));
     }
     lines
+}
+
+fn viewer_content_actions(chrome_projection: &WorkbenchChromeProjection) -> Vec<OverviewQuickAction> {
+    let Some(active_entry) = active_overview_pane_entry(chrome_projection) else {
+        return Vec::new();
+    };
+
+    let mut actions = Vec::new();
+    match &active_entry.kind {
+        WorkbenchPaneKind::Graph { .. } => actions.push(OverviewQuickAction {
+            label: "Graph settings".to_string(),
+            owner: OverviewActionOwner::Viewer,
+            hover_text:
+                "Route graph-view presentation settings through the existing settings URL path."
+                    .to_string(),
+            dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl {
+                url: crate::util::VersoAddress::settings(
+                    crate::util::GraphshellSettingsPath::Physics,
+                )
+                .to_string(),
+            }),
+        }),
+        WorkbenchPaneKind::Node { node_key } => {
+            actions.push(OverviewQuickAction {
+                label: "Render auto".to_string(),
+                owner: OverviewActionOwner::Viewer,
+                hover_text:
+                    "Clear any viewer override and let the Viewer registry choose the canonical renderer."
+                        .to_string(),
+                dispatch: OverviewQuickActionDispatch::Workbench(
+                    WorkbenchIntent::SwapViewerBackend {
+                        pane: active_entry.pane_id,
+                        node: *node_key,
+                        viewer_id_override: None,
+                    },
+                ),
+            });
+            actions.push(OverviewQuickAction {
+                label: "Viewer settings".to_string(),
+                owner: OverviewActionOwner::Viewer,
+                hover_text:
+                    "Open settings through the canonical settings-route bridge instead of mutating viewer state directly."
+                        .to_string(),
+                dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl {
+                    url: crate::util::VersoAddress::settings(
+                        crate::util::GraphshellSettingsPath::General,
+                    )
+                    .to_string(),
+                }),
+            });
+        }
+        WorkbenchPaneKind::Tool { .. } => actions.push(OverviewQuickAction {
+            label: "Tool settings".to_string(),
+            owner: OverviewActionOwner::Viewer,
+            hover_text:
+                "Open the shared settings surface for the current tool-hosted content."
+                    .to_string(),
+            dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl {
+                url: crate::util::VersoAddress::settings(
+                    crate::util::GraphshellSettingsPath::General,
+                )
+                .to_string(),
+            }),
+        }),
+    }
+    actions
 }
 
 fn runtime_attention_lines(app: &GraphBrowserApp) -> Vec<String> {
@@ -461,6 +696,36 @@ fn runtime_attention_lines(app: &GraphBrowserApp) -> Vec<String> {
     }
     lines.push(format!("Trusted peers: {}", phase3_trusted_peers().len()));
     lines
+}
+
+fn runtime_attention_actions(app: &GraphBrowserApp) -> Vec<OverviewQuickAction> {
+    let mut actions = vec![OverviewQuickAction {
+        label: "Inspect diagnostics".to_string(),
+        owner: OverviewActionOwner::Runtime,
+        hover_text:
+            "Route runtime attention into the diagnostics tool surface instead of opening a bespoke overview inspector."
+                .to_string(),
+        dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenToolUrl {
+            url: crate::util::VersoAddress::tool("diagnostics", None).to_string(),
+        }),
+    }];
+    let history_label = if app.history_health_summary().preview_mode_active {
+        "Inspect history preview"
+    } else {
+        "Open history"
+    };
+    actions.push(OverviewQuickAction {
+        label: history_label.to_string(),
+        owner: OverviewActionOwner::Runtime,
+        hover_text:
+            "Route history/runtime state into the canonical settings/history surface."
+                .to_string(),
+        dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl {
+            url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
+                .to_string(),
+        }),
+    });
+    actions
 }
 
 fn active_overview_pane_entry(
@@ -510,6 +775,26 @@ fn graph_search_origin_label(origin: &GraphSearchOrigin) -> &'static str {
         GraphSearchOrigin::SemanticTag => "semantic-tag scope",
         GraphSearchOrigin::AnchorSlice => "anchor-slice scope",
     }
+}
+
+fn overview_action_owner_label(owner: OverviewActionOwner) -> &'static str {
+    match owner {
+        OverviewActionOwner::Graph => "Graph",
+        OverviewActionOwner::Workbench => "Workbench",
+        OverviewActionOwner::Viewer => "Viewer",
+        OverviewActionOwner::Runtime => "Runtime",
+    }
+}
+
+fn overview_action_owner_summary(actions: &[OverviewQuickAction]) -> String {
+    let mut owners = Vec::new();
+    for action in actions {
+        let owner = overview_action_owner_label(action.owner);
+        if !owners.contains(&owner) {
+            owners.push(owner);
+        }
+    }
+    owners.join(" · ")
 }
 
 fn overview_suggestion_labels(
@@ -1714,6 +1999,139 @@ mod tests {
         let lines = graph_context_lines(&app, None);
         assert!(lines.iter().any(|line| line.contains("Search: anchor · 3 matches")));
         assert!(lines.iter().any(|line| line.contains("anchor-slice scope")));
+    }
+
+    #[test]
+    fn graph_context_actions_expose_graph_and_workbench_routes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_workspace_focused_view_with_transition(Some(view_id));
+        let node = app.workspace.domain.graph.add_node(
+            "https://overview-actions.example".to_string(),
+            euclid::point2(0.0, 0.0),
+        );
+        app.select_in_focused_view(node, false);
+        let slot = OverviewSlotSnapshot {
+            view_id,
+            name: "Focus".to_string(),
+            row: 0,
+            col: 0,
+            archived: false,
+        };
+
+        let actions = graph_context_actions(&app, Some(&slot));
+
+        assert!(actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Graph
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Graph(GraphIntent::CreateGraphViewSlot {
+                        anchor_view: Some(anchor_view),
+                        direction: GraphViewLayoutDirection::Right,
+                        open_mode: Some(PendingTileOpenMode::Tab),
+                    }) if anchor_view == view_id
+                )
+        }));
+        assert!(actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Workbench
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenNodeInPane {
+                        node: opened_node,
+                        ..
+                    }) if opened_node == node
+                )
+        }));
+    }
+
+    #[test]
+    fn viewer_content_actions_for_node_entry_include_viewer_routes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let pane_id = PaneId::new();
+        let node_key = app.workspace.domain.graph.add_node(
+            "https://viewer-actions.example".to_string(),
+            euclid::point2(0.0, 0.0),
+        );
+        let host_layout = crate::shell::desktop::ui::workbench_host::WorkbenchHostLayout {
+            host: crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Right,
+            ),
+            anchor_edge: crate::app::workbench_layout_policy::AnchorEdge::Right,
+            form_factor:
+                crate::shell::desktop::ui::workbench_host::WorkbenchHostFormFactor::Sidebar,
+            configured_scope: crate::app::NavigatorHostScope::Both,
+            resolved_scope: crate::app::NavigatorHostScope::Both,
+            size_fraction: 0.3,
+            cross_axis_margin_start_px: 0.0,
+            cross_axis_margin_end_px: 0.0,
+            resizable: true,
+        };
+        let projection = WorkbenchChromeProjection {
+            layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_pane_title: Some("Node".to_string()),
+            active_frame_name: Some("frame-a".to_string()),
+            saved_frame_names: vec![],
+            navigator_groups: vec![],
+            pane_entries: vec![WorkbenchPaneEntry {
+                pane_id,
+                kind: WorkbenchPaneKind::Node { node_key },
+                title: "Node".to_string(),
+                subtitle: None,
+                arrangement_memberships: vec![],
+                semantic_tab_affordance: None,
+                is_active: true,
+                closable: true,
+            }],
+            tree_root: None,
+            active_graphlet_roster: vec![],
+        };
+
+        let actions = viewer_content_actions(&projection);
+
+        assert!(actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Viewer
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Workbench(WorkbenchIntent::SwapViewerBackend {
+                        pane,
+                        node,
+                        viewer_id_override: None,
+                    }) if pane == pane_id && node == node_key
+                )
+        }));
+        assert!(actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Viewer
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl { .. })
+                )
+        }));
+    }
+
+    #[test]
+    fn runtime_attention_actions_route_to_runtime_owned_surfaces() {
+        let app = GraphBrowserApp::new_for_testing();
+
+        let actions = runtime_attention_actions(&app);
+
+        assert!(actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Runtime
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenToolUrl { .. })
+                )
+        }));
+        assert!(actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Runtime
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl { .. })
+                )
+        }));
     }
 
     #[test]
