@@ -513,8 +513,8 @@ fn render_fullscreen_origin_strip(
 /// Multiple views: renders selectable tab labels from `navigator_ctx.extra_views`.
 fn render_navigator_view_tabs(
     ui: &mut egui::Ui,
+    graph_app: &mut GraphBrowserApp,
     navigator_ctx: &NavigatorContextProjection,
-    frame_intents: &mut Vec<GraphIntent>,
 ) {
     if navigator_ctx.extra_views.is_empty() {
         // Single view or no views: show a compact label.
@@ -531,10 +531,14 @@ fn render_navigator_view_tabs(
         }
         for (view_id, label) in &navigator_ctx.extra_views {
             if ui.selectable_label(false, label.as_str()).clicked() {
-                frame_intents.push(GraphIntent::FocusGraphView { view_id: *view_id });
+                enqueue_navigator_view_focus(graph_app, *view_id);
             }
         }
     }
+}
+
+fn enqueue_navigator_view_focus(graph_app: &mut GraphBrowserApp, view_id: GraphViewId) {
+    graph_app.enqueue_workbench_intent(WorkbenchIntent::FocusGraphView { view_id });
 }
 
 fn render_wry_compat_button(
@@ -735,10 +739,10 @@ fn overview_plane_tooltip(graph_app: &GraphBrowserApp) -> String {
 
 fn render_command_bar_navigator_projection_host(
     ui: &mut egui::Ui,
+    graph_app: &mut GraphBrowserApp,
     navigator_ctx: &NavigatorContextProjection,
-    frame_intents: &mut Vec<GraphIntent>,
 ) {
-    render_navigator_view_tabs(ui, navigator_ctx, frame_intents);
+    render_navigator_view_tabs(ui, graph_app, navigator_ctx);
 }
 
 fn render_command_bar_legacy_graph_actions(
@@ -812,7 +816,7 @@ fn render_command_bar_left_column(
     command_bar_focus_target: CommandBarFocusTarget,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
-    render_command_bar_navigator_projection_host(ui, navigator_ctx, frame_intents);
+    render_command_bar_navigator_projection_host(ui, graph_app, navigator_ctx);
     render_command_bar_legacy_graph_actions(
         ui,
         graph_app,
@@ -994,10 +998,12 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
 #[cfg(test)]
 mod tests {
     use super::{
+        enqueue_navigator_view_focus,
         emit_command_bar_command_palette_requested, emit_omnibar_provider_mailbox_applied,
         emit_omnibar_provider_mailbox_failed, emit_omnibar_provider_mailbox_request_started,
         emit_omnibar_provider_mailbox_stale, render_shell_status_bar, TOOLBAR_HEIGHT,
     };
+    use crate::app::{GraphBrowserApp, GraphViewId, WorkbenchIntent};
     use crate::shell::desktop::runtime::diagnostics::{
         DiagnosticEvent, install_global_sender,
     };
@@ -1010,6 +1016,19 @@ mod tests {
     };
     use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
     use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
+
+    #[test]
+    fn navigator_view_tabs_enqueue_workbench_focus_intent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+
+        enqueue_navigator_view_focus(&mut app, view_id);
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::FocusGraphView { view_id: focused }] if *focused == view_id
+        ));
+    }
 
     #[test]
     fn command_bar_command_palette_request_emits_diagnostic() {
