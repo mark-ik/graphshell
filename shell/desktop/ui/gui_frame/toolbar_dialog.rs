@@ -18,13 +18,12 @@ use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_status_sync;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
-use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthorityState};
+use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
 use crate::shell::desktop::ui::workbench_host::{self, WorkbenchLayerState};
-use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 pub(crate) struct ToolbarDialogPhaseArgs<'a> {
@@ -35,11 +34,8 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) control_panel: &'a mut ControlPanel,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) active_toolbar_pane: Option<PaneId>,
-    pub(crate) focused_node_hint: Option<NodeKey>,
     pub(crate) graph_surface_focused: bool,
     pub(crate) local_widget_focus: &'a mut Option<LocalFocusTarget>,
-    pub(crate) focus_authority: &'a RuntimeFocusAuthorityState,
     pub(crate) can_go_back: bool,
     pub(crate) can_go_forward: bool,
     pub(crate) location: &'a mut String,
@@ -75,11 +71,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
         control_panel,
         window,
         tiles_tree,
-        active_toolbar_pane,
-        focused_node_hint: _,
         graph_surface_focused,
         local_widget_focus,
-        focus_authority: _,
         can_go_back,
         can_go_forward,
         location,
@@ -103,7 +96,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         nav_targeting::chrome_projection_node(graph_app, window).or(active_webview_node)
     };
     let command_bar_focus_target = nav_targeting::command_bar_focus_target(
-        active_toolbar_pane,
+        window.focused_pane(),
         active_webview_node,
         focused_toolbar_node_key,
         graph_app.get_single_selected_node(),

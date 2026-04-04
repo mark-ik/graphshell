@@ -15,10 +15,9 @@ use servo::{DeviceIndependentPixel, OffscreenRenderingContext, WebViewId, Window
 use super::nav_targeting;
 use super::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
 use crate::app::{
-    BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
-    LifecycleCause, PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode,
-    ReducerDispatchContext, UndoBoundaryReason, UnsavedFramePromptAction,
-    UnsavedFramePromptRequest,
+    GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause, PendingConnectedOpenScope,
+    PendingNodeOpenRequest, PendingTileOpenMode, ReducerDispatchContext, UndoBoundaryReason,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest,
 };
 use crate::graph::NodeKey;
 use crate::render;
@@ -49,6 +48,8 @@ use crate::shell::desktop::runtime::registries::{self, CHANNEL_UX_NAVIGATION_TRA
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
+use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneViewState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_invariants;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -254,18 +255,30 @@ pub(crate) fn ingest_pre_frame(
                     );
                 }
                 action_id::toolbar::NAV_BACK => {
-                    let target = BrowserCommandTarget::ChromeProjection {
-                        fallback_node: nav_targeting::chrome_projection_node(graph_app, window)
+                    let command_bar_focus_target = CommandBarFocusTarget::new(
+                        window.focused_pane(),
+                        nav_targeting::chrome_projection_node(graph_app, window)
                             .or(focused_node),
-                    };
-                    graph_app.request_browser_command(target, BrowserCommand::Back);
+                    );
+                    let _ = toolbar_routing::run_nav_action(
+                        graph_app,
+                        window,
+                        command_bar_focus_target,
+                        ToolbarNavAction::Back,
+                    );
                 }
                 action_id::toolbar::NAV_FORWARD => {
-                    let target = BrowserCommandTarget::ChromeProjection {
-                        fallback_node: nav_targeting::chrome_projection_node(graph_app, window)
+                    let command_bar_focus_target = CommandBarFocusTarget::new(
+                        window.focused_pane(),
+                        nav_targeting::chrome_projection_node(graph_app, window)
                             .or(focused_node),
-                    };
-                    graph_app.request_browser_command(target, BrowserCommand::Forward);
+                    );
+                    let _ = toolbar_routing::run_nav_action(
+                        graph_app,
+                        window,
+                        command_bar_focus_target,
+                        ToolbarNavAction::Forward,
+                    );
                 }
                 action_id::radial_menu::CATEGORY_PREVIOUS => {
                     render::radial_menu::queue_gamepad_input(
