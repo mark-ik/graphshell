@@ -158,7 +158,9 @@ Graph supplies:
 - active targets,
 - graphlet facts,
 - path/component/loop/facet summaries,
-- graph-side diagnostics relevant to current context.
+- graph-side diagnostics relevant to current context,
+- graph-view slot layout truth for the overview plane: create, rename, move,
+  archive, and restore.
 
 ### 5.3 Navigator
 
@@ -217,6 +219,10 @@ Minimum interactions:
 - clicking a frame/pane summary foregrounds it in Workbench,
 - clicking a viewer backend or fallback state opens viewer diagnostics or `Render With`,
 - clicking a runtime warning routes to the owning diagnostics or control surface,
+- graph-view slot create/rename/move/archive/restore actions dispatch Graph intents because the
+	graph layout manager owns that slot truth,
+- focus/open/transfer/close overview-surface actions dispatch Workbench intents because they change
+	surface routing rather than graph truth,
 - action suggestions dispatch to the owning domain rather than mutating state directly in Shell.
 
 ---

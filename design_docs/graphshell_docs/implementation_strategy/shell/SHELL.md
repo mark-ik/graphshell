@@ -114,6 +114,9 @@ The Shell explicitly does not own:
 - **Graph projection and navigation** — graphlets, relationship projection,
   section model, breadcrumb/context semantics, scoped search, and specialty
   graph navigation layouts; owned by Navigator
+- **Graph-view slot layout truth** — creating, naming, positioning, archiving,
+  and restoring graph-view slots in the graph layout manager; owned by Graph
+  even when exposed through a Shell overview surface
 - **Arrangement and activation** — tile tree, frame layout, pane lifecycle,
   routing; owned by Workbench
 - **Content rendering** — viewer selection, render mode, content display; owned
@@ -211,6 +214,8 @@ Examples:
 - create node (omnibar entry, command palette)
 - delete node / clear data
 - tag, retag, rewire operations issued from command surfaces
+- create, rename, move, archive, or restore graph-view slots from the Shell
+  overview plane
 
 The Shell dispatches graph intents. The Graph domain executes them.
 
@@ -223,6 +228,7 @@ Examples:
 - open settings page in a pane
 - switch frame
 - toggle pinned workbench host
+- focus/open/transfer graph views from the Shell overview plane
 
 The Shell dispatches workbench intents. The Workbench executes them.
 

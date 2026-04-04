@@ -127,10 +127,9 @@ Next bypass seam after the current checkpoint:
 1. Workbench-host routing and frame-persistence chrome now converge on shared `WorkbenchIntent`.
      The next Shell bypass audit should move to the remaining non-host surfaces that still perform
      local frame persistence or frame routing shortcuts, or else document them as intentional.
-2. Overview-plane interactions in `shell/desktop/ui/overview_plane.rs` still keep graph-layout
-     mutation local (`CreateGraphViewSlot`, `MoveGraphViewSlot`, `RenameGraphViewSlot`, archive /
-     restore, exit). That is likely correct, but Workstream C should make the split explicit in the
-     Shell overview contract so only graph-owned layout mutations bypass the workbench authority.
+2. Overview-plane graph-view-slot edits in `shell/desktop/ui/overview_plane.rs` are now explicitly
+     documented as Graph-owned layout mutations. Any future overview interaction that changes
+     surface routing, focus, or pane activation should stay on the `WorkbenchIntent` path instead.
 3. Global toolbar frame controls now share the same `WorkbenchIntent` frame-request path as
      workbench-host chrome. If Shell later introduces a dedicated frame-request contract, keep these
      non-host controls aligned rather than letting them drift back to direct persistence helpers.

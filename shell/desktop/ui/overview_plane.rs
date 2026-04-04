@@ -149,6 +149,9 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
         pending_surface_actions.push(OverviewSurfaceAction::ToggleOverviewPlane);
     }
 
+    // Graph-view slot creation, rename, move, archive, and restore remain
+    // graph-owned layout mutations; only surface routing goes through
+    // WorkbenchIntent from the overview plane.
     if !pending_graph_intents.is_empty() {
         app.apply_reducer_intents(pending_graph_intents);
     }
