@@ -243,6 +243,10 @@ pub(crate) const CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED: &str =
     "runtime.host.webdriver.browser_action.requested";
 pub(crate) const CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_MISSING_WEBVIEW: &str =
     "runtime.host.webdriver.browser_action.missing_webview";
+pub(crate) const CHANNEL_HOST_WEBDRIVER_LOAD_URL_REQUESTED: &str =
+    "runtime.host.webdriver.load_url.requested";
+pub(crate) const CHANNEL_HOST_WEBDRIVER_LOAD_URL_MISSING_WEBVIEW: &str =
+    "runtime.host.webdriver.load_url.missing_webview";
 pub(crate) const CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED: &str =
     "runtime.host.webdriver.load_status.blocked";
 pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED: &str =

@@ -23,11 +23,15 @@ use crate::app::BrowserCommand;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_MISSING_WEBVIEW,
-    CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED, CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED,
+    CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED,
+    CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED, CHANNEL_HOST_WEBDRIVER_LOAD_URL_MISSING_WEBVIEW,
+    CHANNEL_HOST_WEBDRIVER_LOAD_URL_REQUESTED,
 };
 
 use super::running_app_state::RunningAppState;
 use super::window::PlatformWindow;
+
+const WEBDRIVER_LOAD_URL_LABEL: &str = "load_url";
 
 fn emit_webdriver_browser_action_requested(command: BrowserCommand) {
     emit_event(DiagnosticEvent::MessageSent {
@@ -47,6 +51,20 @@ fn emit_webdriver_load_status_blocked() {
     emit_event(DiagnosticEvent::MessageSent {
         channel_id: CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED,
         byte_len: "blocked".len(),
+    });
+}
+
+fn emit_webdriver_load_url_requested() {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_HOST_WEBDRIVER_LOAD_URL_REQUESTED,
+        byte_len: WEBDRIVER_LOAD_URL_LABEL.len(),
+    });
+}
+
+fn emit_webdriver_load_url_missing_webview() {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_HOST_WEBDRIVER_LOAD_URL_MISSING_WEBVIEW,
+        byte_len: WEBDRIVER_LOAD_URL_LABEL.len(),
     });
 }
 
@@ -503,7 +521,10 @@ impl WebDriverRuntime {
         url: Url,
         load_status_sender: GenericSender<WebDriverLoadStatus>,
     ) {
+        emit_webdriver_load_url_requested();
         let Some(webview) = state.webview_by_id(webview_id) else {
+            emit_webdriver_load_url_missing_webview();
+            send_webdriver_load_status_blocked(&load_status_sender);
             return;
         };
 
@@ -618,6 +639,33 @@ mod tests {
                     if *channel_id == CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED
             )),
             "expected blocked-load diagnostic; got: {emitted:?}"
+        );
+    }
+
+    #[test]
+    fn webdriver_load_url_helpers_emit_expected_diagnostics() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        emit_webdriver_load_url_requested();
+        emit_webdriver_load_url_missing_webview();
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_HOST_WEBDRIVER_LOAD_URL_REQUESTED
+            )),
+            "expected load-url requested diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_HOST_WEBDRIVER_LOAD_URL_MISSING_WEBVIEW
+            )),
+            "expected load-url missing-webview diagnostic; got: {emitted:?}"
         );
     }
 }
