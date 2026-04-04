@@ -287,6 +287,13 @@ before the Shell host/runtime boundary exists at all (for example, startup
 initialization done before `Gui`/Shell is live). Those exceptions should remain
 rare and explicitly documented.
 
+One explicit post-host exception is automation/embedding bridges such as
+WebDriver. Those host-side bridges may address concrete `WebView` instances and
+load/traversal state directly instead of routing through Shell command
+interpretation, but they remain host-runtime concerns rather than domain truth.
+They must stay explicitly documented, diagnosable, and semantically outside the
+Shell's user-facing command authority.
+
 ---
 
 ## 9. Architectural Rules
