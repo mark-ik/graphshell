@@ -3,12 +3,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use crate::app::{BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent};
-use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::input::binding_id;
 use crate::shell::desktop::ui::nav_targeting;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 
 pub(crate) enum ToolbarNavAction {
     Back,
@@ -34,7 +34,7 @@ pub(crate) struct ToolbarSubmitResult {
 pub(crate) fn run_nav_action(
     graph_app: &mut GraphBrowserApp,
     _window: &EmbedderWindow,
-    focused_toolbar_node: Option<NodeKey>,
+    command_bar_focus_target: CommandBarFocusTarget,
     action: ToolbarNavAction,
 ) -> bool {
     if let Some(binding_id) = match action {
@@ -62,7 +62,7 @@ pub(crate) fn run_nav_action(
     };
     let target = BrowserCommandTarget::ChromeProjection {
         fallback_node: nav_targeting::chrome_projection_node(graph_app, _window)
-            .or(focused_toolbar_node),
+            .or(command_bar_focus_target.focused_node()),
     };
     graph_app.request_browser_command(target, command);
     true
@@ -72,7 +72,7 @@ pub(crate) fn submit_address_bar_intents(
     graph_app: &GraphBrowserApp,
     location: &str,
     is_graph_view: bool,
-    focused_toolbar_node: Option<NodeKey>,
+    command_bar_focus_target: CommandBarFocusTarget,
     split_open_requested: bool,
     window: &EmbedderWindow,
     searchpage: &str,
@@ -89,7 +89,7 @@ pub(crate) fn submit_address_bar_intents(
         graph_app,
         location,
         is_graph_view,
-        focused_toolbar_node,
+        command_bar_focus_target.focused_node(),
         window,
         searchpage,
     );
@@ -157,7 +157,7 @@ mod tests {
         assert!(run_nav_action(
             &mut app,
             &window,
-            None,
+            CommandBarFocusTarget::default(),
             ToolbarNavAction::StopLoad
         ));
         assert_eq!(

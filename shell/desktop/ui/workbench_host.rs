@@ -25,6 +25,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_FIRST_USE_PROMPT_SHOWN, CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
 };
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use crate::shell::desktop::workbench::semantic_tabs;
@@ -3209,6 +3210,7 @@ fn render_navigation_buttons(
     focused_content_status: &FocusedContentStatus,
     location_dirty: &mut bool,
 ) {
+    let command_bar_focus_target = CommandBarFocusTarget::new(None, focused_toolbar_node);
     let can_go_back = focused_content_status.can_go_back;
     let can_go_forward = focused_content_status.can_go_forward;
     if ui
@@ -3220,7 +3222,7 @@ fn render_navigation_buttons(
         let _ = toolbar_routing::run_nav_action(
             graph_app,
             window,
-            focused_toolbar_node,
+            command_bar_focus_target,
             ToolbarNavAction::Back,
         );
     }
@@ -3233,7 +3235,7 @@ fn render_navigation_buttons(
         let _ = toolbar_routing::run_nav_action(
             graph_app,
             window,
-            focused_toolbar_node,
+            command_bar_focus_target,
             ToolbarNavAction::Forward,
         );
     }
@@ -3254,7 +3256,7 @@ fn render_navigation_buttons(
         let _ = toolbar_routing::run_nav_action(
             graph_app,
             window,
-            focused_toolbar_node,
+            command_bar_focus_target,
             if focused_content_status.can_stop_load {
                 ToolbarNavAction::StopLoad
             } else {
@@ -3272,7 +3274,7 @@ fn render_navigation_buttons(
             let _ = toolbar_routing::run_nav_action(
                 graph_app,
                 window,
-                focused_toolbar_node,
+                command_bar_focus_target,
                 ToolbarNavAction::ZoomOut,
             );
         }
@@ -3285,7 +3287,7 @@ fn render_navigation_buttons(
             let _ = toolbar_routing::run_nav_action(
                 graph_app,
                 window,
-                focused_toolbar_node,
+                command_bar_focus_target,
                 ToolbarNavAction::ZoomIn,
             );
         }
@@ -3297,7 +3299,7 @@ fn render_navigation_buttons(
             let _ = toolbar_routing::run_nav_action(
                 graph_app,
                 window,
-                focused_toolbar_node,
+                command_bar_focus_target,
                 ToolbarNavAction::ZoomReset,
             );
         }

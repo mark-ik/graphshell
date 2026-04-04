@@ -1,7 +1,7 @@
 use crate::app::GraphBrowserApp;
-use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use egui::{WidgetInfo, WidgetType};
 use std::collections::HashSet;
 
@@ -105,7 +105,7 @@ pub(crate) fn render_navigation_buttons(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
-    focused_toolbar_node: Option<NodeKey>,
+    command_bar_focus_target: CommandBarFocusTarget,
     focused_content_status: &FocusedContentStatus,
     location_dirty: &mut bool,
 ) {
@@ -122,7 +122,7 @@ pub(crate) fn render_navigation_buttons(
         let _ = toolbar_routing::run_nav_action(
             graph_app,
             window,
-            focused_toolbar_node,
+            command_bar_focus_target,
             ToolbarNavAction::Back,
         );
     }
@@ -138,7 +138,7 @@ pub(crate) fn render_navigation_buttons(
         let _ = toolbar_routing::run_nav_action(
             graph_app,
             window,
-            focused_toolbar_node,
+            command_bar_focus_target,
             ToolbarNavAction::Forward,
         );
     }
@@ -157,8 +157,12 @@ pub(crate) fn render_navigation_buttons(
     let reload_button = reload_button.on_hover_text(reload_hover);
     if reload_button.clicked() {
         *location_dirty = false;
-        let _ =
-            toolbar_routing::run_nav_action(graph_app, window, focused_toolbar_node, reload_action);
+        let _ = toolbar_routing::run_nav_action(
+            graph_app,
+            window,
+            command_bar_focus_target,
+            reload_action,
+        );
     }
 
     if let Some(zoom_level) = focused_content_status.content_zoom_level {
@@ -169,7 +173,7 @@ pub(crate) fn render_navigation_buttons(
             let _ = toolbar_routing::run_nav_action(
                 graph_app,
                 window,
-                focused_toolbar_node,
+                command_bar_focus_target,
                 ToolbarNavAction::ZoomOut,
             );
         }
@@ -183,7 +187,7 @@ pub(crate) fn render_navigation_buttons(
             let _ = toolbar_routing::run_nav_action(
                 graph_app,
                 window,
-                focused_toolbar_node,
+                command_bar_focus_target,
                 ToolbarNavAction::ZoomIn,
             );
         }
@@ -195,7 +199,7 @@ pub(crate) fn render_navigation_buttons(
             let _ = toolbar_routing::run_nav_action(
                 graph_app,
                 window,
-                focused_toolbar_node,
+                command_bar_focus_target,
                 ToolbarNavAction::ZoomReset,
             );
         }

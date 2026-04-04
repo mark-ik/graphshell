@@ -3,7 +3,6 @@ use super::*;
 use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
 use crate::shell::desktop::ui::gui_state::toolbar_location_input_id;
 use crate::shell::desktop::ui::navigator_context::NavigatorContextProjection;
-use crate::shell::desktop::workbench::pane_model::PaneId;
 
 const LOCATION_INPUT_HINT_TEXT: &str = "Search or enter address";
 const LOCATION_INPUT_HEIGHT: f32 = 28.0;
@@ -97,8 +96,7 @@ pub(super) fn render_location_search_panel(
     control_panel: &mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
-    focused_toolbar_node: Option<NodeKey>,
-    active_toolbar_pane: Option<PaneId>,
+    command_bar_focus_target: CommandBarFocusTarget,
     local_widget_focus: &mut Option<LocalFocusTarget>,
     has_node_panes: bool,
     is_graph_view: bool,
@@ -111,7 +109,7 @@ pub(super) fn render_location_search_panel(
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
 ) {
-    let location_id = toolbar_location_input_id(active_toolbar_pane);
+    let location_id = toolbar_location_input_id(command_bar_focus_target.active_pane());
 
     // Display mode: no active search session and field not focused from last frame.
     // Show Navigator breadcrumb. Clicking any token or the scope badge enters input mode.
@@ -136,7 +134,6 @@ pub(super) fn render_location_search_panel(
                 egui::StrokeKind::Inside,
             );
 
-            // Render breadcrumb tokens left-to-right inside the rect, then scope_badge on right
             let inner_margin = 6.0;
             let mut cursor_x = rect.left() + inner_margin;
             let text_y = rect.center().y;
@@ -147,7 +144,6 @@ pub(super) fn render_location_search_panel(
             if let Some(breadcrumb) = &navigator_ctx.breadcrumb {
                 for (i, token) in breadcrumb.tokens.iter().enumerate() {
                     if i > 0 {
-                        // separator " › "
                         let sep = " › ";
                         let sep_galley = ui.painter().layout_no_wrap(
                             sep.to_string(),
@@ -174,7 +170,6 @@ pub(super) fn render_location_search_panel(
                     cursor_x += galley.size().x;
                 }
             } else {
-                // No breadcrumb — show hint text
                 let hint_galley = ui.painter().layout_no_wrap(
                     LOCATION_INPUT_HINT_TEXT.to_string(),
                     font_id.clone(),
@@ -187,7 +182,6 @@ pub(super) fn render_location_search_panel(
                 );
             }
 
-            // Scope badge on the right
             if let Some(badge) = &navigator_ctx.scope_badge {
                 let badge_galley =
                     ui.painter()
@@ -205,7 +199,6 @@ pub(super) fn render_location_search_panel(
         if response.clicked() || focus_location_field_for_search {
             ctx.memory_mut(|m| m.request_focus(location_id));
         }
-        // Still check keyboard shortcut even in display mode
         if ui.input(|i| {
             if cfg!(target_os = "macos") {
                 i.clone().consume_key(Modifiers::COMMAND, Key::L)
@@ -216,7 +209,7 @@ pub(super) fn render_location_search_panel(
         }) {
             ctx.memory_mut(|m| m.request_focus(location_id));
             *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
-                pane_id: active_toolbar_pane,
+                pane_id: command_bar_focus_target.active_pane(),
             });
         }
         return;
@@ -244,7 +237,7 @@ pub(super) fn render_location_search_panel(
     {
         location_field.request_focus();
         *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
-            pane_id: active_toolbar_pane,
+            pane_id: command_bar_focus_target.active_pane(),
         });
     }
     if location_field.gained_focus()
@@ -258,13 +251,13 @@ pub(super) fn render_location_search_panel(
     }
     if location_field.gained_focus() {
         *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
-            pane_id: active_toolbar_pane,
+            pane_id: command_bar_focus_target.active_pane(),
         });
     }
 
     if location_field.has_focus() {
         *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
-            pane_id: active_toolbar_pane,
+            pane_id: command_bar_focus_target.active_pane(),
         });
         let trimmed_location = location.trim();
         if let Some(query_raw) = trimmed_location.strip_prefix('@') {
@@ -531,7 +524,7 @@ pub(super) fn render_location_search_panel(
         graph_app,
         tiles_tree,
         is_graph_view,
-        focused_toolbar_node,
+        command_bar_focus_target,
         window,
         has_node_panes,
         frame_intents,
@@ -555,7 +548,7 @@ pub(super) fn render_location_search_panel(
             graph_app,
             window,
             tiles_tree,
-            focused_toolbar_node,
+            command_bar_focus_target,
             has_node_panes,
             is_graph_view,
             location,
@@ -570,7 +563,7 @@ pub(super) fn render_location_search_panel(
     if retain_omnibar_focus {
         ctx.memory_mut(|memory| memory.request_focus(location_id));
         *local_widget_focus = Some(LocalFocusTarget::ToolbarLocation {
-            pane_id: active_toolbar_pane,
+            pane_id: command_bar_focus_target.active_pane(),
         });
     }
 }

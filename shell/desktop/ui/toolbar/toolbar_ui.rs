@@ -271,6 +271,26 @@ struct ProviderSuggestionFetchOutcome {
     status: ProviderSuggestionStatus,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CommandBarFocusTarget {
+    pane_id: Option<PaneId>,
+    node_key: Option<NodeKey>,
+}
+
+impl CommandBarFocusTarget {
+    pub(crate) fn new(pane_id: Option<PaneId>, node_key: Option<NodeKey>) -> Self {
+        Self { pane_id, node_key }
+    }
+
+    pub(crate) fn active_pane(self) -> Option<PaneId> {
+        self.pane_id
+    }
+
+    pub(crate) fn focused_node(self) -> Option<NodeKey> {
+        self.node_key
+    }
+}
+
 pub(crate) struct Input<'a> {
     pub ctx: &'a egui::Context,
     pub winit_window: &'a Window,
@@ -280,8 +300,7 @@ pub(crate) struct Input<'a> {
     pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a Tree<TileKind>,
     pub navigator_ctx: &'a NavigatorContextProjection,
-    pub focused_toolbar_node: Option<NodeKey>,
-    pub active_toolbar_pane: Option<PaneId>,
+    pub command_bar_focus_target: CommandBarFocusTarget,
     pub workbench_layer_state: WorkbenchLayerState,
     pub focused_content_status: &'a FocusedContentStatus,
     pub local_widget_focus: &'a mut Option<LocalFocusTarget>,
@@ -457,9 +476,10 @@ fn frame_pin_name_for_node(node: NodeKey, graph_app: &GraphBrowserApp) -> Option
 fn render_fullscreen_origin_strip(
     ctx: &egui::Context,
     graph_app: &GraphBrowserApp,
-    focused_toolbar_node: Option<NodeKey>,
+    command_bar_focus_target: CommandBarFocusTarget,
 ) {
-    let fullscreen_url = focused_toolbar_node
+    let fullscreen_url = command_bar_focus_target
+        .focused_node()
         .and_then(|key| {
             graph_app
                 .domain_graph()
@@ -518,11 +538,13 @@ fn render_wry_compat_button(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
-    focused_toolbar_node: Option<NodeKey>,
-    active_toolbar_pane: Option<PaneId>,
+    command_bar_focus_target: CommandBarFocusTarget,
 ) {
     // Only show when a node pane is focused and wry is available.
-    let (Some(node_key), Some(pane_id)) = (focused_toolbar_node, active_toolbar_pane) else {
+    let (Some(node_key), Some(pane_id)) = (
+        command_bar_focus_target.focused_node(),
+        command_bar_focus_target.active_pane(),
+    ) else {
         return;
     };
     if !cfg!(feature = "wry")
@@ -720,17 +742,10 @@ fn render_command_bar_legacy_graph_actions(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
-    focused_toolbar_node: Option<NodeKey>,
-    active_toolbar_pane: Option<PaneId>,
+    command_bar_focus_target: CommandBarFocusTarget,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
-    render_wry_compat_button(
-        ui,
-        graph_app,
-        tiles_tree,
-        focused_toolbar_node,
-        active_toolbar_pane,
-    );
+    render_wry_compat_button(ui, graph_app, tiles_tree, command_bar_focus_target);
     render_graph_history_buttons(ui, frame_intents);
 
     let new_node_button = ui
@@ -791,8 +806,7 @@ fn render_command_bar_left_column(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     navigator_ctx: &NavigatorContextProjection,
-    focused_toolbar_node: Option<NodeKey>,
-    active_toolbar_pane: Option<PaneId>,
+    command_bar_focus_target: CommandBarFocusTarget,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
     render_command_bar_navigator_projection_host(ui, navigator_ctx, frame_intents);
@@ -800,8 +814,7 @@ fn render_command_bar_left_column(
         ui,
         graph_app,
         tiles_tree,
-        focused_toolbar_node,
-        active_toolbar_pane,
+        command_bar_focus_target,
         frame_intents,
     );
     render_command_bar_shell_actions(ui, graph_app);
@@ -813,7 +826,7 @@ fn render_command_bar_right_column(
     state: &RunningAppState,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
-    focused_toolbar_node: Option<NodeKey>,
+    command_bar_focus_target: CommandBarFocusTarget,
     focused_content_status: &FocusedContentStatus,
     is_graph_view: bool,
     location_dirty: &mut bool,
@@ -827,7 +840,7 @@ fn render_command_bar_right_column(
             ui,
             graph_app,
             window,
-            focused_toolbar_node,
+            command_bar_focus_target,
             focused_content_status,
             location_dirty,
         );
@@ -856,8 +869,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         window,
         tiles_tree,
         navigator_ctx,
-        focused_toolbar_node,
-        active_toolbar_pane,
+        command_bar_focus_target,
         workbench_layer_state,
         focused_content_status,
         local_widget_focus,
@@ -875,7 +887,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     } = args;
 
     if winit_window.fullscreen().is_some() {
-        render_fullscreen_origin_strip(ctx, graph_app, focused_toolbar_node);
+        render_fullscreen_origin_strip(ctx, graph_app, command_bar_focus_target);
         return Output {
             toggle_tile_view_requested: false,
             open_selected_mode_after_submit: None,
@@ -905,8 +917,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                         graph_app,
                         tiles_tree,
                         navigator_ctx,
-                        focused_toolbar_node,
-                        active_toolbar_pane,
+                        command_bar_focus_target,
                         frame_intents,
                     );
                 });
@@ -920,8 +931,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                         control_panel,
                         window,
                         tiles_tree,
-                        focused_toolbar_node,
-                        active_toolbar_pane,
+                        command_bar_focus_target,
                         local_widget_focus,
                         has_node_panes,
                         is_graph_view,
@@ -942,7 +952,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                         state,
                         graph_app,
                         window,
-                        focused_toolbar_node,
+                        command_bar_focus_target,
                         focused_content_status,
                         is_graph_view,
                         location_dirty,
