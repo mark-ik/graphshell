@@ -255,6 +255,9 @@ impl WorkbenchSurfaceRegistry {
                     | WorkbenchIntent::PromoteEphemeralPane { .. }
                     | WorkbenchIntent::SetPaneView { .. }
                     | WorkbenchIntent::OpenGraphViewPane { .. }
+                    | WorkbenchIntent::FocusGraphView { .. }
+                    | WorkbenchIntent::TransferSelectedNodesToGraphView { .. }
+                    | WorkbenchIntent::ToggleOverviewPlane
                     | WorkbenchIntent::OpenNodeInPane { .. }
                     | WorkbenchIntent::RestorePaneToSemanticTabGroup { .. }
                     | WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { .. }
@@ -385,6 +388,24 @@ impl WorkbenchSurfaceRegistry {
             WorkbenchIntent::OpenGraphUrl { url } => handle_open_graph_url_intent(graph_app, url),
             WorkbenchIntent::OpenGraphViewPane { view_id, mode } => {
                 handle_open_graph_view_pane_intent(tiles_tree, view_id, mode);
+                None
+            }
+            WorkbenchIntent::FocusGraphView { view_id } => {
+                graph_app.apply_reducer_intents([GraphIntent::FocusGraphView { view_id }]);
+                None
+            }
+            WorkbenchIntent::TransferSelectedNodesToGraphView {
+                source_view,
+                destination_view,
+            } => {
+                graph_app.apply_reducer_intents([GraphIntent::TransferSelectedNodesToGraphView {
+                    source_view,
+                    destination_view,
+                }]);
+                None
+            }
+            WorkbenchIntent::ToggleOverviewPlane => {
+                graph_app.apply_reducer_intents([GraphIntent::ToggleGraphViewLayoutManager]);
                 None
             }
             WorkbenchIntent::OpenNoteUrl { url } => handle_open_note_url_intent(graph_app, url),
@@ -895,6 +916,15 @@ fn handle_split_pane_intent(
     direction: SplitDirection,
 ) {
     pane_ops::handle_split_pane_intent(tiles_tree, source_pane, direction);
+}
+
+pub(crate) fn handle_requested_settings_route(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+    prefer_overlay: bool,
+) -> Option<WorkbenchIntent> {
+    route_ops::handle_requested_settings_route(graph_app, tiles_tree, url, prefer_overlay)
 }
 
 fn emit_open_decision(path: UxOpenDecisionPath, reason: UxOpenDecisionReason) {

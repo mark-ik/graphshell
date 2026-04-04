@@ -658,6 +658,14 @@ pub enum WorkbenchIntent {
         view_id: GraphViewId,
         mode: PendingTileOpenMode,
     },
+    FocusGraphView {
+        view_id: GraphViewId,
+    },
+    TransferSelectedNodesToGraphView {
+        source_view: GraphViewId,
+        destination_view: GraphViewId,
+    },
+    ToggleOverviewPlane,
     OpenNoteUrl {
         url: String,
     },

@@ -36,7 +36,7 @@ use super::persistence_ops;
 use super::thumbnail_pipeline;
 use crate::app::{
     BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
-    ToastAnchorPreference, WorkbenchIntent,
+    ToastAnchorPreference,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::event_loop::AppEvent;
@@ -59,6 +59,7 @@ use crate::shell::desktop::runtime::nip07_bridge;
 use crate::shell::desktop::runtime::registries::signal_routing::{
     LifecycleSignal, RegistryEventSignal, SignalKind, SignalTopic,
 };
+use crate::shell::desktop::runtime::registries::workbench_surface;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime,
     phase3_resolve_active_theme, phase3_shared_runtime, phase3_subscribe_signal_async,
@@ -277,6 +278,19 @@ fn clear_embedded_content_focus(
         &runtime_state.focus_authority,
         graph_app,
     );
+}
+
+fn apply_requested_settings_route_update(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+    prefer_overlay: bool,
+) {
+    if let Some(intent) =
+        workbench_surface::handle_requested_settings_route(graph_app, tiles_tree, url, prefer_overlay)
+    {
+        graph_app.enqueue_workbench_intent(intent);
+    }
 }
 
 impl Gui {
@@ -593,23 +607,12 @@ impl Gui {
         }
 
         for (url, prefer_overlay) in pending_routes {
-            if prefer_overlay {
-                self.graph_app
-                    .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl { url });
-                continue;
-            }
-
-            match GraphBrowserApp::resolve_settings_route(&url) {
-                Some(route) => {
-                    let kind = self.graph_app.apply_settings_route_target(route);
-                    self.graph_app
-                        .enqueue_workbench_intent(WorkbenchIntent::OpenToolPane { kind });
-                }
-                _ => {
-                    self.graph_app
-                        .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl { url });
-                }
-            }
+            apply_requested_settings_route_update(
+                &mut self.graph_app,
+                &mut self.tiles_tree,
+                url,
+                prefer_overlay,
+            );
         }
     }
 

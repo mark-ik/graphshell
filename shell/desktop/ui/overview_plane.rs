@@ -6,6 +6,7 @@ use egui::{Color32, Context, Key, Pos2, RichText, Sense, Stroke, StrokeKind, Ui,
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphViewId, GraphViewLayoutDirection, PendingTileOpenMode,
+    WorkbenchIntent,
 };
 
 const OVERVIEW_CELL_SIZE: Vec2 = Vec2::new(156.0, 92.0);
@@ -37,6 +38,24 @@ pub(crate) enum OverviewSurfaceAction {
     ToggleOverviewPlane,
 }
 
+fn overview_surface_action_to_workbench_intent(action: OverviewSurfaceAction) -> WorkbenchIntent {
+    match action {
+        OverviewSurfaceAction::FocusView(view_id) => WorkbenchIntent::FocusGraphView { view_id },
+        OverviewSurfaceAction::OpenView(view_id) => WorkbenchIntent::OpenGraphViewPane {
+            view_id,
+            mode: PendingTileOpenMode::Tab,
+        },
+        OverviewSurfaceAction::TransferSelectionToView {
+            source_view,
+            destination_view,
+        } => WorkbenchIntent::TransferSelectedNodesToGraphView {
+            source_view,
+            destination_view,
+        },
+        OverviewSurfaceAction::ToggleOverviewPlane => WorkbenchIntent::ToggleOverviewPlane,
+    }
+}
+
 pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
     if !app.graph_view_layout_manager_active() {
         return;
@@ -55,7 +74,8 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
         .find(|slot| Some(slot.view_id) == selected_view_id);
     let mut open = true;
     let mut close_requested = false;
-    let mut pending_intents = Vec::new();
+    let mut pending_graph_intents = Vec::new();
+    let mut pending_surface_actions = Vec::new();
 
     let response = Window::new("Overview Plane")
         .id(egui::Id::new("graphshell_overview_plane"))
@@ -73,7 +93,7 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
                 );
                 ui.separator();
                 if ui.button("Create View").clicked() {
-                    pending_intents.push(GraphIntent::CreateGraphViewSlot {
+                    pending_graph_intents.push(GraphIntent::CreateGraphViewSlot {
                         anchor_view: selected_view_id,
                         direction: GraphViewLayoutDirection::Right,
                         open_mode: Some(PendingTileOpenMode::Tab),
@@ -94,7 +114,8 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
                     ctx,
                     &active_slots,
                     selected_view_id,
-                    &mut pending_intents,
+                    &mut pending_graph_intents,
+                    &mut pending_surface_actions,
                 );
                 render_overview_details(
                     &mut columns[1],
@@ -102,7 +123,8 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
                     ctx,
                     selected_slot,
                     &archived_slots,
-                    &mut pending_intents,
+                    &mut pending_graph_intents,
+                    &mut pending_surface_actions,
                 );
             });
         });
@@ -115,19 +137,23 @@ pub(crate) fn render_overview_plane(ctx: &Context, app: &mut GraphBrowserApp) {
         close_requested = true;
     }
 
-    let (keyboard_selected_view_id, keyboard_intents) =
+    let (keyboard_selected_view_id, keyboard_graph_intents, keyboard_surface_actions) =
         collect_overview_keyboard_intents(ctx, app, &slots, selected_view_id);
     if keyboard_selected_view_id != selected_view_id {
         set_overview_surface_selected_view_id(ctx, keyboard_selected_view_id);
     }
-    pending_intents.extend(keyboard_intents);
+    pending_graph_intents.extend(keyboard_graph_intents);
+    pending_surface_actions.extend(keyboard_surface_actions);
 
     if close_requested || !open {
-        pending_intents.push(GraphIntent::ExitGraphViewLayoutManager);
+        pending_surface_actions.push(OverviewSurfaceAction::ToggleOverviewPlane);
     }
 
-    if !pending_intents.is_empty() {
-        app.apply_reducer_intents(pending_intents);
+    if !pending_graph_intents.is_empty() {
+        app.apply_reducer_intents(pending_graph_intents);
+    }
+    for action in pending_surface_actions {
+        app.enqueue_workbench_intent(overview_surface_action_to_workbench_intent(action));
     }
 }
 
@@ -444,7 +470,8 @@ fn render_overview_grid(
     ctx: &Context,
     slots: &[OverviewSlotSnapshot],
     selected_view_id: Option<GraphViewId>,
-    pending_intents: &mut Vec<GraphIntent>,
+    pending_graph_intents: &mut Vec<GraphIntent>,
+    pending_surface_actions: &mut Vec<OverviewSurfaceAction>,
 ) {
     ui.label(RichText::new("View regions").strong());
     if slots.is_empty() {
@@ -503,20 +530,15 @@ fn render_overview_grid(
 
         if response.clicked() {
             set_overview_surface_selected_view_id(ctx, Some(slot.view_id));
-            pending_intents.push(GraphIntent::FocusGraphView {
-                view_id: slot.view_id,
-            });
+            pending_surface_actions.push(OverviewSurfaceAction::FocusView(slot.view_id));
         }
         if response.double_clicked() {
-            pending_intents.push(GraphIntent::RouteGraphViewToWorkbench {
-                view_id: slot.view_id,
-                mode: PendingTileOpenMode::Tab,
-            });
+            pending_surface_actions.push(OverviewSurfaceAction::OpenView(slot.view_id));
         }
         if response.drag_stopped() {
             let (target_row, target_col) = drag_target_slot_position(slot, response.drag_delta());
             if target_row != slot.row || target_col != slot.col {
-                pending_intents.push(GraphIntent::MoveGraphViewSlot {
+                pending_graph_intents.push(GraphIntent::MoveGraphViewSlot {
                     view_id: slot.view_id,
                     row: target_row,
                     col: target_col,
@@ -545,7 +567,8 @@ fn render_overview_details(
     ctx: &Context,
     selected_slot: Option<&OverviewSlotSnapshot>,
     archived_slots: &[OverviewSlotSnapshot],
-    pending_intents: &mut Vec<GraphIntent>,
+    pending_graph_intents: &mut Vec<GraphIntent>,
+    pending_surface_actions: &mut Vec<OverviewSurfaceAction>,
 ) {
     ui.label(RichText::new("Details").strong());
     let Some(slot) = selected_slot else {
@@ -575,7 +598,7 @@ fn render_overview_details(
     {
         let trimmed = rename_draft.trim();
         if !trimmed.is_empty() && trimmed != slot.name {
-            pending_intents.push(GraphIntent::RenameGraphViewSlot {
+            pending_graph_intents.push(GraphIntent::RenameGraphViewSlot {
                 view_id: slot.view_id,
                 name: trimmed.to_string(),
             });
@@ -584,18 +607,13 @@ fn render_overview_details(
 
     ui.horizontal(|ui| {
         if ui.button("Open").clicked() {
-            pending_intents.push(GraphIntent::RouteGraphViewToWorkbench {
-                view_id: slot.view_id,
-                mode: PendingTileOpenMode::Tab,
-            });
+            pending_surface_actions.push(OverviewSurfaceAction::OpenView(slot.view_id));
         }
         if ui.button("Focus").clicked() {
-            pending_intents.push(GraphIntent::FocusGraphView {
-                view_id: slot.view_id,
-            });
+            pending_surface_actions.push(OverviewSurfaceAction::FocusView(slot.view_id));
         }
         if ui.button("Archive").clicked() {
-            pending_intents.push(GraphIntent::ArchiveGraphViewSlot {
+            pending_graph_intents.push(GraphIntent::ArchiveGraphViewSlot {
                 view_id: slot.view_id,
             });
         }
@@ -617,9 +635,9 @@ fn render_overview_details(
         move_button.on_disabled_hover_text(transfer_affordance.disabled_reason)
     };
     if move_button.clicked()
-        && let Some(intent) = overview_transfer_intent(app, slot.view_id)
+        && let Some(action) = overview_transfer_action(app, slot.view_id)
     {
-        pending_intents.push(intent);
+        pending_surface_actions.push(action);
     }
 
     ui.separator();
@@ -630,7 +648,7 @@ fn render_overview_details(
             "Left",
             GraphViewLayoutDirection::Left,
             slot,
-            pending_intents,
+            pending_graph_intents,
             false,
         );
         directional_button(
@@ -638,7 +656,7 @@ fn render_overview_details(
             "Right",
             GraphViewLayoutDirection::Right,
             slot,
-            pending_intents,
+            pending_graph_intents,
             false,
         );
     });
@@ -648,7 +666,7 @@ fn render_overview_details(
             "Up",
             GraphViewLayoutDirection::Up,
             slot,
-            pending_intents,
+            pending_graph_intents,
             false,
         );
         directional_button(
@@ -656,7 +674,7 @@ fn render_overview_details(
             "Down",
             GraphViewLayoutDirection::Down,
             slot,
-            pending_intents,
+            pending_graph_intents,
             false,
         );
     });
@@ -669,7 +687,7 @@ fn render_overview_details(
             "+ Left",
             GraphViewLayoutDirection::Left,
             slot,
-            pending_intents,
+            pending_graph_intents,
             true,
         );
         directional_button(
@@ -677,7 +695,7 @@ fn render_overview_details(
             "+ Right",
             GraphViewLayoutDirection::Right,
             slot,
-            pending_intents,
+            pending_graph_intents,
             true,
         );
     });
@@ -687,7 +705,7 @@ fn render_overview_details(
             "+ Up",
             GraphViewLayoutDirection::Up,
             slot,
-            pending_intents,
+            pending_graph_intents,
             true,
         );
         directional_button(
@@ -695,7 +713,7 @@ fn render_overview_details(
             "+ Down",
             GraphViewLayoutDirection::Down,
             slot,
-            pending_intents,
+            pending_graph_intents,
             true,
         );
     });
@@ -707,7 +725,7 @@ fn render_overview_details(
                 ui.horizontal(|ui| {
                     ui.label(&archived.name);
                     if ui.button("Restore").clicked() {
-                        pending_intents.push(GraphIntent::RestoreGraphViewSlot {
+                        pending_graph_intents.push(GraphIntent::RestoreGraphViewSlot {
                             view_id: archived.view_id,
                             row: archived.row,
                             col: archived.col,
@@ -942,6 +960,19 @@ fn overview_transfer_intent(
         })
 }
 
+fn overview_transfer_action(
+    app: &GraphBrowserApp,
+    destination_view: GraphViewId,
+) -> Option<OverviewSurfaceAction> {
+    let affordance = overview_transfer_affordance(app, destination_view);
+    affordance
+        .enabled
+        .then_some(OverviewSurfaceAction::TransferSelectionToView {
+            source_view: affordance.source_view?,
+            destination_view,
+        })
+}
+
 fn next_overview_selected_view_id(
     slots: &[OverviewSlotSnapshot],
     selected_view_id: Option<GraphViewId>,
@@ -1000,11 +1031,16 @@ fn collect_overview_keyboard_intents(
     app: &GraphBrowserApp,
     slots: &[OverviewSlotSnapshot],
     selected_view_id: Option<GraphViewId>,
-) -> (Option<GraphViewId>, Vec<GraphIntent>) {
+) -> (
+    Option<GraphViewId>,
+    Vec<GraphIntent>,
+    Vec<OverviewSurfaceAction>,
+) {
     let mut selected_view_id = selected_view_id;
-    let mut intents = Vec::new();
+    let mut graph_intents = Vec::new();
+    let mut surface_actions = Vec::new();
     if slots.is_empty() || ctx.wants_keyboard_input() {
-        return (selected_view_id, intents);
+        return (selected_view_id, graph_intents, surface_actions);
     }
 
     ctx.input(|input| {
@@ -1023,7 +1059,7 @@ fn collect_overview_keyboard_intents(
 
             if ctrl && shift {
                 if let Some(view_id) = selected_view_id {
-                    intents.push(GraphIntent::CreateGraphViewSlot {
+                    graph_intents.push(GraphIntent::CreateGraphViewSlot {
                         anchor_view: Some(view_id),
                         direction,
                         open_mode: Some(PendingTileOpenMode::Tab),
@@ -1037,7 +1073,7 @@ fn collect_overview_keyboard_intents(
                     selected_view_id.and_then(|view_id| overview_slot_for_view(slots, view_id))
                 {
                     let (row, col) = shifted_slot_position(slot.row, slot.col, direction);
-                    intents.push(GraphIntent::MoveGraphViewSlot {
+                    graph_intents.push(GraphIntent::MoveGraphViewSlot {
                         view_id: slot.view_id,
                         row,
                         col,
@@ -1052,26 +1088,23 @@ fn collect_overview_keyboard_intents(
         if input.key_pressed(Key::Space)
             && let Some(view_id) = selected_view_id
         {
-            intents.push(GraphIntent::FocusGraphView { view_id });
+            surface_actions.push(OverviewSurfaceAction::FocusView(view_id));
         }
 
         if input.key_pressed(Key::Enter) {
             if ctrl {
                 if let Some(view_id) = selected_view_id
-                    && let Some(intent) = overview_transfer_intent(app, view_id)
+                    && let Some(action) = overview_transfer_action(app, view_id)
                 {
-                    intents.push(intent);
+                    surface_actions.push(action);
                 }
             } else if let Some(view_id) = selected_view_id {
-                intents.push(GraphIntent::RouteGraphViewToWorkbench {
-                    view_id,
-                    mode: PendingTileOpenMode::Tab,
-                });
+                surface_actions.push(OverviewSurfaceAction::OpenView(view_id));
             }
         }
     });
 
-    (selected_view_id, intents)
+    (selected_view_id, graph_intents, surface_actions)
 }
 
 fn drag_target_slot_position(slot: &OverviewSlotSnapshot, drag_delta: Vec2) -> (i32, i32) {
@@ -1218,6 +1251,40 @@ mod tests {
             navigator_overview_transfer_action(&app, source, destination),
             None
         );
+    }
+
+    #[test]
+    fn overview_surface_action_maps_to_workbench_surface_contract() {
+        let source = GraphViewId::new();
+        let destination = GraphViewId::new();
+
+        assert!(matches!(
+            overview_surface_action_to_workbench_intent(OverviewSurfaceAction::FocusView(source)),
+            WorkbenchIntent::FocusGraphView { view_id } if view_id == source
+        ));
+        assert!(matches!(
+            overview_surface_action_to_workbench_intent(OverviewSurfaceAction::OpenView(source)),
+            WorkbenchIntent::OpenGraphViewPane {
+                view_id,
+                mode: PendingTileOpenMode::Tab,
+            } if view_id == source
+        ));
+        assert!(matches!(
+            overview_surface_action_to_workbench_intent(
+                OverviewSurfaceAction::TransferSelectionToView {
+                    source_view: source,
+                    destination_view: destination,
+                },
+            ),
+            WorkbenchIntent::TransferSelectedNodesToGraphView {
+                source_view,
+                destination_view,
+            } if source_view == source && destination_view == destination
+        ));
+        assert!(matches!(
+            overview_surface_action_to_workbench_intent(OverviewSurfaceAction::ToggleOverviewPlane),
+            WorkbenchIntent::ToggleOverviewPlane
+        ));
     }
 
     #[test]

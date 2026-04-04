@@ -22,6 +22,7 @@ use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED, CHANNEL_UX_DISPATCH_STARTED,
     CHANNEL_UX_FIRST_USE_PROMPT_SHOWN, CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
 };
 use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
@@ -2713,6 +2714,70 @@ enum WorkbenchHostAction {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkbenchHostActionDispatchOutcome {
+    Consumed,
+    ContractWarning,
+}
+
+fn workbench_host_action_diagnostic_code(action: &WorkbenchHostAction) -> usize {
+    match action {
+        WorkbenchHostAction::FocusPane(_) => 1,
+        WorkbenchHostAction::SelectNode { .. } => 2,
+        WorkbenchHostAction::ActivateNode { .. } => 3,
+        WorkbenchHostAction::SplitPane(_, _) => 4,
+        WorkbenchHostAction::RestoreSemanticTabGroup { .. } => 5,
+        WorkbenchHostAction::CollapseSemanticTabGroup { .. } => 6,
+        WorkbenchHostAction::ClosePane(_) => 7,
+        WorkbenchHostAction::DismissNodePane(_) => 8,
+        WorkbenchHostAction::OpenTool(_) => 9,
+        WorkbenchHostAction::SetWorkbenchPinned(_) => 10,
+        WorkbenchHostAction::SetLayoutConstraintDraft { .. } => 11,
+        WorkbenchHostAction::CommitLayoutConstraintDraft(_) => 12,
+        WorkbenchHostAction::DiscardLayoutConstraintDraft(_) => 13,
+        WorkbenchHostAction::SetSurfaceConfigMode { .. } => 14,
+        WorkbenchHostAction::SetNavigatorHostScope { .. } => 15,
+        WorkbenchHostAction::SetFirstUsePolicy(_) => 16,
+        WorkbenchHostAction::SuppressFirstUsePromptForSession(_) => 17,
+        WorkbenchHostAction::OpenFrameAsSplit { .. } => 18,
+        WorkbenchHostAction::DismissFrameSplitOfferForSession(_) => 19,
+        WorkbenchHostAction::SetFrameSplitOfferSuppressed { .. } => 20,
+        WorkbenchHostAction::RenameFrame { .. } => 21,
+        WorkbenchHostAction::DeleteFrame(_) => 22,
+        WorkbenchHostAction::MoveFrameLayoutHint { .. } => 23,
+        WorkbenchHostAction::RemoveFrameLayoutHint { .. } => 24,
+        WorkbenchHostAction::SaveCurrentFrame => 25,
+        WorkbenchHostAction::PruneEmptyFrames => 26,
+        WorkbenchHostAction::RestoreFrame(_) => 27,
+        WorkbenchHostAction::FocusGraphView(_) => 28,
+        WorkbenchHostAction::OpenGraphView(_) => 29,
+        WorkbenchHostAction::TransferSelectedNodesToGraphView { .. } => 30,
+        WorkbenchHostAction::ToggleOverviewPlane => 31,
+        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 32,
+    }
+}
+
+fn emit_workbench_host_action_started(diagnostic_code: usize) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_UX_DISPATCH_STARTED,
+        byte_len: diagnostic_code,
+    });
+}
+
+fn emit_workbench_host_action_outcome(
+    diagnostic_code: usize,
+    outcome: WorkbenchHostActionDispatchOutcome,
+) {
+    let channel_id = match outcome {
+        WorkbenchHostActionDispatchOutcome::Consumed => CHANNEL_UX_DISPATCH_CONSUMED,
+        WorkbenchHostActionDispatchOutcome::ContractWarning => CHANNEL_UX_CONTRACT_WARNING,
+    };
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id,
+        byte_len: diagnostic_code,
+    });
+}
+
 fn navigator_specialty_kind_label(kind: &GraphletKind) -> &'static str {
     match kind {
         GraphletKind::Ego { .. } => "Ego",
@@ -2945,9 +3010,15 @@ fn apply_workbench_host_action(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) {
-    match action {
+    let diagnostic_code = workbench_host_action_diagnostic_code(&action);
+    emit_workbench_host_action_started(diagnostic_code);
+    let outcome = match action {
         WorkbenchHostAction::FocusPane(pane_id) => {
-            let _ = tile_view_ops::focus_pane(tiles_tree, pane_id);
+            if tile_view_ops::focus_pane(tiles_tree, pane_id) {
+                WorkbenchHostActionDispatchOutcome::Consumed
+            } else {
+                WorkbenchHostActionDispatchOutcome::ContractWarning
+            }
         }
         WorkbenchHostAction::SelectNode { node_key, row_key } => {
             if let Some(row_key) = row_key {
@@ -2963,6 +3034,7 @@ fn apply_workbench_host_action(
                 graph_app
                     .request_camera_command_for_view(Some(view_id), CameraCommand::FitSelection);
             }
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::ActivateNode { node_key, row_key } => {
             if let Some(row_key) = row_key {
@@ -3005,62 +3077,75 @@ fn apply_workbench_host_action(
                     }
                 }
             }
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SplitPane(source_pane, direction) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::SplitPane {
                 source_pane,
                 direction,
             });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::RestoreSemanticTabGroup { pane, group_id } => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::RestorePaneToSemanticTabGroup {
                 pane,
                 group_id,
             });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::CollapseSemanticTabGroup { group_id } => {
             graph_app.enqueue_workbench_intent(
                 WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { group_id },
             );
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::ClosePane(pane) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::ClosePane {
                 pane,
                 restore_previous_focus: true,
             });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::DismissNodePane(pane) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::DismissTile { pane });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::OpenTool(kind) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane { kind });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetWorkbenchPinned(pinned) => {
             graph_app.set_workbench_host_pinned(pinned);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetLayoutConstraintDraft {
             surface_host,
             constraint,
         } => {
             graph_app.set_workbench_layout_constraint_draft(surface_host, constraint);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::CommitLayoutConstraintDraft(surface_host) => {
             graph_app.commit_workbench_layout_constraint_draft(&surface_host);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::DiscardLayoutConstraintDraft(surface_host) => {
             graph_app.discard_workbench_layout_constraint_draft(&surface_host);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetSurfaceConfigMode { surface_host, mode } => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::SetSurfaceConfigMode {
                 surface_host,
                 mode,
             });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetNavigatorHostScope {
             surface_host,
             scope,
         } => {
             graph_app.set_navigator_host_scope(surface_host, scope);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetFirstUsePolicy(policy) => {
             if policy.prompt_shown && policy.outcome.is_none() {
@@ -3070,9 +3155,11 @@ fn apply_workbench_host_action(
                 });
             }
             graph_app.set_surface_first_use_policy(policy);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SuppressFirstUsePromptForSession(surface_host) => {
             graph_app.suppress_first_use_prompt_for_session(surface_host);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::OpenFrameAsSplit {
             node_key,
@@ -3082,9 +3169,11 @@ fn apply_workbench_host_action(
                 key: node_key,
                 prefer_frame: Some(frame_name),
             }]);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::DismissFrameSplitOfferForSession(frame_name) => {
             graph_app.dismiss_frame_split_offer_for_session(frame_name);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetFrameSplitOfferSuppressed {
             frame_name,
@@ -3095,18 +3184,26 @@ fn apply_workbench_host_action(
                     frame: frame_key,
                     suppressed,
                 }]);
+                WorkbenchHostActionDispatchOutcome::Consumed
+            } else {
+                WorkbenchHostActionDispatchOutcome::ContractWarning
             }
         }
         WorkbenchHostAction::RenameFrame { from, to } => {
             if let Err(error) = graph_app.rename_workspace_layout(&from, &to) {
                 log::warn!("Failed to rename frame '{from}' -> '{to}': {error}");
+                WorkbenchHostActionDispatchOutcome::ContractWarning
             } else {
                 graph_app.set_pending_frame_context_target(Some(to));
+                WorkbenchHostActionDispatchOutcome::Consumed
             }
         }
         WorkbenchHostAction::DeleteFrame(frame_name) => {
             if let Err(error) = graph_app.delete_workspace_layout(&frame_name) {
                 log::warn!("Failed to delete frame '{frame_name}': {error}");
+                WorkbenchHostActionDispatchOutcome::ContractWarning
+            } else {
+                WorkbenchHostActionDispatchOutcome::Consumed
             }
         }
         WorkbenchHostAction::MoveFrameLayoutHint {
@@ -3120,6 +3217,9 @@ fn apply_workbench_host_action(
                     from_index,
                     to_index,
                 }]);
+                WorkbenchHostActionDispatchOutcome::Consumed
+            } else {
+                WorkbenchHostActionDispatchOutcome::ContractWarning
             }
         }
         WorkbenchHostAction::RemoveFrameLayoutHint {
@@ -3131,6 +3231,9 @@ fn apply_workbench_host_action(
                     frame: frame_key,
                     hint_index,
                 }]);
+                WorkbenchHostActionDispatchOutcome::Consumed
+            } else {
+                WorkbenchHostActionDispatchOutcome::ContractWarning
             }
         }
         WorkbenchHostAction::SaveCurrentFrame => {
@@ -3139,39 +3242,48 @@ fn apply_workbench_host_action(
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
             graph_app.request_save_frame_snapshot_named(format!("workspace:workbench-host-{now}"));
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::PruneEmptyFrames => {
             graph_app.request_prune_empty_frames();
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::RestoreFrame(name) => {
             graph_app.request_restore_frame_snapshot_named(name);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::FocusGraphView(view_id) => {
-            graph_app.apply_reducer_intents([GraphIntent::FocusGraphView { view_id }]);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::FocusGraphView { view_id });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::OpenGraphView(view_id) => {
-            graph_app.apply_reducer_intents([GraphIntent::RouteGraphViewToWorkbench {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane {
                 view_id,
                 mode: PendingTileOpenMode::Tab,
-            }]);
+            });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::TransferSelectedNodesToGraphView {
             source_view,
             destination_view,
         } => {
-            graph_app.apply_reducer_intents([GraphIntent::TransferSelectedNodesToGraphView {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::TransferSelectedNodesToGraphView {
                 source_view,
                 destination_view,
-            }]);
+            });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::ToggleOverviewPlane => {
-            graph_app.apply_reducer_intents([GraphIntent::ToggleGraphViewLayoutManager]);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleOverviewPlane);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetNavigatorSpecialtyView { host, kind } => {
             graph_app
                 .apply_reducer_intents([GraphIntent::SetNavigatorSpecialtyView { host, kind }]);
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
-    }
+    };
+    emit_workbench_host_action_outcome(diagnostic_code, outcome);
 }
 
 fn frame_pin_name_for_node(node_key: NodeKey, graph_app: &GraphBrowserApp) -> Option<String> {
@@ -3966,6 +4078,108 @@ mod tests {
             channel_count(&snapshot, CHANNEL_UX_FIRST_USE_PROMPT_SHOWN),
             1
         );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn workbench_host_action_emits_dispatch_started_and_consumed() {
+        let mut diagnostics = DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_dispatch_consumed", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetWorkbenchPinned(true),
+            &mut app,
+            &mut tree,
+        );
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert_eq!(channel_count(&snapshot, CHANNEL_UX_DISPATCH_STARTED), 1);
+        assert_eq!(channel_count(&snapshot, CHANNEL_UX_DISPATCH_CONSUMED), 1);
+        assert_eq!(channel_count(&snapshot, CHANNEL_UX_CONTRACT_WARNING), 0);
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn workbench_host_action_emits_contract_warning_for_missing_frame_target() {
+        let mut diagnostics = DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_dispatch_warning", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetFrameSplitOfferSuppressed {
+                frame_name: "missing-frame".to_string(),
+                suppressed: true,
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert_eq!(channel_count(&snapshot, CHANNEL_UX_DISPATCH_STARTED), 1);
+        assert_eq!(channel_count(&snapshot, CHANNEL_UX_DISPATCH_CONSUMED), 0);
+        assert_eq!(channel_count(&snapshot, CHANNEL_UX_CONTRACT_WARNING), 1);
+    }
+
+    #[test]
+    fn surface_navigation_host_actions_enqueue_workbench_intents() {
+        let source = GraphViewId::new();
+        let destination = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(source);
+        app.ensure_graph_view_registered(destination);
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(source)));
+        let mut tree = Tree::new("workbench_host_surface_navigation_intents", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::FocusGraphView(source),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::OpenGraphView(destination),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::TransferSelectedNodesToGraphView {
+                source_view: source,
+                destination_view: destination,
+            },
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::ToggleOverviewPlane,
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [
+                WorkbenchIntent::FocusGraphView { view_id: focused },
+                WorkbenchIntent::OpenGraphViewPane {
+                    view_id: opened,
+                    mode: PendingTileOpenMode::Tab
+                },
+                WorkbenchIntent::TransferSelectedNodesToGraphView {
+                    source_view: transferred_from,
+                    destination_view: transferred_to,
+                },
+                WorkbenchIntent::ToggleOverviewPlane,
+            ] if *focused == source
+                && *opened == destination
+                && *transferred_from == source
+                && *transferred_to == destination
+        ));
     }
 
     #[cfg(feature = "diagnostics")]

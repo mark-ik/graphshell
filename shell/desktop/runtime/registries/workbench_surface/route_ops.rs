@@ -1,5 +1,48 @@
 use super::*;
 
+pub(super) fn handle_requested_settings_route(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+    prefer_overlay: bool,
+) -> Option<WorkbenchIntent> {
+    if prefer_overlay {
+        return handle_open_settings_url_intent(graph_app, tiles_tree, url);
+    }
+
+    let Some(route) = GraphBrowserApp::resolve_settings_route(&url) else {
+        emit_open_decision(
+            UxOpenDecisionPath::SettingsUrl,
+            UxOpenDecisionReason::UnresolvedRoute,
+        );
+        return Some(WorkbenchIntent::OpenSettingsUrl { url });
+    };
+
+    let focused_before = active_tool_surface_return_target(tiles_tree);
+    maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
+    open_settings_route_target_in_tool_pane(graph_app, tiles_tree, route);
+
+    let focused_after = active_tool_surface_return_target(tiles_tree);
+    let transitioned_to_settings_surface = matches!(
+        focused_after,
+        Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Settings))
+            | Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::HistoryManager))
+    );
+    if transitioned_to_settings_surface && focused_before != focused_after {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
+
+    emit_open_decision(
+        UxOpenDecisionPath::SettingsUrl,
+        UxOpenDecisionReason::Routed,
+    );
+
+    None
+}
+
 pub(super) fn handle_open_settings_url_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
@@ -292,6 +335,15 @@ fn open_settings_route_target(
     } else {
         open_or_focus_tool_pane_if_available(tiles_tree, kind);
     }
+}
+
+fn open_settings_route_target_in_tool_pane(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    route: crate::app::SettingsRouteTarget,
+) {
+    let kind = graph_app.apply_settings_route_target(route);
+    open_or_focus_tool_pane_if_available(tiles_tree, kind);
 }
 
 fn settings_route_targets_overlay(

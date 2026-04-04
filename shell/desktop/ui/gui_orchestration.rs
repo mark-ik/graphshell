@@ -1418,7 +1418,9 @@ fn modal_allows_workbench_intent_with_focus_authority(
 
 fn ux_event_kind_for_workbench_intent(intent: &WorkbenchIntent) -> UxEventKind {
     match intent {
-        WorkbenchIntent::CycleFocusRegion => UxEventKind::FocusIn,
+        WorkbenchIntent::CycleFocusRegion | WorkbenchIntent::FocusGraphView { .. } => {
+            UxEventKind::FocusIn
+        }
         _ => UxEventKind::Action,
     }
 }
@@ -1439,6 +1441,9 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::OpenViewUrl { .. }
         | WorkbenchIntent::OpenGraphUrl { .. }
         | WorkbenchIntent::OpenGraphViewPane { .. }
+        | WorkbenchIntent::FocusGraphView { .. }
+        | WorkbenchIntent::TransferSelectedNodesToGraphView { .. }
+        | WorkbenchIntent::ToggleOverviewPlane
         | WorkbenchIntent::OpenNoteUrl { .. }
         | WorkbenchIntent::OpenNodeUrl { .. }
         | WorkbenchIntent::OpenClipUrl { .. }

@@ -105,19 +105,25 @@ Current checkpoint as of `2026-04-04`:
   instead of being mixed into command-entry controls.
 - ambient attention ordering now admits both analyzer alerts and direct runtime/channel risk
   signals such as navigation violations and compositor fallback pressure.
+- settings-route ingress in `shell/desktop/ui/gui.rs` now routes through a dedicated Shell helper
+  that preserves `prefer_overlay` while reusing canonical open-decision diagnostics.
+- workbench-host surface navigation and overview-plane surface navigation now converge on
+  `WorkbenchIntent` for focus/open/transfer/toggle actions instead of each surface pushing its own
+  direct reducer path.
 
 Next bypass seam after the current checkpoint:
 
-1. Host-fed settings/open-surface ingress in `shell/desktop/ui/gui.rs`
-     `apply_pending_settings_route_updates()` still converts runtime/registry signals into
-     `WorkbenchIntent` or direct route-target resolution outside a dedicated Shell open-surface
-     router.
-2. Workbench-host chrome actions in `shell/desktop/ui/workbench_host.rs` still dispatch directly
-     to `WorkbenchIntent` or setter calls from host widgets. This is acceptable short-term, but the
-     next audit should either bless it as the canonical Shell -> Workbench host-action seam or wrap
-     it in an explicit Shell host-action router with parity diagnostics.
-3. Overview-plane interactions in `shell/desktop/ui/overview_plane.rs` still push `GraphIntent`
-     directly. Once Workstream C starts, those actions should route through a Shell-owned overview
+1. Workbench-host chrome in `shell/desktop/ui/workbench_host.rs` still mixes three dispatch modes:
+     shared `WorkbenchIntent`, direct setter mutation, and a small set of direct graph/frame
+     reducer intents. The next audit should decide whether host-widget dispatch becomes a formal
+     Shell host-action router or whether those remaining direct mutations are explicitly blessed.
+2. Overview-plane interactions in `shell/desktop/ui/overview_plane.rs` still keep graph-layout
+     mutation local (`CreateGraphViewSlot`, `MoveGraphViewSlot`, `RenameGraphViewSlot`, archive /
+     restore, exit). That is likely correct, but Workstream C should make the split explicit in the
+     Shell overview contract so only graph-owned layout mutations bypass the workbench authority.
+3. Navigator specialty switching in `shell/desktop/ui/workbench_host.rs` and frame-layout mutation
+     affordances still call reducer paths directly; those are now the clearest remaining candidates
+     for either a dedicated Shell host-action contract or a documented exception.
      dispatch seam rather than remain a view-local shortcut.
 
 ### Workstream C — Overview Surface
