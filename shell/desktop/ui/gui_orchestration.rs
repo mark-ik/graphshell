@@ -1440,6 +1440,11 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::SetFirstUsePolicy { .. }
         | WorkbenchIntent::SuppressFirstUsePromptForSession { .. }
         | WorkbenchIntent::DismissFrameSplitOfferForSession { .. }
+        | WorkbenchIntent::RenameFrame { .. }
+        | WorkbenchIntent::DeleteFrame { .. }
+        | WorkbenchIntent::SaveCurrentFrame
+        | WorkbenchIntent::PruneEmptyFrames
+        | WorkbenchIntent::RestoreFrame { .. }
         | WorkbenchIntent::ClosePane { .. }
         | WorkbenchIntent::DismissTile { .. }
         | WorkbenchIntent::CloseToolPane { .. }

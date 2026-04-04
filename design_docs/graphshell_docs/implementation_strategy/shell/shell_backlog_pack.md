@@ -116,19 +116,22 @@ Current checkpoint as of `2026-04-04`:
 - workbench-host layout/policy setters for pin state, draft constraint edits, host scope,
      first-use policy, and session-only suppression now also enqueue `WorkbenchIntent`, narrowing the
      remaining host-action exceptions to persistence/request helpers.
+- workbench-host rename/delete/save/restore/prune actions now also route through shared
+     `WorkbenchIntent`, so `apply_workbench_host_action(...)` no longer performs direct persistence or
+     request dispatch itself.
 
 Next bypass seam after the current checkpoint:
 
-1. Workbench-host chrome in `shell/desktop/ui/workbench_host.rs` now mostly routes through shared
-     `WorkbenchIntent`, but still contains direct persistence/request helpers (`RenameFrame`,
-     `DeleteFrame`, `SaveCurrentFrame`, `PruneEmptyFrames`, `RestoreFrame`). The next audit should
-     decide whether those become a formal Shell host-action request contract or remain explicit
-     bridged exceptions.
+1. Workbench-host chrome in `shell/desktop/ui/workbench_host.rs` still has direct frame pin/unpin
+     affordances outside the host-action router (`delete_workspace_layout(...)` /
+     `request_save_frame_snapshot_named(...)` in the focused-pane and workspace pin buttons). The
+     next audit should decide whether those controls should emit `WorkbenchHostAction` /
+     `WorkbenchIntent` like the rest of Shell chrome or remain explicit local persistence bridges.
 2. Overview-plane interactions in `shell/desktop/ui/overview_plane.rs` still keep graph-layout
      mutation local (`CreateGraphViewSlot`, `MoveGraphViewSlot`, `RenameGraphViewSlot`, archive /
      restore, exit). That is likely correct, but Workstream C should make the split explicit in the
      Shell overview contract so only graph-owned layout mutations bypass the workbench authority.
-3. Frame persistence affordances in `shell/desktop/ui/workbench_host.rs` are now the clearest
+3. Direct frame pin/unpin controls in `shell/desktop/ui/workbench_host.rs` are now the clearest
      remaining candidates for either a dedicated Shell host-action request contract or a documented
      exception rather than remaining view-local shortcuts.
 

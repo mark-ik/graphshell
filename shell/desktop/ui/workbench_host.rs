@@ -3198,21 +3198,12 @@ fn apply_workbench_host_action(
             }
         }
         WorkbenchHostAction::RenameFrame { from, to } => {
-            if let Err(error) = graph_app.rename_workspace_layout(&from, &to) {
-                log::warn!("Failed to rename frame '{from}' -> '{to}': {error}");
-                WorkbenchHostActionDispatchOutcome::ContractWarning
-            } else {
-                graph_app.set_pending_frame_context_target(Some(to));
-                WorkbenchHostActionDispatchOutcome::Consumed
-            }
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::RenameFrame { from, to });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::DeleteFrame(frame_name) => {
-            if let Err(error) = graph_app.delete_workspace_layout(&frame_name) {
-                log::warn!("Failed to delete frame '{frame_name}': {error}");
-                WorkbenchHostActionDispatchOutcome::ContractWarning
-            } else {
-                WorkbenchHostActionDispatchOutcome::Consumed
-            }
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::DeleteFrame { frame_name });
+            WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::MoveFrameLayoutHint {
             frame_name,
@@ -3245,19 +3236,15 @@ fn apply_workbench_host_action(
             }
         }
         WorkbenchHostAction::SaveCurrentFrame => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            graph_app.request_save_frame_snapshot_named(format!("workspace:workbench-host-{now}"));
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SaveCurrentFrame);
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::PruneEmptyFrames => {
-            graph_app.request_prune_empty_frames();
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::PruneEmptyFrames);
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::RestoreFrame(name) => {
-            graph_app.request_restore_frame_snapshot_named(name);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::RestoreFrame { name });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::FocusGraphView(view_id) => {
@@ -4320,6 +4307,57 @@ mod tests {
     }
 
     #[test]
+    fn frame_request_host_actions_enqueue_workbench_intents() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_frame_request_intents", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::RenameFrame {
+                from: "workspace-old".to_string(),
+                to: "workspace-new".to_string(),
+            },
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::DeleteFrame("workspace-delete".to_string()),
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::SaveCurrentFrame,
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::PruneEmptyFrames,
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::RestoreFrame("workspace-restore".to_string()),
+            &mut app,
+            &mut tree,
+        );
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [
+                WorkbenchIntent::RenameFrame { from, to },
+                WorkbenchIntent::DeleteFrame { frame_name },
+                WorkbenchIntent::SaveCurrentFrame,
+                WorkbenchIntent::PruneEmptyFrames,
+                WorkbenchIntent::RestoreFrame { name },
+            ] if from == "workspace-old"
+                && to == "workspace-new"
+                && frame_name == "workspace-delete"
+                && name == "workspace-restore"
+        ));
+    }
+
+    #[test]
     fn frame_and_navigator_host_actions_enqueue_workbench_intents() {
         let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
         let kind = Some(GraphletKind::Component);
@@ -4412,6 +4450,41 @@ mod tests {
                 && queued_host == &host
                 && *queued_kind == kind
         ));
+    }
+
+    #[test]
+    fn frame_request_host_actions_apply_via_workbench_intents() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_frame_request_apply", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SaveCurrentFrame,
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::PruneEmptyFrames,
+            &mut app,
+            &mut tree,
+        );
+        apply_workbench_host_action(
+            WorkbenchHostAction::RestoreFrame("workspace-restore".to_string()),
+            &mut app,
+            &mut tree,
+        );
+
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        assert!(app
+            .take_pending_save_frame_snapshot_named()
+            .is_some_and(|name| name.starts_with("workspace:workbench-host-")));
+        assert!(app.take_pending_prune_empty_frames());
+        assert_eq!(
+            app.take_pending_restore_frame_snapshot_named(),
+            Some("workspace-restore".to_string())
+        );
     }
 
     #[cfg(feature = "diagnostics")]
@@ -5233,6 +5306,8 @@ mod tests {
             &mut tree,
         );
 
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
         assert!(
             app.load_workspace_layout_json("workspace-rename-old")
                 .is_none()
@@ -5279,6 +5354,8 @@ mod tests {
             &mut app,
             &mut tree,
         );
+
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
 
         assert!(
             app.load_workspace_layout_json("workspace-delete-me")

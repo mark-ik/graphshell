@@ -617,6 +617,18 @@ pub enum WorkbenchIntent {
     DismissFrameSplitOfferForSession {
         frame_name: String,
     },
+    RenameFrame {
+        from: String,
+        to: String,
+    },
+    DeleteFrame {
+        frame_name: String,
+    },
+    SaveCurrentFrame,
+    PruneEmptyFrames,
+    RestoreFrame {
+        name: String,
+    },
     ClosePane {
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
         restore_previous_focus: bool,

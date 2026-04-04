@@ -2,7 +2,8 @@ use egui_tiles::{Container, Tile, TileId, Tree};
 
 use super::{
     CHANNEL_UX_CONFIG_MODE_ENTERED, CHANNEL_UX_NAVIGATION_TRANSITION,
-    CHANNEL_UX_FIRST_USE_PROMPT_SHOWN, CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_FIRST_USE_PROMPT_SHOWN,
+    CHANNEL_UX_NAVIGATION_VIOLATION,
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::app::{
@@ -259,6 +260,11 @@ impl WorkbenchSurfaceRegistry {
                     | WorkbenchIntent::SetFirstUsePolicy { .. }
                     | WorkbenchIntent::SuppressFirstUsePromptForSession { .. }
                     | WorkbenchIntent::DismissFrameSplitOfferForSession { .. }
+                    | WorkbenchIntent::RenameFrame { .. }
+                    | WorkbenchIntent::DeleteFrame { .. }
+                    | WorkbenchIntent::SaveCurrentFrame
+                    | WorkbenchIntent::PruneEmptyFrames
+                    | WorkbenchIntent::RestoreFrame { .. }
                     | WorkbenchIntent::SetPanePresentationMode { .. }
                     | WorkbenchIntent::PromoteEphemeralPane { .. }
                     | WorkbenchIntent::SetPaneView { .. }
@@ -396,6 +402,30 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::DismissFrameSplitOfferForSession { frame_name } => {
                 graph_app.dismiss_frame_split_offer_for_session(frame_name);
+                None
+            }
+            WorkbenchIntent::RenameFrame { from, to } => {
+                apply_rename_frame_intent(graph_app, from, to);
+                None
+            }
+            WorkbenchIntent::DeleteFrame { frame_name } => {
+                apply_delete_frame_intent(graph_app, frame_name);
+                None
+            }
+            WorkbenchIntent::SaveCurrentFrame => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                graph_app.request_save_frame_snapshot_named(format!("workspace:workbench-host-{now}"));
+                None
+            }
+            WorkbenchIntent::PruneEmptyFrames => {
+                graph_app.request_prune_empty_frames();
+                None
+            }
+            WorkbenchIntent::RestoreFrame { name } => {
+                graph_app.request_restore_frame_snapshot_named(name);
                 None
             }
             WorkbenchIntent::ClosePane {
@@ -633,6 +663,29 @@ fn apply_set_first_use_policy_intent(
         });
     }
     graph_app.set_surface_first_use_policy(policy);
+}
+
+fn apply_rename_frame_intent(graph_app: &mut GraphBrowserApp, from: String, to: String) {
+    if let Err(error) = graph_app.rename_workspace_layout(&from, &to) {
+        log::warn!("Failed to rename frame '{from}' -> '{to}': {error}");
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_CONTRACT_WARNING,
+            byte_len: 1,
+        });
+        return;
+    }
+
+    graph_app.set_pending_frame_context_target(Some(to));
+}
+
+fn apply_delete_frame_intent(graph_app: &mut GraphBrowserApp, frame_name: String) {
+    if let Err(error) = graph_app.delete_workspace_layout(&frame_name) {
+        log::warn!("Failed to delete frame '{frame_name}': {error}");
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_CONTRACT_WARNING,
+            byte_len: 1,
+        });
+    }
 }
 
 fn handle_cycle_focus_region_intent(
