@@ -177,9 +177,12 @@ Current status:
      `GraphBrowserApp` state plus `WorkbenchChromeProjection::from_tree(...)`, while keeping
      graph-view slot create/rename/move/archive/restore controls in the graph-owned manager below
      the summary cards
-- next Workstream C slice should tighten per-card action affordances so each summary chip routes
-     directly into the owning domain with `DI05` evidence instead of relying primarily on the
-     existing region/detail controls
+- per-card action affordances now route through explicit owning-domain Graph or Workbench paths,
+     with focused `DI05` evidence tests covering graph-card, viewer-card, and runtime-card routing
+- compact mode now reuses the same live overview summary model inside the Navigator host via a
+     compact context/runtime chip bar above the existing mini-grid and region list
+- next Workstream C slice should deepen the domain summaries themselves: richer graphlet/frontier,
+     linked-vs-detached workbench state, and clearer viewer fallback diagnostics
 
 Done shape:
 

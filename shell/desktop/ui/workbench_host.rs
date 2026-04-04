@@ -2285,7 +2285,9 @@ pub(crate) fn render_workbench_host(
                 {
                     let swatch_actions =
                         crate::shell::desktop::ui::overview_plane::render_navigator_overview_swatch(
-                            ui, graph_app,
+                            ui,
+                            graph_app,
+                            &projection,
                         );
                     for action in swatch_actions {
                         match action {

@@ -886,6 +886,7 @@ fn overview_window_pos(app: &GraphBrowserApp) -> Pos2 {
 pub(crate) fn render_navigator_overview_swatch(
     ui: &mut Ui,
     app: &GraphBrowserApp,
+    chrome_projection: &WorkbenchChromeProjection,
 ) -> Vec<OverviewSurfaceAction> {
     let slots = sorted_slot_snapshots(app);
     let active_slots: Vec<_> = slots
@@ -895,6 +896,9 @@ pub(crate) fn render_navigator_overview_swatch(
         .collect();
     let archived_count = slots.iter().filter(|slot| slot.archived).count();
     let selected_view_id = selected_overview_view_id(app, &slots);
+    let selected_slot = slots
+        .iter()
+        .find(|slot| Some(slot.view_id) == selected_view_id);
     let mut actions = Vec::new();
     let show_archived_id = egui::Id::new("navigator_overview_show_archived");
     let mut show_archived = ui
@@ -948,6 +952,11 @@ pub(crate) fn render_navigator_overview_swatch(
     ui.ctx()
         .data_mut(|data| data.insert_persisted(show_archived_id, show_archived));
 
+    render_compact_overview_context_bar(
+        ui,
+        &compact_overview_chips(app, chrome_projection, selected_slot, archived_count),
+    );
+
     if active_slots.is_empty() {
         ui.small("No active graph views yet.");
         return actions;
@@ -997,10 +1006,7 @@ pub(crate) fn render_navigator_overview_swatch(
         render_compact_overview_grid(ui, app, &active_slots, selected_view_id, &mut actions);
     }
 
-    if let Some(selected_slot) = slots
-        .iter()
-        .find(|slot| Some(slot.view_id) == selected_view_id)
-    {
+    if let Some(selected_slot) = selected_slot {
         ui.horizontal_wrapped(|ui| {
             let mut summary = vec![format!(
                 "Focused: {} (r{} · c{})",
@@ -1017,6 +1023,52 @@ pub(crate) fn render_navigator_overview_swatch(
     }
 
     actions
+}
+
+fn render_compact_overview_context_bar(ui: &mut Ui, chips: &[String]) {
+    if chips.is_empty() {
+        return;
+    }
+
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(6))
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for (index, chip) in chips.iter().enumerate() {
+                    ui.label(RichText::new(chip).small().weak());
+                    if index + 1 < chips.len() {
+                        ui.separator();
+                    }
+                }
+            });
+        });
+    ui.add_space(6.0);
+}
+
+fn compact_overview_chips(
+    app: &GraphBrowserApp,
+    chrome_projection: &WorkbenchChromeProjection,
+    selected_slot: Option<&OverviewSlotSnapshot>,
+    archived_count: usize,
+) -> Vec<String> {
+    let mut chips = vec![compact_overview_label(
+        &active_context_summary(app, chrome_projection, selected_slot),
+        40,
+    )];
+    chips.push(format!("Panes: {}", chrome_projection.pane_entries.len()));
+    if !chrome_projection.saved_frame_names.is_empty() {
+        chips.push(format!("Saved: {}", chrome_projection.saved_frame_names.len()));
+    }
+    let health = app.history_health_summary();
+    if health.preview_mode_active {
+        chips.push("History preview".to_string());
+    } else {
+        chips.push(format!("History: {}", health.capture_status.as_str()));
+    }
+    if archived_count > 0 {
+        chips.push(format!("Archived: {archived_count}"));
+    }
+    chips
 }
 
 fn render_compact_overview_grid(
@@ -2132,6 +2184,64 @@ mod tests {
                     OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl { .. })
                 )
         }));
+    }
+
+    #[test]
+    fn compact_overview_chips_surface_active_context_and_history_status() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.graph_runtime.history_preview_mode_active = true;
+        let view_id = GraphViewId::new();
+        let pane_id = PaneId::new();
+        let host_layout = crate::shell::desktop::ui::workbench_host::WorkbenchHostLayout {
+            host: crate::app::SurfaceHostId::Navigator(
+                crate::app::workbench_layout_policy::NavigatorHostId::Right,
+            ),
+            anchor_edge: crate::app::workbench_layout_policy::AnchorEdge::Right,
+            form_factor:
+                crate::shell::desktop::ui::workbench_host::WorkbenchHostFormFactor::Sidebar,
+            configured_scope: crate::app::NavigatorHostScope::Both,
+            resolved_scope: crate::app::NavigatorHostScope::Both,
+            size_fraction: 0.3,
+            cross_axis_margin_start_px: 0.0,
+            cross_axis_margin_end_px: 0.0,
+            resizable: true,
+        };
+        let projection = WorkbenchChromeProjection {
+            layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_pane_title: Some("Graph Pane".to_string()),
+            active_frame_name: Some("frame-a".to_string()),
+            saved_frame_names: vec!["frame-a".to_string()],
+            navigator_groups: vec![],
+            pane_entries: vec![WorkbenchPaneEntry {
+                pane_id,
+                kind: WorkbenchPaneKind::Graph { view_id },
+                title: "Graph".to_string(),
+                subtitle: None,
+                arrangement_memberships: vec![],
+                semantic_tab_affordance: None,
+                is_active: true,
+                closable: true,
+            }],
+            tree_root: None,
+            active_graphlet_roster: vec![],
+        };
+        let slot = OverviewSlotSnapshot {
+            view_id,
+            name: "Focus".to_string(),
+            row: 1,
+            col: 2,
+            archived: false,
+        };
+
+        let chips = compact_overview_chips(&app, &projection, Some(&slot), 2);
+
+        assert!(chips.iter().any(|chip| chip.contains("View Focus")));
+        assert!(chips.iter().any(|chip| chip == "Panes: 1"));
+        assert!(chips.iter().any(|chip| chip == "History preview"));
+        assert!(chips.iter().any(|chip| chip == "Archived: 2"));
     }
 
     #[test]
