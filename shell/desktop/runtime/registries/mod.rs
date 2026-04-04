@@ -231,6 +231,16 @@ pub(crate) const CHANNEL_UI_GRAPH_VIEW_TRANSFER_SUCCEEDED: &str =
     "runtime.ui.graph.view_transfer_succeeded";
 pub(crate) const CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED: &str =
     "runtime.ui.graph.view_transfer_blocked";
+pub(crate) const CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED: &str =
+    "runtime.ui.command_bar.command_palette_requested";
+pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED: &str =
+    "runtime.ui.omnibar.provider_mailbox.request_started";
+pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED: &str =
+    "runtime.ui.omnibar.provider_mailbox.applied";
+pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED: &str =
+    "runtime.ui.omnibar.provider_mailbox.failed";
+pub(crate) const CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE: &str =
+    "runtime.ui.omnibar.provider_mailbox.stale";
 pub(crate) const CHANNEL_RUNTIME_CACHE_HIT: &str = "runtime.cache.hit";
 pub(crate) const CHANNEL_RUNTIME_CACHE_MISS: &str = "runtime.cache.miss";
 pub(crate) const CHANNEL_RUNTIME_CACHE_INSERT: &str = "runtime.cache.insert";

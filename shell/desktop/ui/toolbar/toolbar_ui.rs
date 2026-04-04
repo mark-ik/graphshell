@@ -59,6 +59,11 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::registries::lens::{LENS_ID_DEFAULT, LENS_ID_SEMANTIC_OVERLAY};
 use crate::shell::desktop::runtime::registries::{
     input::action_id, phase2_binding_display_labels_for_action,
+    CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
+    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
+    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
+    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
+    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
 };
 use crate::shell::desktop::ui::navigator_context::NavigatorContextProjection;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -168,9 +173,82 @@ pub(crate) struct OmnibarSearchSession {
     pub(crate) active_index: usize,
     selected_indices: HashSet<usize>,
     anchor_index: Option<usize>,
-    provider_rx: Option<Receiver<ProviderSuggestionFetchOutcome>>,
-    provider_debounce_deadline: Option<Instant>,
-    provider_status: ProviderSuggestionStatus,
+    provider_mailbox: ProviderSuggestionMailbox,
+}
+
+struct ProviderSuggestionMailbox {
+    request_query: Option<String>,
+    rx: Option<Receiver<ProviderSuggestionFetchOutcome>>,
+    debounce_deadline: Option<Instant>,
+    status: ProviderSuggestionStatus,
+}
+
+impl ProviderSuggestionMailbox {
+    fn idle() -> Self {
+        Self {
+            request_query: None,
+            rx: None,
+            debounce_deadline: None,
+            status: ProviderSuggestionStatus::Idle,
+        }
+    }
+
+    fn debounced(request_query: String, debounce_deadline: Instant) -> Self {
+        Self {
+            request_query: Some(request_query),
+            rx: None,
+            debounce_deadline: Some(debounce_deadline),
+            status: ProviderSuggestionStatus::Loading,
+        }
+    }
+
+    fn ready() -> Self {
+        Self {
+            status: ProviderSuggestionStatus::Ready,
+            ..Self::idle()
+        }
+    }
+
+    fn clear_pending(&mut self) {
+        self.request_query = None;
+        self.rx = None;
+        self.debounce_deadline = None;
+    }
+}
+
+impl OmnibarSearchSession {
+    fn new_graph(
+        kind: OmnibarSearchMode,
+        query: impl Into<String>,
+        matches: Vec<OmnibarMatch>,
+    ) -> Self {
+        Self {
+            kind: OmnibarSessionKind::Graph(kind),
+            query: query.into(),
+            matches,
+            active_index: 0,
+            selected_indices: HashSet::new(),
+            anchor_index: None,
+            provider_mailbox: ProviderSuggestionMailbox::idle(),
+        }
+    }
+
+    fn new_search_provider(
+        provider: SearchProviderKind,
+        query: impl Into<String>,
+        matches: Vec<OmnibarMatch>,
+        provider_mailbox: ProviderSuggestionMailbox,
+    ) -> Self {
+        Self {
+            kind: OmnibarSessionKind::SearchProvider(provider),
+            query: query.into(),
+            matches,
+            active_index: 0,
+            selected_indices: HashSet::new(),
+            anchor_index: None,
+            provider_mailbox,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -310,6 +388,51 @@ fn provider_status_label(status: ProviderSuggestionStatus) -> Option<String> {
             Some("Suggestions unavailable: response parse error".to_string())
         }
     }
+}
+
+pub(super) fn emit_command_bar_command_palette_requested() {
+    crate::shell::desktop::runtime::diagnostics::emit_event(
+        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
+            byte_len: "command_palette".len(),
+        },
+    );
+}
+
+pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
+    crate::shell::desktop::runtime::diagnostics::emit_event(
+        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
+            byte_len: query.trim().len().max(1),
+        },
+    );
+}
+
+pub(super) fn emit_omnibar_provider_mailbox_applied() {
+    crate::shell::desktop::runtime::diagnostics::emit_event(
+        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
+            latency_us: 0,
+        },
+    );
+}
+
+pub(super) fn emit_omnibar_provider_mailbox_failed() {
+    crate::shell::desktop::runtime::diagnostics::emit_event(
+        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
+            byte_len: 1,
+        },
+    );
+}
+
+pub(super) fn emit_omnibar_provider_mailbox_stale() {
+    crate::shell::desktop::runtime::diagnostics::emit_event(
+        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
+            byte_len: 1,
+        },
+    );
 }
 
 fn request_open_settings_page(
@@ -585,6 +708,144 @@ fn overview_plane_tooltip(graph_app: &GraphBrowserApp) -> String {
     }
 }
 
+fn render_command_bar_navigator_projection_host(
+    ui: &mut egui::Ui,
+    navigator_ctx: &NavigatorContextProjection,
+    frame_intents: &mut Vec<GraphIntent>,
+) {
+    render_navigator_view_tabs(ui, navigator_ctx, frame_intents);
+}
+
+fn render_command_bar_legacy_graph_actions(
+    ui: &mut egui::Ui,
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    focused_toolbar_node: Option<NodeKey>,
+    active_toolbar_pane: Option<PaneId>,
+    frame_intents: &mut Vec<GraphIntent>,
+) {
+    render_wry_compat_button(
+        ui,
+        graph_app,
+        tiles_tree,
+        focused_toolbar_node,
+        active_toolbar_pane,
+    );
+    render_graph_history_buttons(ui, frame_intents);
+
+    let new_node_button = ui
+        .add(toolbar_button("+Node"))
+        .on_hover_text("Create node and open as tab");
+    if new_node_button.clicked() {
+        frame_intents.push(GraphIntent::CreateNodeNearCenterAndOpen {
+            mode: PendingTileOpenMode::Tab,
+        });
+    }
+
+    let new_edge_button = ui
+        .add(toolbar_button("+Edge"))
+        .on_hover_text("Create user-grouped edge from primary selection");
+    if new_edge_button.clicked() {
+        frame_intents.push(GraphIntent::CreateUserGroupedEdgeFromPrimarySelection);
+    }
+
+    let add_tag_button = ui
+        .add_enabled(
+            graph_app.focused_selection().primary().is_some(),
+            toolbar_button("+Tag"),
+        )
+        .on_hover_text("Edit tags for the selected node");
+    if add_tag_button.clicked() {
+        open_selected_node_tag_panel(graph_app);
+    }
+
+    render_graph_bar_lens_menu(ui, graph_app, frame_intents);
+    render_graph_bar_physics_menu(ui, graph_app, frame_intents);
+
+    let overview_label = if graph_app.graph_view_layout_manager_active() {
+        "Overview*"
+    } else {
+        "Overview"
+    };
+    let overview_button = ui
+        .add(toolbar_button(overview_label))
+        .on_hover_text(overview_plane_tooltip(graph_app));
+    if overview_button.clicked() {
+        frame_intents.push(GraphIntent::ToggleGraphViewLayoutManager);
+    }
+}
+
+fn render_command_bar_shell_actions(ui: &mut egui::Ui, graph_app: &mut GraphBrowserApp) {
+    let command_button = ui
+        .add(toolbar_button("Cmd"))
+        .on_hover_text("Open command palette (F2)");
+    if command_button.clicked() {
+        emit_command_bar_command_palette_requested();
+        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_command_bar_left_column(
+    ui: &mut egui::Ui,
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    navigator_ctx: &NavigatorContextProjection,
+    focused_toolbar_node: Option<NodeKey>,
+    active_toolbar_pane: Option<PaneId>,
+    frame_intents: &mut Vec<GraphIntent>,
+) {
+    render_command_bar_navigator_projection_host(ui, navigator_ctx, frame_intents);
+    render_command_bar_legacy_graph_actions(
+        ui,
+        graph_app,
+        tiles_tree,
+        focused_toolbar_node,
+        active_toolbar_pane,
+        frame_intents,
+    );
+    render_command_bar_shell_actions(ui, graph_app);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_command_bar_right_column(
+    ui: &mut egui::Ui,
+    state: &RunningAppState,
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    focused_toolbar_node: Option<NodeKey>,
+    focused_content_status: &FocusedContentStatus,
+    is_graph_view: bool,
+    location_dirty: &mut bool,
+    show_clear_data_confirm: &mut bool,
+    frame_intents: &mut Vec<GraphIntent>,
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+) {
+    ui.horizontal(|ui| {
+        toolbar_controls::render_navigation_buttons(
+            ui,
+            graph_app,
+            window,
+            focused_toolbar_node,
+            focused_content_status,
+            location_dirty,
+        );
+    });
+    render_toolbar_right_controls(
+        ui,
+        state,
+        graph_app,
+        window,
+        is_graph_view,
+        location_dirty,
+        show_clear_data_confirm,
+        frame_intents,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state,
+    );
+}
+
 pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let Input {
         ctx,
@@ -639,63 +900,15 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         .show(ctx, |ui| {
             ui.columns(3, |columns| {
                 columns[0].horizontal_wrapped(|ui| {
-                    render_navigator_view_tabs(ui, navigator_ctx, frame_intents);
-                    render_wry_compat_button(
+                    render_command_bar_left_column(
                         ui,
                         graph_app,
                         tiles_tree,
+                        navigator_ctx,
                         focused_toolbar_node,
                         active_toolbar_pane,
+                        frame_intents,
                     );
-                    render_graph_history_buttons(ui, frame_intents);
-
-                    let new_node_button = ui
-                        .add(toolbar_button("+Node"))
-                        .on_hover_text("Create node and open as tab");
-                    if new_node_button.clicked() {
-                        frame_intents.push(GraphIntent::CreateNodeNearCenterAndOpen {
-                            mode: PendingTileOpenMode::Tab,
-                        });
-                    }
-
-                    let new_edge_button = ui
-                        .add(toolbar_button("+Edge"))
-                        .on_hover_text("Create user-grouped edge from primary selection");
-                    if new_edge_button.clicked() {
-                        frame_intents.push(GraphIntent::CreateUserGroupedEdgeFromPrimarySelection);
-                    }
-
-                    let add_tag_button = ui
-                        .add_enabled(
-                            graph_app.focused_selection().primary().is_some(),
-                            toolbar_button("+Tag"),
-                        )
-                        .on_hover_text("Edit tags for the selected node");
-                    if add_tag_button.clicked() {
-                        open_selected_node_tag_panel(graph_app);
-                    }
-
-                    render_graph_bar_lens_menu(ui, graph_app, frame_intents);
-                    render_graph_bar_physics_menu(ui, graph_app, frame_intents);
-
-                    let overview_label = if graph_app.graph_view_layout_manager_active() {
-                        "Overview*"
-                    } else {
-                        "Overview"
-                    };
-                    let overview_button = ui
-                        .add(toolbar_button(overview_label))
-                        .on_hover_text(overview_plane_tooltip(graph_app));
-                    if overview_button.clicked() {
-                        frame_intents.push(GraphIntent::ToggleGraphViewLayoutManager);
-                    }
-
-                    let command_button = ui
-                        .add(toolbar_button("Cmd"))
-                        .on_hover_text("Open command palette (F2)");
-                    if command_button.clicked() {
-                        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
-                    }
                 });
 
                 columns[1].with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -724,21 +937,13 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                 });
 
                 columns[2].with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.horizontal(|ui| {
-                        toolbar_controls::render_navigation_buttons(
-                            ui,
-                            graph_app,
-                            window,
-                            focused_toolbar_node,
-                            focused_content_status,
-                            location_dirty,
-                        );
-                    });
-                    render_toolbar_right_controls(
+                    render_command_bar_right_column(
                         ui,
                         state,
                         graph_app,
                         window,
+                        focused_toolbar_node,
+                        focused_content_status,
                         is_graph_view,
                         location_dirty,
                         show_clear_data_confirm,
@@ -755,5 +960,87 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         open_selected_mode_after_submit,
         toolbar_visible: true,
         command_bar_rect: Some(command_bar_response.response.rect),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        emit_command_bar_command_palette_requested, emit_omnibar_provider_mailbox_applied,
+        emit_omnibar_provider_mailbox_failed, emit_omnibar_provider_mailbox_request_started,
+        emit_omnibar_provider_mailbox_stale,
+    };
+    use crate::shell::desktop::runtime::diagnostics::{
+        DiagnosticEvent, install_global_sender,
+    };
+    use crate::shell::desktop::runtime::registries::{
+        CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
+        CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
+        CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
+        CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
+        CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
+    };
+
+    #[test]
+    fn command_bar_command_palette_request_emits_diagnostic() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        emit_command_bar_command_palette_requested();
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED
+            )),
+            "expected command bar dispatch diagnostic; got: {emitted:?}"
+        );
+    }
+
+    #[test]
+    fn omnibar_provider_mailbox_helpers_emit_diagnostics() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        emit_omnibar_provider_mailbox_request_started("rust async");
+        emit_omnibar_provider_mailbox_applied();
+        emit_omnibar_provider_mailbox_failed();
+        emit_omnibar_provider_mailbox_stale();
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED
+            )),
+            "expected provider mailbox request-started diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageReceived { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED
+            )),
+            "expected provider mailbox applied diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED
+            )),
+            "expected provider mailbox failed diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE
+            )),
+            "expected provider mailbox stale diagnostic; got: {emitted:?}"
+        );
     }
 }

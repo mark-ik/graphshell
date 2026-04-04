@@ -43,6 +43,43 @@ fn outcome_from_cached_suggestions(
     }
 }
 
+fn provider_mailbox_for_query(
+    request_query: impl Into<String>,
+    should_fetch_provider: bool,
+) -> ProviderSuggestionMailbox {
+    if should_fetch_provider {
+        ProviderSuggestionMailbox::debounced(
+            request_query.into(),
+            Instant::now() + Duration::from_millis(OMNIBAR_PROVIDER_DEBOUNCE_MS),
+        )
+    } else {
+        ProviderSuggestionMailbox::ready()
+    }
+}
+
+fn search_provider_session(
+    provider: SearchProviderKind,
+    query: impl Into<String>,
+    matches: Vec<OmnibarMatch>,
+    request_query: impl Into<String>,
+    should_fetch_provider: bool,
+) -> OmnibarSearchSession {
+    OmnibarSearchSession::new_search_provider(
+        provider,
+        query,
+        matches,
+        provider_mailbox_for_query(request_query, should_fetch_provider),
+    )
+}
+
+fn provider_query_matches_mailbox(session: &OmnibarSearchSession) -> bool {
+    session
+        .provider_mailbox
+        .request_query
+        .as_deref()
+        .is_none_or(|request_query| request_query == provider_query_for_session(session))
+}
+
 fn should_dispatch_location_submit(
     enter_while_focused: bool,
     location_submitted: bool,
@@ -241,23 +278,16 @@ pub(super) fn render_location_search_panel(
                             && session.query == trimmed_location
                     });
                     if needs_refresh {
-                        *omnibar_search_session = Some(OmnibarSearchSession {
-                            kind: OmnibarSessionKind::SearchProvider(provider),
-                            query: trimmed_location.to_string(),
-                            matches: vec![OmnibarMatch::SearchQuery {
+                        *omnibar_search_session = Some(search_provider_session(
+                            provider,
+                            trimmed_location,
+                            vec![OmnibarMatch::SearchQuery {
                                 query: query.to_string(),
                                 provider,
                             }],
-                            active_index: 0,
-                            selected_indices: HashSet::new(),
-                            anchor_index: None,
-                            provider_rx: None,
-                            provider_debounce_deadline: Some(
-                                Instant::now()
-                                    + Duration::from_millis(OMNIBAR_PROVIDER_DEBOUNCE_MS),
-                            ),
-                            provider_status: ProviderSuggestionStatus::Loading,
-                        });
+                            query,
+                            true,
+                        ));
                     }
                 }
             } else {
@@ -279,17 +309,7 @@ pub(super) fn render_location_search_panel(
                         *omnibar_search_session = if matches.is_empty() {
                             None
                         } else {
-                            Some(OmnibarSearchSession {
-                                kind: OmnibarSessionKind::Graph(mode),
-                                query: query.to_string(),
-                                matches,
-                                active_index: 0,
-                                selected_indices: HashSet::new(),
-                                anchor_index: None,
-                                provider_rx: None,
-                                provider_debounce_deadline: None,
-                                provider_status: ProviderSuggestionStatus::Idle,
-                            })
+                            Some(OmnibarSearchSession::new_graph(mode, query, matches))
                         };
                     }
                 }
@@ -304,32 +324,18 @@ pub(super) fn render_location_search_panel(
                 trimmed_location,
                 has_node_panes,
             );
-            let initial_status = if should_fetch_provider {
-                ProviderSuggestionStatus::Loading
-            } else {
-                ProviderSuggestionStatus::Ready
-            };
-            let initial_deadline = if should_fetch_provider {
-                Some(Instant::now() + Duration::from_millis(OMNIBAR_PROVIDER_DEBOUNCE_MS))
-            } else {
-                None
-            };
             let needs_refresh = !omnibar_search_session.as_ref().is_some_and(|session| {
                 session.kind == OmnibarSessionKind::SearchProvider(provider)
                     && session.query == trimmed_location
             });
             if needs_refresh {
-                *omnibar_search_session = Some(OmnibarSearchSession {
-                    kind: OmnibarSessionKind::SearchProvider(provider),
-                    query: trimmed_location.to_string(),
-                    matches: initial_matches,
-                    active_index: 0,
-                    selected_indices: HashSet::new(),
-                    anchor_index: None,
-                    provider_rx: None,
-                    provider_debounce_deadline: initial_deadline,
-                    provider_status: initial_status,
-                });
+                *omnibar_search_session = Some(search_provider_session(
+                    provider,
+                    trimmed_location,
+                    initial_matches,
+                    trimmed_location,
+                    should_fetch_provider,
+                ));
             }
         } else if trimmed_location.is_empty() {
             let local_workspace_tab_matches = omnibar_matches_for_query(
@@ -342,17 +348,12 @@ pub(super) fn render_location_search_panel(
             let provider =
                 default_search_provider_from_searchpage(&state.app_preferences.searchpage)
                     .unwrap_or(SearchProviderKind::DuckDuckGo);
-            *omnibar_search_session = Some(OmnibarSearchSession {
-                kind: OmnibarSessionKind::SearchProvider(provider),
-                query: String::new(),
-                matches: local_workspace_tab_matches,
-                active_index: 0,
-                selected_indices: HashSet::new(),
-                anchor_index: None,
-                provider_rx: None,
-                provider_debounce_deadline: None,
-                provider_status: ProviderSuggestionStatus::Idle,
-            });
+            *omnibar_search_session = Some(OmnibarSearchSession::new_search_provider(
+                provider,
+                String::new(),
+                local_workspace_tab_matches,
+                ProviderSuggestionMailbox::idle(),
+            ));
         } else {
             *omnibar_search_session = None;
         }
@@ -372,13 +373,14 @@ pub(super) fn render_location_search_panel(
         && session.query == location.trim()
     {
         let mut fetched_outcome = None;
-        if let Some(deadline) = session.provider_debounce_deadline
-            && session.provider_rx.is_none()
+        if let Some(deadline) = session.provider_mailbox.debounce_deadline
+            && session.provider_mailbox.rx.is_none()
             && Instant::now() >= deadline
             && let OmnibarSessionKind::SearchProvider(provider) = session.kind
         {
-            session.provider_debounce_deadline = None;
+            session.provider_mailbox.debounce_deadline = None;
             let provider_query = provider_query_for_session(session);
+            session.provider_mailbox.request_query = Some(provider_query.clone());
             let cache_key = provider_cache_key(provider, &provider_query);
             if let Some(cached_suggestions) = graph_app
                 .workspace
@@ -391,7 +393,8 @@ pub(super) fn render_location_search_panel(
                     &cached_suggestions,
                 ));
             } else {
-                session.provider_rx = Some(spawn_provider_suggestion_request(
+                emit_omnibar_provider_mailbox_request_started(&provider_query);
+                session.provider_mailbox.rx = Some(spawn_provider_suggestion_request(
                     control_panel,
                     provider,
                     &provider_query,
@@ -400,7 +403,7 @@ pub(super) fn render_location_search_panel(
             }
         }
 
-        if let Some(rx) = &session.provider_rx {
+        if let Some(rx) = &session.provider_mailbox.rx {
             match rx.try_recv() {
                 Ok(outcome) => fetched_outcome = Some(outcome),
                 Err(crossbeam_channel::TryRecvError::Empty) => {
@@ -414,11 +417,21 @@ pub(super) fn render_location_search_panel(
                 }
             }
         }
-        if session.provider_debounce_deadline.is_some() {
+        if session.provider_mailbox.debounce_deadline.is_some() {
             ctx.request_repaint_after(Duration::from_millis(75));
         }
         if let Some(outcome) = fetched_outcome {
-            session.provider_rx = None;
+            session.provider_mailbox.rx = None;
+            if !provider_query_matches_mailbox(session) {
+                session.provider_mailbox.clear_pending();
+                session.provider_mailbox.status = if session.matches.is_empty() {
+                    ProviderSuggestionStatus::Idle
+                } else {
+                    ProviderSuggestionStatus::Ready
+                };
+                emit_omnibar_provider_mailbox_stale();
+                return;
+            }
             if let OmnibarSessionKind::SearchProvider(provider) = session.kind
                 && matches!(outcome.status, ProviderSuggestionStatus::Ready)
             {
@@ -445,7 +458,7 @@ pub(super) fn render_location_search_panel(
                         );
                 }
             }
-            session.provider_status = outcome.status;
+            session.provider_mailbox.status = outcome.status;
             if !session.query.starts_with('@') {
                 let fallback_scope = if graph_app.workspace.chrome_ui.omnibar_preferred_scope
                     == OmnibarPreferredScope::ProviderDefault
@@ -487,9 +500,19 @@ pub(super) fn render_location_search_panel(
                 );
             }
             if !session.matches.is_empty()
-                && !matches!(session.provider_status, ProviderSuggestionStatus::Failed(_))
+                && !matches!(session.provider_mailbox.status, ProviderSuggestionStatus::Failed(_))
             {
-                session.provider_status = ProviderSuggestionStatus::Ready;
+                session.provider_mailbox.status = ProviderSuggestionStatus::Ready;
+            }
+            let mailbox_failed = matches!(
+                session.provider_mailbox.status,
+                ProviderSuggestionStatus::Failed(_)
+            );
+            session.provider_mailbox.clear_pending();
+            if mailbox_failed {
+                emit_omnibar_provider_mailbox_failed();
+            } else {
+                emit_omnibar_provider_mailbox_applied();
             }
             session.active_index = session
                 .active_index
@@ -555,11 +578,11 @@ pub(super) fn render_location_search_panel(
 #[cfg(test)]
 mod tests {
     use super::{
-        LOCATION_INPUT_HINT_TEXT, OmnibarSearchSession, OmnibarSessionKind,
-        ProviderSuggestionStatus, SearchProviderKind, provider_cache_key,
-        provider_query_for_session, should_dispatch_location_submit,
+        LOCATION_INPUT_HINT_TEXT, OmnibarSearchSession, ProviderSuggestionMailbox,
+        SearchProviderKind, provider_cache_key, provider_query_for_session,
+        provider_query_matches_mailbox, should_dispatch_location_submit,
     };
-    use std::collections::HashSet;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn submit_dispatch_triggers_for_focused_enter() {
@@ -602,49 +625,64 @@ mod tests {
 
     #[test]
     fn provider_query_for_session_strips_at_provider_prefix() {
-        let session = OmnibarSearchSession {
-            kind: OmnibarSessionKind::SearchProvider(SearchProviderKind::DuckDuckGo),
-            query: "@d rust async".to_string(),
-            matches: Vec::new(),
-            active_index: 0,
-            selected_indices: HashSet::new(),
-            anchor_index: None,
-            provider_rx: None,
-            provider_debounce_deadline: None,
-            provider_status: ProviderSuggestionStatus::Idle,
-        };
+        let session = OmnibarSearchSession::new_search_provider(
+            SearchProviderKind::DuckDuckGo,
+            "@d rust async",
+            Vec::new(),
+            ProviderSuggestionMailbox::idle(),
+        );
         assert_eq!(provider_query_for_session(&session), "rust async");
     }
 
     #[test]
     fn provider_query_for_session_keeps_plain_query_for_non_at_mode() {
-        let session = OmnibarSearchSession {
-            kind: OmnibarSessionKind::SearchProvider(SearchProviderKind::Bing),
-            query: "plain query".to_string(),
-            matches: Vec::new(),
-            active_index: 0,
-            selected_indices: HashSet::new(),
-            anchor_index: None,
-            provider_rx: None,
-            provider_debounce_deadline: None,
-            provider_status: ProviderSuggestionStatus::Idle,
-        };
+        let session = OmnibarSearchSession::new_search_provider(
+            SearchProviderKind::Bing,
+            "plain query",
+            Vec::new(),
+            ProviderSuggestionMailbox::idle(),
+        );
         assert_eq!(provider_query_for_session(&session), "plain query");
     }
 
     #[test]
     fn provider_query_for_session_falls_back_when_provider_token_invalid() {
-        let session = OmnibarSearchSession {
-            kind: OmnibarSessionKind::SearchProvider(SearchProviderKind::Google),
-            query: "@x raw".to_string(),
-            matches: Vec::new(),
-            active_index: 0,
-            selected_indices: HashSet::new(),
-            anchor_index: None,
-            provider_rx: None,
-            provider_debounce_deadline: None,
-            provider_status: ProviderSuggestionStatus::Idle,
-        };
+        let session = OmnibarSearchSession::new_search_provider(
+            SearchProviderKind::Google,
+            "@x raw",
+            Vec::new(),
+            ProviderSuggestionMailbox::idle(),
+        );
         assert_eq!(provider_query_for_session(&session), "@x raw");
+    }
+
+    #[test]
+    fn provider_query_matches_mailbox_when_request_query_matches_session_query() {
+        let session = OmnibarSearchSession::new_search_provider(
+            SearchProviderKind::DuckDuckGo,
+            "@d rust async",
+            Vec::new(),
+            ProviderSuggestionMailbox::debounced(
+                "rust async".to_string(),
+                Instant::now() + Duration::from_millis(10),
+            ),
+        );
+
+        assert!(provider_query_matches_mailbox(&session));
+    }
+
+    #[test]
+    fn provider_query_mismatch_marks_mailbox_as_stale() {
+        let session = OmnibarSearchSession::new_search_provider(
+            SearchProviderKind::DuckDuckGo,
+            "@d rust async",
+            Vec::new(),
+            ProviderSuggestionMailbox::debounced(
+                "rust book".to_string(),
+                Instant::now() + Duration::from_millis(10),
+            ),
+        );
+
+        assert!(!provider_query_matches_mailbox(&session));
     }
 }

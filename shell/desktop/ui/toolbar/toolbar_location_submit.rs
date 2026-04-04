@@ -80,17 +80,9 @@ pub(super) fn handle_location_submit(
                     if matches.is_empty() {
                         *omnibar_search_session = None;
                     } else {
-                        *omnibar_search_session = Some(OmnibarSearchSession {
-                            kind: OmnibarSessionKind::Graph(mode),
-                            query: query.to_string(),
-                            matches,
-                            active_index: 0,
-                            selected_indices: HashSet::new(),
-                            anchor_index: None,
-                            provider_rx: None,
-                            provider_debounce_deadline: None,
-                            provider_status: ProviderSuggestionStatus::Idle,
-                        });
+                        *omnibar_search_session = Some(OmnibarSearchSession::new_graph(
+                            mode, query, matches,
+                        ));
                     }
                 }
 

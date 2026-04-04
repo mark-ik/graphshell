@@ -156,7 +156,7 @@ pub fn render_omnibar_dropdown(
                     if row_count > 0 {
                         ui.separator();
                     }
-                    if let Some(status) = provider_status_label(session.provider_status) {
+                    if let Some(status) = provider_status_label(session.provider_mailbox.status) {
                         let theme_tokens = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
                             graph_app.default_registry_theme_id(),
                         )
