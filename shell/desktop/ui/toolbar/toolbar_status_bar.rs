@@ -1,6 +1,8 @@
 use egui::TopBottomPanel;
 
 use crate::mods::verse;
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::runtime::diagnostics::AmbientDiagnosticsAttention;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use crate::shell::desktop::ui::gui_state::{
     FocusedContentDownloadState, FocusedContentMediaState, FocusedContentStatus,
@@ -198,6 +200,7 @@ fn build_shell_status_bar_model(
     focused_content_status: &FocusedContentStatus,
     runtime_focus_state: Option<&RuntimeFocusState>,
     sync_status: SyncStatusSummary,
+    #[cfg(feature = "diagnostics")] diagnostics_attention: Option<&AmbientDiagnosticsAttention>,
 ) -> ShellStatusBarModel {
     let mut model = ShellStatusBarModel::default();
 
@@ -235,6 +238,21 @@ fn build_shell_status_bar_model(
         model
             .center
             .push(StatusChip::toned("No live content", StatusChipTone::Weak));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    if let Some(attention) = diagnostics_attention {
+        let label = if attention.alert_count == 1 {
+            "Diagnostics: 1 alert".to_string()
+        } else {
+            format!("Diagnostics: {} alerts", attention.alert_count)
+        };
+        model.trailing.push(
+            StatusChip::toned(label, StatusChipTone::Warning).with_tooltip(format!(
+                "{}: {}",
+                attention.primary_label, attention.primary_summary
+            )),
+        );
     }
 
     if let Some(focus_state) = runtime_focus_state
@@ -321,12 +339,15 @@ pub(super) fn render_shell_status_bar(
     workbench_layer_state: WorkbenchLayerState,
     focused_content_status: &FocusedContentStatus,
     runtime_focus_state: Option<&RuntimeFocusState>,
+    #[cfg(feature = "diagnostics")] diagnostics_attention: Option<&AmbientDiagnosticsAttention>,
 ) -> egui::Rect {
     let model = build_shell_status_bar_model(
         workbench_layer_state,
         focused_content_status,
         runtime_focus_state,
         sync_status_summary(),
+        #[cfg(feature = "diagnostics")]
+        diagnostics_attention,
     );
 
     let response = TopBottomPanel::bottom("shell_status_bar")
@@ -356,6 +377,8 @@ mod tests {
         ShellStatusBarModel, StatusChipTone, SyncStatusSummary, build_shell_status_bar_model,
         render_shell_status_bar,
     };
+    #[cfg(feature = "diagnostics")]
+    use crate::shell::desktop::runtime::diagnostics::AmbientDiagnosticsAttention;
     use crate::shell::desktop::ui::gui_state::{
         FocusCaptureEntry, FocusCaptureSurface, FocusedContentDownloadState,
         FocusedContentFeatureSupport, FocusedContentMediaState, FocusedContentStatus,
@@ -403,6 +426,15 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn diagnostics_attention(count: usize, summary: &str) -> AmbientDiagnosticsAttention {
+        AmbientDiagnosticsAttention {
+            alert_count: count,
+            primary_label: "Navigator Projection Health".to_string(),
+            primary_summary: summary.to_string(),
+        }
+    }
+
     fn chip_labels(model: &ShellStatusBarModel) -> (Vec<String>, Vec<String>, Vec<String>) {
         (
             model.leading.iter().map(|chip| chip.label.clone()).collect(),
@@ -418,6 +450,8 @@ mod tests {
             &focused_content_status(),
             Some(&runtime_focus_state()),
             test_sync_status("Sync: ready"),
+            #[cfg(feature = "diagnostics")]
+            None,
         );
 
         let (leading, center, trailing) = chip_labels(&model);
@@ -457,6 +491,8 @@ mod tests {
             &FocusedContentStatus::unavailable(None, None),
             None,
             test_sync_status("Sync: unavailable"),
+            #[cfg(feature = "diagnostics")]
+            None,
         );
 
         let (leading, center, trailing) = chip_labels(&model);
@@ -476,11 +512,28 @@ mod tests {
                 WorkbenchLayerState::WorkbenchActive,
                 &focused_content_status(),
                 Some(&runtime_focus_state()),
+                #[cfg(feature = "diagnostics")]
+                None,
             ));
         });
 
         let status_bar_rect = status_bar_rect.expect("status bar should render a rect");
         assert!(status_bar_rect.height() > 0.0);
         assert!(status_bar_rect.width() >= 0.0);
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn status_bar_model_promotes_diagnostic_alerts_to_attention_tier() {
+        let model = build_shell_status_bar_model(
+            WorkbenchLayerState::WorkbenchActive,
+            &focused_content_status(),
+            Some(&runtime_focus_state()),
+            test_sync_status("Sync: ready"),
+            Some(&diagnostics_attention(2, "navigation violation receipts observed")),
+        );
+
+        let (_, _, trailing) = chip_labels(&model);
+        assert_eq!(trailing.first().map(String::as_str), Some("Diagnostics: 2 alerts"));
     }
 }

@@ -324,6 +324,13 @@ pub(crate) struct AnalyzerSnapshot {
     pub(crate) last_result: Option<AnalyzerResult>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AmbientDiagnosticsAttention {
+    pub(crate) alert_count: usize,
+    pub(crate) primary_label: String,
+    pub(crate) primary_summary: String,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct LaneChannelSummary {
     pub(crate) lane_id: &'static str,
@@ -2367,6 +2374,24 @@ impl DiagnosticsState {
         );
     }
 
+    pub(crate) fn ambient_attention_summary(&self) -> Option<AmbientDiagnosticsAttention> {
+        let mut alerts = self.analyzer_snapshots().into_iter().filter_map(|snapshot| {
+            let result = snapshot.last_result?;
+            if result.signal != AnalyzerSignal::Alert {
+                return None;
+            }
+            Some((snapshot.label.to_string(), result.summary))
+        });
+
+        let (primary_label, primary_summary) = alerts.next()?;
+
+        Some(AmbientDiagnosticsAttention {
+            alert_count: 1 + alerts.count(),
+            primary_label,
+            primary_summary,
+        })
+    }
+
     fn aggregate_event(&mut self, event: &DiagnosticEvent) {
         match event {
             DiagnosticEvent::CompositorFrame(sample) => {
@@ -3278,6 +3303,23 @@ mod tests {
             assert!(snapshot.run_count >= 1);
             assert!(snapshot.last_result.is_some());
         }
+    }
+
+    #[test]
+    fn ambient_attention_summary_reports_first_alerting_analyzer() {
+        let mut state = DiagnosticsState::new();
+        state.emit_message_sent_for_tests(CHANNEL_UX_NAVIGATION_VIOLATION, 1);
+        state.force_drain_for_tests();
+
+        let attention = state
+            .ambient_attention_summary()
+            .expect("alerting diagnostics attention should be available");
+        assert_eq!(attention.alert_count, 1);
+        assert_eq!(attention.primary_label, "Lane Receipt: Navigator Projection Health");
+        assert!(
+            !attention.primary_summary.is_empty(),
+            "expected non-empty alert summary"
+        );
     }
 
     #[test]

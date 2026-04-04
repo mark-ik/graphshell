@@ -967,11 +967,19 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                 });
             });
         });
+
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state.tick_drain();
+    #[cfg(feature = "diagnostics")]
+    let ambient_diagnostics_attention = diagnostics_state.ambient_attention_summary();
+
     let status_bar_rect = render_shell_status_bar(
         ctx,
         workbench_layer_state,
         focused_content_status,
         runtime_focus_state,
+        #[cfg(feature = "diagnostics")]
+        ambient_diagnostics_attention.as_ref(),
     );
 
     Output {
@@ -988,7 +996,7 @@ mod tests {
     use super::{
         emit_command_bar_command_palette_requested, emit_omnibar_provider_mailbox_applied,
         emit_omnibar_provider_mailbox_failed, emit_omnibar_provider_mailbox_request_started,
-        emit_omnibar_provider_mailbox_stale,
+        emit_omnibar_provider_mailbox_stale, render_shell_status_bar, TOOLBAR_HEIGHT,
     };
     use crate::shell::desktop::runtime::diagnostics::{
         DiagnosticEvent, install_global_sender,
@@ -1000,6 +1008,8 @@ mod tests {
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
     };
+    use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
+    use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
 
     #[test]
     fn command_bar_command_palette_request_emits_diagnostic() {
@@ -1062,5 +1072,36 @@ mod tests {
             )),
             "expected provider mailbox stale diagnostic; got: {emitted:?}"
         );
+    }
+
+    #[test]
+    fn shell_chrome_composes_command_and_status_bars_in_same_frame() {
+        let ctx = egui::Context::default();
+        let mut command_bar_rect = None;
+        let mut status_bar_rect = None;
+
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let response = egui::TopBottomPanel::top("shell_command_bar_test")
+                .exact_height(TOOLBAR_HEIGHT)
+                .show(ctx, |ui| {
+                    ui.label("Command bar");
+                });
+            command_bar_rect = Some(response.response.rect);
+            status_bar_rect = Some(render_shell_status_bar(
+                ctx,
+                WorkbenchLayerState::GraphOnly,
+                &FocusedContentStatus::unavailable(None, None),
+                None,
+                #[cfg(feature = "diagnostics")]
+                None,
+            ));
+        });
+
+        let command_bar_rect = command_bar_rect.expect("command bar should render a rect");
+        let status_bar_rect = status_bar_rect.expect("status bar should render a rect");
+        assert!(command_bar_rect.height() > 0.0);
+        assert!(status_bar_rect.height() > 0.0);
+        assert!(command_bar_rect.min.y <= status_bar_rect.min.y);
+        assert!(command_bar_rect.max.y <= status_bar_rect.max.y);
     }
 }
