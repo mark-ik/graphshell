@@ -9,6 +9,8 @@ use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::{ChromeProjectionSource, EmbedderWindow};
 use crate::shell::desktop::runtime::registries;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
@@ -43,17 +45,21 @@ fn focused_embedded_content_node(graph_app: &GraphBrowserApp) -> Option<NodeKey>
         .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
 }
 
-/// Resolve which node the toolbar/omnibar should target.
+/// Resolve the current command-bar target for omnibar and viewer-facing controls.
 ///
 /// Preference order:
 /// 1) focused tile runtime mapping (if available),
 /// 2) active tile node fallback.
-pub(crate) fn focused_toolbar_node(
+pub(crate) fn command_bar_focus_target(
+    active_toolbar_pane: Option<PaneId>,
     active_runtime_node: Option<NodeKey>,
     focused_node_key: Option<NodeKey>,
     selected_node: Option<NodeKey>,
-) -> Option<NodeKey> {
-    focused_node_key.or(active_runtime_node).or(selected_node)
+) -> CommandBarFocusTarget {
+    CommandBarFocusTarget::new(
+        active_toolbar_pane,
+        focused_node_key.or(active_runtime_node).or(selected_node),
+    )
 }
 
 /// Resolve the explicit target runtime viewer for navigation commands.
@@ -84,32 +90,35 @@ mod tests {
     }
 
     #[test]
-    fn test_focused_toolbar_node_prefers_focused_node_input() {
+    fn test_command_bar_focus_target_prefers_focused_node_input() {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(10.0, 0.0));
+        let pane_id = PaneId::new();
         let a_id = test_webview_id();
         let b_id = test_webview_id();
         app.map_webview_to_node(a_id, a);
         app.map_webview_to_node(b_id, b);
 
-        let chosen = focused_toolbar_node(Some(a), Some(b), Some(a));
-        assert_eq!(chosen, Some(b));
+        let chosen = command_bar_focus_target(Some(pane_id), Some(a), Some(b), Some(a));
+        assert_eq!(chosen.active_pane(), Some(pane_id));
+        assert_eq!(chosen.focused_node(), Some(b));
     }
 
     #[test]
-    fn test_focused_toolbar_node_falls_back_to_active_node() {
+    fn test_command_bar_focus_target_falls_back_to_active_node() {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
         let a_id = test_webview_id();
         app.map_webview_to_node(a_id, a);
 
-        let chosen = focused_toolbar_node(Some(a), None, None);
-        assert_eq!(chosen, Some(a));
+        let chosen = command_bar_focus_target(None, Some(a), None, None);
+        assert_eq!(chosen.active_pane(), None);
+        assert_eq!(chosen.focused_node(), Some(a));
     }
 
     #[test]
-    fn test_focused_toolbar_node_falls_back_to_selected_node_when_no_live_focus() {
+    fn test_command_bar_focus_target_falls_back_to_selected_node_when_no_live_focus() {
         let mut app = GraphBrowserApp::new_for_testing();
         let selected =
             app.add_node_and_sync("https://selected.example".into(), Point2D::new(0.0, 0.0));
@@ -117,8 +126,8 @@ mod tests {
         let other_wv = test_webview_id();
         app.map_webview_to_node(other_wv, other);
 
-        let chosen = focused_toolbar_node(None, None, Some(selected));
-        assert_eq!(chosen, Some(selected));
+        let chosen = command_bar_focus_target(None, None, None, Some(selected));
+        assert_eq!(chosen.focused_node(), Some(selected));
     }
 
     #[test]

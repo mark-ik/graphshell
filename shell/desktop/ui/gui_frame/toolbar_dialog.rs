@@ -21,7 +21,7 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthorityState};
 use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
-    self, CommandBarFocusTarget, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
+    self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
 use crate::shell::desktop::ui::workbench_host::{self, WorkbenchLayerState};
 use crate::shell::desktop::workbench::pane_model::PaneId;
@@ -102,13 +102,12 @@ pub(crate) fn handle_toolbar_dialog_phase(
     } else {
         nav_targeting::chrome_projection_node(graph_app, window).or(active_webview_node)
     };
-    let focused_toolbar_node = nav_targeting::focused_toolbar_node(
+    let command_bar_focus_target = nav_targeting::command_bar_focus_target(
+        active_toolbar_pane,
         active_webview_node,
         focused_toolbar_node_key,
         graph_app.get_single_selected_node(),
     );
-    let command_bar_focus_target =
-        CommandBarFocusTarget::new(active_toolbar_pane, focused_toolbar_node);
     let focused_content_status = webview_status_sync::focused_content_status(
         command_bar_focus_target.focused_node(),
         graph_app,
@@ -122,9 +121,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
             graph_app,
             window,
             tiles_tree,
-            focused_toolbar_node,
+            command_bar_focus_target,
             &focused_content_status,
-            active_toolbar_pane,
             location_dirty,
         )
     });

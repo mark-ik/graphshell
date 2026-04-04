@@ -1658,13 +1658,12 @@ pub(crate) fn render_workbench_host(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
-    focused_toolbar_node: Option<NodeKey>,
+    command_bar_focus_target: CommandBarFocusTarget,
     focused_content_status: &FocusedContentStatus,
-    active_toolbar_pane: Option<PaneId>,
     location_dirty: &mut bool,
 ) -> WorkbenchChromeProjection {
     let projection =
-        WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, active_toolbar_pane);
+        WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, command_bar_focus_target.active_pane());
     if !projection.visible() {
         graph_app
             .workspace
@@ -1689,8 +1688,9 @@ pub(crate) fn render_workbench_host(
         .list_workspace_layout_names()
         .into_iter()
         .collect();
-    let focused_pane_pin_name =
-        focused_toolbar_node.and_then(|node| frame_pin_name_for_node(node, graph_app));
+    let focused_pane_pin_name = command_bar_focus_target
+        .focused_node()
+        .and_then(|node| frame_pin_name_for_node(node, graph_app));
     let mut post_host_actions = Vec::new();
     let host_layouts = projection.host_layouts.clone();
     let missing_hosts = missing_navigator_hosts(&host_layouts);
@@ -2136,7 +2136,7 @@ pub(crate) fn render_workbench_host(
                         ui,
                         graph_app,
                         window,
-                        focused_toolbar_node,
+                        command_bar_focus_target,
                         focused_content_status,
                         location_dirty,
                     );
@@ -3206,11 +3206,10 @@ fn render_navigation_buttons(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
-    focused_toolbar_node: Option<NodeKey>,
+    command_bar_focus_target: CommandBarFocusTarget,
     focused_content_status: &FocusedContentStatus,
     location_dirty: &mut bool,
 ) {
-    let command_bar_focus_target = CommandBarFocusTarget::new(None, focused_toolbar_node);
     let can_go_back = focused_content_status.can_go_back;
     let can_go_forward = focused_content_status.can_go_forward;
     if ui
