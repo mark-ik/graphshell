@@ -352,6 +352,7 @@ impl Gui {
             window,
             tiles_tree,
             graph_surface_focused,
+            focus_authority,
             &mut local_widget_focus,
             toolbar_state,
             graph_search_output.focus_location_field_for_search,

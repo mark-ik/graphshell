@@ -16,8 +16,10 @@ use winit::window::Window;
 
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
-use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
-use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
+use crate::shell::desktop::ui::gui_state::{
+    FocusedContentDownloadState, FocusedContentMediaState, FocusedContentStatus,
+    LocalFocusTarget, ReturnAnchor, RuntimeFocusState, SemanticRegionFocus,
+};
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
 use crate::shell::desktop::workbench::pane_model::{PaneId, ViewerId};
@@ -78,6 +80,8 @@ const OMNIBAR_PROVIDER_DEBOUNCE_MS: u64 = 140;
 /// Fixed height of the top chrome bar. All columns within the bar must fit within
 /// this budget; content that exceeds it is clipped rather than allowed to grow.
 const TOOLBAR_HEIGHT: f32 = 40.0;
+const STATUS_BAR_HEIGHT: f32 = 24.0;
+const STATUS_BAR_URL_MAX_CHARS: usize = 56;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OmnibarSessionKind {
@@ -303,6 +307,7 @@ pub(crate) struct Input<'a> {
     pub command_bar_focus_target: CommandBarFocusTarget,
     pub workbench_layer_state: WorkbenchLayerState,
     pub focused_content_status: &'a FocusedContentStatus,
+    pub runtime_focus_state: Option<&'a RuntimeFocusState>,
     pub local_widget_focus: &'a mut Option<LocalFocusTarget>,
     pub can_go_back: bool,
     pub can_go_forward: bool,
@@ -322,6 +327,7 @@ pub(crate) struct Output {
     pub open_selected_mode_after_submit: Option<ToolbarOpenMode>,
     pub toolbar_visible: bool,
     pub command_bar_rect: Option<egui::Rect>,
+    pub status_bar_rect: Option<egui::Rect>,
 }
 
 pub(crate) type ToolbarUiInput<'a> = Input<'a>;
@@ -800,6 +806,182 @@ fn render_command_bar_shell_actions(ui: &mut egui::Ui, graph_app: &mut GraphBrow
     }
 }
 
+fn workbench_layer_state_label(state: WorkbenchLayerState) -> &'static str {
+    match state {
+        WorkbenchLayerState::GraphOnly => "Graph only",
+        WorkbenchLayerState::GraphOverlayActive => "Graph overlay",
+        WorkbenchLayerState::WorkbenchActive => "Workbench active",
+        WorkbenchLayerState::WorkbenchPinned => "Workbench pinned",
+    }
+}
+
+fn semantic_region_label(region: &SemanticRegionFocus) -> &'static str {
+    match region {
+        SemanticRegionFocus::ModalDialog => "Modal dialog",
+        SemanticRegionFocus::CommandPalette => "Command palette",
+        SemanticRegionFocus::ContextPalette => "Context palette",
+        SemanticRegionFocus::RadialPalette => "Radial palette",
+        SemanticRegionFocus::ClipInspector => "Clip inspector",
+        SemanticRegionFocus::HelpPanel => "Help panel",
+        SemanticRegionFocus::SceneOverlay => "Scene overlay",
+        SemanticRegionFocus::SettingsOverlay => "Settings overlay",
+        SemanticRegionFocus::Toolbar => "Command bar",
+        SemanticRegionFocus::GraphSurface { .. } => "Graph surface",
+        SemanticRegionFocus::NodePane { .. } => "Node pane",
+        SemanticRegionFocus::ToolPane { .. } => "Tool pane",
+        SemanticRegionFocus::Unspecified => "Unspecified",
+    }
+}
+
+fn return_anchor_label(anchor: &ReturnAnchor) -> String {
+    match anchor {
+        ReturnAnchor::ToolSurface(crate::app::ToolSurfaceReturnTarget::Graph(_)) => {
+            "Return: graph".to_string()
+        }
+        ReturnAnchor::ToolSurface(crate::app::ToolSurfaceReturnTarget::Node(_)) => {
+            "Return: node".to_string()
+        }
+        ReturnAnchor::ToolSurface(crate::app::ToolSurfaceReturnTarget::Tool(tool_kind)) => {
+            format!("Return: {:?}", tool_kind)
+        }
+        ReturnAnchor::GraphView(_) => "Return: graph".to_string(),
+        ReturnAnchor::Pane(_) => "Return: pane".to_string(),
+    }
+}
+
+fn load_status_label(status: servo::LoadStatus) -> &'static str {
+    match status {
+        servo::LoadStatus::Complete => "Load: complete",
+        servo::LoadStatus::Started => "Load: loading",
+        _ => "Load: active",
+    }
+}
+
+fn content_media_label(state: FocusedContentMediaState) -> Option<&'static str> {
+    match state {
+        FocusedContentMediaState::Unsupported => None,
+        FocusedContentMediaState::Silent => Some("Media: silent"),
+        FocusedContentMediaState::Playing => Some("Media: playing"),
+        FocusedContentMediaState::Muted => Some("Media: muted"),
+    }
+}
+
+fn content_download_label(state: FocusedContentDownloadState) -> Option<&'static str> {
+    match state {
+        FocusedContentDownloadState::Unsupported => None,
+        FocusedContentDownloadState::Idle => None,
+        FocusedContentDownloadState::Active => Some("Downloads: active"),
+        FocusedContentDownloadState::Recent => Some("Downloads: recent"),
+    }
+}
+
+fn compact_status_bar_text(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.chars().count() <= STATUS_BAR_URL_MAX_CHARS {
+        return trimmed.to_string();
+    }
+    let shortened: String = trimmed
+        .chars()
+        .take(STATUS_BAR_URL_MAX_CHARS.saturating_sub(1))
+        .collect();
+    format!("{shortened}…")
+}
+
+fn render_status_chip(ui: &mut egui::Ui, label: impl Into<String>, color: Option<egui::Color32>) {
+    let text = egui::RichText::new(label.into()).small();
+    let text = if let Some(color) = color { text.color(color) } else { text };
+    ui.label(text);
+}
+
+fn render_shell_status_bar(
+    ctx: &egui::Context,
+    workbench_layer_state: WorkbenchLayerState,
+    focused_content_status: &FocusedContentStatus,
+    runtime_focus_state: Option<&RuntimeFocusState>,
+) -> egui::Rect {
+    let sync_status = toolbar_right_controls::sync_status_summary();
+    let response = TopBottomPanel::bottom("shell_status_bar")
+        .frame(egui::Frame::default().fill(ctx.style().visuals.window_fill).inner_margin(4.0))
+        .exact_height(STATUS_BAR_HEIGHT)
+        .show(ctx, |ui| {
+            ui.columns(3, |columns| {
+                columns[0].horizontal_wrapped(|ui| {
+                    render_status_chip(
+                        ui,
+                        format!("Host: {}", workbench_layer_state_label(workbench_layer_state)),
+                        None,
+                    );
+                    if let Some(focus_state) = runtime_focus_state {
+                        ui.separator();
+                        render_status_chip(
+                            ui,
+                            format!("Focus: {}", semantic_region_label(&focus_state.semantic_region)),
+                            None,
+                        );
+                        if focus_state.overlay_active() {
+                            ui.separator();
+                            render_status_chip(
+                                ui,
+                                "Overlay active",
+                                Some(ctx.style().visuals.warn_fg_color),
+                            );
+                        }
+                    }
+                });
+
+                columns[1].with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    if let Some(url) = focused_content_status.current_url.as_deref() {
+                        render_status_chip(ui, compact_status_bar_text(url), None);
+                    } else if let Some(status_text) = focused_content_status.status_text.as_deref() {
+                        render_status_chip(ui, compact_status_bar_text(status_text), None);
+                    } else {
+                        render_status_chip(
+                            ui,
+                            "No live content",
+                            Some(ctx.style().visuals.weak_text_color()),
+                        );
+                    }
+                });
+
+                columns[2].with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(focus_state) = runtime_focus_state
+                        && let Some(top_capture) = focus_state.capture_stack.last()
+                    {
+                        if let Some(return_anchor) = top_capture.return_anchor.as_ref() {
+                            render_status_chip(ui, return_anchor_label(return_anchor), None);
+                            ui.separator();
+                        }
+                        render_status_chip(ui, format!("Capture: {:?}", top_capture.surface), None);
+                        ui.separator();
+                    }
+                    if let Some(zoom_level) = focused_content_status.content_zoom_level {
+                        render_status_chip(ui, format!("Zoom: {:.0}%", zoom_level * 100.0), None);
+                        ui.separator();
+                    }
+                    if let Some(label) = content_download_label(focused_content_status.download_state)
+                    {
+                        render_status_chip(ui, label, None);
+                        ui.separator();
+                    }
+                    if let Some(label) = content_media_label(focused_content_status.media_state) {
+                        render_status_chip(ui, label, None);
+                        ui.separator();
+                    }
+                    if focused_content_status.load_status != servo::LoadStatus::Complete {
+                        render_status_chip(ui, load_status_label(focused_content_status.load_status), None);
+                        ui.separator();
+                    }
+                    ui.label(egui::RichText::new(sync_status.label).small().color(sync_status.color))
+                        .on_hover_text(sync_status.tooltip);
+                });
+            });
+        });
+    response.response.rect
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_command_bar_left_column(
     ui: &mut egui::Ui,
@@ -872,6 +1054,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         command_bar_focus_target,
         workbench_layer_state,
         focused_content_status,
+        runtime_focus_state,
         local_widget_focus,
         can_go_back: _,
         can_go_forward: _,
@@ -893,6 +1076,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
             open_selected_mode_after_submit: None,
             toolbar_visible: false,
             command_bar_rect: None,
+            status_bar_rect: None,
         };
     }
 
@@ -964,12 +1148,19 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                 });
             });
         });
+    let status_bar_rect = render_shell_status_bar(
+        ctx,
+        workbench_layer_state,
+        focused_content_status,
+        runtime_focus_state,
+    );
 
     Output {
         toggle_tile_view_requested,
         open_selected_mode_after_submit,
         toolbar_visible: true,
         command_bar_rect: Some(command_bar_response.response.rect),
+        status_bar_rect: Some(status_bar_rect),
     }
 }
 

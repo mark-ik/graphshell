@@ -18,7 +18,7 @@ use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_status_sync;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
-use crate::shell::desktop::ui::gui_state::LocalFocusTarget;
+use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthorityState};
 use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
@@ -35,6 +35,7 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) graph_surface_focused: bool,
+    pub(crate) focus_authority: &'a RuntimeFocusAuthorityState,
     pub(crate) local_widget_focus: &'a mut Option<LocalFocusTarget>,
     pub(crate) can_go_back: bool,
     pub(crate) can_go_forward: bool,
@@ -72,6 +73,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         window,
         tiles_tree,
         graph_surface_focused,
+        focus_authority,
         local_widget_focus,
         can_go_back,
         can_go_forward,
@@ -134,6 +136,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
                 command_bar_focus_target,
                 workbench_layer_state,
                 focused_content_status: &focused_content_status,
+                runtime_focus_state: focus_authority.realized_focus_state.as_ref(),
                 local_widget_focus,
                 can_go_back,
                 can_go_forward,

@@ -114,6 +114,7 @@ impl<'a> ShellLayoutPass<'a> {
             command_bar: toolbar_output
                 .command_bar_rect
                 .unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, Vec2::ZERO)),
+            status_bar: toolbar_output.status_bar_rect,
             ..ShellSlotRects::default()
         };
         if matches!(
