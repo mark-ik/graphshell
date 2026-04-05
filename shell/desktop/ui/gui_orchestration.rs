@@ -37,7 +37,7 @@ use crate::shell::desktop::ui::gui_state::{
 use crate::shell::desktop::ui::nav_targeting;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
-use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
+use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarOpenMode};
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::{TileOpenMode, ToggleTileViewArgs};
@@ -134,7 +134,7 @@ pub(crate) fn run_pre_frame_phase(
     let mut frame_intents = Vec::new();
     if *command_palette_toggle_requested {
         *command_palette_toggle_requested = false;
-        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
+        toolbar_routing::request_command_palette_toggle(graph_app);
     }
 
     let pre_frame = gui_frame::ingest_pre_frame(
@@ -1162,6 +1162,16 @@ fn prime_runtime_focus_authority_for_workbench_intent(
                 tiles_tree,
             );
         }
+        WorkbenchIntent::CloseCommandPalette => {
+            crate::shell::desktop::ui::gui::seed_command_surface_return_target_from_authority(
+                focus_authority,
+                graph_app,
+            );
+            crate::shell::desktop::ui::gui::apply_focus_command(
+                focus_authority,
+                crate::shell::desktop::ui::gui_state::FocusCommand::ExitCommandPalette,
+            );
+        }
         WorkbenchIntent::ToggleCommandPalette
             if graph_app.workspace.chrome_ui.show_command_palette
                 || graph_app.workspace.chrome_ui.show_context_palette =>
@@ -1224,6 +1234,19 @@ fn prime_runtime_focus_authority_for_workbench_intent(
                 },
             );
         }
+        WorkbenchIntent::CloseHelpPanel => {
+            crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
+                focus_authority,
+                graph_app,
+            );
+            crate::shell::desktop::ui::gui::apply_focus_command(
+                focus_authority,
+                crate::shell::desktop::ui::gui_state::FocusCommand::ExitTransientSurface {
+                    surface: crate::shell::desktop::ui::gui_state::FocusCaptureSurface::HelpPanel,
+                    restore_target: focus_authority.transient_surface_return_target.clone(),
+                },
+            );
+        }
         WorkbenchIntent::ToggleRadialMenu if graph_app.workspace.chrome_ui.show_radial_menu => {
             crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
                 focus_authority,
@@ -1250,6 +1273,20 @@ fn prime_runtime_focus_authority_for_workbench_intent(
                     surface:
                         crate::shell::desktop::ui::gui_state::FocusCaptureSurface::RadialPalette,
                     return_target,
+                },
+            );
+        }
+        WorkbenchIntent::CloseRadialMenu => {
+            crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
+                focus_authority,
+                graph_app,
+            );
+            crate::shell::desktop::ui::gui::apply_focus_command(
+                focus_authority,
+                crate::shell::desktop::ui::gui_state::FocusCommand::ExitTransientSurface {
+                    surface:
+                        crate::shell::desktop::ui::gui_state::FocusCaptureSurface::RadialPalette,
+                    restore_target: focus_authority.transient_surface_return_target.clone(),
                 },
             );
         }
@@ -1409,12 +1446,22 @@ fn modal_allows_workbench_intent_with_focus_authority(
     matches!(
         (intent, &focus_state.semantic_region),
         (
+            WorkbenchIntent::CloseCommandPalette,
+            crate::shell::desktop::ui::gui_state::SemanticRegionFocus::CommandPalette
+                | crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ContextPalette
+        ) | (
             WorkbenchIntent::ToggleCommandPalette,
             crate::shell::desktop::ui::gui_state::SemanticRegionFocus::CommandPalette
                 | crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ContextPalette
         ) | (
+            WorkbenchIntent::CloseHelpPanel,
+            crate::shell::desktop::ui::gui_state::SemanticRegionFocus::HelpPanel
+        ) | (
             WorkbenchIntent::ToggleHelpPanel,
             crate::shell::desktop::ui::gui_state::SemanticRegionFocus::HelpPanel
+        ) | (
+            WorkbenchIntent::CloseRadialMenu,
+            crate::shell::desktop::ui::gui_state::SemanticRegionFocus::RadialPalette
         ) | (
             WorkbenchIntent::ToggleRadialMenu,
             crate::shell::desktop::ui::gui_state::SemanticRegionFocus::RadialPalette
@@ -1434,8 +1481,11 @@ fn ux_event_kind_for_workbench_intent(intent: &WorkbenchIntent) -> UxEventKind {
 fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatchPath {
     let leaf = match intent {
         WorkbenchIntent::OpenCommandPalette
+        | WorkbenchIntent::CloseCommandPalette
         | WorkbenchIntent::ToggleCommandPalette
+        | WorkbenchIntent::CloseHelpPanel
         | WorkbenchIntent::ToggleHelpPanel
+        | WorkbenchIntent::CloseRadialMenu
         | WorkbenchIntent::ToggleRadialMenu => UX_DISPATCH_NODE_COMMAND_SURFACE,
         WorkbenchIntent::OpenToolPane { .. }
         | WorkbenchIntent::SetWorkbenchPinned { .. }

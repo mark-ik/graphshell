@@ -15,6 +15,8 @@ use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::lifecycle::webview_controller;
+use crate::shell::desktop::ui::nav_targeting;
+use crate::shell::desktop::ui::toolbar_routing;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 pub(crate) struct KeyboardPhaseArgs<'a> {
@@ -139,6 +141,30 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     {
         graph_app.enqueue_workbench_intent(intent);
     }
+
+    let command_bar_focus_target = nav_targeting::command_bar_focus_target(
+        window.focused_pane(),
+        nav_targeting::active_node_pane_node(tiles_tree),
+        nav_targeting::chrome_projection_node(graph_app, window),
+        graph_app.focused_selection().primary(),
+    );
+    if keyboard_actions.toggle_help_panel {
+        let _ = toolbar_routing::request_help_panel_toggle(graph_app, command_bar_focus_target);
+        keyboard_actions.toggle_help_panel = false;
+    }
+    if keyboard_actions.toggle_command_palette {
+        let _ = toolbar_routing::request_command_palette_toggle(graph_app);
+        keyboard_actions.toggle_command_palette = false;
+    }
+    if keyboard_actions.toggle_radial_menu {
+        let _ = toolbar_routing::request_radial_menu_toggle(graph_app, command_bar_focus_target);
+        keyboard_actions.toggle_radial_menu = false;
+    }
+    if keyboard_actions.cycle_focus_region {
+        let _ = toolbar_routing::request_cycle_focus_region(graph_app, command_bar_focus_target);
+        keyboard_actions.cycle_focus_region = false;
+    }
+
     frame_intents.extend(input::intents_from_actions(&keyboard_actions));
     input::dispatch_runtime_requests_from_actions(&keyboard_actions);
     graph_app.extend_workbench_intents(input::workbench_intents_from_actions(&keyboard_actions));

@@ -276,6 +276,7 @@ pub fn render_omnibar_dropdown(
                     provider_searchpage,
                 );
                 frame_intents.extend(submit_result.intents);
+                graph_app.extend_workbench_intents(submit_result.workbench_intents);
                 if submit_result.mark_clean {
                     *location_dirty = false;
                     *open_selected_mode_after_submit = submit_result.open_mode;

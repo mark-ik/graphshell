@@ -1758,6 +1758,7 @@ pub(crate) fn render_workbench_host(
         let panel_id = host_panel_id(&host_layout.host);
         let specialty_canvas_area_id = egui::Id::new(("navigator_specialty_canvas", &panel_id));
         let mut rendered_rect = None;
+        let mut actual_panel_extent: Option<f32> = None;
         let specialty_view_id = graph_app
             .workspace
             .workbench_session
@@ -2446,7 +2447,7 @@ pub(crate) fn render_workbench_host(
                         AnchorEdge::Right => SidePanel::right(panel_id),
                         AnchorEdge::Top | AnchorEdge::Bottom => SidePanel::right(panel_id),
                     };
-                    side_panel
+                    let panel_response = side_panel
                         .resizable(host_layout.resizable)
                         .default_width(host_panel_default_extent)
                         .min_width(HOST_PANEL_MAX_FLOOR)
@@ -2456,6 +2457,7 @@ pub(crate) fn render_workbench_host(
                                 show_host_contents(ui);
                             });
                         });
+                    actual_panel_extent = Some(panel_response.response.rect.width());
                 }
                 WorkbenchHostFormFactor::Toolbar => {
                     let top_bottom_panel = match host_layout.anchor_edge {
@@ -2463,7 +2465,7 @@ pub(crate) fn render_workbench_host(
                         AnchorEdge::Bottom => egui::TopBottomPanel::bottom(panel_id),
                         AnchorEdge::Left | AnchorEdge::Right => egui::TopBottomPanel::top(panel_id),
                     };
-                    top_bottom_panel
+                    let panel_response = top_bottom_panel
                         .resizable(host_layout.resizable)
                         .default_height(host_panel_default_extent)
                         .min_height(HOST_PANEL_MAX_FLOOR)
@@ -2473,6 +2475,7 @@ pub(crate) fn render_workbench_host(
                                 show_host_contents(ui);
                             });
                         });
+                    actual_panel_extent = Some(panel_response.response.rect.height());
                 }
             }
         }
@@ -2504,6 +2507,29 @@ pub(crate) fn render_workbench_host(
                     channel_id: CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
                     byte_len: host_layout.host.to_string().len(),
                 });
+            }
+        }
+
+        // Feed back resized panel dimensions to the layout constraint so the
+        // stored size_fraction stays in sync with the actual panel extent.
+        if let Some(extent) = actual_panel_extent {
+            if host_layout.resizable
+                && !is_host_configuring(graph_app, &host_layout.host)
+            {
+                let axis_extent = match host_layout.form_factor {
+                    WorkbenchHostFormFactor::Sidebar => host_available_rect.width(),
+                    WorkbenchHostFormFactor::Toolbar => host_available_rect.height(),
+                };
+                if axis_extent > 0.0 {
+                    let new_fraction = (extent / axis_extent)
+                        .clamp(HOST_PANEL_MIN_FRACTION, HOST_PANEL_MAX_FRACTION);
+                    if (new_fraction - host_layout.size_fraction).abs() > 0.005 {
+                        post_host_actions.push(WorkbenchHostAction::SyncHostPanelSize {
+                            surface_host: host_layout.host.clone(),
+                            new_size_fraction: new_fraction,
+                        });
+                    }
+                }
             }
         }
     }
@@ -2754,6 +2780,12 @@ enum WorkbenchHostAction {
         host: SurfaceHostId,
         kind: Option<GraphletKind>,
     },
+    /// Sync the stored size_fraction with the actual panel extent after a
+    /// drag-resize interaction.
+    SyncHostPanelSize {
+        surface_host: SurfaceHostId,
+        new_size_fraction: f32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2797,6 +2829,7 @@ fn workbench_host_action_diagnostic_code(action: &WorkbenchHostAction) -> usize 
         WorkbenchHostAction::TransferSelectedNodesToGraphView { .. } => 31,
         WorkbenchHostAction::ToggleOverviewPlane => 32,
         WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 33,
+        WorkbenchHostAction::SyncHostPanelSize { .. } => 34,
     }
 }
 
@@ -3324,6 +3357,35 @@ fn apply_workbench_host_action(
                 host,
                 kind,
             });
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::SyncHostPanelSize {
+            surface_host,
+            new_size_fraction,
+        } => {
+            if let Some(WorkbenchLayoutConstraint::AnchoredSplit {
+                surface_host: sh,
+                anchor_edge,
+                cross_axis_margin_start_px,
+                cross_axis_margin_end_px,
+                resizable,
+                ..
+            }) = graph_app
+                .workbench_layout_constraint_for_host(&surface_host)
+                .cloned()
+            {
+                graph_app.set_workbench_layout_constraint(
+                    surface_host,
+                    WorkbenchLayoutConstraint::AnchoredSplit {
+                        surface_host: sh,
+                        anchor_edge,
+                        anchor_size_fraction: new_size_fraction,
+                        cross_axis_margin_start_px,
+                        cross_axis_margin_end_px,
+                        resizable,
+                    },
+                );
+            }
             WorkbenchHostActionDispatchOutcome::Consumed
         }
     };

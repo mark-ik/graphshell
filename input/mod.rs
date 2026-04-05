@@ -369,15 +369,6 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     if actions.reheat_physics {
         intents.push(ViewAction::ReheatPhysics.into());
     }
-    if actions.toggle_help_panel {
-        intents.push(GraphIntent::ToggleHelpPanel);
-    }
-    if actions.toggle_command_palette {
-        intents.push(GraphIntent::ToggleCommandPalette);
-    }
-    if actions.toggle_radial_menu {
-        intents.push(GraphIntent::ToggleRadialMenu);
-    }
     if actions.create_node {
         intents.push(GraphMutation::CreateNodeNearCenter.into());
     }
@@ -429,6 +420,15 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
 
 pub fn workbench_intents_from_actions(actions: &KeyboardActions) -> Vec<WorkbenchIntent> {
     let mut intents = Vec::new();
+    if actions.toggle_help_panel {
+        intents.push(WorkbenchIntent::ToggleHelpPanel);
+    }
+    if actions.toggle_command_palette {
+        intents.push(WorkbenchIntent::ToggleCommandPalette);
+    }
+    if actions.toggle_radial_menu {
+        intents.push(WorkbenchIntent::ToggleRadialMenu);
+    }
     if actions.toggle_history_manager {
         intents.push(WorkbenchIntent::OpenToolPane {
             kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager,
@@ -706,19 +706,12 @@ mod tests {
 
     #[test]
     fn test_toggle_help_panel_action() {
-        let mut app = test_app();
-
-        let intents = intents_from_actions(&KeyboardActions {
+        let intents = workbench_intents_from_actions(&KeyboardActions {
             toggle_help_panel: true,
             ..Default::default()
         });
-        app.apply_reducer_intents(intents);
-
-        // ToggleHelpPanel routes through WorkbenchIntent; verify it was enqueued.
-        assert_eq!(app.pending_workbench_intent_count_for_tests(), 1);
-        let pending = app.take_pending_workbench_intents();
         assert!(
-            pending
+            intents
                 .iter()
                 .any(|i| matches!(i, WorkbenchIntent::ToggleHelpPanel))
         );
@@ -726,21 +719,27 @@ mod tests {
 
     #[test]
     fn test_toggle_command_palette_action() {
-        let mut app = test_app();
-
-        let intents = intents_from_actions(&KeyboardActions {
+        let intents = workbench_intents_from_actions(&KeyboardActions {
             toggle_command_palette: true,
             ..Default::default()
         });
-        app.apply_reducer_intents(intents);
-
-        // ToggleCommandPalette routes through WorkbenchIntent; verify it was enqueued.
-        assert_eq!(app.pending_workbench_intent_count_for_tests(), 1);
-        let pending = app.take_pending_workbench_intents();
         assert!(
-            pending
+            intents
                 .iter()
                 .any(|i| matches!(i, WorkbenchIntent::ToggleCommandPalette))
+        );
+    }
+
+    #[test]
+    fn test_toggle_radial_menu_action() {
+        let intents = workbench_intents_from_actions(&KeyboardActions {
+            toggle_radial_menu: true,
+            ..Default::default()
+        });
+        assert!(
+            intents
+                .iter()
+                .any(|i| matches!(i, WorkbenchIntent::ToggleRadialMenu))
         );
     }
 

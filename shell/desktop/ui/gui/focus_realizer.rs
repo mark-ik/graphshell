@@ -26,6 +26,10 @@ impl<'a> FocusRealizer<'a> {
                 self.open_command_palette_from_authority(focus_authority);
                 None
             }
+            WorkbenchIntent::CloseCommandPalette => {
+                self.close_command_palette_from_authority(focus_authority);
+                None
+            }
             WorkbenchIntent::ToggleCommandPalette
                 if self.graph_app.workspace.chrome_ui.show_command_palette
                     || self.graph_app.workspace.chrome_ui.show_context_palette =>
@@ -50,6 +54,13 @@ impl<'a> FocusRealizer<'a> {
                 self.open_help_panel_from_authority(focus_authority);
                 None
             }
+            WorkbenchIntent::CloseHelpPanel => {
+                self.close_transient_surface_from_authority(
+                    focus_authority,
+                    crate::shell::desktop::ui::gui_state::FocusCaptureSurface::HelpPanel,
+                );
+                None
+            }
             WorkbenchIntent::ToggleRadialMenu
                 if self.graph_app.workspace.chrome_ui.show_radial_menu =>
             {
@@ -61,6 +72,13 @@ impl<'a> FocusRealizer<'a> {
             }
             WorkbenchIntent::ToggleRadialMenu => {
                 self.open_radial_menu_from_authority(focus_authority);
+                None
+            }
+            WorkbenchIntent::CloseRadialMenu => {
+                self.close_transient_surface_from_authority(
+                    focus_authority,
+                    crate::shell::desktop::ui::gui_state::FocusCaptureSurface::RadialPalette,
+                );
                 None
             }
             WorkbenchIntent::CycleFocusRegion => {

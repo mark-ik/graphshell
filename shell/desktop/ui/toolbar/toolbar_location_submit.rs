@@ -49,6 +49,7 @@ pub(super) fn handle_location_submit(
                     searchpage_template_for_provider(provider),
                 );
                 frame_intents.extend(submit_result.intents);
+                graph_app.extend_workbench_intents(submit_result.workbench_intents);
                 if submit_result.mark_clean {
                     *location_dirty = false;
                     *open_selected_mode_after_submit = submit_result.open_mode;
@@ -171,26 +172,34 @@ pub(super) fn handle_location_submit(
                         searchpage_template_for_provider(provider),
                     );
                     frame_intents.extend(submit_result.intents);
+                    graph_app.extend_workbench_intents(submit_result.workbench_intents);
                     if submit_result.mark_clean {
                         *location_dirty = false;
                         *open_selected_mode_after_submit = submit_result.open_mode;
                     }
+                    handled_non_at_session = true;
                 }
                 other => {
                     *omnibar_search_session = None;
-                    let shift_override_original = ui.input(|i| i.modifiers.shift);
-                    apply_omnibar_match(
-                        graph_app,
-                        other,
-                        has_node_panes,
-                        shift_override_original,
-                        frame_intents,
-                        open_selected_mode_after_submit,
-                    );
-                    *location_dirty = true;
+                    if is_graph_view {
+                        let shift_override_original = ui.input(|i| i.modifiers.shift);
+                        apply_omnibar_match(
+                            graph_app,
+                            other,
+                            has_node_panes,
+                            shift_override_original,
+                            frame_intents,
+                            open_selected_mode_after_submit,
+                        );
+                        *location_dirty = true;
+                        handled_non_at_session = true;
+                    } else {
+                        // Detail view: skip session match interception so the
+                        // focused tile navigates to the typed URL.
+                        retain_omnibar_focus = false;
+                    }
                 }
             }
-            handled_non_at_session = true;
         }
 
         if !handled_non_at_session {
@@ -206,6 +215,7 @@ pub(super) fn handle_location_submit(
                 &state.app_preferences.searchpage,
             );
             frame_intents.extend(submit_result.intents);
+            graph_app.extend_workbench_intents(submit_result.workbench_intents);
             if submit_result.mark_clean {
                 *location_dirty = false;
                 *open_selected_mode_after_submit = submit_result.open_mode;

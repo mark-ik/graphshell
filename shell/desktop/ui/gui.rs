@@ -337,23 +337,21 @@ impl Gui {
         let tokio_runtime = tokio::runtime::Runtime::new()
             .expect("Failed to create tokio runtime for async workers");
 
-        // Initialize ControlPanel and spawn workers inside runtime context
-        let mut control_panel = {
-            let _guard = tokio_runtime.enter();
-            let mut panel = ControlPanel::new(worker_idle_threshold_secs);
-            panel.spawn_memory_monitor();
-            panel.spawn_mod_loader();
-            panel.spawn_prefetch_scheduler();
-            // Spawn sync worker if Verse mod is available.
-            panel.spawn_p2p_sync_worker();
-            panel.spawn_nostr_relay_worker(Arc::clone(&registry_runtime));
-            if let Err(error) =
-                panel.spawn_registered_agent("agent:tag_suggester", Arc::clone(&registry_runtime))
-            {
-                warn!("Failed to spawn tag suggester agent: {error}");
-            }
-            panel
-        };
+        // Initialize ControlPanel with an explicit runtime handle so later
+        // Shell relay setup does not depend on a temporary enter() guard.
+        let mut control_panel =
+            ControlPanel::new_with_runtime(worker_idle_threshold_secs, tokio_runtime.handle().clone());
+        control_panel.spawn_memory_monitor();
+        control_panel.spawn_mod_loader();
+        control_panel.spawn_prefetch_scheduler();
+        // Spawn sync worker if Verse mod is available.
+        control_panel.spawn_p2p_sync_worker();
+        control_panel.spawn_nostr_relay_worker(Arc::clone(&registry_runtime));
+        if let Err(error) =
+            control_panel.spawn_registered_agent("agent:tag_suggester", Arc::clone(&registry_runtime))
+        {
+            warn!("Failed to spawn tag suggester agent: {error}");
+        }
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
         let frame_inbox = GuiFrameInbox::spawn(&mut control_panel);
 

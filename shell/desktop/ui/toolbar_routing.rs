@@ -2,7 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use crate::app::{BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent};
+use crate::app::{
+    BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, WorkbenchIntent,
+};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
@@ -10,6 +12,10 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::input::binding_id;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
+    CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
+    CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED,
+    CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
     CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED, CHANNEL_UI_COMMAND_BAR_NAV_ACTION_REQUESTED,
 };
 use crate::shell::desktop::ui::nav_targeting;
@@ -32,10 +38,23 @@ pub(crate) enum ToolbarOpenMode {
     SplitHorizontal,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShellWorkbenchCommand {
+    OpenCommandPalette,
+    CloseCommandPalette,
+    ToggleCommandPalette,
+    CloseHelpPanel,
+    ToggleHelpPanel,
+    CloseRadialMenu,
+    ToggleRadialMenu,
+    CycleFocusRegion,
+}
+
 pub(crate) struct ToolbarSubmitResult {
     pub(crate) intents: Vec<GraphIntent>,
     pub(crate) mark_clean: bool,
     pub(crate) open_mode: Option<ToolbarOpenMode>,
+    pub(crate) workbench_intents: Vec<WorkbenchIntent>,
 }
 
 fn nav_action_label(action: ToolbarNavAction) -> &'static str {
@@ -63,6 +82,165 @@ fn emit_command_bar_nav_action_blocked(action: ToolbarNavAction) {
         channel_id: CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED,
         byte_len: nav_action_label(action).len(),
     });
+}
+
+fn emit_command_bar_command_palette_requested() {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
+        byte_len: "command_palette".len(),
+    });
+}
+
+fn shell_workbench_command_label(command: ShellWorkbenchCommand) -> &'static str {
+    match command {
+        ShellWorkbenchCommand::OpenCommandPalette => "command_palette_open",
+        ShellWorkbenchCommand::CloseCommandPalette => "command_palette_close",
+        ShellWorkbenchCommand::ToggleCommandPalette => "command_palette",
+        ShellWorkbenchCommand::CloseHelpPanel => "help_panel_close",
+        ShellWorkbenchCommand::ToggleHelpPanel => "help_panel",
+        ShellWorkbenchCommand::CloseRadialMenu => "radial_menu_close",
+        ShellWorkbenchCommand::ToggleRadialMenu => "radial_menu",
+        ShellWorkbenchCommand::CycleFocusRegion => "cycle_focus_region",
+    }
+}
+
+fn emit_workbench_command_requested(command: ShellWorkbenchCommand) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
+        byte_len: shell_workbench_command_label(command).len(),
+    });
+}
+
+fn emit_workbench_command_executed(command: ShellWorkbenchCommand) {
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED,
+        latency_us: shell_workbench_command_label(command).len() as u64,
+    });
+}
+
+fn emit_workbench_command_blocked_by_focus(command: ShellWorkbenchCommand) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
+        byte_len: shell_workbench_command_label(command).len(),
+    });
+}
+
+fn workbench_intent_for_command(command: ShellWorkbenchCommand) -> WorkbenchIntent {
+    match command {
+        ShellWorkbenchCommand::OpenCommandPalette => WorkbenchIntent::OpenCommandPalette,
+        ShellWorkbenchCommand::CloseCommandPalette => WorkbenchIntent::CloseCommandPalette,
+        ShellWorkbenchCommand::ToggleCommandPalette => WorkbenchIntent::ToggleCommandPalette,
+        ShellWorkbenchCommand::CloseHelpPanel => WorkbenchIntent::CloseHelpPanel,
+        ShellWorkbenchCommand::ToggleHelpPanel => WorkbenchIntent::ToggleHelpPanel,
+        ShellWorkbenchCommand::CloseRadialMenu => WorkbenchIntent::CloseRadialMenu,
+        ShellWorkbenchCommand::ToggleRadialMenu => WorkbenchIntent::ToggleRadialMenu,
+        ShellWorkbenchCommand::CycleFocusRegion => WorkbenchIntent::CycleFocusRegion,
+    }
+}
+
+fn command_requires_focused_pane(command: ShellWorkbenchCommand) -> bool {
+    matches!(command, ShellWorkbenchCommand::CycleFocusRegion)
+}
+
+pub(crate) fn request_workbench_command(
+    graph_app: &mut GraphBrowserApp,
+    command: ShellWorkbenchCommand,
+    command_bar_focus_target: CommandBarFocusTarget,
+) -> bool {
+    if matches!(
+        command,
+        ShellWorkbenchCommand::OpenCommandPalette
+            | ShellWorkbenchCommand::CloseCommandPalette
+            | ShellWorkbenchCommand::ToggleCommandPalette
+    ) {
+        emit_command_bar_command_palette_requested();
+    }
+    emit_workbench_command_requested(command);
+
+    if command_requires_focused_pane(command) && command_bar_focus_target.active_pane().is_none() {
+        emit_workbench_command_blocked_by_focus(command);
+        return false;
+    }
+
+    graph_app.enqueue_workbench_intent(workbench_intent_for_command(command));
+    emit_workbench_command_executed(command);
+    true
+}
+
+pub(crate) fn request_command_palette_toggle(graph_app: &mut GraphBrowserApp) {
+    let _ = request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::ToggleCommandPalette,
+        CommandBarFocusTarget::default(),
+    );
+}
+
+pub(crate) fn request_command_palette_open(graph_app: &mut GraphBrowserApp) {
+    let _ = request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::OpenCommandPalette,
+        CommandBarFocusTarget::default(),
+    );
+}
+
+pub(crate) fn request_command_palette_close(graph_app: &mut GraphBrowserApp) {
+    let _ = request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::CloseCommandPalette,
+        CommandBarFocusTarget::default(),
+    );
+}
+
+pub(crate) fn request_help_panel_toggle(
+    graph_app: &mut GraphBrowserApp,
+    command_bar_focus_target: CommandBarFocusTarget,
+) -> bool {
+    request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::ToggleHelpPanel,
+        command_bar_focus_target,
+    )
+}
+
+pub(crate) fn request_help_panel_close(graph_app: &mut GraphBrowserApp) -> bool {
+    request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::CloseHelpPanel,
+        CommandBarFocusTarget::default(),
+    )
+}
+
+pub(crate) fn request_radial_menu_toggle(
+    graph_app: &mut GraphBrowserApp,
+    command_bar_focus_target: CommandBarFocusTarget,
+) -> bool {
+    request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::ToggleRadialMenu,
+        command_bar_focus_target,
+    )
+}
+
+pub(crate) fn request_radial_menu_close(
+    graph_app: &mut GraphBrowserApp,
+    command_bar_focus_target: CommandBarFocusTarget,
+) -> bool {
+    request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::CloseRadialMenu,
+        command_bar_focus_target,
+    )
+}
+
+pub(crate) fn request_cycle_focus_region(
+    graph_app: &mut GraphBrowserApp,
+    command_bar_focus_target: CommandBarFocusTarget,
+) -> bool {
+    request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::CycleFocusRegion,
+        command_bar_focus_target,
+    )
 }
 
 pub(crate) fn run_nav_action_for_fallback_node(
@@ -130,6 +308,7 @@ pub(crate) fn submit_address_bar_intents(
             intents: Vec::new(),
             mark_clean: false,
             open_mode: None,
+            workbench_intents: Vec::new(),
         };
     }
 
@@ -148,6 +327,7 @@ pub(crate) fn submit_address_bar_intents(
             submit_result.outcome.open_selected_tile,
             split_open_requested,
         ),
+        workbench_intents: submit_result.workbench_intents,
     }
 }
 
@@ -172,6 +352,11 @@ mod tests {
     use crate::shell::desktop::host::headless_window::HeadlessWindow;
     use crate::shell::desktop::host::window::EmbedderWindow;
     use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
+    use crate::shell::desktop::runtime::registries::{
+        CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
+        CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED,
+        CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
+    };
     use std::sync::Arc;
     use std::sync::atomic::AtomicU64;
 
@@ -267,6 +452,127 @@ mod tests {
                     if *channel_id == CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED
             )),
             "expected nav-action blocked diagnostic; got: {emitted:?}"
+        );
+    }
+
+    #[test]
+    fn cycle_focus_region_blocks_without_active_pane_and_emits_focus_diagnostic() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        assert!(!request_cycle_focus_region(
+            &mut app,
+            CommandBarFocusTarget::new(None, None)
+        ));
+        assert!(app.take_pending_workbench_intents().is_empty());
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED
+            )),
+            "expected workbench-command requested diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS
+            )),
+            "expected focus-block diagnostic; got: {emitted:?}"
+        );
+    }
+
+    #[test]
+    fn help_panel_toggle_enqueues_and_emits_executed_diagnostic() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        assert!(request_help_panel_toggle(
+            &mut app,
+            CommandBarFocusTarget::new(None, None)
+        ));
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::ToggleHelpPanel]
+        ));
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageReceived { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED
+            )),
+            "expected executed diagnostic; got: {emitted:?}"
+        );
+    }
+
+    #[test]
+    fn command_palette_open_enqueues_and_emits_diagnostics() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        request_command_palette_open(&mut app);
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::OpenCommandPalette]
+        ));
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED
+            )),
+            "expected command palette requested diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageReceived { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED
+            )),
+            "expected executed diagnostic; got: {emitted:?}"
+        );
+    }
+
+    #[test]
+    fn command_palette_close_enqueues_and_emits_diagnostics() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        request_command_palette_close(&mut app);
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::CloseCommandPalette]
+        ));
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED
+            )),
+            "expected command palette requested diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageReceived { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED
+            )),
+            "expected executed diagnostic; got: {emitted:?}"
         );
     }
 }

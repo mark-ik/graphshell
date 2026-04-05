@@ -2054,7 +2054,7 @@ fn command_palette_close_restores_captured_focus_target() {
     let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
     let captured_target = ToolSurfaceReturnTarget::Graph(graph_view);
 
-    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    let mut intents = vec![WorkbenchIntent::OpenCommandPalette];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert!(intents.is_empty());
@@ -2069,7 +2069,7 @@ fn command_palette_close_restores_captured_focus_target() {
     );
     assert_eq!(active_node_key(&tree), Some(node_key));
 
-    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    let mut intents = vec![WorkbenchIntent::CloseCommandPalette];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert!(intents.is_empty());
@@ -2113,7 +2113,7 @@ fn command_palette_close_uses_runtime_focus_authority_when_app_queue_is_empty() 
     assert_eq!(active_node_key(&tree), Some(node_key));
     assert!(app.pending_command_surface_return_target().is_none());
 
-    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    let mut intents = vec![WorkbenchIntent::CloseCommandPalette];
     super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
@@ -2371,7 +2371,7 @@ fn authority_realizer_opens_help_panel_from_focus_authority() {
     focus_authority.transient_surface_return_target =
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
-    let mut intents = vec![WorkbenchIntent::ToggleHelpPanel];
+    let mut intents = vec![WorkbenchIntent::CloseHelpPanel];
     super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
@@ -2445,7 +2445,7 @@ fn authority_realizer_opens_radial_menu_from_focus_authority() {
     focus_authority.transient_surface_return_target =
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
-    let mut intents = vec![WorkbenchIntent::ToggleRadialMenu];
+    let mut intents = vec![WorkbenchIntent::CloseRadialMenu];
     super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,

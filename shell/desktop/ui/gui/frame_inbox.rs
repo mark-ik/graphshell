@@ -145,6 +145,8 @@ mod tests {
     use super::GuiFrameInbox;
     use std::sync::mpsc::channel;
 
+    use crate::shell::desktop::runtime::control_panel::{ControlPanel, WorkerTier};
+
     #[test]
     fn frame_inbox_coalesces_flag_relays_per_frame() {
         let (semantic_tx, semantic_rx) = channel();
@@ -194,5 +196,25 @@ mod tests {
             ]
         );
         assert!(inbox.take_settings_routes().is_empty());
+    }
+
+    #[test]
+    fn frame_inbox_spawn_uses_control_panel_runtime_handle_outside_ambient_context() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime should initialize");
+        let mut panel = ControlPanel::new_with_runtime(None, runtime.handle().clone());
+
+        let _inbox = GuiFrameInbox::spawn(&mut panel);
+
+        assert_eq!(panel.worker_count(), 2);
+        assert_eq!(
+            panel.registered_tier_counts().get(&WorkerTier::Tier1ShellSignalRelay),
+            Some(&2)
+        );
+
+        runtime.block_on(async {
+            tokio::task::yield_now().await;
+            panel.shutdown().await;
+        });
+        assert_eq!(panel.worker_count(), 0);
     }
 }

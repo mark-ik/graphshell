@@ -20,7 +20,7 @@ use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError
 use crate::shell::desktop::ui::gui_state::{
     FocusedContentStatus, LocalFocusTarget, RuntimeFocusState,
 };
-use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
+use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarOpenMode};
 use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
 use crate::shell::desktop::workbench::pane_model::{PaneId, ViewerId};
 #[path = "toolbar_controls.rs"]
@@ -64,7 +64,6 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::registries::lens::{LENS_ID_DEFAULT, LENS_ID_SEMANTIC_OVERLAY};
 use crate::shell::desktop::runtime::registries::{
     input::action_id, phase2_binding_display_labels_for_action,
-    CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
     CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
     CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
     CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
@@ -411,15 +410,6 @@ fn provider_status_label(status: ProviderSuggestionStatus) -> Option<String> {
             Some("Suggestions unavailable: response parse error".to_string())
         }
     }
-}
-
-pub(super) fn emit_command_bar_command_palette_requested() {
-    crate::shell::desktop::runtime::diagnostics::emit_event(
-        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
-            byte_len: "command_palette".len(),
-        },
-    );
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
@@ -807,8 +797,7 @@ fn render_command_bar_shell_actions(ui: &mut egui::Ui, graph_app: &mut GraphBrow
         .add(toolbar_button("Cmd"))
         .on_hover_text("Open command palette (F2)");
     if command_button.clicked() {
-        emit_command_bar_command_palette_requested();
-        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
+        toolbar_routing::request_command_palette_toggle(graph_app);
     }
 }
 
@@ -862,6 +851,7 @@ fn render_command_bar_right_column(
         state,
         graph_app,
         window,
+        command_bar_focus_target,
         is_graph_view,
         location_dirty,
         show_clear_data_confirm,
@@ -1004,9 +994,9 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
 mod tests {
     use super::{
         enqueue_navigator_view_focus, enqueue_overview_plane_toggle,
-        emit_command_bar_command_palette_requested, emit_omnibar_provider_mailbox_applied,
-        emit_omnibar_provider_mailbox_failed, emit_omnibar_provider_mailbox_request_started,
-        emit_omnibar_provider_mailbox_stale, render_shell_status_bar, TOOLBAR_HEIGHT,
+        emit_omnibar_provider_mailbox_applied, emit_omnibar_provider_mailbox_failed,
+        emit_omnibar_provider_mailbox_request_started, emit_omnibar_provider_mailbox_stale,
+        render_shell_status_bar, TOOLBAR_HEIGHT,
     };
     use crate::app::{GraphBrowserApp, GraphViewId, WorkbenchIntent};
     use crate::shell::desktop::runtime::diagnostics::{
@@ -1020,6 +1010,7 @@ mod tests {
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
     };
     use crate::shell::desktop::ui::gui_state::FocusedContentStatus;
+    use crate::shell::desktop::ui::toolbar_routing;
     use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
 
     #[test]
@@ -1051,8 +1042,9 @@ mod tests {
     fn command_bar_command_palette_request_emits_diagnostic() {
         let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
         install_global_sender(diag_tx);
+        let mut app = GraphBrowserApp::new_for_testing();
 
-        emit_command_bar_command_palette_requested();
+        toolbar_routing::request_command_palette_toggle(&mut app);
 
         let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
         assert!(
@@ -1063,6 +1055,10 @@ mod tests {
             )),
             "expected command bar dispatch diagnostic; got: {emitted:?}"
         );
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::ToggleCommandPalette]
+        ));
     }
 
     #[test]

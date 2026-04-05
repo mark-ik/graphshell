@@ -1,6 +1,7 @@
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use egui::{WidgetInfo, WidgetType};
 
 pub(super) fn render_toolbar_right_controls(
@@ -8,6 +9,7 @@ pub(super) fn render_toolbar_right_controls(
     state: &RunningAppState,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
+    command_bar_focus_target: CommandBarFocusTarget,
     is_graph_view: bool,
     location_dirty: &mut bool,
     show_clear_data_confirm: &mut bool,
@@ -27,6 +29,7 @@ pub(super) fn render_toolbar_right_controls(
             ui,
             graph_app,
             state,
+            command_bar_focus_target,
             is_graph_view,
             frame_intents,
             location_dirty,

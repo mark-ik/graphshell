@@ -5,6 +5,8 @@ use crate::app::{
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
+use crate::shell::desktop::ui::toolbar_routing;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
@@ -71,6 +73,7 @@ pub(super) fn render_settings_menu(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     state: &RunningAppState,
+    command_bar_focus_target: CommandBarFocusTarget,
     prefer_overlay: bool,
     frame_intents: &mut Vec<GraphIntent>,
     location_dirty: &mut bool,
@@ -184,7 +187,10 @@ pub(super) fn render_settings_menu(
                 })
                 .clicked()
             {
-                frame_intents.push(GraphIntent::ToggleHelpPanel);
+                let _ = toolbar_routing::request_help_panel_toggle(
+                    graph_app,
+                    command_bar_focus_target,
+                );
                 ui.close();
             }
             #[cfg(feature = "diagnostics")]
