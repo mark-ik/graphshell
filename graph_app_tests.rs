@@ -7192,7 +7192,7 @@ fn toggle_command_palette_emits_ux_navigation_transition_channel() {
 }
 
 #[test]
-fn toggle_help_panel_reducer_path_enqueues_workbench_intent() {
+fn toggle_help_panel_reducer_bridge_enqueues_workbench_intent() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     app.apply_reducer_intents([GraphIntent::ToggleHelpPanel]);
@@ -7206,7 +7206,7 @@ fn toggle_help_panel_reducer_path_enqueues_workbench_intent() {
 }
 
 #[test]
-fn toggle_radial_menu_reducer_path_enqueues_workbench_intent() {
+fn toggle_radial_menu_reducer_bridge_enqueues_workbench_intent() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     app.apply_reducer_intents([GraphIntent::ToggleRadialMenu]);
@@ -7653,7 +7653,7 @@ fn opening_context_palette_preserves_node_context_until_close() {
 }
 
 #[test]
-fn toggle_command_palette_reducer_path_enqueues_workbench_intent() {
+fn toggle_command_palette_reducer_bridge_enqueues_workbench_intent() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     app.apply_reducer_intents([GraphIntent::ToggleCommandPalette]);

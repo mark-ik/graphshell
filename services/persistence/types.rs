@@ -1117,6 +1117,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
+    #[allow(deprecated)]
     fn test_log_entry_update_node_address_kind_roundtrip() {
         for (kind, expected) in [
             (
