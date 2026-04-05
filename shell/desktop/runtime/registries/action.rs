@@ -1569,7 +1569,9 @@ fn execute_workbench_help_open_action(
         });
     };
 
-    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::ToggleHelpPanel]))
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
+        WorkbenchIntent::ToggleHelpPanel,
+    ))
 }
 
 fn execute_workbench_settings_pane_open_action(

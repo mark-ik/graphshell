@@ -233,6 +233,12 @@ pub(crate) const CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED: &str =
     "runtime.ui.graph.view_transfer_blocked";
 pub(crate) const CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED: &str =
     "runtime.ui.command_bar.command_palette_requested";
+pub(crate) const CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED: &str =
+    "runtime.ui.command_bar.workbench_command.requested";
+pub(crate) const CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED: &str =
+    "runtime.ui.command_bar.workbench_command.executed";
+pub(crate) const CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS: &str =
+    "runtime.ui.command_bar.workbench_command.blocked_by_focus";
 pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_REQUESTED: &str =
     "runtime.ui.command_bar.nav_action.requested";
 pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED: &str =

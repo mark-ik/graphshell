@@ -230,11 +230,11 @@ fn pane_lifecycle_cycle_focus_intent_is_consumed_by_authority() {
 
 // ── Command-surface invocation parity ────────────────────────────────────────
 
-/// `WorkbenchIntent::ToggleCommandPalette` via orchestration authority opens
+/// `WorkbenchIntent::OpenCommandPalette` via orchestration authority opens
 /// the command palette. This verifies the command surface is reachable through
 /// the canonical intent path (Gate G4, G7).
 #[test]
-fn command_surface_toggle_command_palette_via_intent_opens_surface() {
+fn command_surface_open_command_palette_via_intent_opens_surface() {
     let mut app = GraphBrowserApp::new_for_testing();
     let view_id = GraphViewId::new();
     let mut tiles = Tiles::default();
@@ -246,22 +246,22 @@ fn command_surface_toggle_command_palette_via_intent_opens_surface() {
         "command palette should be closed initially"
     );
 
-    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    let mut intents = vec![WorkbenchIntent::OpenCommandPalette];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     assert!(
         intents.is_empty(),
-        "ToggleCommandPalette intent must be consumed by orchestration authority"
+        "OpenCommandPalette intent must be consumed by orchestration authority"
     );
     assert!(
         app.workspace.chrome_ui.show_command_palette,
-        "command palette should be open after toggle intent"
+        "command palette should be open after open intent"
     );
 }
 
-/// `GraphIntent::ToggleCommandPalette` routes through the reducer and produces
-/// the same open state as `WorkbenchIntent::ToggleCommandPalette`. Keyboard
-/// and pointer entry points must produce identical state transitions (Gate G4, G7).
+/// `GraphIntent::ToggleCommandPalette` remains a compatibility bridge through
+/// the reducer and must still produce the same open state as the canonical
+/// `WorkbenchIntent::OpenCommandPalette` path (Gate G4, G7).
 #[test]
 fn command_surface_graph_intent_and_workbench_intent_produce_identical_state() {
     let view_id = GraphViewId::new();
@@ -280,7 +280,7 @@ fn command_surface_graph_intent_and_workbench_intent_produce_identical_state() {
     let mut tiles_b = Tiles::default();
     let root_b = tiles_b.insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
     let mut tree_b = Tree::new("pre_wgpu_cmd_parity_b", root_b, tiles_b);
-    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+    let mut intents = vec![WorkbenchIntent::OpenCommandPalette];
     gui_orchestration::handle_tool_pane_intents(
         &mut via_workbench_intent,
         &mut tree_b,

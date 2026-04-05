@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sysinfo::System;
+use tokio::runtime::Handle;
 use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -298,6 +299,9 @@ pub(crate) struct ControlPanel {
     /// (workers are supervised through JoinSet; this is a spawn-site record,
     /// not a live-task count). Used by the §4 concurrency budget query surface.
     registered_tiers: HashMap<WorkerTier, usize>,
+    /// Optional Tokio runtime handle used to make supervised worker spawning
+    /// explicit instead of depending on ambient runtime context.
+    runtime_handle: Option<Handle>,
     /// Supervised background worker tasks.
     workers: JoinSet<()>,
     /// Concurrency gate for Tier 3 short-lived tasks (protocol probes, blocking
@@ -312,6 +316,25 @@ impl ControlPanel {
     /// `worker_idle_threshold_secs` is sourced from `AppPreferences`; pass
     /// `None` to use the built-in default of 120 s.
     pub(crate) fn new(worker_idle_threshold_secs: Option<u64>) -> Self {
+        Self::new_with_optional_runtime(worker_idle_threshold_secs, Handle::try_current().ok())
+    }
+
+    /// Create a `ControlPanel` bound to an explicit Tokio runtime handle.
+    ///
+    /// Use this when the caller owns the runtime and wants ControlPanel worker
+    /// spawning to stay valid even when later calls occur outside an ambient
+    /// `tokio::runtime::Handle::enter()` scope.
+    pub(crate) fn new_with_runtime(
+        worker_idle_threshold_secs: Option<u64>,
+        runtime_handle: Handle,
+    ) -> Self {
+        Self::new_with_optional_runtime(worker_idle_threshold_secs, Some(runtime_handle))
+    }
+
+    fn new_with_optional_runtime(
+        worker_idle_threshold_secs: Option<u64>,
+        runtime_handle: Option<Handle>,
+    ) -> Self {
         let (intent_tx, intent_rx) = mpsc::channel(INTENT_CHANNEL_CAPACITY);
         let (lifecycle_policy_tx, _lifecycle_policy_rx) =
             watch::channel(LifecyclePolicy::default());
@@ -336,11 +359,25 @@ impl ControlPanel {
             currently_idle: false,
             worker_idle_threshold_ms,
             registered_tiers: HashMap::new(),
+            runtime_handle,
             workers: JoinSet::new(),
             short_lived_semaphore: Arc::new(Semaphore::new(TIER3_TASK_LIMIT)),
             sync_command_tx: None,
             discovery_result_rx: None,
         }
+    }
+
+    fn spawn_worker<F>(&mut self, task: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let handle = self.runtime_handle.clone().unwrap_or_else(|| {
+            panic!(
+                "ControlPanel worker spawn requires a Tokio runtime handle; construct with ControlPanel::new_with_runtime(...) or create ControlPanel inside an active Tokio runtime"
+            )
+        });
+        let _guard = handle.enter();
+        self.workers.spawn(task);
     }
 
     /// Drain all pending intents from async producers (non-blocking).
@@ -408,7 +445,7 @@ impl ControlPanel {
     pub(crate) fn spawn_memory_monitor(&mut self) {
         let cancel = self.cancel.clone();
         let tx = self.intent_tx.clone();
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     log::debug!("control_panel: memory monitor cancelled");
@@ -426,7 +463,7 @@ impl ControlPanel {
     pub(crate) fn spawn_mod_loader(&mut self) {
         let cancel = self.cancel.clone();
         let tx = self.intent_tx.clone();
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     log::debug!("control_panel: mod loader cancelled");
@@ -528,7 +565,7 @@ impl ControlPanel {
         let cancel = self.cancel.clone();
         let tx = self.intent_tx.clone();
         let policy_rx = self.lifecycle_policy_tx.subscribe();
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     log::debug!("control_panel: prefetch scheduler cancelled");
@@ -549,7 +586,7 @@ impl ControlPanel {
         self.discovery_result_rx = Some(discovery_result_rx);
         let mut suspended_rx = self.p2p_sync_suspended_tx.subscribe();
 
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             let resources = match verse::sync_worker_resources(
                 crate::shell::desktop::runtime::registries::phase3_trusted_peers_handle(),
             ) {
@@ -623,13 +660,13 @@ impl ControlPanel {
 
         // Relay worker task.
         let worker_cancel = cancel.clone();
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             NostrRelayWorker::new(command_rx, worker_cancel).run().await;
         });
 
         // Event dispatch task: translates inbound relay events into intents.
         let intent_tx = self.intent_tx.clone();
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => break,
@@ -659,7 +696,7 @@ impl ControlPanel {
         // this task merely records transitions until NostrRelayWorker gains a
         // native suspension API.
         let suspend_cancel = self.cancel.clone();
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             loop {
                 tokio::select! {
                     _ = suspend_cancel.cancelled() => break,
@@ -689,7 +726,7 @@ impl ControlPanel {
             registries: Arc::clone(&registries),
         };
         let handle = agent.spawn(context);
-        self.workers.spawn(handle.task);
+        self.spawn_worker(handle.task);
         registries.route_agent_spawned(&agent_id);
         log::debug!("control_panel: agent spawned ({agent_name}, {agent_id})");
     }
@@ -706,7 +743,7 @@ impl ControlPanel {
         F: Future<Output = ()> + Send + 'static,
     {
         let sem = Arc::clone(&self.short_lived_semaphore);
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             match sem.acquire_owned().await {
                 Ok(_permit) => task.await, // permit released when task completes
                 Err(_) => {}               // semaphore closed = shutdown in progress
@@ -765,7 +802,7 @@ impl ControlPanel {
         F: Future<Output = ()> + Send + 'static,
     {
         let cancel = self.cancel.clone();
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     log::debug!("control_panel: shell signal relay cancelled ({label})");
@@ -806,7 +843,7 @@ impl ControlPanel {
         let tx = self.intent_tx.clone();
         let active_probes = Arc::clone(&self.active_protocol_probes);
         let sem = Arc::clone(&self.short_lived_semaphore);
-        self.workers.spawn(async move {
+        self.spawn_worker(async move {
             // Acquire a Tier 3 concurrency permit before running the probe.
             // If the semaphore is closed (shutdown), skip silently.
             let Ok(_permit) = sem.acquire_owned().await else {

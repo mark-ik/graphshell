@@ -307,12 +307,28 @@ impl WorkbenchSurfaceRegistry {
                 handle_open_command_palette_intent(graph_app, tiles_tree);
                 None
             }
+            WorkbenchIntent::CloseCommandPalette => {
+                handle_close_command_palette_intent(
+                    graph_app,
+                    tiles_tree,
+                    &focus_handoff_policy,
+                );
+                None
+            }
             WorkbenchIntent::ToggleCommandPalette => {
                 handle_toggle_command_palette_intent(graph_app, tiles_tree, &focus_handoff_policy);
                 None
             }
+            WorkbenchIntent::CloseHelpPanel => {
+                graph_app.close_help_panel();
+                None
+            }
             WorkbenchIntent::ToggleHelpPanel => {
                 graph_app.toggle_help_panel();
+                None
+            }
+            WorkbenchIntent::CloseRadialMenu => {
+                graph_app.close_radial_menu();
                 None
             }
             WorkbenchIntent::ToggleRadialMenu => {
@@ -825,6 +841,23 @@ fn handle_toggle_command_palette_intent(
     } else {
         maybe_capture_command_surface_return_target(graph_app, tiles_tree);
         graph_app.toggle_command_palette();
+    }
+}
+
+fn handle_close_command_palette_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    focus_handoff: &FocusHandoffPolicy,
+) {
+    if graph_app.workspace.chrome_ui.show_command_palette
+        || graph_app.workspace.chrome_ui.show_context_palette
+    {
+        graph_app.close_command_palette();
+        let _ = restore_command_surface_return_target_or_ensure_active_tile(
+            graph_app,
+            tiles_tree,
+            focus_handoff,
+        );
     }
 }
 

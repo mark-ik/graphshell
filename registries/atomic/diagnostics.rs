@@ -74,6 +74,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE, CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH,
     CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED, CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
     CHANNEL_THEME_ACTIVATED, CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
+    CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
+    CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED,
+    CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
     CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION, CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
     CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH, CHANNEL_UX_CONFIG_MODE_ENTERED,
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM,
@@ -561,7 +564,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 155] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 158] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -734,6 +737,21 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 155] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UI_HISTORY_MANAGER_LIMIT,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
     },

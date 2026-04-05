@@ -1937,7 +1937,9 @@ impl DiagnosticsState {
         )
     }
 
-    fn bridge_spike_measurement_value_from_samples(samples: &[CompositorReplaySample]) -> Value {
+    pub(crate) fn bridge_spike_measurement_value_from_samples(
+        samples: &[CompositorReplaySample],
+    ) -> Value {
         let sample_count = samples.len() as u64;
         let failed_frame_count = samples.iter().filter(|sample| sample.violation).count() as u64;
         let callback_total_us: u64 = samples.iter().map(|sample| sample.callback_us).sum();
@@ -3154,6 +3156,13 @@ impl DiagnosticsState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reducer_bridge_surface_toggle_sample() -> GraphIntent {
+        // Diagnostics snapshots currently record GraphIntent history, so keep a
+        // stable reducer-bridge sample here rather than implying this is the
+        // canonical command-surface authority path.
+        GraphIntent::ToggleHelpPanel
+    }
     use proptest::prelude::*;
     use rstest::rstest;
 
@@ -3715,7 +3724,7 @@ mod tests {
                 render_path_hint: "composited",
             }],
         });
-        state.record_intents(&[GraphIntent::ToggleHelpPanel]);
+        state.record_intents(&[reducer_bridge_surface_toggle_sample()]);
         let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
             channel_id: "snapshot.test.channel",
             byte_len: 9,
@@ -3859,7 +3868,7 @@ mod tests {
             channel_id: "snapshot.shape",
             byte_len: 3,
         });
-        state.record_intents(&[GraphIntent::ToggleHelpPanel]);
+        state.record_intents(&[reducer_bridge_surface_toggle_sample()]);
         state.last_drain_at = Instant::now() - state.drain_interval;
         state.tick_drain();
 
