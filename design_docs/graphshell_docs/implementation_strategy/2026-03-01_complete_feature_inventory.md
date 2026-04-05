@@ -568,16 +568,14 @@ This section maps open GitHub issues into migration timing buckets aligned with:
 
 ### Pre-WGPU closure checklist (canonical gate)
 
-- [ ] Event dispatch contract closure: `#261`, `#269`.
+- [x] Event dispatch contract closure: `#261`, `#269`.
 - [x] Radial geometry/overflow contract closure: `#263`, `#270`.
 - [ ] Canvas interaction invariants closure (selection/lasso/zoom/edge focus): `#271`, `#173`, `#185`, `#102`, `#104`, `#101`, `#103`.
-- [ ] Viewer fallback/degraded-state clarity closure: `#188`, `#162`.
-- [ ] UxHarness critical-path evidence closure: `#251`, `#257`, `#273`.
-- [ ] UxTree staged authority gate closure: `#272`.
-- [ ] Terminology reinterpretation pass complete in affected docs:
-	- "Magnetic zones" → frame-affinity behavior.
-	- Context-menu-primary references removed/reframed to Command Palette contextual mode.
-	- Edge semantics phrased event-stream-first.
+- [x] Viewer fallback/degraded-state clarity closure: `#188`, `#162`.
+- [ ] UxScenario snapshot baseline/diff CI closure: `#257`.
+  The committed critical-path suite is already closed by `#273`; the remaining pre-WGPU automation blocker is structural snapshot baseline/diff gating in CI.
+- [x] UxTree staged authority gate closure: `#272`.
+- [x] Terminology reinterpretation pass complete in affected docs: "Magnetic zones" → frame-affinity behavior; context-menu-primary references removed/reframed to Command Palette contextual mode; edge semantics phrased event-stream-first.
 
 ### Pre-WGPU required (UX contract closure)
 
@@ -585,8 +583,7 @@ This section maps open GitHub issues into migration timing buckets aligned with:
 - Command/radial contract closure: `#263`, `#270`
 - Canvas interaction invariants: `#271`, `#173`, `#185`, `#102`, `#104`, `#101`, `#103`
 - Viewer fallback clarity: `#188`, `#162`
-- UxHarness migration gate: `#251`, `#257`, `#273`
-- UxTree staged authority roadmap: `#272`
+- UxScenario snapshot baseline/diff CI gate: `#257`
 
 ### Post-WGPU preferred (defer until renderer switch stabilizes)
 

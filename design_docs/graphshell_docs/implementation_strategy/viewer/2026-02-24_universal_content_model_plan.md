@@ -216,6 +216,12 @@ Critical policy note:
 
 ### Step 3: PlaintextViewer
 
+**Status (2026-07-15)**: Implemented. `PlaintextEmbeddedViewer` lives in `registries/viewers/plaintext.rs`
+with full `pulldown-cmark`-based markdown rendering (headings, emphasis, links with `SetNodeUrl`
+intent, code blocks, lists). The `EmbeddedViewer` trait and `EmbeddedViewerRegistry` are in
+`registries/atomic/viewer.rs`. Dispatch in `node_pane_ui.rs` uses the trait registry instead of
+an inline `if/else` chain. Syntax highlighting (syntect) is deferred to a follow-up.
+
 **Goal**: ship the first real non-web viewer and prove the embedded-viewer contract end to end.
 
 Work:
@@ -245,6 +251,10 @@ Implementation guidance:
 
 ### Step 4: ImageViewer
 
+**Status (2026-07-15)**: Implemented. `ImageEmbeddedViewer` lives in `registries/viewers/image_viewer.rs`
+with a bounded thread-local texture cache (LRU, 64 entries). Raster formats decode via the `image`
+crate with content-hash deduplication. SVG/resvg and animated-GIF support are deferred.
+
 **Goal**: support common image content as a native embedded viewer.
 
 Work:
@@ -273,6 +283,10 @@ Implementation guidance:
 
 ### Step 5: DirectoryViewer
 
+**Status (2026-07-15)**: Implemented. `DirectoryEmbeddedViewer` lives in `registries/viewers/directory.rs`
+with a thread-local per-node directory listing cache that invalidates on URL change. Parent
+navigation and child clicks emit `SetNodeUrl` intents. Drag-to-graph node creation is deferred.
+
 **Goal**: support browse-in-place local directory navigation without conflating it with ingest.
 
 Work:
@@ -300,6 +314,12 @@ Critical boundary:
 ---
 
 ### Step 6: Security And File Permission Guard
+
+**Status (2026-07-15)**: Partially implemented. `FileAccessPolicy` struct added to `prefs.rs` with
+`allowed_directories` and `home_directory_auto_allow` fields. `ensure_local_file_access_allowed()`
+in `tile_behavior.rs` checks the policy's allow-list then home-dir auto-allow. MIME magic-byte
+fallback via the `infer` crate is wired into `ViewerRegistry::select_for_uri()`. Threading the
+runtime policy from app state into the guard (instead of using `Default`) is deferred.
 
 **Goal**: make local-file viewing safe enough to ship before broader filesystem features open up.
 

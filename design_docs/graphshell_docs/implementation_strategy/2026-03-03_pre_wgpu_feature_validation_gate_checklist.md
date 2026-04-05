@@ -192,6 +192,11 @@ Validation gate:
 - `TileRenderMode`-driven behavior is test-covered where applicable.
 - Viewer/fallback docs match runtime reality.
 
+Current status note:
+
+- Fallback/degraded-state clarity itself is already landed: `TileRenderMode::Placeholder` vs `CompositedTexture` degraded-state semantics are covered by the committed `pre_wgpu_critical_path.rs` scenarios, and viewer diagnostics/affordance language is canonical under `#162` + `#188`.
+- The remaining G6 work before a backend switch is narrower: compositor pass-contract proof, native-overlay limitation receipts, and any adapter-level bridge invariants that still need runtime evidence.
+
 **Status**: `partial`
 
 ---
@@ -213,7 +218,12 @@ Feature objective:
 - Diagnostics evidence is present for all core authority boundaries.
 - Address-routing coverage includes both system/workbench authority (`verso://...`) and domain-record handoff (`notes://...`, plus any active `graph://...` / `node://...` paths), so content identity and workbench placement failures are caught before merge.
 
-**Status**: `open`
+Current status note:
+
+- Critical-path UxHarness coverage is already closed by `#273`; the committed suite in `pre_wgpu_critical_path.rs` is the current baseline for migration-adjacent UX flows.
+- The remaining blocker is turning that committed coverage into structural snapshot baseline/diff CI and merge-blocking automation (`#257`), alongside the existing probe/diagnostics contracts.
+
+**Status**: `partial`
 
 ---
 
@@ -288,8 +298,8 @@ Validation gate:
 
 ## 5) Immediate Next Gate Sequence (Feature-order, not time-order)
 
-1. Close `G3` (content opening semantics) and `G2` (lifecycle determinism) together where routing/lifecycle overlap.
-2. Close `G1` residuals (camera/selection determinism under churn).
-3. Close `G6` parity/evidence for render-mode fallback and affordance behavior.
-4. Close `G7` automation authority so reopened regressions are caught automatically.
+1. Close `G7`'s remaining automation work by landing `#257` snapshot baseline/diff CI on top of the committed critical-path suite.
+2. Close the remaining `G6` compositor/adapter evidence for render-mode fallback and affordance behavior.
+3. Continue `G1` residual closure where camera/selection determinism still lacks durable evidence.
+4. Reopen `G2` / `G3` only if regressions surface or a slice directly discharges a listed residual rather than re-planning the same contracts.
 5. Re-evaluate `G9` only after G0-G8 status is evidence-complete.

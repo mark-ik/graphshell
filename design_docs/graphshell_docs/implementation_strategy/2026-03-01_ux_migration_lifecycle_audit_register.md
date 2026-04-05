@@ -59,9 +59,9 @@
 | Multi-view (canonical/divergent) graph panes | Current | Pre-renderer/WGPU required | Yellow | `canvas/multi_view_pane_spec.md` | UxHarness flows for divergence sync/merge need explicit CI gating |
 | Multi-workbench management | Planned | Pre-networking required | Yellow | `workbench/workbench_frame_tile_interaction_spec.md` | Inter-workbench open/switch semantics need canonical closure |
 | WorkbenchProfile composition and sharing | Planned | Pre-networking required | Yellow | `aspect_input/input_interaction_spec.md` + `aspect_control/settings_and_control_surfaces_spec.md` | Requires dedicated WorkbenchProfile/Workflow composition spec |
-| Viewer fallback/degraded-state clarity | Current | Pre-renderer/WGPU required | Yellow | `viewer/viewer_presentation_and_fallback_spec.md` | Placeholder-state UX and diagnostics messaging still needs scenario hardening |
+| Viewer fallback/degraded-state clarity | Current | Pre-renderer/WGPU required | Green | `viewer/viewer_presentation_and_fallback_spec.md` | Placeholder/degraded reasons and diagnostics receipts are canonical and covered by committed degraded-viewer scenarios; remaining automation work is snapshot baseline/diff CI (`#257`), not fallback semantics |
 | UxTree/UxProbe runtime contracts | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Core C1–C5 + probe contracts are canonical |
-| UxScenario/UxHarness deterministic UX testing | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | CI-required core scenarios already specified |
+| UxScenario/UxHarness deterministic UX testing | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | Critical-path suite is committed and green (`pre_wgpu_critical_path.rs`); remaining merge-blocking automation work is structural snapshot baseline/diff CI (`#257`) |
 | UX integration deliverables (D1-D5) | Current | Pre-renderer/WGPU required | Green | UX integration research + canonical spec family | D1 (`#292`) through D5 (`#296`) canonical artifacts are merged and linked into the control-plane/parity triad |
 | IA/predictability/discoverability closure bundle | Current | Pre-renderer/WGPU required | Green | command/focus/workbench specs + UX research | `#297` discoverability, `#299` IA scope/label disambiguation, and `#300` predictability closure are implemented with canonical focus/workbench contracts and targeted deterministic-focus tests |
 | Accessibility closure bundle (beyond baseline) | Current | Pre-renderer/WGPU required | Green | accessibility/focus/viewer specs + UX research | `#298` graph keyboard-focus + naming baseline evidence and `#301` closure evidence (reduced-motion guardrails, contrast/target-size audit artifact, keyboard-trap validation) are merged |
@@ -118,9 +118,9 @@ observable, and contract-driven.
 - [x] Canonical docs parity audit closure: `#302`.
 `#302` baseline parity pass is closed; control-plane, coverage matrix, and lifecycle register are aligned to current issue and deliverable state.
 - [x] Terminology reinterpretation pass complete in affected canonical docs:
-	- "Magnetic zones" language reframed to frame-affinity behavior. (`#268` — `workbench_frame_tile_interaction_spec.md` terminology lock + §2.4A, `2026-03-01_ux_migration_design_spec.md` transitional note + conflict register entry closed.)
-	- Context-menu-primary language reframed to Command Palette contextual mode.
-	- Edge semantics framed as traversal-event projection.
+  - "Magnetic zones" language reframed to frame-affinity behavior. (`#268` — `workbench_frame_tile_interaction_spec.md` terminology lock + §2.4A, `2026-03-01_ux_migration_design_spec.md` transitional note + conflict register entry closed.)
+  - Context-menu-primary language reframed to Command Palette contextual mode.
+  - Edge semantics framed as traversal-event projection.
 `#268` closed: `MagneticZone` deprecated as legacy alias in all target docs; `CloseFrameHandle` / `DeleteFrame` semantics and cross-tree sync table now explicit in `workbench_frame_tile_interaction_spec.md §2.4A`; conflict register entry resolved.
 
 ### 3.2A Pre-WGPU Spec → Issue Linkage (audit table)
