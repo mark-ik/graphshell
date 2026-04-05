@@ -24,6 +24,9 @@ pub(crate) type BackendParentRenderCallback = std::sync::Arc<
 >;
 
 const BACKEND_BRIDGE_MODE_ENV_VAR: &str = "GRAPHSHELL_BACKEND_BRIDGE_MODE";
+const BACKEND_BRIDGE_READINESS_GATE_ENV_VAR: &str =
+    "GRAPHSHELL_ENABLE_WGPU_BRIDGE_READINESS_GATE";
+const SERVO_WGPU_BACKEND_ENV_VAR: &str = "SERVO_WGPU_BACKEND";
 const BACKEND_BRIDGE_PATH_GLOW_CALLBACK: &str = "gl.render_to_parent_callback";
 const BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GLOW: &str =
     "wgpu.preferred.fallback_glow.render_to_parent_callback";
@@ -59,9 +62,24 @@ pub(crate) struct BackendContentBridgeCapabilities {
 impl Default for BackendContentBridgeCapabilities {
     fn default() -> Self {
         Self {
-            supports_wgpu_parent_render_bridge: true,
+            supports_wgpu_parent_render_bridge: false,
         }
     }
+}
+
+fn env_flag_enabled(key: &str) -> bool {
+    std::env::var(key)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn servo_wgpu_backend_requested() -> bool {
+    env_flag_enabled(SERVO_WGPU_BACKEND_ENV_VAR)
 }
 
 fn requested_backend_content_bridge_mode() -> BackendContentBridgeMode {
@@ -76,7 +94,20 @@ fn requested_backend_content_bridge_mode() -> BackendContentBridgeMode {
 }
 
 fn active_backend_content_bridge_policy() -> BackendContentBridgePolicy {
-    BackendContentBridgePolicy::GlowBaseline
+    if env_flag_enabled(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR) {
+        BackendContentBridgePolicy::ExperimentalEnvRequestedMode
+    } else {
+        BackendContentBridgePolicy::GlowBaseline
+    }
+}
+
+fn content_bridge_capabilities_from_observed_context(
+    has_parent_render_callback: bool,
+    servo_wgpu_backend_enabled: bool,
+) -> BackendContentBridgeCapabilities {
+    BackendContentBridgeCapabilities {
+        supports_wgpu_parent_render_bridge: has_parent_render_callback && servo_wgpu_backend_enabled,
+    }
 }
 
 fn resolve_backend_content_bridge_mode(
@@ -135,9 +166,47 @@ pub(crate) fn select_backend_content_bridge(
 }
 
 fn content_bridge_capabilities_for_render_context(
-    _render_context: &OffscreenRenderingContext,
+    render_context: &OffscreenRenderingContext,
 ) -> BackendContentBridgeCapabilities {
-    BackendContentBridgeCapabilities::default()
+    content_bridge_capabilities_from_observed_context(
+        render_context.render_to_parent_callback().is_some(),
+        servo_wgpu_backend_requested(),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn backend_bridge_test_env_lock() -> &'static std::sync::Mutex<()> {
+    use std::sync::{Mutex, OnceLock};
+
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+#[cfg(test)]
+pub(crate) fn clear_backend_bridge_env_for_tests() {
+    unsafe {
+        std::env::remove_var(BACKEND_BRIDGE_MODE_ENV_VAR);
+        std::env::remove_var(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR);
+        std::env::remove_var(SERVO_WGPU_BACKEND_ENV_VAR);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn set_backend_bridge_mode_env_for_tests(value: &str) {
+    unsafe {
+        std::env::set_var(BACKEND_BRIDGE_MODE_ENV_VAR, value);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn set_backend_bridge_readiness_gate_for_tests(enabled: bool) {
+    unsafe {
+        if enabled {
+            std::env::set_var(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR, "1");
+        } else {
+            std::env::remove_var(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR);
+        }
+    }
 }
 
 pub(crate) fn select_content_bridge_from_render_context(
@@ -442,29 +511,13 @@ pub(crate) fn register_custom_paint_callback(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn clear_bridge_mode_env() {
-        unsafe {
-            std::env::remove_var(BACKEND_BRIDGE_MODE_ENV_VAR);
-        }
-    }
-
-    fn set_bridge_mode_env(value: &str) {
-        unsafe {
-            std::env::set_var(BACKEND_BRIDGE_MODE_ENV_VAR, value);
-        }
-    }
 
     #[test]
     fn bridge_mode_defaults_to_glow_callback() {
-        let _guard = env_lock().lock().expect("env lock poisoned");
-        clear_bridge_mode_env();
+        let _guard = backend_bridge_test_env_lock()
+            .lock()
+            .expect("env lock poisoned");
+        clear_backend_bridge_env_for_tests();
 
         let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
         let selected = select_backend_content_bridge(callback);
@@ -474,14 +527,19 @@ mod tests {
 
     #[test]
     fn bridge_mode_selects_wgpu_preferred_fallback_when_requested() {
-        let _guard = env_lock().lock().expect("env lock poisoned");
-        set_bridge_mode_env("wgpu_preferred");
+        let _guard = backend_bridge_test_env_lock()
+            .lock()
+            .expect("env lock poisoned");
+        clear_backend_bridge_env_for_tests();
+        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
 
         let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
         let selected = select_backend_content_bridge_with_policy_for_tests(
             callback,
             BackendContentBridgePolicy::ExperimentalEnvRequestedMode,
-            BackendContentBridgeCapabilities::default(),
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: true,
+            },
         );
 
         assert_eq!(
@@ -489,26 +547,37 @@ mod tests {
             BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback
         );
 
-        clear_bridge_mode_env();
+        clear_backend_bridge_env_for_tests();
     }
 
     #[test]
     fn active_policy_uses_glow_even_when_env_requests_wgpu_preferred() {
-        let _guard = env_lock().lock().expect("env lock poisoned");
-        set_bridge_mode_env("wgpu_preferred");
+        let _guard = backend_bridge_test_env_lock()
+            .lock()
+            .expect("env lock poisoned");
+        clear_backend_bridge_env_for_tests();
+        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
 
         let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
-        let selected = select_backend_content_bridge(callback);
+        let selected = select_backend_content_bridge_with_capabilities(
+            callback,
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: true,
+            },
+        );
 
         assert_eq!(selected.mode, BackendContentBridgeMode::GlowCallback);
 
-        clear_bridge_mode_env();
+        clear_backend_bridge_env_for_tests();
     }
 
     #[test]
     fn bridge_mode_falls_back_to_glow_when_wgpu_capability_is_unavailable() {
-        let _guard = env_lock().lock().expect("env lock poisoned");
-        set_bridge_mode_env("wgpu_preferred");
+        let _guard = backend_bridge_test_env_lock()
+            .lock()
+            .expect("env lock poisoned");
+        clear_backend_bridge_env_for_tests();
+        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
 
         let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
         let selected = select_backend_content_bridge_with_policy_for_tests(
@@ -521,7 +590,54 @@ mod tests {
 
         assert_eq!(selected.mode, BackendContentBridgeMode::GlowCallback);
 
-        clear_bridge_mode_env();
+        clear_backend_bridge_env_for_tests();
+    }
+
+    #[test]
+    fn active_policy_honors_requested_mode_when_readiness_gate_is_enabled() {
+        let _guard = backend_bridge_test_env_lock()
+            .lock()
+            .expect("env lock poisoned");
+        clear_backend_bridge_env_for_tests();
+        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
+        set_backend_bridge_readiness_gate_for_tests(true);
+
+        let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
+        let selected = select_backend_content_bridge_with_capabilities(
+            callback,
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: true,
+            },
+        );
+
+        assert_eq!(
+            selected.mode,
+            BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback
+        );
+
+        clear_backend_bridge_env_for_tests();
+    }
+
+    #[test]
+    fn capability_probe_requires_servo_wgpu_backend_and_parent_render_callback() {
+        assert_eq!(
+            content_bridge_capabilities_from_observed_context(true, true),
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: true,
+            }
+        );
+        assert_eq!(
+            content_bridge_capabilities_from_observed_context(true, false),
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: false,
+            }
+        );
+        assert_eq!(
+            content_bridge_capabilities_from_observed_context(false, true),
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: false,
+            }
+        );
     }
 
     #[test]

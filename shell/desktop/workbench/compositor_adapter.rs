@@ -148,6 +148,48 @@ fn clear_content_callbacks_for_tests() {
         .clear();
 }
 
+#[cfg(test)]
+fn record_registered_content_bridge_receipt_for_tests(
+    node_key: NodeKey,
+) -> Option<CompositorReplaySample> {
+    let registered = content_callback_registry()
+        .lock()
+        .expect("compositor content callback registry mutex poisoned")
+        .get(&node_key)
+        .cloned()?;
+
+    let state = GlStateSnapshot {
+        viewport: [0, 0, 0, 0],
+        scissor_enabled: false,
+        blend_enabled: false,
+        active_texture: 0,
+        framebuffer_binding: 0,
+    };
+    let sample = CompositorReplaySample {
+        sequence: COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        node_key,
+        duration_us: 0,
+        callback_us: 0,
+        presentation_us: 0,
+        violation: false,
+        bridge_path: registered.bridge_path,
+        bridge_mode: registered.bridge_mode,
+        tile_rect_px: [0, 0, 0, 0],
+        render_size_px: [0, 0],
+        chaos_enabled: false,
+        restore_verified: true,
+        viewport_changed: false,
+        scissor_changed: false,
+        blend_changed: false,
+        active_texture_changed: false,
+        framebuffer_binding_changed: false,
+        before: state,
+        after: state,
+    };
+    push_replay_sample(sample);
+    Some(sample)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GlStateSnapshot {
     pub(crate) viewport: [i32; 4],
@@ -1158,6 +1200,13 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     use crate::graph::NodeKey;
+    use crate::shell::desktop::render_backend::{
+        BackendContentBridgeCapabilities, BackendParentRenderCallback,
+        BackendParentRenderRegionInPixels, backend_bridge_test_env_lock,
+        backend_content_bridge_mode_label, backend_content_bridge_path,
+        clear_backend_bridge_env_for_tests, select_backend_content_bridge_with_capabilities,
+        set_backend_bridge_mode_env_for_tests, set_backend_bridge_readiness_gate_for_tests,
+    };
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::{
         CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
@@ -1181,6 +1230,7 @@ mod tests {
         chaos_mode_enabled_from_raw, chaos_probe_passed, clear_content_callbacks_for_tests,
         clear_replay_samples_for_tests, emit_chaos_probe_outcome, framebuffer_binding_target,
         gl_state_change_flags, gl_state_violated, push_replay_sample, replay_samples_snapshot,
+        record_registered_content_bridge_receipt_for_tests,
         run_guarded_callback, run_guarded_callback_with_snapshots,
         run_guarded_callback_with_snapshots_and_perturbation,
     };
@@ -1439,6 +1489,81 @@ mod tests {
         assert_eq!(outcome, CompositedContentPassOutcome::Registered);
         assert!(CompositorAdapter::unregister_content_callback(node_key));
         assert!(!CompositorAdapter::unregister_content_callback(node_key));
+    }
+
+    #[test]
+    fn selected_bridge_metadata_flows_through_registration_into_diagnostics() {
+        let _guard = backend_bridge_test_env_lock()
+            .lock()
+            .expect("env lock poisoned");
+        clear_backend_bridge_env_for_tests();
+        clear_content_callbacks_for_tests();
+        clear_replay_samples_for_tests();
+        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
+        set_backend_bridge_readiness_gate_for_tests(true);
+
+        let callback: BackendParentRenderCallback =
+            std::sync::Arc::new(|_: &_, _: BackendParentRenderRegionInPixels| {});
+
+        let supported = select_backend_content_bridge_with_capabilities(
+            callback.clone(),
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: true,
+            },
+        );
+        let supported_node = NodeKey::new(903);
+        CompositorAdapter::register_content_callback(
+            supported_node,
+            backend_content_bridge_path(supported.mode),
+            backend_content_bridge_mode_label(supported.mode),
+            std::sync::Arc::new(|_, _| {}),
+        );
+        let supported_sample = record_registered_content_bridge_receipt_for_tests(supported_node)
+            .expect("supported bridge receipt should be recorded");
+
+        let unsupported = select_backend_content_bridge_with_capabilities(
+            callback,
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: false,
+            },
+        );
+        let unsupported_node = NodeKey::new(904);
+        CompositorAdapter::register_content_callback(
+            unsupported_node,
+            backend_content_bridge_path(unsupported.mode),
+            backend_content_bridge_mode_label(unsupported.mode),
+            std::sync::Arc::new(|_, _| {}),
+        );
+        let unsupported_sample = record_registered_content_bridge_receipt_for_tests(
+            unsupported_node,
+        )
+        .expect("fallback bridge receipt should be recorded");
+
+        let supported_payload =
+            DiagnosticsState::bridge_spike_measurement_value_from_samples(&[supported_sample]);
+        let unsupported_payload =
+            DiagnosticsState::bridge_spike_measurement_value_from_samples(&[unsupported_sample]);
+
+        assert_eq!(
+            supported_payload["measurement_contract"]["latest"]["bridge_mode"].as_str(),
+            Some("wgpu_preferred_fallback_glow_callback")
+        );
+        assert_eq!(
+            supported_payload["measurement_contract"]["latest"]["bridge_path"].as_str(),
+            Some("wgpu.preferred.fallback_glow.render_to_parent_callback")
+        );
+        assert_eq!(
+            unsupported_payload["measurement_contract"]["latest"]["bridge_mode"].as_str(),
+            Some("glow_callback")
+        );
+        assert_eq!(
+            unsupported_payload["measurement_contract"]["latest"]["bridge_path"].as_str(),
+            Some("gl.render_to_parent_callback")
+        );
+
+        clear_backend_bridge_env_for_tests();
+        clear_content_callbacks_for_tests();
+        clear_replay_samples_for_tests();
     }
 
     #[test]

@@ -33,6 +33,7 @@ use crate::render::command_profile::{
 use crate::shell::desktop::runtime::registries::{
     self, action as runtime_action, workflow as runtime_workflow,
 };
+use crate::shell::desktop::ui::{toolbar::toolbar_ui::CommandBarFocusTarget, toolbar_routing};
 #[cfg(test)]
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::pane_model::{PaneId, ViewerId};
@@ -774,11 +775,7 @@ pub fn render_command_palette_panel(
     }
 
     if (!contextual_mode && !open) || should_close {
-        if contextual_mode {
-            app.close_command_palette();
-        } else {
-            app.enqueue_workbench_intent(crate::app::WorkbenchIntent::ToggleCommandPalette);
-        }
+        toolbar_routing::request_command_palette_close(app);
     }
     super::apply_ui_intents_with_checkpoint(app, intents);
 }
@@ -821,6 +818,7 @@ pub(crate) fn execute_action_with_layout_target(
 ) {
     let focused_selection = app.focused_selection().clone();
     let open_target = source_context.or_else(|| focused_selection.primary());
+    let command_bar_focus_target = CommandBarFocusTarget::new(focused_pane_id, open_target.or(focused_pane_node));
     let frame_target = app.pending_frame_context_target().map(str::to_string);
     let active_layout_surface_host =
         layout_surface_target_host.or_else(|| app.targetable_navigator_surface_host());
@@ -1000,7 +998,7 @@ pub(crate) fn execute_action_with_layout_target(
         ActionId::GraphFit => intents.push(ViewAction::RequestFitToScreen.into()),
         ActionId::GraphFitGraphlet => intents.push(ViewAction::RequestZoomToGraphlet.into()),
         ActionId::GraphCycleFocusRegion => {
-            app.enqueue_workbench_intent(WorkbenchIntent::CycleFocusRegion);
+            let _ = toolbar_routing::request_cycle_focus_region(app, command_bar_focus_target);
         }
         ActionId::GraphToggleOverviewPlane => {
             intents.push(GraphIntent::ToggleGraphViewLayoutManager);
@@ -1014,9 +1012,11 @@ pub(crate) fn execute_action_with_layout_target(
             );
         }
         ActionId::GraphCommandPalette => {
-            app.enqueue_workbench_intent(WorkbenchIntent::OpenCommandPalette);
+            toolbar_routing::request_command_palette_open(app);
         }
-        ActionId::GraphRadialMenu => intents.push(GraphIntent::ToggleRadialMenu),
+        ActionId::GraphRadialMenu => {
+            let _ = toolbar_routing::request_radial_menu_toggle(app, command_bar_focus_target);
+        }
         ActionId::FrameSelect => {
             if let Some(frame_name) = frame_target {
                 intents.push(
@@ -1299,6 +1299,11 @@ pub(crate) fn execute_action_with_layout_target(
 mod tests {
     use super::*;
     use crate::app::GraphViewId;
+    use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
+    use crate::shell::desktop::runtime::registries::{
+        CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
+        CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
+    };
 
     fn default_action_context() -> ActionContext {
         ActionContext {
@@ -1341,6 +1346,45 @@ mod tests {
         assert_eq!(
             reason,
             Some("Requires a selected or targeted node. Select a node first.")
+        );
+    }
+
+    #[test]
+    fn cycle_focus_action_uses_shared_focus_gate() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::GraphCycleFocusRegion,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(app.take_pending_workbench_intents().is_empty());
+
+        let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED
+            )),
+            "expected workbench-command requested diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS
+            )),
+            "expected blocked-by-focus diagnostic; got: {emitted:?}"
         );
     }
 

@@ -11,7 +11,7 @@
 //! execution path.
 
 use crate::app::{
-    GraphBrowserApp, SelectionUpdateMode, SurfaceHostId, UxConfigMode, ViewAction, WorkbenchIntent,
+    GraphBrowserApp, SelectionUpdateMode, SurfaceHostId, UxConfigMode, ViewAction,
 };
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
@@ -26,6 +26,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT, CHANNEL_UX_RADIAL_MODE_FALLBACK,
     CHANNEL_UX_RADIAL_OVERFLOW,
 };
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
+use crate::shell::desktop::ui::toolbar_routing;
 use egui::{Color32, Key, Stroke, Window};
 use std::sync::{Mutex, OnceLock};
 
@@ -1356,7 +1358,10 @@ pub fn render_radial_command_menu(
     });
 
     if should_close {
-        app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+        let _ = toolbar_routing::request_radial_menu_close(
+            app,
+            CommandBarFocusTarget::new(focused_pane_id, source_context.or(focused_pane_node)),
+        );
     } else {
         app.workspace.chrome_ui.show_radial_menu = true;
     }

@@ -22,6 +22,8 @@ use crate::shell::desktop::runtime::registries::input::{
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, phase2_describe_input_bindings, phase3_resolve_active_theme,
 };
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
+use crate::shell::desktop::ui::toolbar_routing;
 use crate::shell::desktop::workbench::tile_compositor::CompositorFrameActivitySummary;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
@@ -504,7 +506,7 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                 });
         });
     if was_open && !open {
-        app.enqueue_workbench_intent(WorkbenchIntent::ToggleHelpPanel);
+        let _ = toolbar_routing::request_help_panel_close(app);
     } else {
         app.workspace.chrome_ui.show_help_panel = open;
     }
@@ -2295,7 +2297,7 @@ fn render_settings_surface_in_ui_with_control_panel(
     mut control_panel: Option<&mut crate::shell::desktop::runtime::control_panel::ControlPanel>,
     surface_mode: SettingsSurfaceMode,
 ) -> Vec<GraphIntent> {
-    let mut intents: Vec<GraphIntent> = Vec::new();
+    let intents: Vec<GraphIntent> = Vec::new();
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.heading("Settings");
@@ -2403,7 +2405,10 @@ fn render_settings_surface_in_ui_with_control_panel(
                         })
                         .clicked()
                     {
-                        intents.push(GraphIntent::ToggleHelpPanel);
+                        let _ = toolbar_routing::request_help_panel_toggle(
+                            app,
+                            CommandBarFocusTarget::default(),
+                        );
                     }
                     #[cfg(feature = "diagnostics")]
                     if ui.button("Open Diagnostics Pane").clicked() {

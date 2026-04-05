@@ -10,7 +10,6 @@
 use crate::app::{
     ChooseFramePickerMode, GraphBrowserApp, GraphIntent, SearchDisplayMode, SelectionUpdateMode,
     SimulateBehaviorPreset, UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewAction,
-    WorkbenchIntent,
     graph_layout::{GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT},
 };
 use crate::graph::NodeKey;
@@ -29,6 +28,8 @@ use crate::shell::desktop::runtime::registries::{
     phase3_apply_layout_algorithm_to_graph, phase3_resolve_active_canvas_profile,
     phase3_resolve_active_theme, phase3_resolve_layout_algorithm,
 };
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
+use crate::shell::desktop::ui::toolbar_routing;
 use crate::util::CoordBridge;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::{Ui, Window};
@@ -338,7 +339,10 @@ fn handle_hovered_node_secondary_click(
                 ));
             }
             if !app.workspace.chrome_ui.show_radial_menu {
-                app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+                let _ = toolbar_routing::request_radial_menu_toggle(
+                    app,
+                    CommandBarFocusTarget::new(None, Some(target)),
+                );
             }
             if let Some(pointer) = pointer {
                 ctx.data_mut(|d| {
@@ -377,7 +381,10 @@ fn handle_frame_backdrop_secondary_click(
                 ));
             }
             if !app.workspace.chrome_ui.show_radial_menu {
-                app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+                let _ = toolbar_routing::request_radial_menu_toggle(
+                    app,
+                    CommandBarFocusTarget::default(),
+                );
             }
             if let Some(pointer) = pointer {
                 ctx.data_mut(|d| {
@@ -1591,7 +1598,7 @@ fn resolve_source_node_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::SearchDisplayMode;
+    use crate::app::{SearchDisplayMode, WorkbenchIntent};
     use crate::registries::atomic::lens::LayoutMode;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use std::hint::black_box;
