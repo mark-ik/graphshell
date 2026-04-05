@@ -41,6 +41,24 @@ pub(crate) static EXPERIMENTAL_PREFS: &[&str] = &[
     "layout_variable_fonts_enabled",
 ];
 
+/// Policy controlling which local file paths embedded viewers may read.
+#[derive(Clone, Debug)]
+pub(crate) struct FileAccessPolicy {
+    /// Additional directory trees that embedded viewers may access.
+    pub allowed_directories: Vec<PathBuf>,
+    /// When `true` (default), the user's home directory tree is implicitly allowed.
+    pub home_directory_auto_allow: bool,
+}
+
+impl Default for FileAccessPolicy {
+    fn default() -> Self {
+        Self {
+            allowed_directories: Vec::new(),
+            home_directory_auto_allow: true,
+        }
+    }
+}
+
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 #[derive(Clone)]
 pub(crate) struct AppPreferences {
@@ -89,6 +107,8 @@ pub(crate) struct AppPreferences {
     /// Idle threshold (seconds) before Tier 1 background workers enter
     /// low-frequency suspension mode. Defaults to 120 s.
     pub worker_idle_threshold_secs: Option<u64>,
+    /// Policy controlling which local file paths embedded viewers may access.
+    pub file_access_policy: FileAccessPolicy,
     /// `None` to disable WebDriver or `Some` with a port number to start a server to listen to
     /// remote WebDriver commands.
     pub webdriver_port: Cell<Option<u16>>,
@@ -124,6 +144,7 @@ impl Default for AppPreferences {
             graph_data_dir: None,
             graph_snapshot_interval_secs: None,
             worker_idle_threshold_secs: None,
+            file_access_policy: FileAccessPolicy::default(),
             webdriver_port: Cell::new(None),
             #[cfg(target_env = "ohos")]
             log_filter: None,

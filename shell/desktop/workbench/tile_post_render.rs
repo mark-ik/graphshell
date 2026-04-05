@@ -13,7 +13,7 @@ use super::tile_grouping;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
 use super::ux_tree;
-use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
+use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -21,7 +21,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_LAYOUT_OVERLAP_DETECTED, CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
     CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
 };
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::ui::persistence_ops;
+use crate::shell::desktop::ui::toolbar_routing;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
 pub(crate) struct TileRenderOutputs {
@@ -426,7 +428,13 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
                     );
                 }
                 if !graph_app.workspace.chrome_ui.show_radial_menu {
-                    graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+                    let _ = toolbar_routing::request_radial_menu_toggle(
+                        graph_app,
+                        CommandBarFocusTarget::new(
+                            None,
+                            active_frame_group_anchor(graph_app, tiles_tree),
+                        ),
+                    );
                 }
             }
             crate::app::ContextCommandSurfacePreference::ContextPalette => {

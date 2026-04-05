@@ -162,7 +162,7 @@ fn decode_plaintext_content(bytes: &[u8]) -> PlaintextContent {
     }
 }
 
-fn file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
+pub(crate) fn file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
     let parsed = url::Url::parse(url).map_err(|err| format!("Invalid URL: {err}"))?;
     if parsed.scheme() != "file" {
         return Err("Embedded plaintext viewer currently supports file:// URLs only.".to_string());
@@ -173,33 +173,49 @@ fn file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
         .map_err(|_| "Could not convert file:// URL to local path.".to_string())
 }
 
-fn ensure_local_file_access_allowed(path: &PathBuf) -> Result<(), String> {
-    let Some(home_dir) = dirs::home_dir() else {
-        return Err("Home directory unavailable; local file access is blocked.".to_string());
-    };
+pub(crate) fn ensure_local_file_access_allowed(path: &PathBuf) -> Result<(), String> {
+    use crate::prefs::FileAccessPolicy;
 
-    let canonical_home = home_dir.canonicalize().map_err(|err| {
-        format!(
-            "Failed to resolve home directory '{}': {err}",
-            home_dir.display()
-        )
-    })?;
+    // TODO: thread runtime FileAccessPolicy through here once we have an
+    // accessible shared-prefs handle.  For now, use the Default policy which
+    // auto-allows the home tree and honours `allowed_directories`.
+    let policy = FileAccessPolicy::default();
+
     let canonical_path = path
         .canonicalize()
         .map_err(|err| format!("Failed to resolve '{}': {err}", path.display()))?;
 
-    if canonical_path.starts_with(&canonical_home) {
-        Ok(())
-    } else {
-        Err(format!(
-            "Access denied for '{}'. Embedded file viewers currently allow only paths inside '{}'.",
-            canonical_path.display(),
-            canonical_home.display()
-        ))
+    // Explicit allow-list takes priority.
+    for allowed in &policy.allowed_directories {
+        if let Ok(canonical_allowed) = allowed.canonicalize() {
+            if canonical_path.starts_with(&canonical_allowed) {
+                return Ok(());
+            }
+        }
     }
+
+    // Home-directory auto-allow.
+    if policy.home_directory_auto_allow {
+        if let Some(home_dir) = dirs::home_dir() {
+            let canonical_home = home_dir.canonicalize().map_err(|err| {
+                format!(
+                    "Failed to resolve home directory '{}': {err}",
+                    home_dir.display()
+                )
+            })?;
+            if canonical_path.starts_with(&canonical_home) {
+                return Ok(());
+            }
+        }
+    }
+
+    Err(format!(
+        "Access denied for '{}'. Adjust file_access_policy in preferences to allow additional paths.",
+        canonical_path.display()
+    ))
 }
 
-fn guarded_file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
+pub(crate) fn guarded_file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
     let path = file_path_from_node_url(url)?;
     ensure_local_file_access_allowed(&path)?;
     Ok(path)

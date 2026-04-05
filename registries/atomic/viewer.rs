@@ -5,6 +5,128 @@ use crate::util::VersoAddress;
 
 pub(crate) const VIEWER_ID_FALLBACK: &str = "viewer:webview";
 
+// ---------------------------------------------------------------------------
+// EmbeddedViewer — trait-dispatched rendering for non-composited viewers
+// ---------------------------------------------------------------------------
+
+/// Outcome of a single `EmbeddedViewer::render` call.
+///
+/// Viewers that need to emit graph intents (e.g. `NavigateTo` from a markdown
+/// link, or `SetNodeUrl` from a directory click) return them here so the tile
+/// behavior can queue them without the viewer holding a mutable reference to
+/// `GraphBrowserApp`.
+pub(crate) struct EmbeddedViewerOutput {
+    pub(crate) intents: Vec<crate::app::GraphIntent>,
+}
+
+impl EmbeddedViewerOutput {
+    pub(crate) fn empty() -> Self {
+        Self {
+            intents: Vec::new(),
+        }
+    }
+}
+
+/// Read-only rendering context passed to each `EmbeddedViewer::render` call.
+pub(crate) struct EmbeddedViewerContext<'a> {
+    pub(crate) node_key: crate::graph::NodeKey,
+    pub(crate) node_url: &'a str,
+    pub(crate) mime_hint: Option<&'a str>,
+}
+
+/// Trait for viewers that render directly into an egui `Ui`.
+///
+/// Each concrete viewer owns its own per-node state (cached directory listings,
+/// async image decode handles, etc.) and is dispatched through the
+/// `EmbeddedViewerRegistry` rather than an inline `if/else` chain.
+pub(crate) trait EmbeddedViewer {
+    fn viewer_id(&self) -> &'static str;
+    fn render(
+        &self,
+        ui: &mut egui::Ui,
+        ctx: &EmbeddedViewerContext<'_>,
+    ) -> EmbeddedViewerOutput;
+}
+
+/// Registry mapping viewer IDs to concrete `EmbeddedViewer` trait objects.
+pub(crate) struct EmbeddedViewerRegistry {
+    viewers: HashMap<&'static str, Box<dyn EmbeddedViewer + Send + Sync>>,
+}
+
+impl EmbeddedViewerRegistry {
+    pub(crate) fn new() -> Self {
+        Self {
+            viewers: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn register(&mut self, viewer: Box<dyn EmbeddedViewer + Send + Sync>) {
+        let id = viewer.viewer_id();
+        self.viewers.insert(id, viewer);
+    }
+
+    pub(crate) fn get(&self, viewer_id: &str) -> Option<&(dyn EmbeddedViewer + Send + Sync)> {
+        self.viewers.get(viewer_id).map(|v| v.as_ref())
+    }
+
+    /// Build the default registry with all built-in embedded viewers.
+    pub(crate) fn default_with_viewers() -> Self {
+        let mut registry = Self::new();
+        registry.register(Box::new(SettingsViewer));
+        registry.register(Box::new(super::super::viewers::PlaintextEmbeddedViewer));
+        registry.register(Box::new(super::super::viewers::ImageEmbeddedViewer));
+        registry.register(Box::new(super::super::viewers::DirectoryEmbeddedViewer));
+        registry.register(Box::new(FallbackViewer));
+        registry
+    }
+}
+
+/// Settings viewer — delegates to the settings/history render surfaces.
+struct SettingsViewer;
+impl EmbeddedViewer for SettingsViewer {
+    fn viewer_id(&self) -> &'static str {
+        "viewer:settings"
+    }
+    fn render(
+        &self,
+        _ui: &mut egui::Ui,
+        _ctx: &EmbeddedViewerContext<'_>,
+    ) -> EmbeddedViewerOutput {
+        // Settings rendering requires access to GraphBrowserApp and is handled
+        // specially in tile_behavior dispatch; this trait impl exists so the
+        // viewer ID is recognized by the registry.
+        EmbeddedViewerOutput::empty()
+    }
+}
+
+/// Fallback / metadata viewer — shown when no dedicated viewer is registered.
+struct FallbackViewer;
+impl EmbeddedViewer for FallbackViewer {
+    fn viewer_id(&self) -> &'static str {
+        "viewer:fallback"
+    }
+    fn render(
+        &self,
+        ui: &mut egui::Ui,
+        ctx: &EmbeddedViewerContext<'_>,
+    ) -> EmbeddedViewerOutput {
+        ui.colored_label(
+            egui::Color32::from_rgb(220, 180, 60),
+            "No dedicated viewer is available for this content yet.",
+        );
+        ui.label(format!("URL: {}", ctx.node_url));
+        if let Some(mime_hint) = ctx.mime_hint {
+            ui.small(format!("Detected content type: {mime_hint}"));
+        } else {
+            ui.small("Detected content type: unknown");
+        }
+        ui.small(
+            "Recovery: switch to WebView for compatibility content, or keep this node as a graph-backed placeholder until a native viewer lands.",
+        );
+        EmbeddedViewerOutput::empty()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum ViewerRenderMode {
     CompositedTexture,
@@ -215,6 +337,24 @@ impl ViewerRegistry {
             && let Some(viewer_id) = self.extension_handlers.get(ext)
         {
             return self.selection(viewer_id, false, "extension");
+        }
+
+        // Magic-byte fallback for local files when no MIME hint and no extension match.
+        if mime_hint.is_none() {
+            if let crate::graph::AddressKind::File = crate::graph::address_kind_from_url(uri) {
+                if let Ok(path) = crate::shell::desktop::workbench::tile_behavior::file_path_from_node_url(uri) {
+                    if let Ok(mut file) = std::fs::File::open(&path) {
+                        let mut buf = [0u8; 512];
+                        let n = std::io::Read::read(&mut file, &mut buf).unwrap_or(0);
+                        if let Some(kind) = infer::get(&buf[..n]) {
+                            let detected_mime = kind.mime_type().to_ascii_lowercase();
+                            if let Some(viewer_id) = self.mime_handlers.get(&detected_mime) {
+                                return self.selection(viewer_id, false, "magic");
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // For non-HTTP address kinds (local files, custom schemes), avoid falling

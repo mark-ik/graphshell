@@ -79,6 +79,7 @@ infer = "0.19"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
 image = { version = "0.25", default-features = false, features = ["avif", "rayon", "bmp", "gif", "ico", "jpeg", "png", "webp"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
+pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 libc = "0.2"
 servo = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "libservo", features = ["background_hang_monitor", "bluetooth", "testbinding"], default-features = false }
 log = "0.4.29"

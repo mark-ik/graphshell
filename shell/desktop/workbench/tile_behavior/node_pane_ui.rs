@@ -190,108 +190,41 @@ fn render_node_pane_impl(
         return;
     }
 
-    if matches!(
-        effective_viewer_id.as_str(),
-        "viewer:plaintext" | "viewer:markdown" | "viewer:csv"
-    ) {
-        ui.label(format!("{}", node_url));
-        ui.separator();
-        match load_plaintext_content_for_node(&node_url) {
-            Ok(PlaintextContent::Text(content)) => {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let markdown_mode = effective_viewer_id.as_str() == "viewer:markdown"
-                        || node_mime_hint.as_deref() == Some("text/markdown")
-                        || node_mime_hint.as_deref() == Some("text/x-markdown")
-                        || node_url
-                            .rsplit_once('.')
-                            .map(|(_, ext)| ext.eq_ignore_ascii_case("md"))
-                            .unwrap_or(false);
-                    if markdown_mode {
-                        render_markdown_embedded(ui, &content);
-                    } else {
-                        let mut read_only = content;
-                        ui.add(
-                            egui::TextEdit::multiline(&mut read_only)
-                                .font(egui::TextStyle::Monospace)
-                                .desired_width(f32::INFINITY)
-                                .interactive(false),
-                        );
-                    }
-                });
-            }
-            Ok(PlaintextContent::HexPreview(hex)) => {
-                ui.small("Binary content detected; showing hex preview.");
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let mut read_only = hex;
-                    ui.add(
-                        egui::TextEdit::multiline(&mut read_only)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_width(f32::INFINITY)
-                            .interactive(false),
-                    );
-                });
-            }
-            Err(error) => {
-                ui.small(error);
-            }
-        }
-        return;
-    }
+// --- Trait-dispatched embedded viewers ---
+    // Viewers registered in EmbeddedViewerRegistry handle plaintext, markdown,
+    // csv, image, directory, and fallback rendering via the EmbeddedViewer trait.
+    {
+        use crate::registries::atomic::viewer::{EmbeddedViewerContext, EmbeddedViewerRegistry};
 
-    if effective_viewer_id.as_str() == "viewer:image" {
-        ui.label(format!("{}", node_url));
-        ui.separator();
-        match render_embedded_image(ui, node_key, &node_url) {
-            Ok(()) => {}
-            Err(error) => {
-                ui.small(error);
-            }
+        thread_local! {
+            static REGISTRY: EmbeddedViewerRegistry = EmbeddedViewerRegistry::default_with_viewers();
         }
-        return;
-    }
 
-    if effective_viewer_id.as_str() == "viewer:directory" {
-        ui.label(format!("{}", node_url));
-        ui.separator();
-        match render_directory_view(behavior, ui, node_key, &node_url) {
-            Ok(()) => {}
-            Err(error) => {
-                ui.small(error);
+        let handled = REGISTRY.with(|registry| {
+            let viewer = registry.get(effective_viewer_id.as_str());
+            // Settings viewer is handled above; skip trait dispatch for it.
+            if effective_viewer_id.as_str() == "viewer:settings" {
+                return false;
             }
-        }
-        return;
-    }
-
-    if matches!(
-        effective_viewer_id.as_str(),
-        "viewer:fallback" | "viewer:metadata"
-    ) {
-        ui.colored_label(
-            egui::Color32::from_rgb(220, 180, 60),
-            "No dedicated viewer is available for this content yet.",
-        );
-        ui.label(format!("URL: {}", node_url));
-        if let Some(mime_hint) = node_mime_hint.as_deref() {
-            ui.small(format!("Detected content type: {mime_hint}"));
-        } else {
-            ui.small("Detected content type: unknown");
-        }
-        ui.small(
-            "Recovery: switch to WebView for compatibility content, or keep this node as a graph-backed placeholder until a native viewer lands.",
-        );
-        ui.horizontal(|ui| {
-            if ui.button("Use WebView").clicked() {
-                request_viewer_backend_swap(
-                    behavior.graph_app,
-                    state,
-                    Some(ViewerId::new("viewer:webview")),
-                );
-            }
-            if ui.button("Clear Viewer Override").clicked() {
-                request_viewer_backend_swap(behavior.graph_app, state, None);
+            if let Some(viewer) = viewer {
+                let ctx = EmbeddedViewerContext {
+                    node_key,
+                    node_url: &node_url,
+                    mime_hint: node_mime_hint.as_deref(),
+                };
+                let output = viewer.render(ui, &ctx);
+                for intent in output.intents {
+                    behavior.queue_post_render_intent(intent);
+                }
+                true
+            } else {
+                false
             }
         });
-        return;
+
+        if handled {
+            return;
+        }
     }
 
     if !tile_runtime::viewer_id_uses_composited_runtime(effective_viewer_id.as_str()) {

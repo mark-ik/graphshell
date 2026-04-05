@@ -1,5 +1,7 @@
 use super::*;
 use crate::graph::badge::{Badge, badges_for_node, tab_badge_token};
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
+use crate::shell::desktop::ui::toolbar_routing;
 
 impl<'a> GraphshellTileBehavior<'a> {
     pub(super) fn tab_title_for_tile(&mut self, pane: &TileKind) -> WidgetText {
@@ -492,9 +494,10 @@ fn render_tab_ui_impl(
                             });
                         }
                         if !behavior.graph_app.workspace.chrome_ui.show_radial_menu {
-                            behavior
-                                .graph_app
-                                .enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+                            let _ = toolbar_routing::request_radial_menu_toggle(
+                                behavior.graph_app,
+                                CommandBarFocusTarget::new(None, node_key_for_tab),
+                            );
                         }
                     }
                     crate::app::ContextCommandSurfacePreference::ContextPalette => {
