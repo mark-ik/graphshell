@@ -222,9 +222,15 @@ Current status:
      tasks for Shell-facing frame relays; `GuiFrameInbox::spawn(...)` now installs those relays
      under `ControlPanel` supervision with an explicit Shell signal-relay worker tier while
      preserving frame-bound drain semantics
-- next Workstream D slice should audit one-shot Shell-owned background requests that still bypass
-     typed mailbox/result carriers and move the smallest user-visible path under supervised
-     request delivery
+- one-shot Shell-owned provider fetches now return through a typed `HostRequestMailbox<T>`
+     carrier from `ControlPanel`, so the omnibar no longer stores or polls raw host-request
+     receivers directly on the frame thread
+- no additional user-visible one-shot Shell-owned background requests currently bypass typed
+     mailbox/result carriers; remaining Workstream D follow-up should target interruption-return
+     evidence (`SHS03` / `DI06`) rather than more mailbox conversion
+- diagnostics-pane routing now participates in the same tool-surface return capture/restore path
+     as settings/history, giving Shell-owned evidence that an interruption surface can open and
+     return to the prior graph/workbench anchor without losing domain context
 
 Done shape:
 

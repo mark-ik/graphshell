@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use crossbeam_channel::Receiver;
 use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 use egui::{Key, Modifiers, TopBottomPanel, Vec2};
@@ -14,7 +13,9 @@ use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 use winit::window::Window;
 
-use crate::shell::desktop::runtime::control_panel::ControlPanel;
+use crate::shell::desktop::runtime::control_panel::{
+    ControlPanel, HostRequestMailbox, HostRequestPoll,
+};
 use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
 use crate::shell::desktop::ui::gui_state::{
     FocusedContentStatus, LocalFocusTarget, RuntimeFocusState,
@@ -181,7 +182,7 @@ pub(crate) struct OmnibarSearchSession {
 
 struct ProviderSuggestionMailbox {
     request_query: Option<String>,
-    rx: Option<Receiver<ProviderSuggestionFetchOutcome>>,
+    result_mailbox: HostRequestMailbox<ProviderSuggestionFetchOutcome>,
     debounce_deadline: Option<Instant>,
     status: ProviderSuggestionStatus,
 }
@@ -190,7 +191,7 @@ impl ProviderSuggestionMailbox {
     fn idle() -> Self {
         Self {
             request_query: None,
-            rx: None,
+            result_mailbox: HostRequestMailbox::idle(),
             debounce_deadline: None,
             status: ProviderSuggestionStatus::Idle,
         }
@@ -199,7 +200,7 @@ impl ProviderSuggestionMailbox {
     fn debounced(request_query: String, debounce_deadline: Instant) -> Self {
         Self {
             request_query: Some(request_query),
-            rx: None,
+            result_mailbox: HostRequestMailbox::idle(),
             debounce_deadline: Some(debounce_deadline),
             status: ProviderSuggestionStatus::Loading,
         }
@@ -214,7 +215,7 @@ impl ProviderSuggestionMailbox {
 
     fn clear_pending(&mut self) {
         self.request_query = None;
-        self.rx = None;
+        self.result_mailbox.clear();
         self.debounce_deadline = None;
     }
 }

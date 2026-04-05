@@ -8,7 +8,7 @@ pub(super) fn handle_open_tool_pane_intent(
     let focused_before = active_tool_surface_return_target(tiles_tree);
     if matches!(
         kind,
-        ToolPaneState::Settings | ToolPaneState::HistoryManager
+        ToolPaneState::Settings | ToolPaneState::HistoryManager | ToolPaneState::Diagnostics
     ) {
         maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
     }

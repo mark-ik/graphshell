@@ -123,7 +123,9 @@ pub(super) fn spawn_provider_suggestion_request(
     provider: SearchProviderKind,
     query: &str,
     runtime_caches: crate::shell::desktop::runtime::caches::RuntimeCaches,
-) -> Receiver<ProviderSuggestionFetchOutcome> {
+) -> crate::shell::desktop::runtime::control_panel::HostRequestMailbox<
+    ProviderSuggestionFetchOutcome,
+> {
     let query = query.to_string();
     control_panel.spawn_blocking_host_request("omnibar_provider_suggestions", move || {
         let outcome = match fetch_provider_search_suggestions(provider, &query, &runtime_caches) {

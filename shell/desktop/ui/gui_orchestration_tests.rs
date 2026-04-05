@@ -1530,6 +1530,46 @@ fn close_history_tool_pane_restores_previous_node_focus_via_orchestration() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn close_diagnostics_tool_pane_preserves_return_context_and_emits_navigation_evidence() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let focus_node = crate::graph::NodeKey::new(78);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(focus_node)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("restore_diagnostics_focus_node", root, tiles);
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == focus_node),
+    );
+
+    let mut open_intents = vec![WorkbenchIntent::OpenToolPane {
+        kind: ToolPaneState::Diagnostics,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
+    assert!(open_intents.is_empty());
+    assert!(active_tool_pane(&tree, ToolPaneState::Diagnostics));
+
+    let mut close_intents = vec![WorkbenchIntent::CloseToolPane {
+        kind: ToolPaneState::Diagnostics,
+        restore_previous_focus: true,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(close_intents.is_empty());
+    assert_eq!(active_node_key(&tree), Some(focus_node));
+    assert!(
+        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        "expected ux:navigation_transition when diagnostics interruption returns to prior node context"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn close_tool_pane_restore_failure_emits_ux_navigation_violation_channel() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
@@ -2480,6 +2520,35 @@ fn prime_focus_authority_for_tool_pane_applies_focus_command_first() {
         &tree,
         &WorkbenchIntent::OpenToolPane {
             kind: ToolPaneState::Settings,
+        },
+    );
+
+    assert_eq!(
+        focus_authority.semantic_region,
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { pane_id: None })
+    );
+    assert_eq!(
+        focus_authority.tool_surface_return_target,
+        Some(ToolSurfaceReturnTarget::Graph(graph_view))
+    );
+}
+
+#[test]
+fn prime_focus_authority_for_diagnostics_tool_pane_captures_graph_return_target() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let tree = Tree::new("prime_diagnostics_tool_pane_focus_authority", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    super::prime_runtime_focus_authority_for_workbench_intent(
+        &mut focus_authority,
+        &mut app,
+        &tree,
+        &WorkbenchIntent::OpenToolPane {
+            kind: ToolPaneState::Diagnostics,
         },
     );
 

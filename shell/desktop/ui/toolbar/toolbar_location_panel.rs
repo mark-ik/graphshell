@@ -367,7 +367,7 @@ pub(super) fn render_location_search_panel(
     {
         let mut fetched_outcome = None;
         if let Some(deadline) = session.provider_mailbox.debounce_deadline
-            && session.provider_mailbox.rx.is_none()
+            && !session.provider_mailbox.result_mailbox.has_pending_result()
             && Instant::now() >= deadline
             && let OmnibarSessionKind::SearchProvider(provider) = session.kind
         {
@@ -387,22 +387,24 @@ pub(super) fn render_location_search_panel(
                 ));
             } else {
                 emit_omnibar_provider_mailbox_request_started(&provider_query);
-                session.provider_mailbox.rx = Some(spawn_provider_suggestion_request(
+                session.provider_mailbox.result_mailbox = spawn_provider_suggestion_request(
                     control_panel,
                     provider,
                     &provider_query,
                     graph_app.workspace.graph_runtime.runtime_caches.clone(),
-                ));
+                );
             }
         }
 
-        if let Some(rx) = &session.provider_mailbox.rx {
-            match rx.try_recv() {
-                Ok(outcome) => fetched_outcome = Some(outcome),
-                Err(crossbeam_channel::TryRecvError::Empty) => {
-                    ctx.request_repaint_after(Duration::from_millis(75));
-                }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+        match session.provider_mailbox.result_mailbox.poll_frame() {
+            HostRequestPoll::Pending => {
+                ctx.request_repaint_after(Duration::from_millis(75));
+            }
+            HostRequestPoll::Ready(outcome) => {
+                fetched_outcome = Some(outcome);
+            }
+            HostRequestPoll::Interrupted => {
+                if session.provider_mailbox.request_query.is_some() {
                     fetched_outcome = Some(ProviderSuggestionFetchOutcome {
                         matches: Vec::new(),
                         status: ProviderSuggestionStatus::Failed(ProviderSuggestionError::Network),
@@ -414,7 +416,6 @@ pub(super) fn render_location_search_panel(
             ctx.request_repaint_after(Duration::from_millis(75));
         }
         if let Some(outcome) = fetched_outcome {
-            session.provider_mailbox.rx = None;
             if !provider_query_matches_mailbox(session) {
                 session.provider_mailbox.clear_pending();
                 session.provider_mailbox.status = if session.matches.is_empty() {
@@ -575,6 +576,7 @@ mod tests {
         SearchProviderKind, provider_cache_key, provider_query_for_session,
         provider_query_matches_mailbox, should_dispatch_location_submit,
     };
+    use crate::shell::desktop::runtime::control_panel::{HostRequestMailbox, HostRequestPoll};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -677,5 +679,12 @@ mod tests {
         );
 
         assert!(!provider_query_matches_mailbox(&session));
+    }
+
+    #[test]
+    fn provider_mailbox_poll_reports_interrupted_when_idle() {
+        let mut mailbox = HostRequestMailbox::<usize>::idle();
+
+        assert!(matches!(mailbox.poll_frame(), HostRequestPoll::Interrupted));
     }
 }

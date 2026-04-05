@@ -42,6 +42,56 @@ use crate::shell::desktop::runtime::registries::{
     RegistryRuntime,
 };
 
+/// Frame-drained result carrier for short-lived host requests owned by Shell.
+///
+/// Shell keeps mailbox ownership on the frame thread and polls it at frame
+/// boundaries, so background work never mutates Shell-visible state directly.
+pub(crate) struct HostRequestMailbox<T> {
+    rx: Option<crossbeam_channel::Receiver<T>>,
+}
+
+pub(crate) enum HostRequestPoll<T> {
+    Pending,
+    Ready(T),
+    Interrupted,
+}
+
+impl<T> HostRequestMailbox<T> {
+    pub(crate) fn idle() -> Self {
+        Self { rx: None }
+    }
+
+    fn pending(rx: crossbeam_channel::Receiver<T>) -> Self {
+        Self { rx: Some(rx) }
+    }
+
+    pub(crate) fn has_pending_result(&self) -> bool {
+        self.rx.is_some()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.rx = None;
+    }
+
+    pub(crate) fn poll_frame(&mut self) -> HostRequestPoll<T> {
+        let Some(rx) = self.rx.as_ref() else {
+            return HostRequestPoll::Interrupted;
+        };
+
+        match rx.try_recv() {
+            Ok(value) => {
+                self.rx = None;
+                HostRequestPoll::Ready(value)
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => HostRequestPoll::Pending,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                self.rx = None;
+                HostRequestPoll::Interrupted
+            }
+        }
+    }
+}
+
 /// Capacity of the intent channel — limits flooding from async producers.
 const INTENT_CHANNEL_CAPACITY: usize = 256;
 
@@ -671,7 +721,7 @@ impl ControlPanel {
         &mut self,
         label: &'static str,
         work: F,
-    ) -> crossbeam_channel::Receiver<T>
+    ) -> HostRequestMailbox<T>
     where
         T: Send + 'static,
         F: FnOnce() -> T + Send + 'static,
@@ -692,7 +742,7 @@ impl ControlPanel {
                 let _ = tx.send(value);
             }
         });
-        rx
+        HostRequestMailbox::pending(rx)
     }
 
     pub(crate) fn spawn_registered_agent(
@@ -1175,16 +1225,25 @@ mod tests {
     async fn spawn_blocking_host_request_is_supervised_and_returns_result() {
         let mut panel = ControlPanel::new(None);
 
-        let rx = panel.spawn_blocking_host_request("test_blocking_request", || 42usize);
-        tokio::task::yield_now().await;
+        let mut mailbox = panel.spawn_blocking_host_request("test_blocking_request", || 42usize);
 
         assert_eq!(panel.worker_count(), 1);
-        let value = tokio::task::spawn_blocking(move || {
-            rx.recv_timeout(Duration::from_secs(2))
-                .expect("blocking host request should return a value")
-        })
-        .await
-        .expect("join should succeed");
+        let started = Instant::now();
+        let value = loop {
+            match mailbox.poll_frame() {
+                HostRequestPoll::Pending => {
+                    assert!(
+                        started.elapsed() < Duration::from_secs(2),
+                        "blocking host request should return a value"
+                    );
+                    tokio::task::yield_now().await;
+                }
+                HostRequestPoll::Ready(value) => break value,
+                HostRequestPoll::Interrupted => {
+                    panic!("blocking host request should not disconnect before delivery");
+                }
+            }
+        };
         assert_eq!(value, 42);
 
         panel.shutdown().await;

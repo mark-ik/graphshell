@@ -1270,7 +1270,9 @@ fn prime_runtime_focus_authority_for_workbench_intent(
         WorkbenchIntent::OpenToolPane { kind }
             if matches!(
                 kind,
-                ToolPaneState::Settings | ToolPaneState::HistoryManager
+                ToolPaneState::Settings
+                    | ToolPaneState::HistoryManager
+                    | ToolPaneState::Diagnostics
             ) =>
         {
             let return_target = if focus_authority.tool_surface_return_target.is_none() {
@@ -1318,7 +1320,11 @@ fn prime_runtime_focus_authority_for_workbench_intent(
         WorkbenchIntent::OpenToolUrl { url } => {
             if matches!(
                 GraphBrowserApp::resolve_tool_route(url),
-                Some(ToolPaneState::Settings | ToolPaneState::HistoryManager)
+                Some(
+                    ToolPaneState::Settings
+                        | ToolPaneState::HistoryManager
+                        | ToolPaneState::Diagnostics
+                )
             ) {
                 crate::shell::desktop::ui::gui::capture_tool_surface_return_target_in_authority(
                     focus_authority,

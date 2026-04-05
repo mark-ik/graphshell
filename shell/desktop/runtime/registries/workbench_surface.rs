@@ -747,6 +747,7 @@ fn maybe_capture_tool_surface_return_target(
         active_target,
         Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Settings))
             | Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::HistoryManager))
+            | Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Diagnostics))
     );
     if !active_is_control_surface {
         graph_app.set_pending_tool_surface_return_target(active_target);

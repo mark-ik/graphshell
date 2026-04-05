@@ -523,6 +523,8 @@ fn tool_surface_target_is_control_surface(target: &Option<ToolSurfaceReturnTarge
             crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings
         )) | Some(ToolSurfaceReturnTarget::Tool(
             crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager
+        )) | Some(ToolSurfaceReturnTarget::Tool(
+            crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics
         ))
     )
 }
