@@ -330,12 +330,15 @@ comment but do not block merge.
 
 To update a baseline:
 ```
-cargo test --features test-utils --test scenarios -- --update-snapshots
+$env:GRAPHSHELL_UPDATE_UX_SNAPSHOTS='1'; cargo test pre_wgpu_critical_path_snapshots_match_baselines --quiet
 ```
 
-This overwrites existing baselines with the live snapshot output. Updated baseline
-files must be reviewed and committed deliberately. CI does not auto-commit baseline
-updates.
+Current implementation note:
+
+- `#257` currently lands the pre-WGPU structural gate as normalized JSON baselines under `tests/scenarios/snapshots/pre_wgpu_*.json`, driven from the committed Rust critical-path suite in `shell/desktop/tests/scenarios/ux_tree_diff_gate.rs`.
+- The broader YAML-driven `UxScenario` runner can reuse the same storage/diff policy later, but the merge-blocking baseline gate no longer depends on that future runner to be effective.
+
+This overwrites existing baselines with the live snapshot output. Updated baseline files must be reviewed and committed deliberately. CI does not auto-commit baseline updates.
 
 ### 5.4 New Scenario Baselines
 

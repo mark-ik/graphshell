@@ -1,0 +1,230 @@
+{
+  "semantic_version": 2,
+  "presentation_version": 1,
+  "trace_version": 1,
+  "semantic_nodes": [
+    {
+      "ux_node_id": "uxnode://workbench/root",
+      "parent_ux_node_id": null,
+      "role": "Workbench",
+      "label": "Workbench",
+      "focused": true,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Focus"
+      ],
+      "domain": "Workbench"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#4/tabs",
+      "parent_ux_node_id": "uxnode://workbench/root",
+      "role": "TabContainer",
+      "label": "Tabs (2)",
+      "focused": true,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Focus"
+      ],
+      "domain": "Workbench"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
+      "parent_ux_node_id": "uxnode://workbench/tile/#4/tabs",
+      "role": "GraphSurface",
+      "label": "Graph View GraphViewId(<uuid:01>)",
+      "focused": false,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Focus",
+        "Navigate"
+      ],
+      "domain": "GraphView { graph_view_id: GraphViewId(<uuid:01>) }"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:02>",
+      "parent_ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
+      "role": "GraphNode",
+      "label": "https://scenario-healthy.example/page",
+      "focused": false,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Select",
+        "Open",
+        "Navigate"
+      ],
+      "domain": "Node { node_key: NodeIndex(0) }"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#2/node/NodeIndex(0)",
+      "parent_ux_node_id": "uxnode://workbench/tile/#4/tabs",
+      "role": "NodePane",
+      "label": "Node Pane NodeIndex(0)",
+      "focused": true,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Focus",
+        "Open",
+        "Close",
+        "SplitHorizontal"
+      ],
+      "domain": "Node { node_key: NodeIndex(0) }"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "parent_ux_node_id": "uxnode://workbench/root",
+      "role": "NavigatorProjection",
+      "label": "Navigator Projection Navigator:Right",
+      "focused": false,
+      "selected": false,
+      "blocked": true,
+      "degraded": false,
+      "allowed_actions": [
+        "Navigate"
+      ],
+      "domain": "NavigatorProjection { host: Navigator(Right), anchor_edge: Right, form_factor: \"sidebar\", scope: \"both\", projection_mode: \"Workbench\", projection_seed_source: \"GraphContainment\", sort_mode: \"Manual\", root_filter: None, row_count: 0, selected_count: 0, expanded_count: 0, collapsed_count: 0, workbench_group_count: 0, workbench_member_count: 0, unrelated_count: 1, recent_count: 0 }"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/route-open/boundary",
+      "parent_ux_node_id": "uxnode://workbench/root",
+      "role": "RouteOpenBoundary",
+      "label": "Route/Open Boundary",
+      "focused": false,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Open",
+        "Navigate"
+      ],
+      "domain": "RouteOpenBoundary { pending_node_context_target: None, pending_open_node: None, pending_open_connected: None }"
+    }
+  ],
+  "presentation_nodes": [
+    {
+      "ux_node_id": "uxnode://workbench/root",
+      "z_pass": "workbench:root",
+      "style_flags": [
+        "spine:egui_tiles"
+      ],
+      "transient_flags": [],
+      "render_mode": null
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#4/tabs",
+      "z_pass": "workbench.tabs",
+      "style_flags": [
+        "container:tabs"
+      ],
+      "transient_flags": [],
+      "render_mode": null
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
+      "z_pass": "workbench.content",
+      "style_flags": [
+        "surface:graph",
+        "backend:egui_graphs",
+        "presentation:tiled"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:02>",
+      "z_pass": "workbench.content",
+      "style_flags": [
+        "surface:graph-node",
+        "backend:egui_graphs"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#2/node/NodeIndex(0)",
+      "z_pass": "workbench.content",
+      "style_flags": [
+        "surface:node",
+        "presentation:tiled"
+      ],
+      "transient_flags": [],
+      "render_mode": "CompositedTexture"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "z_pass": "workbench.navigator.projection",
+      "style_flags": [
+        "surface:navigator"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/route-open/boundary",
+      "z_pass": "workbench.route_open.boundary",
+      "style_flags": [
+        "surface:route-open"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    }
+  ],
+  "trace_nodes": [
+    {
+      "ux_node_id": "uxnode://workbench/root",
+      "event_route": "workbench.frame_loop",
+      "backend_path": "egui_tiles",
+      "diagnostics_counter": 0
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#4/tabs",
+      "event_route": "workbench.tabs_route",
+      "backend_path": "egui_tiles",
+      "diagnostics_counter": 2
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
+      "event_route": "graph.input_route",
+      "backend_path": "egui_graphs",
+      "diagnostics_counter": 1
+    },
+    {
+      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:02>",
+      "event_route": "graph.node_route",
+      "backend_path": "egui_graphs",
+      "diagnostics_counter": 0
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#2/node/NodeIndex(0)",
+      "event_route": "workbench.node_route",
+      "backend_path": "viewer.composited",
+      "diagnostics_counter": 1
+    },
+    {
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "event_route": "workbench.navigator_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 0
+    },
+    {
+      "ux_node_id": "uxnode://workbench/route-open/boundary",
+      "event_route": "workbench.route_open_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 0
+    }
+  ],
+  "trace_summary": {
+    "build_duration_us": 17,
+    "route_events_observed": 0,
+    "diagnostics_events_observed": 0
+  }
+}

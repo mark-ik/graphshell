@@ -1,0 +1,318 @@
+{
+  "semantic_version": 2,
+  "presentation_version": 1,
+  "trace_version": 1,
+  "semantic_nodes": [
+    {
+      "ux_node_id": "uxnode://workbench/root",
+      "parent_ux_node_id": null,
+      "role": "Workbench",
+      "label": "Workbench",
+      "focused": true,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Focus"
+      ],
+      "domain": "Workbench"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
+      "parent_ux_node_id": "uxnode://workbench/root",
+      "role": "GraphSurface",
+      "label": "Graph View GraphViewId(<uuid:01>)",
+      "focused": true,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Focus",
+        "Navigate"
+      ],
+      "domain": "GraphView { graph_view_id: GraphViewId(<uuid:01>) }"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/root",
+      "parent_ux_node_id": "uxnode://workbench/root",
+      "role": "RadialPalette",
+      "label": "Radial Palette",
+      "focused": true,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Focus",
+        "Dismiss",
+        "Navigate"
+      ],
+      "domain": "Workbench"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier-1-ring",
+      "parent_ux_node_id": "uxnode://command/radial/root",
+      "role": "RadialTierRing",
+      "label": "Tier-1 Ring",
+      "focused": true,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Navigate"
+      ],
+      "domain": "RadialTierRing { tier: 1, visible_count: 1, page: 0, page_count: 1 }"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier-2-ring",
+      "parent_ux_node_id": "uxnode://command/radial/root",
+      "role": "RadialTierRing",
+      "label": "Tier-2 Ring",
+      "focused": false,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Navigate"
+      ],
+      "domain": "RadialTierRing { tier: 2, visible_count: 1, page: 0, page_count: 1 }"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/summary",
+      "parent_ux_node_id": "uxnode://command/radial/root",
+      "role": "RadialSummary",
+      "label": "Radial Layout Summary",
+      "focused": false,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Navigate"
+      ],
+      "domain": "RadialSummary { tier1_visible_count: 1, tier2_visible_count: 1, tier2_page: 0, tier2_page_count: 1, overflow_hidden_entries: 0, label_pre_collisions: 0, label_post_collisions: 0, fallback_to_palette: false, fallback_reason: None }"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier1/domain/workbench/sector/0",
+      "parent_ux_node_id": "uxnode://command/radial/tier-1-ring",
+      "role": "RadialSector",
+      "label": "workbench.toggle_command_palette [Workbench]",
+      "focused": true,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Invoke",
+        "Navigate"
+      ],
+      "domain": "RadialSector { action_id: \"workbench.toggle_command_palette\", enabled: true, tier: 1, rail_position: 0.0, hover_scale: 1.15, angle_rad: 0.0, page: 0 }"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier2/domain/graph/sector/1",
+      "parent_ux_node_id": "uxnode://command/radial/tier-2-ring",
+      "role": "RadialSector",
+      "label": "graph.open_selected_node [Graph]",
+      "focused": false,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Invoke",
+        "Navigate"
+      ],
+      "domain": "RadialSector { action_id: \"graph.open_selected_node\", enabled: true, tier: 2, rail_position: 0.25, hover_scale: 1.0, angle_rad: 1.2, page: 0 }"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "parent_ux_node_id": "uxnode://workbench/root",
+      "role": "NavigatorProjection",
+      "label": "Navigator Projection Navigator:Right",
+      "focused": false,
+      "selected": false,
+      "blocked": true,
+      "degraded": false,
+      "allowed_actions": [
+        "Navigate"
+      ],
+      "domain": "NavigatorProjection { host: Navigator(Right), anchor_edge: Right, form_factor: \"sidebar\", scope: \"both\", projection_mode: \"Workbench\", projection_seed_source: \"GraphContainment\", sort_mode: \"Manual\", root_filter: None, row_count: 0, selected_count: 0, expanded_count: 0, collapsed_count: 0, workbench_group_count: 0, workbench_member_count: 0, unrelated_count: 0, recent_count: 0 }"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/route-open/boundary",
+      "parent_ux_node_id": "uxnode://workbench/root",
+      "role": "RouteOpenBoundary",
+      "label": "Route/Open Boundary",
+      "focused": false,
+      "selected": false,
+      "blocked": false,
+      "degraded": false,
+      "allowed_actions": [
+        "Open",
+        "Navigate"
+      ],
+      "domain": "RouteOpenBoundary { pending_node_context_target: None, pending_open_node: None, pending_open_connected: None }"
+    }
+  ],
+  "presentation_nodes": [
+    {
+      "ux_node_id": "uxnode://workbench/root",
+      "z_pass": "workbench:root",
+      "style_flags": [
+        "spine:egui_tiles"
+      ],
+      "transient_flags": [],
+      "render_mode": null
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
+      "z_pass": "workbench.content",
+      "style_flags": [
+        "surface:graph",
+        "backend:egui_graphs",
+        "presentation:tiled"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/root",
+      "z_pass": "command.radial",
+      "style_flags": [
+        "surface:radial"
+      ],
+      "transient_flags": [
+        "mode:radial"
+      ],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier-1-ring",
+      "z_pass": "command.radial.tier1",
+      "style_flags": [
+        "surface:radial-tier"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier-2-ring",
+      "z_pass": "command.radial.tier2",
+      "style_flags": [
+        "surface:radial-tier"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/summary",
+      "z_pass": "command.radial.summary",
+      "style_flags": [
+        "surface:radial-summary"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier1/domain/workbench/sector/0",
+      "z_pass": "command.radial.sector",
+      "style_flags": [
+        "surface:radial-sector"
+      ],
+      "transient_flags": [
+        "hovered"
+      ],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier2/domain/graph/sector/1",
+      "z_pass": "command.radial.sector",
+      "style_flags": [
+        "surface:radial-sector"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "z_pass": "workbench.navigator.projection",
+      "style_flags": [
+        "surface:navigator"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    },
+    {
+      "ux_node_id": "uxnode://workbench/route-open/boundary",
+      "z_pass": "workbench.route_open.boundary",
+      "style_flags": [
+        "surface:route-open"
+      ],
+      "transient_flags": [],
+      "render_mode": "EmbeddedEgui"
+    }
+  ],
+  "trace_nodes": [
+    {
+      "ux_node_id": "uxnode://workbench/root",
+      "event_route": "workbench.frame_loop",
+      "backend_path": "egui_tiles",
+      "diagnostics_counter": 0
+    },
+    {
+      "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
+      "event_route": "graph.input_route",
+      "backend_path": "egui_graphs",
+      "diagnostics_counter": 0
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/root",
+      "event_route": "command.radial_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 2
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier-1-ring",
+      "event_route": "command.radial_tier1_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 1
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier-2-ring",
+      "event_route": "command.radial_tier2_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 1
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/summary",
+      "event_route": "command.radial_summary_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 0
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier1/domain/workbench/sector/0",
+      "event_route": "command.radial_sector_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 1
+    },
+    {
+      "ux_node_id": "uxnode://command/radial/tier2/domain/graph/sector/1",
+      "event_route": "command.radial_sector_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 1
+    },
+    {
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "event_route": "workbench.navigator_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 0
+    },
+    {
+      "ux_node_id": "uxnode://workbench/route-open/boundary",
+      "event_route": "workbench.route_open_route",
+      "backend_path": "egui",
+      "diagnostics_counter": 0
+    }
+  ],
+  "trace_summary": {
+    "build_duration_us": 14,
+    "route_events_observed": 0,
+    "diagnostics_events_observed": 0
+  }
+}
