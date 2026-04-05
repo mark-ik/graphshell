@@ -1963,6 +1963,25 @@ impl GraphStore {
                         );
                     }
                 }
+                ArchivedLogEntry::UpdateNodeViewerOverride {
+                    node_id,
+                    viewer_override,
+                } => {
+                    let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::SetNodeViewerOverride {
+                                key,
+                                viewer_override: viewer_override
+                                    .as_ref()
+                                    .map(|s| s.to_string()),
+                            },
+                        );
+                    }
+                }
                 // Legacy entry — address_kind is now always derived from url.
                 // Silently skip: the preceding UpdateNodeUrl replay has already
                 // set both address_kind and address correctly from the URL.

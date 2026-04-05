@@ -32,6 +32,7 @@ pub(crate) struct EmbeddedViewerContext<'a> {
     pub(crate) node_key: crate::graph::NodeKey,
     pub(crate) node_url: &'a str,
     pub(crate) mime_hint: Option<&'a str>,
+    pub(crate) file_access_policy: &'a crate::prefs::FileAccessPolicy,
 }
 
 /// Trait for viewers that render directly into an egui `Ui`.
@@ -76,6 +77,10 @@ impl EmbeddedViewerRegistry {
         registry.register(Box::new(super::super::viewers::PlaintextEmbeddedViewer));
         registry.register(Box::new(super::super::viewers::ImageEmbeddedViewer));
         registry.register(Box::new(super::super::viewers::DirectoryEmbeddedViewer));
+        #[cfg(feature = "pdf")]
+        registry.register(Box::new(super::super::viewers::PdfEmbeddedViewer));
+        #[cfg(feature = "audio")]
+        registry.register(Box::new(super::super::viewers::AudioEmbeddedViewer));
         registry.register(Box::new(FallbackViewer));
         registry
     }
@@ -429,9 +434,20 @@ impl Default for ViewerRegistry {
         registry.register_mime("application/toml", "viewer:plaintext");
         registry.register_mime("application/yaml", "viewer:plaintext");
         registry.register_mime("application/x-yaml", "viewer:plaintext");
+        #[cfg(feature = "pdf")]
         registry.register_mime("application/pdf", "viewer:pdf");
         registry.register_mime("text/csv", "viewer:csv");
+        #[cfg(feature = "audio")]
+        {
+            registry.register_mime("audio/mpeg", "viewer:audio");
+            registry.register_mime("audio/ogg", "viewer:audio");
+            registry.register_mime("audio/flac", "viewer:audio");
+            registry.register_mime("audio/wav", "viewer:audio");
+            registry.register_mime("audio/x-wav", "viewer:audio");
+            registry.register_mime("audio/aac", "viewer:audio");
+        }
         registry.register_extension("md", "viewer:markdown");
+        #[cfg(feature = "pdf")]
         registry.register_extension("pdf", "viewer:pdf");
         registry.register_extension("csv", "viewer:csv");
         registry.register_extension("txt", "viewer:plaintext");
@@ -443,6 +459,14 @@ impl Default for ViewerRegistry {
         registry.register_extension("py", "viewer:plaintext");
         registry.register_extension("js", "viewer:plaintext");
         registry.register_extension("ts", "viewer:plaintext");
+        #[cfg(feature = "audio")]
+        {
+            registry.register_extension("mp3", "viewer:audio");
+            registry.register_extension("ogg", "viewer:audio");
+            registry.register_extension("flac", "viewer:audio");
+            registry.register_extension("wav", "viewer:audio");
+            registry.register_extension("aac", "viewer:audio");
+        }
         registry.register_capabilities(
             "viewer:webview",
             ViewerSubsystemCapabilities {
@@ -456,8 +480,11 @@ impl Default for ViewerRegistry {
         registry.register_capabilities("viewer:metadata", ViewerSubsystemCapabilities::full());
         registry.register_capabilities("viewer:plaintext", ViewerSubsystemCapabilities::full());
         registry.register_capabilities("viewer:markdown", ViewerSubsystemCapabilities::full());
+        #[cfg(feature = "pdf")]
         registry.register_capabilities("viewer:pdf", ViewerSubsystemCapabilities::full());
         registry.register_capabilities("viewer:csv", ViewerSubsystemCapabilities::full());
+        #[cfg(feature = "audio")]
+        registry.register_capabilities("viewer:audio", ViewerSubsystemCapabilities::full());
         registry
     }
 }
@@ -473,7 +500,7 @@ fn render_mode_for_viewer_id(viewer_id: &str) -> ViewerRenderMode {
         "viewer:webview" => ViewerRenderMode::CompositedTexture,
         "viewer:wry" => ViewerRenderMode::NativeOverlay,
         "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
-        | "viewer:settings" | "viewer:metadata" => ViewerRenderMode::EmbeddedEgui,
+        | "viewer:settings" | "viewer:metadata" | "viewer:audio" => ViewerRenderMode::EmbeddedEgui,
         _ => ViewerRenderMode::Placeholder,
     }
 }
@@ -653,6 +680,7 @@ mod tests {
     // --- select_for tests ---
 
     #[test]
+    #[cfg(feature = "pdf")]
     fn select_for_pdf_mime_routes_to_pdf_viewer() {
         let registry = ViewerRegistry::default();
         assert_eq!(

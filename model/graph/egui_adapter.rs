@@ -1723,6 +1723,10 @@ impl EguiGraphState {
             | (GraphDelta::SetNodeThumbnail { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (GraphDelta::SetNodeFavicon { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (GraphDelta::SetNodeMimeHint { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
+            | (
+                GraphDelta::SetNodeViewerOverride { .. },
+                GraphDeltaResult::NodeMetadataUpdated(_),
+            )
             | (GraphDelta::SetNodePinned { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
             | (
                 GraphDelta::AppendFrameLayoutHint { .. },

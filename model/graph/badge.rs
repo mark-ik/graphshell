@@ -31,6 +31,8 @@ pub(crate) enum Badge {
     Pinned,
     Starred,
     Unread,
+    /// Content-type badge derived from `mime_hint` (e.g. PDF, Image, Audio, Directory).
+    ContentType { label: String, icon: BadgeIcon },
     Tag { label: String, icon: BadgeIcon },
 }
 
@@ -87,6 +89,7 @@ pub(crate) fn badges_for_node(node: &Node, workspace_count: usize, is_crashed: b
     // Prepend the primary accepted/verified classification as a semantic badge
     // (spec §Badge Policy: semantic badges outrank backend badges in graph view).
     // Only show if not already present via the tag path to avoid duplication.
+    let mut has_classification = false;
     if let Some(primary) = node.classifications.iter().find(|c| {
         c.primary
             && matches!(
@@ -111,9 +114,65 @@ pub(crate) fn badges_for_node(node: &Node, workspace_count: usize, is_crashed: b
                 icon: BadgeIcon::None,
             },
         );
+        has_classification = true;
+    }
+
+    // Content-type badge derived from mime_hint (placed after classification
+    // badges but before user-tag badges).
+    if let Some(badge) = content_type_badge_for_node(node) {
+        let insert_pos = badges
+            .iter()
+            .position(|b| matches!(b, Badge::Tag { .. }))
+            .map(|p| if has_classification { p + 1 } else { p })
+            .unwrap_or(badges.len());
+        badges.insert(insert_pos, badge);
     }
 
     badges
+}
+
+/// Derive a content-type badge from a node's `mime_hint` and address kind.
+fn content_type_badge_for_node(node: &Node) -> Option<Badge> {
+    use super::AddressKind;
+
+    if matches!(node.address.address_kind(), AddressKind::Directory) {
+        return Some(Badge::ContentType {
+            label: "Directory".to_string(),
+            icon: BadgeIcon::Emoji("📁".to_string()),
+        });
+    }
+
+    let mime = node.mime_hint.as_deref()?;
+    let (label, icon) = if mime == "application/pdf" {
+        ("PDF", "📄")
+    } else if mime.starts_with("image/") {
+        ("Image", "🖼")
+    } else if mime.starts_with("audio/") {
+        ("Audio", "🔊")
+    } else if mime.starts_with("video/") {
+        ("Video", "🎬")
+    } else if mime.starts_with("text/") || is_structured_text_mime(mime) {
+        ("Text", "📝")
+    } else {
+        return None;
+    };
+
+    Some(Badge::ContentType {
+        label: label.to_string(),
+        icon: BadgeIcon::Emoji(icon.to_string()),
+    })
+}
+
+fn is_structured_text_mime(mime: &str) -> bool {
+    matches!(
+        mime,
+        "application/json"
+            | "application/toml"
+            | "application/yaml"
+            | "application/xml"
+            | "application/javascript"
+            | "application/typescript"
+    )
 }
 
 pub(crate) fn badges_for_tags(
@@ -187,7 +246,7 @@ pub(crate) fn compact_badge_token(badge: &Badge) -> String {
         Badge::Pinned => "📌".to_string(),
         Badge::Starred => "⭐".to_string(),
         Badge::Unread => "●".to_string(),
-        Badge::Tag { label, icon } => match icon {
+        Badge::ContentType { label, icon } | Badge::Tag { label, icon } => match icon {
             BadgeIcon::Emoji(value) => value.clone(),
             BadgeIcon::Lucide(_) => first_grapheme_fallback(label),
             BadgeIcon::None => first_grapheme_fallback(label),
@@ -201,11 +260,15 @@ pub(crate) fn tab_badge_token(badge: &Badge) -> Option<String> {
         Badge::Pinned => Some("📌".to_string()),
         Badge::Starred => Some("⭐".to_string()),
         Badge::Unread => Some("●".to_string()),
-        Badge::Tag {
+        Badge::ContentType {
+            icon: BadgeIcon::Emoji(value),
+            ..
+        }
+        | Badge::Tag {
             icon: BadgeIcon::Emoji(value),
             ..
         } => Some(value.clone()),
-        Badge::Tag { .. } | Badge::WorkspaceCount(_) => None,
+        Badge::ContentType { .. } | Badge::Tag { .. } | Badge::WorkspaceCount(_) => None,
     }
 }
 
@@ -247,7 +310,7 @@ fn badge_label(badge: &Badge) -> String {
         Badge::Pinned => TAG_PIN.to_string(),
         Badge::Starred => TAG_STARRED.to_string(),
         Badge::Unread => TAG_UNREAD.to_string(),
-        Badge::Tag { label, .. } => label.clone(),
+        Badge::ContentType { label, .. } | Badge::Tag { label, .. } => label.clone(),
     }
 }
 

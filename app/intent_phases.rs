@@ -1216,6 +1216,34 @@ impl GraphBrowserApp {
                     );
                 }
             }
+            GraphIntent::UpdateNodeViewerOverride {
+                key,
+                viewer_override,
+            } => {
+                let node_id = self
+                    .workspace
+                    .domain
+                    .graph
+                    .get_node(key)
+                    .map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = self
+                    .apply_graph_delta_and_sync(GraphDelta::SetNodeViewerOverride {
+                        key,
+                        viewer_override: viewer_override.clone(),
+                    })
+                else {
+                    unreachable!("viewer override delta must return NodeMetadataUpdated");
+                };
+                if updated
+                    && let Some(store) = &mut self.services.persistence
+                    && let Some(node_id) = node_id
+                {
+                    store.log_mutation(&LogEntry::UpdateNodeViewerOverride {
+                        node_id: node_id.to_string(),
+                        viewer_override,
+                    });
+                }
+            }
             GraphIntent::RecordFrameLayoutHint { frame, hint } => {
                 let frame_id = self
                     .workspace

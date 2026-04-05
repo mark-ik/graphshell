@@ -138,9 +138,14 @@ fn render_node_pane_impl(
         ui.add_space(4.0);
     }
     let effective_viewer_id = state
-        .viewer_id_override
-        .as_ref()
-        .map(|viewer_id| viewer_id.as_str().to_string())
+        .resolved_viewer_id
+        .clone()
+        .or_else(|| {
+            state
+                .viewer_id_override
+                .as_ref()
+                .map(|viewer_id| viewer_id.as_str().to_string())
+        })
         .unwrap_or_else(|| {
             tile_runtime::TileCoordinator::preferred_viewer_id_for_content(
                 behavior.graph_app,
@@ -211,6 +216,7 @@ fn render_node_pane_impl(
                     node_key,
                     node_url: &node_url,
                     mime_hint: node_mime_hint.as_deref(),
+                    file_access_policy: &behavior.graph_app.file_access_policy,
                 };
                 let output = viewer.render(ui, &ctx);
                 for intent in output.intents {
@@ -463,8 +469,13 @@ fn render_node_pane_impl(
     }
 }
 
-fn render_embedded_image(ui: &mut egui::Ui, node_key: NodeKey, url: &str) -> Result<(), String> {
-    let path = guarded_file_path_from_node_url(url)?;
+fn render_embedded_image(
+    ui: &mut egui::Ui,
+    node_key: NodeKey,
+    url: &str,
+    policy: &crate::prefs::FileAccessPolicy,
+) -> Result<(), String> {
+    let path = guarded_file_path_from_node_url(url, policy)?;
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     let image = image::load_from_memory(&bytes)
@@ -527,7 +538,7 @@ fn render_directory_view(
     node_key: NodeKey,
     url: &str,
 ) -> Result<(), String> {
-    let path = guarded_file_path_from_node_url(url)?;
+    let path = guarded_file_path_from_node_url(url, &behavior.graph_app.file_access_policy)?;
     let read_dir = std::fs::read_dir(&path)
         .map_err(|err| format!("Failed to read directory '{}': {err}", path.display()))?;
 

@@ -228,6 +228,10 @@ pub(crate) struct NodePaneState {
     /// Whether the node audit panel is expanded in this pane.
     #[serde(default)]
     pub show_node_audit: bool,
+    /// Cached resolved viewer ID computed at pane attach / refresh.
+    /// When `Some`, skips per-frame `preferred_viewer_id_for_content` resolution.
+    #[serde(skip)]
+    pub resolved_viewer_id: Option<String>,
 }
 
 impl NodePaneState {
@@ -241,6 +245,7 @@ impl NodePaneState {
             presentation_mode: PanePresentationMode::Tiled,
             show_node_history: false,
             show_node_audit: false,
+            resolved_viewer_id: None,
         }
     }
 
@@ -254,6 +259,7 @@ impl NodePaneState {
             presentation_mode: PanePresentationMode::Tiled,
             show_node_history: false,
             show_node_audit: false,
+            resolved_viewer_id: None,
         }
     }
 }
@@ -298,6 +304,7 @@ impl From<NodePaneStateCompat> for NodePaneState {
                 presentation_mode: PanePresentationMode::Tiled,
                 show_node_history: false,
                 show_node_audit: false,
+                resolved_viewer_id: None,
             },
             NodePaneStateCompat::Current {
                 pane_id,
@@ -323,6 +330,7 @@ impl From<NodePaneStateCompat> for NodePaneState {
                     presentation_mode,
                     show_node_history: false,
                     show_node_audit: false,
+                    resolved_viewer_id: None,
                 }
             }
         }

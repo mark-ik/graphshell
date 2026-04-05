@@ -280,6 +280,7 @@ pub struct GraphBrowserApp {
     pub workspace: GraphWorkspace,
     workbench_tile_selection: WorkbenchTileSelectionState,
     services: AppServices,
+    pub(crate) file_access_policy: crate::prefs::FileAccessPolicy,
 }
 
 impl GraphBrowserApp {
@@ -540,6 +541,7 @@ impl GraphBrowserApp {
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
             services: AppServices::new(persistence),
+            file_access_policy: crate::prefs::FileAccessPolicy::default(),
         };
         app.load_persisted_ui_settings();
         app
@@ -707,6 +709,7 @@ impl GraphBrowserApp {
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
             services: AppServices::new(None),
+            file_access_policy: crate::prefs::FileAccessPolicy::default(),
         }
     }
 
@@ -1592,6 +1595,7 @@ impl GraphBrowserApp {
                 | GraphIntent::RejectClassification { .. }
                 | GraphIntent::SetPrimaryClassification { .. }
                 | GraphIntent::UpdateNodeMimeHint { .. }
+                | GraphIntent::UpdateNodeViewerOverride { .. }
                 | GraphIntent::RecordFrameLayoutHint { .. }
                 | GraphIntent::RemoveFrameLayoutHint { .. }
                 | GraphIntent::MoveFrameLayoutHint { .. }

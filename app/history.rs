@@ -264,6 +264,16 @@ impl super::GraphBrowserApp {
                 .get_node(key)
                 .map(|node| node.mime_hint != mime_hint)
                 .unwrap_or(false),
+            super::GraphMutation::UpdateNodeViewerOverride {
+                key,
+                viewer_override,
+            } => self
+                .workspace
+                .domain
+                .graph
+                .get_node(key)
+                .map(|node| node.viewer_override != viewer_override)
+                .unwrap_or(false),
             _ => false,
         }
     }

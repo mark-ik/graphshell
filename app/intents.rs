@@ -385,6 +385,10 @@ pub enum GraphMutation {
         key: NodeKey,
         mime_hint: Option<String>,
     },
+    UpdateNodeViewerOverride {
+        key: NodeKey,
+        viewer_override: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -938,6 +942,10 @@ pub enum GraphIntent {
         key: NodeKey,
         mime_hint: Option<String>,
     },
+    UpdateNodeViewerOverride {
+        key: NodeKey,
+        viewer_override: Option<String>,
+    },
     RecordFrameLayoutHint {
         frame: NodeKey,
         hint: crate::graph::FrameLayoutHint,
@@ -1047,6 +1055,7 @@ impl GraphIntent {
             | Self::TrustPeer { .. }
             | Self::GrantWorkspaceAccess { .. }
             | Self::UpdateNodeMimeHint { .. }
+            | Self::UpdateNodeViewerOverride { .. }
             | Self::RecordFrameLayoutHint { .. }
             | Self::RemoveFrameLayoutHint { .. }
             | Self::MoveFrameLayoutHint { .. }
@@ -1396,6 +1405,13 @@ impl From<GraphMutation> for GraphIntent {
             GraphMutation::UpdateNodeMimeHint { key, mime_hint } => {
                 Self::UpdateNodeMimeHint { key, mime_hint }
             }
+            GraphMutation::UpdateNodeViewerOverride {
+                key,
+                viewer_override,
+            } => Self::UpdateNodeViewerOverride {
+                key,
+                viewer_override,
+            },
         }
     }
 }
@@ -1712,6 +1728,13 @@ impl GraphIntent {
                     mime_hint: mime_hint.clone(),
                 })
             }
+            Self::UpdateNodeViewerOverride {
+                key,
+                viewer_override,
+            } => Some(GraphMutation::UpdateNodeViewerOverride {
+                key: *key,
+                viewer_override: viewer_override.clone(),
+            }),
             Self::RecordFrameLayoutHint { .. }
             | Self::RemoveFrameLayoutHint { .. }
             | Self::MoveFrameLayoutHint { .. }

@@ -667,7 +667,6 @@ fn register_verso_mod_extensions(dynamic: &mut DynamicRegistrySurfaces) -> Vec<M
 
     for (mime, viewer_id) in [
         ("text/html", "viewer:webview"),
-        ("application/pdf", "viewer:webview"),
         ("image/svg+xml", "viewer:webview"),
         ("text/css", "viewer:webview"),
         ("application/javascript", "viewer:webview"),
@@ -678,16 +677,35 @@ fn register_verso_mod_extensions(dynamic: &mut DynamicRegistrySurfaces) -> Vec<M
             previous_viewer_id: previous.map(str::to_string),
         });
     }
+    // When the native PDF viewer feature is compiled in, let its registration
+    // from ViewerRegistry::default() stand.  Otherwise Servo handles PDFs.
+    #[cfg(not(feature = "pdf"))]
+    {
+        let previous = dynamic
+            .viewer
+            .register_mime("application/pdf", "viewer:webview");
+        records.push(ModExtensionRecord::ViewerMime {
+            mime: "application/pdf".to_string(),
+            previous_viewer_id: previous.map(str::to_string),
+        });
+    }
 
     for (extension, viewer_id) in [
         ("html", "viewer:webview"),
         ("htm", "viewer:webview"),
-        ("pdf", "viewer:webview"),
         ("svg", "viewer:webview"),
     ] {
         let previous = dynamic.viewer.register_extension(extension, viewer_id);
         records.push(ModExtensionRecord::ViewerExtension {
             extension: extension.to_string(),
+            previous_viewer_id: previous.map(str::to_string),
+        });
+    }
+    #[cfg(not(feature = "pdf"))]
+    {
+        let previous = dynamic.viewer.register_extension("pdf", "viewer:webview");
+        records.push(ModExtensionRecord::ViewerExtension {
+            extension: "pdf".to_string(),
             previous_viewer_id: previous.map(str::to_string),
         });
     }
@@ -4076,6 +4094,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "pdf")]
     fn runtime_owned_mod_registry_can_unload_verso_and_restore_pdf_viewer_mapping() {
         let runtime = RegistryRuntime::new_with_mods();
         let before = runtime

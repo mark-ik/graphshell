@@ -17,7 +17,7 @@ impl EmbeddedViewer for PlaintextEmbeddedViewer {
 
         let mut intents = Vec::new();
 
-        match load_plaintext_content(ctx.node_url) {
+        match load_plaintext_content(ctx.node_url, ctx.file_access_policy) {
             Ok(PlaintextContent::Text(content)) => {
                 let markdown_mode = is_markdown(ctx);
                 egui::ScrollArea::vertical().show(ui, |ui| {
@@ -238,8 +238,8 @@ enum PlaintextContent {
     HexPreview(String),
 }
 
-fn load_plaintext_content(url: &str) -> Result<PlaintextContent, String> {
-    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(url)?;
+fn load_plaintext_content(url: &str, policy: &crate::prefs::FileAccessPolicy) -> Result<PlaintextContent, String> {
+    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(url, policy)?;
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     Ok(decode_plaintext_content(&bytes))

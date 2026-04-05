@@ -796,6 +796,11 @@ pub struct Node {
     /// Content-Type header provides a more precise value.
     pub mime_hint: Option<String>,
 
+    /// User-set viewer override that takes precedence over all MIME/address-based
+    /// selection.  Stored in graph data and survives persistence/sync.
+    /// `None` means "use automatic viewer selection".
+    pub viewer_override: Option<String>,
+
     /// Typed address — carries both the URL scheme classification and the raw
     /// URL string (or clip id for clip routes). Use `address.address_kind()` to
     /// get the scheme classification and `address.as_url_str()` to get the URL.
@@ -867,6 +872,7 @@ impl Node {
             session_scroll: None,
             session_form_draft: None,
             mime_hint: None,
+            viewer_override: None,
             address: address_from_url(url),
             frame_layout_hints: Vec::new(),
             frame_split_offer_suppressed: false,
@@ -1877,6 +1883,7 @@ impl Graph {
             session_scroll: None,
             session_form_draft: None,
             mime_hint: detect_mime(&url, None),
+            viewer_override: None,
             address: address_from_url(&url),
             frame_layout_hints: Vec::new(),
             frame_split_offer_suppressed: false,
@@ -1988,6 +1995,21 @@ impl Graph {
             return false;
         }
         node.mime_hint = mime_hint;
+        true
+    }
+
+    pub(crate) fn set_node_viewer_override(
+        &mut self,
+        key: NodeKey,
+        viewer_override: Option<String>,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.viewer_override == viewer_override {
+            return false;
+        }
+        node.viewer_override = viewer_override;
         true
     }
 

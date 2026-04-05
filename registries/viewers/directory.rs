@@ -48,7 +48,7 @@ fn render_directory(
     intents: &mut Vec<crate::app::GraphIntent>,
 ) -> Result<(), String> {
     let path =
-        crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(ctx.node_url)?;
+        crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(ctx.node_url, ctx.file_access_policy)?;
 
     let entries: Vec<(String, PathBuf, bool)> = DIR_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();

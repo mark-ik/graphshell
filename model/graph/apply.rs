@@ -98,6 +98,10 @@ pub enum GraphDelta {
         key: NodeKey,
         mime_hint: Option<String>,
     },
+    SetNodeViewerOverride {
+        key: NodeKey,
+        viewer_override: Option<String>,
+    },
     SetNodePinned {
         key: NodeKey,
         is_pinned: bool,
@@ -230,6 +234,12 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
         GraphDelta::SetNodeMimeHint { key, mime_hint } => {
             GraphDeltaResult::NodeMetadataUpdated(graph.set_node_mime_hint(key, mime_hint))
         }
+        GraphDelta::SetNodeViewerOverride {
+            key,
+            viewer_override,
+        } => GraphDeltaResult::NodeMetadataUpdated(
+            graph.set_node_viewer_override(key, viewer_override),
+        ),
         GraphDelta::SetNodePinned { key, is_pinned } => {
             GraphDeltaResult::NodeMetadataUpdated(graph.set_node_pinned(key, is_pinned))
         }

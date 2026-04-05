@@ -245,7 +245,12 @@ impl TileCoordinator {
     ) {
         for (_, tile) in tiles_tree.tiles.iter_mut() {
             if let Tile::Pane(TileKind::Node(state)) = tile {
-                state.render_mode = Self::resolve_node_pane_render_mode(state, graph_app);
+                let viewer_id = Self::node_pane_effective_viewer_id(state, graph_app);
+                state.render_mode = viewer_id
+                    .as_deref()
+                    .map(|vid| Self::render_mode_for_effective_viewer_id(graph_app, vid))
+                    .unwrap_or(TileRenderMode::Placeholder);
+                state.resolved_viewer_id = viewer_id;
             }
         }
     }

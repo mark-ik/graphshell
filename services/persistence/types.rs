@@ -724,6 +724,12 @@ pub enum LogEntry {
         /// `None` clears the hint; `Some(mime)` sets it.
         mime_hint: Option<String>,
     },
+    /// Set (or clear) the durable viewer override on a node.
+    UpdateNodeViewerOverride {
+        node_id: String,
+        /// `None` clears the override (automatic selection); `Some(viewer_id)` forces a viewer.
+        viewer_override: Option<String>,
+    },
     /// Legacy WAL entry — address kind is now fully derived from the URL.
     /// Kept for backward-compatible log replay only; no new entries are written.
     /// On replay the entry is treated as a no-op (address re-derived from URL).

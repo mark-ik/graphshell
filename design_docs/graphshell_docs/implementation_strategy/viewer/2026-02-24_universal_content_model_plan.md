@@ -159,6 +159,11 @@ Track B must not block Track A shipping.
 
 ### Step 1: Node Content Fields And WAL
 
+**Status (2026-04-05)**: Implemented. `mime_hint: Option<String>` and `address_kind: AddressKind`
+added to the Node model with full WAL persistence (GraphDelta, LogEntry, replay). MIME inference
+wired into `ViewerRegistry::select_for_uri()` via `mime_guess` and `infer` crates. AddressKind
+resolution handles File, Directory, Http, and GraphshellClip.
+
 **Goal**: `Node` carries `mime_hint` and `address_kind`, and both survive persistence.
 
 Work:
@@ -185,6 +190,12 @@ Implementation notes:
 ---
 
 ### Step 2: ViewerRegistry Selection In Runtime Paths
+
+**Status (2026-04-05)**: Implemented. `viewer_override: Option<String>` added to Node with full WAL
+chain (GraphDelta::SetNodeViewerOverride, LogEntry, intent reducer, undo check, unsaved-changes).
+`NodePaneState.resolved_viewer_id: Option<String>` caches the resolved viewer per pane and is
+refreshed in `refresh_node_pane_render_modes()`. ViewerRegistry selection policy routes through
+override → MIME → extension → magic-byte → fallback.
 
 **Goal**: node activation uses the canonical viewer-selection contract rather than ad hoc routing.
 
@@ -216,7 +227,7 @@ Critical policy note:
 
 ### Step 3: PlaintextViewer
 
-**Status (2026-07-15)**: Implemented. `PlaintextEmbeddedViewer` lives in `registries/viewers/plaintext.rs`
+**Status (2026-04-05)**: Implemented. `PlaintextEmbeddedViewer` lives in `registries/viewers/plaintext.rs`
 with full `pulldown-cmark`-based markdown rendering (headings, emphasis, links with `SetNodeUrl`
 intent, code blocks, lists). The `EmbeddedViewer` trait and `EmbeddedViewerRegistry` are in
 `registries/atomic/viewer.rs`. Dispatch in `node_pane_ui.rs` uses the trait registry instead of
@@ -251,7 +262,7 @@ Implementation guidance:
 
 ### Step 4: ImageViewer
 
-**Status (2026-07-15)**: Implemented. `ImageEmbeddedViewer` lives in `registries/viewers/image_viewer.rs`
+**Status (2026-04-05)**: Implemented. `ImageEmbeddedViewer` lives in `registries/viewers/image_viewer.rs`
 with a bounded thread-local texture cache (LRU, 64 entries). Raster formats decode via the `image`
 crate with content-hash deduplication. SVG/resvg and animated-GIF support are deferred.
 
@@ -283,7 +294,7 @@ Implementation guidance:
 
 ### Step 5: DirectoryViewer
 
-**Status (2026-07-15)**: Implemented. `DirectoryEmbeddedViewer` lives in `registries/viewers/directory.rs`
+**Status (2026-04-05)**: Implemented. `DirectoryEmbeddedViewer` lives in `registries/viewers/directory.rs`
 with a thread-local per-node directory listing cache that invalidates on URL change. Parent
 navigation and child clicks emit `SetNodeUrl` intents. Drag-to-graph node creation is deferred.
 
@@ -315,11 +326,13 @@ Critical boundary:
 
 ### Step 6: Security And File Permission Guard
 
-**Status (2026-07-15)**: Partially implemented. `FileAccessPolicy` struct added to `prefs.rs` with
+**Status (2026-04-05)**: Implemented. `FileAccessPolicy` struct in `prefs.rs` with
 `allowed_directories` and `home_directory_auto_allow` fields. `ensure_local_file_access_allowed()`
-in `tile_behavior.rs` checks the policy's allow-list then home-dir auto-allow. MIME magic-byte
-fallback via the `infer` crate is wired into `ViewerRegistry::select_for_uri()`. Threading the
-runtime policy from app state into the guard (instead of using `Default`) is deferred.
+and `guarded_file_path_from_node_url()` in `tile_behavior.rs` accept `&FileAccessPolicy`.
+Runtime policy threaded from `GraphBrowserApp.file_access_policy` through
+`EmbeddedViewerContext.file_access_policy` to all embedded viewers (plaintext, image, directory).
+MIME magic-byte fallback via the `infer` crate is wired into `ViewerRegistry::select_for_uri()`.
+Two contract tests cover denied paths and explicit directory access.
 
 **Goal**: make local-file viewing safe enough to ship before broader filesystem features open up.
 
@@ -347,6 +360,12 @@ Critical sequencing note:
 
 ### Step 7: Badge And Tag Integration
 
+**Status (2026-04-05)**: Implemented. `Badge::ContentType { label, icon }` variant added to
+`model/graph/badge.rs`. `content_type_badge_for_node()` derives badges from `mime_hint` and
+`address_kind()` (Directory→📁, PDF→📄, Image→🖼, Audio→🔊, Video→🎬, Text→📝).
+Integrated into `badges_for_node()` with correct ordering: Classification badge first, then
+ContentType, then user tags. Tag suggestion surfaces can consume `mime_hint`.
+
 **Goal**: surface content classification in graph-facing chrome after viewer selection is real.
 
 Work:
@@ -370,6 +389,12 @@ Implementation guidance:
 ---
 
 ### Step 8: PdfViewer (Feature-Gated)
+
+**Status (2026-04-05)**: Implemented. `PdfEmbeddedViewer` lives in `registries/viewers/pdf.rs`
+behind `--features pdf` (`pdf = ["dep:pdfium-render"]`). Uses `pdfium-render 0.8` with
+thread-local texture cache per NodeKey. `ViewerRegistry` PDF MIME/extension claims and
+`EmbeddedViewerRegistry` registration are conditional on the feature. Verso mod extensions
+skip PDF overwrites when the feature is active. Default build compiles cleanly without `pdf`.
 
 **Goal**: add native PDF viewing without making it a baseline runtime dependency.
 
@@ -395,6 +420,11 @@ Critical policy note:
 ---
 
 ### Step 9: AudioViewer (Feature-Gated)
+
+**Status (2026-04-05)**: Implemented. `AudioEmbeddedViewer` lives in `registries/viewers/audio.rs`
+behind `--features audio` (`audio = ["dep:symphonia", "dep:rodio"]`). Uses `rodio 0.20` for
+playback and `symphonia 0.5` for duration probing. Transport controls: play/pause/stop/reload,
+volume slider. Thread-local per-node audio state. Default build compiles cleanly without `audio`.
 
 **Goal**: add minimal local audio playback without broadening the baseline surface too early.
 

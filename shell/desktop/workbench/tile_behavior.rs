@@ -173,14 +173,10 @@ pub(crate) fn file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
         .map_err(|_| "Could not convert file:// URL to local path.".to_string())
 }
 
-pub(crate) fn ensure_local_file_access_allowed(path: &PathBuf) -> Result<(), String> {
-    use crate::prefs::FileAccessPolicy;
-
-    // TODO: thread runtime FileAccessPolicy through here once we have an
-    // accessible shared-prefs handle.  For now, use the Default policy which
-    // auto-allows the home tree and honours `allowed_directories`.
-    let policy = FileAccessPolicy::default();
-
+pub(crate) fn ensure_local_file_access_allowed(
+    path: &PathBuf,
+    policy: &crate::prefs::FileAccessPolicy,
+) -> Result<(), String> {
     let canonical_path = path
         .canonicalize()
         .map_err(|err| format!("Failed to resolve '{}': {err}", path.display()))?;
@@ -215,14 +211,20 @@ pub(crate) fn ensure_local_file_access_allowed(path: &PathBuf) -> Result<(), Str
     ))
 }
 
-pub(crate) fn guarded_file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
+pub(crate) fn guarded_file_path_from_node_url(
+    url: &str,
+    policy: &crate::prefs::FileAccessPolicy,
+) -> Result<PathBuf, String> {
     let path = file_path_from_node_url(url)?;
-    ensure_local_file_access_allowed(&path)?;
+    ensure_local_file_access_allowed(&path, policy)?;
     Ok(path)
 }
 
-fn load_plaintext_content_for_node(url: &str) -> Result<PlaintextContent, String> {
-    let path = guarded_file_path_from_node_url(url)?;
+fn load_plaintext_content_for_node(
+    url: &str,
+    policy: &crate::prefs::FileAccessPolicy,
+) -> Result<PlaintextContent, String> {
+    let path = guarded_file_path_from_node_url(url, policy)?;
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     Ok(decode_plaintext_content(&bytes))
@@ -348,11 +350,13 @@ fn render_markdown_embedded(ui: &mut Ui, markdown: &str) {
 #[cfg(test)]
 mod file_access_guard_tests {
     use super::{ensure_local_file_access_allowed, guarded_file_path_from_node_url};
+    use crate::prefs::FileAccessPolicy;
 
     #[test]
     fn file_access_guard_allows_paths_inside_home_directory() {
         let home = dirs::home_dir().expect("home directory should exist for this test");
-        assert!(ensure_local_file_access_allowed(&home).is_ok());
+        let policy = FileAccessPolicy::default();
+        assert!(ensure_local_file_access_allowed(&home, &policy).is_ok());
     }
 
     #[test]
@@ -360,9 +364,32 @@ mod file_access_guard_tests {
         let home = dirs::home_dir().expect("home directory should exist for this test");
         let url = url::Url::from_file_path(home.join("graphshell_missing_ucc_guard_test.txt"))
             .expect("file URL should build");
+        let policy = FileAccessPolicy::default();
 
-        let result = guarded_file_path_from_node_url(url.as_str());
+        let result = guarded_file_path_from_node_url(url.as_str(), &policy);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn file_access_guard_denies_path_outside_allowed_directories() {
+        let policy = FileAccessPolicy {
+            allowed_directories: Vec::new(),
+            home_directory_auto_allow: false,
+        };
+        let home = dirs::home_dir().expect("home directory should exist for this test");
+        let result = ensure_local_file_access_allowed(&home, &policy);
+        assert!(result.is_err(), "expected denial when home auto-allow is off and allowed_directories is empty");
+    }
+
+    #[test]
+    fn file_access_guard_allows_explicit_directory() {
+        let home = dirs::home_dir().expect("home directory should exist for this test");
+        let policy = FileAccessPolicy {
+            allowed_directories: vec![home.clone()],
+            home_directory_auto_allow: false,
+        };
+        let result = ensure_local_file_access_allowed(&home, &policy);
+        assert!(result.is_ok(), "expected allow when path is in allowed_directories");
     }
 }
 
