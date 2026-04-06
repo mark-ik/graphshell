@@ -303,10 +303,8 @@ mod tests {
             .graph
             .add_node("https://anchor.com".into(), Point2D::new(100.0, 200.0));
         let p = app.suggested_new_node_position(Some(anchor));
-        let dx = p.x - 100.0;
-        let dy = p.y - 200.0;
-        assert!(dx.hypot(dy) > 20.0);
-        assert!(dx.hypot(dy) < 140.0);
+        assert!(p.x >= 100.0 + 140.0 - 50.0 && p.x <= 100.0 + 140.0 + 50.0);
+        assert!(p.y >= 200.0 + 80.0 - 50.0 && p.y <= 200.0 + 80.0 + 50.0);
     }
 
     #[test]
@@ -335,10 +333,11 @@ mod tests {
         let _ = crate::shell::desktop::runtime::registries::phase3_reconcile_semantics(&mut app);
         app.select_node(numerical, false);
 
+        assert_eq!(app.preferred_new_node_anchor(None), Some(math));
+
         let p = app.suggested_new_node_position(None);
-        let dx = p.x - 320.0;
-        let dy = p.y - 240.0;
-        assert!(dx.hypot(dy) < 140.0);
+        assert!(p.x >= 320.0 + 140.0 - 50.0 && p.x <= 320.0 + 140.0 + 50.0);
+        assert!(p.y >= 240.0 + 80.0 - 50.0 && p.y <= 240.0 + 80.0 + 50.0);
     }
 
     #[test]

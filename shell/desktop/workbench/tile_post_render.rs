@@ -483,6 +483,12 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
             byte_len: message.len(),
         });
     }
+    if let Some(message) = ux_tree::interactive_label_presence_violation(&uxtree_snapshot) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
+            byte_len: message.len(),
+        });
+    }
     if let Some(message) = ux_tree::trace_id_consistency_violation(&uxtree_snapshot) {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,

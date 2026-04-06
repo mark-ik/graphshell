@@ -1665,6 +1665,17 @@ pub(crate) fn semantic_parent_link_violation(snapshot: &UxTreeSnapshot) -> Optio
     })
 }
 
+pub(crate) fn interactive_label_presence_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
+    snapshot.semantic_nodes.iter().find_map(|node| {
+        (!node.allowed_actions.is_empty() && node.label.trim().is_empty()).then(|| {
+            format!(
+                "uxtree invariant failed: interactive ux_node_id '{}' has empty label",
+                node.ux_node_id
+            )
+        })
+    })
+}
+
 fn command_surface_capture_owners(snapshot: &UxTreeSnapshot) -> Vec<&'static str> {
     snapshot
         .semantic_nodes
@@ -2007,6 +2018,25 @@ mod tests {
         let violation = semantic_parent_link_violation(&snapshot)
             .expect("probe should detect orphan semantic parent link");
         assert!(violation.contains("missing/parent"));
+    }
+
+    #[test]
+    fn interactive_label_presence_violation_flags_empty_interactive_label() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-empty-label.example");
+        harness.open_node_tab(node);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+
+        let graph_surface = snapshot
+            .semantic_nodes
+            .iter_mut()
+            .find(|entry| entry.role == UxNodeRole::GraphSurface)
+            .expect("graph surface should be present");
+        graph_surface.label = "   ".to_string();
+
+        let violation = interactive_label_presence_violation(&snapshot)
+            .expect("probe should detect empty label on interactive node");
+        assert!(violation.contains("empty label"));
     }
 
     #[test]

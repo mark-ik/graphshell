@@ -4837,7 +4837,7 @@ mod tests {
             lens.lens_id,
             crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT
         );
-        assert_eq!(lens.physics.name, "Liquid");
+        assert_eq!(lens.physics.name, "Drift");
         assert!(matches!(
             lens.layout,
             crate::registries::atomic::lens::LayoutMode::Free

@@ -44,6 +44,7 @@ Command-surface follow-on status:
 
 - Shell command-bar and omnibar closure is coordinated through `../implementation_strategy/subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`.
 - Current omnibar baseline is only partially evidenced: keyboard submit/capture behavior has focused coverage, while focus order, focus visibility, status-message announcement, input-error identification, and NVDA/Narrator validation remain pending.
+- Initial command-surface semantic evidence is now in place: `CommandBar` projects as a distinct semantic role, command-surface labels are probe-checked for non-empty interactive names, and command-surface return-path/capture conflicts have dedicated UxTree regressions.
 - Treat the Omnibar column in §2 as a live pending lane rather than a generic unknown; future evidence updates should cite both this checklist and the companion plan when command-surface behavior changes.
 
 ---
@@ -123,6 +124,7 @@ This matrix seeds the required baseline for `#295` and follow-on implementation 
 Execution note:
 
 - First pass should prioritize known gap surfaces (Graph Pane, Navigator host focus transitions, command surfaces).
+- Command-surface first pass should explicitly cover: command bar identification, omnibar input purpose, command-palette open/dismiss return path, blocked-route or fallback announcements, and focus return after `Escape`.
 - Results should be copied back into §2 statuses, linked to follow-up issues (`#298`, `#301`), and reflected in `../implementation_strategy/subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` when command-surface AT behavior is involved.
 
 ---

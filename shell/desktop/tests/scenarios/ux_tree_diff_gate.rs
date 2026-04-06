@@ -12,6 +12,9 @@ use crate::render::radial_menu::{
     clear_semantic_snapshot, publish_semantic_snapshot,
 };
 use crate::shell::desktop::ui::gui_orchestration;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::{
+    clear_command_surface_semantic_snapshot, lock_command_surface_snapshot_tests,
+};
 use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::ux_tree;
@@ -347,6 +350,9 @@ fn pre_wgpu_critical_path_snapshots_match_baselines() {
 
 #[test]
 fn command_surface_toggle_command_palette_snapshot_stays_structurally_stable() {
+    let _guard = lock_command_surface_snapshot_tests();
+    clear_command_surface_semantic_snapshot();
+
     let mut app = GraphBrowserApp::new_for_testing();
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
@@ -363,4 +369,6 @@ fn command_surface_toggle_command_palette_snapshot_stays_structurally_stable() {
         !gate.blocking_failure,
         "command palette open state should not mutate the structural UxTree snapshot gate"
     );
+
+    clear_command_surface_semantic_snapshot();
 }
