@@ -2822,6 +2822,10 @@ enum WorkbenchHostAction {
     ClosePane(PaneId),
     /// Dismiss a node pane: demotes to Cold but keeps graph edges intact.
     DismissNodePane(PaneId),
+    SetPanePresentationMode {
+        pane: PaneId,
+        mode: PanePresentationMode,
+    },
     OpenTool(ToolPaneState),
     SetWorkbenchPinned(bool),
     SetLayoutConstraintDraft {
@@ -2903,32 +2907,33 @@ fn workbench_host_action_diagnostic_code(action: &WorkbenchHostAction) -> usize 
         WorkbenchHostAction::CollapseSemanticTabGroup { .. } => 6,
         WorkbenchHostAction::ClosePane(_) => 7,
         WorkbenchHostAction::DismissNodePane(_) => 8,
-        WorkbenchHostAction::OpenTool(_) => 9,
-        WorkbenchHostAction::SetWorkbenchPinned(_) => 10,
-        WorkbenchHostAction::SetLayoutConstraintDraft { .. } => 11,
-        WorkbenchHostAction::CommitLayoutConstraintDraft(_) => 12,
-        WorkbenchHostAction::DiscardLayoutConstraintDraft(_) => 13,
-        WorkbenchHostAction::SetSurfaceConfigMode { .. } => 14,
-        WorkbenchHostAction::SetNavigatorHostScope { .. } => 15,
-        WorkbenchHostAction::SetFirstUsePolicy(_) => 16,
-        WorkbenchHostAction::SuppressFirstUsePromptForSession(_) => 17,
-        WorkbenchHostAction::OpenFrameAsSplit { .. } => 18,
-        WorkbenchHostAction::DismissFrameSplitOfferForSession(_) => 19,
-        WorkbenchHostAction::SetFrameSplitOfferSuppressed { .. } => 20,
-        WorkbenchHostAction::RenameFrame { .. } => 21,
-        WorkbenchHostAction::DeleteFrame(_) => 22,
-        WorkbenchHostAction::SaveFrameSnapshotNamed(_) => 23,
-        WorkbenchHostAction::MoveFrameLayoutHint { .. } => 24,
-        WorkbenchHostAction::RemoveFrameLayoutHint { .. } => 25,
-        WorkbenchHostAction::SaveCurrentFrame => 26,
-        WorkbenchHostAction::PruneEmptyFrames => 27,
-        WorkbenchHostAction::RestoreFrame(_) => 28,
-        WorkbenchHostAction::FocusGraphView(_) => 29,
-        WorkbenchHostAction::OpenGraphView(_) => 30,
-        WorkbenchHostAction::TransferSelectedNodesToGraphView { .. } => 31,
-        WorkbenchHostAction::ToggleOverviewPlane => 32,
-        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 33,
-        WorkbenchHostAction::SyncHostPanelSize { .. } => 34,
+        WorkbenchHostAction::SetPanePresentationMode { .. } => 9,
+        WorkbenchHostAction::OpenTool(_) => 10,
+        WorkbenchHostAction::SetWorkbenchPinned(_) => 11,
+        WorkbenchHostAction::SetLayoutConstraintDraft { .. } => 12,
+        WorkbenchHostAction::CommitLayoutConstraintDraft(_) => 13,
+        WorkbenchHostAction::DiscardLayoutConstraintDraft(_) => 14,
+        WorkbenchHostAction::SetSurfaceConfigMode { .. } => 15,
+        WorkbenchHostAction::SetNavigatorHostScope { .. } => 16,
+        WorkbenchHostAction::SetFirstUsePolicy(_) => 17,
+        WorkbenchHostAction::SuppressFirstUsePromptForSession(_) => 18,
+        WorkbenchHostAction::OpenFrameAsSplit { .. } => 19,
+        WorkbenchHostAction::DismissFrameSplitOfferForSession(_) => 20,
+        WorkbenchHostAction::SetFrameSplitOfferSuppressed { .. } => 21,
+        WorkbenchHostAction::RenameFrame { .. } => 22,
+        WorkbenchHostAction::DeleteFrame(_) => 23,
+        WorkbenchHostAction::SaveFrameSnapshotNamed(_) => 24,
+        WorkbenchHostAction::MoveFrameLayoutHint { .. } => 25,
+        WorkbenchHostAction::RemoveFrameLayoutHint { .. } => 26,
+        WorkbenchHostAction::SaveCurrentFrame => 27,
+        WorkbenchHostAction::PruneEmptyFrames => 28,
+        WorkbenchHostAction::RestoreFrame(_) => 29,
+        WorkbenchHostAction::FocusGraphView(_) => 30,
+        WorkbenchHostAction::OpenGraphView(_) => 31,
+        WorkbenchHostAction::TransferSelectedNodesToGraphView { .. } => 32,
+        WorkbenchHostAction::ToggleOverviewPlane => 33,
+        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 34,
+        WorkbenchHostAction::SyncHostPanelSize { .. } => 35,
     }
 }
 
@@ -3022,6 +3027,57 @@ fn render_semantic_tab_affordance_button(
     }
 }
 
+fn pane_presentation_mode_label(mode: PanePresentationMode) -> &'static str {
+    match mode {
+        PanePresentationMode::Tiled => "Tiled",
+        PanePresentationMode::Docked => "Docked",
+        PanePresentationMode::Floating => "Floating",
+        PanePresentationMode::Fullscreen => "Fullscreen",
+    }
+}
+
+fn pane_presentation_mode_toggle(mode: PanePresentationMode) -> Option<(PanePresentationMode, &'static str, &'static str)> {
+    match mode {
+        PanePresentationMode::Tiled => Some((
+            PanePresentationMode::Docked,
+            "Dock",
+            "Reduce chrome and lock this pane in place",
+        )),
+        PanePresentationMode::Docked => Some((
+            PanePresentationMode::Tiled,
+            "Tile",
+            "Restore full tile chrome and normal pane mobility",
+        )),
+        PanePresentationMode::Floating | PanePresentationMode::Fullscreen => None,
+    }
+}
+
+fn pane_supports_split(mode: PanePresentationMode) -> bool {
+    matches!(mode, PanePresentationMode::Tiled)
+}
+
+fn render_pane_mode_controls(
+    ui: &mut egui::Ui,
+    entry: &WorkbenchPaneEntry,
+    actions: &mut Vec<WorkbenchHostAction>,
+) {
+    ui.label(
+        RichText::new(pane_presentation_mode_label(entry.presentation_mode))
+            .small()
+            .weak(),
+    );
+
+    if let Some((mode, label, hover_text)) = pane_presentation_mode_toggle(entry.presentation_mode)
+    {
+        if ui.small_button(label).on_hover_text(hover_text).clicked() {
+            actions.push(WorkbenchHostAction::SetPanePresentationMode {
+                pane: entry.pane_id,
+                mode,
+            });
+        }
+    }
+}
+
 fn render_tree_node(
     ui: &mut egui::Ui,
     node: &WorkbenchChromeNode,
@@ -3044,6 +3100,7 @@ fn render_tree_node(
                 if response.clicked() {
                     actions.push(WorkbenchHostAction::FocusPane(entry.pane_id));
                 }
+                render_pane_mode_controls(ui, entry, actions);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     render_semantic_tab_affordance_button(ui, entry, actions);
                     if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
@@ -3054,25 +3111,27 @@ fn render_tree_node(
                             _ => WorkbenchHostAction::ClosePane(entry.pane_id),
                         });
                     }
-                    if ui
-                        .small_button("V")
-                        .on_hover_text("Split vertically")
-                        .clicked()
-                    {
-                        actions.push(WorkbenchHostAction::SplitPane(
-                            entry.pane_id,
-                            SplitDirection::Vertical,
-                        ));
-                    }
-                    if ui
-                        .small_button("H")
-                        .on_hover_text("Split horizontally")
-                        .clicked()
-                    {
-                        actions.push(WorkbenchHostAction::SplitPane(
-                            entry.pane_id,
-                            SplitDirection::Horizontal,
-                        ));
+                    if pane_supports_split(entry.presentation_mode) {
+                        if ui
+                            .small_button("V")
+                            .on_hover_text("Split vertically")
+                            .clicked()
+                        {
+                            actions.push(WorkbenchHostAction::SplitPane(
+                                entry.pane_id,
+                                SplitDirection::Vertical,
+                            ));
+                        }
+                        if ui
+                            .small_button("H")
+                            .on_hover_text("Split horizontally")
+                            .clicked()
+                        {
+                            actions.push(WorkbenchHostAction::SplitPane(
+                                entry.pane_id,
+                                SplitDirection::Horizontal,
+                            ));
+                        }
                     }
                 });
             });
@@ -3145,6 +3204,7 @@ fn render_pane_row(
         if response.clicked() {
             actions.push(WorkbenchHostAction::FocusPane(entry.pane_id));
         }
+        render_pane_mode_controls(ui, entry, actions);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             render_semantic_tab_affordance_button(ui, entry, actions);
             if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
@@ -3155,25 +3215,27 @@ fn render_pane_row(
                     _ => WorkbenchHostAction::ClosePane(entry.pane_id),
                 });
             }
-            if ui
-                .small_button("V")
-                .on_hover_text("Split vertically")
-                .clicked()
-            {
-                actions.push(WorkbenchHostAction::SplitPane(
-                    entry.pane_id,
-                    SplitDirection::Vertical,
-                ));
-            }
-            if ui
-                .small_button("H")
-                .on_hover_text("Split horizontally")
-                .clicked()
-            {
-                actions.push(WorkbenchHostAction::SplitPane(
-                    entry.pane_id,
-                    SplitDirection::Horizontal,
-                ));
+            if pane_supports_split(entry.presentation_mode) {
+                if ui
+                    .small_button("V")
+                    .on_hover_text("Split vertically")
+                    .clicked()
+                {
+                    actions.push(WorkbenchHostAction::SplitPane(
+                        entry.pane_id,
+                        SplitDirection::Vertical,
+                    ));
+                }
+                if ui
+                    .small_button("H")
+                    .on_hover_text("Split horizontally")
+                    .clicked()
+                {
+                    actions.push(WorkbenchHostAction::SplitPane(
+                        entry.pane_id,
+                        SplitDirection::Horizontal,
+                    ));
+                }
             }
         });
     });
@@ -3283,6 +3345,13 @@ fn apply_workbench_host_action(
         }
         WorkbenchHostAction::DismissNodePane(pane) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::DismissTile { pane });
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::SetPanePresentationMode { pane, mode } => {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetPanePresentationMode {
+                pane,
+                mode,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::OpenTool(kind) => {
@@ -3747,6 +3816,57 @@ mod tests {
         assert!(graph_view_switcher_requires_fallback_toolbar_host(
             &workbench_only_projection
         ));
+    }
+
+    #[test]
+    fn set_pane_presentation_mode_action_updates_node_pane_mode() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/docked-mode".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let mut tree = Tree::new("workbench_host_set_presentation_mode", root, tiles);
+
+        let pane_id = match tree.tiles.get(node_tile) {
+            Some(Tile::Pane(TileKind::Node(state))) => state.pane_id,
+            other => panic!("expected node pane tile, got {other:?}"),
+        };
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetPanePresentationMode {
+                pane: pane_id,
+                mode: PanePresentationMode::Docked,
+            },
+            &mut app,
+            &mut tree,
+        );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        let docked_mode = match tree.tiles.get(node_tile) {
+            Some(Tile::Pane(TileKind::Node(state))) => state.presentation_mode,
+            other => panic!("expected node pane tile after docking, got {other:?}"),
+        };
+        assert_eq!(docked_mode, PanePresentationMode::Docked);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetPanePresentationMode {
+                pane: pane_id,
+                mode: PanePresentationMode::Tiled,
+            },
+            &mut app,
+            &mut tree,
+        );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        let tiled_mode = match tree.tiles.get(node_tile) {
+            Some(Tile::Pane(TileKind::Node(state))) => state.presentation_mode,
+            other => panic!("expected node pane tile after restore, got {other:?}"),
+        };
+        assert_eq!(tiled_mode, PanePresentationMode::Tiled);
     }
 
     #[test]
