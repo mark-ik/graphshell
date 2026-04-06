@@ -1,6 +1,12 @@
 use super::*;
 use crate::app::WorkbenchIntent;
 
+fn channel_count(snapshot: &serde_json::Value, channel_id: &'static str) -> u64 {
+    snapshot["channels"]["message_counts"][channel_id]
+        .as_u64()
+        .unwrap_or(0)
+}
+
 #[test]
 fn graph_surface_focus_state_emits_ux_navigation_transition_on_change() {
     let mut runtime_state = GuiRuntimeState {
@@ -29,9 +35,9 @@ fn graph_surface_focus_state_emits_ux_navigation_transition_on_change() {
     apply_graph_surface_focus_state(&mut runtime_state, &mut app, Some(graph_view));
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        snapshot.contains("ux:navigation_transition"),
+        channel_count(&snapshot, crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION) > 0,
         "expected ux:navigation_transition when graph surface focus changes"
     );
 }
@@ -62,9 +68,9 @@ fn node_focus_state_emits_ux_navigation_transition_on_change() {
     apply_node_focus_state(&mut runtime_state, Some(NodeKey::new(42)));
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        snapshot.contains("ux:navigation_transition"),
+        channel_count(&snapshot, crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION) > 0,
         "expected ux:navigation_transition when node focus changes"
     );
 }
@@ -96,9 +102,9 @@ fn node_focus_state_noop_does_not_emit_ux_navigation_transition() {
     apply_node_focus_state(&mut runtime_state, Some(focused_node));
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        !snapshot.contains("ux:navigation_transition"),
+        channel_count(&snapshot, crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION) == 0,
         "did not expect ux:navigation_transition when node focus is unchanged"
     );
 }
@@ -132,9 +138,9 @@ fn graph_surface_focus_state_noop_does_not_emit_ux_navigation_transition() {
     apply_graph_surface_focus_state(&mut runtime_state, &mut app, Some(graph_view));
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        !snapshot.contains("ux:navigation_transition"),
+        channel_count(&snapshot, crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION) == 0,
         "did not expect ux:navigation_transition when graph surface focus is unchanged"
     );
 }

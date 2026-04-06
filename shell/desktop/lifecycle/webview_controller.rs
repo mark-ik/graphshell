@@ -133,7 +133,13 @@ fn resolve_browser_command_target(
     window: &EmbedderWindow,
     target: BrowserCommandTarget,
 ) -> Option<WebViewId> {
-    browser_command_routing::resolve_browser_command_target(app, window, target)
+    match browser_command_routing::resolve_browser_command_target(app, window, target) {
+        browser_command_routing::BrowserCommandRouteOutcome::Resolved(webview_id)
+        | browser_command_routing::BrowserCommandRouteOutcome::Fallback(webview_id) => {
+            Some(webview_id)
+        }
+        browser_command_routing::BrowserCommandRouteOutcome::NoTarget => None,
+    }
 }
 
 pub(crate) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: &EmbedderWindow) {

@@ -1301,6 +1301,7 @@ mod tests {
     use crate::app::GraphViewId;
     use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
     use crate::shell::desktop::runtime::registries::{
+        CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
         CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
         CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
     };
@@ -1377,6 +1378,14 @@ mod tests {
                     if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED
             )),
             "expected workbench-command requested diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSent { channel_id, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED
+            )),
+            "expected generic route-blocked diagnostic; got: {emitted:?}"
         );
         assert!(
             emitted.iter().any(|event| matches!(

@@ -1,7 +1,7 @@
 {
-  "semantic_version": 2,
-  "presentation_version": 1,
-  "trace_version": 1,
+  "semantic_version": 3,
+  "presentation_version": 2,
+  "trace_version": 2,
   "semantic_nodes": [
     {
       "ux_node_id": "uxnode://workbench/root",

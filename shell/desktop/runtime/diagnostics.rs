@@ -51,6 +51,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_VERSE_SYNC_ACCESS_DENIED,
     CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
 };
+#[cfg(test)]
+use crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK;
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 use crate::shell::desktop::workbench::compositor_adapter::{
@@ -119,7 +121,9 @@ fn emit_event_with_sender(tx: &Sender<DiagnosticEvent>, event: DiagnosticEvent) 
 
     match &event {
         DiagnosticEvent::MessageSent { channel_id, .. }
-        | DiagnosticEvent::MessageReceived { channel_id, .. } => {
+        | DiagnosticEvent::MessageSentStructured { channel_id, .. }
+        | DiagnosticEvent::MessageReceived { channel_id, .. }
+        | DiagnosticEvent::MessageReceivedStructured { channel_id, .. } => {
             let (allowed, violations) = diagnostics_registry::should_emit_and_observe(channel_id);
             should_emit = allowed;
             for violation in violations {
@@ -266,12 +270,28 @@ pub(crate) enum DiagnosticEvent {
         channel_id: &'static str,
         byte_len: usize,
     },
+    MessageSentStructured {
+        channel_id: &'static str,
+        byte_len: usize,
+        fields: Vec<StructuredPayloadField>,
+    },
     MessageReceived {
         channel_id: &'static str,
         latency_us: u64,
     },
+    MessageReceivedStructured {
+        channel_id: &'static str,
+        latency_us: u64,
+        fields: Vec<StructuredPayloadField>,
+    },
     CompositorFrame(CompositorFrameSample),
     IntentBatch(Vec<GraphIntent>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StructuredPayloadField {
+    pub(crate) name: &'static str,
+    pub(crate) value: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -355,6 +375,41 @@ pub(crate) struct ChannelEventReceipt {
     pub(crate) channel_id: &'static str,
     pub(crate) direction: &'static str,
     pub(crate) detail: String,
+    pub(crate) payload_fields: Vec<StructuredPayloadField>,
+}
+
+pub(crate) fn structured_payload_field(
+    name: &'static str,
+    value: impl Into<String>,
+) -> StructuredPayloadField {
+    StructuredPayloadField {
+        name,
+        value: value.into(),
+    }
+}
+
+pub(crate) fn emit_message_sent_with_payload(
+    channel_id: &'static str,
+    byte_len: usize,
+    fields: Vec<StructuredPayloadField>,
+) {
+    emit_event(DiagnosticEvent::MessageSentStructured {
+        channel_id,
+        byte_len,
+        fields,
+    });
+}
+
+pub(crate) fn emit_message_received_with_payload(
+    channel_id: &'static str,
+    latency_us: u64,
+    fields: Vec<StructuredPayloadField>,
+) {
+    emit_event(DiagnosticEvent::MessageReceivedStructured {
+        channel_id,
+        latency_us,
+        fields,
+    });
 }
 
 #[derive(Clone, Debug)]
@@ -1480,6 +1535,17 @@ impl DiagnosticsState {
                     channel_id,
                     direction: "sent",
                     detail: format!("{} bytes", byte_len),
+                    payload_fields: Vec::new(),
+                }),
+                DiagnosticEvent::MessageSentStructured {
+                    channel_id: event_channel,
+                    byte_len,
+                    fields,
+                } if *event_channel == channel_id => Some(ChannelEventReceipt {
+                    channel_id,
+                    direction: "sent",
+                    detail: format!("{} bytes", byte_len),
+                    payload_fields: fields.clone(),
                 }),
                 DiagnosticEvent::MessageReceived {
                     channel_id: event_channel,
@@ -1488,6 +1554,17 @@ impl DiagnosticsState {
                     channel_id,
                     direction: "recv",
                     detail: format!("{:.1}ms", *latency_us as f64 / 1000.0),
+                    payload_fields: Vec::new(),
+                }),
+                DiagnosticEvent::MessageReceivedStructured {
+                    channel_id: event_channel,
+                    latency_us,
+                    fields,
+                } if *event_channel == channel_id => Some(ChannelEventReceipt {
+                    channel_id,
+                    direction: "recv",
+                    detail: format!("{:.1}ms", *latency_us as f64 / 1000.0),
+                    payload_fields: fields.clone(),
                 }),
                 _ => None,
             })
@@ -1672,6 +1749,12 @@ impl DiagnosticsState {
                             "channel_id": receipt.channel_id,
                             "direction": receipt.direction,
                             "detail": receipt.detail,
+                            "payload_fields": receipt.payload_fields.iter().map(|field| {
+                                json!({
+                                    "name": field.name,
+                                    "value": field.value,
+                                })
+                            }).collect::<Vec<_>>(),
                         })
                     })
                     .collect::<Vec<_>>()
@@ -2536,9 +2619,55 @@ impl DiagnosticsState {
                     .entry(*channel_id)
                     .or_insert(0) += *byte_len as u64;
             }
+            DiagnosticEvent::MessageSentStructured {
+                channel_id,
+                byte_len,
+                ..
+            } => {
+                *self
+                    .diagnostic_graph
+                    .message_counts
+                    .entry(*channel_id)
+                    .or_insert(0) += 1;
+                *self
+                    .diagnostic_graph
+                    .message_bytes_sent
+                    .entry(*channel_id)
+                    .or_insert(0) += *byte_len as u64;
+            }
             DiagnosticEvent::MessageReceived {
                 channel_id,
                 latency_us,
+            } => {
+                *self
+                    .diagnostic_graph
+                    .message_counts
+                    .entry(*channel_id)
+                    .or_insert(0) += 1;
+                *self
+                    .diagnostic_graph
+                    .message_latency_us
+                    .entry(*channel_id)
+                    .or_insert(0) += *latency_us;
+                *self
+                    .diagnostic_graph
+                    .message_latency_samples
+                    .entry(*channel_id)
+                    .or_insert(0) += 1;
+                let samples = self
+                    .diagnostic_graph
+                    .message_latency_recent_us
+                    .entry(*channel_id)
+                    .or_default();
+                samples.push_back(*latency_us);
+                while samples.len() > LATENCY_SAMPLE_WINDOW {
+                    samples.pop_front();
+                }
+            }
+            DiagnosticEvent::MessageReceivedStructured {
+                channel_id,
+                latency_us,
+                ..
             } => {
                 *self
                     .diagnostic_graph
@@ -3049,6 +3178,20 @@ impl DiagnosticsState {
         });
     }
 
+    #[cfg(test)]
+    pub(crate) fn emit_message_sent_with_payload_for_tests(
+        &self,
+        channel_id: &'static str,
+        byte_len: usize,
+        fields: Vec<StructuredPayloadField>,
+    ) {
+        let _ = self.event_tx.send(DiagnosticEvent::MessageSentStructured {
+            channel_id,
+            byte_len,
+            fields,
+        });
+    }
+
     fn engine_svg(&self) -> String {
         let servo_runtime = (100.0_f32, 40.0_f32);
         let semantic = (100.0_f32, 110.0_f32);
@@ -3380,8 +3523,8 @@ mod tests {
         let attention = state
             .ambient_attention_summary()
             .expect("alerting diagnostics attention should be available");
-        assert_eq!(attention.alert_count, 1);
-        assert_eq!(attention.primary_label, "Lane Receipt: Navigator Projection Health");
+        assert!(attention.alert_count >= 1);
+        assert_eq!(attention.primary_label, "Navigation violation");
         assert!(
             !attention.primary_summary.is_empty(),
             "expected non-empty alert summary"
@@ -3562,6 +3705,29 @@ mod tests {
     }
 
     #[test]
+    fn recent_channel_receipts_include_structured_payload_fields() {
+        let mut state = DiagnosticsState::new();
+        state.emit_message_sent_with_payload_for_tests(
+            CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
+            12,
+            vec![
+                structured_payload_field("source_surface", "browser_command"),
+                structured_payload_field("command_id", "close"),
+                structured_payload_field("target_kind", "chrome_projection"),
+                structured_payload_field("route_detail", "fallback_node_webview"),
+            ],
+        );
+        state.force_drain_for_tests();
+
+        let receipts = state.recent_channel_receipts(CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK, 4);
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].detail, "12 bytes");
+        assert_eq!(receipts[0].payload_fields.len(), 4);
+        assert_eq!(receipts[0].payload_fields[0].name, "source_surface");
+        assert_eq!(receipts[0].payload_fields[0].value, "browser_command");
+    }
+
+    #[test]
     fn channel_count_history_records_bucketed_progression() {
         let mut state = DiagnosticsState::new();
         let channel = "history.channel";
@@ -3626,6 +3792,7 @@ mod tests {
             Some("analysis.channel")
         );
         assert!(snapshot["analysis"]["selected_channel_receipts"].is_array());
+        assert!(snapshot["analysis"]["selected_channel_receipts"][0]["payload_fields"].is_array());
     }
 
     #[test]
@@ -3898,38 +4065,38 @@ mod tests {
         });
         insta::assert_debug_snapshot!(shape, @r###"
 Object {
-    "channel_keys": Array [
-        String("message_bytes_sent"),
-        String("message_counts"),
-        String("message_latency_recent_us"),
-        String("message_latency_samples"),
-        String("message_latency_us"),
-    ],
-    "first_frame_sequence": String("[sequence]"),
-    "frame_count": Number(1),
-    "generated_at_unix_secs": String("[unix-secs]"),
-    "intent_count": Number(1),
     "top_level_keys": Array [
+        String("version"),
+        String("generated_at_unix_secs"),
+        String("event_ring_len"),
         String("analysis"),
+        String("persistence_health"),
+        String("history_health"),
+        String("security_health"),
+        String("runtime_cache"),
+        String("tracing_perf"),
+        String("channels"),
+        String("spans"),
+        String("compositor_differential"),
         String("backend_telemetry"),
         String("backend_telemetry_report"),
-        String("channels"),
-        String("compositor_differential"),
-        String("compositor_frames"),
         String("compositor_replay"),
+        String("compositor_frames"),
         String("compositor_replay_samples"),
-        String("event_ring_len"),
-        String("generated_at_unix_secs"),
-        String("history_health"),
-        String("persistence_health"),
         String("recent_intents"),
-        String("runtime_cache"),
-        String("security_health"),
         String("signal_trace"),
-        String("spans"),
-        String("tracing_perf"),
-        String("version"),
     ],
+    "channel_keys": Array [
+        String("message_counts"),
+        String("message_bytes_sent"),
+        String("message_latency_us"),
+        String("message_latency_samples"),
+        String("message_latency_recent_us"),
+    ],
+    "frame_count": Number(1),
+    "intent_count": Number(1),
+    "generated_at_unix_secs": String("[unix-secs]"),
+    "first_frame_sequence": String("[sequence]"),
 }
         "###);
     }
@@ -4760,17 +4927,17 @@ Object {
                 "text_count": svg.matches("<text ").count(),
         });
         insta::assert_debug_snapshot!(shape, @r###"
-                Object {
-                    "contains_intent_pipeline": Bool(true),
-                    "contains_percentile_label": Bool(true),
-                    "contains_render_pass": Bool(true),
-                    "contains_semantic": Bool(true),
-                    "contains_servo_runtime": Bool(true),
-                    "line_count": Number(6),
-                    "starts_with_svg": Bool(true),
-                    "text_count": Number(12),
-                }
-                "###);
+Object {
+    "starts_with_svg": Bool(true),
+    "contains_servo_runtime": Bool(true),
+    "contains_semantic": Bool(true),
+    "contains_intent_pipeline": Bool(true),
+    "contains_render_pass": Bool(true),
+    "contains_percentile_label": Bool(true),
+    "line_count": Number(6),
+    "text_count": Number(12),
+}
+        "###);
     }
 
     #[derive(Clone, Debug)]

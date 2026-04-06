@@ -15,14 +15,14 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
         snapshot_json
             .get("semantic_version")
             .and_then(|v| v.as_u64()),
-        Some(2),
+        Some(3),
         "semantic schema version should be present"
     );
     assert_eq!(
         snapshot_json
             .get("presentation_version")
             .and_then(|v| v.as_u64()),
-        Some(1),
+        Some(2),
         "presentation schema version should be present"
     );
 

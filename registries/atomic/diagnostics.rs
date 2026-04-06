@@ -74,6 +74,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_SYSTEM_TASK_BUDGET_BACKPRESSURE, CHANNEL_SYSTEM_TASK_BUDGET_QUEUE_DEPTH,
     CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED, CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
     CHANNEL_THEME_ACTIVATED, CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
+    CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED, CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
+    CHANNEL_UI_COMMAND_SURFACE_ROUTE_NO_TARGET, CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
     CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
     CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED,
     CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
@@ -438,6 +440,29 @@ const RENDERER_ATTACH_FIELDS: [PayloadField; 2] = [
     },
 ];
 
+const COMMAND_SURFACE_ROUTE_FIELDS: [PayloadField; 4] = [
+    PayloadField {
+        name: "source_surface",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "command_id",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "target_kind",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "route_detail",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+];
+
 const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 14] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED,
@@ -564,7 +589,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 158] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 162] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -753,6 +778,26 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 158] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
         schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
+        schema_version: 2,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
+        schema_version: 2,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
+        schema_version: 2,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_COMMAND_SURFACE_ROUTE_NO_TARGET,
+        schema_version: 2,
         severity: ChannelSeverity::Warn,
     },
     DiagnosticChannelDescriptor {
@@ -1921,6 +1966,12 @@ fn channel_payload_schema(channel_id: &str) -> DiagnosticPayloadSchema {
         CHANNEL_RENDERER_ATTACH | CHANNEL_RENDERER_DETACH => {
             DiagnosticPayloadSchema::Structured(RENDERER_ATTACH_FIELDS.to_vec())
         }
+        CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED
+        | CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED
+        | CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK
+        | CHANNEL_UI_COMMAND_SURFACE_ROUTE_NO_TARGET => {
+            DiagnosticPayloadSchema::Structured(COMMAND_SURFACE_ROUTE_FIELDS.to_vec())
+        }
         _ => DiagnosticPayloadSchema::FreeText,
     }
 }
@@ -2281,6 +2332,10 @@ mod tests {
             CHANNEL_ACTION_EXECUTE_FAILED,
             CHANNEL_IDENTITY_SIGN_FAILED,
             CHANNEL_RENDERER_ATTACH,
+            CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
+            CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
+            CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
+            CHANNEL_UI_COMMAND_SURFACE_ROUTE_NO_TARGET,
         ] {
             let descriptor = channels
                 .iter()

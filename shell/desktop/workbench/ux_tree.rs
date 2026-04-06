@@ -10,18 +10,19 @@ use egui_tiles::{Container, Tile, TileId, Tree};
 use crate::app::workbench_layout_policy::AnchorEdge;
 use crate::app::{
     GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode, SurfaceHostId,
-    WorkbenchLayoutConstraint,
+    ToolSurfaceReturnTarget, WorkbenchLayoutConstraint,
 };
 use crate::graph::NodeKey;
 use crate::render::radial_menu::latest_semantic_snapshot;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::latest_command_surface_semantic_snapshot;
 
 use super::pane_model::TileRenderMode;
 use super::tile_kind::TileKind;
 use crate::shell::desktop::workbench::pane_model::PanePresentationMode;
 
-pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 2;
-pub(crate) const UX_TREE_PRESENTATION_SCHEMA_VERSION: u32 = 1;
-pub(crate) const UX_TREE_TRACE_SCHEMA_VERSION: u32 = 1;
+pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 3;
+pub(crate) const UX_TREE_PRESENTATION_SCHEMA_VERSION: u32 = 2;
+pub(crate) const UX_TREE_TRACE_SCHEMA_VERSION: u32 = 2;
 pub(crate) const UX_TREE_WORKBENCH_ROOT_ID: &str = "uxnode://workbench/root";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +33,10 @@ pub(crate) enum UxNodeRole {
     GraphSurface,
     GraphNode,
     NodePane,
+    CommandBar,
+    Omnibar,
+    CommandPalette,
+    ContextPalette,
     RadialPalette,
     RadialTierRing,
     RadialSector,
@@ -64,6 +69,27 @@ pub(crate) enum UxDomainIdentity {
     },
     Node {
         node_key: NodeKey,
+    },
+    CommandBar {
+        active_pane: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
+        focused_node: Option<NodeKey>,
+        location_focused: bool,
+    },
+    Omnibar {
+        active: bool,
+        focused: bool,
+        query: Option<String>,
+        match_count: usize,
+        provider_status: Option<String>,
+        active_pane: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
+        focused_node: Option<NodeKey>,
+    },
+    CommandPalette {
+        contextual_mode: bool,
+        return_target: Option<ToolSurfaceReturnTarget>,
+        pending_node_context_target: Option<NodeKey>,
+        pending_frame_context_target: Option<String>,
+        context_anchor_present: bool,
     },
     #[cfg(feature = "diagnostics")]
     Tool {
@@ -285,6 +311,12 @@ pub(crate) fn latest_snapshot() -> Option<UxTreeSnapshot> {
     snapshot_cache().lock().ok().and_then(|slot| slot.clone())
 }
 
+pub(crate) fn clear_snapshot() {
+    if let Ok(mut slot) = snapshot_cache().lock() {
+        *slot = None;
+    }
+}
+
 pub(crate) fn build_snapshot(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -351,6 +383,11 @@ pub(crate) fn build_snapshot_with_rects(
         &mut presentation_nodes,
         &mut trace_nodes,
     );
+    append_command_surface_nodes(
+        &mut semantic_nodes,
+        &mut presentation_nodes,
+        &mut trace_nodes,
+    );
     append_workbench_semantics_nodes(
         graph_app,
         &mut semantic_nodes,
@@ -370,6 +407,168 @@ pub(crate) fn build_snapshot_with_rects(
             route_events_observed: 0,
             diagnostics_events_observed: 0,
         },
+    }
+}
+
+fn append_command_surface_nodes(
+    semantic_nodes: &mut Vec<UxSemanticNode>,
+    presentation_nodes: &mut Vec<UxPresentationNode>,
+    trace_nodes: &mut Vec<UxTraceNode>,
+) {
+    let Some(snapshot) = latest_command_surface_semantic_snapshot() else {
+        return;
+    };
+
+    let command_bar_id = "uxnode://command/bar/root".to_string();
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: command_bar_id.clone(),
+        parent_ux_node_id: Some(UX_TREE_WORKBENCH_ROOT_ID.to_string()),
+        role: UxNodeRole::CommandBar,
+        label: "Command Bar".to_string(),
+        state: UxNodeState {
+            focused: snapshot.command_bar.location_focused,
+            selected: false,
+            blocked: false,
+            degraded: false,
+        },
+        allowed_actions: vec![UxAction::Focus, UxAction::Navigate],
+        domain: UxDomainIdentity::CommandBar {
+            active_pane: snapshot.command_bar.active_pane,
+            focused_node: snapshot.command_bar.focused_node,
+            location_focused: snapshot.command_bar.location_focused,
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: command_bar_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "command.bar",
+        style_flags: vec!["surface:command-bar"],
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: command_bar_id.clone(),
+        event_route: "command.bar_route",
+        backend_path: "egui",
+        diagnostics_counter: u64::from(snapshot.command_bar.location_focused),
+    });
+
+    let omnibar_id = "uxnode://command/bar/omnibar".to_string();
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: omnibar_id.clone(),
+        parent_ux_node_id: Some(command_bar_id.clone()),
+        role: UxNodeRole::Omnibar,
+        label: "Omnibar".to_string(),
+        state: UxNodeState {
+            focused: snapshot.omnibar.focused,
+            selected: snapshot.omnibar.active,
+            blocked: false,
+            degraded: snapshot.omnibar.provider_status.is_some(),
+        },
+        allowed_actions: vec![UxAction::Focus, UxAction::Navigate, UxAction::Open],
+        domain: UxDomainIdentity::Omnibar {
+            active: snapshot.omnibar.active,
+            focused: snapshot.omnibar.focused,
+            query: snapshot.omnibar.query.clone(),
+            match_count: snapshot.omnibar.match_count,
+            provider_status: snapshot.omnibar.provider_status.clone(),
+            active_pane: snapshot.omnibar.active_pane,
+            focused_node: snapshot.omnibar.focused_node,
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: omnibar_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "command.omnibar",
+        style_flags: vec!["surface:omnibar"],
+        transient_flags: if snapshot.omnibar.focused {
+            vec!["focused"]
+        } else {
+            Vec::new()
+        },
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: omnibar_id,
+        event_route: "command.omnibar_route",
+        backend_path: "egui",
+        diagnostics_counter: snapshot.omnibar.match_count as u64,
+    });
+
+    if let Some(command_palette) = snapshot.command_palette {
+        let command_palette_id = "uxnode://command/palette/root".to_string();
+        semantic_nodes.push(UxSemanticNode {
+            ux_node_id: command_palette_id.clone(),
+            parent_ux_node_id: Some(command_bar_id.clone()),
+            role: UxNodeRole::CommandPalette,
+            label: "Command Palette".to_string(),
+            state: UxNodeState {
+                focused: true,
+                selected: true,
+                blocked: false,
+                degraded: false,
+            },
+            allowed_actions: vec![UxAction::Focus, UxAction::Dismiss, UxAction::Navigate],
+            domain: UxDomainIdentity::CommandPalette {
+                contextual_mode: command_palette.contextual_mode,
+                return_target: command_palette.return_target,
+                pending_node_context_target: command_palette.pending_node_context_target,
+                pending_frame_context_target: command_palette.pending_frame_context_target,
+                context_anchor_present: command_palette.context_anchor_present,
+            },
+        });
+        presentation_nodes.push(UxPresentationNode {
+            ux_node_id: command_palette_id.clone(),
+            bounds: None,
+            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            z_pass: "command.palette",
+            style_flags: vec!["surface:command-palette"],
+            transient_flags: vec!["mode:palette"],
+        });
+        trace_nodes.push(UxTraceNode {
+            ux_node_id: command_palette_id,
+            event_route: "command.palette_route",
+            backend_path: "egui",
+            diagnostics_counter: 1,
+        });
+    }
+
+    if let Some(context_palette) = snapshot.context_palette {
+        let context_palette_id = "uxnode://command/context-palette/root".to_string();
+        semantic_nodes.push(UxSemanticNode {
+            ux_node_id: context_palette_id.clone(),
+            parent_ux_node_id: Some(command_bar_id),
+            role: UxNodeRole::ContextPalette,
+            label: "Context Palette".to_string(),
+            state: UxNodeState {
+                focused: true,
+                selected: true,
+                blocked: false,
+                degraded: false,
+            },
+            allowed_actions: vec![UxAction::Focus, UxAction::Dismiss, UxAction::Navigate],
+            domain: UxDomainIdentity::CommandPalette {
+                contextual_mode: context_palette.contextual_mode,
+                return_target: context_palette.return_target,
+                pending_node_context_target: context_palette.pending_node_context_target,
+                pending_frame_context_target: context_palette.pending_frame_context_target,
+                context_anchor_present: context_palette.context_anchor_present,
+            },
+        });
+        presentation_nodes.push(UxPresentationNode {
+            ux_node_id: context_palette_id.clone(),
+            bounds: None,
+            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            z_pass: "command.context_palette",
+            style_flags: vec!["surface:context-palette"],
+            transient_flags: vec!["mode:contextual"],
+        });
+        trace_nodes.push(UxTraceNode {
+            ux_node_id: context_palette_id,
+            event_route: "command.context_palette_route",
+            backend_path: "egui",
+            diagnostics_counter: 1,
+        });
     }
 }
 
@@ -1590,6 +1789,11 @@ mod tests {
         RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary, RadialSectorSemanticMetadata,
         clear_semantic_snapshot, publish_semantic_snapshot,
     };
+    use crate::shell::desktop::ui::toolbar::toolbar_ui::{
+        CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
+        PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
+        publish_command_surface_semantic_snapshot,
+    };
     use crate::shell::desktop::tests::harness::TestRegistry;
 
     #[test]
@@ -1841,6 +2045,85 @@ mod tests {
         );
 
         clear_semantic_snapshot();
+    }
+
+    #[test]
+    fn snapshot_projects_command_surface_probe_receipts() {
+        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        clear_command_surface_semantic_snapshot();
+        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+            command_bar: CommandBarSemanticMetadata {
+                active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                focused_node: Some(NodeKey::new(17)),
+                location_focused: true,
+            },
+            omnibar: OmnibarSemanticMetadata {
+                active: true,
+                focused: true,
+                query: Some("rust graph".to_string()),
+                match_count: 4,
+                provider_status: Some("Suggestions: loading...".to_string()),
+                active_pane: None,
+                focused_node: Some(NodeKey::new(17)),
+            },
+            command_palette: Some(PaletteSurfaceSemanticMetadata {
+                contextual_mode: false,
+                return_target: Some(ToolSurfaceReturnTarget::Graph(GraphViewId::new())),
+                pending_node_context_target: None,
+                pending_frame_context_target: None,
+                context_anchor_present: false,
+            }),
+            context_palette: None,
+        });
+
+        let harness = TestRegistry::new();
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+
+        assert!(
+            snapshot
+                .semantic_nodes
+                .iter()
+                .any(|node| node.role == UxNodeRole::CommandBar),
+            "snapshot should include command bar semantic root"
+        );
+        assert!(
+            snapshot.semantic_nodes.iter().any(|node| {
+                node.role == UxNodeRole::Omnibar
+                    && matches!(
+                        &node.domain,
+                        UxDomainIdentity::Omnibar {
+                            active,
+                            focused,
+                            query,
+                            match_count,
+                            focused_node,
+                            ..
+                        } if *active
+                            && *focused
+                            && query.as_deref() == Some("rust graph")
+                            && *match_count == 4
+                            && *focused_node == Some(NodeKey::new(17))
+                    )
+            }),
+            "snapshot should include omnibar probe metadata"
+        );
+        assert!(
+            snapshot.semantic_nodes.iter().any(|node| {
+                node.role == UxNodeRole::CommandPalette
+                    && matches!(
+                        &node.domain,
+                        UxDomainIdentity::CommandPalette {
+                            contextual_mode,
+                            return_target,
+                            ..
+                        } if !*contextual_mode
+                            && matches!(return_target, Some(ToolSurfaceReturnTarget::Graph(_)))
+                    )
+            }),
+            "snapshot should include command palette return-target metadata"
+        );
+
+        clear_command_surface_semantic_snapshot();
     }
 
     #[test]

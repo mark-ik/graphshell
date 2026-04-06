@@ -239,6 +239,14 @@ pub(crate) const CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED: &str =
     "runtime.ui.command_bar.workbench_command.executed";
 pub(crate) const CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS: &str =
     "runtime.ui.command_bar.workbench_command.blocked_by_focus";
+pub(crate) const CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED: &str =
+    "runtime.ui.command_surface.route_resolved";
+pub(crate) const CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED: &str =
+    "runtime.ui.command_surface.route_blocked";
+pub(crate) const CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK: &str =
+    "runtime.ui.command_surface.route_fallback";
+pub(crate) const CHANNEL_UI_COMMAND_SURFACE_ROUTE_NO_TARGET: &str =
+    "runtime.ui.command_surface.route_no_target";
 pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_REQUESTED: &str =
     "runtime.ui.command_bar.nav_action.requested";
 pub(crate) const CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED: &str =

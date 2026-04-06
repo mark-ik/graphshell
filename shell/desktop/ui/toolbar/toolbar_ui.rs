@@ -10,6 +10,7 @@ use euclid::default::Point2D;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use winit::window::Window;
 
@@ -54,7 +55,7 @@ use self::toolbar_settings_menu::render_settings_menu;
 use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, GraphViewId, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingTileOpenMode, RadialMenuShortcut,
-    ToastAnchorPreference, WorkbenchIntent,
+    ToastAnchorPreference, ToolSurfaceReturnTarget, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
@@ -254,6 +255,81 @@ impl OmnibarSearchSession {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CommandBarSemanticMetadata {
+    pub(crate) active_pane: Option<PaneId>,
+    pub(crate) focused_node: Option<NodeKey>,
+    pub(crate) location_focused: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct OmnibarSemanticMetadata {
+    pub(crate) active: bool,
+    pub(crate) focused: bool,
+    pub(crate) query: Option<String>,
+    pub(crate) match_count: usize,
+    pub(crate) provider_status: Option<String>,
+    pub(crate) active_pane: Option<PaneId>,
+    pub(crate) focused_node: Option<NodeKey>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PaletteSurfaceSemanticMetadata {
+    pub(crate) contextual_mode: bool,
+    pub(crate) return_target: Option<ToolSurfaceReturnTarget>,
+    pub(crate) pending_node_context_target: Option<NodeKey>,
+    pub(crate) pending_frame_context_target: Option<String>,
+    pub(crate) context_anchor_present: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CommandSurfaceSemanticSnapshot {
+    pub(crate) command_bar: CommandBarSemanticMetadata,
+    pub(crate) omnibar: OmnibarSemanticMetadata,
+    pub(crate) command_palette: Option<PaletteSurfaceSemanticMetadata>,
+    pub(crate) context_palette: Option<PaletteSurfaceSemanticMetadata>,
+}
+
+static LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT: OnceLock<Mutex<Option<CommandSurfaceSemanticSnapshot>>> =
+    OnceLock::new();
+
+fn command_surface_snapshot_cache() -> &'static Mutex<Option<CommandSurfaceSemanticSnapshot>> {
+    LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
+
+pub(crate) fn publish_command_surface_semantic_snapshot(
+    snapshot: CommandSurfaceSemanticSnapshot,
+) {
+    if let Ok(mut slot) = command_surface_snapshot_cache().lock() {
+        *slot = Some(snapshot);
+    }
+}
+
+pub(crate) fn latest_command_surface_semantic_snapshot(
+) -> Option<CommandSurfaceSemanticSnapshot> {
+    command_surface_snapshot_cache()
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+}
+
+pub(crate) fn clear_command_surface_semantic_snapshot() {
+    if let Ok(mut slot) = command_surface_snapshot_cache().lock() {
+        *slot = None;
+    }
+}
+
+#[cfg(test)]
+static COMMAND_SURFACE_TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn lock_command_surface_snapshot_tests() -> std::sync::MutexGuard<'static, ()> {
+    COMMAND_SURFACE_TEST_MUTEX
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("command-surface snapshot test mutex poisoned")
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderSuggestionStatus {
     Idle,
@@ -409,6 +485,68 @@ fn provider_status_label(status: ProviderSuggestionStatus) -> Option<String> {
         ProviderSuggestionStatus::Failed(ProviderSuggestionError::Parse) => {
             Some("Suggestions unavailable: response parse error".to_string())
         }
+    }
+}
+
+fn command_surface_semantic_snapshot(
+    graph_app: &GraphBrowserApp,
+    command_bar_focus_target: CommandBarFocusTarget,
+    local_widget_focus: &Option<LocalFocusTarget>,
+    omnibar_search_session: &Option<OmnibarSearchSession>,
+    location: &str,
+) -> CommandSurfaceSemanticSnapshot {
+    let location_focused = matches!(
+        local_widget_focus,
+        Some(LocalFocusTarget::ToolbarLocation { .. })
+    );
+    let omnibar_query = omnibar_search_session
+        .as_ref()
+        .map(|session| session.query.trim().to_string())
+        .filter(|query| !query.is_empty())
+        .or_else(|| {
+            let trimmed = location.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        });
+    let omnibar_match_count = omnibar_search_session
+        .as_ref()
+        .map(|session| session.matches.len())
+        .unwrap_or(0);
+    let omnibar_provider_status = omnibar_search_session
+        .as_ref()
+        .and_then(|session| provider_status_label(session.provider_mailbox.status));
+    let palette_metadata = PaletteSurfaceSemanticMetadata {
+        contextual_mode: graph_app.workspace.chrome_ui.command_palette_contextual_mode,
+        return_target: graph_app.pending_command_surface_return_target(),
+        pending_node_context_target: graph_app.pending_node_context_target(),
+        pending_frame_context_target: graph_app.pending_frame_context_target().map(str::to_string),
+        context_anchor_present: graph_app.workspace.chrome_ui.context_palette_anchor.is_some(),
+    };
+
+    CommandSurfaceSemanticSnapshot {
+        command_bar: CommandBarSemanticMetadata {
+            active_pane: command_bar_focus_target.active_pane(),
+            focused_node: command_bar_focus_target.focused_node(),
+            location_focused,
+        },
+        omnibar: OmnibarSemanticMetadata {
+            active: location_focused || omnibar_search_session.is_some(),
+            focused: location_focused,
+            query: omnibar_query,
+            match_count: omnibar_match_count,
+            provider_status: omnibar_provider_status,
+            active_pane: command_bar_focus_target.active_pane(),
+            focused_node: command_bar_focus_target.focused_node(),
+        },
+        command_palette: graph_app
+            .workspace
+            .chrome_ui
+            .show_command_palette
+            .then_some(palette_metadata.clone()),
+        context_palette: graph_app
+            .workspace
+            .chrome_ui
+            .show_context_palette
+            .then_some(palette_metadata),
     }
 }
 
@@ -888,6 +1026,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     } = args;
 
     if winit_window.fullscreen().is_some() {
+        clear_command_surface_semantic_snapshot();
         render_fullscreen_origin_strip(ctx, graph_app, command_bar_focus_target);
         return Output {
             toggle_tile_view_requested: false,
@@ -967,6 +1106,14 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
             });
         });
 
+    publish_command_surface_semantic_snapshot(command_surface_semantic_snapshot(
+        graph_app,
+        command_bar_focus_target,
+        local_widget_focus,
+        omnibar_search_session,
+        location,
+    ));
+
     #[cfg(feature = "diagnostics")]
     diagnostics_state.tick_drain();
     #[cfg(feature = "diagnostics")]
@@ -993,9 +1140,12 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
 #[cfg(test)]
 mod tests {
     use super::{
+        CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
+        PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
         enqueue_navigator_view_focus, enqueue_overview_plane_toggle,
         emit_omnibar_provider_mailbox_applied, emit_omnibar_provider_mailbox_failed,
         emit_omnibar_provider_mailbox_request_started, emit_omnibar_provider_mailbox_stale,
+        latest_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
         render_shell_status_bar, TOOLBAR_HEIGHT,
     };
     use crate::app::{GraphBrowserApp, GraphViewId, WorkbenchIntent};
@@ -1004,6 +1154,7 @@ mod tests {
     };
     use crate::shell::desktop::runtime::registries::{
         CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
+        CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
@@ -1055,6 +1206,15 @@ mod tests {
             )),
             "expected command bar dispatch diagnostic; got: {emitted:?}"
         );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageReceivedStructured { channel_id, fields, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED
+                        && fields.iter().any(|field| field.name == "route_detail" && field.value == "intent_enqueued")
+            )),
+            "expected generic command-surface resolved diagnostic; got: {emitted:?}"
+        );
         assert!(matches!(
             app.take_pending_workbench_intents().as_slice(),
             [WorkbenchIntent::ToggleCommandPalette]
@@ -1104,6 +1264,42 @@ mod tests {
             )),
             "expected provider mailbox stale diagnostic; got: {emitted:?}"
         );
+    }
+
+    #[test]
+    fn command_surface_semantic_snapshot_cache_round_trips() {
+        let _guard = super::lock_command_surface_snapshot_tests();
+        clear_command_surface_semantic_snapshot();
+        let snapshot = CommandSurfaceSemanticSnapshot {
+            command_bar: CommandBarSemanticMetadata {
+                active_pane: None,
+                focused_node: None,
+                location_focused: true,
+            },
+            omnibar: OmnibarSemanticMetadata {
+                active: true,
+                focused: true,
+                query: Some("rust async".to_string()),
+                match_count: 3,
+                provider_status: Some("Suggestions: loading...".to_string()),
+                active_pane: None,
+                focused_node: None,
+            },
+            command_palette: Some(PaletteSurfaceSemanticMetadata {
+                contextual_mode: false,
+                return_target: None,
+                pending_node_context_target: None,
+                pending_frame_context_target: None,
+                context_anchor_present: false,
+            }),
+            context_palette: None,
+        };
+
+        publish_command_surface_semantic_snapshot(snapshot.clone());
+
+        assert_eq!(latest_command_surface_semantic_snapshot(), Some(snapshot));
+
+        clear_command_surface_semantic_snapshot();
     }
 
     #[test]

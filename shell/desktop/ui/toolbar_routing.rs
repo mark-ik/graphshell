@@ -8,11 +8,16 @@ use crate::app::{
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::diagnostics::{
+    DiagnosticEvent, emit_event, emit_message_received_with_payload,
+    emit_message_sent_with_payload, structured_payload_field,
+};
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::input::binding_id;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
+    CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
+    CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
     CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
     CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED,
     CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
@@ -91,6 +96,42 @@ fn emit_command_bar_command_palette_requested() {
     });
 }
 
+fn emit_command_surface_route_resolved(
+    command_id: &'static str,
+    target_kind: &'static str,
+    route_detail: &'static str,
+    label_len: usize,
+) {
+    emit_message_received_with_payload(
+        CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
+        label_len.max(1) as u64,
+        vec![
+            structured_payload_field("source_surface", "command_bar"),
+            structured_payload_field("command_id", command_id),
+            structured_payload_field("target_kind", target_kind),
+            structured_payload_field("route_detail", route_detail),
+        ],
+    );
+}
+
+fn emit_command_surface_route_blocked(
+    command_id: &'static str,
+    target_kind: &'static str,
+    route_detail: &'static str,
+    label_len: usize,
+) {
+    emit_message_sent_with_payload(
+        CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
+        label_len.max(1),
+        vec![
+            structured_payload_field("source_surface", "command_bar"),
+            structured_payload_field("command_id", command_id),
+            structured_payload_field("target_kind", target_kind),
+            structured_payload_field("route_detail", route_detail),
+        ],
+    );
+}
+
 fn shell_workbench_command_label(command: ShellWorkbenchCommand) -> &'static str {
     match command {
         ShellWorkbenchCommand::OpenCommandPalette => "command_palette_open",
@@ -158,11 +199,27 @@ pub(crate) fn request_workbench_command(
     emit_workbench_command_requested(command);
 
     if command_requires_focused_pane(command) && command_bar_focus_target.active_pane().is_none() {
+        emit_command_surface_route_blocked(
+            shell_workbench_command_label(command),
+            "focused_pane",
+            "focused_pane_required",
+            shell_workbench_command_label(command).len(),
+        );
         emit_workbench_command_blocked_by_focus(command);
         return false;
     }
 
     graph_app.enqueue_workbench_intent(workbench_intent_for_command(command));
+    emit_command_surface_route_resolved(
+        shell_workbench_command_label(command),
+        if command_requires_focused_pane(command) {
+            "focused_pane"
+        } else {
+            "workbench_intent"
+        },
+        "intent_enqueued",
+        shell_workbench_command_label(command).len(),
+    );
     emit_workbench_command_executed(command);
     true
 }
@@ -260,6 +317,12 @@ pub(crate) fn run_nav_action_for_fallback_node(
         | ToolbarNavAction::Close => None,
     } {
         if !registries::phase2_resolve_input_binding(binding_id) {
+            emit_command_surface_route_blocked(
+                nav_action_label(action),
+                "input_binding",
+                "binding_unresolved",
+                nav_action_label(action).len(),
+            );
             emit_command_bar_nav_action_blocked(action);
             return false;
         }
@@ -484,6 +547,15 @@ mod tests {
             )),
             "expected focus-block diagnostic; got: {emitted:?}"
         );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageSentStructured { channel_id, fields, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED
+                        && fields.iter().any(|field| field.name == "route_detail" && field.value == "focused_pane_required")
+            )),
+            "expected structured route-blocked diagnostic; got: {emitted:?}"
+        );
     }
 
     #[test]
@@ -509,6 +581,15 @@ mod tests {
                     if *channel_id == CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED
             )),
             "expected executed diagnostic; got: {emitted:?}"
+        );
+        assert!(
+            emitted.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::MessageReceivedStructured { channel_id, fields, .. }
+                    if *channel_id == CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED
+                        && fields.iter().any(|field| field.name == "command_id" && field.value == "help_panel")
+            )),
+            "expected structured route-resolved diagnostic; got: {emitted:?}"
         );
     }
 

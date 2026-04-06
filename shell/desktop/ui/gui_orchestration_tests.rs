@@ -4,6 +4,7 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED,
     CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED,
     CHANNEL_UX_FOCUS_CAPTURE_ENTER, CHANNEL_UX_FOCUS_CAPTURE_EXIT,
@@ -22,6 +23,12 @@ use egui_tiles::{Tile, Tiles, Tree};
 use servo::LoadStatus;
 use servo::WebViewId;
 use tempfile::TempDir;
+
+fn channel_count(snapshot: &serde_json::Value, channel_id: &'static str) -> u64 {
+    snapshot["channels"]["message_counts"][channel_id]
+        .as_u64()
+        .unwrap_or(0)
+}
 
 fn active_graph_count(tree: &Tree<TileKind>) -> usize {
     tree.active_tiles()
@@ -1305,13 +1312,13 @@ fn cycle_focus_region_success_does_not_emit_ux_navigation_violation_channel() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) > 0,
         "expected ux:navigation_transition when focus cycle resolves successfully"
     );
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) == 0,
         "did not expect ux:navigation_violation when focus cycle resolves successfully"
     );
 }
@@ -1333,13 +1340,13 @@ fn open_tool_pane_emits_ux_navigation_transition_channel() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) > 0,
         "expected ux:navigation_transition when opening a tool pane changes focus region"
     );
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) == 0,
         "did not expect ux:navigation_violation when opening a tool pane succeeds"
     );
 }
@@ -1362,13 +1369,13 @@ fn open_settings_url_emits_ux_navigation_transition_channel() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) > 0,
         "expected ux:navigation_transition when opening settings route changes focus region"
     );
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) == 0,
         "did not expect ux:navigation_violation when opening settings route succeeds"
     );
 }
@@ -1396,13 +1403,13 @@ fn open_settings_url_already_focused_does_not_emit_ux_navigation_transition_chan
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) == 0,
         "did not expect ux:navigation_transition when settings route target is already focused"
     );
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) == 0,
         "did not expect ux:navigation_violation when no settings focus handoff is needed"
     );
 }
@@ -1484,13 +1491,13 @@ fn open_tool_pane_already_focused_does_not_emit_ux_navigation_transition_channel
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) == 0,
         "did not expect ux:navigation_transition when opening an already focused tool pane"
     );
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) == 0,
         "did not expect ux:navigation_violation when no focus handoff is needed"
     );
 }
@@ -1588,13 +1595,13 @@ fn close_tool_pane_restore_failure_emits_ux_navigation_violation_channel() {
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) == 0,
         "did not expect ux:navigation_transition when restore path cannot resolve a focus target"
     );
     assert!(
-        snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) > 0,
         "expected ux:navigation_violation when restore path cannot resolve a focus target"
     );
 }
@@ -1623,13 +1630,13 @@ fn close_tool_pane_restore_success_does_not_emit_ux_navigation_violation_channel
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) > 0,
         "expected ux:navigation_transition when restore path resolves successfully"
     );
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) == 0,
         "did not expect ux:navigation_violation when restore path resolves successfully"
     );
 }
@@ -1727,13 +1734,13 @@ fn close_tool_pane_without_restore_and_close_fails_does_not_emit_ux_navigation_v
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) == 0,
         "did not expect ux:navigation_transition when close fails without restore request"
     );
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) == 0,
         "did not expect ux:navigation_violation when close failed without restore request"
     );
 }
@@ -1759,13 +1766,13 @@ fn close_tool_pane_without_restore_and_close_succeeds_emits_ux_navigation_transi
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
 
     diagnostics.force_drain_for_tests();
-    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    let snapshot = diagnostics.snapshot_json_for_tests();
     assert!(
-        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_TRANSITION) > 0,
         "expected ux:navigation_transition when close succeeds without restore and focus handoff resolves"
     );
     assert!(
-        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        channel_count(&snapshot, CHANNEL_UX_NAVIGATION_VIOLATION) == 0,
         "did not expect ux:navigation_violation when close succeeds without restore"
     );
 }
@@ -2371,7 +2378,7 @@ fn authority_realizer_opens_help_panel_from_focus_authority() {
     focus_authority.transient_surface_return_target =
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
-    let mut intents = vec![WorkbenchIntent::CloseHelpPanel];
+    let mut intents = vec![WorkbenchIntent::ToggleHelpPanel];
     super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
@@ -2445,7 +2452,7 @@ fn authority_realizer_opens_radial_menu_from_focus_authority() {
     focus_authority.transient_surface_return_target =
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
-    let mut intents = vec![WorkbenchIntent::CloseRadialMenu];
+    let mut intents = vec![WorkbenchIntent::ToggleRadialMenu];
     super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
@@ -2775,5 +2782,41 @@ fn transient_surface_restore_invalid_target_emits_focus_return_fallback_and_mism
         active_node_key(&tree),
         Some(node_key),
         "fallback restore should preserve a valid active tile when the stored target is stale"
+    );
+}
+
+#[test]
+fn command_palette_close_invalid_target_emits_command_surface_route_fallback() {
+    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let node_key = crate::graph::NodeKey::new(191);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("command_palette_restore_fallback", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    app.workspace.chrome_ui.show_command_palette = true;
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    app.set_pending_command_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
+        GraphViewId::new(),
+    )));
+
+    let mut intents = vec![WorkbenchIntent::CloseCommandPalette];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK),
+        "expected command-surface fallback diagnostic when command palette restore target is stale"
+    );
+    assert_eq!(
+        active_node_key(&tree),
+        Some(node_key),
+        "fallback restore should preserve the currently active node when palette return target is stale"
     );
 }

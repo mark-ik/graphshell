@@ -596,10 +596,28 @@ impl<'a> GraphshellTileBehavior<'a> {
                     ),
             })
         });
+            let command_surface_semantic_node_count = ux_tree::latest_snapshot()
+                .map(|snapshot| {
+                    snapshot
+                        .semantic_nodes
+                        .iter()
+                        .filter(|node| {
+                            matches!(
+                                node.role,
+                                ux_tree::UxNodeRole::CommandBar
+                                    | ux_tree::UxNodeRole::Omnibar
+                                    | ux_tree::UxNodeRole::CommandPalette
+                                    | ux_tree::UxNodeRole::ContextPalette
+                            )
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
 
         AccessibilityInspectorSnapshot {
             total_nodes,
             selected_node_count,
+                command_surface_semantic_node_count,
             selected_node,
         }
     }
@@ -679,6 +697,10 @@ impl<'a> GraphshellTileBehavior<'a> {
 
                 ui.strong("UxTree semantic nodes");
                 ui.monospace(uxtree_roots.to_string());
+                ui.end_row();
+
+                ui.strong("Command-surface semantic nodes");
+                ui.monospace(snapshot.command_surface_semantic_node_count.to_string());
                 ui.end_row();
 
                 ui.strong("UxTree probe");
@@ -1247,6 +1269,7 @@ struct AccessibilityInspectorSelectedNodeSnapshot {
 struct AccessibilityInspectorSnapshot {
     total_nodes: usize,
     selected_node_count: usize,
+    command_surface_semantic_node_count: usize,
     selected_node: Option<AccessibilityInspectorSelectedNodeSnapshot>,
 }
 
@@ -1424,7 +1447,61 @@ mod tests {
         assert_eq!(selected.node_key, key);
         assert_eq!(selected.node_url, "https://example.com");
         assert!(!selected.viewer_id.is_empty());
+        assert_eq!(snapshot.command_surface_semantic_node_count, 0);
         assert!(selected.affordance_projection.is_none());
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn accessibility_inspector_snapshot_counts_command_surface_semantics() {
+        use crate::shell::desktop::tests::harness::TestRegistry;
+        use crate::shell::desktop::ui::toolbar::toolbar_ui::{
+            CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot,
+            OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
+            clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
+        };
+
+        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        clear_command_surface_semantic_snapshot();
+        ux_tree::clear_snapshot();
+
+        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+            command_bar: CommandBarSemanticMetadata {
+                active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                focused_node: None,
+                location_focused: true,
+            },
+            omnibar: OmnibarSemanticMetadata {
+                active: true,
+                focused: true,
+                query: Some("graphshell".to_string()),
+                match_count: 2,
+                provider_status: None,
+                active_pane: None,
+                focused_node: None,
+            },
+            command_palette: Some(PaletteSurfaceSemanticMetadata {
+                contextual_mode: false,
+                return_target: Some(crate::app::ToolSurfaceReturnTarget::Graph(
+                    crate::app::GraphViewId::new(),
+                )),
+                pending_node_context_target: None,
+                pending_frame_context_target: None,
+                context_anchor_present: false,
+            }),
+            context_palette: None,
+        });
+
+        let harness = TestRegistry::new();
+        let uxtree_snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        ux_tree::publish_snapshot(&uxtree_snapshot);
+
+        let snapshot = GraphshellTileBehavior::accessibility_inspector_snapshot(&harness.app);
+
+        assert_eq!(snapshot.command_surface_semantic_node_count, 3);
+
+        clear_command_surface_semantic_snapshot();
+        ux_tree::clear_snapshot();
     }
 
     #[cfg(feature = "diagnostics")]

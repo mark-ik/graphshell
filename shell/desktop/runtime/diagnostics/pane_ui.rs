@@ -838,18 +838,30 @@ impl DiagnosticsState {
                                 );
                             } else {
                                 egui::Grid::new("diag_channel_receipts")
-                                    .num_columns(3)
+                                    .num_columns(4)
                                     .striped(true)
                                     .show(ui, |ui| {
                                         ui.strong("Channel");
                                         ui.strong("Direction");
                                         ui.strong("Detail");
+                                        ui.strong("Payload");
                                         ui.end_row();
 
                                         for receipt in receipts {
                                             ui.monospace(receipt.channel_id);
                                             ui.monospace(receipt.direction);
                                             ui.monospace(receipt.detail);
+                                            let payload_summary = if receipt.payload_fields.is_empty() {
+                                                "-".to_string()
+                                            } else {
+                                                receipt
+                                                    .payload_fields
+                                                    .iter()
+                                                    .map(|field| format!("{}={}", field.name, field.value))
+                                                    .collect::<Vec<_>>()
+                                                    .join(", ")
+                                            };
+                                            ui.monospace(payload_summary);
                                             ui.end_row();
                                         }
                                     });
