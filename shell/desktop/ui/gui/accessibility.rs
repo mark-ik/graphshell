@@ -716,7 +716,7 @@ fn map_uxtree_role_to_accesskit_role(role: UxNodeRole) -> egui::accesskit::Role 
         UxNodeRole::GraphSurface => egui::accesskit::Role::ScrollView,
         UxNodeRole::GraphNode => egui::accesskit::Role::TreeItem,
         UxNodeRole::NodePane => egui::accesskit::Role::Pane,
-        UxNodeRole::CommandBar => egui::accesskit::Role::Group,
+        UxNodeRole::CommandBar => egui::accesskit::Role::Toolbar,
         UxNodeRole::Omnibar => egui::accesskit::Role::TextInput,
         UxNodeRole::CommandPalette => egui::accesskit::Role::Group,
         UxNodeRole::ContextPalette => egui::accesskit::Role::Group,

@@ -19,6 +19,7 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_LAYOUT_GUTTER_DETECTED,
     CHANNEL_UX_LAYOUT_OVERLAP_DETECTED, CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
+    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_STRUCTURAL_VIOLATION,
     CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
 };
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
@@ -479,6 +480,30 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     if let Some(message) = ux_tree::presentation_id_consistency_violation(&uxtree_snapshot) {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UX_CONTRACT_WARNING,
+            byte_len: message.len(),
+        });
+    }
+    if let Some(message) = ux_tree::trace_id_consistency_violation(&uxtree_snapshot) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
+            byte_len: message.len(),
+        });
+    }
+    if let Some(message) = ux_tree::semantic_parent_link_violation(&uxtree_snapshot) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
+            byte_len: message.len(),
+        });
+    }
+    if let Some(message) = ux_tree::command_surface_capture_owner_violation(&uxtree_snapshot) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
+            byte_len: message.len(),
+        });
+    }
+    if let Some(message) = ux_tree::command_surface_return_target_violation(&uxtree_snapshot) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
             byte_len: message.len(),
         });
     }

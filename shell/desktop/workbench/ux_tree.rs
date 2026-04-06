@@ -1618,6 +1618,14 @@ pub(crate) fn presentation_ids(snapshot: &UxTreeSnapshot) -> HashSet<&str> {
         .collect()
 }
 
+pub(crate) fn trace_ids(snapshot: &UxTreeSnapshot) -> HashSet<&str> {
+    snapshot
+        .trace_nodes
+        .iter()
+        .map(|node| node.ux_node_id.as_str())
+        .collect()
+}
+
 pub(crate) fn presentation_id_consistency_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
     let semantic = semantic_ids(snapshot);
     for node in &snapshot.presentation_nodes {
@@ -1629,6 +1637,134 @@ pub(crate) fn presentation_id_consistency_violation(snapshot: &UxTreeSnapshot) -
         }
     }
     None
+}
+
+pub(crate) fn trace_id_consistency_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
+    let semantic = semantic_ids(snapshot);
+    for node in &snapshot.trace_nodes {
+        if !semantic.contains(node.ux_node_id.as_str()) {
+            return Some(format!(
+                "uxtree invariant failed: trace ux_node_id '{}' missing from semantic layer",
+                node.ux_node_id
+            ));
+        }
+    }
+    None
+}
+
+pub(crate) fn semantic_parent_link_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
+    let semantic = semantic_ids(snapshot);
+    snapshot.semantic_nodes.iter().find_map(|node| {
+        let parent_id = node.parent_ux_node_id.as_deref()?;
+        (!semantic.contains(parent_id)).then(|| {
+            format!(
+                "uxtree invariant failed: semantic ux_node_id '{}' references missing parent '{}'",
+                node.ux_node_id, parent_id
+            )
+        })
+    })
+}
+
+fn command_surface_capture_owners(snapshot: &UxTreeSnapshot) -> Vec<&'static str> {
+    snapshot
+        .semantic_nodes
+        .iter()
+        .filter_map(|node| match (&node.role, &node.domain) {
+            (
+                UxNodeRole::Omnibar,
+                UxDomainIdentity::Omnibar {
+                    focused: true,
+                    active: true,
+                    ..
+                },
+            ) => Some("omnibar"),
+            (UxNodeRole::CommandPalette, UxDomainIdentity::CommandPalette { .. })
+                if node.state.focused || node.state.selected =>
+            {
+                Some("command_palette")
+            }
+            (UxNodeRole::ContextPalette, UxDomainIdentity::CommandPalette { .. })
+                if node.state.focused || node.state.selected =>
+            {
+                Some("context_palette")
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn command_surface_capture_owner_violation(
+    snapshot: &UxTreeSnapshot,
+) -> Option<String> {
+    let has_command_bar = snapshot
+        .semantic_nodes
+        .iter()
+        .any(|node| node.role == UxNodeRole::CommandBar);
+    if !has_command_bar {
+        return None;
+    }
+
+    let capture_owners = command_surface_capture_owners(snapshot);
+    (capture_owners.len() > 1).then(|| {
+        format!(
+            "uxtree invariant failed: multiple command-surface capture owners advertised semantic focus: {}",
+            capture_owners.join(", ")
+        )
+    })
+}
+
+fn command_bar_has_restore_anchor(snapshot: &UxTreeSnapshot) -> bool {
+    snapshot.semantic_nodes.iter().any(|node| {
+        matches!(
+            &node.domain,
+            UxDomainIdentity::CommandBar {
+                active_pane,
+                focused_node,
+                ..
+            } if active_pane.is_some() || focused_node.is_some()
+        )
+    })
+}
+
+pub(crate) fn command_surface_return_target_violation(
+    snapshot: &UxTreeSnapshot,
+) -> Option<String> {
+    let has_fallback_anchor = command_bar_has_restore_anchor(snapshot);
+    snapshot.semantic_nodes.iter().find_map(|node| {
+        let UxDomainIdentity::CommandPalette {
+            return_target,
+            pending_node_context_target,
+            pending_frame_context_target,
+            context_anchor_present,
+            ..
+        } = &node.domain
+        else {
+            return None;
+        };
+
+        let visible_palette = matches!(node.role, UxNodeRole::CommandPalette | UxNodeRole::ContextPalette)
+            && (node.state.focused || node.state.selected);
+        if !visible_palette {
+            return None;
+        }
+
+        let has_restore_path = return_target.is_some()
+            || pending_node_context_target.is_some()
+            || pending_frame_context_target.is_some()
+            || *context_anchor_present
+            || has_fallback_anchor;
+
+        (!has_restore_path).then(|| {
+            format!(
+                "uxtree invariant failed: visible {} has no return target or fallback anchor",
+                match node.role {
+                    UxNodeRole::CommandPalette => "command palette",
+                    UxNodeRole::ContextPalette => "context palette",
+                    _ => "command surface",
+                }
+            )
+        })
+    })
 }
 
 pub(crate) fn node_pane_bounds_missing_count(snapshot: &UxTreeSnapshot) -> usize {
@@ -1805,11 +1941,13 @@ mod tests {
         let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 12);
         let semantic = semantic_ids(&snapshot);
         let presentation = presentation_ids(&snapshot);
+        let trace = trace_ids(&snapshot);
 
         assert!(
             presentation.is_subset(&semantic),
             "presentation ids must be subset of semantic ids"
         );
+        assert!(trace.is_subset(&semantic), "trace ids must be subset of semantic ids");
     }
 
     #[test]
@@ -1831,6 +1969,44 @@ mod tests {
         let violation = presentation_id_consistency_violation(&snapshot)
             .expect("probe should detect orphan presentation node");
         assert!(violation.contains("orphan/presentation"));
+    }
+
+    #[test]
+    fn consistency_probe_flags_missing_semantic_id_for_trace_node() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-trace-probe.example");
+        harness.open_node_tab(node);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+
+        snapshot.trace_nodes.push(UxTraceNode {
+            ux_node_id: "uxnode://orphan/trace".to_string(),
+            event_route: "orphan.trace_route",
+            backend_path: "egui",
+            diagnostics_counter: 0,
+        });
+
+        let violation = trace_id_consistency_violation(&snapshot)
+            .expect("probe should detect orphan trace node");
+        assert!(violation.contains("orphan/trace"));
+    }
+
+    #[test]
+    fn semantic_parent_link_violation_flags_missing_parent_node() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-orphan-parent.example");
+        harness.open_node_tab(node);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+
+        let graph_surface = snapshot
+            .semantic_nodes
+            .iter_mut()
+            .find(|entry| entry.role == UxNodeRole::GraphSurface)
+            .expect("graph surface should be present");
+        graph_surface.parent_ux_node_id = Some("uxnode://missing/parent".to_string());
+
+        let violation = semantic_parent_link_violation(&snapshot)
+            .expect("probe should detect orphan semantic parent link");
+        assert!(violation.contains("missing/parent"));
     }
 
     #[test]
@@ -2122,6 +2298,122 @@ mod tests {
             }),
             "snapshot should include command palette return-target metadata"
         );
+
+        clear_command_surface_semantic_snapshot();
+    }
+
+    #[test]
+    fn command_surface_capture_owner_violation_detects_conflicting_owners() {
+        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        clear_command_surface_semantic_snapshot();
+        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+            command_bar: CommandBarSemanticMetadata {
+                active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                focused_node: Some(NodeKey::new(9)),
+                location_focused: true,
+            },
+            omnibar: OmnibarSemanticMetadata {
+                active: true,
+                focused: true,
+                query: Some("graphshell".to_string()),
+                match_count: 2,
+                provider_status: None,
+                active_pane: None,
+                focused_node: Some(NodeKey::new(9)),
+            },
+            command_palette: Some(PaletteSurfaceSemanticMetadata {
+                contextual_mode: false,
+                return_target: Some(ToolSurfaceReturnTarget::Graph(GraphViewId::new())),
+                pending_node_context_target: None,
+                pending_frame_context_target: None,
+                context_anchor_present: false,
+            }),
+            context_palette: None,
+        });
+
+        let harness = TestRegistry::new();
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+
+        let violation = command_surface_capture_owner_violation(&snapshot)
+            .expect("expected capture-owner conflict to be detected");
+        assert!(violation.contains("omnibar"));
+        assert!(violation.contains("command_palette"));
+
+        clear_command_surface_semantic_snapshot();
+    }
+
+    #[test]
+    fn command_surface_return_target_violation_detects_missing_restore_anchor() {
+        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        clear_command_surface_semantic_snapshot();
+        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+            command_bar: CommandBarSemanticMetadata {
+                active_pane: None,
+                focused_node: None,
+                location_focused: false,
+            },
+            omnibar: OmnibarSemanticMetadata {
+                active: false,
+                focused: false,
+                query: None,
+                match_count: 0,
+                provider_status: None,
+                active_pane: None,
+                focused_node: None,
+            },
+            command_palette: Some(PaletteSurfaceSemanticMetadata {
+                contextual_mode: false,
+                return_target: None,
+                pending_node_context_target: None,
+                pending_frame_context_target: None,
+                context_anchor_present: false,
+            }),
+            context_palette: None,
+        });
+
+        let harness = TestRegistry::new();
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+
+        let violation = command_surface_return_target_violation(&snapshot)
+            .expect("expected missing command-surface restore anchor to be detected");
+        assert!(violation.contains("command palette"));
+
+        clear_command_surface_semantic_snapshot();
+    }
+
+    #[test]
+    fn command_surface_return_target_violation_accepts_command_bar_fallback_anchor() {
+        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        clear_command_surface_semantic_snapshot();
+        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+            command_bar: CommandBarSemanticMetadata {
+                active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                focused_node: None,
+                location_focused: false,
+            },
+            omnibar: OmnibarSemanticMetadata {
+                active: false,
+                focused: false,
+                query: None,
+                match_count: 0,
+                provider_status: None,
+                active_pane: None,
+                focused_node: None,
+            },
+            command_palette: Some(PaletteSurfaceSemanticMetadata {
+                contextual_mode: false,
+                return_target: None,
+                pending_node_context_target: None,
+                pending_frame_context_target: None,
+                context_anchor_present: false,
+            }),
+            context_palette: None,
+        });
+
+        let harness = TestRegistry::new();
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+
+        assert!(command_surface_return_target_violation(&snapshot).is_none());
 
         clear_command_surface_semantic_snapshot();
     }

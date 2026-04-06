@@ -44,6 +44,8 @@ Progress checkpoint (2026-04-05):
 - structured command-surface provenance channels are now landed for `resolved`, `blocked`, `fallback`, and `no-target` routing outcomes, with retained payload fields visible in recent diagnostics receipts.
 - Shell command chrome now publishes command-surface semantic metadata that projects into UxTree semantic/presentation/trace snapshots and the accessibility inspector's semantic-node summary.
 - focused cleanup is already complete for the immediate fallout from those schema and receipt changes: stale diagnostics expectations, scenario schema assertions, and committed pre-wgpu UxTree baselines have been updated.
+- scoped helper-style UxTree probes now cover command-surface capture-owner conflicts, missing command-surface return paths, orphan trace-layer IDs, and missing semantic parent links via the existing publish-time diagnostics seam.
+- focused `command_surface_` and broader `shell::desktop::workbench::ux_tree::tests::` validation slices are green with those helpers in place; the remaining broad `shell::desktop` failures currently observed sit outside this closure lane.
 - the main work still open in this companion lane is stronger scenario coverage and manual AT validation, not the initial provenance vocabulary or projection plumbing.
 
 ---
