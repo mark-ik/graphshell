@@ -4,8 +4,8 @@
 
 # Shell Command Bar Execution Plan (2026-04-03)
 
-**Status**: Active closure lane (refreshed 2026-04-05)
-**Scope**: Turns Workstream A from `shell_backlog_pack.md` into a finishable closure lane for the Shell-owned `CommandBar`, omnibar/session state, focused-target resolution, and legacy command-route cleanup.
+**Status**: Prototype-conformance closure lane (refreshed 2026-04-06)
+**Scope**: Turns Workstream A from `shell_backlog_pack.md` into a finishable prototype-conformance lane for the Shell-owned `CommandBar`, omnibar/session state, focused-target resolution, and removal or relocation of non-Shell and legacy command-route seams.
 
 **Related**:
 
@@ -50,6 +50,8 @@ This plan exists to make that seam honest and executable without waiting on ever
 
 Refresh note (2026-04-05): the original 2026-04-03 draft is no longer a pure forward plan. Several carriers and routing seams described here are now landed in code, so this document now tracks only the remaining work needed to close Workstream A cleanly and make the file archivable.
 
+Prototype posture (2026-04-06): Graphshell is still a prototype with no user-migration constraint, so this lane should prefer deletion or relocation over compatibility-preserving bridge work. Temporary host seams are useful only as short-lived inventory aids. They are not acceptable closure state for the Shell UI itself. The target architecture is a Shell-owned command bar that retains only Shell-owned controls plus the explicit Navigator read-only omnibar-context seam.
+
 ---
 
 ## Non-Goals
@@ -74,8 +76,8 @@ Already landed and no longer primary blockers for this plan:
 
 Still open and required before this plan can be archived:
 
-- the `shell_command_bar` still renders a mixed set of Shell, Navigator, Graph, and legacy bridge controls in one bar pass; the ownership split is not complete yet.
-- legacy bridge controls and legacy command-bypass cases are still tracked here but not yet reduced to either canonical reroutes or explicitly accepted exceptions.
+- the `shell_command_bar` still renders non-Shell controls that should be removed or relocated if the prototype is to converge on the target architecture: Navigator view tabs, viewer navigation, the viewer compat toggle, and the graph history / mutation / lens / physics / fit cluster.
+- the lane still speaks in migration language about temporary host seams, legacy bridge controls, and documented exceptions; for prototype closure, those should collapse to canonical reroutes, relocations, deletion, or narrowly bounded host/runtime adapters outside the Shell UI surface.
 - `SH02` / `SH05` evidence is only partially represented by code-level diagnostics and focused tests; this plan still needs a clear closure receipt or equivalent evidence handoff before archival.
 - the cross-subsystem observability, UxTree, and AT work needed to prove command-surface closure now lives in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` and remains an explicit dependency for archival.
 
@@ -88,30 +90,71 @@ Recent implementation progress recorded against this lane:
 - scoped UxTree contract helpers now enforce command-surface capture-owner / return-target invariants plus trace-layer ID consistency and semantic parent-link integrity through the existing publish diagnostics path.
 - the previously failing broad-shell expectations around anchored new-node placement and default lens physics have now been reconciled to the current contracts, and `cargo test shell::desktop -- --quiet` is green again.
 - command-surface scenario coverage now includes a healthy command-surface UxTree snapshot case, a stale-return fallback receipt scenario, and refreshed diff-gate expectations, while the accessibility baseline checklist now carries explicit first-pass command-surface AT tasks and a concrete Windows manual-pass recipe instead of leaving the lane implicit.
+- `shell_command_bar` now renders only Shell-owned steady-state controls in code: `Overview` /
+   `Cmd` on the left and `Settings` / `More` on the right. Viewer navigation remains in the
+   workbench host chrome, viewer backend toggles remain reachable through Settings, and graph-local
+   lens/view controls remain pane-local rather than command-bar residents.
+- graph-view switching now projects through Navigator host chrome in code: rendered graph-scope
+   hosts show the view switcher directly, while a narrow host-owned fallback strip appears only
+   when no graph-scope host is currently rendered.
+
+---
+
+## Prototype Conformance Target (2026-04-06)
+
+The Shell command bar should converge to the following steady state:
+
+- retain only Shell-owned controls in the bar itself: omnibar input, command entry, app-level settings/control access, ambient status, and any genuine Shell overview trigger;
+- allow one explicit cross-domain seam inside the omnibar: Navigator may contribute read-only context projection, but not own command interpretation or general chrome residency;
+- remove Navigator, Viewer, and Graph controls from the bar as steady-state residents, even when they currently route correctly;
+- permit host/runtime protocol adapters only outside the Shell UI ownership boundary, and only if they terminate in canonical Shell/Workbench command surfaces rather than mutating app truth directly.
+
+The prototype goal is not "better labeled mixed chrome." It is architectural convergence.
+
+### Current CommandBar Inventory And Prototype Disposition
+
+| Current control | Authority | Current state | Prototype disposition |
+| --- | --- | --- | --- |
+| Omnibar input field | Shell | correct resident | Keep in `CommandBar` |
+| Omnibar breadcrumb / context display | Navigator (read-only seam) | acceptable cross-domain seam | Keep only as explicit read-only omnibar contribution |
+| Graph view tabs | Navigator | relocated to Navigator host chrome, with a host-owned fallback strip only when no graph-scope host is rendered | Continue converging toward fully configured graph-scope host defaults |
+| Wry / Servo compat toggle | Viewer legacy bridge | temporary viewer bridge in `shell_command_bar` | Delete from Shell bar; relocate only if a viewer-local debug/control surface still needs it |
+| Back / Forward / Reload / Zoom | Viewer | temporary host seam in `shell_command_bar` | Relocate to pane-local viewer chrome |
+| Undo / Redo | Graph | temporary host seam in `shell_command_bar` | Relocate to graph-local chrome or command surfaces |
+| `+Node` / `+Edge` / `+Tag` | Graph | temporary host seam in `shell_command_bar` | Relocate to graph-local chrome or command surfaces |
+| Lens menu | Graph / Navigator-adjacent | temporary host seam in `shell_command_bar` | Relocate to graph-view or Navigator-owned chrome |
+| Physics menu | Shell policy or graph-facing config, depending on final contract | currently grouped with graph controls | Remove from the bar; if retained, expose through a Shell control surface rather than primary command chrome |
+| Fit | Graph | temporary host seam in right-column chrome | Relocate to graph-local chrome |
+| Overview | Shell | plausible steady-state Shell control | Keep only if it remains an app-level overview surface rather than graph-local affordance |
+| Cmd / command palette trigger | Shell | correct resident | Keep in `CommandBar` |
+| Settings / More / ambient status | Shell | correct resident | Keep in `CommandBar` or `StatusBar` |
 
 ---
 
 ## Feature Target 1: Split CommandBar Authority From Mixed Toolbar Content
 
-**Status**: Open
+**Status**: In progress — the Shell bar is now Shell-only in code; remaining work is relocation evidence, destination-surface cleanup, and archival-strength validation
 
 ### Target 1 Context
 
-The current `shell_command_bar` panel is named correctly but still semantically mixed. The first
-job is to make the redistribution explicit.
+The current `shell_command_bar` panel is no longer mixed in code, but this target is not fully
+closed until the removed controls have stable destination-surface evidence and the surrounding
+docs/semantics stop modeling them as command-bar residents.
 
 ### Target 1 Tasks
 
-1. Keep the control inventory explicit in the document and code: every control in `shell_command_bar` must be classified as Shell, Navigator, Graph, Workbench, Viewer, or bridged legacy.
-2. Finish the ownership split in `toolbar_ui.rs` so the file's helper passes are not only named by authority, but also stop leaving unresolved mixed-authority controls in the Shell bar by inertia.
-3. Either relocate Navigator-owned graph-view tabs and graph-scoped controls out of the Shell-owned bar or document why a temporary host seam still belongs here.
-4. Decide the final presentation fate of graph mutation shortcuts (`+Node`, `+Edge`, `+Tag`), lens/physics controls, and `Overview`: retained Shell trigger, relocated domain-local surface, or explicitly temporary bridge.
+1. Keep the control inventory explicit in the document and code, but treat inventory as an input to removal or relocation decisions rather than closure by itself.
+2. Finish the ownership split in `toolbar_ui.rs` so the file's helper passes are not only named by authority, but also stop leaving non-Shell controls in the Shell bar by inertia.
+3. Relocate Navigator-owned graph-view tabs out of the Shell-owned bar, leaving only the explicit read-only omnibar-context seam in shared chrome.
+4. Relocate Viewer controls out of the Shell-owned bar: the compat toggle plus pane-targeted navigation should move to viewer-local chrome or be deleted if no longer justified.
+5. Relocate Graph controls out of the Shell-owned bar: history, mutation shortcuts, fit, lens, and graph-local config should live in graph-local or Navigator-owned chrome rather than app-level command chrome.
+6. Decide whether `Overview` remains a true Shell overview trigger; if not, relocate it as well.
 
 ### Target 1 Validation Tests
 
-- The `CommandBar` has an explicit ownership inventory rather than a grab-bag of toolbar widgets.
-- Navigator projection controls are either no longer rendered by Shell-owned code paths or are explicitly documented as temporary host seams with an exit path.
-- Every remaining `CommandBar` control has a clear authority story.
+- The `CommandBar` retains only Shell-owned controls plus the explicit Navigator read-only omnibar-context seam.
+- Viewer-targeted and graph-targeted controls are no longer steady-state residents of the Shell bar.
+- Any control still present in `CommandBar` has a defensible Shell-ownership reason rather than only a migration note.
 
 ### Target 1 Concrete Code-Change Checklist
 
@@ -129,9 +172,10 @@ job is to make the redistribution explicit.
     `Cmd` as a retained Shell-owned trigger.
 - split the current three-column rendering into ownership-named helper passes so the file stops
    treating the bar as one undifferentiated toolbar block.
-- reduce the current left-column mixed block so `render_command_bar_legacy_graph_actions(...)` no longer functions as a catch-all home for unresolved controls.
+- reduce the current left-column mixed block so no helper remains a catch-all home for unresolved controls, then start removing or relocating the non-Shell helpers instead of merely documenting them.
 - keep `render_location_search_panel(...)` as the center Shell-owned input seam and document that it
    consumes Navigator projection without owning it.
+- remove or relocate `render_command_bar_navigator_projection(...)`, `render_command_bar_viewer_bridge(...)`, and `render_command_bar_graph_controls(...)` from `shell_command_bar` steady state; only Shell-owned helpers should remain there after closure.
 - audit `toolbar_controls::render_navigation_buttons(...)` and `render_toolbar_right_controls(...)`
    the same way as the left column so right-side chrome does not remain a mixed-authority escape
    hatch.
@@ -140,14 +184,13 @@ job is to make the redistribution explicit.
 
 - verify that the `Cmd` button and keyboard command-palette entry still converge on the same
    `WorkbenchIntent::ToggleCommandPalette` and focus-return path after the toolbar split.
-- keep any temporary legacy bridge controls explicitly labeled in the plan and diagnostics until
-   they can be rerouted or relocated.
+- remove or relocate any temporary legacy bridge controls rather than treating their labeled presence as acceptable closure state.
 
 ---
 
 ## Feature Target 2: Make Focused-Target Resolution A First-Class Shell Input
 
-**Status**: Mostly landed; remaining work is evidence and cleanup
+**Status**: Closed in code; retained here as closure receipt
 
 ### Target 2 Context
 
@@ -160,6 +203,8 @@ surface rendered last.
 2. Audit remaining command-bar-adjacent helpers for any direct partial-state inference that should instead consume the carrier or its canonical construction helper.
 3. Keep command-palette open/toggle and return-target behavior aligned with the focus authority in `gui/focus_state.rs` and shared toolbar-routing helpers.
 4. Expand evidence for keyboard-focus precedence and last-pointer fallback precedence where the behavior is now implemented but not yet closed by this plan.
+
+Closure note (2026-04-06): the remaining ad hoc nav-action target construction now converges on `nav_targeting::command_bar_focus_target(...)`, while focused helper tests and toolbar-routing tests explicitly cover chrome-projection precedence over focused-node fallback.
 
 ### Target 2 Validation Tests
 
@@ -240,7 +285,9 @@ toolbar logic rather than a host-owned Shell session seam.
 ### Target 4 Context
 
 The docs already flag legacy embedder/context-menu flows as a correctness problem. This lane should
-own the audit and reroute plan for Shell-facing command entry points.
+own the audit and reroute plan for Shell-facing command entry points, but for prototype closure it
+should bias toward canonical reroute or deletion rather than leaving a broad class of "documented
+exception" behavior behind.
 
 ### Target 4 Tasks
 
@@ -248,14 +295,13 @@ own the audit and reroute plan for Shell-facing command entry points.
    Graphshell command and pane semantics.
 2. Reroute those paths through the canonical command/action or workbench-intent routes where
    possible.
-3. Where rerouting is not yet practical, document the exception explicitly and emit diagnostics so
-   the bypass remains visible instead of accidental.
+3. Where rerouting is not yet practical, reduce the remaining case to a narrowly bounded host/runtime adapter outside Shell UI ownership and emit diagnostics so the boundary remains visible instead of accidental.
 4. Keep the audit scoped to Shell-facing command entry and routing seams, not every viewer/embedder
    integration issue.
 
 ### Target 4 Validation Tests
 
-- Known legacy command-bypass paths are either rerouted or explicitly documented as temporary.
+- Known legacy command-bypass paths are either rerouted or reduced to explicit host/runtime adapters that do not mutate app truth directly.
 - Bypass cases emit diagnosable evidence instead of silently mutating pane/view state.
 - Shell command routing remains the user-visible authority even when an embedder surface exists.
 
@@ -294,7 +340,7 @@ and Shell command-surface AT validation recipes; this target consumes those rece
 ## Suggested Slice Order
 
 1. Finish the ownership inventory and control redistribution in `toolbar_ui.rs`.
-2. Close the remaining legacy bypass audit and decide reroute vs. explicit temporary exception.
+2. Close the remaining legacy bypass audit and decide reroute vs. deletion vs. narrowly bounded host/runtime adapter.
 3. Land the remaining `SH02` / `SH05` diagnostics and scenario evidence for command handoff, blocked routing, and focus return.
 4. Close the companion observability / UxTree / AT tasks required for command-surface evidence handoff.
 5. Write the closure receipt or backlog checkpoint delta that states what downstream Shell work may now assume.
@@ -308,17 +354,19 @@ This order keeps the finish work focused on real remaining blockers instead of r
 Archive this plan only when all of the following are true:
 
 1. no unresolved mixed-authority control remains in the `shell_command_bar` without an explicit temporary-host justification and exit path,
-2. legacy command-bypass cases covered by this lane are either rerouted through canonical Shell/Workbench command authority or documented as accepted temporary bridges elsewhere,
-3. `SH02` / `SH05` closure evidence exists in scenarios, diagnostics receipts, or a Shell closure receipt,
-4. the companion observability / UxTree / AT tasks in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` are closed strongly enough that this file no longer carries them as an active dependency, and
-5. `shell_backlog_pack.md`, `SHELL.md`, and `DOC_README.md` no longer need this file as the live execution surface for Workstream A.
+2. no Navigator, Viewer, or Graph control remains a steady-state resident of the `shell_command_bar` other than the explicit Navigator read-only omnibar-context seam,
+3. legacy command-bypass cases covered by this lane are either rerouted through canonical Shell/Workbench command authority or reduced to explicit host/runtime adapters outside Shell UI ownership,
+4. `SH02` / `SH05` closure evidence exists in scenarios, diagnostics receipts, or a Shell closure receipt,
+5. the companion observability / UxTree / AT tasks in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` are closed strongly enough that this file no longer carries them as an active dependency, and
+6. `shell_backlog_pack.md`, `SHELL.md`, and `DOC_README.md` no longer need this file as the live execution surface for Workstream A.
 
 ---
 
 ## Exit Condition
 
-This plan is complete when Graphshell has a Shell-owned `CommandBar` with explicit control
-ownership, a first-class focused-target carrier, an omnibar session/mailbox contract supervised by
-Shell/Register runtime boundaries, diagnosable routing for both canonical command entry and
-legacy bypass cases, and a closure handoff strong enough that the remaining state belongs in a
-receipt or backlog checkpoint rather than an active execution plan.
+This plan is complete when Graphshell has a Shell-owned `CommandBar` containing only Shell-owned
+controls plus the explicit Navigator read-only omnibar seam, a first-class focused-target carrier,
+an omnibar session/mailbox contract supervised by Shell/Register runtime boundaries, diagnosable
+routing for both canonical command entry and any remaining explicit host/runtime adapters, and a
+closure handoff strong enough that the remaining state belongs in a receipt or backlog checkpoint
+rather than an active execution plan.

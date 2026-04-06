@@ -350,17 +350,16 @@ feeds it through explicit host-owned seams.
 
 ### 5.4 CommandBar target resolution
 
-The `CommandBar` may show controls whose action target depends on the currently
-focused surface, especially per-pane Viewer controls. That target resolution is
-not inferred ad hoc from whichever subsystem most recently rendered; it is a
-first-class per-frame input to Shell.
+The `CommandBar` may submit actions whose target depends on the currently
+focused surface. That target resolution is not inferred ad hoc from whichever
+subsystem most recently rendered; it is a first-class per-frame input to Shell.
 
 One concrete shape is:
 
 ```rust
 pub struct CommandBarFocusTarget {
     pub focused_surface: FocusedSurface,
-    pub viewer_controls: Option<ViewerCommandTarget>,
+   pub focused_node: Option<NodeKey>,
 }
 
 pub enum FocusedSurface {
@@ -374,10 +373,13 @@ The required precedence rule is:
 
 1. keyboard focus owner wins
 2. otherwise, last pointer-interacted surface wins
-3. otherwise, no focused Viewer target is exposed in `CommandBar`
+3. otherwise, no focused command target is exposed in `CommandBar`
 
 This rule is Shell-owned and evaluated once per frame before rendering the
-`CommandBar`. Viewer-targeted controls must read from this resolved target
+`CommandBar`. The bar itself no longer hosts viewer chrome directly; this
+target carrier exists so omnibar submission, command entry, and other
+Shell-owned routing can resolve the correct graph/workbench target without
+depending on render order.
 rather than re-deriving focus inside toolbar code.
 
 Current-state note: `CommandBarFocusTarget` is now the landed baseline carrier.
@@ -385,26 +387,33 @@ The remaining closure work is its provenance/evidence model: diagnostics
 receipts, UxTree trace projection, and focus-return / AT validation are tracked
 in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`.
 
-### 5.5 Controls currently in `graph_bar` — redistribution
+### 5.5 Controls previously in `graph_bar` — prototype redistribution
 
-`toolbar_ui.rs:render_toolbar` currently renders these in `graph_bar` in a
-single `TopBottomPanel`:
+`toolbar_ui.rs` still renders these in `shell_command_bar` today, but the
+prototype target architecture is stricter than "better labeled mixed chrome."
+The `CommandBar` should converge to a Shell-owned bar containing only
+Shell-owned controls plus the explicit Navigator read-only omnibar-context
+seam.
 
-| Current control | Correct authority | Target slot |
+| Current control | Correct authority | Prototype target |
 |---|---|---|
-| Omnibar input field | Shell | `CommandBar` — input region |
-| Back / Forward buttons | Viewer (per-pane) | `CommandBar` right region (shown only in `WorkbenchActive`/`Pinned` states, scoped to focused pane) |
-| Graph view tabs | Navigator | `CommandBar` — Navigator context display region (or `NavigatorBottom` toolbar) |
-| +Node / +Edge buttons | Graph (mutation dispatch from Shell) | `CommandBar` — Shell graph-mutation shortcuts |
-| Lens menu | Graph (lens is projection-local) | `CommandBar` — Shell graph configuration |
-| Physics menu | Shell (cross-domain policy preset) | `CommandBar` — Shell config |
-| Settings button | Shell | `CommandBar` right region |
-| Command palette button | Shell | `CommandBar` right region |
-| Sync status dot | Shell (ambient system status) | `CommandBar` right region or `StatusBar` |
+| Omnibar input field | Shell | Keep in `CommandBar` input region |
+| Omnibar breadcrumb / context display | Navigator (read-only seam) | Keep only as the explicit read-only omnibar-context seam |
+| Graph view tabs | Navigator | Relocate to a Navigator host slot (`NavigatorLeft`, `NavigatorRight`, or `NavigatorBottom`) |
+| Wry / Servo compat toggle | Viewer | Remove from `CommandBar`; relocate only if a viewer-local debug/control surface still needs it |
+| Back / Forward buttons | Viewer (per-pane) | Relocate to pane-local viewer chrome, not `CommandBar` |
+| Reload / Stop / Zoom controls | Viewer (per-pane) | Relocate to pane-local viewer chrome, not `CommandBar` |
+| Undo / Redo | Graph | Relocate to graph-local chrome or command surfaces |
+| +Node / +Edge / +Tag | Graph | Relocate to graph-local chrome or command surfaces |
+| Lens menu | Graph / Navigator-adjacent | Relocate to graph-view or Navigator-owned chrome |
+| Physics menu | Shell policy or graph-facing config, depending on final contract | Remove from `CommandBar`; if retained, expose through a Shell control surface rather than primary command chrome |
+| Fit | Graph | Relocate to graph-local chrome |
+| Settings button | Shell | Keep in `CommandBar` right region |
+| Command palette button | Shell | Keep in `CommandBar` right region |
+| Sync status dot | Shell (ambient system status) | Keep in `CommandBar` right region or `StatusBar` |
 
-The redistribution does not require rearchitecting the controls themselves —
-it requires moving their render sites to the correct slot and removing the
-authority-mixing from `graph_bar`.
+The redistribution therefore does require some controls to move or disappear,
+not merely to be re-labeled inside the same mixed bar.
 
 ---
 

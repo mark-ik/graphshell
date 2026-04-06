@@ -1,6 +1,6 @@
 # Pane Chrome and Opening Semantics — Interaction Spec
 
-**Date**: 2026-02-28 (revised 2026-03-15)
+**Date**: 2026-02-28 (revised 2026-04-06)
 **Status**: Canonical interaction contract
 **Priority**: Implementation-ready
 
@@ -8,10 +8,11 @@
 
 - `WORKBENCH.md`
 - `workbench_frame_tile_interaction_spec.md`
-- `pane_presentation_and_locking_spec.md` — **canonical authority for `PaneLock`** (§7 here defers to it)
+- `pane_presentation_and_locking_spec.md` — **canonical authority for `PaneLock`** (§8 here defers to it)
 - `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — canonical authority for `PaneOpeningMode` and `SimplificationSuppressed`
 - `../../archive_docs/checkpoint_2026-04-02/graphshell_docs/implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` — archived execution note for the completed `FrameTabSemantics` rollout; canonical semantic-tab contract lives in `../graph/multi_view_pane_spec.md §7`
-- `../canvas/node_badge_and_tagging_spec.md` — badge strip rendering contract referenced in §3.1
+- `../canvas/node_badge_and_tagging_spec.md` — badge strip rendering contract referenced in §4.1
+- `../shell/2026-04-03_shell_command_bar_execution_plan.md` — the Shell command bar cleanup that motivated the graduated chrome model
 - `../../../TERMINOLOGY.md` — `Tiled Pane`, `Docked Pane`, `Pane Presentation Mode`, `Tile`
 
 ---
@@ -20,19 +21,34 @@
 
 This spec defines the canonical contracts for:
 
-1. **Pane Presentation Mode** — the three chrome modes and their behavioral rules.
-2. **Tab selector overlay** — when and how the tile-selection chrome renders.
-3. **Pane opening mode boundary** — where graph-citizenship decisions stop and chrome behavior begins.
-4. **Presentation-mode transitions** — moving panes between Tiled, Docked, and Floating presentation.
-5. **Tab ordering and reorder** — drag-reorder semantics within a Tile.
-6. **Pane locking** — preventing accidental reflow.
-7. **Floating pane promotion** — the canonical path from ephemeral overlay pane to graph-backed tile.
+1. **Pane Presentation Mode** — the graduated chrome model and its per-mode rendering rules.
+2. **Tile Viewer Chrome Strip** — the per-pane viewer toolbar rendered for Tiled panes.
+3. **Compatibility mode** — Wry as a local tile chrome affordance for web compat fallback.
+4. **Tab selector overlay** — when and how the tile-selection chrome renders.
+5. **Pane opening mode boundary** — where graph-citizenship decisions stop and chrome behavior begins.
+6. **Presentation-mode transitions** — moving panes between Tiled, Docked, and Floating presentation.
+7. **Tab ordering and reorder** — drag-reorder semantics within a Tile.
+8. **Pane locking** — preventing accidental reflow.
+9. **Floating pane promotion** — the canonical path from ephemeral overlay pane to graph-backed tile.
 
 This spec does **not** define duplicated cross-context appearances as
 presentation-instances of one shared node. Reuse across frames/graphlets is
 handled by explicit node operations (`Move`, `Associate`, `Copy`) in graph /
 workbench authority. Navigator lifecycle acts on node-bearing container entries,
 not on bare pane instances.
+
+### 1.1 Graduated Chrome Principle
+
+Chrome affordances graduate with a pane's lifecycle status in the graph-backed
+workbench. A **Pane** is an ephemeral content carrier, not yet a graph citizen.
+A **Tile** is a graph-backed workbench citizen. Only Tiles expose viewer
+affordances. The Shell command bar and workbench host chrome are for navigation
+structure, arrangement, frames, and context — not per-viewer command ownership.
+
+Per-viewer controls (Back, Forward, Reload, Zoom, compatibility mode) live in
+the **Tile Viewer Chrome Strip** (§3), rendered per-pane and scoped to the
+pane's own content. This replaces any prior model where viewer controls were
+hosted in a global toolbar.
 
 ---
 
@@ -51,7 +67,7 @@ PanePresentationMode =
 **Invariant**: `PanePresentationMode` is workbench-owned state. It does not affect graph content identity. Changing the mode of a pane must not create or delete graph nodes, write addresses, append traversal history, or otherwise mutate graph data.
 
 **Exception — promotion**: transitioning a `Floating` pane to `Tiled` via the
-promote action (§2.3, §5.3) is the one presentation-mode transition that *does*
+promote action (§2.3, §6.3) is the one presentation-mode transition that *does*
 cross the graph-citizenship boundary. It is the canonical **Promotion** event:
 graph citizenship is written, a node is created or reused, and a `PaneId` plus
 any required container membership are assigned. All other mode transitions
@@ -59,35 +75,77 @@ remain graph-neutral.
 
 ### 2.1 Tiled Pane
 
+The primary presentation mode. Tiled panes are graph-backed workbench citizens
+with full viewer affordances.
+
+```
+┌─ Tab Bar (full: favicon, title, frame chip, close) ──┐
+├─ Tile Viewer Chrome Strip ───────────────────────────┤
+│  [<] [>] [R]  example.com/page   [1:1] [-][+] [Compat]  │
+├─ Viewer Content Area ────────────────────────────────┤
+│                                                       │
+│       (Servo composited texture or Wry overlay)       │
+│                                                       │
+└───────────────────────────────────────────────────────┘
+```
+
 - Renders with **tile-selector chrome**: tab bar strip, split/close affordances, resize handles.
+- Renders a **Tile Viewer Chrome Strip** (§3) between the tab bar and the viewer content area, carrying per-pane navigation, zoom, and compatibility mode controls.
 - Participates in all tile-tree mobility operations: split, move, reorder, close, open into a separate frame.
 - Normal drag-and-drop target and source.
 
 ### 2.2 Docked Pane
 
-- Renders with **reduced chrome**: title bar only; split/move affordances hidden.
+Docked panes are graph-backed but present with reduced chrome. They are intended
+for reference content, pinned panels, and secondary views that should not
+compete visually with the active browsing context.
+
+```
+┌─ Tab Bar (compact: title + close) ────────────┐
+├───────────────────────────────────────────────┤
+│  (content, no viewer chrome strip)            │
+│                                               │
+└───────────────────────────────────────────────┘
+```
+
+- Renders with **compact tab chrome**: title, favicon, and close button. No frame chip, split offer, or resize handles.
+- **No Tile Viewer Chrome Strip**. Navigation, zoom, and compatibility mode controls are not rendered. Users access these via keyboard shortcuts, the command palette, or the graph.
 - **Position-locked**: drag-to-reorder is disabled. User cannot accidentally drag a docked pane out of its position.
 - Docked panes are still closeable via their title-bar close button or keyboard shortcut.
 - Docked panes are eligible for focus; focus behavior follows the Focus subsystem contract.
-- A docked pane may be explicitly restored to `Tiled` presentation by the user (see §5).
+- A docked pane may be explicitly restored to `Tiled` presentation by the user (see §6.1).
 
-**Rationale**: Docked presentation reduces visual noise and accidental reflow for auxiliary surfaces (e.g., a persistent diagnostics panel, a side-by-side reference node).
+**Rationale**: Docked presentation reduces visual noise and accidental reflow for auxiliary surfaces (e.g., a persistent diagnostics panel, a side-by-side reference node). Omitting the viewer chrome strip reinforces the visual distinction between the active browsing context (Tiled) and reference content (Docked).
 
 ### 2.3 Floating Pane
 
-A `Floating` pane is a chromeless overlay pane rendered at a fractional size (`QuarterPane` = 25%, `HalfPane` = 50% of the parent tile area) over the tile surface. It is **ephemeral by default**: it has no graph citizenship, no `PaneId`, and no `ArrangementRelation` edge until the user explicitly promotes it.
+A `Floating` pane is an ephemeral content carrier rendered over the tile
+surface. It is **not a graph citizen**: it has no `PaneId` and no
+`ArrangementRelation` edge until the user explicitly promotes it.
+
+```
+┌───────────────────────────────────────────────┐
+│  (content, chromeless)                        │
+│                                               │
+│                       [Promote ↑] [Dismiss ×] │
+└───────────────────────────────────────────────┘
+```
 
 **Chrome contract**:
 
-- No top bar, tab strip, or title.
+- No tab bar, tab strip, or title.
+- No Tile Viewer Chrome Strip. No Back/Forward, no zoom, no compatibility toggle.
 - No drag handle. Edge-drag resize is allowed (the user can adjust dimensions freely after open).
 - `SimplificationSuppressed` is set automatically when the pane opens and cleared on promote or dismiss.
-- Two **hover-only overlay controls** rendered as translucent buttons in a thin band along the top edge of the pane. They are invisible when the cursor is outside the pane rect and fade in (~80 ms) on cursor entry. They must not intercept pointer events to pane content outside the top-edge band.
+- Two affordances only:
 
-| Control | Position | Icon | Action |
-|---------|----------|------|--------|
-| **Promote** | Top-left | ▣ (expand square) | Promotes pane to graph-backed `Tiled` mode (see §5.3) |
-| **Dismiss** | Top-right | ✕ | Closes and discards pane without graph write |
+| Control | Label | Action |
+|---------|-------|--------|
+| **Promote** | Promote | Promotes pane to graph-backed `Tiled` mode via `PromoteEphemeralPane` (see §6.3) |
+| **Dismiss** | X | Demotes node to cold and closes pane without graph write |
+
+These controls render as a compact bar above the content area. They are always
+visible (not hover-gated) to ensure discoverability in the prototype.
 
 **Lifetime contract**:
 
@@ -95,16 +153,96 @@ A `Floating` pane is a chromeless overlay pane rendered at a fractional size (`Q
   overlays. That host may be a tile surface, graph surface, frame context, or
   split context. If that host closes, the floating pane is discarded without any
   graph write — it was never graph-citizened.
-- A `Floating` pane that is dismissed via ✕ produces no graph node, no address write, and no traversal edge.
+- A `Floating` pane that is dismissed via X produces no graph node, no address write, and no traversal edge.
 - A `Floating` pane is not a member of any Tile or tile tree container. It floats above the tile tree render layer until promoted or dismissed.
+- Use cases: link-follows, previews, ephemeral content inspection.
 
 **Rationale**: This formalises the "chromeless dialog/temp window" UX that previously appeared as an undefined side effect. The `Floating` mode makes it a managed, intentional surface with predictable lifecycle and a clear upgrade path to full graph citizenship.
 
 ---
 
-## 3. Tab Selector Overlay Contract
+## 3. Tile Viewer Chrome Strip
 
-### 3.1 Tab Bar Rendering
+The Tile Viewer Chrome Strip is a per-pane horizontal toolbar rendered between
+the tab bar and the viewer content area. It is the canonical home for
+per-viewer navigation and rendering controls. It renders only in `Tiled`
+presentation mode.
+
+### 3.1 Layout
+
+The strip renders as a single `ui.horizontal()` row. Left-aligned controls
+provide navigation; right-aligned controls provide zoom and compatibility mode.
+A compact URL display occupies the center.
+
+```
+[<] [>] [R]  |  example.com/path/to/page  |  [1:1] [-] [+]  [Compat]
+ ← nav →     │        ← url →             │     ← zoom →    ← compat →
+              separator                    right-to-left layout
+```
+
+### 3.2 Navigation Controls
+
+| Control | Label | Command | Hover text |
+|---------|-------|---------|------------|
+| Back | `<` | `BrowserCommand::Back` | "Back" |
+| Forward | `>` | `BrowserCommand::Forward` | "Forward" |
+| Reload | `R` | `BrowserCommand::Reload` | "Reload" |
+
+Navigation commands are routed via
+`graph_app.request_browser_command(ChromeProjection { fallback_node: Some(node_key) }, command)`.
+This targets the pane's own node without requiring `EmbedderWindow` access from
+the tile behavior context.
+
+### 3.3 URL Display
+
+The pane's current node URL is shown as a compact, read-only label truncated to
+fit the available width. The URL is for orientation only; address editing is
+handled by the Shell omnibar.
+
+### 3.4 Zoom Controls
+
+| Control | Label | Command | Hover text |
+|---------|-------|---------|------------|
+| Reset | `1:1` | `BrowserCommand::ZoomReset` | "Reset zoom" |
+| Zoom out | `-` | `BrowserCommand::ZoomOut` | "Zoom out" |
+| Zoom in | `+` | `BrowserCommand::ZoomIn` | "Zoom in" |
+
+Zoom commands use the same `ChromeProjection` routing as navigation.
+
+### 3.5 Compatibility Mode Toggle (Wry)
+
+Wry is framed as a **compatibility mode** — a local tile chrome affordance for
+sites that don't render correctly in the default Servo-based renderer.
+
+| State | Label | Tooltip |
+|-------|-------|---------|
+| Inactive | `Compat` | "Load in compatibility mode (Wry) for sites that don't render correctly" |
+| Active | `Compat *` | "Using compatibility renderer (Wry). Click to switch back." |
+| Unavailable | `Compat` (disabled) | Reason from `wry_unavailable_reason` (feature disabled, capability missing, or preference) |
+
+Clicking the toggle swaps between the Wry viewer backend (`viewer:wry`) and
+clearing the viewer override (returning to automatic resolution). The toggle
+replaces the prior "Render With: Auto/WebView/Wry" selector.
+
+### 3.6 NativeOverlay Constraint
+
+When `TileRenderMode::NativeOverlay` is active (Wry overlay), the OS window
+covers the pane's content rect. The Tile Viewer Chrome Strip is rendered by
+egui *above* the compositor rect allocation — it is not covered by the
+overlay. The content area's `allocate_exact_size(ui.available_size())` call
+naturally shrinks to accommodate the strip.
+
+### 3.7 Implementation Anchor
+
+The chrome strip is rendered by `render_tile_viewer_chrome_strip()` in
+`shell/desktop/workbench/tile_behavior/node_pane_ui.rs`, called from the
+`PanePresentationMode::Tiled` branch of `render_node_pane_impl()`.
+
+---
+
+## 4. Tab Selector Overlay Contract
+
+### 4.1 Tab Bar Rendering
 
 Each Tile that contains multiple node entries renders a tab bar strip (legacy
 term: **Workbar** for frames; now: frame tabs in a workbench-scoped Navigator
@@ -114,7 +252,7 @@ host or per-tile tab strips for multi-node tiles). The tab strip:
 - Active tile's tab is highlighted.
 - Tab bar is scrollable horizontally if tab count overflows available width.
 
-### 3.2 Tab Overlay on Hover
+### 4.2 Tab Overlay on Hover
 
 When the cursor hovers over a non-active pane within a multi-node Tile, a
 **tile-selection affordance** is shown:
@@ -125,13 +263,13 @@ When the cursor hovers over a non-active pane within a multi-node Tile, a
 
 **Invariant**: The hover affordance must not interfere with content interaction within the pane. Pointer events must be forwarded to the pane content when hovering over content areas.
 
-### 3.3 Active Tab Indicator
+### 4.3 Active Tab Indicator
 
 The active tab renders a distinct visual indicator (accent underline or fill) that is visible at all zoom levels and in reduced-motion mode. The indicator must not rely on animation alone to convey active state.
 
 ---
 
-## 4. Pane Opening Mode Boundary
+## 5. Pane Opening Mode Boundary
 
 This spec does not define the full Pane Opening Mode model. It defines the boundary between opening semantics and chrome semantics so they do not get conflated.
 
@@ -143,11 +281,11 @@ Canonical boundary:
 Rules:
 
 1. Opening a pane in an ephemeral mode may create a visible pane without writing any graph node.
-2. Creating graph citizenship (for example, writing a pane address into the graph and turning it into a graph-backed tile) is an opening-mode concern, not a chrome-mode concern — **except** for `Floating` pane promotion (§5.3), which is the explicit crossing of this boundary by user intent.
+2. Creating graph citizenship (for example, writing a pane address into the graph and turning it into a graph-backed tile) is an opening-mode concern, not a chrome-mode concern — **except** for `Floating` pane promotion (§6.3), which is the explicit crossing of this boundary by user intent.
 3. Moving a node into another frame, associating it with another graphlet, or copying it into another context are explicit node operations and are outside the scope of pane chrome. This spec must not describe those operations as generic "open elsewhere" behavior.
 4. Once a pane is already graph-backed, switching between `Tiled` and `Docked` changes only presentation and lock affordances.
 5. Internal surfaces that are graph-backed at creation time (for example `verso://tool/*`, `verso://view/*`, `verso://frame/<FrameId>`) are already across the opening-mode boundary before this spec applies.
-6. `Floating` panes opened in `QuarterPane` or `HalfPane` opening mode begin as ephemeral. Their `PaneOpeningMode` transitions to `Tile` only when the user triggers promotion (§5.3).
+6. `Floating` panes opened in `QuarterPane` or `HalfPane` opening mode begin as ephemeral. Their `PaneOpeningMode` transitions to `Tile` only when the user triggers promotion (§6.3).
 
 Compatibility note:
 
@@ -158,39 +296,43 @@ This separation is required by the address-as-identity model in `TERMINOLOGY.md`
 
 ---
 
-## 5. Presentation-Mode Transition Contract
+## 6. Presentation-Mode Transition Contract
 
-### 5.1 Restore Full Tile Chrome: Docked -> Tiled
+### 6.1 Restore Full Tile Chrome: Docked -> Tiled
 
 Triggers:
+
 - Right-click on a docked pane's title bar -> context menu "Show Tile Chrome"
 - Keyboard shortcut (configurable; default unbound)
 - Command palette: "Show Tile Chrome"
 
 Effect:
+
 1. Pane `PanePresentationMode` changes to `Tiled`.
 2. Pane is inserted into the tile tree at its current position (it was already in the tree; only chrome mode changes).
-3. Full tile-selector chrome is restored.
+3. Full tile-selector chrome — including the Tile Viewer Chrome Strip (§3) — is restored.
 4. Workbench emits a `PanePresentationModeChanged` signal for observability.
 
-### 5.2 Reduce Chrome: Tiled -> Docked
+### 6.2 Reduce Chrome: Tiled -> Docked
 
 Triggers:
+
 - Right-click on a tab entry -> context menu "Dock pane"
 - Keyboard shortcut (configurable; default unbound)
 - Command palette: "Dock pane"
 
 Effect:
+
 1. Pane `PanePresentationMode` changes to `Docked`.
 2. Position in tile tree is preserved (pane is not moved; only chrome mode changes).
-3. Reduced chrome is applied; drag affordances are hidden.
+3. Tile Viewer Chrome Strip is removed; compact tab chrome applied; drag affordances hidden.
 4. Workbench emits a `PanePresentationModeChanged` signal for observability.
 
-**Invariant**: Presentation-mode transitions (§5.1, §5.2) never move or remove the pane from the tile tree. They only change the presentation mode. Content and graph state are unaffected. The sole exception is §5.3 (Floating → Tiled promotion), which is a graph-citizenship transition by design.
+**Invariant**: Presentation-mode transitions (§6.1, §6.2) never move or remove the pane from the tile tree. They only change the presentation mode. Content and graph state are unaffected. The sole exception is §6.3 (Floating → Tiled promotion), which is a graph-citizenship transition by design.
 
-### 5.3 Promote Floating Pane to Tile: Floating -> Tiled
+### 6.3 Promote Floating Pane to Tile: Floating -> Tiled
 
-**Trigger**: User clicks the ▣ promote control on a `Floating` pane (hover-only, top-left corner).
+**Trigger**: User clicks the Promote control on a `Floating` pane.
 
 **Effect** (in order):
 
@@ -218,7 +360,7 @@ Effect:
 
 **Invariant**: The floating pane's content and address are preserved through promotion. No content reload occurs. The pane receives its tab handle at its insertion position in the tile tree.
 
-### 5.4 Dismiss Floating Pane
+### 6.4 Dismiss Floating Pane
 
 **Trigger**: User clicks the ✕ dismiss control on a `Floating` pane (hover-only, top-right corner), or closes the enclosing surface.
 
@@ -236,11 +378,11 @@ container and may demote or delete that node depending on lifecycle state.
 
 ---
 
-## 6. Tab Reorder Contract
+## 7. Tab Reorder Contract
 
 Within a Tile, tabs may be reordered by drag-and-drop.
 
-### 6.1 Drag Semantics
+### 7.1 Drag Semantics
 
 - Drag target: the tab entry in the tab strip (not the pane body).
 - Drop target: any position in the same tab strip (reorder within the same Tile).
@@ -248,17 +390,17 @@ Within a Tile, tabs may be reordered by drag-and-drop.
 
 **Invariant**: Tab reorder within a Tile only changes the ordered node-entry list in that container. It does not change tile tree depth or split geometry. No graph data is affected.
 
-### 6.2 Docked Panes and Reorder
+### 7.2 Docked Panes and Reorder
 
 Docked panes are **not draggable** by the user. The drag affordance is hidden in docked chrome. Programmatic reorder (via intent) is still possible; only the user-interactive drag is blocked.
 
-### 6.3 Dropped Tab Feedback
+### 7.3 Dropped Tab Feedback
 
 When a drag completes successfully, the tab animates to its new position (120 ms ease-out; respects `prefers-reduced-motion`). If the drag is cancelled (Esc or released outside a valid drop zone), the tab returns to its original position.
 
 ---
 
-## 7. Pane Locking Contract
+## 8. Pane Locking Contract
 
 > **Canonical authority**: `pane_presentation_and_locking_spec.md` owns the full `PaneLock` contract, invariants, diagnostics channel table, and test requirements. This section is a cross-reference summary only.
 
@@ -281,7 +423,32 @@ Key rules (full contract in `pane_presentation_and_locking_spec.md §3`):
 
 ---
 
-## 8. Acceptance Criteria
+## 9. Acceptance Criteria
+
+### 9.1 Graduated Chrome
+
+| Criterion | Verification |
+|-----------|-------------|
+| Tiled pane renders Tile Viewer Chrome Strip | Test: mode = `Tiled` → chrome strip with nav, URL, zoom, compat visible between tab bar and content |
+| Docked pane does not render Tile Viewer Chrome Strip | Test: mode = `Docked` → no chrome strip; compact tab bar only |
+| Floating pane renders only Promote + Dismiss | Test: mode = `Floating` → only Promote and Dismiss controls rendered; no nav, zoom, or compat |
+| Chrome strip does not render for Fullscreen | Test: mode = `Fullscreen` → no chrome strip rendered |
+
+### 9.2 Tile Viewer Chrome Strip (§3)
+
+| Criterion | Verification |
+|-----------|-------------|
+| Back button sends `BrowserCommand::Back` to pane node | Test: click `<` → `request_browser_command(ChromeProjection { fallback_node: node_key }, Back)` called |
+| Forward button sends `BrowserCommand::Forward` to pane node | Test: click `>` → `request_browser_command(ChromeProjection { fallback_node: node_key }, Forward)` called |
+| Reload button sends `BrowserCommand::Reload` to pane node | Test: click `R` → `request_browser_command(ChromeProjection { fallback_node: node_key }, Reload)` called |
+| URL display shows truncated node URL | Test: node URL longer than display limit → truncated with ellipsis |
+| Zoom in/out/reset route to pane node | Test: click `+`/`-`/`1:1` → corresponding `BrowserCommand` sent to pane node |
+| Compat toggle activates Wry viewer | Test: click `Compat` when inactive → `viewer_id_override` set to `viewer:wry` |
+| Compat toggle deactivates Wry viewer | Test: click `Compat *` when active → `viewer_id_override` cleared |
+| Compat toggle disabled when Wry unavailable | Test: `wry_unavailable_reason` returns `Some` → toggle disabled with reason tooltip |
+| NativeOverlay chrome strip visible above overlay | Test: `TileRenderMode::NativeOverlay` → chrome strip renders above compositor rect; not covered by OS overlay |
+
+### 9.3 Presentation-Mode Transitions and Tab Behavior
 
 | Criterion | Verification |
 |-----------|-------------|
@@ -294,12 +461,15 @@ Key rules (full contract in `pane_presentation_and_locking_spec.md §3`):
 | Active tab indicator visible without animation | Test: `prefers-reduced-motion` set → active tab indicator renders distinctly |
 | Cross-Tile drop moves tab membership | Test: drag tab to different Tile → node entry moves to new container |
 | `PanePresentationModeChanged` signal emitted on mode switch | Test: switch presentation mode → `PanePresentationModeChanged` signal present in signal log |
-| Floating pane renders no top bar, tab strip, or title | Test: mode = `Floating` → no chrome elements rendered outside the top-edge hover band |
-| Floating pane hover controls appear only on cursor entry | Test: cursor outside pane rect → controls not visible; cursor enters → controls visible within 80 ms |
-| Floating pane hover controls do not intercept content pointer events | Test: click on pane content area (not top-edge band) → event reaches pane content, not intercepted by chrome |
-| Floating pane dismiss produces no graph write | Test: click ✕ on `Floating` pane → no graph node created, no address written, no traversal edge appended |
+
+### 9.4 Floating Pane Lifecycle
+
+| Criterion | Verification |
+|-----------|-------------|
+| Floating pane renders no tab bar or viewer chrome strip | Test: mode = `Floating` → no tab bar, no chrome strip |
+| Floating pane dismiss produces no graph write | Test: click Dismiss on `Floating` pane → no graph node created, no address written, no traversal edge appended |
 | Floating pane dismissed when enclosing surface closes | Test: close host Tile containing a `Floating` pane → pane is discarded; no graph write |
-| Floating pane promotion creates graph node and `PaneId` | Test: click ▣ on `Floating` pane → graph node created, `PaneId` assigned, `ArrangementRelation` edge asserted |
+| Floating pane promotion creates graph node and `PaneId` | Test: click Promote on `Floating` pane → graph node created, `PaneId` assigned, `ArrangementRelation` edge asserted |
 | Promoted pane inserted into Tile as new tab | Test: promote `Floating` pane overlaying a Tile → pane appears as a new tab in that tile with tab handle |
 | Promoted pane loses floating geometry | Test: promote `Floating` pane → floating overlay removed; pane occupies tile tree position |
 | `SimplificationSuppressed` cleared after promotion | Test: promote `Floating` pane → `SimplificationSuppressed` not set on resulting `Tiled` pane |

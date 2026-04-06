@@ -34,7 +34,7 @@ the workbench-scoped host, not an alternate owner of Navigator semantics.
 - `2026-02-28_ux_contract_register.md`
 - `2026-03-04_model_boundary_control_matrix.md`
 - `2026-03-08_unified_ux_semantics_architecture_plan.md`
-- `2026-03-23_navigator_host_runtime_naming_plan.md`
+- `../../../archive_docs/checkpoint_2026-04-06/graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-03-23_navigator_host_runtime_naming_plan.md` — archived runtime naming migration receipt
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `../graph/multi_view_pane_spec.md`
@@ -93,7 +93,9 @@ and leave it by closing all tiles back to the graph.
 
 **Pane/viewer layer**: The document and content layer. What a single node
 shows you. Navigation history, reader/viewer controls, capture and clip
-actions. These belong with the focused pane, not in graph chrome.
+actions. These belong with the focused pane's **tile-local chrome** when the
+pane is presented as a tiled workbench citizen, not in graph chrome and not in
+workbench-scoped host chrome.
 
 **Transient overlay surfaces**: Some app-owned pages may open over the graph
 without immediately becoming tiled workbench structure. They remain Graphshell
@@ -272,17 +274,27 @@ toolbar with more buttons.
 
 ### 5.1 Host Header — Pane-Local Controls
 
-These act on the focused pane only and live in the sidebar header:
+The host header acts on the focused pane's **structure and status**, not as a
+second viewer toolbar.
 
-| Control | Authority | Notes |
+Allowed header content:
+
+| Surface | Authority | Notes |
 |---------|-----------|-------|
-| Back / Forward | Viewer — focused pane | Pane navigation history |
-| Reload | Viewer — focused pane | |
-| Clip / capture | `OpenClip`, `CreateNoteForNode` | Content actions for the focused pane |
-| Reader / viewer controls | Viewer trait extension | Optional; contributed by the active viewer backend (e.g., reader mode toggle for web viewer, page nav for PDF viewer) |
+| Presentation / residency badge | Workbench | Floating / Docked / Tiled, warm/cold, active badges |
+| Backend / degraded badge | Viewer/runtime status | Read-only status; may open detail surface or focus handoff |
+| Clip / capture entry point | `OpenClip`, `CreateNoteForNode` | Optional nearby entry, but not a full viewer toolbar |
 
-The graph-scoped host `Undo` / `Redo` do not morph in this direction. Graph history stays
-graph-scoped; pane navigation stays pane-scoped.
+Disallowed here as primary command ownership:
+
+- Back / Forward / Reload / StopLoad
+- Find in page
+- Content zoom controls
+- Compat / backend toggle
+
+Those belong to tile-local viewer chrome for tiled panes only. The graph-scoped
+host `Undo` / `Redo` do not morph in this direction. Graph history stays
+graph-scoped; pane navigation stays tile-scoped.
 
 ### 5.2 Scope Chips — Frame and Tile Group
 
@@ -406,10 +418,9 @@ This model should be read narrowly:
 ```rust
 /// Computed each frame from graph + tile tree; fed directly into Workbench chrome render.
 pub struct WorkbenchChromeProjection {
-    /// Navigation state for the focused pane.
-    pub nav: PaneNavState,
-    /// Pane-local viewer controls contributed by the active viewer backend.
-    pub viewer_controls: Vec<ViewerControl>,
+    /// Read-only focused-pane status badges (backend, degraded, load/media/download summaries).
+    /// Actionable viewer controls remain tile-local and are not projected here.
+    pub focused_pane_status: Vec<PaneStatusBadge>,
     /// Active frame name and switchable frame list.
     pub frame: FrameProjection,
     /// Active tile-group summary for the focused pane context.
@@ -443,6 +454,8 @@ pub struct WorkbenchTreeRow {
     pub backend: Option<ViewerBackendKind>,
     /// Viewer backends that could also open this node (for "Open with…").
     pub available_backends: Vec<ViewerBackendKind>,
+    /// Presentation mode drives graduated chrome and row action visibility.
+    pub presentation_mode: PanePresentationMode,
 }
 
 pub enum WorkbenchTreeRowKind {
@@ -598,7 +611,7 @@ No new intents are required for Phase 1. The existing vocabulary covers all
 controls:
 
 - Graph-scoped host: `GraphIntent` variants (physics, lens, tags, fit, undo/redo, view slots, new node/edge/tag)
-- Workbench-scoped host header: viewer-scoped navigation via `ToolbarNavAction`; viewer trait extensions for reader/viewer controls
+- Workbench-scoped host header: structural context plus read-only focused-pane status badges; no viewer-scoped navigation ownership
 - Workbench-scoped host scope chips: `WorkbenchIntent` for frame/group navigation; projection read-only
 - Workbench-scoped host pane tree + structural footer: `WorkbenchIntent` (split, close, promote/demote, pin); `OpenConnected` for adjacent routing
 - Settings/overflow: direct app preference mutation plus page open/promotion routing
@@ -610,7 +623,7 @@ the correct surface.
 New intents that may be added as part of this work (not strictly required for
 Phase 1, but named here for completeness):
 - `WorkbenchIntent::EnterWorkbench` / `ExitWorkbench` — explicit layer transitions
-- `WorkbenchIntent::PinWorkbenchSidebar` / `UnpinWorkbenchSidebar` — persistence toggle
+- `WorkbenchIntent::PinWorkbenchHost` / `UnpinWorkbenchHost` — persistence toggle
 - `WorkbenchIntent::SelectViewerBackend { tile_id, backend }` — viewer picker result
 - `WorkbenchIntent::PromoteOverlaySurfaceToWorkbench { route, mode }` — explicit
   transient-overlay promotion
@@ -625,8 +638,9 @@ Phase 1, but named here for completeness):
    `toolbar_ui.rs`, each with a typed input struct.
 2. Introduce `WorkbenchLayerState` on `GuiRuntimeState`; derive it from tile
    tree + overlay routing state each frame.
-3. Move Back/Forward/Reload into the workbench-scoped host header; do not render
-   them in `GraphOnly` / `GraphOverlayActive`.
+3. Remove Back/Forward/Reload from global/host ownership paths; do not re-home
+  them in the workbench-scoped host. Stage them for tile-local chrome on
+  tiled panes only.
 4. Move frame pin controls (P+/P-/W+/W-) into the sidebar structural area.
 5. Add the default workbench-scoped host as a right-side `SidePanel`; drive visibility from
    `ChromeExposurePolicy`.
@@ -635,7 +649,7 @@ Phase 1, but named here for completeness):
 **Acceptance criteria:**
 - Default graph/workbench Navigator hosts render without regressions when hosted
   workbench surfaces are active
-- Back/Forward/Reload absent in `GraphOnly` and `GraphOverlayActive`
+- Workbench-scoped host does not claim Back/Forward/Reload ownership
 - `WorkbenchLayerState` transitions correctly on hosted-surface open/close and
   overlay promotion/demotion
 - Existing toolbar tests pass
@@ -657,16 +671,20 @@ Phase 1, but named here for completeness):
 - Topology token/breadcrumb updates correctly as pane focus changes
 - Semantic grouping takes priority over tile-tree container shape
 
-### Slice 3 — Dedicated Graph vs Pane Navigation Controls
+### Slice 3 — Dedicated Graph vs Tile Navigation Controls
 
 1. Keep `Undo` / `Redo` fixed in the graph-scoped host as graph-scope history controls.
-2. Add dedicated `Back` / `Forward` controls to the workbench-scoped host header.
-3. Update `ToolbarNavAction` routing so sidebar controls dispatch pane
-   navigation directly, with no morph dependency.
+2. Route Back / Forward / Reload / StopLoad / content zoom into tile-local
+  chrome for `PanePresentationMode::Tiled` only.
+3. Keep the workbench-scoped host limited to structural context and read-only
+  focused-pane status rather than pane navigation dispatch.
 
 **Acceptance criteria:**
 - Undo/Redo visible and functional when graph canvas is focused
-- Back/Forward visible and functional in the workbench-scoped host when a pane is focused
+- Back/Forward/Reload visible and functional in tiled tile chrome when a tiled
+  content pane is focused
+- Floating panes and docked tiles do not gain surrogate viewer toolbars through
+  the workbench-scoped host
 - Pane focus does not repurpose graph-scope buttons
 
 ### Slice 4 — Graph-scoped host controls migration
@@ -685,17 +703,18 @@ Phase 1, but named here for completeness):
 - `GraphViewSlot` controls render and route correctly
 - Sync badge expands to Verse controls
 
-### Slice 5 — Viewer backend selector + pane-local viewer controls
+### Slice 5 — Viewer backend selector + tile-local viewer controls
 
-1. Implement `ViewerControl` contribution from the `Viewer` trait (each viewer
-  declares what controls it contributes to the workbench-scoped host header).
+1. Implement viewer-control contribution in tile-local chrome (each viewer
+  declares what controls it contributes to tiled tile chrome, not to the
+  workbench-scoped host header).
 2. Implement "Open with…" picker on pane row expand using `available_backends`
    from `WorkbenchTreeRow`.
 3. Wire `WorkbenchIntent::SelectViewerBackend` through the apply layer.
 
 **Acceptance criteria:**
-- Reader mode toggle (web viewer) appears in the workbench-scoped host header when
-  the focused pane is a web node
+- Reader mode toggle / compat affordance appears in tile-local chrome when the
+  focused pane is a tiled web node
 - "Open with…" appears on pane row expand when multiple backends are available
 - Selecting a backend re-attaches the viewer for that tile
 
@@ -728,7 +747,7 @@ Phase 1, but named here for completeness):
 - [ ] Pane tree accurately projects the current frame/tile/group context
 - [ ] Pane row expand exposes Close, Promote/Demote, Pin, Open-with without a context menu
 - [ ] Graph-scoped host Undo/Redo remain graph-scoped
-- [ ] Back/Forward/Reload live in the workbench-scoped host, not in the graph-scoped host
+- [ ] Back/Forward/Reload live in tile chrome, not in any Navigator host
 - [ ] Physics and lens controls accessible from graph-scoped host chips (no overlay panel)
 - [ ] Sync badge expands to Verse controls on click
 - [ ] Config pages open as transient overlays or workbench panes (no modal windows)

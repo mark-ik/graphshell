@@ -380,43 +380,40 @@ Scope implications:
 The Navigator does not own permission grants or trust evaluation. It projects
 them and routes the user to the authority that does.
 
-## 11B. Focused Content Control Contract
+## 11B. Focused Content Status Contract
 
-The Navigator is also the canonical shared chrome surface for focused
-node-backed page controls that are neither graph controls nor generic app
-settings.
+Navigator hosts may project focused-content **status**, but they are not the
+canonical command surface for page-local viewer controls.
 
-For any focused node whose effective viewer is a live web/content viewer,
-Navigator chrome must expose a focused-content control cluster covering:
+The pane/tile alignment is:
 
-- page load state, including a visible stop/cancel affordance while a load is
-  in progress
-- find-in-page entry for searching within the currently rendered page content
-- per-viewer content zoom controls and current zoom state, distinct from graph
-  camera zoom
-- audio/media activity and mute state
-- downloads activity and entry into the download manager/history surface
+- floating panes stay ephemeral and chromeless except for Promote / Dismiss
+- docked tiles keep reduced identity chrome only
+- tiled tiles own full tile-local viewer chrome
+- Navigator hosts remain structural/context surfaces around that chrome
 
-These are page-local controls. They must not be conflated with:
+Accordingly, Navigator hosts may expose focused-content status such as:
 
-- graph camera zoom
-- graph search or graph filter state
-- workspace/global settings pages
-- unrelated ambient app status chips
+- load-state summary
+- effective backend / compatibility / degraded-state badge
+- media activity summary
+- downloads activity summary
+
+These are status projections. They must not become a surrogate viewer toolbar
+for Back / Forward / Reload / Find in page / content zoom / compat toggle.
 
 Scope implications:
 
-- `WorkbenchOnly` must surface the focused pane's content control cluster when
-  the pane hosts live content.
-- `GraphOnly` and `Both` must surface the same cluster when a node-backed
-  content context is active and Graphshell can still identify the focused node
-  viewer.
-- `Auto` must carry the active content-control cluster across scope changes so
-  page-local controls do not disappear merely because focus moved between graph
-  and workbench surfaces.
+- `WorkbenchOnly` may surface the focused pane's content status when a pane
+  hosts live content, but commands remain tile-local.
+- `GraphOnly` and `Both` may continue to surface relevant focused-node status
+  summaries when Graphshell can identify the active node-backed content
+  surface.
+- `Auto` must preserve status visibility across scope switches without moving
+  command ownership away from tile-local chrome.
 
-If no focused node-backed content viewer is active, these controls may collapse
-or disappear entirely. Placeholder chrome is not required.
+If no focused node-backed content viewer is active, these status badges may
+collapse or disappear entirely. Placeholder chrome is not required.
 
 ---
 
@@ -446,7 +443,7 @@ Canonical rule:
 - host settings are persisted per host, not globally
 
 All active Navigator hosts must use the same row grammar, trust/permission
-projection rules, focused-content control rules, and selection semantics. Hosts
+projection rules, focused-content status rules, and selection semantics. Hosts
 may differ in scope, form factor, anchor edge, and margin settings only.
 
 ### 11.2 Scope Modes

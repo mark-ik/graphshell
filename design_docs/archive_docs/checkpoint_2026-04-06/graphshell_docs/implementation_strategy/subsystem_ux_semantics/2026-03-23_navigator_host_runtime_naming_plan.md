@@ -1,8 +1,14 @@
 # Navigator Host Runtime Naming Plan
 
 **Date**: 2026-03-23
-**Status**: In progress
+**Status**: Archived 2026-04-06
 **Scope**: Runtime naming migration for desktop chrome state and default-host exposure terminology
+
+**Archive note**:
+
+- This migration is complete in runtime, persistence, and the immediate desktop UI consumers.
+- The active authority for ongoing chrome/host semantics remains `2026-03-13_chrome_scope_split_plan.md` and the related Navigator / Shell / Workbench specs.
+- This file is retained as the historical receipt for the host-oriented naming rollout.
 
 **Related**:
 
@@ -13,7 +19,6 @@
 - `../../../../shell/desktop/ui/workbench_host.rs`
 - `../../../../shell/desktop/ui/toolbar/toolbar_ui.rs`
 - `../../../../shell/desktop/ui/gui_frame/toolbar_dialog.rs`
-
 
 ---
 
@@ -65,8 +70,8 @@ pub(crate) enum WorkbenchLayerState {
 pub(crate) enum ChromeExposurePolicy {
     GraphOnly,
     GraphWithOverlay,
-  GraphPlusWorkbenchHost,
-  GraphPlusWorkbenchHostPinned,
+    GraphPlusWorkbenchHost,
+    GraphPlusWorkbenchHostPinned,
 }
 ```
 

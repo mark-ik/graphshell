@@ -235,43 +235,47 @@ Required behavior:
   switches between host form factors, host edges, or graph/workbench scope
   while a node-backed content surface remains active.
 
-### 4.5 Focused Content Control Chips
+### 4.5 Focused Content Status and Pane/Tile Alignment
 
-Navigator header chrome must render a focused-content control cluster whenever
-the focused or selected node resolves to a live content viewer that supports
-page-local controls.
+Navigator chrome may project **focused-content status**, but it is not the
+canonical command surface for viewer-local actions.
 
-Required controls:
+The command-ownership split is:
 
-- **Load-state chip/control**: shows whether the page is loading, idle, or
-  failed. While loading, it exposes `StopLoad` / `CancelLoad`.
+- **Floating pane**: Promote + Dismiss only; no viewer toolbar
+- **Docked tile**: reduced identity chrome only; no viewer toolbar strip
+- **Tiled tile**: tile-local viewer chrome owns Back / Forward / Reload / Zoom /
+  Find in page / compat-mode affordances
+- **Workbench-scoped Navigator host**: structural management plus focused-pane
+  status projection; no surrogate viewer toolbar
 
-- **Find-in-page chip/control**: opens a page-local find surface scoped to the
-  focused viewer only. It must not reuse or overwrite graph search state.
+Allowed Navigator projections for focused content are therefore limited to
+read-only or detail-launch status affordances such as:
 
-- **Content zoom chip/control**: shows current viewer content zoom level and
-  exposes zoom in, zoom out, and reset actions for page content only.
-
-- **Media chip/control**: shows whether the focused tile is currently playing
-  audio/media and exposes mute/unmute at the tile/viewer level.
-
-- **Downloads chip/control**: shows active or recent download state when
-  present and opens the downloads manager/history surface on activation.
+- **Load-state badge**: loading / idle / failed summary; activation may focus
+  the tile or open a detail surface, but does not replace tile-local Stop/Reload
+  chrome
+- **Backend/degraded badge**: effective viewer backend, compatibility/degraded
+  state, or blocked reason summary
+- **Media badge**: indicates active media state and may open the relevant media
+  detail surface
+- **Downloads badge**: indicates active or recent download state and may open
+  downloads history/manager
 
 Required behavior:
 
-1. Clicking these chips routes to viewer/runtime authority, not graph
-  selection mutation.
-2. `Ctrl+F` routed from focused content opens find-in-page for that content
-  viewer, not graph search.
-3. `Ctrl+=`, `Ctrl+-`, and `Ctrl+0` routed from focused content control viewer
-  content zoom, not graph camera zoom.
-4. Audio/media and downloads indicators must remain visible in Navigator chrome
-  while their underlying focused content state remains active or relevant.
-5. Unsupported controls must degrade explicitly. For example, a plaintext or
-  placeholder viewer may omit the media chip entirely, while a viewer lacking
-  in-page search must show an explicit blocked reason rather than silently
-  hijacking graph search.
+1. Navigator hosts must not render Back / Forward / Reload / Find-in-page /
+   content zoom / compat toggle as primary command ownership for the focused
+   viewer.
+2. Floating panes must not acquire a viewer toolbar through Navigator chrome;
+   they remain ephemeral preview surfaces with Promote / Dismiss only.
+3. Docked tiles may project presentation or backend badges in Navigator, but
+   Navigator must not synthesize a full viewer toolbar for docked presentation.
+4. Read-only status badges projected by Navigator route to viewer/runtime
+   detail surfaces or focus handoff, not graph-selection mutation.
+5. Keyboard routes such as `Ctrl+F`, `Ctrl+=`, `Ctrl+-`, and `Ctrl+0` must
+   continue targeting tile-local viewer behavior when a tiled content surface is
+   focused; Navigator projection must not hijack them.
 
 ---
 
@@ -298,12 +302,13 @@ This is enough to drive:
 - graph selection highlight
 - residency badges (`cold`, `live`, etc.)
 
-Additional focused-node chrome state, such as trust and per-origin permission
-chips, is synchronized from security/runtime truth rather than from row state.
+Additional focused-node chrome state, such as trust, per-origin permission,
+backend/degraded badges, and load/media/download summaries, is synchronized
+from security/runtime truth rather than from row state.
 
-The same rule applies to focused-content controls: load state, content zoom,
-media status, and downloads status are projected from viewer/runtime truth,
-not inferred from Navigator-local state.
+Navigator may project focused-pane status from viewer/runtime truth, but
+actionable viewer controls remain tile-local and are not inferred from
+Navigator-local state.
 
 ---
 
@@ -343,8 +348,10 @@ of one shared node identity.
 | Mixed-content node shows degraded warning chip | Test: focus node with mixed content -> Navigator header shows degraded trust warning |
 | Focused origin shows permission chips | Test: focus node with origin permission state -> camera/microphone/location/notifications chips show `allowed` / `blocked` / `prompt` as applicable |
 | Trust/permission chip click does not change node selection | Test: click security chip -> detail surface opens; graph selection truth unchanged |
-| Loading page shows stop-load control | Test: focus node with in-progress page load -> Navigator header shows stop/cancel load affordance |
-| Focused viewer `Ctrl+F` opens find in page | Test: focused content viewer + `Ctrl+F` -> page-local find surface opens; graph search state unchanged |
-| Content zoom controls stay distinct from graph zoom | Test: focused content viewer + zoom shortcut/chip -> rendered page zoom changes; graph camera unchanged |
-| Playing media shows media chip | Test: focused tile playing audio -> Navigator header shows media indicator and mute action |
-| Active download shows downloads chip | Test: focused content starts a download -> Navigator header shows download indicator and opens download manager on click |
+| Navigator does not become a viewer toolbar | Test: focused tiled viewer -> Navigator host shows at most status badges; Back/Forward/Reload/Zoom remain tile-local chrome |
+| Floating pane remains chromeless in Navigator | Test: floating pane active -> Navigator does not expose viewer controls for it; pane keeps Promote/Dismiss only |
+| Docked tile does not gain surrogate viewer chrome | Test: docked tile focused -> Navigator may show status badges but no Back/Forward/Reload/Zoom toolbar |
+| Focused viewer `Ctrl+F` opens find in page | Test: focused tiled content viewer + `Ctrl+F` -> page-local find surface opens; graph search state unchanged |
+| Content zoom remains distinct from graph zoom | Test: focused tiled content viewer + zoom shortcut -> rendered page zoom changes; graph camera unchanged |
+| Playing media shows media status badge | Test: focused tile playing audio -> Navigator may show media indicator and opens relevant detail surface on click |
+| Active download shows downloads status badge | Test: focused content starts a download -> Navigator shows download indicator and opens download manager on click |

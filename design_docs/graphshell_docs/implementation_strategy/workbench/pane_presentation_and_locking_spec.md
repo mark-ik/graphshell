@@ -7,7 +7,7 @@
 **Related**:
 
 - `workbench_frame_tile_interaction_spec.md` — workbench arrangement contract
-- `pane_chrome_and_promotion_spec.md` — **canonical authority for `PanePresentationMode` enum, tab-selector overlay, transition triggers, tab reorder, and chrome rendering rules** (§§2–6); this spec is authoritative for `PaneLock` only
+- `pane_chrome_and_promotion_spec.md` — **canonical authority for `PanePresentationMode` enum, graduated chrome model, Tile Viewer Chrome Strip, tab-selector overlay, transition triggers, tab reorder, and chrome rendering rules** (§§2–7); this spec is authoritative for `PaneLock` only
 - `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — `PaneOpeningMode`, graph-citizenship boundary, `SimplificationSuppressed`
 - `../canvas/multi_view_pane_spec.md` — per-view graph pane isolation and hoist/unhoist operations
 - `../subsystem_focus/focus_and_region_navigation_spec.md` — focus return paths and arbitration rules
@@ -20,7 +20,7 @@ This spec defines the canonical `PaneLock` state model and the cross-cutting con
 
 **Division of authority**:
 
-- `pane_chrome_and_promotion_spec.md` owns: `PanePresentationMode` enum (`Tiled`/`Docked`/`Fullscreen`), tab-selector overlay rendering, presentation-mode transition triggers and effects, tab reorder semantics, and docked-pane close/restore behavior.
+- `pane_chrome_and_promotion_spec.md` owns: `PanePresentationMode` enum (`Tiled`/`Docked`/`Floating`/`Fullscreen`), graduated chrome model, Tile Viewer Chrome Strip, compatibility mode (Wry), tab-selector overlay rendering, presentation-mode transition triggers and effects, tab reorder semantics, and docked-pane close/restore behavior.
 - This spec owns: `PaneLock` states and their behavioral rules, the invariant that any presentation or lock change must not orphan focus or mutate graph state, and the diagnostics contract covering both.
 - `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` owns: whether a pane has graph citizenship (`QuarterPane`/`HalfPane`/`FullPane`/`Tile`), promotion semantics, and `SimplificationSuppressed`.
 
