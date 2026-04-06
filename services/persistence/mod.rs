@@ -1983,10 +1983,6 @@ impl GraphStore {
                     }
                 }
                 // Legacy entry — address_kind is now always derived from url.
-                // Silently skip: the preceding UpdateNodeUrl replay has already
-                // set both address_kind and address correctly from the URL.
-                #[allow(deprecated)]
-                ArchivedLogEntry::UpdateNodeAddressKind { .. } => {}
                 ArchivedLogEntry::RecordFrameLayoutHint { frame_id, hint } => {
                     let Ok(frame_id) = Uuid::parse_str(frame_id.as_str()) else {
                         continue;

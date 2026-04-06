@@ -73,7 +73,7 @@ mod tests {
             .get_node(node_key)
             .expect("node should exist")
             .url()
-            .clone();
+            .to_owned();
         assert_eq!(before, "https://before.example");
 
         let events = window.take_pending_graph_events();
@@ -88,7 +88,7 @@ mod tests {
             .get_node(node_key)
             .expect("node should exist")
             .url()
-            .clone();
+            .to_owned();
         assert_eq!(still_before, "https://before.example");
 
         app.apply_reducer_intents(intents);
@@ -99,7 +99,7 @@ mod tests {
             .get_node(node_key)
             .expect("node should exist")
             .url()
-            .clone();
+            .to_owned();
         assert_eq!(after, "https://after.example");
     }
 

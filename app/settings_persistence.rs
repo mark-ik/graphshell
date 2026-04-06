@@ -207,10 +207,7 @@ impl GraphBrowserApp {
     }
 
     pub fn lasso_binding_preference(&self) -> CanvasLassoBinding {
-        crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
-            .profile
-            .interaction
-            .lasso_binding
+        self.workspace.chrome_ui.lasso_binding_preference
     }
 
     pub fn set_lasso_binding_preference(&mut self, binding: CanvasLassoBinding) {

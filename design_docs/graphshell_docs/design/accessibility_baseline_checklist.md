@@ -125,6 +125,14 @@ Execution note:
 
 - First pass should prioritize known gap surfaces (Graph Pane, Navigator host focus transitions, command surfaces).
 - Command-surface first pass should explicitly cover: command bar identification, omnibar input purpose, command-palette open/dismiss return path, blocked-route or fallback announcements, and focus return after `Escape`.
+- Windows command-surface pass recipe:
+	1. Start Graphshell with a graph pane and at least one node pane visible; keep diagnostics available so fallback and blocked-route receipts can be cross-checked if speech is ambiguous.
+	2. In NVDA, move focus to the command bar and confirm the bar is announced as a toolbar and the omnibar is announced as an address or search edit field with a useful name.
+	3. Open the command palette from the keyboard, confirm focus moves into the palette, then dismiss with `Escape` and verify focus returns to the prior graph or node surface instead of dropping to an unrelated control.
+	4. Trigger a blocked route case by invoking a command-surface action that requires a focused pane when no pane is active; record the spoken announcement and whether the failure is surfaced audibly or only via diagnostics.
+	5. Trigger a stale-return fallback case by dismissing a command surface after its stored return target becomes invalid; verify focus lands on a valid active surface and note whether fallback is spoken, silent, or only diagnostics-visible.
+	6. Repeat the same sequence in Narrator and record any role-name, announcement-order, or focus-return differences from NVDA.
+	7. Capture results as pass/fail plus notable speech text, then copy the findings into §2 status rows and the command-surface observability plan.
 - Results should be copied back into §2 statuses, linked to follow-up issues (`#298`, `#301`), and reflected in `../implementation_strategy/subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` when command-surface AT behavior is involved.
 
 ---

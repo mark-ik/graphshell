@@ -47,8 +47,10 @@ Progress checkpoint (2026-04-05):
 - scoped helper-style UxTree probes now cover command-surface capture-owner conflicts, missing command-surface return paths, orphan trace-layer IDs, and missing semantic parent links via the existing publish-time diagnostics seam.
 - helper-style UxTree probes now also cover interactive label presence for command-surface and other interactive nodes, tightening the semantic baseline that AT-facing surfaces rely on.
 - command-surface scenario coverage now includes an explicit healthy UxTree snapshot case with stable command-bar labeling and valid return-path semantics, and the command-palette diff-gate scenario has been refreshed to the current normalized snapshot contract.
+- scenario coverage now also includes a scenario-level `UXCS03` fallback receipt case for stale command-palette return targets, so command-surface dismiss/restore degradation is asserted beyond the lower-level orchestration unit tests.
 - the broad `shell::desktop` slice is green again after reconciling two stale tests to the current anchored-placement and default-lens contracts.
 - the accessibility baseline checklist now carries explicit first-pass command-surface AT tasks and notes the initial semantic evidence already landed in code.
+- the accessibility checklist now includes a concrete Windows NVDA/Narrator execution recipe for the first command-surface AT pass, turning the remaining manual validation work into a bounded evidence-gathering task.
 - the main work still open in this companion lane is stronger scenario coverage and manual AT validation, not the initial provenance vocabulary or projection plumbing.
 
 ---

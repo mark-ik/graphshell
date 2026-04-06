@@ -87,7 +87,7 @@ Recent implementation progress recorded against this lane:
 - broader Shell cleanup has already refreshed stale diagnostics assertions and pre-wgpu UxTree baselines to match the new receipt and schema shape.
 - scoped UxTree contract helpers now enforce command-surface capture-owner / return-target invariants plus trace-layer ID consistency and semantic parent-link integrity through the existing publish diagnostics path.
 - the previously failing broad-shell expectations around anchored new-node placement and default lens physics have now been reconciled to the current contracts, and `cargo test shell::desktop -- --quiet` is green again.
-- command-surface scenario coverage now includes a healthy command-surface UxTree snapshot case and refreshed diff-gate expectations, while the accessibility baseline checklist now carries explicit first-pass command-surface AT tasks instead of leaving the lane entirely implicit.
+- command-surface scenario coverage now includes a healthy command-surface UxTree snapshot case, a stale-return fallback receipt scenario, and refreshed diff-gate expectations, while the accessibility baseline checklist now carries explicit first-pass command-surface AT tasks and a concrete Windows manual-pass recipe instead of leaving the lane implicit.
 
 ---
 

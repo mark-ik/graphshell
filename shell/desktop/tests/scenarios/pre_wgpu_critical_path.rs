@@ -20,8 +20,10 @@ use egui_tiles::{Tiles, Tree};
 
 use super::super::harness::TestRegistry;
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, GraphViewState, WorkbenchIntent};
+use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
+use crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK;
 use crate::shell::desktop::ui::gui_orchestration;
-use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneState};
+use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::{tile_view_ops, ux_tree};
 
@@ -294,6 +296,48 @@ fn command_surface_graph_intent_and_workbench_intent_produce_identical_state() {
             .chrome_ui
             .show_command_palette,
         "GraphIntent and WorkbenchIntent paths must produce identical command palette state"
+    );
+}
+
+/// Closing the command palette with a stale return target must emit the
+/// command-surface fallback receipt and preserve a valid active surface rather
+/// than silently dropping focus. This is the scenario-level `UXCS03` fallback
+/// contract (Gate G4, G7).
+#[test]
+fn command_surface_palette_close_invalid_target_emits_fallback_receipt() {
+    let mut diagnostics = DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let node_key = crate::graph::NodeKey::new(191);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("pre_wgpu_command_palette_restore_fallback", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    app.workspace.chrome_ui.show_command_palette = true;
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    app.set_pending_command_surface_return_target(Some(crate::app::ToolSurfaceReturnTarget::Graph(
+        GraphViewId::new(),
+    )));
+
+    let mut intents = vec![WorkbenchIntent::CloseCommandPalette];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests();
+    assert!(
+        TestRegistry::channel_count(&snapshot, CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK) > 0,
+        "stale command-palette return targets should emit a command-surface fallback receipt"
+    );
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| matches!(
+            tree.tiles.get(tile_id),
+            Some(egui_tiles::Tile::Pane(TileKind::Node(state))) if state.node == node_key
+        )),
+        "fallback restore should preserve the active node surface when the stored return target is stale"
     );
 }
 

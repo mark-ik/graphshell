@@ -666,6 +666,7 @@ pub struct GraphSnapshot {
 }
 
 /// Log entry for mutation journaling.
+#[allow(deprecated)]
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum LogEntry {
     AddNode {
@@ -729,14 +730,6 @@ pub enum LogEntry {
         node_id: String,
         /// `None` clears the override (automatic selection); `Some(viewer_id)` forces a viewer.
         viewer_override: Option<String>,
-    },
-    /// Legacy WAL entry — address kind is now fully derived from the URL.
-    /// Kept for backward-compatible log replay only; no new entries are written.
-    /// On replay the entry is treated as a no-op (address re-derived from URL).
-    #[deprecated = "address_kind is derived from url; use UpdateNodeUrl instead"]
-    UpdateNodeAddressKind {
-        node_id: String,
-        kind: PersistedAddressKind,
     },
     /// Append a durable split arrangement hint to a frame anchor.
     RecordFrameLayoutHint {
@@ -1118,54 +1111,6 @@ mod tests {
                 assert!(mime_hint.is_none());
             }
             _ => panic!("Expected UpdateNodeMimeHint variant"),
-        }
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    #[allow(deprecated)]
-    fn test_log_entry_update_node_address_kind_roundtrip() {
-        for (kind, expected) in [
-            (
-                PersistedAddressKind::Http,
-                ArchivedPersistedAddressKind::Http,
-            ),
-            (
-                PersistedAddressKind::File,
-                ArchivedPersistedAddressKind::File,
-            ),
-            (
-                PersistedAddressKind::Data,
-                ArchivedPersistedAddressKind::Data,
-            ),
-            (
-                PersistedAddressKind::GraphshellClip,
-                ArchivedPersistedAddressKind::GraphshellClip,
-            ),
-            (
-                PersistedAddressKind::Directory,
-                ArchivedPersistedAddressKind::Directory,
-            ),
-            (
-                PersistedAddressKind::Unknown,
-                ArchivedPersistedAddressKind::Unknown,
-            ),
-        ] {
-            let entry = LogEntry::UpdateNodeAddressKind {
-                node_id: Uuid::new_v4().to_string(),
-                kind,
-            };
-            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
-            let archived = rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&bytes).unwrap();
-            match archived {
-                ArchivedLogEntry::UpdateNodeAddressKind {
-                    kind: archived_kind,
-                    ..
-                } => {
-                    assert_eq!(*archived_kind, expected);
-                }
-                _ => panic!("Expected UpdateNodeAddressKind variant"),
-            }
         }
     }
 
