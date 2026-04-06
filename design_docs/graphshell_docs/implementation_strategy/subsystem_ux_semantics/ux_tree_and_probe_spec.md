@@ -6,6 +6,7 @@
 
 **Related**:
 - `SUBSYSTEM_UX_SEMANTICS.md`
+- `2026-04-05_command_surface_observability_and_at_plan.md`
 - `../subsystem_accessibility/accessibility_interaction_and_capability_spec.md`
 - `../subsystem_diagnostics/diagnostics_observability_and_harness_spec.md`
 - `../../2026-03-01_automated_ux_testing_research.md`
@@ -63,7 +64,8 @@ logically separate:
   (`CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, `Placeholder`), and z-pass/
   visual/transient flags.
 - **Interaction/runtime trace layer** (non-authoritative telemetry): per-node event route,
-  backend path, timing, and diagnostic counters.
+  backend path, timing, diagnostic counters, and command-surface target-resolution
+  provenance when the node participates in Shell command routing.
 
 The semantic layer is the only blocking contract source.
 Presentation and trace layers are informative by default.
@@ -242,6 +244,7 @@ declared in the mod's `ModManifest` and must not shadow core role names.
 
 | Role | Semantics | AccessKit mapping |
 |------|-----------|-------------------|
+| `CommandBar` | Shell-owned command-entry and routed-command chrome. | `ToolBar` |
 | `Landmark` | Top-level navigable region (no interactive content itself). | `GenericContainer` + landmark flag |
 | `Region` | Named sub-region within a pane. | `Section` |
 | `Dialog` | Modal or non-modal dialog surface requiring explicit dismissal. | `Dialog` |

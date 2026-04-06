@@ -4,14 +4,15 @@
 
 # Shell Command Bar Execution Plan (2026-04-03)
 
-**Status**: Active follow-on execution plan
-**Scope**: Turns Workstream A from `shell_backlog_pack.md` into a concrete execution lane for the Shell-owned `CommandBar`, omnibar/session state, focused-target resolution, and legacy command-route cleanup.
+**Status**: Active closure lane (refreshed 2026-04-05)
+**Scope**: Turns Workstream A from `shell_backlog_pack.md` into a finishable closure lane for the Shell-owned `CommandBar`, omnibar/session state, focused-target resolution, and legacy command-route cleanup.
 
 **Related**:
 
 - `SHELL.md`
 - `shell_backlog_pack.md`
 - `shell_composition_model_spec.md`
+- `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`
 - `../aspect_command/command_surface_interaction_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `../navigator/NAVIGATOR.md`
@@ -47,6 +48,8 @@ The current code is partway there but still structurally mixed:
 
 This plan exists to make that seam honest and executable without waiting on every other Shell lane.
 
+Refresh note (2026-04-05): the original 2026-04-03 draft is no longer a pure forward plan. Several carriers and routing seams described here are now landed in code, so this document now tracks only the remaining work needed to close Workstream A cleanly and make the file archivable.
+
 ---
 
 ## Non-Goals
@@ -59,7 +62,35 @@ This plan exists to make that seam honest and executable without waiting on ever
 
 ---
 
+## Current Checkpoint (2026-04-05)
+
+Already landed and no longer primary blockers for this plan:
+
+- `CommandBarFocusTarget` is now a real Shell-owned carrier used by toolbar, workbench, render, and radial-menu call sites rather than remaining only a proposed shape.
+- command palette toggle/open routing converges on `WorkbenchIntent::ToggleCommandPalette` / related `WorkbenchIntent`s through shared toolbar-routing helpers instead of one-off toolbar button behavior.
+- omnibar provider requests now return through `HostRequestMailbox<T>` under `ControlPanel` supervision rather than leaving raw request receivers on the frame thread.
+- long-lived Shell-facing signal relays now drain through `GuiFrameInbox`, making the frame-bound ingest seam explicit for subscription-style updates.
+- toolbar Navigator view-tab focus and overview-plane toggle already route through `WorkbenchIntent`, so those actions are no longer the main command-routing bypass risk in this lane.
+
+Still open and required before this plan can be archived:
+
+- the `shell_command_bar` still renders a mixed set of Shell, Navigator, Graph, and legacy bridge controls in one bar pass; the ownership split is not complete yet.
+- legacy bridge controls and legacy command-bypass cases are still tracked here but not yet reduced to either canonical reroutes or explicitly accepted exceptions.
+- `SH02` / `SH05` evidence is only partially represented by code-level diagnostics and focused tests; this plan still needs a clear closure receipt or equivalent evidence handoff before archival.
+- the cross-subsystem observability, UxTree, and AT work needed to prove command-surface closure now lives in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` and remains an explicit dependency for archival.
+
+Recent implementation progress recorded against this lane:
+
+- command-surface routing now emits structured `resolved`, `blocked`, `fallback`, and `no-target` provenance receipts rather than relying only on later downstream effects.
+- command-palette dismiss and tool-surface focus restore now preserve explicit fallback evidence when the stored return target is stale.
+- command-surface semantic metadata now projects into the UxTree snapshot path, trace schema, and diagnostics-oriented inspector counts instead of remaining toolbar-local state.
+- broader Shell cleanup has already refreshed stale diagnostics assertions and pre-wgpu UxTree baselines to match the new receipt and schema shape.
+
+---
+
 ## Feature Target 1: Split CommandBar Authority From Mixed Toolbar Content
+
+**Status**: Open
 
 ### Target 1 Context
 
@@ -68,19 +99,15 @@ job is to make the redistribution explicit.
 
 ### Target 1 Tasks
 
-1. Inventory the controls currently rendered in `toolbar_ui.rs` and classify each as Shell,
-   Navigator, Graph, Workbench, Viewer, or bridged legacy.
-2. Keep Shell-owned controls in the `CommandBar`: omnibar input, command palette trigger,
-   settings/control entry, and app-level status affordances.
-3. Move Navigator-owned graph-view tabs and similar projection controls out of Shell-owned render
-   code into Navigator projection/host surfaces.
-4. Identify graph mutation shortcuts (`+Node`, `+Edge`, `+Tag`) and decide whether they remain as
-   explicit Shell command triggers or should move to a more domain-local presentation.
+1. Keep the control inventory explicit in the document and code: every control in `shell_command_bar` must be classified as Shell, Navigator, Graph, Workbench, Viewer, or bridged legacy.
+2. Finish the ownership split in `toolbar_ui.rs` so the file's helper passes are not only named by authority, but also stop leaving unresolved mixed-authority controls in the Shell bar by inertia.
+3. Either relocate Navigator-owned graph-view tabs and graph-scoped controls out of the Shell-owned bar or document why a temporary host seam still belongs here.
+4. Decide the final presentation fate of graph mutation shortcuts (`+Node`, `+Edge`, `+Tag`), lens/physics controls, and `Overview`: retained Shell trigger, relocated domain-local surface, or explicitly temporary bridge.
 
 ### Target 1 Validation Tests
 
 - The `CommandBar` has an explicit ownership inventory rather than a grab-bag of toolbar widgets.
-- Navigator projection controls are no longer rendered by Shell-owned code paths.
+- Navigator projection controls are either no longer rendered by Shell-owned code paths or are explicitly documented as temporary host seams with an exit path.
 - Every remaining `CommandBar` control has a clear authority story.
 
 ### Target 1 Concrete Code-Change Checklist
@@ -99,6 +126,7 @@ job is to make the redistribution explicit.
     `Cmd` as a retained Shell-owned trigger.
 - split the current three-column rendering into ownership-named helper passes so the file stops
    treating the bar as one undifferentiated toolbar block.
+- reduce the current left-column mixed block so `render_command_bar_legacy_graph_actions(...)` no longer functions as a catch-all home for unresolved controls.
 - keep `render_location_search_panel(...)` as the center Shell-owned input seam and document that it
    consumes Navigator projection without owning it.
 - audit `toolbar_controls::render_navigation_buttons(...)` and `render_toolbar_right_controls(...)`
@@ -116,6 +144,8 @@ job is to make the redistribution explicit.
 
 ## Feature Target 2: Make Focused-Target Resolution A First-Class Shell Input
 
+**Status**: Mostly landed; remaining work is evidence and cleanup
+
 ### Target 2 Context
 
 Per-pane viewer controls and command routing must not infer their targets ad hoc from whichever
@@ -123,14 +153,10 @@ surface rendered last.
 
 ### Target 2 Tasks
 
-1. Define and land a per-frame `CommandBarFocusTarget`-style carrier as described in
-   `shell_composition_model_spec.md`.
-2. Route `toolbar_ui.rs` and adjacent command-bar helpers through that carrier rather than local
-   inference from `focused_toolbar_node`, `active_toolbar_pane`, or similar partial state.
-3. Keep command-palette open/toggle and return-target behavior aligned with the focus authority in
-   `gui/focus_state.rs`.
-4. Ensure keyboard focus owner precedence and last-pointer fallback precedence are explicit and
-   testable.
+1. Treat `CommandBarFocusTarget` as landed baseline rather than future design work.
+2. Audit remaining command-bar-adjacent helpers for any direct partial-state inference that should instead consume the carrier or its canonical construction helper.
+3. Keep command-palette open/toggle and return-target behavior aligned with the focus authority in `gui/focus_state.rs` and shared toolbar-routing helpers.
+4. Expand evidence for keyboard-focus precedence and last-pointer fallback precedence where the behavior is now implemented but not yet closed by this plan.
 
 ### Target 2 Validation Tests
 
@@ -142,6 +168,8 @@ surface rendered last.
 
 ## Feature Target 3: Turn Omnibar Session State Into An Explicit Host-Thread Mailbox Contract
 
+**Status**: Partially landed; remaining work is closure proof and stale-delivery hardening
+
 ### Target 3 Context
 
 The current omnibar provider flow already uses debounced receivers, but it still reads like local
@@ -149,20 +177,16 @@ toolbar logic rather than a host-owned Shell session seam.
 
 ### Target 3 Tasks
 
-1. Define the omnibar session as Shell-owned frame-loop state, including query text, mode, matches,
-   active index, and provider status.
-2. Make provider/background suggestion results an explicit mailbox owned by the current omnibar
-   session, not just an implementation detail of `toolbar_location_panel.rs`.
-3. Ensure all background provider/index fetches are launched under `ControlPanel` or equivalent
-   Shell/Register supervision.
-4. Keep the Navigator contribution read-only: breadcrumb/context projection in display mode and
-   scope badge in input mode.
+1. Treat the existing `OmnibarSearchSession` + provider mailbox carrier as the stabilized baseline for this lane.
+2. Keep provider/background suggestion results flowing through the explicit Shell-owned mailbox boundary rather than regressing to widget-local receivers or direct background mutation.
+3. Preserve `ControlPanel` supervision as the required launch path for provider/index fetches and future one-shot Shell-owned background jobs.
+4. Keep the Navigator contribution read-only: breadcrumb/context projection in display mode and scope badge in input mode.
 
 ### Target 3 Validation Tests
 
 - Omnibar provider results only enter visible Shell state at frame boundaries.
 - Background suggestion fetches are supervised and diagnosable.
-- Switching between display and input mode preserves the Shell/Navigator seam.
+- Switching between display and input mode preserves the Shell/Navigator seam, including stale-delivery cancellation or supersession behavior.
 
 ### Target 3 Concrete Code-Change Checklist
 
@@ -173,6 +197,7 @@ toolbar logic rather than a host-owned Shell session seam.
    state instead of also acting as the mailbox controller.
 - keep the existing `OmnibarSessionKind`, `query`, `matches`, `active_index`, and provider status
    fields as the baseline contract while the mailbox cleanup lands.
+- do not replace the current carrier again unless a stronger Shell-owned contract is actually needed by remaining open tasks.
 
 `toolbar_location_panel.rs`
 
@@ -181,7 +206,7 @@ toolbar logic rather than a host-owned Shell session seam.
    `provider_debounce_deadline`, attaching `provider_rx`, draining `try_recv()` outcomes, and
    merging provider results back into visible matches.
 - make the mailbox edge explicit around the existing fields on `OmnibarSearchSession`:
-   `provider_rx`, `provider_debounce_deadline`, and `provider_status`.
+   provider request identity, debounce deadline, mailbox/result carrier, and provider status.
 - preserve the current display-mode/input-mode split, including Navigator breadcrumb rendering and
    scope badge behavior, while moving background fetch ownership out of ad hoc panel logic.
 - ensure session invalidation and query changes cancel or supersede stale provider deliveries
@@ -206,6 +231,8 @@ toolbar logic rather than a host-owned Shell session seam.
 ---
 
 ## Feature Target 4: Audit And Reroute Legacy Command Bypass Paths
+
+**Status**: Open
 
 ### Target 4 Context
 
@@ -233,9 +260,15 @@ own the audit and reroute plan for Shell-facing command entry points.
 
 ## Feature Target 5: Land Diagnostics And Acceptance Evidence For Command Handoff
 
+**Status**: Open
+
 ### Target 5 Context
 
 This lane is only useful if Shell can prove when command routing is correct, blocked, or bypassed.
+The Shell-owned receipts in this target now depend on the shared observability and AT closure work
+tracked in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`.
+That companion lane owns the command-surface provenance vocabulary, UxTree/probe/scenario hooks,
+and Shell command-surface AT validation recipes; this target consumes those receipts for `SH02` / `SH05` closure.
 
 ### Target 5 Tasks
 
@@ -243,11 +276,13 @@ This lane is only useful if Shell can prove when command routing is correct, blo
 2. Add scenario-backed evidence for `SH02`, `SH05`, and the relevant command-bar/focus return paths.
 3. Ensure blocked commands, missing targets, and focus-return fallbacks are visible in diagnostics.
 4. Tie acceptance to both command-surface parity and Shell host-thread ownership rules.
+5. Consume the shared command-surface provenance, UxTree, and AT receipts from the companion plan instead of leaving those obligations implicit inside Shell-only wording.
 
 ### Target 5 Validation Tests
 
 - Failed or blocked command-bar dispatch emits explicit diagnostic evidence.
 - Command palette return-path failures are diagnosable.
+- Omnibar and command-palette routing evidence is strong enough to cite both semantic/probe coverage and AT validation tasks, not only local toolbar tests.
 - The lane can produce evidence that Shell routes commands without becoming the owner of Graph,
   Navigator, Workbench, or Viewer truth.
 
@@ -255,13 +290,25 @@ This lane is only useful if Shell can prove when command routing is correct, blo
 
 ## Suggested Slice Order
 
-1. Authority inventory and control redistribution in `toolbar_ui.rs`
-2. Focused-target carrier and focus-return cleanup
-3. Omnibar session/mailbox contract cleanup
-4. Legacy bypass audit and reroute pass
-5. Diagnostics and scenario evidence
+1. Finish the ownership inventory and control redistribution in `toolbar_ui.rs`.
+2. Close the remaining legacy bypass audit and decide reroute vs. explicit temporary exception.
+3. Land the remaining `SH02` / `SH05` diagnostics and scenario evidence for command handoff, blocked routing, and focus return.
+4. Close the companion observability / UxTree / AT tasks required for command-surface evidence handoff.
+5. Write the closure receipt or backlog checkpoint delta that states what downstream Shell work may now assume.
 
-This order keeps the architectural seam clear before doing cleanup work that depends on it.
+This order keeps the finish work focused on real remaining blockers instead of reopening already-landed carrier and mailbox refactors.
+
+---
+
+## Archive Trigger
+
+Archive this plan only when all of the following are true:
+
+1. no unresolved mixed-authority control remains in the `shell_command_bar` without an explicit temporary-host justification and exit path,
+2. legacy command-bypass cases covered by this lane are either rerouted through canonical Shell/Workbench command authority or documented as accepted temporary bridges elsewhere,
+3. `SH02` / `SH05` closure evidence exists in scenarios, diagnostics receipts, or a Shell closure receipt,
+4. the companion observability / UxTree / AT tasks in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` are closed strongly enough that this file no longer carries them as an active dependency, and
+5. `shell_backlog_pack.md`, `SHELL.md`, and `DOC_README.md` no longer need this file as the live execution surface for Workstream A.
 
 ---
 
@@ -269,5 +316,6 @@ This order keeps the architectural seam clear before doing cleanup work that dep
 
 This plan is complete when Graphshell has a Shell-owned `CommandBar` with explicit control
 ownership, a first-class focused-target carrier, an omnibar session/mailbox contract supervised by
-Shell/Register runtime boundaries, and diagnosable routing for both canonical command entry and
-legacy bypass cases.
+Shell/Register runtime boundaries, diagnosable routing for both canonical command entry and
+legacy bypass cases, and a closure handoff strong enough that the remaining state belongs in a
+receipt or backlog checkpoint rather than an active execution plan.

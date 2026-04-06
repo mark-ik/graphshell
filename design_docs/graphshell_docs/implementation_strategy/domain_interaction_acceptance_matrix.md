@@ -8,6 +8,7 @@
 
 - `../technical_architecture/domain_interaction_scenarios.md` — canonical scenario flows and ownership model
 - `../technical_architecture/unified_view_model.md` — five-domain model
+- `subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` — companion closure lane for command-surface provenance, semantic observability, and AT validation
 - `shell/shell_backlog_pack.md` — Shell scenario-track backlog IDs
 - `navigator/navigator_backlog_pack.md` — Navigator scenario-track backlog IDs
 - `workbench/workbench_backlog_pack.md` — Workbench scenario-track backlog IDs
@@ -53,8 +54,8 @@ Minimum acceptable evidence is one of:
 | `DI02` | Corridor transition | Can the user move from selected anchors to a corridor/path view without Navigator pretending to own graph truth? | Graph owns selected anchors and path rendering; Navigator owns corridor derivation | graph + Navigator scenario or contract evidence | `NVS02` |
 | `DI03` | Linked arrangement handoff | Can an active graphlet be opened into Workbench as a linked arrangement without Workbench owning graphlet truth? | Navigator owns graphlet identity; Workbench owns arrangement; Shell routes only | workbench routing scenario or linked-binding test | `SHS01`, `WBS01` |
 | `DI04` | Viewer fallback in session | Does viewer fallback preserve workbench context and expose degraded state honestly? | Viewer owns fallback reason; Workbench owns context; Shell surfaces attention | fallback scenario, diagnostics receipt, or focused viewer/workbench test | `WBS02` |
-| `DI05` | Shell overview reorientation | Can the user reorient from Shell overview and be routed to the correct owning domain? | Shell composes and routes; Graph/Navigator/Workbench/Viewer remain owners of facts | overview routing scenario or focused handoff test | `SHS02`, `NVS03`, `WBS03` |
-| `DI06` | Runtime / trust interruption | Can an interruption be handled without losing graphlet/workbench return context? | Shell owns interruption surfacing and return routing; underlying domain truth remains unchanged | interruption scenario, focus-return test, or diagnostics evidence | `SHS03` |
+| `DI05` | Shell overview reorientation | Can the user reorient from Shell overview and be routed to the correct owning domain? | Shell composes and routes; Graph/Navigator/Workbench/Viewer remain owners of facts | overview routing scenario or focused handoff test; when command-surface routing is involved, include the companion plan's provenance or probe receipt | `SHS02`, `NVS03`, `WBS03` |
+| `DI06` | Runtime / trust interruption | Can an interruption be handled without losing graphlet/workbench return context? | Shell owns interruption surfacing and return routing; underlying domain truth remains unchanged | interruption scenario, focus-return test, diagnostics evidence, or command-surface fallback receipt when the interruption path passes through Shell command chrome | `SHS03` |
 
 ---
 
@@ -73,4 +74,5 @@ Use this short checklist when relevant:
 ## 5. Notes
 
 - This matrix is intentionally small. It is a review aid, not a replacement for the domain specs.
+- Shell command-bar / omnibar provenance and AT work currently rides under `DI05` and `DI06` together with `subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`; do not treat it as an untracked extra lane.
 - If a new cross-domain behavior does not fit `DI01` to `DI06`, add a new canonical scenario first, then extend this matrix and the relevant backlog packs.

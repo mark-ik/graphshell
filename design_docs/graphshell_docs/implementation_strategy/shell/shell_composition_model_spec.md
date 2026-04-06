@@ -13,6 +13,7 @@ the three graph canvas hosting contexts; and the Navigator/Shell omnibar seam.
 **Related**:
 
 - [SHELL.md](SHELL.md) — Shell domain spec (authority boundaries, what Shell owns)
+- [../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md) — companion closure lane for command-surface provenance, semantic modeling, and AT validation
 - [../navigator/NAVIGATOR.md](../navigator/NAVIGATOR.md) — Navigator domain spec
 - [../graph/GRAPH.md](../graph/GRAPH.md) — Graph domain spec; the canvas is its primary rendered surface
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — Workbench domain spec
@@ -338,6 +339,11 @@ The threading contract is:
 4. background results are ingested by Shell at frame boundaries through an
    explicit mailbox/receiver owned by the current omnibar session
 
+Current-state note: the landed baseline already follows this split through the
+Shell-owned omnibar session carrier plus supervised `HostRequestMailbox<T>` and
+typed frame-inbox drainage for longer-lived relays. The remaining work is to
+prove and document that boundary consistently, not to reopen it as speculative design.
+
 This keeps the omnibar aligned with the broader Shell-as-host rule:
 Shell owns the widget, focus, and visible state; background runtime work only
 feeds it through explicit host-owned seams.
@@ -373,6 +379,11 @@ The required precedence rule is:
 This rule is Shell-owned and evaluated once per frame before rendering the
 `CommandBar`. Viewer-targeted controls must read from this resolved target
 rather than re-deriving focus inside toolbar code.
+
+Current-state note: `CommandBarFocusTarget` is now the landed baseline carrier.
+The remaining closure work is its provenance/evidence model: diagnostics
+receipts, UxTree trace projection, and focus-return / AT validation are tracked
+in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`.
 
 ### 5.5 Controls currently in `graph_bar` — redistribution
 

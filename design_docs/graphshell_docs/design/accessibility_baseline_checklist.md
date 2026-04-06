@@ -6,6 +6,7 @@
 
 **Related**:
 - `../research/2026-03-02_ux_integration_research.md`
+- `../implementation_strategy/subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`
 - `../implementation_strategy/subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md`
 - `../implementation_strategy/subsystem_focus/focus_and_region_navigation_spec.md`
 - `../implementation_strategy/subsystem_ux_semantics/ux_tree_and_probe_spec.md`
@@ -38,6 +39,12 @@ Known-gap alignment from UX integration research:
 - Graph nodes keyboard focusability gap (`G-A-1`)
 - Graph node accessible-name gap (`G-A-3`)
 - Focus-order and predictability risks (`G-PS-*`)
+
+Command-surface follow-on status:
+
+- Shell command-bar and omnibar closure is coordinated through `../implementation_strategy/subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`.
+- Current omnibar baseline is only partially evidenced: keyboard submit/capture behavior has focused coverage, while focus order, focus visibility, status-message announcement, input-error identification, and NVDA/Narrator validation remain pending.
+- Treat the Omnibar column in §2 as a live pending lane rather than a generic unknown; future evidence updates should cite both this checklist and the companion plan when command-surface behavior changes.
 
 ---
 
@@ -116,7 +123,7 @@ This matrix seeds the required baseline for `#295` and follow-on implementation 
 Execution note:
 
 - First pass should prioritize known gap surfaces (Graph Pane, Navigator host focus transitions, command surfaces).
-- Results should be copied back into §2 statuses and linked to follow-up issues (`#298`, `#301`).
+- Results should be copied back into §2 statuses, linked to follow-up issues (`#298`, `#301`), and reflected in `../implementation_strategy/subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md` when command-surface AT behavior is involved.
 
 ---
 

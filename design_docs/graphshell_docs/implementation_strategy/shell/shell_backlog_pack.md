@@ -11,7 +11,8 @@
 **Related docs**:
 
 - [SHELL.md](SHELL.md) — Shell domain spec and authority boundaries
-- [2026-04-03_shell_command_bar_execution_plan.md](2026-04-03_shell_command_bar_execution_plan.md) — concrete Workstream A plan for command-bar ownership, omnibar session state, and command-route cleanup
+- [2026-04-03_shell_command_bar_execution_plan.md](2026-04-03_shell_command_bar_execution_plan.md) — active Workstream A closure lane for command-bar ownership, omnibar session/mailbox state, focused-target routing, and legacy command-route cleanup
+- [../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md) — companion cross-subsystem closure lane for command-surface provenance diagnostics, UxTree/probe modeling, and Shell command-surface AT validation
 - [shell_composition_model_spec.md](shell_composition_model_spec.md) — top-level slot composition, command-bar seam, and host-thread panel rules
 - [shell_overview_surface_spec.md](shell_overview_surface_spec.md) — concrete Shell overview UI and routing model
 - [../aspect_command/command_surface_interaction_spec.md](../aspect_command/command_surface_interaction_spec.md) — canonical command-entry and dispatch contract consumed by Shell
@@ -68,11 +69,13 @@ Concrete slices:
      Graphshell command authority or document them as explicit bridged exceptions.
 4. Ensure background suggestion/search providers feed the omnibar through a Shell-owned mailbox
      rather than detached toolbar threads.
+5. Close the companion observability and AT receipts required to prove command-surface routing and focus return rather than leaving those checks implicit in Shell-only wording.
 
 Done shape:
 
 - omnibar input, palette dispatch, and focused-target resolution have one canonical Shell seam
 - blocked or legacy-bypassed command routes emit diagnosable evidence
+- Workstream A can point at shared provenance, semantic, and AT receipts instead of treating them as undocumented follow-on work
 
 ### Workstream B — App Chrome And Ambient Status
 

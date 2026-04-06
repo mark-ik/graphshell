@@ -6,12 +6,13 @@
 
 **Canonical alignment**:
 
-- `aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
+- `testing/wr-wgpu_notes/2026-03-01_webrender_wgpu_renderer_implementation_plan.md`
+- `research/2026-03-01_webrender_wgpu_renderer_research.md`
 - `subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `subsystem_ux_semantics/2026-02-28_ux_contract_register.md`
 - `viewer/2026-02-26_composited_viewer_pass_contract.md`
 - `2026-03-02_scaffold_registry.md`
-- `PLANNING_REGISTER.md` (`§1C` lanes and done gates)
+- `PLANNING_REGISTER.md` (`§0.12` / `§0.13` deferral posture, `§1C` lanes and done gates)
 
 ---
 
@@ -236,15 +237,18 @@ Current status note:
 Primary scaffold markers:
 
 - `[SCAFFOLD:view-dimension-ui-wiring]`
-- `[SCAFFOLD:divergent-layout-commit]`
-- `[SCAFFOLD:viewer-wry-runtime-registration]`
 - `[SCAFFOLD:verse-protocol-handler]`
 - `[SCAFFOLD:wasm-mod-loader-runtime]`
 
 Validation gate:
 
-- For each marker impacting core UX closure lanes: closure criteria met and marker removed or explicitly de-scoped from pre-wgpu closure.
+- For each marker still present in the active scaffold registry and impacting core UX closure lanes: closure criteria met and marker removed or explicitly de-scoped from pre-wgpu closure.
 - No “partial but merged” slice in core path without explicit scaffold marker and closure gate.
+
+Current status note:
+
+- The active scaffold registry is narrower than this checklist's original snapshot: `[SCAFFOLD:viewer-wry-runtime-registration]` is already closed, and `[SCAFFOLD:divergent-layout-commit]` is no longer an active registry marker.
+- The remaining G8 question is whether the still-active markers are either closed or explicitly de-scoped from pre-wgpu UX closure, rather than silently treated as background debt.
 
 **Status**: `open`
 
@@ -258,7 +262,9 @@ Feature objective:
 
 Primary source:
 
-- `aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
+- `testing/wr-wgpu_notes/2026-03-01_webrender_wgpu_renderer_implementation_plan.md`
+- `research/2026-03-01_webrender_wgpu_renderer_research.md`
+- `PLANNING_REGISTER.md` (`§0.12` / `§0.13`)
 
 Validation gate:
 
@@ -270,7 +276,12 @@ Validation gate:
   4. current-stack bugs are not dominating development,
   5. migration can be evaluated as upgrade, not desperation.
 
-- Runtime viewer bridge precondition (`#180`) is evidenced as solved.
+- Runtime viewer bridge precondition (`#180`) has current tracker-linked viability evidence; technical-definition-only or archived receipts are insufficient for authorization.
+
+Current status note:
+
+- Active canon now treats `#180` / `#183` as upstream-first, non-milestone renderer work while Glow remains the milestone runtime composition policy.
+- `G9` therefore authorizes backend-migration start only when the app-side feature gates are evidence-complete and `#180` is backed by current viability evidence rather than problem-definition or historical spike receipts alone.
 
 **Status**: `blocked` (by G0-G8 + `#180`)
 
@@ -301,5 +312,5 @@ Validation gate:
 1. Close `G7`'s remaining automation work by landing `#257` snapshot baseline/diff CI on top of the committed critical-path suite.
 2. Close the remaining `G6` compositor/adapter evidence for render-mode fallback and affordance behavior.
 3. Continue `G1` residual closure where camera/selection determinism still lacks durable evidence.
-4. Reopen `G2` / `G3` only if regressions surface or a slice directly discharges a listed residual rather than re-planning the same contracts.
+4. Continue `G2` / `G3` residual closure only where a slice directly discharges a listed residual or a regression proves the contract is not actually stable; do not re-plan already-canonical semantics.
 5. Re-evaluate `G9` only after G0-G8 status is evidence-complete.

@@ -6,6 +6,7 @@
 
 **Related**:
 - `SUBSYSTEM_ACCESSIBILITY.md`
+- `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
@@ -37,6 +38,7 @@ Every participating surface must declare:
 - focus synchronization capability
 - action routing capability
 - keyboard-navigation capability
+- status/error announcement capability for user-visible outcomes
 - degradation mode
 
 The owning subsystem may render partial capability, but it must declare that state explicitly.
@@ -45,6 +47,9 @@ Shared-surface note:
 
 - This applies equally to graph canvas, workbench chrome, Navigator rows,
   settings pages/rails, and diagnostics panes.
+- Shell command surfaces (`CommandBar`, omnibar, command-palette entry points)
+  must use the same capability/degradation model rather than relying on
+  implicit widget behavior.
 - Shared UI surfaces should reuse the same capability/degradation model instead
   of inventing bespoke accessibility assumptions.
 
@@ -66,6 +71,9 @@ Shared-surface note:
 - Shared top-level surfaces such as graph-scoped and workbench-scoped
   Navigator hosts, and settings rails participate in the same deterministic
   region/focus policy.
+- Omnibar capture exit and command-palette dismiss must expose the same return-path
+  policy to accessibility consumers that Shell and UX Semantics use for diagnostics
+  and trace output.
 
 ### 3.3 Action Routing
 
@@ -103,5 +111,6 @@ Shared-surface note:
 - Tree integrity invariants are encoded as tests or explicit diagnostics.
 - Core regions expose deterministic focus behavior.
 - Capability declarations exist for core graph/workbench/viewer surfaces.
+- Shell command surfaces declare capability, focus-return, and status-announcement behavior explicitly.
 - Degraded accessibility states are explicit and observable.
 

@@ -13,7 +13,8 @@ intent and app-level control.
 **Related**:
 
 - [shell_backlog_pack.md](shell_backlog_pack.md) — dependency-ordered execution pack and practical worklist for Shell host adoption
-- [2026-04-03_shell_command_bar_execution_plan.md](2026-04-03_shell_command_bar_execution_plan.md) — concrete Workstream A execution lane for command-bar authority, omnibar session state, focused-target routing, and legacy bypass cleanup
+- [2026-04-03_shell_command_bar_execution_plan.md](2026-04-03_shell_command_bar_execution_plan.md) — active Workstream A closure lane for command-bar authority, omnibar session/mailbox state, focused-target routing, and legacy bypass cleanup
+- [../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md) — shared closure lane for command-surface provenance diagnostics, semantic projection, and AT validation consumed by Shell Workstream A
 - [shell_composition_model_spec.md](shell_composition_model_spec.md) — concrete composition model: ShellLayout named slots, egui_tiles scoping, graph canvas hosting contexts, NavigatorContextProjection / omnibar seam
 - [../aspect_control/ASPECT_CONTROL.md](../aspect_control/ASPECT_CONTROL.md) — Control aspect (settings, history, diagnostics surfaces); Shell is the domain that hosts and exposes these
 - [../aspect_control/settings_and_control_surfaces_spec.md](../aspect_control/settings_and_control_surfaces_spec.md) — canonical settings/control surface contract
@@ -288,6 +289,19 @@ background requests that naturally produce a discrete result.
 This means accessibility, UX-tree, and top-level diagnostics presentation
 remain frame-projected host concerns even when their data sources depend on
 background runtime activity. They are not independent UI threads.
+
+For command-surface closure, that execution boundary must stay paired with the
+cross-subsystem ownership split tracked in
+`../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`:
+
+- Shell owns command-bar execution, visible state, and host-thread drain points.
+- UX Semantics owns machine-readable command-surface projection, probe invariants,
+  and scenario hooks.
+- Accessibility owns command-surface capability declarations and AT validation.
+
+The Shell must consume those receipts without absorbing their ownership. A
+command-bar routing proof is only complete when execution receipts, semantic
+projection, and AT validation agree on the same behavior.
 
 Short-lived UI-triggered background work still counts as background work. A
 provider-suggestion fetch initiated by the omnibar should run under

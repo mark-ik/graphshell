@@ -9,6 +9,7 @@
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../aspect_command/command_surface_interaction_spec.md`
+- `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../research/2026-02-24_spatial_accessibility_research.md`
 - `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
@@ -202,6 +203,12 @@ Graphshell has these primary navigable regions:
 **Fallback / degraded behavior**
 
 - If the saved return target no longer exists, Graphshell must restore focus to the next valid visible region.
+
+Command-surface extension:
+
+- Omnibar capture and command-palette open/dismiss must store the prior semantic region/control anchor explicitly enough that Shell, UxTree trace output, and diagnostics can all describe the same return-path decision.
+- If fallback is required, the fallback reason must be emitted as a diagnosable receipt rather than inferred only from the resulting focus owner.
+- Command-surface return-path closure is shared with `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`; this spec remains the canonical owner of the focus policy itself.
 
 ### 4.3A Shared Modal Isolation + Focus Return Contract Table (normative)
 

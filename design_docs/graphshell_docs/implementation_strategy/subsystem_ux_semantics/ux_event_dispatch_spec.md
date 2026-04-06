@@ -6,6 +6,7 @@
 
 **Related**:
 - `../2026-03-01_ux_migration_design_spec.md` (§3.2, §7)
+- `2026-04-05_command_surface_observability_and_at_plan.md`
 - `ux_tree_and_probe_spec.md`
 - `ux_scenario_and_harness_spec.md`
 - `../aspect_input/input_interaction_spec.md`
@@ -103,6 +104,15 @@ Routing invariant:
 - every emitted mutation intent includes an authority destination,
 - misrouted intent emits `ux:contract_warning` + `registry:action:execute_failed` context.
 
+Command-surface provenance extension:
+
+- dispatches originating from `CommandBar`, command palette, or omnibar submit must record
+	their resolution provenance before default action executes,
+- provenance payload must include command-surface kind, resolution source,
+	resolved target identity or explicit blocked/fallback/no-target reason, and
+	any relevant session/request identity for omnibar/provider flows,
+- command-surface dispatch must not re-derive target ownership later in widget-local code.
+
 ---
 
 ## 6. Diagnostics Requirements
@@ -118,7 +128,9 @@ Required diagnostic channels for dispatch observability:
 Minimum payload fields:
 
 - event kind,
+- command-surface kind when applicable,
 - target node id,
+- resolution source and resolved-target / fallback / no-target reason when applicable,
 - path length,
 - phase,
 - timestamp/frame index,
@@ -135,6 +147,8 @@ Core scenarios must assert:
 3. `preventDefault` blocks default action only.
 4. `Escape` dismisses modal and restores prior focus.
 5. Action authority routing maps to expected owner.
+6. Command-surface dispatch preserves explicit target-resolution provenance.
+7. Omnibar capture exit and command-palette dismiss emit fallback evidence when the stored return target is no longer valid.
 
 ---
 

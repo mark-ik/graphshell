@@ -15,6 +15,7 @@
 - `../subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md` (UxViolation events routed through diagnostics channels)
 - `../subsystem_diagnostics/2026-02-26_test_infrastructure_improvement_plan.md` (T1/T2 infrastructure — Phase 0 prerequisite)
 - `PLANNING_REGISTER.md`
+- `2026-04-05_command_surface_observability_and_at_plan.md`
 - `2026-03-08_unified_ux_semantics_architecture_plan.md`
 - `2026-03-13_chrome_scope_split_plan.md` (Navigator host chrome architecture — affects §4.2 UxTree build order and the top-level graph-scoped / workbench-scoped host landmark split)
 
@@ -63,6 +64,10 @@ Current reality is better described as:
 - `UxBridge`: partial / not yet general-purpose
 - `UxScenarioHarness`: partial
 
+Command-surface note:
+
+- Shell command-surface execution carriers are landed enough that remaining work is primarily semantic observability, probe/scenario closure, and AT-aligned projection. That closure is tracked in `2026-04-05_command_surface_observability_and_at_plan.md`.
+
 `2026-03-08_unified_ux_semantics_architecture_plan.md` is the canonical cleanup plan for this split.
 
 ---
@@ -93,7 +98,7 @@ Current implementation note: the first two consumers are active; the AccessKit m
 
 | Layer | UX Semantics Instantiation |
 |---|---|
-| **Contracts** | Structural invariants (S1–S9), navigation invariants (N1–N4), state machine invariants (M1–M4) — §3 |
+| **Contracts** | Structural invariants (S1–S10), navigation invariants (N1–N5), state machine invariants (M1–M5) — §3 |
 | **Runtime State** | `UxTree` (rebuilt per frame, cached), `UxProbeSet` (registered invariant checkers), open `UxViolation` events |
 | **Diagnostics** | `ux:structural_violation`, `ux:navigation_violation`, `ux:contract_warning`, `ux:tree_build` channels — §5 |
 | **Validation** | UxScenario runner, snapshot diffing, CI gates — §6 |
@@ -118,6 +123,7 @@ These must hold at every observable app state. Violations emit on `ux:structural
 | `S7` | No two `UxNode`s in the same snapshot share the same `UxNodeId`. | Error |
 | `S8` | The `RadialMenu` subtree, when present, contains between 1 and 8 `RadialSector` children. | Warn |
 | `S9` | Every `UxNode` with any action listed has `bounds.width ≥ 32` and `bounds.height ≥ 32` (logical pixels). Only checked when bounds are present. | Warn |
+| `S10` | When a `CommandBar` subtree is present, exactly one visible command-surface capture owner may advertise semantic focus for Shell command entry. | Error |
 
 ### 3.2 Navigation Invariants (N-series)
 
@@ -127,6 +133,7 @@ These must hold at every observable app state. Violations emit on `ux:structural
 | `N2` | From every open `Dialog`, the `UxAction::Dismiss` action is reachable within ≤ 10 Tab/arrow steps. | Error |
 | `N3` | Top-level landmark regions (`GraphBar`, `WorkbenchChrome`, `GraphView`, `NodePane`, `ToolPane`) are each reachable via F6 cycling in ≤ `region_count` steps. | Warn |
 | `N4` | Tab traversal from the focused node visits all `enabled = true` interactive widgets in the current modal context before returning to the start. | Warn |
+| `N5` | Omnibar capture exit and command-palette dismiss restore the stored valid return target or emit an explicit fallback receipt. | Warn |
 
 ### 3.3 State Machine Invariants (M-series)
 
@@ -136,6 +143,7 @@ These must hold at every observable app state. Violations emit on `ux:structural
 | `M2` | No `NodePane` with `TileRenderMode::Placeholder` remains in that state for more than 120 frames after the last viewer attachment attempt. | Warn |
 | `M3` | The WebView creation backpressure counter does not exceed the configured burst limit during any UxScenario run. | Warn |
 | `M4` | No graph node enters `RuntimeBlocked` state during a clean UxScenario run (no fault injection active). | Warn |
+| `M5` | Stale omnibar/provider deliveries and no-target command-surface resolutions remain observable and do not silently replace newer visible command-surface state. | Warn |
 
 ### 3.4 Contract Extension Points
 
@@ -177,7 +185,7 @@ UxNodeId
 
 UxRole
   Semantic role enum. Maps to AccessKit Role where a direct equivalent exists.
-  Layout/structure: Landmark, Region, Dialog, Toolbar, StatusBar, MenuBar
+  Layout/structure: CommandBar, Landmark, Region, Dialog, Toolbar, StatusBar, MenuBar
   Pane types: GraphView, NodePane, ToolPane, WorkbenchChrome
   Interactive: Button, ToggleButton, MenuItem, RadialSector, TextInput, SearchField,
                OmnibarField, List, ListItem, Tab, TabPanel

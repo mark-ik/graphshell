@@ -12,6 +12,8 @@
 - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_accessibility_contracts_diagnostics_and_validation_strategy.md` (now superseded — contract framing preserved in §§3-7)
 **Research basis**: `../research/2026-02-24_spatial_accessibility_research.md`
 
+**Related follow-on**: `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`
+
 **Policy authority**: This file is the single canonical policy authority for the Accessibility subsystem.
 Supporting accessibility docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
@@ -49,6 +51,11 @@ Without subsystem-level guarantees, every new `TileKind` variant, every Wry/Serv
 That includes shared projection/control surfaces. Navigator rows, settings rails,
 and workbench chrome should be treated as canonical accessibility surfaces, not
 as incidental wrappers around the "real" app.
+
+Shell command surfaces belong in the same category. The `CommandBar`, omnibar,
+and command-palette entry/return paths are first-class accessibility surfaces,
+not merely transport for other domains' behavior. Their closure is coordinated
+with `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`.
 
 ---
 
@@ -204,6 +211,9 @@ Accessibility invariant failures follow the diagnostics pattern: explicit invari
 **Manual smoke checks (screen reader)**:
 - Platform-specific smoke scripts (NVDA/Windows, Orca/Linux, VoiceOver/macOS when applicable)
 - Required for milestone gates, not every PR
+- Windows-first baseline for command surfaces must include omnibar labeling,
+  command-palette focus identification, status/error announcement checks, and
+  deterministic return-path verification under NVDA and Narrator.
 
 ### 6.2 CI Gates
 

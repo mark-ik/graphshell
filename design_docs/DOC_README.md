@@ -45,7 +45,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: April 3, 2026
+Last updated: April 5, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -110,6 +110,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/aspect_render/2026-03-12_compositor_expansion_plan.md](graphshell_docs/implementation_strategy/aspect_render/2026-03-12_compositor_expansion_plan.md) - Glow-first compositor expansion: content signature enrichment, lifecycle → overlay affordance, lens-driven Pass 3 descriptor, tile activity diagnostics channel, focus delta latching, EmbeddedEgui z-order fix, and generic viewer callback path.
 - [graphshell_docs/implementation_strategy/aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md](graphshell_docs/implementation_strategy/aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md) - **DEFERRED INDEFINITELY (2026-03-12)** WebRender wgpu renderer implementation plan (P0–P12). wgpu renderer migration suspended; Graphshell ships on egui_glow.
 - [graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_event_dispatch_spec.md](graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_event_dispatch_spec.md) - Canonical UxTree event dispatch contract (capture/target/bubble/default, modal isolation, authority routing, diagnostics/test gates).
+- [graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md](graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md) - Active companion closure lane for Shell command-surface provenance diagnostics, UxTree/probe/scenario modeling, and Shell command-bar / omnibar AT validation.
 - [graphshell_docs/implementation_strategy/aspect_command/radial_menu_geometry_and_overflow_spec.md](graphshell_docs/implementation_strategy/aspect_command/radial_menu_geometry_and_overflow_spec.md) - Canonical radial geometry/overflow/readability contract with deterministic ring assignment and CI test expectations.
 - [graphshell_docs/implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md](graphshell_docs/implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md) - Canonical interaction contract for the workbench/frame/tile model.
 - [graphshell_docs/implementation_strategy/workbench/WORKBENCH.md](graphshell_docs/implementation_strategy/workbench/WORKBENCH.md) - Workbench domain spec: arrangement and activation authority within the five-domain model.
@@ -122,7 +123,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/navigator/navigator_backlog_pack.md](graphshell_docs/implementation_strategy/navigator/navigator_backlog_pack.md) - Navigator execution backlog including cross-domain scenario-track IDs.
 - [graphshell_docs/implementation_strategy/navigator/navigator_interaction_contract.md](graphshell_docs/implementation_strategy/navigator/navigator_interaction_contract.md) - Canonical Navigator click grammar and node-vs-structural row interaction rules.
 - [graphshell_docs/implementation_strategy/shell/SHELL.md](graphshell_docs/implementation_strategy/shell/SHELL.md) - Shell domain spec: Graphshell's only host and app-level orchestration boundary.
-- [graphshell_docs/implementation_strategy/shell/2026-04-03_shell_command_bar_execution_plan.md](graphshell_docs/implementation_strategy/shell/2026-04-03_shell_command_bar_execution_plan.md) - Concrete Workstream A execution plan for Shell command-bar authority, omnibar session/mailbox state, focused-target routing, and legacy command-path cleanup.
+- [graphshell_docs/implementation_strategy/shell/2026-04-03_shell_command_bar_execution_plan.md](graphshell_docs/implementation_strategy/shell/2026-04-03_shell_command_bar_execution_plan.md) - Active Workstream A closure lane for Shell command-bar authority, omnibar session/mailbox state, focused-target routing, and legacy command-path cleanup.
 - [graphshell_docs/implementation_strategy/shell/shell_backlog_pack.md](graphshell_docs/implementation_strategy/shell/shell_backlog_pack.md) - Shell execution backlog including overview, routing, and interruption scenario-track IDs.
 - [graphshell_docs/implementation_strategy/shell/shell_overview_surface_spec.md](graphshell_docs/implementation_strategy/shell/shell_overview_surface_spec.md) - Concrete Shell overview surface for graph/workbench/runtime summary and cross-domain routing.
 - [graphshell_docs/implementation_strategy/graph/GRAPH.md](graphshell_docs/implementation_strategy/graph/GRAPH.md) - Graph domain spec; the canvas is its primary rendered surface, not the domain name.
