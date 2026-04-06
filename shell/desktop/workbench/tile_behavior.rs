@@ -288,45 +288,6 @@ fn request_viewer_backend_swap(
     });
 }
 
-fn render_node_viewer_backend_selector(
-    ui: &mut Ui,
-    graph_app: &mut GraphBrowserApp,
-    state: &mut NodePaneState,
-) {
-    ui.horizontal_wrapped(|ui| {
-        ui.small("Render With:");
-
-        let auto_selected = state.viewer_id_override.is_none();
-        if ui.selectable_label(auto_selected, "Auto").clicked() {
-            request_viewer_backend_swap(graph_app, state, None);
-        }
-
-        let webview_selected = state
-            .viewer_id_override
-            .as_ref()
-            .is_some_and(|viewer| viewer.as_str() == "viewer:webview");
-        if ui.selectable_label(webview_selected, "WebView").clicked() {
-            request_viewer_backend_swap(graph_app, state, Some(ViewerId::new("viewer:webview")));
-        }
-
-        let wry_selected = state
-            .viewer_id_override
-            .as_ref()
-            .is_some_and(|viewer| viewer.as_str() == "viewer:wry");
-        let wry_disabled_reason = wry_unavailable_reason(graph_app);
-        let wry_response = ui.add_enabled(
-            wry_disabled_reason.is_none(),
-            egui::Button::new("Wry").selected(wry_selected),
-        );
-        if wry_response.clicked() {
-            request_viewer_backend_swap(graph_app, state, Some(ViewerId::new("viewer:wry")));
-        }
-        if let Some(reason) = wry_disabled_reason {
-            wry_response.on_hover_text(reason.message());
-        }
-    });
-}
-
 fn render_markdown_embedded(ui: &mut Ui, markdown: &str) {
     for line in markdown.lines() {
         let trimmed = line.trim_start();
