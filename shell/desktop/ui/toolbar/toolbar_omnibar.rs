@@ -1,4 +1,6 @@
 use super::*;
+use euclid::default::Point2D;
+
 use crate::app::{user_visible_node_title_from_data, user_visible_node_url_from_data};
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::workbench::pane_model::PaneViewState;

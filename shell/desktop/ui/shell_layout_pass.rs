@@ -160,6 +160,8 @@ mod tests {
                 resizable: true,
             },
             host_layouts: Vec::new(),
+            active_graph_view: None,
+            extra_graph_views: Vec::new(),
             active_pane_title: None,
             active_frame_name: None,
             saved_frame_names: Vec::new(),

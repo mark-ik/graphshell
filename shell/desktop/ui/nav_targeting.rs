@@ -74,6 +74,12 @@ pub(crate) fn nav_target_webview_id(
 mod tests {
     use super::*;
     use euclid::default::Point2D;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
+
+    use crate::prefs::AppPreferences;
+    use crate::shell::desktop::host::headless_window::HeadlessWindow;
+    use crate::shell::desktop::host::window::EmbedderWindow;
 
     /// Create a unique runtime viewer id for testing.
     fn test_webview_id() -> servo::WebViewId {
@@ -173,5 +179,45 @@ mod tests {
         app.set_embedded_content_focus_webview(Some(webview_id));
 
         assert_eq!(focused_embedded_content_node(&app), Some(node));
+    }
+
+    #[test]
+    fn test_chrome_projection_node_prefers_embedded_focus_over_renderer_projection() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+        let mut app = GraphBrowserApp::new_for_testing();
+        let focused_node =
+            app.add_node_and_sync("https://focus.example".into(), Point2D::new(0.0, 0.0));
+        let projected_node =
+            app.add_node_and_sync("https://projected.example".into(), Point2D::new(10.0, 0.0));
+        let focused_renderer = test_webview_id();
+        let projected_renderer = test_webview_id();
+        app.map_webview_to_node(focused_renderer, focused_node);
+        app.map_webview_to_node(projected_renderer, projected_node);
+        app.set_embedded_content_focus_webview(Some(focused_renderer));
+        window.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(
+            projected_renderer,
+        )));
+
+        assert_eq!(chrome_projection_node(&app, &window), Some(focused_node));
+    }
+
+    #[test]
+    fn test_chrome_projection_node_uses_pane_projection_attachment_without_embedded_focus() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+        let mut app = GraphBrowserApp::new_for_testing();
+        let pane_id = PaneId::new();
+        let projected_node =
+            app.add_node_and_sync("https://pane.example".into(), Point2D::new(0.0, 0.0));
+        let projected_renderer = test_webview_id();
+        registries::phase1_attach_renderer(pane_id, projected_renderer, Some(projected_node))
+            .unwrap();
+        window.set_chrome_projection_source(Some(ChromeProjectionSource::Pane(pane_id)));
+
+        assert_eq!(chrome_projection_node(&app, &window), Some(projected_node));
+
+        let detached = registries::phase1_detach_renderer(projected_renderer);
+        assert_eq!(detached.map(|attachment| attachment.pane_id), Some(pane_id));
     }
 }

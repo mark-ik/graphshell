@@ -48,7 +48,6 @@ use crate::shell::desktop::runtime::registries::{self, CHANNEL_UX_NAVIGATION_TRA
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneViewState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_invariants;
@@ -255,10 +254,11 @@ pub(crate) fn ingest_pre_frame(
                     );
                 }
                 action_id::toolbar::NAV_BACK => {
-                    let command_bar_focus_target = CommandBarFocusTarget::new(
+                    let command_bar_focus_target = nav_targeting::command_bar_focus_target(
                         window.focused_pane(),
-                        nav_targeting::chrome_projection_node(graph_app, window)
-                            .or(focused_node),
+                        focused_node,
+                        None,
+                        None,
                     );
                     let _ = toolbar_routing::run_nav_action(
                         graph_app,
@@ -268,10 +268,11 @@ pub(crate) fn ingest_pre_frame(
                     );
                 }
                 action_id::toolbar::NAV_FORWARD => {
-                    let command_bar_focus_target = CommandBarFocusTarget::new(
+                    let command_bar_focus_target = nav_targeting::command_bar_focus_target(
                         window.focused_pane(),
-                        nav_targeting::chrome_projection_node(graph_app, window)
-                            .or(focused_node),
+                        focused_node,
+                        None,
+                        None,
                     );
                     let _ = toolbar_routing::run_nav_action(
                         graph_app,

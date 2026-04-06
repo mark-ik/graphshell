@@ -4,6 +4,10 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use egui::{WidgetInfo, WidgetType};
 
+/// Renders the right-side Shell-owned controls: Settings and More menus.
+///
+/// Graph "Fit" was removed per prototype conformance target (2026-04-06);
+/// it remains accessible via keyboard binding and the action registry.
 pub(super) fn render_toolbar_right_controls(
     ui: &mut egui::Ui,
     state: &RunningAppState,
@@ -17,13 +21,7 @@ pub(super) fn render_toolbar_right_controls(
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 ) {
-    let fit_button = ui
-        .add(super::toolbar_button("Fit"))
-        .on_hover_text("Fit graph to screen");
-    if fit_button.clicked() {
-        frame_intents.push(GraphIntent::RequestFitToScreen);
-    }
-
+    // Authority: Shell — application-level settings menu.
     ui.menu_button("Settings", |ui| {
         super::render_settings_menu(
             ui,
@@ -39,6 +37,7 @@ pub(super) fn render_toolbar_right_controls(
         );
     });
 
+    // Authority: Shell — destructive application-level action.
     ui.menu_button("More", |ui| {
         let clear_data_button = ui.button("Clear graph and saved data");
         clear_data_button.widget_info(|| {

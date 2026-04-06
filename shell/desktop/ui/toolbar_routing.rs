@@ -413,7 +413,7 @@ mod tests {
     use super::*;
     use crate::prefs::AppPreferences;
     use crate::shell::desktop::host::headless_window::HeadlessWindow;
-    use crate::shell::desktop::host::window::EmbedderWindow;
+    use crate::shell::desktop::host::window::{ChromeProjectionSource, EmbedderWindow};
     use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
     use crate::shell::desktop::runtime::registries::{
         CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
@@ -422,6 +422,19 @@ mod tests {
     };
     use std::sync::Arc;
     use std::sync::atomic::AtomicU64;
+
+    fn test_webview_id() -> servo::WebViewId {
+        thread_local! {
+            static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        }
+        NS_INSTALLED.with(|cell| {
+            if !cell.get() {
+                base::id::PipelineNamespace::install(base::id::PipelineNamespaceId(46));
+                cell.set(true);
+            }
+        });
+        servo::WebViewId::new(base::id::PainterId::next())
+    }
 
     #[test]
     fn test_requested_open_mode_none_when_not_requested() {
@@ -487,6 +500,38 @@ mod tests {
                     fallback_node: None
                 },
                 BrowserCommand::Close,
+            ))
+        );
+    }
+
+    #[test]
+    fn nav_action_prefers_chrome_projection_fallback_over_focus_target_node() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+        let mut app = GraphBrowserApp::new_for_testing();
+        let focused_node =
+            app.add_node_and_sync("https://focused.example".into(), euclid::point2(0.0, 0.0));
+        let projected_node =
+            app.add_node_and_sync("https://projected.example".into(), euclid::point2(10.0, 0.0));
+        let projected_renderer = test_webview_id();
+        app.map_webview_to_node(projected_renderer, projected_node);
+        window.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(
+            projected_renderer,
+        )));
+
+        assert!(run_nav_action(
+            &mut app,
+            &window,
+            CommandBarFocusTarget::new(None, Some(focused_node)),
+            ToolbarNavAction::StopLoad,
+        ));
+        assert_eq!(
+            app.take_pending_browser_command(),
+            Some((
+                BrowserCommandTarget::ChromeProjection {
+                    fallback_node: Some(projected_node)
+                },
+                BrowserCommand::StopLoad,
             ))
         );
     }

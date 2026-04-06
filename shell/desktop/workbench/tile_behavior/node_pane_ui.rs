@@ -1,4 +1,8 @@
 use super::*;
+use crate::app::{BrowserCommand, BrowserCommandTarget};
+use crate::shell::desktop::workbench::pane_model::{
+    FloatingPaneTargetTileContext, PanePresentationMode,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -128,14 +132,17 @@ fn render_node_pane_impl(
         ui.label("Missing node for this tile.");
         return;
     };
-    // Suppress the in-pane viewer backend selector when a native overlay (e.g. wry) is active:
-    // the overlay covers this area so egui controls would be unreachable. The graph bar's
-    // "Compat"/"Servo" button is the accessible control path for native overlay panes.
-    if state.render_mode
-        != crate::shell::desktop::workbench::pane_model::TileRenderMode::NativeOverlay
-    {
-        render_node_viewer_backend_selector(ui, behavior.graph_app, state);
-        ui.add_space(4.0);
+    // Graduated chrome: render per-pane chrome based on presentation mode.
+    match state.presentation_mode {
+        PanePresentationMode::Tiled => {
+            render_tile_viewer_chrome_strip(ui, behavior, state, node_key, &node_url);
+        }
+        PanePresentationMode::Floating => {
+            render_floating_pane_chrome(ui, behavior, state, node_key);
+        }
+        PanePresentationMode::Docked | PanePresentationMode::Fullscreen => {
+            // Docked/Fullscreen: no viewer chrome strip.
+        }
     }
     let effective_viewer_id = state
         .resolved_viewer_id
@@ -467,6 +474,148 @@ fn render_node_pane_impl(
             rect
         );
     }
+}
+
+/// Minimal chrome for Floating (ephemeral) panes: Promote and Dismiss only.
+///
+/// Floating panes are pre-promotion content carriers. The only affordances are
+/// promoting into the tile tree or dismissing (closing) the pane.
+fn render_floating_pane_chrome(
+    ui: &mut egui::Ui,
+    behavior: &mut GraphshellTileBehavior<'_>,
+    _state: &mut NodePaneState,
+    node_key: NodeKey,
+) {
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .small_button("X")
+                .on_hover_text("Dismiss this pane")
+                .clicked()
+            {
+                behavior
+                    .graph_app
+                    .demote_node_to_cold_with_cause(node_key, LifecycleCause::ExplicitClose);
+                behavior.pending_closed_nodes.push(node_key);
+            }
+            if ui
+                .small_button("Promote")
+                .on_hover_text("Promote to tiled workbench pane")
+                .clicked()
+            {
+                behavior.queue_post_render_intent(GraphIntent::PromoteEphemeralPane {
+                    target_tile_context: FloatingPaneTargetTileContext::TabGroup,
+                });
+            }
+        });
+    });
+    ui.add_space(2.0);
+}
+
+/// Tile viewer chrome strip for Tiled presentation mode.
+///
+/// Renders navigation controls (Back/Forward/Reload), a compact URL display,
+/// and a compatibility mode (Wry) toggle between the tab bar and the viewer
+/// content area. For NativeOverlay panes, the strip renders above the overlay
+/// rect so egui controls remain reachable.
+fn render_tile_viewer_chrome_strip(
+    ui: &mut egui::Ui,
+    behavior: &mut GraphshellTileBehavior<'_>,
+    state: &mut NodePaneState,
+    node_key: NodeKey,
+    node_url: &str,
+) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+
+        // --- Navigation: Back / Forward / Reload ---
+        let target = BrowserCommandTarget::ChromeProjection {
+            fallback_node: Some(node_key),
+        };
+
+        if ui.small_button("<").on_hover_text("Back").clicked() {
+            behavior
+                .graph_app
+                .request_browser_command(target, BrowserCommand::Back);
+        }
+        if ui.small_button(">").on_hover_text("Forward").clicked() {
+            behavior
+                .graph_app
+                .request_browser_command(target, BrowserCommand::Forward);
+        }
+        if ui.small_button("R").on_hover_text("Reload").clicked() {
+            behavior
+                .graph_app
+                .request_browser_command(target, BrowserCommand::Reload);
+        }
+
+        ui.separator();
+
+        // --- Compact URL display ---
+        let display_url = truncate_host_or_path(node_url, 48);
+        ui.label(
+            egui::RichText::new(display_url)
+                .small()
+                .color(egui::Color32::from_rgb(180, 180, 180)),
+        );
+
+        // --- Right-aligned controls ---
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // --- Compatibility mode toggle (Wry) ---
+            let wry_active = state
+                .viewer_id_override
+                .as_ref()
+                .is_some_and(|v| v.as_str() == "viewer:wry");
+            let wry_disabled = wry_unavailable_reason(behavior.graph_app);
+
+            let compat_label = if wry_active { "Compat *" } else { "Compat" };
+            let compat_button = ui.add_enabled(
+                wry_disabled.is_none(),
+                egui::Button::new(egui::RichText::new(compat_label).small())
+                    .selected(wry_active),
+            );
+            let compat_button = if let Some(reason) = wry_disabled {
+                compat_button.on_hover_text(reason.message())
+            } else if wry_active {
+                compat_button.on_hover_text("Using compatibility renderer (Wry). Click to switch back.")
+            } else {
+                compat_button.on_hover_text("Load in compatibility mode (Wry) for sites that don't render correctly")
+            };
+            if compat_button.clicked() {
+                if wry_active {
+                    request_viewer_backend_swap(behavior.graph_app, state, None);
+                } else {
+                    request_viewer_backend_swap(
+                        behavior.graph_app,
+                        state,
+                        Some(ViewerId::new("viewer:wry")),
+                    );
+                }
+            }
+
+            // --- Zoom controls ---
+            if ui.small_button("+").on_hover_text("Zoom in").clicked() {
+                behavior
+                    .graph_app
+                    .request_browser_command(target, BrowserCommand::ZoomIn);
+            }
+            if ui.small_button("-").on_hover_text("Zoom out").clicked() {
+                behavior
+                    .graph_app
+                    .request_browser_command(target, BrowserCommand::ZoomOut);
+            }
+            if ui
+                .small_button("1:1")
+                .on_hover_text("Reset zoom")
+                .clicked()
+            {
+                behavior
+                    .graph_app
+                    .request_browser_command(target, BrowserCommand::ZoomReset);
+            }
+        });
+    });
+    ui.add_space(2.0);
 }
 
 fn render_embedded_image(

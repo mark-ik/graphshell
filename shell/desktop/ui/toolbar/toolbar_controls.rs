@@ -7,6 +7,8 @@ use std::collections::HashSet;
 
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 
+/// **Authority: Graph** — graph history manipulation. Called from the Graph
+/// authority pass in the left column.
 pub(crate) fn render_graph_history_buttons(
     ui: &mut egui::Ui,
     frame_intents: &mut Vec<crate::app::GraphIntent>,
@@ -106,6 +108,10 @@ pub(super) fn render_frame_pin_controls(
     }
 }
 
+/// **Authority: Viewer** — pane-targeted navigation (Back, Forward, Reload,
+/// Zoom). These resolve against `CommandBarFocusTarget` and operate on the
+/// focused viewer pane. The Shell command bar no longer hosts them; the
+/// workbench host renders the pane-local viewer chrome.
 pub(crate) fn render_navigation_buttons(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,

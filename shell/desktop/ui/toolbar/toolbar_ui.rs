@@ -6,7 +6,6 @@ use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
 use egui::{Key, Modifiers, TopBottomPanel, Vec2};
 use egui_tiles::Tree;
-use euclid::default::Point2D;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -23,7 +22,7 @@ use crate::shell::desktop::ui::gui_state::{
 };
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarOpenMode};
 use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
-use crate::shell::desktop::workbench::pane_model::{PaneId, ViewerId};
+use crate::shell::desktop::workbench::pane_model::PaneId;
 #[path = "toolbar_controls.rs"]
 mod toolbar_controls;
 #[path = "toolbar_location_dropdown.rs"]
@@ -40,7 +39,6 @@ mod toolbar_right_controls;
 mod toolbar_status_bar;
 #[path = "toolbar_settings_menu.rs"]
 mod toolbar_settings_menu;
-use self::toolbar_controls::render_graph_history_buttons;
 use self::toolbar_location_panel::render_location_search_panel;
 use self::toolbar_omnibar::{
     apply_omnibar_match, dedupe_matches_in_order, default_search_provider_from_searchpage,
@@ -62,7 +60,6 @@ use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::search::{fuzzy_match_items, fuzzy_match_node_keys};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::runtime::registries::lens::{LENS_ID_DEFAULT, LENS_ID_SEMANTIC_OVERLAY};
 use crate::shell::desktop::runtime::registries::{
     input::action_id, phase2_binding_display_labels_for_action,
     CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
@@ -635,36 +632,7 @@ fn render_fullscreen_origin_strip(
         });
 }
 
-/// Render the graph view tab strip from the Navigator context projection.
-///
-/// Navigator owns the content (view list, active view); Shell renders it here.
-/// Single view: shows a compact "View: {name}" label (no tab strip needed).
-/// Multiple views: renders selectable tab labels from `navigator_ctx.extra_views`.
-fn render_navigator_view_tabs(
-    ui: &mut egui::Ui,
-    graph_app: &mut GraphBrowserApp,
-    navigator_ctx: &NavigatorContextProjection,
-) {
-    if navigator_ctx.extra_views.is_empty() {
-        // Single view or no views: show a compact label.
-        let label = navigator_ctx
-            .active_view
-            .as_ref()
-            .map(|(_, name)| format!("View: {name}"))
-            .unwrap_or_else(|| "View: Graph".to_string());
-        ui.label(label);
-    } else {
-        // Multi-view: render the active tab first, then the rest.
-        if let Some((_view_id, label)) = &navigator_ctx.active_view {
-            let _ = ui.selectable_label(true, label.as_str());
-        }
-        for (view_id, label) in &navigator_ctx.extra_views {
-            if ui.selectable_label(false, label.as_str()).clicked() {
-                enqueue_navigator_view_focus(graph_app, *view_id);
-            }
-        }
-    }
-}
+// Routing helpers retained for Navigator chrome and tests.
 
 fn enqueue_navigator_view_focus(graph_app: &mut GraphBrowserApp, view_id: GraphViewId) {
     graph_app.enqueue_workbench_intent(WorkbenchIntent::FocusGraphView { view_id });
@@ -672,189 +640,6 @@ fn enqueue_navigator_view_focus(graph_app: &mut GraphBrowserApp, view_id: GraphV
 
 fn enqueue_overview_plane_toggle(graph_app: &mut GraphBrowserApp) {
     graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleOverviewPlane);
-}
-
-fn render_wry_compat_button(
-    ui: &mut egui::Ui,
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
-    command_bar_focus_target: CommandBarFocusTarget,
-) {
-    // Only show when a node pane is focused and wry is available.
-    let (Some(node_key), Some(pane_id)) = (
-        command_bar_focus_target.focused_node(),
-        command_bar_focus_target.active_pane(),
-    ) else {
-        return;
-    };
-    if !cfg!(feature = "wry")
-        || !crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry")
-        || !graph_app.wry_enabled()
-    {
-        return;
-    }
-
-    // Find the active pane's current viewer_id_override.
-    let current_viewer = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
-        egui_tiles::Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => {
-            Some(state.viewer_id_override.clone())
-        }
-        _ => None,
-    });
-    let Some(viewer_id_override) = current_viewer else {
-        return;
-    };
-
-    let wry_active = viewer_id_override
-        .as_ref()
-        .is_some_and(|v| v.as_str() == "viewer:wry");
-
-    let button = ui
-        .add(toolbar_button(if wry_active { "Servo" } else { "Compat" }))
-        .on_hover_text(if wry_active {
-            "Switch back to Servo renderer"
-        } else {
-            "Load in Wry compatibility mode"
-        });
-    if button.clicked() {
-        let new_override = if wry_active {
-            Some(ViewerId::new("viewer:webview"))
-        } else {
-            Some(ViewerId::new("viewer:wry"))
-        };
-        graph_app.enqueue_workbench_intent(WorkbenchIntent::SwapViewerBackend {
-            pane: pane_id,
-            node: node_key,
-            viewer_id_override: new_override,
-        });
-    }
-}
-
-fn graph_bar_lens_label(graph_app: &GraphBrowserApp) -> String {
-    let view_id = active_graph_view_id(graph_app);
-    let lens_id = view_id
-        .and_then(|id| graph_app.workspace.graph_runtime.views.get(&id))
-        .and_then(|view| view.resolved_lens_id().map(str::to_owned))
-        .or_else(|| graph_app.default_registry_lens_id().map(str::to_owned))
-        .unwrap_or_else(|| LENS_ID_DEFAULT.to_string());
-    format!("Lens: {}", lens_id.trim_start_matches("lens:"))
-}
-
-fn graph_bar_physics_label(graph_app: &GraphBrowserApp) -> String {
-    let physics_id = active_graph_view_id(graph_app)
-        .and_then(|id| graph_app.workspace.graph_runtime.views.get(&id))
-        .and_then(|view| view.resolved_physics_profile_id().map(str::to_owned))
-        .or_else(|| graph_app.default_registry_physics_id().map(str::to_owned))
-        .unwrap_or_else(|| crate::registries::atomic::lens::PHYSICS_ID_DEFAULT.to_string());
-    let resolution = crate::registries::atomic::lens::resolve_physics_profile(&physics_id);
-    format!("Physics: {}", resolution.display_name)
-}
-
-fn active_graph_view_id(graph_app: &GraphBrowserApp) -> Option<crate::app::GraphViewId> {
-    graph_app.workspace.graph_runtime.focused_view.or_else(|| {
-        (graph_app.workspace.graph_runtime.views.len() == 1)
-            .then(|| {
-                graph_app
-                    .workspace
-                    .graph_runtime
-                    .views
-                    .keys()
-                    .next()
-                    .copied()
-            })
-            .flatten()
-    })
-}
-
-fn render_graph_bar_lens_menu(
-    ui: &mut egui::Ui,
-    graph_app: &mut GraphBrowserApp,
-    frame_intents: &mut Vec<GraphIntent>,
-) {
-    ui.menu_button(graph_bar_lens_label(graph_app), |ui| {
-        let Some(view_id) = active_graph_view_id(graph_app) else {
-            ui.label("No active graph view");
-            return;
-        };
-        if !graph_app
-            .workspace
-            .graph_runtime
-            .views
-            .contains_key(&view_id)
-        {
-            ui.label("No active graph view");
-            return;
-        }
-
-        for (label, lens_id) in [
-            ("Default", LENS_ID_DEFAULT),
-            ("Semantic Overlay", LENS_ID_SEMANTIC_OVERLAY),
-        ] {
-            if ui.button(label).clicked() {
-                frame_intents.push(GraphIntent::SetViewLensId {
-                    view_id,
-                    lens_id: lens_id.to_string(),
-                });
-                ui.close();
-            }
-        }
-    });
-}
-
-fn render_graph_bar_physics_menu(
-    ui: &mut egui::Ui,
-    graph_app: &mut GraphBrowserApp,
-    frame_intents: &mut Vec<GraphIntent>,
-) {
-    ui.menu_button(graph_bar_physics_label(graph_app), |ui| {
-        let active_view_id = active_graph_view_id(graph_app).filter(|view_id| {
-            graph_app
-                .workspace
-                .graph_runtime
-                .views
-                .contains_key(view_id)
-        });
-        for descriptor in crate::registries::atomic::lens::physics_profile_descriptors() {
-            if ui.button(descriptor.display_name.as_str()).clicked() {
-                if let Some(view_id) = active_view_id {
-                    frame_intents.push(GraphIntent::SetViewPhysicsProfile {
-                        view_id,
-                        profile_id: descriptor.id.clone(),
-                    });
-                } else {
-                    frame_intents.push(GraphIntent::SetPhysicsProfile {
-                        profile_id: descriptor.id.clone(),
-                    });
-                }
-                ui.close();
-            }
-        }
-        ui.separator();
-        let running = graph_app.workspace.graph_runtime.physics.base.is_running;
-        let toggle_label = if running {
-            "Pause Physics"
-        } else {
-            "Resume Physics"
-        };
-        if ui.button(toggle_label).clicked() {
-            graph_app.workspace.graph_runtime.physics.base.is_running = !running;
-            if !running {
-                frame_intents.push(GraphIntent::ReheatPhysics);
-            }
-            ui.close();
-        }
-        if ui.button("Reheat Physics").clicked() {
-            frame_intents.push(GraphIntent::ReheatPhysics);
-            ui.close();
-        }
-    });
-}
-
-fn open_selected_node_tag_panel(graph_app: &mut GraphBrowserApp) {
-    let Some(node_key) = graph_app.focused_selection().primary() else {
-        return;
-    };
-    crate::shell::desktop::ui::tag_panel::open_node_tag_panel(graph_app, node_key, false);
 }
 
 fn overview_plane_tooltip(graph_app: &GraphBrowserApp) -> String {
@@ -870,53 +655,27 @@ fn overview_plane_tooltip(graph_app: &GraphBrowserApp) -> String {
     }
 }
 
-fn render_command_bar_navigator_projection_host(
-    ui: &mut egui::Ui,
-    graph_app: &mut GraphBrowserApp,
-    navigator_ctx: &NavigatorContextProjection,
-) {
-    render_navigator_view_tabs(ui, graph_app, navigator_ctx);
-}
+// ── Left-column Shell-owned controls ──────────────────────────────────
+//
+// The command bar retains only Shell-owned controls. Navigator, Viewer,
+// and Graph controls have been removed per the prototype conformance
+// target (2026-04-06). Those controls remain accessible through
+// keyboard bindings, the command palette, the action registry, or their
+// respective domain-local chrome surfaces.
+//
+// Removed from the left column (all accessible via alternative surfaces):
+//   Navigator view tabs   → Navigator host chrome, with a host-owned fallback
+//                            strip when no graph-scope host is currently rendered
+//   Wry/Servo compat      → Settings menu or pane-local viewer debug surface
+//   Undo / Redo           → keyboard shortcuts (Ctrl+Z / Ctrl+Y), action registry
+//   +Node / +Edge / +Tag  → command palette, radial menu, action registry
+//   Lens menu             → graph-pane overlay controls
+//   Physics menu          → Settings menu, action registry
 
-fn render_command_bar_legacy_graph_actions(
-    ui: &mut egui::Ui,
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
-    command_bar_focus_target: CommandBarFocusTarget,
-    frame_intents: &mut Vec<GraphIntent>,
-) {
-    render_wry_compat_button(ui, graph_app, tiles_tree, command_bar_focus_target);
-    render_graph_history_buttons(ui, frame_intents);
-
-    let new_node_button = ui
-        .add(toolbar_button("+Node"))
-        .on_hover_text("Create node and open as tab");
-    if new_node_button.clicked() {
-        frame_intents.push(GraphIntent::CreateNodeNearCenterAndOpen {
-            mode: PendingTileOpenMode::Tab,
-        });
-    }
-
-    let new_edge_button = ui
-        .add(toolbar_button("+Edge"))
-        .on_hover_text("Create user-grouped edge from primary selection");
-    if new_edge_button.clicked() {
-        frame_intents.push(GraphIntent::CreateUserGroupedEdgeFromPrimarySelection);
-    }
-
-    let add_tag_button = ui
-        .add_enabled(
-            graph_app.focused_selection().primary().is_some(),
-            toolbar_button("+Tag"),
-        )
-        .on_hover_text("Edit tags for the selected node");
-    if add_tag_button.clicked() {
-        open_selected_node_tag_panel(graph_app);
-    }
-
-    render_graph_bar_lens_menu(ui, graph_app, frame_intents);
-    render_graph_bar_physics_menu(ui, graph_app, frame_intents);
-
+/// **Shell**-owned controls in the left column: the overview-plane toggle
+/// and the command-palette trigger. Both route through `WorkbenchIntent`
+/// and are canonical Shell authority.
+fn render_command_bar_shell_actions(ui: &mut egui::Ui, graph_app: &mut GraphBrowserApp) {
     let overview_label = if graph_app.graph_view_layout_manager_active() {
         "Overview*"
     } else {
@@ -928,9 +687,7 @@ fn render_command_bar_legacy_graph_actions(
     if overview_button.clicked() {
         enqueue_overview_plane_toggle(graph_app);
     }
-}
 
-fn render_command_bar_shell_actions(ui: &mut egui::Ui, graph_app: &mut GraphBrowserApp) {
     let command_button = ui
         .add(toolbar_button("Cmd"))
         .on_hover_text("Open command palette (F2)");
@@ -939,34 +696,28 @@ fn render_command_bar_shell_actions(ui: &mut egui::Ui, graph_app: &mut GraphBrow
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Renders the left column of the command bar. Contains only Shell-owned
+/// controls: the overview toggle and the command-palette trigger.
 fn render_command_bar_left_column(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
-    navigator_ctx: &NavigatorContextProjection,
-    command_bar_focus_target: CommandBarFocusTarget,
-    frame_intents: &mut Vec<GraphIntent>,
 ) {
-    render_command_bar_navigator_projection_host(ui, graph_app, navigator_ctx);
-    render_command_bar_legacy_graph_actions(
-        ui,
-        graph_app,
-        tiles_tree,
-        command_bar_focus_target,
-        frame_intents,
-    );
     render_command_bar_shell_actions(ui, graph_app);
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Renders the right column of the command bar. Contains only Shell-owned
+/// controls: Settings and More menus.
+///
+/// Removed per prototype conformance target (2026-04-06):
+///   Viewer navigation (Back/Forward/Reload/Zoom) → keyboard bindings,
+///     action registry; exit path is pane-local viewer chrome.
+///   Graph Fit → keyboard binding, action registry.
 fn render_command_bar_right_column(
     ui: &mut egui::Ui,
     state: &RunningAppState,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     command_bar_focus_target: CommandBarFocusTarget,
-    focused_content_status: &FocusedContentStatus,
     is_graph_view: bool,
     location_dirty: &mut bool,
     show_clear_data_confirm: &mut bool,
@@ -974,16 +725,6 @@ fn render_command_bar_right_column(
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 ) {
-    ui.horizontal(|ui| {
-        toolbar_controls::render_navigation_buttons(
-            ui,
-            graph_app,
-            window,
-            command_bar_focus_target,
-            focused_content_status,
-            location_dirty,
-        );
-    });
     render_toolbar_right_controls(
         ui,
         state,
@@ -1056,10 +797,6 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                     render_command_bar_left_column(
                         ui,
                         graph_app,
-                        tiles_tree,
-                        navigator_ctx,
-                        command_bar_focus_target,
-                        frame_intents,
                     );
                 });
 
@@ -1094,7 +831,6 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                         graph_app,
                         window,
                         command_bar_focus_target,
-                        focused_content_status,
                         is_graph_view,
                         location_dirty,
                         show_clear_data_confirm,
