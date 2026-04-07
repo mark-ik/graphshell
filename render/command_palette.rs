@@ -1008,7 +1008,6 @@ pub(crate) fn execute_action_with_layout_target(
         ActionId::GraphPhysicsConfig => {
             registries::phase3_publish_settings_route_requested(
                 &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-                true,
             );
         }
         ActionId::GraphCommandPalette => {
@@ -1016,6 +1015,9 @@ pub(crate) fn execute_action_with_layout_target(
         }
         ActionId::GraphRadialMenu => {
             let _ = toolbar_routing::request_radial_menu_toggle(app, command_bar_focus_target);
+        }
+        ActionId::WorkbenchToggleOverlay => {
+            let _ = toolbar_routing::request_workbench_overlay_toggle(app, command_bar_focus_target);
         }
         ActionId::FrameSelect => {
             if let Some(frame_name) = frame_target {
@@ -1156,7 +1158,6 @@ pub(crate) fn execute_action_with_layout_target(
         ActionId::PersistRestoreLatestGraph => app.request_restore_graph_snapshot_latest(),
         ActionId::PersistOpenHub => registries::phase3_publish_settings_route_requested(
             &VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
-            true,
         ),
         ActionId::WorkbenchOpenSettingsPane => {
             let runtime_intents = registries::phase3_execute_registry_action(
@@ -1382,10 +1383,10 @@ mod tests {
         assert!(
             emitted.iter().any(|event| matches!(
                 event,
-                DiagnosticEvent::MessageSent { channel_id, .. }
+                DiagnosticEvent::MessageSentStructured { channel_id, .. }
                     if *channel_id == CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED
             )),
-            "expected generic route-blocked diagnostic; got: {emitted:?}"
+            "expected structured route-blocked diagnostic; got: {emitted:?}"
         );
         assert!(
             emitted.iter().any(|event| matches!(
@@ -1489,6 +1490,27 @@ mod tests {
             [WorkbenchIntent::OpenToolPane {
                 kind: ToolPaneState::HistoryManager
             }]
+        ));
+    }
+
+    #[test]
+    fn execute_action_workbench_overlay_routes_through_toolbar_dispatch() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::WorkbenchToggleOverlay,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true }]
         ));
     }
 
@@ -1763,13 +1785,12 @@ mod tests {
                 if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
                     crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
                         url,
-                        prefer_overlay,
                     },
                 ) = &signal.kind
                 {
                     seen.lock()
                         .expect("observer lock poisoned")
-                        .push((url.clone(), *prefer_overlay));
+                        .push(url.clone());
                 }
                 Ok(())
             },
@@ -1794,10 +1815,7 @@ mod tests {
                 .iter()
                 .any(|route| {
                     route
-                        == &(
-                            VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
-                            true,
-                        )
+                        == &VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string()
                 })
         );
         assert!(registries::phase3_unsubscribe_signal(
@@ -1821,13 +1839,12 @@ mod tests {
                 if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
                     crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
                         url,
-                        prefer_overlay,
                     },
                 ) = &signal.kind
                 {
                     seen.lock()
                         .expect("observer lock poisoned")
-                        .push((url.clone(), *prefer_overlay));
+                        .push(url.clone());
                 }
                 Ok(())
             },
@@ -1852,10 +1869,7 @@ mod tests {
                 .iter()
                 .any(|route| {
                     route
-                        == &(
-                            VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-                            true,
-                        )
+                        == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
                 })
         );
         assert!(registries::phase3_unsubscribe_signal(
@@ -1903,13 +1917,12 @@ mod tests {
                 if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
                     crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
                         url,
-                        prefer_overlay,
                     },
                 ) = &signal.kind
                 {
                     seen.lock()
                         .expect("observer lock poisoned")
-                        .push((url.clone(), *prefer_overlay));
+                        .push(url.clone());
                 }
                 Ok(())
             },
@@ -1934,10 +1947,7 @@ mod tests {
                 .iter()
                 .any(|route| {
                     route
-                        == &(
-                            VersoAddress::settings(GraphshellSettingsPath::General).to_string(),
-                            true,
-                        )
+                        == &VersoAddress::settings(GraphshellSettingsPath::General).to_string()
                 })
         );
         assert!(registries::phase3_unsubscribe_signal(

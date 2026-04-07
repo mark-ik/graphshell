@@ -7,9 +7,15 @@ use egui_tiles::Tree;
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphSearchOrigin, GraphViewId, GraphViewLayoutDirection,
-    PendingTileOpenMode, WorkbenchIntent,
+    PendingTileOpenMode, ViewGraphletPartition, WorkbenchIntent,
 };
+use crate::graph::{GraphletKind, NodeKey};
 use crate::shell::desktop::runtime::registries::phase3_trusted_peers;
+use crate::shell::desktop::ui::swatch::{
+    render_graph_swatch_card, GraphSwatchInteraction, GraphSwatchSpec, SwatchDensityPolicy,
+    SwatchHostOptions, SwatchInteractionProfile, SwatchLayoutProfile, SwatchSizeClass,
+    SwatchSourceScope,
+};
 use crate::shell::desktop::ui::workbench_host::{
     GraphletRosterEntry, WorkbenchChromeProjection, WorkbenchNodeViewerSummary,
     WorkbenchPaneEntry, WorkbenchPaneKind,
@@ -25,6 +31,8 @@ const OVERVIEW_CELL_GAP: f32 = 16.0;
 const OVERVIEW_SWATCH_GAP: f32 = 8.0;
 const NAVIGATOR_OVERVIEW_SWATCH_MIN_WIDTH: f32 = 272.0;
 const NAVIGATOR_OVERVIEW_TRANSFER_CELL_MIN_WIDTH: f32 = 60.0;
+const NAVIGATOR_GRAPHLET_SWATCH_MAX_HEIGHT: f32 = 320.0;
+const NAVIGATOR_GRAPHLET_PREVIEW_NODE_LIMIT: usize = 18;
 const OVERVIEW_SELECTED_VIEW_ID_KEY: &str = "graphshell_overview_selected_view";
 const NAVIGATOR_OVERVIEW_DRAG_SOURCE_VIEW_KEY: &str =
     "graphshell_navigator_overview_drag_source_view";
@@ -47,6 +55,26 @@ pub(crate) enum OverviewSurfaceAction {
         destination_view: GraphViewId,
     },
     ToggleOverviewPlane,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NavigatorOverviewAction {
+    Surface(OverviewSurfaceAction),
+    SelectGraphletAnchor {
+        view_id: GraphViewId,
+        node_key: NodeKey,
+    },
+    OpenGraphletSpecialty {
+        view_id: GraphViewId,
+        node_key: NodeKey,
+        kind: GraphletKind,
+    },
+}
+
+impl From<OverviewSurfaceAction> for NavigatorOverviewAction {
+    fn from(action: OverviewSurfaceAction) -> Self {
+        Self::Surface(action)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1058,7 +1086,7 @@ pub(crate) fn render_navigator_overview_swatch(
     ui: &mut Ui,
     app: &GraphBrowserApp,
     chrome_projection: &WorkbenchChromeProjection,
-) -> Vec<OverviewSurfaceAction> {
+) -> Vec<NavigatorOverviewAction> {
     let slots = sorted_slot_snapshots(app);
     let active_slots: Vec<_> = slots
         .iter()
@@ -1116,7 +1144,7 @@ pub(crate) fn render_navigator_overview_swatch(
                 .on_hover_text("Open the full Overview Plane")
                 .clicked()
             {
-                actions.push(OverviewSurfaceAction::ToggleOverviewPlane);
+                actions.push(OverviewSurfaceAction::ToggleOverviewPlane.into());
             }
         });
     });
@@ -1150,10 +1178,10 @@ pub(crate) fn render_navigator_overview_swatch(
                     .selectable_label(Some(slot.view_id) == selected_view_id, label)
                     .clicked()
                 {
-                    actions.push(OverviewSurfaceAction::FocusView(slot.view_id));
+                    actions.push(OverviewSurfaceAction::FocusView(slot.view_id).into());
                 }
                 if ui.small_button("Open").clicked() {
-                    actions.push(OverviewSurfaceAction::OpenView(slot.view_id));
+                    actions.push(OverviewSurfaceAction::OpenView(slot.view_id).into());
                 }
 
                 let mut hints = vec![format!("r{} · c{}", slot.row, slot.col)];
@@ -1188,9 +1216,20 @@ pub(crate) fn render_navigator_overview_swatch(
             }
             ui.label(RichText::new(summary.join(" · ")).small().weak());
             if ui.small_button("Open").clicked() {
-                actions.push(OverviewSurfaceAction::OpenView(selected_slot.view_id));
+                actions.push(OverviewSurfaceAction::OpenView(selected_slot.view_id).into());
             }
         });
+
+        ui.add_space(6.0);
+        if swatch_enabled {
+            render_navigator_graphlet_cards(ui, app, selected_slot, &mut actions);
+        } else {
+            ui.label(
+                RichText::new("Graphlet swatches appear when the Navigator host is wide enough.")
+                    .small()
+                    .weak(),
+            );
+        }
     }
 
     actions
@@ -1255,12 +1294,118 @@ fn compact_overview_chips(
     chips
 }
 
+fn render_navigator_graphlet_cards(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+    selected_slot: &OverviewSlotSnapshot,
+    actions: &mut Vec<NavigatorOverviewAction>,
+) {
+    let partitions = app.graphlet_partitions_for_view(selected_slot.view_id);
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Graphlets").small().strong());
+        ui.separator();
+        ui.label(
+            RichText::new(format!(
+                "{} visible in {}",
+                partitions.len(),
+                compact_overview_label(&selected_slot.name, 20)
+            ))
+            .small()
+            .weak(),
+        );
+    });
+
+    if partitions.is_empty() {
+        ui.small("No graphlets are visible under this view's current ownership and filter policy.");
+        return;
+    }
+
+    egui::ScrollArea::vertical()
+        .id_salt(("navigator_overview_graphlets", selected_slot.view_id.as_uuid()))
+        .max_height(NAVIGATOR_GRAPHLET_SWATCH_MAX_HEIGHT)
+        .show(ui, |ui| {
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
+                ui.horizontal_wrapped(|ui| {
+                    for partition in &partitions {
+                        render_navigator_graphlet_card(ui, app, selected_slot.view_id, partition, actions);
+                    }
+                });
+            });
+        });
+}
+
+fn render_navigator_graphlet_card(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+    view_id: GraphViewId,
+    partition: &ViewGraphletPartition,
+    actions: &mut Vec<NavigatorOverviewAction>,
+) {
+    let title = compact_overview_label(&node_summary_label(app, partition.anchor), 20);
+    let contains_primary = app
+        .focused_selection()
+        .primary()
+        .is_some_and(|primary| partition.members.contains(&primary));
+    let preview_nodes = partition.members.len().min(NAVIGATOR_GRAPHLET_PREVIEW_NODE_LIMIT);
+    let footer = if partition.members.len() > preview_nodes {
+        format!("+{} more member(s)", partition.members.len() - preview_nodes)
+    } else if partition.members.len() == 1 {
+        "singleton graphlet".to_string()
+    } else {
+        "preview of projected topology".to_string()
+    };
+    let swatch = GraphSwatchSpec {
+        source_scope: SwatchSourceScope::Graphlet,
+        layout_profile: SwatchLayoutProfile::LocalNeighborhood,
+        density_policy: SwatchDensityPolicy {
+            preview_node_limit: NAVIGATOR_GRAPHLET_PREVIEW_NODE_LIMIT,
+            show_counts: true,
+        },
+        interaction_profile: SwatchInteractionProfile::SelectAndOpenDetail,
+        host_options: SwatchHostOptions {
+            size_class: SwatchSizeClass::Compact,
+            card_size: Vec2::new(156.0, 128.0),
+            preview_height: 74.0,
+        },
+        graphlet: partition,
+        title,
+        summary: format!(
+            "{} nodes · {} edges",
+            partition.members.len(),
+            partition.internal_edges.len()
+        ),
+        badge: contains_primary.then_some("active"),
+        footer,
+        emphasized: contains_primary,
+        hover_text: Some("Click to select the anchor. Double-click to open a component specialty view."),
+    };
+
+    match render_graph_swatch_card(ui, &swatch) {
+        Some(GraphSwatchInteraction::SelectSource) => {
+            actions.push(NavigatorOverviewAction::SelectGraphletAnchor {
+                view_id,
+                node_key: partition.anchor,
+            });
+        }
+        Some(GraphSwatchInteraction::OpenDetail) => {
+            actions.push(NavigatorOverviewAction::OpenGraphletSpecialty {
+                view_id,
+                node_key: partition.anchor,
+                kind: GraphletKind::Component,
+            });
+        }
+        None => {}
+    }
+}
+
 fn render_compact_overview_grid(
     ui: &mut Ui,
     app: &GraphBrowserApp,
     slots: &[OverviewSlotSnapshot],
     selected_view_id: Option<GraphViewId>,
-    actions: &mut Vec<OverviewSurfaceAction>,
+    actions: &mut Vec<NavigatorOverviewAction>,
 ) {
     let Some((min_row, max_row, min_col, max_col)) = overview_grid_bounds(slots) else {
         return;
@@ -1334,10 +1479,10 @@ fn render_compact_overview_grid(
         );
 
         if response.clicked() {
-            actions.push(OverviewSurfaceAction::FocusView(slot.view_id));
+            actions.push(OverviewSurfaceAction::FocusView(slot.view_id).into());
         }
         if response.double_clicked() {
-            actions.push(OverviewSurfaceAction::OpenView(slot.view_id));
+            actions.push(OverviewSurfaceAction::OpenView(slot.view_id).into());
         }
         if response.drag_started()
             && drag_transfer_enabled
@@ -1358,7 +1503,7 @@ fn render_compact_overview_grid(
             && let Some(action) =
                 navigator_overview_transfer_action(app, source_view, *destination_view)
         {
-            actions.push(action);
+            actions.push(action.into());
         }
         ui.ctx()
             .data_mut(|data| data.remove::<GraphViewId>(drag_source_id));
@@ -2355,6 +2500,7 @@ mod tests {
                     runtime_blocked: false,
                     runtime_crashed: false,
                     fallback_reason: None,
+                    available_viewer_ids: vec![],
                 }),
                 presentation_mode: PanePresentationMode::Tiled,
                 is_active: true,
@@ -2427,6 +2573,7 @@ mod tests {
                         "Wry backend is disabled. Enable it in Settings -> Viewer Backends."
                             .to_string(),
                     ),
+                    available_viewer_ids: vec![],
                 }),
                 presentation_mode: PanePresentationMode::Tiled,
                 is_active: true,
@@ -2479,6 +2626,7 @@ mod tests {
                     fallback_reason: Some(
                         "Viewer 'viewer:unknown' is unresolved for this build path.".to_string(),
                     ),
+                    available_viewer_ids: vec![],
                 }),
                 presentation_mode: PanePresentationMode::Tiled,
                 is_active: true,
@@ -2550,6 +2698,7 @@ mod tests {
                         "Wry backend is disabled. Enable it in Settings -> Viewer Backends."
                             .to_string(),
                     ),
+                    available_viewer_ids: vec![],
                 }),
                 presentation_mode: PanePresentationMode::Tiled,
                 is_active: true,
@@ -2755,6 +2904,7 @@ mod tests {
                     fallback_reason: Some(
                         "Viewer 'viewer:unknown' is unresolved for this build path.".to_string(),
                     ),
+                    available_viewer_ids: vec![],
                 }),
                 presentation_mode: PanePresentationMode::Tiled,
                 is_active: true,
@@ -2847,4 +2997,5 @@ mod tests {
         assert_eq!(slots.first().map(|slot| slot.view_id), Some(active));
         assert_eq!(slots.last().map(|slot| slot.view_id), Some(archived));
     }
+
 }

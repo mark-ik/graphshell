@@ -275,10 +275,9 @@ fn apply_requested_settings_route_update(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     url: String,
-    prefer_overlay: bool,
 ) {
     if let Some(intent) =
-        workbench_surface::handle_requested_settings_route(graph_app, tiles_tree, url, prefer_overlay)
+        workbench_surface::handle_requested_settings_route(graph_app, tiles_tree, url)
     {
         graph_app.enqueue_workbench_intent(intent);
     }
@@ -533,13 +532,8 @@ impl Gui {
     }
 
     fn apply_pending_settings_route_updates(&mut self) {
-        for (url, prefer_overlay) in self.frame_inbox.take_settings_routes() {
-            apply_requested_settings_route_update(
-                &mut self.graph_app,
-                &mut self.tiles_tree,
-                url,
-                prefer_overlay,
-            );
+        for url in self.frame_inbox.take_settings_routes() {
+            apply_requested_settings_route_update(&mut self.graph_app, &mut self.tiles_tree, url);
         }
     }
 

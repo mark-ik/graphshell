@@ -17,7 +17,7 @@ use crate::shell::desktop::workbench::tile_runtime;
 
 const CLEAR_DATA_CONFIRM_WINDOW_SECS: f64 = 3.0;
 const CLEAR_DATA_CONFIRM_WARNING_TEXT: &str =
-    "Press Clr again within 3 seconds to clear graph and saved data";
+    "Choose 'Clear graph and saved data' again within 3 seconds to confirm";
 const CLEAR_DATA_CONFIRM_SUCCESS_TEXT: &str = "Cleared graph and saved data";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn clear_data_confirm_warning_text_includes_instruction_and_timing() {
-        assert!(CLEAR_DATA_CONFIRM_WARNING_TEXT.contains("Press Clr again"));
+        assert!(CLEAR_DATA_CONFIRM_WARNING_TEXT.contains("Clear graph and saved data"));
         assert!(CLEAR_DATA_CONFIRM_WARNING_TEXT.contains("within 3 seconds"));
     }
 

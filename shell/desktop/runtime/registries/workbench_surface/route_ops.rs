@@ -4,43 +4,8 @@ pub(super) fn handle_requested_settings_route(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     url: String,
-    prefer_overlay: bool,
 ) -> Option<WorkbenchIntent> {
-    if prefer_overlay {
-        return handle_open_settings_url_intent(graph_app, tiles_tree, url);
-    }
-
-    let Some(route) = GraphBrowserApp::resolve_settings_route(&url) else {
-        emit_open_decision(
-            UxOpenDecisionPath::SettingsUrl,
-            UxOpenDecisionReason::UnresolvedRoute,
-        );
-        return Some(WorkbenchIntent::OpenSettingsUrl { url });
-    };
-
-    let focused_before = active_tool_surface_return_target(tiles_tree);
-    maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
-    open_settings_route_target_in_tool_pane(graph_app, tiles_tree, route);
-
-    let focused_after = active_tool_surface_return_target(tiles_tree);
-    let transitioned_to_settings_surface = matches!(
-        focused_after,
-        Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Settings))
-            | Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::HistoryManager))
-    );
-    if transitioned_to_settings_surface && focused_before != focused_after {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
-    }
-
-    emit_open_decision(
-        UxOpenDecisionPath::SettingsUrl,
-        UxOpenDecisionReason::Routed,
-    );
-
-    None
+    handle_open_settings_url_intent(graph_app, tiles_tree, url)
 }
 
 pub(super) fn handle_open_settings_url_intent(
@@ -57,12 +22,13 @@ pub(super) fn handle_open_settings_url_intent(
     };
 
     let focused_before = active_tool_surface_return_target(tiles_tree);
-    if settings_route_targets_overlay(tiles_tree, &route) {
+    let route_targets_overlay = settings_route_targets_overlay(graph_app, tiles_tree, &route);
+    if route_targets_overlay {
         maybe_capture_transient_surface_return_target(graph_app, tiles_tree);
     } else {
         maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
     }
-    open_settings_route_target(graph_app, tiles_tree, route);
+    open_settings_route_target(graph_app, tiles_tree, route, route_targets_overlay);
 
     let focused_after = active_tool_surface_return_target(tiles_tree);
     let transitioned_to_settings_surface = matches!(
@@ -328,37 +294,37 @@ fn open_settings_route_target(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     route: crate::app::SettingsRouteTarget,
+    route_targets_overlay: bool,
 ) {
     let kind = graph_app.apply_settings_route_target(route);
-    if matches!(kind, ToolPaneState::Settings) && !settings_tool_pane_exists(tiles_tree) {
+    if route_targets_overlay {
         graph_app.open_settings_overlay(graph_app.workspace.chrome_ui.settings_tool_page);
     } else {
         open_or_focus_tool_pane_if_available(tiles_tree, kind);
     }
 }
 
-fn open_settings_route_target_in_tool_pane(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    route: crate::app::SettingsRouteTarget,
-) {
-    let kind = graph_app.apply_settings_route_target(route);
-    open_or_focus_tool_pane_if_available(tiles_tree, kind);
+pub(super) fn settings_url_targets_overlay(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    url: &str,
+) -> bool {
+    GraphBrowserApp::resolve_settings_route(url)
+        .is_some_and(|route| settings_route_targets_overlay(graph_app, tiles_tree, &route))
 }
 
 fn settings_route_targets_overlay(
+    graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     route: &crate::app::SettingsRouteTarget,
 ) -> bool {
     matches!(route, crate::app::SettingsRouteTarget::Settings(_))
-        && !settings_tool_pane_exists(tiles_tree)
-}
-
-fn settings_tool_pane_exists(tiles_tree: &Tree<TileKind>) -> bool {
-    tiles_tree.tiles.iter().any(|(_, tile)| {
-        matches!(
-            tile,
-            Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Settings
+        && matches!(
+            crate::shell::desktop::ui::workbench_host::workbench_layer_state_from_tree(
+                graph_app,
+                tiles_tree,
+            ),
+            crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::GraphOnly
+                | crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::GraphOverlayActive
         )
-    })
 }

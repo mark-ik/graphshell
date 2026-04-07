@@ -119,7 +119,9 @@ impl<'a> ShellLayoutPass<'a> {
         };
         if matches!(
             projection.layer_state,
-            WorkbenchLayerState::WorkbenchActive | WorkbenchLayerState::WorkbenchPinned
+            WorkbenchLayerState::WorkbenchActive
+                | WorkbenchLayerState::WorkbenchPinned
+                | WorkbenchLayerState::WorkbenchOnly
         ) {
             slot_rects.workbench_area = Some(self.ctx.available_rect());
         }
@@ -149,8 +151,8 @@ mod tests {
             layer_state,
             chrome_policy: layer_state.chrome_policy(),
             host_layout: WorkbenchHostLayout {
-                host: SurfaceHostId::Navigator(NavigatorHostId::Right),
-                anchor_edge: AnchorEdge::Right,
+                host: SurfaceHostId::Navigator(NavigatorHostId::Left),
+                anchor_edge: AnchorEdge::Left,
                 form_factor: WorkbenchHostFormFactor::Sidebar,
                 configured_scope: NavigatorHostScope::Both,
                 resolved_scope: NavigatorHostScope::Both,
@@ -229,5 +231,53 @@ mod tests {
                 status_bar: None,
             }
         );
+    }
+
+    #[test]
+    fn finish_assigns_workbench_area_for_dedicated_workbench_mode() {
+        let ctx = egui::Context::default();
+
+        let mut shell_layout = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let toolbar_output = ToolbarUiOutput {
+                toggle_tile_view_requested: false,
+                open_selected_mode_after_submit: None,
+                toolbar_visible: true,
+                command_bar_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 40.0))),
+                status_bar_rect: None,
+            };
+            shell_layout = Some(
+                ShellLayoutPass::new(ctx)
+                    .finish(workbench_projection(WorkbenchLayerState::WorkbenchOnly), toolbar_output),
+            );
+        });
+
+        let shell_layout = shell_layout.expect("layout pass should produce an output");
+        assert!(shell_layout.slot_rects.workbench_area.is_some());
+    }
+
+    #[test]
+    fn finish_keeps_overlay_workbench_out_of_split_slot_rects() {
+        let ctx = egui::Context::default();
+
+        let mut shell_layout = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let toolbar_output = ToolbarUiOutput {
+                toggle_tile_view_requested: false,
+                open_selected_mode_after_submit: None,
+                toolbar_visible: true,
+                command_bar_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 40.0))),
+                status_bar_rect: None,
+            };
+            shell_layout = Some(
+                ShellLayoutPass::new(ctx).finish(
+                    workbench_projection(WorkbenchLayerState::WorkbenchOverlayActive),
+                    toolbar_output,
+                ),
+            );
+        });
+
+        let shell_layout = shell_layout.expect("layout pass should produce an output");
+        assert!(shell_layout.slot_rects.workbench_area.is_none());
     }
 }

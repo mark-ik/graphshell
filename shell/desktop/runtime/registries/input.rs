@@ -46,6 +46,7 @@ pub(crate) mod action_id {
 
     pub(crate) mod workbench {
         pub(crate) const HELP_OPEN: &str = "workbench:help_open";
+        pub(crate) const TOGGLE_WORKBENCH_OVERLAY: &str = "workbench:toggle_workbench_overlay";
         pub(crate) const OPEN_HISTORY_MANAGER: &str = "workbench:open_history_manager";
         pub(crate) const OPEN_PHYSICS_SETTINGS: &str = "workbench:open_physics_settings";
         pub(crate) const OPEN_CAMERA_CONTROLS: &str = "workbench:open_camera_controls";
@@ -142,6 +143,7 @@ pub(crate) enum NamedKey {
     F2,
     F3,
     F6,
+    F7,
     F9,
     Home,
     Escape,
@@ -163,6 +165,7 @@ impl NamedKey {
             Self::F2 => "f2",
             Self::F3 => "f3",
             Self::F6 => "f6",
+            Self::F7 => "f7",
             Self::F9 => "f9",
             Self::Home => "home",
             Self::Escape => "escape",
@@ -188,6 +191,7 @@ impl FromStr for NamedKey {
             "f2" => Ok(Self::F2),
             "f3" => Ok(Self::F3),
             "f6" => Ok(Self::F6),
+            "f7" => Ok(Self::F7),
             "f9" => Ok(Self::F9),
             "home" => Ok(Self::Home),
             "escape" => Ok(Self::Escape),
@@ -339,6 +343,7 @@ impl InputBinding {
                         NamedKey::F2 => "F2".to_string(),
                         NamedKey::F3 => "F3".to_string(),
                         NamedKey::F6 => "F6".to_string(),
+                        NamedKey::F7 => "F7".to_string(),
                         NamedKey::F9 => "F9".to_string(),
                         NamedKey::Home => "Home".to_string(),
                         NamedKey::Escape => "Esc".to_string(),
@@ -374,6 +379,7 @@ impl InputBinding {
             egui::Key::F3 => Keycode::Named(NamedKey::F3),
             egui::Key::F5 => Keycode::Named(NamedKey::F5),
             egui::Key::F6 => Keycode::Named(NamedKey::F6),
+            egui::Key::F7 => Keycode::Named(NamedKey::F7),
             egui::Key::F9 => Keycode::Named(NamedKey::F9),
             egui::Key::Home => Keycode::Named(NamedKey::Home),
             egui::Key::Escape => Keycode::Named(NamedKey::Escape),
@@ -972,6 +978,16 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             binding: InputBinding::Key {
                 modifiers: ModifierMask::NONE,
                 keycode: Keycode::Named(NamedKey::F6),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: action_id::workbench::TOGGLE_WORKBENCH_OVERLAY,
+            display_name: "Toggle Workbench Overlay",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::F7),
             },
         },
         DefaultBindingSpec {
@@ -1684,6 +1700,7 @@ mod tests {
             action_id::graph::CLEAR,
             action_id::graph::SELECT_ALL,
             action_id::workbench::HELP_OPEN,
+            action_id::workbench::TOGGLE_WORKBENCH_OVERLAY,
             action_id::workbench::OPEN_HISTORY_MANAGER,
             action_id::workbench::OPEN_PHYSICS_SETTINGS,
             action_id::workbench::OPEN_CAMERA_CONTROLS,

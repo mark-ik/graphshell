@@ -612,9 +612,7 @@ fn append_workbench_semantics_nodes(
             .cloned()
             .collect::<Vec<_>>();
         if hosts.is_empty() {
-            hosts.push(SurfaceHostId::Navigator(
-                crate::app::workbench_layout_policy::NavigatorHostId::Right,
-            ));
+            hosts.push(graph_app.preferred_default_navigator_surface_host());
         }
         hosts.sort_by_key(|host| match host {
             SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Top) => {
@@ -2464,7 +2462,7 @@ mod tests {
         harness.app.workspace.graph_runtime.focused_view = Some(view_id);
 
         harness.app.set_navigator_host_scope(
-            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Right),
+            crate::app::workbench_layout_policy::default_navigator_surface_host(),
             crate::app::workbench_layout_policy::NavigatorHostScope::WorkbenchOnly,
         );
         harness.app.set_navigator_projection_seed_source(
@@ -2526,8 +2524,8 @@ mod tests {
                             selected_count,
                             row_count,
                             ..
-                        } if *host == SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Right)
-                            && *anchor_edge == AnchorEdge::Right
+                        } if *host == crate::app::workbench_layout_policy::default_navigator_surface_host()
+                            && *anchor_edge == AnchorEdge::Left
                             && form_factor == "sidebar"
                             && scope == "workbench"
                             && projection_mode == "Workbench"

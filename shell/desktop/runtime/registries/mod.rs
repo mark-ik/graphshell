@@ -2314,11 +2314,10 @@ impl RegistryRuntime {
         ));
     }
 
-    pub(crate) fn publish_settings_route_requested(&self, url: &str, prefer_overlay: bool) {
+    pub(crate) fn publish_settings_route_requested(&self, url: &str) {
         self.publish_signal(SignalEnvelope::new(
             SignalKind::RegistryEvent(RegistryEventSignal::SettingsRouteRequested {
                 url: url.to_string(),
-                prefer_overlay,
             }),
             SignalSource::ControlPanel,
             None,
@@ -2418,9 +2417,9 @@ pub(crate) fn phase3_publish_workbench_projection_refresh_requested(reason: &str
     runtime().publish_workbench_projection_refresh_requested(reason);
 }
 
-pub(crate) fn phase3_publish_settings_route_requested(url: &str, prefer_overlay: bool) {
+pub(crate) fn phase3_publish_settings_route_requested(url: &str) {
     debug_assert!(!diagnostics::phase3_required_channels().is_empty());
-    runtime().publish_settings_route_requested(url, prefer_overlay);
+    runtime().publish_settings_route_requested(url);
 }
 
 pub(crate) fn phase3_publish_lens_changed(lens_id: Option<&str>) -> String {
@@ -3261,9 +3260,8 @@ pub(crate) fn phase3_apply_runtime_action_dispatch(
             }
             RuntimeAction::PublishSettingsRouteRequested {
                 url,
-                prefer_overlay,
             } => {
-                runtime().publish_settings_route_requested(url, *prefer_overlay);
+                runtime().publish_settings_route_requested(url);
             }
         }
     }
@@ -4301,10 +4299,8 @@ mod tests {
             runtime.subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
                 if let SignalKind::RegistryEvent(RegistryEventSignal::SettingsRouteRequested {
                     url,
-                    prefer_overlay,
                 }) = &signal.kind
                     && url == "verso://settings/general"
-                    && *prefer_overlay
                 {
                     observer_count.fetch_add(1, Ordering::Relaxed);
                 }
@@ -4312,7 +4308,7 @@ mod tests {
             });
         }
 
-        runtime.publish_settings_route_requested("verso://settings/general", true);
+        runtime.publish_settings_route_requested("verso://settings/general");
 
         assert_eq!(observer_count.load(Ordering::Relaxed), 1);
     }
@@ -5350,12 +5346,11 @@ mod tests {
         let observer_id = phase3_subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
             if let SignalKind::RegistryEvent(RegistryEventSignal::SettingsRouteRequested {
                 url,
-                prefer_overlay,
             }) = &signal.kind
             {
                 seen.lock()
                     .expect("observer lock poisoned")
-                    .push((url.clone(), *prefer_overlay));
+                    .push(url.clone());
             }
             Ok(())
         });
@@ -5369,7 +5364,6 @@ mod tests {
                     crate::util::GraphshellSettingsPath::Persistence,
                 )
                 .to_string(),
-                prefer_overlay: true,
             }],
         };
 
@@ -5384,13 +5378,10 @@ mod tests {
                 .iter()
                 .any(|route| {
                     route
-                        == &(
-                            crate::util::VersoAddress::settings(
-                                crate::util::GraphshellSettingsPath::Persistence,
-                            )
-                            .to_string(),
-                            true,
+                        == &crate::util::VersoAddress::settings(
+                            crate::util::GraphshellSettingsPath::Persistence,
                         )
+                        .to_string()
                 })
         );
         assert!(phase3_unsubscribe_signal(

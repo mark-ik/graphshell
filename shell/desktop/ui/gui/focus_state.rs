@@ -764,6 +764,12 @@ pub(crate) fn sync_runtime_semantic_region_from_workbench(
     show_clear_data_confirm: bool,
 ) {
     if let Some(target) = runtime_active_tool_surface_return_target(tiles_tree) {
+        if matches!(
+            target,
+            ToolSurfaceReturnTarget::Node(_) | ToolSurfaceReturnTarget::Tool(_)
+        ) {
+            focus_authority.last_non_graph_pane_activation = focus_authority.pane_activation;
+        }
         focus_authority.semantic_region = Some(semantic_region_for_tool_surface_target(&target));
     }
     refresh_realized_runtime_focus_state(

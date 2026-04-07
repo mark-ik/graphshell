@@ -5,6 +5,7 @@ use std::str::FromStr;
 use crate::shell::desktop::workbench::ux_tree::{UxDomainIdentity, UxNodeRole, UxTreeSnapshot};
 
 use super::WorkbenchIntent;
+use super::settings_persistence::NavigatorSidebarSidePreference;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum AnchorEdge {
@@ -226,6 +227,21 @@ pub fn default_navigator_host_scope(surface_host: &SurfaceHostId) -> NavigatorHo
     match surface_host {
         SurfaceHostId::Navigator(NavigatorHostId::Right) => NavigatorHostScope::Both,
         SurfaceHostId::Navigator(_) | SurfaceHostId::Role(_) => NavigatorHostScope::Both,
+    }
+}
+
+pub fn default_navigator_surface_host() -> SurfaceHostId {
+    SurfaceHostId::Navigator(NavigatorHostId::Left)
+}
+
+pub fn navigator_surface_host_for_sidebar_side(
+    side: NavigatorSidebarSidePreference,
+) -> SurfaceHostId {
+    match side {
+        NavigatorSidebarSidePreference::Left => SurfaceHostId::Navigator(NavigatorHostId::Left),
+        NavigatorSidebarSidePreference::Right => {
+            SurfaceHostId::Navigator(NavigatorHostId::Right)
+        }
     }
 }
 

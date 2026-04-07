@@ -11,8 +11,9 @@ use uuid::Uuid;
 use crate::app::workbench_layout_policy::{AnchorEdge, FirstUseOutcome, NavigatorHostId};
 use crate::app::{
     CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, NavigatorHostScope,
-    PendingTileOpenMode, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchIntent,
-    WorkbenchLayoutConstraint, WorkbenchNavigationGeometry,
+    PendingTileOpenMode, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode,
+    WorkbenchDisplayMode, WorkbenchIntent, WorkbenchLayoutConstraint,
+    WorkbenchNavigationGeometry,
     user_visible_node_title_from_data, user_visible_node_url_from_data,
 };
 use crate::graph::{
@@ -27,7 +28,7 @@ use crate::shell::desktop::runtime::registries::{
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::workbench::pane_model::{
     NodePaneState, PaneId, PanePresentationMode, SplitDirection, TileRenderMode, ToolPaneState,
-    ViewerSwitchReason,
+    ViewerId, ViewerSwitchReason,
 };
 use crate::shell::desktop::workbench::semantic_tabs;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -193,16 +194,20 @@ fn update_workbench_navigation_geometry(
 pub(crate) enum WorkbenchLayerState {
     GraphOnly,
     GraphOverlayActive,
+    WorkbenchOverlayActive,
     WorkbenchActive,
     WorkbenchPinned,
+    WorkbenchOnly,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChromeExposurePolicy {
     GraphOnly,
     GraphWithOverlay,
+    GraphPlusWorkbenchOverlay,
     GraphPlusWorkbenchHost,
     GraphPlusWorkbenchHostPinned,
+    WorkbenchOnly,
 }
 
 impl WorkbenchLayerState {
@@ -210,10 +215,45 @@ impl WorkbenchLayerState {
         match self {
             Self::GraphOnly => ChromeExposurePolicy::GraphOnly,
             Self::GraphOverlayActive => ChromeExposurePolicy::GraphWithOverlay,
+            Self::WorkbenchOverlayActive => ChromeExposurePolicy::GraphPlusWorkbenchOverlay,
             Self::WorkbenchActive => ChromeExposurePolicy::GraphPlusWorkbenchHost,
             Self::WorkbenchPinned => ChromeExposurePolicy::GraphPlusWorkbenchHostPinned,
+            Self::WorkbenchOnly => ChromeExposurePolicy::WorkbenchOnly,
         }
     }
+}
+
+pub(crate) fn workbench_layer_state_from_tree(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> WorkbenchLayerState {
+    let has_hosted_workbench = tree_has_hosted_workbench(tiles_tree);
+    if graph_app.workbench_display_mode() == WorkbenchDisplayMode::Dedicated && has_hosted_workbench
+    {
+        WorkbenchLayerState::WorkbenchOnly
+    } else if graph_app.workbench_overlay_visible() && has_hosted_workbench {
+        WorkbenchLayerState::WorkbenchOverlayActive
+    } else if graph_app.workbench_host_pinned() {
+        WorkbenchLayerState::WorkbenchPinned
+    } else if has_hosted_workbench {
+        WorkbenchLayerState::WorkbenchActive
+    } else if graph_app.chrome_overlay_active() {
+        WorkbenchLayerState::GraphOverlayActive
+    } else {
+        WorkbenchLayerState::GraphOnly
+    }
+}
+
+fn tree_has_hosted_workbench(tiles_tree: &Tree<TileKind>) -> bool {
+    let graph_pane_count = tiles_tree
+        .tiles
+        .iter()
+        .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(_))))
+        .count();
+
+    tiles_tree.tiles.iter().any(|(_, tile)| {
+        matches!(tile, Tile::Pane(kind) if !matches!(kind, TileKind::Graph(_)))
+    }) || graph_pane_count > 1
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -246,6 +286,7 @@ pub(crate) struct WorkbenchNodeViewerSummary {
     pub(crate) runtime_blocked: bool,
     pub(crate) runtime_crashed: bool,
     pub(crate) fallback_reason: Option<String>,
+    pub(crate) available_viewer_ids: Vec<String>,
 }
 
 /// A single entry in the active tile group's graphlet roster shown by the omnibar.
@@ -296,8 +337,8 @@ pub(crate) struct WorkbenchHostLayout {
 }
 
 impl WorkbenchHostLayout {
-    fn default_workbench_navigator() -> Self {
-        Self::default_for_host(SurfaceHostId::Navigator(NavigatorHostId::Right), false)
+    fn default_workbench_navigator(graph_app: &GraphBrowserApp) -> Self {
+        Self::default_for_host(graph_app.preferred_default_navigator_surface_host(), false)
     }
 
     fn default_for_host(host: SurfaceHostId, prefer_workbench_scope: bool) -> Self {
@@ -368,7 +409,7 @@ impl WorkbenchHostLayout {
 
         if layouts.is_empty() {
             layouts.push(Self::default_for_host(
-                SurfaceHostId::Navigator(NavigatorHostId::Right),
+                graph_app.preferred_default_navigator_surface_host(),
                 prefer_workbench_scope,
             ));
         }
@@ -412,14 +453,229 @@ fn graph_view_switcher_visible(projection: &WorkbenchChromeProjection) -> bool {
     projection.active_graph_view.is_some() && !projection.extra_graph_views.is_empty()
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GraphScopeControlSummary {
+    view_id: GraphViewId,
+    view_label: String,
+    active_filter_chip_labels: Vec<String>,
+    lens_label: String,
+    lens_id: String,
+    dimension_label: &'static str,
+    dimension_tooltip: &'static str,
+    semantic_depth_active: bool,
+    physics_profile_id: String,
+    physics_profile_label: String,
+    physics_running: bool,
+}
+
+fn graph_dimension_summary(
+    dimension: &crate::app::ViewDimension,
+) -> (&'static str, &'static str, bool) {
+    if crate::app::is_semantic_depth_dimension(dimension) {
+        return (
+            "Depth",
+            "Semantic depth layering is active for the focused graph view.",
+            true,
+        );
+    }
+
+    match dimension {
+        crate::app::ViewDimension::TwoD => (
+            "2D",
+            "Standard 2D planar graph view.",
+            false,
+        ),
+        crate::app::ViewDimension::ThreeD { .. } => (
+            "3D",
+            "3D graph view is active without semantic depth layering.",
+            false,
+        ),
+    }
+}
+
+fn active_graph_scope_control_summary(
+    projection: &WorkbenchChromeProjection,
+    graph_app: &GraphBrowserApp,
+) -> Option<GraphScopeControlSummary> {
+    let (view_id, view_label) = projection.active_graph_view.as_ref()?;
+    let view = graph_app.workspace.graph_runtime.views.get(view_id)?;
+    let (dimension_label, dimension_tooltip, semantic_depth_active) =
+        graph_dimension_summary(&view.dimension);
+
+    Some(GraphScopeControlSummary {
+        view_id: *view_id,
+        view_label: view_label.clone(),
+        active_filter_chip_labels: graph_scope_filter_chip_labels(view),
+        lens_label: view.resolved_lens_display_name().to_string(),
+        lens_id: view
+            .resolved_lens_id()
+            .unwrap_or(crate::registries::atomic::lens::LENS_ID_DEFAULT)
+            .to_string(),
+        dimension_label,
+        dimension_tooltip,
+        semantic_depth_active,
+        physics_profile_id: view
+            .resolved_physics_profile_id()
+            .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT)
+            .to_string(),
+        physics_profile_label: view.resolved_physics_profile().name.clone(),
+        physics_running: graph_app.workspace.graph_runtime.physics.base.is_running,
+    })
+}
+
+fn graph_scope_filter_chip_labels(view: &crate::app::GraphViewState) -> Vec<String> {
+    fn push_labels(
+        expr: &crate::model::graph::filter::FacetExpr,
+        labels: &mut Vec<String>,
+        flatten_top_level: bool,
+    ) {
+        match expr {
+            crate::model::graph::filter::FacetExpr::And(exprs) if flatten_top_level => {
+                for child in exprs {
+                    push_labels(child, labels, false);
+                }
+            }
+            _ => labels.push(expr.display_label()),
+        }
+    }
+
+    let mut labels = Vec::new();
+    if let Some(expr) = view.effective_filter_expr() {
+        push_labels(expr, &mut labels, true);
+    }
+    labels
+}
+
+fn graph_scope_slot_strip_slots(
+    graph_app: &GraphBrowserApp,
+) -> Vec<crate::shell::desktop::ui::overview_plane::OverviewSlotSnapshot> {
+    crate::shell::desktop::ui::overview_plane::sorted_slot_snapshots(graph_app)
+        .into_iter()
+        .filter(|slot| !slot.archived)
+        .collect()
+}
+
+fn render_graph_view_slot_strip(
+    ui: &mut egui::Ui,
+    summary: &GraphScopeControlSummary,
+    graph_app: &GraphBrowserApp,
+    actions: &mut Vec<WorkbenchHostAction>,
+) {
+    let slots = graph_scope_slot_strip_slots(graph_app);
+    if slots.is_empty() {
+        return;
+    }
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new("Slots").small().weak());
+        for slot in slots {
+            let selected = slot.view_id == summary.view_id;
+            let response = ui
+                .selectable_label(selected, compact_host_panel_text(slot.name.as_str()))
+                .on_hover_text(format!(
+                    "Click to focus {}. Double-click to open it in the workbench. Right-click for slot actions.",
+                    slot.name
+                ));
+            let clicked = response.clicked();
+            let double_clicked = response.double_clicked();
+            let view_id = slot.view_id;
+            let row = slot.row;
+            let col = slot.col;
+            response.context_menu(|ui| {
+                ui.label(RichText::new(format!("{} · r{} · c{}", slot.name, row, col)).small().weak());
+                if ui.button("Open in workbench").clicked() {
+                    actions.push(WorkbenchHostAction::OpenGraphView(view_id));
+                    ui.close();
+                }
+                ui.separator();
+                for (label, next_row, next_col) in [
+                    ("Move left", row, col - 1),
+                    ("Move right", row, col + 1),
+                    ("Move up", row - 1, col),
+                    ("Move down", row + 1, col),
+                ] {
+                    if ui.button(label).clicked() {
+                        actions.push(WorkbenchHostAction::MoveGraphViewSlot {
+                            view_id,
+                            row: next_row,
+                            col: next_col,
+                        });
+                        ui.close();
+                    }
+                }
+            });
+            if clicked {
+                actions.push(WorkbenchHostAction::FocusGraphView(view_id));
+            }
+            if double_clicked {
+                actions.push(WorkbenchHostAction::OpenGraphView(view_id));
+            }
+        }
+    });
+}
+
+fn render_graph_scope_filter_chips(
+    ui: &mut egui::Ui,
+    summary: &GraphScopeControlSummary,
+    actions: &mut Vec<WorkbenchHostAction>,
+) {
+    if summary.active_filter_chip_labels.is_empty() {
+        return;
+    }
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new("Filters").small().weak());
+        for label in &summary.active_filter_chip_labels {
+            if ui
+                .small_button(format!("{} x", compact_host_panel_text(label.as_str())))
+                .on_hover_text("Clear the active graph-view filter")
+                .clicked()
+            {
+                actions.push(WorkbenchHostAction::ClearGraphViewFilter {
+                    view_id: summary.view_id,
+                });
+            }
+        }
+    });
+}
+
+fn graph_scope_sync_status() -> (String, egui::Color32, String) {
+    if !crate::mods::verse::is_initialized() {
+        return (
+            "Sync off".to_string(),
+            egui::Color32::from_rgb(140, 145, 150),
+            "Sync is unavailable in this runtime.".to_string(),
+        );
+    }
+
+    let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
+    if peers.is_empty() {
+        (
+            "Sync ready".to_string(),
+            egui::Color32::from_rgb(210, 175, 70),
+            "Sync is ready but there are no trusted peers connected.".to_string(),
+        )
+    } else {
+        (
+            format!("Sync {}", peers.len()),
+            egui::Color32::from_rgb(110, 190, 130),
+            format!(
+                "Sync connected with {} trusted peer{}.",
+                peers.len(),
+                if peers.len() == 1 { "" } else { "s" }
+            ),
+        )
+    }
+}
+
 fn rendered_graph_scope_host_exists(projection: &WorkbenchChromeProjection) -> bool {
     projection.visible() && projection.host_layouts.iter().any(host_shows_graph_scope)
 }
 
-fn graph_view_switcher_requires_fallback_toolbar_host(
+fn graph_scope_requires_fallback_toolbar_host(
     projection: &WorkbenchChromeProjection,
 ) -> bool {
-    graph_view_switcher_visible(projection) && !rendered_graph_scope_host_exists(projection)
+    projection.active_graph_view.is_some() && !rendered_graph_scope_host_exists(projection)
 }
 
 fn render_graph_view_switcher(
@@ -442,20 +698,218 @@ fn render_graph_view_switcher(
     });
 }
 
+fn render_graph_scope_controls(
+    ui: &mut egui::Ui,
+    graph_app: &mut GraphBrowserApp,
+    projection: &WorkbenchChromeProjection,
+    actions: &mut Vec<WorkbenchHostAction>,
+    show_clear_data_confirm: &mut bool,
+    id_namespace: &'static str,
+) -> bool {
+    let Some(summary) = active_graph_scope_control_summary(projection, graph_app) else {
+        return false;
+    };
+
+    let (sync_label, sync_color, sync_tooltip) = graph_scope_sync_status();
+    let lens_input_id = egui::Id::new((id_namespace, "graph_scope_lens_input", summary.view_id));
+    let mut lens_input = ui
+        .ctx()
+        .data_mut(|data| data.get_persisted::<String>(lens_input_id))
+        .unwrap_or_else(|| summary.lens_id.clone());
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            RichText::new(format!(
+                "View: {}",
+                compact_host_panel_text(summary.view_label.as_str())
+            ))
+            .small()
+            .weak(),
+        )
+        .on_hover_text(format!("Focused graph view target: {}", summary.view_label));
+
+        if ui
+            .small_button("Fit")
+            .on_hover_text("Fit the focused graph view to the current content")
+            .clicked()
+        {
+            actions.push(WorkbenchHostAction::RequestFitToScreen);
+        }
+
+        ui.menu_button(
+            format!(
+                "Lens: {}",
+                compact_host_panel_text(summary.lens_label.as_str())
+            ),
+            |ui| {
+                ui.label(
+                    RichText::new(format!("Current lens ID: {}", summary.lens_id))
+                        .small()
+                        .weak(),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    let default_selected =
+                        summary.lens_id == crate::registries::atomic::lens::LENS_ID_DEFAULT;
+                    if ui
+                        .selectable_label(default_selected, "Default")
+                        .on_hover_text(crate::registries::atomic::lens::LENS_ID_DEFAULT)
+                        .clicked()
+                    {
+                        actions.push(WorkbenchHostAction::SetViewLensId {
+                            view_id: summary.view_id,
+                            lens_id: crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string(),
+                        });
+                        lens_input = crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string();
+                        ui.close();
+                    }
+                    let semantic_selected =
+                        summary.lens_id == crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY;
+                    if ui
+                        .selectable_label(semantic_selected, "Semantic Overlay")
+                        .on_hover_text(crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY)
+                        .clicked()
+                    {
+                        actions.push(WorkbenchHostAction::SetViewLensId {
+                            view_id: summary.view_id,
+                            lens_id: crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY
+                                .to_string(),
+                        });
+                        lens_input = crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY
+                            .to_string();
+                        ui.close();
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Lens ID").small().weak());
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut lens_input)
+                            .desired_width(120.0)
+                            .hint_text("lens:..."),
+                    );
+                    let submit_with_enter = response.lost_focus()
+                        && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                    if ui.small_button("Apply").clicked() || submit_with_enter {
+                        let requested = lens_input.trim();
+                        if !requested.is_empty() {
+                            actions.push(WorkbenchHostAction::SetViewLensId {
+                                view_id: summary.view_id,
+                                lens_id: requested.to_string(),
+                            });
+                            ui.close();
+                        }
+                    }
+                    if ui.small_button("Reset").clicked() {
+                        actions.push(WorkbenchHostAction::SetViewLensId {
+                            view_id: summary.view_id,
+                            lens_id: crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string(),
+                        });
+                        lens_input = crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string();
+                        ui.close();
+                    }
+                });
+            },
+        );
+
+        if ui
+            .selectable_label(summary.semantic_depth_active, summary.dimension_label)
+            .on_hover_text(summary.dimension_tooltip)
+            .clicked()
+        {
+            actions.push(WorkbenchHostAction::ToggleSemanticDepthView {
+                view_id: summary.view_id,
+            });
+        }
+
+        ui.menu_button(
+            format!(
+                "Physics: {}",
+                compact_host_panel_text(summary.physics_profile_label.as_str())
+            ),
+            |ui| {
+                let toggle_label = if summary.physics_running { "Pause" } else { "Run" };
+                if ui
+                    .button(toggle_label)
+                    .on_hover_text("Toggle the shared force-directed simulation runtime")
+                    .clicked()
+                {
+                    actions.push(WorkbenchHostAction::TogglePhysics);
+                    ui.close();
+                }
+                if ui
+                    .button("Reheat")
+                    .on_hover_text("Kick the force-directed layout back into motion")
+                    .clicked()
+                {
+                    actions.push(WorkbenchHostAction::ReheatPhysics);
+                    ui.close();
+                }
+                ui.separator();
+                for descriptor in crate::registries::atomic::lens::physics_profile_descriptors() {
+                    let selected = summary.physics_profile_id == descriptor.id;
+                    let response = ui.selectable_label(selected, descriptor.display_name.as_str());
+                    let response = response.on_hover_text(descriptor.summary.as_str());
+                    if response.clicked() {
+                        actions.push(WorkbenchHostAction::SetPhysicsProfile {
+                            profile_id: descriptor.id.clone(),
+                        });
+                        ui.close();
+                    }
+                }
+            },
+        );
+
+        ui.label(RichText::new(sync_label).small().color(sync_color))
+            .on_hover_text(sync_tooltip);
+
+        ui.menu_button("More", |ui| {
+            if ui.button("Clear graph and saved data").clicked() {
+                *show_clear_data_confirm = true;
+                ui.close();
+            }
+        });
+    });
+
+    render_graph_view_slot_strip(ui, &summary, graph_app, actions);
+    render_graph_scope_filter_chips(ui, &summary, actions);
+
+    ui.ctx()
+        .data_mut(|data| data.insert_persisted(lens_input_id, lens_input));
+    true
+}
+
 pub(crate) fn render_fallback_graph_scope_toolbar_host(
     ctx: &egui::Context,
     graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
     projection: &WorkbenchChromeProjection,
+    show_clear_data_confirm: &mut bool,
 ) {
-    if !graph_view_switcher_requires_fallback_toolbar_host(projection) {
+    if !graph_scope_requires_fallback_toolbar_host(projection) {
         return;
     }
 
+    let mut post_host_actions = Vec::new();
     TopBottomPanel::top("navigator_graph_scope_toolbar_host_fallback")
-        .exact_height(NAVIGATOR_GRAPH_VIEW_SWITCHER_HEIGHT)
+        .exact_height(NAVIGATOR_GRAPH_VIEW_SWITCHER_HEIGHT + 28.0)
         .show(ctx, |ui| {
-            render_graph_view_switcher(ui, graph_app, projection);
+            if graph_view_switcher_visible(projection) {
+                render_graph_view_switcher(ui, graph_app, projection);
+                ui.separator();
+            }
+            let _ = render_graph_scope_controls(
+                ui,
+                graph_app,
+                projection,
+                &mut post_host_actions,
+                show_clear_data_confirm,
+                "fallback_graph_scope_host",
+            );
         });
+
+    for action in post_host_actions {
+        apply_workbench_host_action(action, graph_app, tiles_tree);
+    }
 }
 
 fn anchor_edge_priority(anchor_edge: AnchorEdge) -> usize {
@@ -702,34 +1156,19 @@ impl WorkbenchChromeProjection {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        let graph_pane_count = pane_entries
-            .iter()
-            .filter(|entry| matches!(entry.kind, WorkbenchPaneKind::Graph { .. }))
-            .count();
-        let has_hosted_workbench = pane_entries
-            .iter()
-            .any(|entry| !matches!(entry.kind, WorkbenchPaneKind::Graph { .. }))
-            || graph_pane_count > 1;
+        let has_hosted_workbench = tree_has_hosted_workbench(tiles_tree);
         let active_pane_prefers_workbench_scope = active_pane
             .and_then(|pane_id| pane_entries.iter().find(|entry| entry.pane_id == pane_id))
             .is_some_and(|entry| !matches!(entry.kind, WorkbenchPaneKind::Graph { .. }));
         let prefer_workbench_scope = has_hosted_workbench && active_pane_prefers_workbench_scope;
-        let layer_state = if graph_app.workbench_host_pinned() {
-            WorkbenchLayerState::WorkbenchPinned
-        } else if has_hosted_workbench {
-            WorkbenchLayerState::WorkbenchActive
-        } else if graph_app.chrome_overlay_active() {
-            WorkbenchLayerState::GraphOverlayActive
-        } else {
-            WorkbenchLayerState::GraphOnly
-        };
+        let layer_state = workbench_layer_state_from_tree(graph_app, tiles_tree);
         let chrome_policy = layer_state.chrome_policy();
         let host_layouts =
             WorkbenchHostLayout::layouts_from_runtime(graph_app, prefer_workbench_scope);
         let host_layout = host_layouts
             .first()
             .cloned()
-            .unwrap_or_else(WorkbenchHostLayout::default_workbench_navigator);
+            .unwrap_or_else(|| WorkbenchHostLayout::default_workbench_navigator(graph_app));
         let active_pane_title = pane_entries
             .iter()
             .find(|entry| entry.is_active)
@@ -768,8 +1207,11 @@ impl WorkbenchChromeProjection {
     pub(crate) fn visible(&self) -> bool {
         matches!(
             self.chrome_policy,
+            ChromeExposurePolicy::GraphPlusWorkbenchOverlay
+                |
             ChromeExposurePolicy::GraphPlusWorkbenchHost
                 | ChromeExposurePolicy::GraphPlusWorkbenchHostPinned
+                | ChromeExposurePolicy::WorkbenchOnly
         )
     }
 }
@@ -1537,6 +1979,7 @@ fn build_node_viewer_summary(
         runtime_blocked: graph_app.runtime_block_state_for_node(state.node).is_some(),
         runtime_crashed: graph_app.runtime_crash_state_for_node(state.node).is_some(),
         fallback_reason: tile_runtime::fallback_reason_for_node_pane(state, graph_app),
+        available_viewer_ids: tile_runtime::candidate_viewer_ids_for_node_pane(state, graph_app),
     }
 }
 
@@ -1803,6 +2246,7 @@ pub(crate) fn render_workbench_host(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     command_bar_focus_target: CommandBarFocusTarget,
+    show_clear_data_confirm: &mut bool,
 ) -> WorkbenchChromeProjection {
     let projection =
         WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, command_bar_focus_target.active_pane());
@@ -1907,9 +2351,25 @@ pub(crate) fn render_workbench_host(
                             .strong(),
                     );
                 }
+                let mut rendered_graph_scope_header = false;
                 if host_shows_graph_scope(&host_layout) && graph_view_switcher_visible(&projection)
                 {
                     render_graph_view_switcher(ui, graph_app, &projection);
+                    rendered_graph_scope_header = true;
+                }
+                if host_shows_graph_scope(&host_layout)
+                    && render_graph_scope_controls(
+                        ui,
+                        graph_app,
+                        &projection,
+                        &mut post_host_actions,
+                        show_clear_data_confirm,
+                        "workbench_host_graph_scope",
+                    )
+                {
+                    rendered_graph_scope_header = true;
+                }
+                if rendered_graph_scope_header {
                     ui.separator();
                 }
                 if let Some(frame_name) = frame_settings_target_name(graph_app, &projection) {
@@ -2267,6 +2727,45 @@ pub(crate) fn render_workbench_host(
                             .small()
                             .weak(),
                     );
+                    let overlay_active = graph_app.workbench_overlay_visible();
+                    let dedicated_mode_active =
+                        graph_app.workbench_display_mode() == WorkbenchDisplayMode::Dedicated;
+                    let has_dedicated_workbench_target = projection
+                        .pane_entries
+                        .iter()
+                        .any(|entry| !matches!(entry.kind, WorkbenchPaneKind::Graph { .. }));
+                    let dedicated_label = if dedicated_mode_active {
+                        "Use Split Workbench"
+                    } else {
+                        "Use Dedicated Workbench"
+                    };
+                    let dedicated_toggle = ui.add_enabled(
+                        dedicated_mode_active || has_dedicated_workbench_target,
+                        egui::Button::new(dedicated_label).small(),
+                    );
+                    if dedicated_toggle.clicked() {
+                        post_host_actions.push(WorkbenchHostAction::SetWorkbenchDisplayMode(
+                            if dedicated_mode_active {
+                                WorkbenchDisplayMode::Split
+                            } else {
+                                WorkbenchDisplayMode::Dedicated
+                            },
+                        ));
+                    }
+                    let overlay_label = if overlay_active {
+                        "Close Workbench Overlay"
+                    } else {
+                        "Open Workbench Overlay"
+                    };
+                    let overlay_toggle = ui.add_enabled(
+                        overlay_active || (!dedicated_mode_active && has_dedicated_workbench_target),
+                        egui::Button::new(overlay_label).small(),
+                    );
+                    if overlay_toggle.clicked() {
+                        post_host_actions.push(WorkbenchHostAction::SetWorkbenchOverlayVisible(
+                            !overlay_active,
+                        ));
+                    }
                     let pin_label = if graph_app.workbench_host_pinned() {
                             "Unpin Workbench Host"
                     } else {
@@ -2429,27 +2928,11 @@ pub(crate) fn render_workbench_host(
                             &projection,
                         );
                     for action in swatch_actions {
-                        match action {
-                            crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::FocusView(view_id) => {
-                                post_host_actions.push(WorkbenchHostAction::FocusGraphView(view_id));
-                            }
-                            crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::OpenView(view_id) => {
-                                post_host_actions.push(WorkbenchHostAction::OpenGraphView(view_id));
-                            }
-                            crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::TransferSelectionToView {
-                                source_view,
-                                destination_view,
-                            } => {
-                                post_host_actions.push(
-                                    WorkbenchHostAction::TransferSelectedNodesToGraphView {
-                                        source_view,
-                                        destination_view,
-                                    },
-                                );
-                            }
-                            crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::ToggleOverviewPlane => {
-                                post_host_actions.push(WorkbenchHostAction::ToggleOverviewPlane);
-                            }
+                        for mapped_action in navigator_overview_action_to_host_actions(
+                            action,
+                            &host_layout.host,
+                        ) {
+                            post_host_actions.push(mapped_action);
                         }
                     }
                     ui.separator();
@@ -2826,7 +3309,14 @@ enum WorkbenchHostAction {
         pane: PaneId,
         mode: PanePresentationMode,
     },
+    SwapViewerBackend {
+        pane: PaneId,
+        node: NodeKey,
+        viewer_id_override: Option<ViewerId>,
+    },
     OpenTool(ToolPaneState),
+    SetWorkbenchDisplayMode(WorkbenchDisplayMode),
+    SetWorkbenchOverlayVisible(bool),
     SetWorkbenchPinned(bool),
     SetLayoutConstraintDraft {
         surface_host: SurfaceHostId,
@@ -2873,11 +3363,42 @@ enum WorkbenchHostAction {
     RestoreFrame(String),
     FocusGraphView(GraphViewId),
     OpenGraphView(GraphViewId),
+    SelectNodeInGraphView {
+        view_id: GraphViewId,
+        node_key: NodeKey,
+    },
+    OpenNavigatorSpecialtyFromNode {
+        host: SurfaceHostId,
+        view_id: GraphViewId,
+        node_key: NodeKey,
+        kind: GraphletKind,
+    },
+    MoveGraphViewSlot {
+        view_id: GraphViewId,
+        row: i32,
+        col: i32,
+    },
     TransferSelectedNodesToGraphView {
         source_view: GraphViewId,
         destination_view: GraphViewId,
     },
     ToggleOverviewPlane,
+    RequestFitToScreen,
+    SetViewLensId {
+        view_id: GraphViewId,
+        lens_id: String,
+    },
+    ToggleSemanticDepthView {
+        view_id: GraphViewId,
+    },
+    ClearGraphViewFilter {
+        view_id: GraphViewId,
+    },
+    SetPhysicsProfile {
+        profile_id: String,
+    },
+    TogglePhysics,
+    ReheatPhysics,
     /// Set or clear a graphlet specialty view on a Navigator host.
     SetNavigatorSpecialtyView {
         host: SurfaceHostId,
@@ -2908,33 +3429,104 @@ fn workbench_host_action_diagnostic_code(action: &WorkbenchHostAction) -> usize 
         WorkbenchHostAction::ClosePane(_) => 7,
         WorkbenchHostAction::DismissNodePane(_) => 8,
         WorkbenchHostAction::SetPanePresentationMode { .. } => 9,
-        WorkbenchHostAction::OpenTool(_) => 10,
-        WorkbenchHostAction::SetWorkbenchPinned(_) => 11,
-        WorkbenchHostAction::SetLayoutConstraintDraft { .. } => 12,
-        WorkbenchHostAction::CommitLayoutConstraintDraft(_) => 13,
-        WorkbenchHostAction::DiscardLayoutConstraintDraft(_) => 14,
-        WorkbenchHostAction::SetSurfaceConfigMode { .. } => 15,
-        WorkbenchHostAction::SetNavigatorHostScope { .. } => 16,
-        WorkbenchHostAction::SetFirstUsePolicy(_) => 17,
-        WorkbenchHostAction::SuppressFirstUsePromptForSession(_) => 18,
-        WorkbenchHostAction::OpenFrameAsSplit { .. } => 19,
-        WorkbenchHostAction::DismissFrameSplitOfferForSession(_) => 20,
-        WorkbenchHostAction::SetFrameSplitOfferSuppressed { .. } => 21,
-        WorkbenchHostAction::RenameFrame { .. } => 22,
-        WorkbenchHostAction::DeleteFrame(_) => 23,
-        WorkbenchHostAction::SaveFrameSnapshotNamed(_) => 24,
-        WorkbenchHostAction::MoveFrameLayoutHint { .. } => 25,
-        WorkbenchHostAction::RemoveFrameLayoutHint { .. } => 26,
-        WorkbenchHostAction::SaveCurrentFrame => 27,
-        WorkbenchHostAction::PruneEmptyFrames => 28,
-        WorkbenchHostAction::RestoreFrame(_) => 29,
-        WorkbenchHostAction::FocusGraphView(_) => 30,
-        WorkbenchHostAction::OpenGraphView(_) => 31,
-        WorkbenchHostAction::TransferSelectedNodesToGraphView { .. } => 32,
-        WorkbenchHostAction::ToggleOverviewPlane => 33,
-        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 34,
-        WorkbenchHostAction::SyncHostPanelSize { .. } => 35,
+        WorkbenchHostAction::SwapViewerBackend { .. } => 10,
+        WorkbenchHostAction::OpenTool(_) => 11,
+        WorkbenchHostAction::SetWorkbenchDisplayMode(_) => 12,
+        WorkbenchHostAction::SetWorkbenchOverlayVisible(_) => 13,
+        WorkbenchHostAction::SetWorkbenchPinned(_) => 14,
+        WorkbenchHostAction::SetLayoutConstraintDraft { .. } => 15,
+        WorkbenchHostAction::CommitLayoutConstraintDraft(_) => 16,
+        WorkbenchHostAction::DiscardLayoutConstraintDraft(_) => 17,
+        WorkbenchHostAction::SetSurfaceConfigMode { .. } => 18,
+        WorkbenchHostAction::SetNavigatorHostScope { .. } => 19,
+        WorkbenchHostAction::SetFirstUsePolicy(_) => 20,
+        WorkbenchHostAction::SuppressFirstUsePromptForSession(_) => 21,
+        WorkbenchHostAction::OpenFrameAsSplit { .. } => 22,
+        WorkbenchHostAction::DismissFrameSplitOfferForSession(_) => 23,
+        WorkbenchHostAction::SetFrameSplitOfferSuppressed { .. } => 24,
+        WorkbenchHostAction::RenameFrame { .. } => 25,
+        WorkbenchHostAction::DeleteFrame(_) => 26,
+        WorkbenchHostAction::SaveFrameSnapshotNamed(_) => 27,
+        WorkbenchHostAction::MoveFrameLayoutHint { .. } => 28,
+        WorkbenchHostAction::RemoveFrameLayoutHint { .. } => 29,
+        WorkbenchHostAction::SaveCurrentFrame => 30,
+        WorkbenchHostAction::PruneEmptyFrames => 31,
+        WorkbenchHostAction::RestoreFrame(_) => 32,
+        WorkbenchHostAction::FocusGraphView(_) => 33,
+        WorkbenchHostAction::OpenGraphView(_) => 34,
+        WorkbenchHostAction::SelectNodeInGraphView { .. } => 35,
+        WorkbenchHostAction::OpenNavigatorSpecialtyFromNode { .. } => 36,
+        WorkbenchHostAction::MoveGraphViewSlot { .. } => 37,
+        WorkbenchHostAction::TransferSelectedNodesToGraphView { .. } => 38,
+        WorkbenchHostAction::ToggleOverviewPlane => 39,
+        WorkbenchHostAction::RequestFitToScreen => 40,
+        WorkbenchHostAction::SetViewLensId { .. } => 41,
+        WorkbenchHostAction::ToggleSemanticDepthView { .. } => 42,
+        WorkbenchHostAction::ClearGraphViewFilter { .. } => 43,
+        WorkbenchHostAction::SetPhysicsProfile { .. } => 44,
+        WorkbenchHostAction::TogglePhysics => 45,
+        WorkbenchHostAction::ReheatPhysics => 46,
+        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 47,
+        WorkbenchHostAction::SyncHostPanelSize { .. } => 48,
     }
+}
+
+fn navigator_overview_action_to_host_actions(
+    action: crate::shell::desktop::ui::overview_plane::NavigatorOverviewAction,
+    host: &SurfaceHostId,
+) -> Vec<WorkbenchHostAction> {
+    match action {
+        crate::shell::desktop::ui::overview_plane::NavigatorOverviewAction::Surface(surface_action) => {
+            match surface_action {
+                crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::FocusView(view_id) => {
+                    vec![WorkbenchHostAction::FocusGraphView(view_id)]
+                }
+                crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::OpenView(view_id) => {
+                    vec![WorkbenchHostAction::OpenGraphView(view_id)]
+                }
+                crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::TransferSelectionToView {
+                    source_view,
+                    destination_view,
+                } => {
+                    vec![WorkbenchHostAction::TransferSelectedNodesToGraphView {
+                        source_view,
+                        destination_view,
+                    }]
+                }
+                crate::shell::desktop::ui::overview_plane::OverviewSurfaceAction::ToggleOverviewPlane => {
+                    vec![WorkbenchHostAction::ToggleOverviewPlane]
+                }
+            }
+        }
+        crate::shell::desktop::ui::overview_plane::NavigatorOverviewAction::SelectGraphletAnchor {
+            view_id,
+            node_key,
+        } => {
+            vec![WorkbenchHostAction::SelectNodeInGraphView { view_id, node_key }]
+        }
+        crate::shell::desktop::ui::overview_plane::NavigatorOverviewAction::OpenGraphletSpecialty {
+            view_id,
+            node_key,
+            kind,
+        } => {
+            vec![WorkbenchHostAction::OpenNavigatorSpecialtyFromNode {
+                host: host.clone(),
+                view_id,
+                node_key,
+                kind,
+            }]
+        }
+    }
+}
+
+fn select_node_in_graph_view(graph_app: &mut GraphBrowserApp, view_id: GraphViewId, node_key: NodeKey) {
+    graph_app.apply_reducer_intents([
+        GraphIntent::FocusGraphView { view_id },
+        GraphIntent::SelectNode {
+            key: node_key,
+            multi_select: false,
+        },
+    ]);
 }
 
 fn emit_workbench_host_action_started(diagnostic_code: usize) {
@@ -2976,8 +3568,10 @@ fn layer_state_label(layer_state: WorkbenchLayerState) -> &'static str {
     match layer_state {
         WorkbenchLayerState::GraphOnly => "Graph only",
         WorkbenchLayerState::GraphOverlayActive => "Graph overlay active",
+        WorkbenchLayerState::WorkbenchOverlayActive => "Workbench overlay active",
         WorkbenchLayerState::WorkbenchActive => "Workbench active",
         WorkbenchLayerState::WorkbenchPinned => "Workbench pinned",
+        WorkbenchLayerState::WorkbenchOnly => "Workbench only",
     }
 }
 
@@ -3078,6 +3672,153 @@ fn render_pane_mode_controls(
     }
 }
 
+fn viewer_backend_display_name(viewer_id: &str) -> &str {
+    match viewer_id {
+        "viewer:webview" => "Servo",
+        "viewer:wry" => "Wry",
+        "viewer:plaintext" => "Text",
+        "viewer:markdown" => "Markdown",
+        "viewer:pdf" => "PDF",
+        "viewer:csv" => "CSV",
+        "viewer:audio" => "Audio",
+        "viewer:settings" => "Settings",
+        _ => viewer_id,
+    }
+}
+
+fn viewer_runtime_badge(summary: &WorkbenchNodeViewerSummary) -> Option<(&'static str, String)> {
+    if summary.runtime_crashed {
+        return Some((
+            "Crash",
+            "Viewer crash recorded for this node.".to_string(),
+        ));
+    }
+    if summary.runtime_blocked {
+        return Some((
+            "Blocked",
+            "Viewer startup or backpressure is currently blocking this pane.".to_string(),
+        ));
+    }
+    if let Some(reason) = summary.fallback_reason.as_deref() {
+        return Some(("Degraded", reason.to_string()));
+    }
+    if summary.render_mode == TileRenderMode::Placeholder {
+        return Some((
+            "Degraded",
+            "Viewer currently falls back to placeholder rendering.".to_string(),
+        ));
+    }
+    None
+}
+
+fn viewer_override_badge(summary: &WorkbenchNodeViewerSummary) -> Option<(&'static str, &'static str)> {
+    summary.viewer_override.as_ref()?;
+    match summary.viewer_switch_reason {
+        ViewerSwitchReason::UserRequested => Some((
+            "Pinned",
+            "Viewer override is pinned by the user for this pane.",
+        )),
+        ViewerSwitchReason::RecoveryPromptAccepted => Some((
+            "Recovery",
+            "Viewer override was accepted from a recovery prompt.",
+        )),
+        ViewerSwitchReason::PolicyPinned => Some((
+            "Policy",
+            "Viewer override is pinned by policy for this pane.",
+        )),
+    }
+}
+
+fn render_node_viewer_status_badges(ui: &mut egui::Ui, entry: &WorkbenchPaneEntry) {
+    let Some(summary) = entry.node_viewer_summary.as_ref() else {
+        return;
+    };
+
+    if let Some(viewer_id) = summary.effective_viewer_id.as_deref() {
+        ui.label(
+            RichText::new(viewer_backend_display_name(viewer_id))
+                .small()
+                .weak(),
+        )
+        .on_hover_text(viewer_id);
+    }
+
+    if let Some((badge, hover_text)) = viewer_override_badge(summary) {
+        ui.label(
+            RichText::new(badge)
+                .small()
+                .color(egui::Color32::from_rgb(120, 180, 220)),
+        )
+        .on_hover_text(hover_text);
+    }
+
+    if let Some((badge, hover_text)) = viewer_runtime_badge(summary) {
+        ui.label(
+            RichText::new(badge)
+                .small()
+                .color(egui::Color32::from_rgb(220, 180, 60)),
+        )
+        .on_hover_text(hover_text);
+    }
+}
+
+fn open_with_picker_visible(entry: &WorkbenchPaneEntry) -> bool {
+    matches!(entry.kind, WorkbenchPaneKind::Node { .. })
+        && entry.presentation_mode == PanePresentationMode::Tiled
+        && entry.node_viewer_summary.as_ref().is_some_and(|summary| {
+            summary.available_viewer_ids.len() > 1 || summary.viewer_override.is_some()
+        })
+}
+
+fn render_open_with_picker(
+    ui: &mut egui::Ui,
+    entry: &WorkbenchPaneEntry,
+    actions: &mut Vec<WorkbenchHostAction>,
+    id_namespace: &'static str,
+) {
+    let WorkbenchPaneKind::Node { node_key } = entry.kind else {
+        return;
+    };
+    let Some(summary) = entry.node_viewer_summary.as_ref() else {
+        return;
+    };
+
+    egui::CollapsingHeader::new(RichText::new("Open with…").small())
+        .id_salt((id_namespace, entry.pane_id))
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let auto_selected = summary.viewer_override.is_none();
+                if ui
+                    .selectable_label(auto_selected, "Auto")
+                    .on_hover_text("Use the registry-selected viewer for this content")
+                    .clicked()
+                {
+                    actions.push(WorkbenchHostAction::SwapViewerBackend {
+                        pane: entry.pane_id,
+                        node: node_key,
+                        viewer_id_override: None,
+                    });
+                }
+
+                for viewer_id in &summary.available_viewer_ids {
+                    let selected = summary.viewer_override.as_deref() == Some(viewer_id.as_str());
+                    if ui
+                        .selectable_label(selected, viewer_backend_display_name(viewer_id))
+                        .on_hover_text(viewer_id)
+                        .clicked()
+                    {
+                        actions.push(WorkbenchHostAction::SwapViewerBackend {
+                            pane: entry.pane_id,
+                            node: node_key,
+                            viewer_id_override: Some(ViewerId::new(viewer_id.clone())),
+                        });
+                    }
+                }
+            });
+        });
+}
+
 fn render_tree_node(
     ui: &mut egui::Ui,
     node: &WorkbenchChromeNode,
@@ -3101,6 +3842,7 @@ fn render_tree_node(
                     actions.push(WorkbenchHostAction::FocusPane(entry.pane_id));
                 }
                 render_pane_mode_controls(ui, entry, actions);
+                render_node_viewer_status_badges(ui, entry);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     render_semantic_tab_affordance_button(ui, entry, actions);
                     if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
@@ -3151,6 +3893,10 @@ fn render_tree_node(
                     .small()
                     .weak(),
                 );
+            }
+            if open_with_picker_visible(entry) {
+                ui.add_space((depth as f32) * 10.0 + 2.0);
+                render_open_with_picker(ui, entry, actions, "workbench_host_tree_open_with");
             }
             ui.add_space(6.0);
         }
@@ -3205,6 +3951,7 @@ fn render_pane_row(
             actions.push(WorkbenchHostAction::FocusPane(entry.pane_id));
         }
         render_pane_mode_controls(ui, entry, actions);
+        render_node_viewer_status_badges(ui, entry);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             render_semantic_tab_affordance_button(ui, entry, actions);
             if entry.closable && ui.small_button("x").on_hover_text("Close").clicked() {
@@ -3239,6 +3986,9 @@ fn render_pane_row(
             }
         });
     });
+    if open_with_picker_visible(entry) {
+        render_open_with_picker(ui, entry, actions, "workbench_host_list_open_with");
+    }
     ui.add_space(2.0);
 }
 
@@ -3354,8 +4104,30 @@ fn apply_workbench_host_action(
             });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
+        WorkbenchHostAction::SwapViewerBackend {
+            pane,
+            node,
+            viewer_id_override,
+        } => {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SwapViewerBackend {
+                pane,
+                node,
+                viewer_id_override,
+            });
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
         WorkbenchHostAction::OpenTool(kind) => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane { kind });
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::SetWorkbenchDisplayMode(mode) => {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetWorkbenchDisplayMode { mode });
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::SetWorkbenchOverlayVisible(visible) => {
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetWorkbenchOverlayVisible {
+                visible,
+            });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetWorkbenchPinned(pinned) => {
@@ -3506,6 +4278,27 @@ fn apply_workbench_host_action(
             });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
+        WorkbenchHostAction::SelectNodeInGraphView { view_id, node_key } => {
+            select_node_in_graph_view(graph_app, view_id, node_key);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::OpenNavigatorSpecialtyFromNode {
+            host,
+            view_id,
+            node_key,
+            kind,
+        } => {
+            select_node_in_graph_view(graph_app, view_id, node_key);
+            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetNavigatorSpecialtyView {
+                host,
+                kind: Some(kind),
+            });
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::MoveGraphViewSlot { view_id, row, col } => {
+            graph_app.apply_reducer_intents([GraphIntent::MoveGraphViewSlot { view_id, row, col }]);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
         WorkbenchHostAction::TransferSelectedNodesToGraphView {
             source_view,
             destination_view,
@@ -3518,6 +4311,34 @@ fn apply_workbench_host_action(
         }
         WorkbenchHostAction::ToggleOverviewPlane => {
             graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleOverviewPlane);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::RequestFitToScreen => {
+            graph_app.apply_reducer_intents([GraphIntent::RequestFitToScreen]);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::SetViewLensId { view_id, lens_id } => {
+            graph_app.apply_reducer_intents([GraphIntent::SetViewLensId { view_id, lens_id }]);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::ToggleSemanticDepthView { view_id } => {
+            graph_app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::ClearGraphViewFilter { view_id } => {
+            graph_app.apply_reducer_intents([GraphIntent::ClearViewFilter { view_id }]);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::SetPhysicsProfile { profile_id } => {
+            graph_app.apply_reducer_intents([GraphIntent::SetPhysicsProfile { profile_id }]);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::TogglePhysics => {
+            graph_app.apply_reducer_intents([GraphIntent::TogglePhysics]);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::ReheatPhysics => {
+            graph_app.apply_reducer_intents([GraphIntent::ReheatPhysics]);
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetNavigatorSpecialtyView { host, kind } => {
@@ -3689,7 +4510,7 @@ mod tests {
 
         assert_eq!(projection.layer_state, WorkbenchLayerState::GraphOnly);
         assert_eq!(projection.chrome_policy, ChromeExposurePolicy::GraphOnly);
-        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Right);
+        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Left);
         assert_eq!(
             projection.host_layout.form_factor,
             WorkbenchHostFormFactor::Sidebar
@@ -3775,7 +4596,7 @@ mod tests {
             tree_root: None,
             active_graphlet_roster: vec![],
         };
-        assert!(graph_view_switcher_requires_fallback_toolbar_host(
+        assert!(graph_scope_requires_fallback_toolbar_host(
             &graph_only_projection
         ));
 
@@ -3794,7 +4615,7 @@ mod tests {
             tree_root: None,
             active_graphlet_roster: vec![],
         };
-        assert!(!graph_view_switcher_requires_fallback_toolbar_host(
+        assert!(!graph_scope_requires_fallback_toolbar_host(
             &rendered_graph_host_projection
         ));
 
@@ -3813,7 +4634,7 @@ mod tests {
             tree_root: None,
             active_graphlet_roster: vec![],
         };
-        assert!(graph_view_switcher_requires_fallback_toolbar_host(
+        assert!(graph_scope_requires_fallback_toolbar_host(
             &workbench_only_projection
         ));
     }
@@ -3870,6 +4691,256 @@ mod tests {
     }
 
     #[test]
+    fn swap_viewer_backend_action_updates_node_override() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/viewer-swap".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![node_tile]);
+        let mut tree = Tree::new("workbench_host_swap_viewer_backend", root, tiles);
+
+        let pane_id = match tree.tiles.get(node_tile) {
+            Some(Tile::Pane(TileKind::Node(state))) => state.pane_id,
+            other => panic!("expected node pane tile, got {other:?}"),
+        };
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SwapViewerBackend {
+                pane: pane_id,
+                node,
+                viewer_id_override: Some(ViewerId::new("viewer:wry")),
+            },
+            &mut app,
+            &mut tree,
+        );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        let override_after_swap = match tree.tiles.get(node_tile) {
+            Some(Tile::Pane(TileKind::Node(state))) => state.viewer_id_override.clone(),
+            other => panic!("expected node pane tile after swap, got {other:?}"),
+        };
+        assert_eq!(override_after_swap, Some(ViewerId::new("viewer:wry")));
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SwapViewerBackend {
+                pane: pane_id,
+                node,
+                viewer_id_override: None,
+            },
+            &mut app,
+            &mut tree,
+        );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        let override_after_reset = match tree.tiles.get(node_tile) {
+            Some(Tile::Pane(TileKind::Node(state))) => state.viewer_id_override.clone(),
+            other => panic!("expected node pane tile after reset, got {other:?}"),
+        };
+        assert_eq!(override_after_reset, None);
+    }
+
+    #[test]
+    fn set_view_lens_action_updates_graph_view_policy() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let root = tiles.insert_tab_tile(vec![graph]);
+        let mut tree = Tree::new("workbench_host_set_view_lens", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetViewLensId {
+                view_id: graph_view,
+                lens_id: crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY.to_string(),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        let view = app
+            .workspace
+            .graph_runtime
+            .views
+            .get(&graph_view)
+            .expect("graph view state");
+        assert_eq!(
+            view.resolved_lens_id(),
+            Some(crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY)
+        );
+    }
+
+    #[test]
+    fn set_physics_profile_action_updates_workspace_default() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let root = tiles.insert_tab_tile(vec![graph]);
+        let mut tree = Tree::new("workbench_host_set_physics_profile", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetPhysicsProfile {
+                profile_id: crate::registries::atomic::lens::PHYSICS_ID_SETTLE.to_string(),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert_eq!(
+            app.default_registry_physics_id(),
+            Some(crate::registries::atomic::lens::PHYSICS_ID_SETTLE)
+        );
+    }
+
+    #[test]
+    fn toggle_semantic_depth_action_switches_dimension_mode() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let root = tiles.insert_tab_tile(vec![graph]);
+        let mut tree = Tree::new("workbench_host_toggle_semantic_depth", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::ToggleSemanticDepthView { view_id: graph_view },
+            &mut app,
+            &mut tree,
+        );
+
+        let view = app
+            .workspace
+            .graph_runtime
+            .views
+            .get(&graph_view)
+            .expect("graph view state");
+        assert!(crate::app::is_semantic_depth_dimension(&view.dimension));
+    }
+
+    #[test]
+    fn move_graph_view_slot_action_updates_slot_position() {
+        let left = GraphViewId::new();
+        let right = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(left);
+        app.ensure_graph_view_registered(right);
+        app.move_graph_view_slot(right, 0, 1);
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(left)));
+        let root = tiles.insert_tab_tile(vec![graph]);
+        let mut tree = Tree::new("workbench_host_move_graph_view_slot", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::MoveGraphViewSlot {
+                view_id: left,
+                row: 0,
+                col: 1,
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        let slots = &app.workspace.graph_runtime.graph_view_layout_manager.slots;
+        let moved = slots.get(&left).expect("moved slot should exist");
+        let swapped = slots.get(&right).expect("swapped slot should exist");
+        assert_eq!((moved.row, moved.col), (0, 1));
+        assert_eq!((swapped.row, swapped.col), (0, 0));
+    }
+
+    #[test]
+    fn clear_graph_view_filter_action_clears_active_filter() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.apply_reducer_intents([GraphIntent::SetViewFilter {
+            view_id: graph_view,
+            expr: Some(crate::model::graph::filter::FacetExpr::Predicate(
+                crate::model::graph::filter::FacetPredicate {
+                    facet_key: crate::model::graph::filter::facet_keys::UDC_CLASSES.to_string(),
+                    operator: crate::model::graph::filter::FacetOperator::Eq,
+                    operand: crate::model::graph::filter::FacetOperand::Scalar(
+                        crate::model::graph::filter::FacetScalar::Text("udc:51".to_string()),
+                    ),
+                },
+            )),
+        }]);
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let root = tiles.insert_tab_tile(vec![graph]);
+        let mut tree = Tree::new("workbench_host_clear_graph_view_filter", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::ClearGraphViewFilter { view_id: graph_view },
+            &mut app,
+            &mut tree,
+        );
+
+        let view = app
+            .workspace
+            .graph_runtime
+            .views
+            .get(&graph_view)
+            .expect("graph view state");
+        assert!(view.effective_filter_expr().is_none());
+    }
+
+    #[test]
+    fn graph_scope_control_summary_exposes_active_filter_chip_labels() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.workspace.graph_runtime.focused_view = Some(graph_view);
+        app.apply_reducer_intents([GraphIntent::SetViewFilter {
+            view_id: graph_view,
+            expr: Some(crate::model::graph::filter::FacetExpr::And(vec![
+                crate::model::graph::filter::FacetExpr::Predicate(
+                    crate::model::graph::filter::FacetPredicate {
+                        facet_key: crate::model::graph::filter::facet_keys::UDC_CLASSES
+                            .to_string(),
+                        operator: crate::model::graph::filter::FacetOperator::Eq,
+                        operand: crate::model::graph::filter::FacetOperand::Scalar(
+                            crate::model::graph::filter::FacetScalar::Text("udc:51".to_string()),
+                        ),
+                    },
+                ),
+                crate::model::graph::filter::FacetExpr::Predicate(
+                    crate::model::graph::filter::FacetPredicate {
+                        facet_key: crate::model::graph::filter::facet_keys::TITLE.to_string(),
+                        operator: crate::model::graph::filter::FacetOperator::Eq,
+                        operand: crate::model::graph::filter::FacetOperand::Scalar(
+                            crate::model::graph::filter::FacetScalar::Text("Atlas".to_string()),
+                        ),
+                    },
+                ),
+            ])),
+        }]);
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let tree = Tree::new("workbench_host_filter_chip_projection", root, tiles);
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        let summary = active_graph_scope_control_summary(&projection, &app)
+            .expect("graph scope summary should exist");
+
+        assert_eq!(
+            summary.active_filter_chip_labels,
+            vec!["udc_classes=udc:51".to_string(), "title=Atlas".to_string()]
+        );
+    }
+
+    #[test]
     fn projection_reports_graph_overlay_without_host() {
         let graph_view = GraphViewId::new();
         let mut app = GraphBrowserApp::new_for_testing();
@@ -3909,11 +4980,80 @@ mod tests {
             projection.chrome_policy,
             ChromeExposurePolicy::GraphPlusWorkbenchHostPinned
         );
-        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Right);
+        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Left);
         assert_eq!(
             projection.host_layout.form_factor,
             WorkbenchHostFormFactor::Sidebar
         );
+        assert!(projection.visible());
+    }
+
+    #[test]
+    fn projection_prefers_overlay_state_over_pinned_split_when_visible() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.set_workbench_host_pinned(true);
+        app.set_workbench_overlay_visible(true);
+        let node_key = app.add_node_and_sync(
+            "https://example.com/overlay".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+        let root = tiles.insert_tab_tile(vec![graph, node]);
+        let tree = Tree::new("workbench_host_overlay", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(projection.layer_state, WorkbenchLayerState::WorkbenchOverlayActive);
+        assert_eq!(projection.chrome_policy, ChromeExposurePolicy::GraphPlusWorkbenchOverlay);
+        assert!(projection.visible());
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn projection_switches_to_dedicated_workbench_mode_when_configured() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.set_workbench_display_mode(WorkbenchDisplayMode::Dedicated);
+        let node_key = app.add_node_and_sync(
+            "https://example.com/dedicated".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+        let root = tiles.insert_tab_tile(vec![graph, node]);
+        let tree = Tree::new("workbench_host_dedicated", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(projection.layer_state, WorkbenchLayerState::WorkbenchOnly);
+        assert_eq!(projection.chrome_policy, ChromeExposurePolicy::WorkbenchOnly);
+        assert!(projection.visible());
+    }
+
+    #[test]
+    fn projection_uses_right_anchor_when_sidebar_preference_is_right() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        app.set_workbench_host_pinned(true);
+        app.set_navigator_sidebar_side_preference(crate::app::NavigatorSidebarSidePreference::Right);
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let tree = Tree::new("workbench_host_prefers_right_sidebar", root, tiles);
+
+        let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
+
+        assert_eq!(
+            projection.host_layout.host,
+            SurfaceHostId::Navigator(NavigatorHostId::Right)
+        );
+        assert_eq!(projection.host_layout.anchor_edge, AnchorEdge::Right);
         assert!(projection.visible());
     }
 
@@ -5633,6 +6773,79 @@ mod tests {
                 .map(|view| view.kind),
             Some(GraphletKind::Component)
         );
+    }
+
+    #[test]
+    fn select_node_in_graph_view_action_focuses_target_view_before_selection() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source_view = GraphViewId::new();
+        let target_view = GraphViewId::new();
+        app.ensure_graph_view_registered(source_view);
+        app.ensure_graph_view_registered(target_view);
+        app.workspace.graph_runtime.focused_view = Some(source_view);
+
+        let node = app.add_node_and_sync(
+            "https://example.com/graphlet-anchor-select".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(target_view)));
+        let mut tree = Tree::new("workbench_host_select_node_in_graph_view", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SelectNodeInGraphView {
+                view_id: target_view,
+                node_key: node,
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert_eq!(app.workspace.graph_runtime.focused_view, Some(target_view));
+        assert_eq!(app.focused_selection().primary(), Some(node));
+    }
+
+    #[test]
+    fn open_navigator_specialty_from_node_prepares_anchor_before_dispatch() {
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source_view = GraphViewId::new();
+        let target_view = GraphViewId::new();
+        app.ensure_graph_view_registered(source_view);
+        app.ensure_graph_view_registered(target_view);
+        app.workspace.graph_runtime.focused_view = Some(source_view);
+
+        let node = app.add_node_and_sync(
+            "https://example.com/graphlet-specialty-anchor".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(target_view)));
+        let mut tree = Tree::new("workbench_host_open_graphlet_specialty", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::OpenNavigatorSpecialtyFromNode {
+                host: host.clone(),
+                view_id: target_view,
+                node_key: node,
+                kind: GraphletKind::Component,
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        assert_eq!(app.workspace.graph_runtime.focused_view, Some(target_view));
+        assert_eq!(app.focused_selection().primary(), Some(node));
+        let pending_intents = app.take_pending_workbench_intents();
+        assert!(matches!(
+            pending_intents.as_slice(),
+            [WorkbenchIntent::SetNavigatorSpecialtyView {
+                host: queued_host,
+                kind: Some(GraphletKind::Component),
+            }] if queued_host == &host
+        ));
     }
 
     #[test]

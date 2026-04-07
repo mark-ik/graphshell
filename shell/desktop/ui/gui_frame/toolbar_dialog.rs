@@ -112,6 +112,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
             graph_app,
             tiles_tree,
             command_bar_focus_target,
+            show_clear_data_confirm,
         )
     });
     let toolbar_output = shell_layout_pass.render_command_bar(
@@ -146,7 +147,9 @@ pub(crate) fn handle_toolbar_dialog_phase(
     workbench_host::render_fallback_graph_scope_toolbar_host(
         ctx,
         graph_app,
+        tiles_tree,
         &workbench_projection,
+        show_clear_data_confirm,
     );
     let shell_layout = shell_layout_pass.finish(workbench_projection, toolbar_output);
     let is_graph_view = matches!(

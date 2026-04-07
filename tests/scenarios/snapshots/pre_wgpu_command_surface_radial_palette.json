@@ -121,10 +121,10 @@
       "domain": "RadialSector { action_id: \"graph.open_selected_node\", enabled: true, tier: 2, rail_position: 0.25, hover_scale: 1.0, angle_rad: 1.2, page: 0 }"
     },
     {
-      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Left",
       "parent_ux_node_id": "uxnode://workbench/root",
       "role": "NavigatorProjection",
-      "label": "Navigator Projection Navigator:Right",
+      "label": "Navigator Projection Navigator:Left",
       "focused": false,
       "selected": false,
       "blocked": true,
@@ -132,7 +132,7 @@
       "allowed_actions": [
         "Navigate"
       ],
-      "domain": "NavigatorProjection { host: Navigator(Right), anchor_edge: Right, form_factor: \"sidebar\", scope: \"both\", projection_mode: \"Workbench\", projection_seed_source: \"GraphContainment\", sort_mode: \"Manual\", root_filter: None, row_count: 0, selected_count: 0, expanded_count: 0, collapsed_count: 0, workbench_group_count: 0, workbench_member_count: 0, unrelated_count: 0, recent_count: 0 }"
+      "domain": "NavigatorProjection { host: Navigator(Left), anchor_edge: Left, form_factor: \"sidebar\", scope: \"both\", projection_mode: \"Workbench\", projection_seed_source: \"GraphContainment\", sort_mode: \"Manual\", root_filter: None, row_count: 0, selected_count: 0, expanded_count: 0, collapsed_count: 0, workbench_group_count: 0, workbench_member_count: 0, unrelated_count: 0, recent_count: 0 }"
     },
     {
       "ux_node_id": "uxnode://workbench/route-open/boundary",
@@ -230,7 +230,7 @@
       "render_mode": "EmbeddedEgui"
     },
     {
-      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Left",
       "z_pass": "workbench.navigator.projection",
       "style_flags": [
         "surface:navigator"
@@ -298,7 +298,7 @@
       "diagnostics_counter": 1
     },
     {
-      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Right",
+      "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Left",
       "event_route": "workbench.navigator_route",
       "backend_path": "egui",
       "diagnostics_counter": 0

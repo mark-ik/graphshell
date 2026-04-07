@@ -15,6 +15,7 @@ pub(crate) mod navigator_context;
 pub(crate) mod overview_plane;
 pub(crate) mod persistence_ops;
 pub(crate) mod shell_layout_pass;
+pub(crate) mod swatch;
 pub(crate) mod tag_panel;
 pub(crate) mod thumbnail_pipeline;
 pub(crate) mod toolbar;

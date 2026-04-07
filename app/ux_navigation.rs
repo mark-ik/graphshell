@@ -56,6 +56,34 @@ impl GraphBrowserApp {
         }
     }
 
+    pub fn toggle_workbench_overlay(&mut self) {
+        if self.workbench_overlay_visible() {
+            self.close_workbench_overlay();
+        } else {
+            self.open_workbench_overlay();
+        }
+    }
+
+    pub fn open_workbench_overlay(&mut self) {
+        if self.workbench_overlay_visible()
+            || matches!(self.workbench_display_mode(), WorkbenchDisplayMode::Dedicated)
+        {
+            return;
+        }
+
+        self.set_workbench_overlay_visible(true);
+        self.emit_ux_navigation_transition();
+    }
+
+    pub fn close_workbench_overlay(&mut self) {
+        if !self.workbench_overlay_visible() {
+            return;
+        }
+
+        self.set_workbench_overlay_visible(false);
+        self.emit_ux_navigation_transition();
+    }
+
     pub fn toggle_scene_overlay(&mut self, preferred_view: Option<GraphViewId>) {
         if self.workspace.chrome_ui.show_scene_overlay {
             self.close_scene_overlay();
@@ -357,5 +385,26 @@ mod tests {
         assert!(!app.workspace.chrome_ui.show_help_panel);
         assert!(!app.workspace.chrome_ui.show_settings_overlay);
         assert!(!app.workspace.chrome_ui.show_radial_menu);
+    }
+
+    #[test]
+    fn toggle_workbench_overlay_round_trips_visibility() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.toggle_workbench_overlay();
+        assert!(app.workbench_overlay_visible());
+
+        app.toggle_workbench_overlay();
+        assert!(!app.workbench_overlay_visible());
+    }
+
+    #[test]
+    fn dedicated_workbench_mode_blocks_overlay_open() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_workbench_display_mode(WorkbenchDisplayMode::Dedicated);
+
+        app.open_workbench_overlay();
+
+        assert!(!app.workbench_overlay_visible());
     }
 }

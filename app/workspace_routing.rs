@@ -3,7 +3,7 @@ use crate::graph::graphlet;
 use crate::graph::{ArrangementSubKind, EdgeFamily, NodeKey, RelationSelector};
 use crate::util::VersoAddress;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArrangementProjectionGroup {
@@ -17,7 +17,9 @@ pub struct ArrangementProjectionGroup {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NavigatorSectionProjection {
     pub mode: NavigatorProjectionMode,
+    pub seed_source: NavigatorProjectionSeedSource,
     pub workbench_groups: Vec<ArrangementProjectionGroup>,
+    pub saved_views: Vec<GraphViewId>,
     pub semantic_groups: Vec<SemanticProjectionGroup>,
     pub folder_sections: BTreeMap<String, Vec<NodeKey>>,
     pub domain_sections: BTreeMap<String, Vec<NodeKey>>,
@@ -32,7 +34,18 @@ pub struct SemanticProjectionGroup {
     pub member_keys: Vec<NodeKey>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewGraphletPartition {
+    pub anchor: NodeKey,
+    pub members: Vec<NodeKey>,
+    pub internal_edges: Vec<(NodeKey, NodeKey)>,
+}
+
 impl NavigatorSectionProjection {
+    pub fn shows_saved_views_section(&self) -> bool {
+        self.seed_source == NavigatorProjectionSeedSource::SavedViewCollections
+    }
+
     pub fn shows_workbench_section(&self) -> bool {
         self.mode == NavigatorProjectionMode::Workbench
     }
@@ -65,6 +78,71 @@ impl NavigatorSectionProjection {
 }
 
 impl GraphBrowserApp {
+    pub fn graphlet_partitions_for_view(&self, view_id: GraphViewId) -> Vec<ViewGraphletPartition> {
+        let Some(view_state) = self.workspace.graph_runtime.views.get(&view_id) else {
+            return Vec::new();
+        };
+
+        let visible_nodes = self.visible_node_keys_for_graphlet_partition(view_state);
+        if visible_nodes.is_empty() {
+            return Vec::new();
+        }
+
+        let selectors = self
+            .graph_view_edge_projection_override(view_id)
+            .map(|state| state.active_selectors.clone())
+            .unwrap_or_else(|| self.workbench_edge_projection().active_selectors.clone());
+
+        let mut ordered_nodes: Vec<NodeKey> = visible_nodes.iter().copied().collect();
+        ordered_nodes.sort_by(|left, right| {
+            arrangement_member_sort_key(self, *left).cmp(&arrangement_member_sort_key(self, *right))
+        });
+
+        let mut visited = HashSet::new();
+        let mut partitions = Vec::new();
+
+        for seed in ordered_nodes {
+            if visited.contains(&seed) {
+                continue;
+            }
+
+            let mut members = graphlet::graphlet_members_for_seeds_with_selectors(
+                self.domain_graph(),
+                &[seed],
+                &selectors,
+            );
+            members.retain(|node| visible_nodes.contains(node));
+            members.sort_by(|left, right| {
+                arrangement_member_sort_key(self, *left).cmp(&arrangement_member_sort_key(self, *right))
+            });
+            members.dedup();
+
+            if members.is_empty() {
+                continue;
+            }
+
+            visited.extend(members.iter().copied());
+            let internal_edges = projected_internal_edges(self.domain_graph(), &members, &selectors);
+            partitions.push(ViewGraphletPartition {
+                anchor: seed,
+                members,
+                internal_edges,
+            });
+        }
+
+        partitions.sort_by(|left, right| {
+            right
+                .members
+                .len()
+                .cmp(&left.members.len())
+                .then_with(|| {
+                    arrangement_member_sort_key(self, left.anchor)
+                        .cmp(&arrangement_member_sort_key(self, right.anchor))
+                })
+        });
+        partitions
+    }
+
     pub fn graphlet_peers_for_view(
         &self,
         seed: NodeKey,
@@ -145,6 +223,41 @@ impl GraphBrowserApp {
         projection
     }
 
+    fn visible_node_keys_for_graphlet_partition(
+        &self,
+        view_state: &GraphViewState,
+    ) -> HashSet<NodeKey> {
+        let mut visible: HashSet<NodeKey> = self.domain_graph().nodes().map(|(key, _)| key).collect();
+
+        if let Some(expr) = view_state.effective_filter_expr() {
+            let matched: HashSet<NodeKey> =
+                crate::model::graph::filter::evaluate_filter_result(self.domain_graph(), expr)
+                    .result
+                    .matched_nodes
+                    .into_iter()
+                    .collect();
+            visible.retain(|node| matched.contains(node));
+        }
+
+        if !view_state.tombstones_visible {
+            visible.retain(|node| {
+                self.domain_graph()
+                    .get_node(*node)
+                    .is_some_and(|graph_node| graph_node.lifecycle != crate::graph::NodeLifecycle::Tombstone)
+            });
+        }
+
+        if let Some(mask) = view_state.owned_node_mask() {
+            visible.retain(|node| mask.contains(node));
+        }
+
+        if let Some(mask) = view_state.graphlet_node_mask.as_ref() {
+            visible.retain(|node| mask.contains(node));
+        }
+
+        visible
+    }
+
     pub fn arrangement_frame_membership_index(&self) -> HashMap<Uuid, BTreeSet<String>> {
         let mut index: HashMap<Uuid, BTreeSet<String>> = HashMap::new();
         for group in self.arrangement_projection_groups() {
@@ -163,6 +276,7 @@ impl GraphBrowserApp {
 
     pub fn navigator_section_projection(&self) -> NavigatorSectionProjection {
         let mode = self.navigator_projection_state().mode;
+        let seed_source = self.navigator_projection_state().projection_seed_source;
         let workbench_groups = self.arrangement_projection_groups();
         let mut arranged_nodes = HashSet::new();
         for group in &workbench_groups {
@@ -283,9 +397,23 @@ impl GraphBrowserApp {
             node_keys.dedup();
         }
 
+        let mut saved_views: Vec<GraphViewId> = self
+            .navigator_projection_state()
+            .row_targets
+            .values()
+            .filter_map(|target| match target {
+                NavigatorProjectionTarget::SavedView(view_id) => Some(*view_id),
+                NavigatorProjectionTarget::Node(_) => None,
+            })
+            .collect();
+        saved_views.sort_by_key(|view_id| view_id.as_uuid());
+        saved_views.dedup();
+
         let mut projection = NavigatorSectionProjection {
             mode,
+            seed_source,
             workbench_groups,
+            saved_views,
             semantic_groups,
             folder_sections,
             domain_sections,
@@ -293,6 +421,17 @@ impl GraphBrowserApp {
             recent_nodes,
             all_nodes,
         };
+
+        if seed_source == NavigatorProjectionSeedSource::SavedViewCollections {
+            projection.workbench_groups.clear();
+            projection.semantic_groups.clear();
+            projection.folder_sections.clear();
+            projection.domain_sections.clear();
+            projection.unrelated_nodes.clear();
+            projection.recent_nodes.clear();
+            projection.all_nodes.clear();
+            return projection;
+        }
 
         match mode {
             NavigatorProjectionMode::Workbench => {
@@ -1186,6 +1325,42 @@ fn arrangement_member_sort_key(app: &GraphBrowserApp, key: NodeKey) -> (String, 
     (label, key.index())
 }
 
+fn projected_internal_edges(
+    graph: &crate::graph::Graph,
+    members: &[NodeKey],
+    selectors: &[RelationSelector],
+) -> Vec<(NodeKey, NodeKey)> {
+    let member_set: HashSet<NodeKey> = members.iter().copied().collect();
+    let mut out = Vec::new();
+
+    for edge in graph.inner.edge_references() {
+        let from = edge.source();
+        let to = edge.target();
+        if !member_set.contains(&from) || !member_set.contains(&to) {
+            continue;
+        }
+        if !selectors.iter().any(|selector| edge.weight().has_relation(*selector)) {
+            continue;
+        }
+
+        let pair = if from.index() <= to.index() {
+            (from, to)
+        } else {
+            (to, from)
+        };
+        out.push(pair);
+    }
+
+    out.sort_by(|left, right| {
+        left.0
+            .index()
+            .cmp(&right.0.index())
+            .then_with(|| left.1.index().cmp(&right.1.index()))
+    });
+    out.dedup();
+    out
+}
+
 fn containment_domain_from_row_key(row_key: &str) -> Option<&str> {
     row_key.strip_prefix("domain:")?.split('#').next()
 }
@@ -1344,6 +1519,43 @@ mod tests {
     }
 
     #[test]
+    fn graphlet_partitions_for_view_respects_visible_view_scope() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+
+        let a = app.add_node_and_sync("https://partition-a.test".to_string(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://partition-b.test".to_string(), Point2D::new(1.0, 0.0));
+        let c = app.add_node_and_sync("https://partition-c.test".to_string(), Point2D::new(2.0, 0.0));
+        let d = app.add_node_and_sync("https://partition-d.test".to_string(), Point2D::new(3.0, 0.0));
+        let hidden = app.add_node_and_sync("https://partition-hidden.test".to_string(), Point2D::new(4.0, 0.0));
+
+        for (from, to) in [(a, b), (c, d), (b, hidden)] {
+            app.apply_graph_delta_and_sync(crate::graph::apply::GraphDelta::AddEdge {
+                from,
+                to,
+                edge_type: crate::graph::EdgeType::UserGrouped,
+                edge_label: None,
+            });
+        }
+
+        let view = app.workspace.graph_runtime.views.get_mut(&view_id).unwrap();
+        view.owned_node_mask = Some([a, b, c, d].into_iter().collect());
+
+        let partitions = app.graphlet_partitions_for_view(view_id);
+
+        assert_eq!(partitions.len(), 2);
+        assert_eq!(partitions[0].members.len(), 2);
+        assert_eq!(partitions[1].members.len(), 2);
+        assert!(partitions.iter().any(|partition| partition.members == vec![a, b]));
+        assert!(partitions.iter().any(|partition| partition.members == vec![c, d]));
+        assert!(partitions
+            .iter()
+            .all(|partition| !partition.members.contains(&hidden)));
+        assert!(partitions.iter().all(|partition| partition.internal_edges.len() == 1));
+    }
+
+    #[test]
     fn navigator_section_projection_groups_workbench_recent_and_unrelated_nodes() {
         let mut app = GraphBrowserApp::new_for_testing();
         let frame = app.add_node_and_sync(
@@ -1406,6 +1618,30 @@ mod tests {
             projection.domain_sections.get("example.com"),
             Some(&vec![web_node])
         );
+    }
+
+    #[test]
+    fn navigator_section_projection_saved_view_source_exposes_only_saved_views() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+        app.ensure_graph_view_registered(view_a);
+        app.ensure_graph_view_registered(view_b);
+
+        app.set_navigator_projection_seed_source(NavigatorProjectionSeedSource::SavedViewCollections);
+
+        let projection = app.navigator_section_projection();
+        let mut expected_views = vec![view_a, view_b];
+        expected_views.sort_by_key(|view_id| view_id.as_uuid());
+        assert!(projection.shows_saved_views_section());
+        assert_eq!(projection.saved_views, expected_views);
+        assert!(projection.workbench_groups.is_empty());
+        assert!(projection.semantic_groups.is_empty());
+        assert!(projection.folder_sections.is_empty());
+        assert!(projection.domain_sections.is_empty());
+        assert!(projection.unrelated_nodes.is_empty());
+        assert!(projection.recent_nodes.is_empty());
+        assert!(projection.all_nodes.is_empty());
     }
 
     #[test]

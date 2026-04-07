@@ -1090,22 +1090,15 @@ fn render_graph_pane_overlay(
     app: &mut GraphBrowserApp,
     view_id: crate::app::GraphViewId,
     pane_rect: egui::Rect,
-    pending_intents: &mut Vec<TilePendingIntent>,
+    _pending_intents: &mut Vec<TilePendingIntent>,
 ) {
-    let Some(view) = app.workspace.graph_runtime.views.get(&view_id) else {
+    let _ = _pending_intents;
+    let Some(_view) = app.workspace.graph_runtime.views.get(&view_id) else {
         return;
     };
-    let lens_name = view
-        .resolved_lens_id()
-        .map(str::to_owned)
-        .unwrap_or_else(|| view.resolved_lens_display_name().to_string());
-    let current_lens_id = view
-        .resolved_lens_id()
-        .map(str::to_owned)
-        .unwrap_or_else(|| crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string());
 
     // Overlay anchored to top-right of the pane, with a small margin.
-    let overlay_width = 150.0;
+    let overlay_width = 140.0;
     let overlay_pos = egui::pos2(pane_rect.max.x - overlay_width - 4.0, pane_rect.min.y + 4.0);
 
     egui::Area::new(egui::Id::new("graph_pane_overlay").with(view_id))
@@ -1139,73 +1132,12 @@ fn render_graph_pane_overlay(
                         }
                     });
 
-                    // Lens row: display current lens with a click-to-reset affordance.
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new("Lens:")
-                                .small()
-                                .color(egui::Color32::from_rgb(160, 175, 190)),
-                        );
-                        let display = crate::util::truncate_with_ellipsis(
-                            lens_name.trim_start_matches("lens:"),
-                            12,
-                        );
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(display)
-                                        .small()
-                                        .color(egui::Color32::from_rgb(210, 225, 240)),
-                                )
-                                .frame(false),
-                            )
-                            .on_hover_text("Click to reset lens to default")
-                            .clicked()
-                        {
-                            pending_intents.push(GraphIntent::SetViewLensId {
-                                view_id,
-                                lens_id: crate::registries::atomic::lens::LENS_ID_DEFAULT
-                                    .to_string(),
-                            }
-                            .into());
-                        }
-                    });
-
-                    let lens_input_id = egui::Id::new("graph_pane_lens_input").with(view_id);
-                    let mut lens_input = ctx
-                        .data_mut(|d| d.get_persisted::<String>(lens_input_id))
-                        .unwrap_or_else(|| current_lens_id.clone());
-
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new("Lens ID")
-                                .small()
-                                .color(egui::Color32::from_rgb(160, 175, 190)),
-                        );
-                        let response = ui.add(
-                            egui::TextEdit::singleline(&mut lens_input)
-                                .desired_width(88.0)
-                                .hint_text("lens:..."),
-                        );
-                        let submit_with_enter =
-                            response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if ui.small_button("Apply").clicked() || submit_with_enter {
-                            let requested = lens_input.trim();
-                            if !requested.is_empty() {
-                                pending_intents.push(
-                                    GraphIntent::SetViewLensId {
-                                        view_id,
-                                        lens_id: requested.to_string(),
-                                    }
-                                    .into(),
-                                );
-                            }
-                        }
-                    });
-
-                    ctx.data_mut(|d| d.insert_persisted(lens_input_id, lens_input));
-
-                    ui.small("Layout: local-per-view");
+                    ui.small(
+                        egui::RichText::new(
+                            "Lens, depth, fit, and physics moved to the graph host",
+                        )
+                        .color(egui::Color32::from_rgb(160, 175, 190)),
+                    );
                 });
         });
 }

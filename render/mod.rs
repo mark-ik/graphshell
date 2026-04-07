@@ -1450,7 +1450,6 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
                             crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
                                 &VersoAddress::settings(GraphshellSettingsPath::Persistence)
                                     .to_string(),
-                                true,
                             );
                         }
                         if ui.button("Close").clicked() {
@@ -1528,7 +1527,6 @@ pub fn render_unsaved_frame_prompt(ctx: &egui::Context, app: &mut GraphBrowserAp
             if ui.button("Open Persistence Overlay").clicked() {
                 crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
                     &VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
-                    true,
                 );
             }
             ui.horizontal(|ui| {

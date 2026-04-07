@@ -244,7 +244,9 @@ impl WorkbenchSurfaceRegistry {
             ),
             WorkbenchLock::PreventClose => !matches!(
                 intent,
-                WorkbenchIntent::ClosePane { .. } | WorkbenchIntent::CloseToolPane { .. }
+                WorkbenchIntent::ClosePane { .. }
+                    | WorkbenchIntent::CloseToolPane { .. }
+                    | WorkbenchIntent::DismissNavigatorNode { .. }
             ),
             WorkbenchLock::FullLock => !matches!(
                 intent,
@@ -280,6 +282,10 @@ impl WorkbenchSurfaceRegistry {
                     | WorkbenchIntent::TransferSelectedNodesToGraphView { .. }
                     | WorkbenchIntent::ToggleOverviewPlane
                     | WorkbenchIntent::OpenNodeInPane { .. }
+                        | WorkbenchIntent::SelectNavigatorNode { .. }
+                        | WorkbenchIntent::ActivateNavigatorNode { .. }
+                        | WorkbenchIntent::DismissNavigatorNode { .. }
+                        | WorkbenchIntent::SwitchNavigatorNodeSurface { .. }
                     | WorkbenchIntent::RestorePaneToSemanticTabGroup { .. }
                     | WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { .. }
             ),
@@ -318,6 +324,15 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::ToggleCommandPalette => {
                 handle_toggle_command_palette_intent(graph_app, tiles_tree, &focus_handoff_policy);
+                None
+            }
+            WorkbenchIntent::SetWorkbenchOverlayVisible { visible } => {
+                handle_set_workbench_overlay_visible_intent(
+                    graph_app,
+                    tiles_tree,
+                    visible,
+                    &focus_handoff_policy,
+                );
                 None
             }
             WorkbenchIntent::CloseHelpPanel => {
@@ -382,6 +397,10 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::OpenToolPane { kind } => {
                 handle_open_tool_pane_intent(graph_app, tiles_tree, kind);
+                None
+            }
+            WorkbenchIntent::SetWorkbenchDisplayMode { mode } => {
+                graph_app.set_workbench_display_mode(mode);
                 None
             }
             WorkbenchIntent::SetWorkbenchPinned { pinned } => {
@@ -561,6 +580,42 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::OpenNodeInPane { node, pane } => {
                 handle_open_node_in_pane_intent(graph_app, tiles_tree, node, pane);
+                None
+            }
+            WorkbenchIntent::SelectNavigatorNode { node_key, row_key } => {
+                pane_ops::handle_select_navigator_node_intent(
+                    graph_app,
+                    tiles_tree,
+                    node_key,
+                    row_key,
+                );
+                None
+            }
+            WorkbenchIntent::ActivateNavigatorNode { node_key, row_key } => {
+                pane_ops::handle_activate_navigator_node_intent(
+                    graph_app,
+                    tiles_tree,
+                    node_key,
+                    row_key,
+                );
+                None
+            }
+            WorkbenchIntent::DismissNavigatorNode { node_key, row_key } => {
+                pane_ops::handle_dismiss_navigator_node_intent(
+                    graph_app,
+                    tiles_tree,
+                    node_key,
+                    row_key,
+                );
+                None
+            }
+            WorkbenchIntent::SwitchNavigatorNodeSurface { node_key, row_key } => {
+                pane_ops::handle_switch_navigator_node_surface_intent(
+                    graph_app,
+                    tiles_tree,
+                    node_key,
+                    row_key,
+                );
                 None
             }
             WorkbenchIntent::SetPanePresentationMode { pane, mode } => {
@@ -862,6 +917,27 @@ fn handle_close_command_palette_intent(
     }
 }
 
+fn handle_set_workbench_overlay_visible_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    visible: bool,
+    focus_handoff: &FocusHandoffPolicy,
+) {
+    if visible {
+        if !graph_app.workbench_overlay_visible() {
+            maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
+        }
+        graph_app.open_workbench_overlay();
+    } else if graph_app.workbench_overlay_visible() {
+        graph_app.close_workbench_overlay();
+        let _ = restore_tool_surface_focus_or_ensure_active_tile(
+            graph_app,
+            tiles_tree,
+            focus_handoff,
+        );
+    }
+}
+
 fn handle_open_tool_pane_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
@@ -965,6 +1041,14 @@ fn handle_open_settings_url_intent(
     url: String,
 ) -> Option<WorkbenchIntent> {
     route_ops::handle_open_settings_url_intent(graph_app, tiles_tree, url)
+}
+
+pub(crate) fn settings_url_targets_overlay(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    url: &str,
+) -> bool {
+    route_ops::settings_url_targets_overlay(graph_app, tiles_tree, url)
 }
 
 fn handle_open_frame_url_intent(
@@ -1120,9 +1204,8 @@ pub(crate) fn handle_requested_settings_route(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     url: String,
-    prefer_overlay: bool,
 ) -> Option<WorkbenchIntent> {
-    route_ops::handle_requested_settings_route(graph_app, tiles_tree, url, prefer_overlay)
+    route_ops::handle_requested_settings_route(graph_app, tiles_tree, url)
 }
 
 fn emit_open_decision(path: UxOpenDecisionPath, reason: UxOpenDecisionReason) {
@@ -1145,7 +1228,7 @@ mod tests {
     #[cfg(feature = "diagnostics")]
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::workbench::pane_model::{
-        GraphPaneRef, NodePaneState, PaneId, SplitDirection,
+        GraphPaneRef, NodePaneState, PaneId, SplitDirection, ToolPaneRef, ToolPaneState,
     };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use crate::util::VersoAddress;
@@ -1474,6 +1557,162 @@ mod tests {
                 && edge.from == group_key
                 && edge.to == view_member_key
         }));
+    }
+
+    #[test]
+    fn select_navigator_node_intent_selects_node_and_fits_offscreen_graph_view() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let node_key = app.add_node_and_sync(
+            "https://example.com/offscreen-select".to_string(),
+            Point2D::new(400.0, 400.0),
+        );
+        app.workspace.graph_runtime.graph_view_canvas_rects.insert(
+            graph_view,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let mut tree = Tree::new("navigator_select_intent", graph, tiles);
+
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            WorkbenchIntent::SelectNavigatorNode {
+                node_key,
+                row_key: Some("node:test".to_string()),
+            },
+        );
+
+        assert!(app.focused_selection().contains(&node_key));
+        assert!(app
+            .navigator_projection_state()
+            .selected_rows
+            .contains("node:test"));
+        assert_eq!(
+            app.pending_camera_command(),
+            Some(crate::app::CameraCommand::FitSelection)
+        );
+        assert_eq!(app.pending_camera_command_target(), Some(graph_view));
+    }
+
+    #[test]
+    fn activate_navigator_node_intent_focuses_existing_node_pane() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let node_key = app.add_node_and_sync(
+            "https://example.com/live-node".to_string(),
+            Point2D::new(40.0, 40.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+        let root = tiles.insert_tab_tile(vec![graph, node]);
+        let mut tree = Tree::new("navigator_activate_intent", root, tiles);
+        let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            WorkbenchIntent::ActivateNavigatorNode {
+                node_key,
+                row_key: Some("node:live".to_string()),
+            },
+        );
+
+        assert!(app.focused_selection().contains(&node_key));
+        assert_eq!(
+            tree.active_tiles()
+                .into_iter()
+                .filter_map(|tile_id| tree.tiles.get(tile_id))
+                .find_map(|tile| match tile {
+                    Tile::Pane(TileKind::Node(state)) => Some(state.node),
+                    _ => None,
+                }),
+            Some(node_key)
+        );
+    }
+
+    #[test]
+    fn dismiss_navigator_node_intent_closes_live_tile_and_demotes_node() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://example.com/dismiss-me".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+        let mut tree = Tree::new("navigator_dismiss_intent", node, tiles);
+
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            WorkbenchIntent::DismissNavigatorNode {
+                node_key,
+                row_key: Some("node:dismiss".to_string()),
+            },
+        );
+
+        assert!(tree
+            .tiles
+            .iter()
+            .all(|(_, tile)| !matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)));
+        assert!(app
+            .domain_graph()
+            .get_node(node_key)
+            .is_some_and(|node| node.lifecycle == crate::graph::NodeLifecycle::Cold));
+    }
+
+    #[test]
+    fn switch_navigator_node_surface_intent_focuses_graph_from_tool_pane() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+        let node_key = app.add_node_and_sync(
+            "https://example.com/switch-surface".to_string(),
+            Point2D::new(320.0, 320.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let tool = tiles.insert_pane(TileKind::Tool(ToolPaneRef::new(ToolPaneState::FileTree)));
+        let root = tiles.insert_tab_tile(vec![graph, tool]);
+        let mut tree = Tree::new("navigator_switch_surface_intent", root, tiles);
+        let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_))));
+
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            WorkbenchIntent::SwitchNavigatorNodeSurface {
+                node_key,
+                row_key: Some("node:switch".to_string()),
+            },
+        );
+
+        assert!(app.focused_selection().contains(&node_key));
+        assert_eq!(
+            tree.active_tiles()
+                .into_iter()
+                .filter_map(|tile_id| tree.tiles.get(tile_id))
+                .find_map(|tile| match tile {
+                    Tile::Pane(TileKind::Graph(graph_ref)) => Some(graph_ref.graph_view_id),
+                    _ => None,
+                }),
+            Some(graph_view)
+        );
+        assert_eq!(
+            app.pending_camera_command(),
+            Some(crate::app::CameraCommand::FitSelection)
+        );
     }
 
     #[cfg(feature = "diagnostics")]

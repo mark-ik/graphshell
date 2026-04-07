@@ -48,6 +48,9 @@ pub(crate) enum ShellWorkbenchCommand {
     OpenCommandPalette,
     CloseCommandPalette,
     ToggleCommandPalette,
+    OpenWorkbenchOverlay,
+    CloseWorkbenchOverlay,
+    ToggleWorkbenchOverlay,
     CloseHelpPanel,
     ToggleHelpPanel,
     CloseRadialMenu,
@@ -137,6 +140,9 @@ fn shell_workbench_command_label(command: ShellWorkbenchCommand) -> &'static str
         ShellWorkbenchCommand::OpenCommandPalette => "command_palette_open",
         ShellWorkbenchCommand::CloseCommandPalette => "command_palette_close",
         ShellWorkbenchCommand::ToggleCommandPalette => "command_palette",
+        ShellWorkbenchCommand::OpenWorkbenchOverlay => "workbench_overlay_open",
+        ShellWorkbenchCommand::CloseWorkbenchOverlay => "workbench_overlay_close",
+        ShellWorkbenchCommand::ToggleWorkbenchOverlay => "workbench_overlay",
         ShellWorkbenchCommand::CloseHelpPanel => "help_panel_close",
         ShellWorkbenchCommand::ToggleHelpPanel => "help_panel",
         ShellWorkbenchCommand::CloseRadialMenu => "radial_menu_close",
@@ -171,6 +177,15 @@ fn workbench_intent_for_command(command: ShellWorkbenchCommand) -> WorkbenchInte
         ShellWorkbenchCommand::OpenCommandPalette => WorkbenchIntent::OpenCommandPalette,
         ShellWorkbenchCommand::CloseCommandPalette => WorkbenchIntent::CloseCommandPalette,
         ShellWorkbenchCommand::ToggleCommandPalette => WorkbenchIntent::ToggleCommandPalette,
+        ShellWorkbenchCommand::OpenWorkbenchOverlay => {
+            WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true }
+        }
+        ShellWorkbenchCommand::CloseWorkbenchOverlay => {
+            WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false }
+        }
+        ShellWorkbenchCommand::ToggleWorkbenchOverlay => {
+            WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true }
+        }
         ShellWorkbenchCommand::CloseHelpPanel => WorkbenchIntent::CloseHelpPanel,
         ShellWorkbenchCommand::ToggleHelpPanel => WorkbenchIntent::ToggleHelpPanel,
         ShellWorkbenchCommand::CloseRadialMenu => WorkbenchIntent::CloseRadialMenu,
@@ -209,7 +224,16 @@ pub(crate) fn request_workbench_command(
         return false;
     }
 
-    graph_app.enqueue_workbench_intent(workbench_intent_for_command(command));
+    let intent = match command {
+        ShellWorkbenchCommand::ToggleWorkbenchOverlay => {
+            WorkbenchIntent::SetWorkbenchOverlayVisible {
+                visible: !graph_app.workbench_overlay_visible(),
+            }
+        }
+        _ => workbench_intent_for_command(command),
+    };
+
+    graph_app.enqueue_workbench_intent(intent);
     emit_command_surface_route_resolved(
         shell_workbench_command_label(command),
         if command_requires_focused_pane(command) {
@@ -256,6 +280,25 @@ pub(crate) fn request_help_panel_toggle(
         graph_app,
         ShellWorkbenchCommand::ToggleHelpPanel,
         command_bar_focus_target,
+    )
+}
+
+pub(crate) fn request_workbench_overlay_toggle(
+    graph_app: &mut GraphBrowserApp,
+    command_bar_focus_target: CommandBarFocusTarget,
+) -> bool {
+    request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::ToggleWorkbenchOverlay,
+        command_bar_focus_target,
+    )
+}
+
+pub(crate) fn request_workbench_overlay_close(graph_app: &mut GraphBrowserApp) -> bool {
+    request_workbench_command(
+        graph_app,
+        ShellWorkbenchCommand::CloseWorkbenchOverlay,
+        CommandBarFocusTarget::default(),
     )
 }
 
@@ -456,6 +499,62 @@ mod tests {
             requested_open_mode(true, true),
             Some(ToolbarOpenMode::SplitHorizontal)
         ));
+    }
+
+    #[test]
+    fn submit_address_bar_intents_opens_selected_tile_for_matching_omnibar_node_query() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.add_node_and_sync("https://example.com".into(), euclid::point2(0.0, 0.0));
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
+            node.title = "Example Handle".into();
+        }
+
+        let submit_result = submit_address_bar_intents(
+            &app,
+            "@example handle",
+            false,
+            CommandBarFocusTarget::default(),
+            false,
+            &window,
+            &prefs.searchpage,
+        );
+
+        assert!(submit_result.mark_clean);
+        assert!(matches!(submit_result.open_mode, Some(ToolbarOpenMode::Tab)));
+        assert!(submit_result.workbench_intents.is_empty());
+        assert!(submit_result.intents.iter().any(|intent| {
+            matches!(
+                intent,
+                GraphIntent::SelectNode {
+                    key: selected_key,
+                    multi_select: false
+                } if *selected_key == key
+            )
+        }));
+    }
+
+    #[test]
+    fn submit_address_bar_intents_keeps_omnibar_dirty_when_node_query_has_no_match() {
+        let prefs = AppPreferences::default();
+        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
+        let app = GraphBrowserApp::new_for_testing();
+
+        let submit_result = submit_address_bar_intents(
+            &app,
+            "@missing handle",
+            false,
+            CommandBarFocusTarget::default(),
+            false,
+            &window,
+            &prefs.searchpage,
+        );
+
+        assert!(!submit_result.mark_clean);
+        assert!(submit_result.open_mode.is_none());
+        assert!(submit_result.workbench_intents.is_empty());
+        assert!(submit_result.intents.is_empty());
     }
 
     #[test]
@@ -700,5 +799,36 @@ mod tests {
             )),
             "expected executed diagnostic; got: {emitted:?}"
         );
+    }
+
+    #[test]
+    fn workbench_overlay_toggle_enqueues_visible_true_when_closed() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        assert!(request_workbench_overlay_toggle(
+            &mut app,
+            CommandBarFocusTarget::new(None, None)
+        ));
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true }]
+        ));
+    }
+
+    #[test]
+    fn workbench_overlay_toggle_enqueues_visible_false_when_open() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_workbench_overlay_visible(true);
+
+        assert!(request_workbench_overlay_toggle(
+            &mut app,
+            CommandBarFocusTarget::new(None, None)
+        ));
+
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false }]
+        ));
     }
 }

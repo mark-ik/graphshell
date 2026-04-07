@@ -85,10 +85,22 @@ impl<'a> FocusRealizer<'a> {
                 self.realize_semantic_region_from_focus_authority(focus_authority);
                 None
             }
+            WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true } => {
+                self.open_workbench_overlay_from_authority(focus_authority);
+                None
+            }
+            WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false } => {
+                self.close_workbench_overlay_from_authority(focus_authority);
+                None
+            }
             WorkbenchIntent::OpenSettingsUrl { url } => {
                 if let Some(crate::app::SettingsRouteTarget::Settings(page)) =
                     GraphBrowserApp::resolve_settings_route(url)
-                    && !settings_tool_pane_exists(self.tiles_tree)
+                    && crate::shell::desktop::runtime::registries::workbench_surface::settings_url_targets_overlay(
+                        self.graph_app,
+                        self.tiles_tree,
+                        url,
+                    )
                 {
                     crate::shell::desktop::ui::gui::seed_transient_surface_return_target_from_authority(
                         focus_authority,
@@ -175,6 +187,33 @@ impl<'a> FocusRealizer<'a> {
             self.graph_app,
         );
         self.graph_app.open_radial_menu();
+        true
+    }
+
+    fn open_workbench_overlay_from_authority(
+        &mut self,
+        focus_authority: &RuntimeFocusAuthorityState,
+    ) -> bool {
+        crate::shell::desktop::ui::gui::seed_tool_surface_return_target_from_authority(
+            focus_authority,
+            self.graph_app,
+        );
+        self.graph_app.open_workbench_overlay();
+        self.realize_semantic_region_from_focus_authority(focus_authority);
+        true
+    }
+
+    fn close_workbench_overlay_from_authority(
+        &mut self,
+        focus_authority: &RuntimeFocusAuthorityState,
+    ) -> bool {
+        crate::shell::desktop::ui::gui::seed_tool_surface_return_target_from_authority(
+            focus_authority,
+            self.graph_app,
+        );
+        self.graph_app.close_workbench_overlay();
+        let target = self.graph_app.take_pending_tool_surface_return_target();
+        let _ = self.restore_focus_target_or_ensure_active_tile(target, true);
         true
     }
 
@@ -441,13 +480,4 @@ impl<'a> FocusRealizer<'a> {
             });
         }
     }
-}
-
-fn settings_tool_pane_exists(tiles_tree: &Tree<TileKind>) -> bool {
-    tiles_tree.tiles.iter().any(|(_, tile)| {
-        matches!(
-            tile,
-            egui_tiles::Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Settings
-        )
-    })
 }

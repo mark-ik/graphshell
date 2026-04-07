@@ -154,6 +154,8 @@ pub use routing::{SettingsRouteTarget, ToolSurfaceReturnTarget};
 
 #[path = "app/workspace_routing.rs"]
 mod workspace_routing;
+#[allow(unused_imports)]
+pub use workspace_routing::ViewGraphletPartition;
 
 #[path = "app/workbench_commands.rs"]
 mod workbench_commands;
@@ -198,8 +200,8 @@ mod startup_persistence;
 #[path = "app/settings_persistence.rs"]
 mod settings_persistence;
 pub use settings_persistence::{
-    DefaultWebViewerBackend, SettingsToolPage, ThemeMode, WorkspaceUserStylesheetSetting,
-    WryRenderModePreference,
+    DefaultWebViewerBackend, NavigatorSidebarSidePreference, SettingsToolPage, ThemeMode,
+    WorkspaceUserStylesheetSetting, WryRenderModePreference,
 };
 
 #[path = "app/workbench_layout_policy.rs"]
@@ -319,6 +321,10 @@ impl GraphBrowserApp {
         "workspace:settings-webview-preview-active-refresh-secs";
     pub const SETTINGS_WEBVIEW_PREVIEW_WARM_REFRESH_SECS_NAME: &'static str =
         "workspace:settings-webview-preview-warm-refresh-secs";
+    pub const SETTINGS_NAVIGATOR_SIDEBAR_SIDE_NAME: &'static str =
+        "workspace:settings-navigator-sidebar-side";
+    pub const SETTINGS_WORKBENCH_DISPLAY_MODE_NAME: &'static str =
+        "workspace:settings-workbench-display-mode";
     pub const SETTINGS_WORKBENCH_HOST_PINNED_NAME: &'static str =
         "workspace:settings-workbench-host-pinned";
     pub const SETTINGS_WORKBENCH_PROFILE_STATE_NAME: &'static str =
@@ -503,6 +509,7 @@ impl GraphBrowserApp {
                     context_palette_anchor: None,
                     show_radial_menu: false,
                     show_clip_inspector: false,
+                    show_workbench_overlay: false,
                     toast_anchor_preference: ToastAnchorPreference::BottomRight,
                     command_palette_shortcut: CommandPaletteShortcut::F2,
                     help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
@@ -528,6 +535,9 @@ impl GraphBrowserApp {
                         Self::DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS,
                     webview_preview_warm_refresh_secs:
                         Self::DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS,
+                    navigator_sidebar_side_preference:
+                        settings_persistence::NavigatorSidebarSidePreference::Left,
+                    workbench_display_mode: WorkbenchDisplayMode::Split,
                     workbench_host_pinned: false,
                     form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
                         .is_some(),
@@ -672,6 +682,7 @@ impl GraphBrowserApp {
                     context_palette_anchor: None,
                     show_radial_menu: false,
                     show_clip_inspector: false,
+                    show_workbench_overlay: false,
                     toast_anchor_preference: ToastAnchorPreference::BottomRight,
                     command_palette_shortcut: CommandPaletteShortcut::F2,
                     help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
@@ -697,6 +708,9 @@ impl GraphBrowserApp {
                         Self::DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS,
                     webview_preview_warm_refresh_secs:
                         Self::DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS,
+                    navigator_sidebar_side_preference:
+                        settings_persistence::NavigatorSidebarSidePreference::Left,
+                    workbench_display_mode: WorkbenchDisplayMode::Split,
                     workbench_host_pinned: false,
                     form_draft_capture_enabled: false,
                     default_registry_lens_id: None,
@@ -973,6 +987,55 @@ impl GraphBrowserApp {
             .retain(|row| !expanded_rows.contains(row));
     }
 
+    fn navigator_structural_row_keys(&self) -> HashSet<String> {
+        let projection = self.navigator_section_projection();
+        let mut rows = HashSet::new();
+
+        if projection.shows_saved_views_section() {
+            rows.insert("section:saved_views".to_string());
+        }
+
+        if projection.shows_workbench_section() {
+            rows.insert("section:workbench".to_string());
+            for group in &projection.workbench_groups {
+                rows.insert(format!("group:workbench:{}", group.id));
+            }
+        }
+
+        if projection.shows_containment_sections() {
+            rows.insert("section:folders".to_string());
+            for folder in projection.folder_sections.keys() {
+                rows.insert(format!("group:folder:{folder}"));
+            }
+
+            rows.insert("section:domain".to_string());
+            for domain in projection.domain_sections.keys() {
+                rows.insert(format!("group:domain:{domain}"));
+            }
+        }
+
+        if projection.shows_semantic_section() {
+            rows.insert("section:semantic".to_string());
+            for group in &projection.semantic_groups {
+                rows.insert(format!("group:semantic:{}", group.title));
+            }
+        }
+
+        if projection.shows_unrelated_section() {
+            rows.insert("section:unrelated".to_string());
+        }
+
+        if projection.shows_recent_section() {
+            rows.insert("section:recent".to_string());
+        }
+
+        if projection.shows_all_nodes_section() {
+            rows.insert("section:all_nodes".to_string());
+        }
+
+        rows
+    }
+
     pub fn rebuild_navigator_projection_rows(&mut self) {
         use NavigatorProjectionSeedSource as Source;
 
@@ -1113,11 +1176,19 @@ impl GraphBrowserApp {
             }
         }
 
-        let valid_rows: HashSet<String> = row_targets.keys().cloned().collect();
         self.workspace
             .graph_runtime
             .navigator_projection_state
             .row_targets = row_targets;
+        let mut valid_rows: HashSet<String> = self
+            .workspace
+            .graph_runtime
+            .navigator_projection_state
+            .row_targets
+            .keys()
+            .cloned()
+            .collect();
+        valid_rows.extend(self.navigator_structural_row_keys());
         self.workspace
             .graph_runtime
             .navigator_projection_state

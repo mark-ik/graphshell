@@ -2541,6 +2541,73 @@ fn prime_focus_authority_for_tool_pane_applies_focus_command_first() {
 }
 
 #[test]
+fn prime_focus_authority_for_workbench_overlay_applies_tool_focus_first() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let tree = Tree::new("prime_workbench_overlay_focus_authority", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    super::prime_runtime_focus_authority_for_workbench_intent(
+        &mut focus_authority,
+        &mut app,
+        &tree,
+        &WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true },
+    );
+
+    assert_eq!(
+        focus_authority.semantic_region,
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { pane_id: None })
+    );
+    assert_eq!(
+        focus_authority.tool_surface_return_target,
+        Some(ToolSurfaceReturnTarget::Graph(graph_view))
+    );
+}
+
+#[test]
+fn prime_focus_authority_for_workbench_overlay_prefers_last_non_graph_pane() {
+    let graph_view = GraphViewId::new();
+    let node_key = NodeKey::new(422);
+    let node_tile = node_pane(node_key);
+    let node_pane_id = match &node_tile {
+        TileKind::Node(state) => state.pane_id,
+        _ => unreachable!("expected node pane"),
+    };
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(node_tile);
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let tree = Tree::new("prime_workbench_overlay_non_graph_focus_authority", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    focus_authority.last_non_graph_pane_activation = Some(node_pane_id);
+
+    super::prime_runtime_focus_authority_for_workbench_intent(
+        &mut focus_authority,
+        &mut app,
+        &tree,
+        &WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true },
+    );
+
+    assert_eq!(
+        focus_authority.semantic_region,
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
+            pane_id: Some(node_pane_id),
+            node_key: Some(node_key),
+        })
+    );
+    assert_eq!(
+        focus_authority.tool_surface_return_target,
+        Some(ToolSurfaceReturnTarget::Graph(graph_view))
+    );
+}
+
+#[test]
 fn prime_focus_authority_for_diagnostics_tool_pane_captures_graph_return_target() {
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
@@ -2610,6 +2677,50 @@ fn authority_realizer_closes_tool_pane_and_restores_graph_focus() {
             )
         }),
         "authority realizer should restore graph focus after closing the settings tool pane"
+    );
+}
+
+#[test]
+fn authority_realizer_closes_workbench_overlay_and_restores_graph_focus() {
+    let graph_view = GraphViewId::new();
+    let node_key = NodeKey::new(401);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let node = tiles.insert_pane(node_pane(node_key));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("authority_realizer_close_workbench_overlay", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut focus_authority =
+        crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
+
+    app.set_workbench_overlay_visible(true);
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+    );
+    focus_authority.tool_surface_return_target = Some(ToolSurfaceReturnTarget::Graph(graph_view));
+    focus_authority.semantic_region = Some(
+        crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { pane_id: None },
+    );
+
+    let mut intents = vec![WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false }];
+    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        false,
+        Some(&mut focus_authority),
+    );
+
+    assert!(intents.is_empty());
+    assert!(!app.workbench_overlay_visible());
+    assert!(
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
+            )
+        }),
+        "overlay close should restore graph focus"
     );
 }
 

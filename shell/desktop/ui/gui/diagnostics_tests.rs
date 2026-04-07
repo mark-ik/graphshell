@@ -149,14 +149,22 @@ fn graph_surface_focus_state_noop_does_not_emit_ux_navigation_transition() {
 fn hosted_settings_route_request_emits_open_decision_and_opens_tool_pane() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
-    let graph_view = GraphViewId::new();
-    app.ensure_graph_view_registered(graph_view);
+    let primary_graph_view = GraphViewId::new();
+    let secondary_graph_view = GraphViewId::new();
+    app.ensure_graph_view_registered(primary_graph_view);
+    app.ensure_graph_view_registered(secondary_graph_view);
     let mut tiles = egui_tiles::Tiles::default();
-    let root = tiles.insert_pane(
+    let primary_graph = tiles.insert_pane(
         TileKind::Graph(crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(
-            graph_view,
+            primary_graph_view,
         )),
     );
+    let secondary_graph = tiles.insert_pane(
+        TileKind::Graph(crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(
+            secondary_graph_view,
+        )),
+    );
+    let root = tiles.insert_tab_tile(vec![primary_graph, secondary_graph]);
     let mut tree = egui_tiles::Tree::new("hosted_settings_route_request", root, tiles);
 
     apply_requested_settings_route_update(
@@ -164,7 +172,6 @@ fn hosted_settings_route_request_emits_open_decision_and_opens_tool_pane() {
         &mut tree,
         crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
             .to_string(),
-        false,
     );
 
     assert!(!app.workspace.chrome_ui.show_settings_overlay);
@@ -196,7 +203,7 @@ fn unresolved_settings_route_request_falls_back_to_open_settings_intent() {
     let mut tree = egui_tiles::Tree::new("unresolved_settings_route_request", root, tiles);
     let unresolved_url = "verso://settings/not-a-real-route".to_string();
 
-    apply_requested_settings_route_update(&mut app, &mut tree, unresolved_url.clone(), false);
+    apply_requested_settings_route_update(&mut app, &mut tree, unresolved_url.clone());
 
     let pending = app.take_pending_workbench_intents();
     assert!(matches!(

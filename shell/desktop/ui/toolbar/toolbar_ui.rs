@@ -706,7 +706,7 @@ fn render_command_bar_left_column(
 }
 
 /// Renders the right column of the command bar. Contains only Shell-owned
-/// controls: Settings and More menus.
+/// controls: Settings menu.
 ///
 /// Removed per prototype conformance target (2026-04-06):
 ///   Viewer navigation (Back/Forward/Reload/Zoom) → keyboard bindings,
@@ -720,7 +720,6 @@ fn render_command_bar_right_column(
     command_bar_focus_target: CommandBarFocusTarget,
     is_graph_view: bool,
     location_dirty: &mut bool,
-    show_clear_data_confirm: &mut bool,
     frame_intents: &mut Vec<GraphIntent>,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
@@ -733,7 +732,6 @@ fn render_command_bar_right_column(
         command_bar_focus_target,
         is_graph_view,
         location_dirty,
-        show_clear_data_confirm,
         frame_intents,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
@@ -759,7 +757,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         location_dirty,
         location_submitted,
         focus_location_field_for_search,
-        show_clear_data_confirm,
+        show_clear_data_confirm: _show_clear_data_confirm,
         omnibar_search_session,
         frame_intents,
         #[cfg(feature = "diagnostics")]
@@ -833,7 +831,6 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                         command_bar_focus_target,
                         is_graph_view,
                         location_dirty,
-                        show_clear_data_confirm,
                         frame_intents,
                         #[cfg(feature = "diagnostics")]
                         diagnostics_state,

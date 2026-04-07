@@ -19,6 +19,7 @@ use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::caches::RuntimeCaches;
 
 use super::AppCommand;
+use super::settings_persistence::NavigatorSidebarSidePreference;
 use super::{
     Camera, ClipInspectorState, CommandPaletteShortcut, ContextCommandSurfacePreference,
     EdgeProjectionState, GraphReaderState, GraphSearchHistoryEntry, GraphSearchOrigin,
@@ -28,7 +29,8 @@ use super::{
     RadialMenuShortcut, RendererId, RuntimeBlockState, RuntimeFrameTabSemantics, SearchDisplayMode,
     SelectionEdgeProjectionOverride, SelectionScope, SelectionState, SettingsToolPage,
     SurfaceHostId, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, UxConfigMode,
-    ViewDimension, WorkbenchIntent, WorkbenchLayoutConstraint, WorkbenchProfile,
+    ViewDimension, WorkbenchDisplayMode, WorkbenchIntent, WorkbenchLayoutConstraint,
+    WorkbenchProfile,
     WorkspaceUserStylesheetSetting,
 };
 use crate::graph::GraphletKind;
@@ -590,6 +592,9 @@ pub struct ChromeUiState {
     /// Whether the web clip inspector surface is open.
     pub show_clip_inspector: bool,
 
+    /// Whether the transient workbench overlay is open over the graph surface.
+    pub show_workbench_overlay: bool,
+
     /// Preferred toast anchor location.
     pub toast_anchor_preference: ToastAnchorPreference,
 
@@ -655,6 +660,12 @@ pub struct ChromeUiState {
 
     /// Snapshot refresh cadence in seconds for warm webview previews.
     pub webview_preview_warm_refresh_secs: u64,
+
+    /// Preferred side for the default desktop workbench-scoped Navigator sidebar.
+    pub navigator_sidebar_side_preference: NavigatorSidebarSidePreference,
+
+    /// Preferred presentation mode for the workbench surface.
+    pub workbench_display_mode: WorkbenchDisplayMode,
 
     /// Whether the default workbench host stays visible even without hosted panes.
     pub workbench_host_pinned: bool,

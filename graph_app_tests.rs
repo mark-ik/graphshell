@@ -1,4 +1,5 @@
 use super::*;
+use super::NavigatorSidebarSidePreference;
 use crate::util::NoteAddress;
 use euclid::default::Point2D;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -4091,6 +4092,27 @@ fn test_file_tree_projection_rebuild_prunes_stale_selection_and_expansion_rows()
 }
 
 #[test]
+fn test_file_tree_projection_rebuild_preserves_structural_expansion_rows() {
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    app.set_navigator_expanded_rows([
+        "section:workbench".to_string(),
+        "section:unrelated".to_string(),
+    ]);
+
+    app.apply_reducer_intents([GraphIntent::RebuildNavigatorProjection]);
+
+    assert!(app
+        .navigator_projection_state()
+        .expanded_rows
+        .contains("section:workbench"));
+    assert!(app
+        .navigator_projection_state()
+        .expanded_rows
+        .contains("section:unrelated"));
+}
+
+#[test]
 fn test_file_tree_projection_rebuild_populates_containment_rows_from_file_urls() {
     let mut app = GraphBrowserApp::new_for_testing();
     app.workspace
@@ -5483,6 +5505,39 @@ fn test_workbench_host_pin_persists_across_restart() {
 
     let reopened = GraphBrowserApp::new_from_dir(path);
     assert!(reopened.workbench_host_pinned());
+}
+
+#[test]
+fn test_workbench_display_mode_persists_across_restart() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().to_path_buf();
+
+    let mut app = GraphBrowserApp::new_from_dir(path.clone());
+    app.set_workbench_display_mode(WorkbenchDisplayMode::Dedicated);
+    drop(app);
+
+    let reopened = GraphBrowserApp::new_from_dir(path);
+    assert_eq!(reopened.workbench_display_mode(), WorkbenchDisplayMode::Dedicated);
+}
+
+#[test]
+fn test_navigator_sidebar_side_preference_persists_across_restart() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().to_path_buf();
+
+    let mut app = GraphBrowserApp::new_from_dir(path.clone());
+    app.set_navigator_sidebar_side_preference(NavigatorSidebarSidePreference::Right);
+    drop(app);
+
+    let reopened = GraphBrowserApp::new_from_dir(path);
+    assert_eq!(
+        reopened.navigator_sidebar_side_preference(),
+        NavigatorSidebarSidePreference::Right
+    );
+    assert_eq!(
+        reopened.preferred_default_navigator_surface_host(),
+        SurfaceHostId::Navigator(super::workbench_layout_policy::NavigatorHostId::Right)
+    );
 }
 
 #[test]

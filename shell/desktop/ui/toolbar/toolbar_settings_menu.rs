@@ -13,7 +13,6 @@ use crate::util::{GraphshellSettingsPath, VersoAddress};
 fn open_settings_page(
     _graph_app: &mut GraphBrowserApp,
     page: SettingsToolPage,
-    prefer_overlay: bool,
 ) {
     let path = match page {
         SettingsToolPage::General => GraphshellSettingsPath::General,
@@ -27,7 +26,6 @@ fn open_settings_page(
 
     crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
         &VersoAddress::settings(path).to_string(),
-        prefer_overlay,
     );
 }
 
@@ -101,31 +99,31 @@ pub(super) fn render_settings_menu(
             ui.separator();
             ui.label("Settings Pages");
             if ui.button("Open Settings").clicked() {
-                open_settings_page(graph_app, SettingsToolPage::General, prefer_overlay);
+                open_settings_page(graph_app, SettingsToolPage::General);
                 ui.close();
             }
             if ui.button("Open Persistence").clicked() {
-                open_settings_page(graph_app, SettingsToolPage::Persistence, prefer_overlay);
+                open_settings_page(graph_app, SettingsToolPage::Persistence);
                 ui.close();
             }
             if ui.button("Open Appearance & Viewer").clicked() {
-                open_settings_page(graph_app, SettingsToolPage::Appearance, prefer_overlay);
+                open_settings_page(graph_app, SettingsToolPage::Appearance);
                 ui.close();
             }
             if ui.button("Open Input & Commands").clicked() {
-                open_settings_page(graph_app, SettingsToolPage::Keybindings, prefer_overlay);
+                open_settings_page(graph_app, SettingsToolPage::Keybindings);
                 ui.close();
             }
             if ui.button("Open Physics").clicked() {
-                open_settings_page(graph_app, SettingsToolPage::Physics, prefer_overlay);
+                open_settings_page(graph_app, SettingsToolPage::Physics);
                 ui.close();
             }
             if ui.button("Open Sync").clicked() {
-                open_settings_page(graph_app, SettingsToolPage::Sync, prefer_overlay);
+                open_settings_page(graph_app, SettingsToolPage::Sync);
                 ui.close();
             }
             if ui.button("Open Advanced").clicked() {
-                open_settings_page(graph_app, SettingsToolPage::Advanced, prefer_overlay);
+                open_settings_page(graph_app, SettingsToolPage::Advanced);
                 ui.close();
             }
 

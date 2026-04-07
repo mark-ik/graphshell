@@ -55,6 +55,7 @@ pub(super) fn toolbar_location_input_id(active_toolbar_pane: Option<PaneId>) -> 
 #[derive(Clone, Default)]
 pub(crate) struct RuntimeFocusAuthorityState {
     pub(super) pane_activation: Option<PaneId>,
+    pub(super) last_non_graph_pane_activation: Option<PaneId>,
     pub(super) semantic_region: Option<SemanticRegionFocus>,
     pub(super) local_widget_focus: Option<LocalFocusTarget>,
     pub(super) embedded_content_focus: Option<EmbeddedContentTarget>,

@@ -35,6 +35,8 @@ pub struct KeyboardActions {
     pub toggle_help_panel: bool,
     pub toggle_command_palette: bool,
     pub toggle_radial_menu: bool,
+    pub toggle_workbench_overlay: bool,
+    pub close_workbench_overlay: bool,
     pub toggle_semantic_tab_group: bool,
     pub create_node: bool,
     pub connect_selected_pair: bool,
@@ -84,6 +86,7 @@ fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool
                         crate::shell::desktop::runtime::registries::input::NamedKey::F2 => Key::F2,
                         crate::shell::desktop::runtime::registries::input::NamedKey::F3 => Key::F3,
                         crate::shell::desktop::runtime::registries::input::NamedKey::F6 => Key::F6,
+                        crate::shell::desktop::runtime::registries::input::NamedKey::F7 => Key::F7,
                         crate::shell::desktop::runtime::registries::input::NamedKey::F9 => Key::F9,
                         crate::shell::desktop::runtime::registries::input::NamedKey::Home => {
                             Key::Home
@@ -168,6 +171,8 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             }
             if graph_app.graph_view_layout_manager_active() {
                 actions.close_overview_plane = true;
+            } else if graph_app.workbench_overlay_visible() {
+                actions.close_workbench_overlay = true;
             }
         }
 
@@ -302,6 +307,13 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
         if action_binding_pressed(i, action_id::graph::RADIAL_MENU_OPEN, &binding_descriptors) {
             actions.toggle_radial_menu = true;
         }
+        if action_binding_pressed(
+            i,
+            action_id::workbench::TOGGLE_WORKBENCH_OVERLAY,
+            &binding_descriptors,
+        ) {
+            actions.toggle_workbench_overlay = true;
+        }
 
         if action_binding_pressed(i, action_id::graph::NODE_DELETE, &binding_descriptors) {
             actions.delete_selected = true;
@@ -429,6 +441,12 @@ pub fn workbench_intents_from_actions(actions: &KeyboardActions) -> Vec<Workbenc
     if actions.toggle_radial_menu {
         intents.push(WorkbenchIntent::ToggleRadialMenu);
     }
+    if actions.toggle_workbench_overlay {
+        intents.push(WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true });
+    }
+    if actions.close_workbench_overlay {
+        intents.push(WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false });
+    }
     if actions.toggle_history_manager {
         intents.push(WorkbenchIntent::OpenToolPane {
             kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager,
@@ -444,7 +462,6 @@ pub fn dispatch_runtime_requests_from_actions(actions: &KeyboardActions) {
     if actions.open_physics_settings || actions.open_camera_controls {
         crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
             &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-            true,
         );
     }
 }
@@ -619,13 +636,12 @@ mod tests {
                 if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
                         crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
                             url,
-                            prefer_overlay,
                         },
                     ) = &signal.kind
                     {
                         seen.lock()
                             .expect("observer lock poisoned")
-                            .push((url.clone(), *prefer_overlay));
+                            .push(url.clone());
                     }
                 Ok(())
             },
@@ -643,10 +659,7 @@ mod tests {
                 .iter()
                 .any(|route| {
                     route
-                        == &(
-                            VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-                            true,
-                        )
+                        == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
                 })
         );
         assert!(crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
@@ -668,13 +681,12 @@ mod tests {
                 if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
                         crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::SettingsRouteRequested {
                             url,
-                            prefer_overlay,
                         },
                     ) = &signal.kind
                     {
                         seen.lock()
                             .expect("observer lock poisoned")
-                            .push((url.clone(), *prefer_overlay));
+                            .push(url.clone());
                     }
                 Ok(())
             },
@@ -692,10 +704,7 @@ mod tests {
                 .iter()
                 .any(|route| {
                     route
-                        == &(
-                            VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-                            true,
-                        )
+                        == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
                 })
         );
         assert!(crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
@@ -740,6 +749,34 @@ mod tests {
             intents
                 .iter()
                 .any(|i| matches!(i, WorkbenchIntent::ToggleRadialMenu))
+        );
+    }
+
+    #[test]
+    fn test_toggle_workbench_overlay_action() {
+        let intents = workbench_intents_from_actions(&KeyboardActions {
+            toggle_workbench_overlay: true,
+            ..Default::default()
+        });
+        assert!(
+            intents.iter().any(|i| matches!(
+                i,
+                WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true }
+            ))
+        );
+    }
+
+    #[test]
+    fn test_close_workbench_overlay_action() {
+        let intents = workbench_intents_from_actions(&KeyboardActions {
+            close_workbench_overlay: true,
+            ..Default::default()
+        });
+        assert!(
+            intents.iter().any(|i| matches!(
+                i,
+                WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false }
+            ))
         );
     }
 
@@ -1238,7 +1275,20 @@ mod tests {
             collect_actions_with_key_event_for_app(&app, Key::Escape, Modifiers::default(), false);
 
         assert!(!actions.close_overview_plane);
+        assert!(!actions.close_workbench_overlay);
         assert!(!actions.toggle_view);
+    }
+
+    #[test]
+    fn collect_actions_maps_escape_to_close_workbench_overlay_when_visible() {
+        let mut app = test_app();
+        app.set_workbench_overlay_visible(true);
+
+        let actions =
+            collect_actions_with_key_event_for_app(&app, Key::Escape, Modifiers::default(), false);
+
+        assert!(actions.close_workbench_overlay);
+        assert!(!actions.close_overview_plane);
     }
 
     #[test]

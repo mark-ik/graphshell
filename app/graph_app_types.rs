@@ -370,11 +370,26 @@ impl_display_from_str!(OmnibarNonAtOrderPreset {
     OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal => "provider-contextual-global",
 });
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WorkbenchDisplayMode {
+    #[default]
+    Split,
+    Dedicated,
+}
+
+impl_display_from_str!(WorkbenchDisplayMode {
+    WorkbenchDisplayMode::Split => "split",
+    WorkbenchDisplayMode::Dedicated => "dedicated",
+});
+
 #[derive(Debug, Clone)]
 pub enum WorkbenchIntent {
     OpenCommandPalette,
     CloseCommandPalette,
     ToggleCommandPalette,
+    SetWorkbenchOverlayVisible {
+        visible: bool,
+    },
     CloseHelpPanel,
     ToggleHelpPanel,
     CloseRadialMenu,
@@ -391,6 +406,9 @@ pub enum WorkbenchIntent {
     GroupSelectedTiles,
     OpenToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+    },
+    SetWorkbenchDisplayMode {
+        mode: WorkbenchDisplayMode,
     },
     SetWorkbenchPinned {
         pinned: bool,
@@ -535,6 +553,22 @@ pub enum WorkbenchIntent {
     OpenNodeInPane {
         node: NodeKey,
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
+    },
+    SelectNavigatorNode {
+        node_key: NodeKey,
+        row_key: Option<String>,
+    },
+    ActivateNavigatorNode {
+        node_key: NodeKey,
+        row_key: Option<String>,
+    },
+    DismissNavigatorNode {
+        node_key: NodeKey,
+        row_key: Option<String>,
+    },
+    SwitchNavigatorNodeSurface {
+        node_key: NodeKey,
+        row_key: Option<String>,
     },
     SetPanePresentationMode {
         pane: crate::shell::desktop::workbench::pane_model::PaneId,

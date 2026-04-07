@@ -19,7 +19,7 @@ use crate::shell::desktop::runtime::registries::signal_routing::{
 pub(crate) struct GuiFrameInbox {
     semantic_index_updates: FrameSignalRelay<usize>,
     workbench_projection_refreshes: FrameSignalRelay<()>,
-    settings_route_requests: FrameSignalRelay<(String, bool)>,
+    settings_route_requests: FrameSignalRelay<String>,
     profile_invalidations: FrameSignalRelay<()>,
 }
 
@@ -55,11 +55,8 @@ impl GuiFrameInbox {
                             RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. } => {
                                 let _ = workbench_projection_refreshes_tx.send(());
                             }
-                            RegistryEventSignal::SettingsRouteRequested {
-                                url,
-                                prefer_overlay,
-                            } => {
-                                let _ = settings_route_requests_tx.send((url, prefer_overlay));
+                            RegistryEventSignal::SettingsRouteRequested { url } => {
+                                let _ = settings_route_requests_tx.send(url);
                             }
                             RegistryEventSignal::ThemeChanged { .. }
                             | RegistryEventSignal::LensChanged { .. }
@@ -86,7 +83,7 @@ impl GuiFrameInbox {
     pub(crate) fn new(
         semantic_index_updates: Receiver<usize>,
         workbench_projection_refreshes: Receiver<()>,
-        settings_route_requests: Receiver<(String, bool)>,
+        settings_route_requests: Receiver<String>,
         profile_invalidations: Receiver<()>,
     ) -> Self {
         Self {
@@ -105,7 +102,7 @@ impl GuiFrameInbox {
         self.workbench_projection_refreshes.drain_flag()
     }
 
-    pub(crate) fn take_settings_routes(&self) -> Vec<(String, bool)> {
+    pub(crate) fn take_settings_routes(&self) -> Vec<String> {
         self.settings_route_requests.drain_all()
     }
 
@@ -182,17 +179,17 @@ mod tests {
         drop(projection_tx);
         drop(profile_tx);
         settings_tx
-            .send(("verso://settings/appearance".to_string(), true))
+            .send("verso://settings/appearance".to_string())
             .expect("settings route");
         settings_tx
-            .send(("verso://settings/search".to_string(), false))
+            .send("verso://settings/search".to_string())
             .expect("settings route");
 
         assert_eq!(
             inbox.take_settings_routes(),
             vec![
-                ("verso://settings/appearance".to_string(), true),
-                ("verso://settings/search".to_string(), false),
+                "verso://settings/appearance".to_string(),
+                "verso://settings/search".to_string(),
             ]
         );
         assert!(inbox.take_settings_routes().is_empty());

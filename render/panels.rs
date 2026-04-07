@@ -10,7 +10,8 @@ use uuid::Uuid;
 use crate::app::{
     ClipInspectorFilter, ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent,
     HistoryCaptureStatus, HistoryManagerTab, KeyboardPanInputMode, OmnibarNonAtOrderPreset,
-    OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference, ViewAction, WorkbenchIntent,
+    NavigatorSidebarSidePreference, OmnibarPreferredScope, SettingsToolPage,
+    ToastAnchorPreference, ViewAction, WorkbenchIntent,
     clip_capture_matches_filter, clip_capture_matches_query,
 };
 use crate::graph::{ArrangementSubKind, NodeKey, format_imported_at_secs};
@@ -148,6 +149,445 @@ fn navigator_node_row_key(app: &GraphBrowserApp, node_key: NodeKey) -> Option<St
             _ => None,
         })
         .min()
+}
+
+fn navigator_saved_view_row_key(
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+) -> Option<String> {
+    app.navigator_projection_state()
+        .row_targets
+        .iter()
+        .filter_map(|(row_key, target)| match target {
+            crate::app::NavigatorProjectionTarget::SavedView(existing) if *existing == view_id => {
+                Some(row_key.clone())
+            }
+            _ => None,
+        })
+        .min()
+}
+
+fn navigator_saved_view_title(app: &GraphBrowserApp, view_id: crate::app::GraphViewId) -> String {
+    app.workspace
+        .graph_runtime
+        .views
+        .get(&view_id)
+        .map(|view| view.name.trim())
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("Saved View {}", &view_id.as_uuid().to_string()[..8]))
+}
+
+fn navigator_saved_view_label(app: &GraphBrowserApp, view_id: crate::app::GraphViewId) -> String {
+    let mut label = navigator_saved_view_title(app, view_id);
+    if app.workspace.graph_runtime.focused_view == Some(view_id) {
+        label.push_str(" [active]");
+    }
+    label
+}
+
+fn navigator_section_row_key(section_id: &str) -> String {
+    format!("section:{section_id}")
+}
+
+fn navigator_group_row_key(group_kind: &str, group_id: &str) -> String {
+    format!("group:{group_kind}:{group_id}")
+}
+
+fn navigator_node_label(app: &GraphBrowserApp, node_key: NodeKey) -> String {
+    let badge = match app.domain_graph().get_node(node_key).map(|node| node.lifecycle) {
+        Some(crate::graph::NodeLifecycle::Cold) => "○",
+        Some(crate::graph::NodeLifecycle::Warm | crate::graph::NodeLifecycle::Active) => "●",
+        _ => "?",
+    };
+    format!("{badge} {}", navigator_node_title(app, node_key))
+}
+
+fn enqueue_navigator_node_row_intent(
+    app: &mut GraphBrowserApp,
+    node_key: NodeKey,
+    row_key: Option<String>,
+    activate: bool,
+) {
+    app.enqueue_workbench_intent(if activate {
+        WorkbenchIntent::ActivateNavigatorNode { node_key, row_key }
+    } else {
+        WorkbenchIntent::SelectNavigatorNode { node_key, row_key }
+    });
+}
+
+fn select_navigator_non_node_row(intents: &mut Vec<GraphIntent>, row_key: Option<String>) {
+    if let Some(row_key) = row_key {
+        intents.push(ViewAction::SetNavigatorSelectedRows { rows: vec![row_key] }.into());
+    }
+}
+
+fn activate_navigator_saved_view_row(
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    row_key: Option<String>,
+    intents: &mut Vec<GraphIntent>,
+) {
+    select_navigator_non_node_row(intents, row_key);
+    app.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane {
+        view_id,
+        mode: crate::app::PendingTileOpenMode::Tab,
+    });
+}
+
+fn toggle_navigator_structural_row(
+    intents: &mut Vec<GraphIntent>,
+    expanded_rows: &std::collections::HashSet<String>,
+    row_key: &str,
+) {
+    let mut next_rows = expanded_rows.clone();
+    if !next_rows.insert(row_key.to_string()) {
+        next_rows.remove(row_key);
+    }
+    intents.push(
+        ViewAction::SetNavigatorExpandedRows {
+            rows: next_rows.into_iter().collect(),
+        }
+        .into(),
+    );
+}
+
+fn render_navigator_structural_row(
+    ui: &mut Ui,
+    label: &str,
+    row_key: &str,
+    expanded_rows: &std::collections::HashSet<String>,
+    intents: &mut Vec<GraphIntent>,
+) -> bool {
+    let expanded = expanded_rows.contains(row_key);
+    let glyph = if expanded { "▼" } else { "▶" };
+    let response = ui.selectable_label(false, format!("{glyph} {label}"));
+    if response.clicked() {
+        toggle_navigator_structural_row(intents, expanded_rows, row_key);
+    }
+    expanded
+}
+
+fn render_navigator_node_row(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    node_key: NodeKey,
+    selected_rows_current: &std::collections::HashSet<String>,
+    _intents: &mut Vec<GraphIntent>,
+    label_override: Option<String>,
+) {
+    let row_key = navigator_node_row_key(app, node_key);
+    let is_selected = row_key
+        .as_ref()
+        .is_some_and(|row| selected_rows_current.contains(row));
+    let label = label_override.unwrap_or_else(|| navigator_node_label(app, node_key));
+    let response = ui.selectable_label(is_selected, label);
+    if response.double_clicked() {
+        enqueue_navigator_node_row_intent(app, node_key, row_key, true);
+    } else if response.clicked() {
+        enqueue_navigator_node_row_intent(app, node_key, row_key, false);
+    }
+}
+
+fn render_navigator_saved_view_row(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    selected_rows_current: &std::collections::HashSet<String>,
+    intents: &mut Vec<GraphIntent>,
+) {
+    let row_key = navigator_saved_view_row_key(app, view_id);
+    let is_selected = row_key
+        .as_ref()
+        .is_some_and(|row| selected_rows_current.contains(row));
+    let response = ui.selectable_label(is_selected, navigator_saved_view_label(app, view_id));
+    if response.double_clicked() {
+        activate_navigator_saved_view_row(app, view_id, row_key, intents);
+    } else if response.clicked() {
+        select_navigator_non_node_row(intents, row_key);
+    }
+}
+
+fn set_navigator_structural_row_expanded(
+    intents: &mut Vec<GraphIntent>,
+    expanded_rows: &std::collections::HashSet<String>,
+    row_key: &str,
+    expanded: bool,
+) {
+    let mut next_rows = expanded_rows.clone();
+    let changed = if expanded {
+        next_rows.insert(row_key.to_string())
+    } else {
+        next_rows.remove(row_key)
+    };
+    if changed {
+        intents.push(
+            ViewAction::SetNavigatorExpandedRows {
+                rows: next_rows.into_iter().collect(),
+            }
+            .into(),
+        );
+    }
+}
+
+fn collect_navigator_visible_row_keys(
+    app: &GraphBrowserApp,
+    expanded_rows: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    let projection = app.navigator_section_projection();
+    let mut rows = Vec::new();
+
+    if projection.shows_saved_views_section() {
+        let section_row_key = navigator_section_row_key("saved_views");
+        rows.push(section_row_key.clone());
+        if expanded_rows.contains(&section_row_key) {
+            for view_id in &projection.saved_views {
+                if let Some(row_key) = navigator_saved_view_row_key(app, *view_id) {
+                    rows.push(row_key);
+                }
+            }
+        }
+    }
+
+    if projection.shows_workbench_section() {
+        let section_row_key = navigator_section_row_key("workbench");
+        rows.push(section_row_key.clone());
+        if expanded_rows.contains(&section_row_key) {
+            for group in &projection.workbench_groups {
+                let group_row_key = navigator_group_row_key("workbench", &group.id);
+                rows.push(group_row_key.clone());
+                if expanded_rows.contains(&group_row_key) {
+                    for node_key in &group.member_keys {
+                        if let Some(row_key) = navigator_node_row_key(app, *node_key) {
+                            rows.push(row_key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if projection.shows_containment_sections() {
+        let section_row_key = navigator_section_row_key("folders");
+        rows.push(section_row_key.clone());
+        if expanded_rows.contains(&section_row_key) {
+            for (folder, node_keys) in &projection.folder_sections {
+                let group_row_key = navigator_group_row_key("folder", folder);
+                rows.push(group_row_key.clone());
+                if expanded_rows.contains(&group_row_key) {
+                    for node_key in node_keys {
+                        if let Some(row_key) = navigator_node_row_key(app, *node_key) {
+                            rows.push(row_key);
+                        }
+                    }
+                }
+            }
+        }
+
+        let section_row_key = navigator_section_row_key("domain");
+        rows.push(section_row_key.clone());
+        if expanded_rows.contains(&section_row_key) {
+            for (domain, node_keys) in &projection.domain_sections {
+                let group_row_key = navigator_group_row_key("domain", domain);
+                rows.push(group_row_key.clone());
+                if expanded_rows.contains(&group_row_key) {
+                    for node_key in node_keys {
+                        if let Some(row_key) = navigator_node_row_key(app, *node_key) {
+                            rows.push(row_key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if projection.shows_semantic_section() {
+        let section_row_key = navigator_section_row_key("semantic");
+        rows.push(section_row_key.clone());
+        if expanded_rows.contains(&section_row_key) {
+            for group in &projection.semantic_groups {
+                let group_row_key = navigator_group_row_key("semantic", &group.title);
+                rows.push(group_row_key.clone());
+                if expanded_rows.contains(&group_row_key) {
+                    for node_key in &group.member_keys {
+                        if let Some(row_key) = navigator_node_row_key(app, *node_key) {
+                            rows.push(row_key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if projection.shows_unrelated_section() {
+        let section_row_key = navigator_section_row_key("unrelated");
+        rows.push(section_row_key.clone());
+        if expanded_rows.contains(&section_row_key) {
+            for node_key in &projection.unrelated_nodes {
+                if let Some(row_key) = navigator_node_row_key(app, *node_key) {
+                    rows.push(row_key);
+                }
+            }
+        }
+    }
+
+    if projection.shows_recent_section() {
+        let section_row_key = navigator_section_row_key("recent");
+        rows.push(section_row_key.clone());
+        if expanded_rows.contains(&section_row_key) {
+            for (node_key, _) in &projection.recent_nodes {
+                if let Some(row_key) = navigator_node_row_key(app, *node_key) {
+                    rows.push(row_key);
+                }
+            }
+        }
+    }
+
+    if projection.shows_all_nodes_section() {
+        let section_row_key = navigator_section_row_key("all_nodes");
+        rows.push(section_row_key.clone());
+        if expanded_rows.contains(&section_row_key) {
+            for node_key in &projection.all_nodes {
+                if let Some(row_key) = navigator_node_row_key(app, *node_key) {
+                    rows.push(row_key);
+                }
+            }
+        }
+    }
+
+    rows
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NavigatorKeyboardAction {
+    MovePrevious,
+    MoveNext,
+    Collapse,
+    Expand,
+    Focus,
+    Activate,
+    Dismiss,
+}
+
+fn apply_navigator_keyboard_action(
+    action: NavigatorKeyboardAction,
+    app: &mut GraphBrowserApp,
+    expanded_rows: &std::collections::HashSet<String>,
+    selected_rows_current: &std::collections::HashSet<String>,
+    intents: &mut Vec<GraphIntent>,
+) {
+    let visible_rows = collect_navigator_visible_row_keys(app, expanded_rows);
+    if visible_rows.is_empty() {
+        return;
+    }
+
+    let selected_row = selected_rows_current
+        .iter()
+        .find(|row| visible_rows.contains(*row))
+        .cloned();
+
+    match action {
+        NavigatorKeyboardAction::MovePrevious | NavigatorKeyboardAction::MoveNext => {
+            let next_index = selected_row
+                .as_ref()
+                .and_then(|row| visible_rows.iter().position(|candidate| candidate == row))
+                .map(|index| match action {
+                    NavigatorKeyboardAction::MovePrevious => index.saturating_sub(1),
+                    NavigatorKeyboardAction::MoveNext => {
+                        (index + 1).min(visible_rows.len().saturating_sub(1))
+                    }
+                    _ => index,
+                })
+                .unwrap_or_else(|| {
+                    if action == NavigatorKeyboardAction::MovePrevious {
+                        visible_rows.len().saturating_sub(1)
+                    } else {
+                        0
+                    }
+                });
+            let row_key = visible_rows[next_index].clone();
+            match app.navigator_projection_state().row_targets.get(&row_key) {
+                Some(crate::app::NavigatorProjectionTarget::Node(node_key)) => {
+                    app.enqueue_workbench_intent(WorkbenchIntent::SelectNavigatorNode {
+                        node_key: *node_key,
+                        row_key: Some(row_key),
+                    });
+                }
+                _ => {
+                    intents.push(ViewAction::SetNavigatorSelectedRows { rows: vec![row_key] }.into());
+                }
+            }
+        }
+        NavigatorKeyboardAction::Collapse | NavigatorKeyboardAction::Expand => {
+            let Some(row_key) = selected_row else {
+                return;
+            };
+            if row_key.starts_with("section:") || row_key.starts_with("group:") {
+                set_navigator_structural_row_expanded(
+                    intents,
+                    expanded_rows,
+                    &row_key,
+                    action == NavigatorKeyboardAction::Expand,
+                );
+            }
+        }
+        NavigatorKeyboardAction::Focus => {
+            let Some(row_key) = selected_row else {
+                return;
+            };
+            match app.navigator_projection_state().row_targets.get(&row_key) {
+                Some(crate::app::NavigatorProjectionTarget::Node(node_key)) => {
+                    app.enqueue_workbench_intent(WorkbenchIntent::SelectNavigatorNode {
+                        node_key: *node_key,
+                        row_key: Some(row_key),
+                    });
+                }
+                Some(crate::app::NavigatorProjectionTarget::SavedView(view_id)) => {
+                    app.enqueue_workbench_intent(WorkbenchIntent::FocusGraphView { view_id: *view_id });
+                }
+                None => {}
+            }
+        }
+        NavigatorKeyboardAction::Activate => {
+            let Some(row_key) = selected_row else {
+                return;
+            };
+            match app.navigator_projection_state().row_targets.get(&row_key) {
+                Some(crate::app::NavigatorProjectionTarget::Node(node_key)) => {
+                    app.enqueue_workbench_intent(WorkbenchIntent::ActivateNavigatorNode {
+                        node_key: *node_key,
+                        row_key: Some(row_key),
+                    });
+                }
+                Some(crate::app::NavigatorProjectionTarget::SavedView(view_id)) => {
+                    app.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane {
+                        view_id: *view_id,
+                        mode: crate::app::PendingTileOpenMode::Tab,
+                    });
+                }
+                None => {}
+            }
+        }
+        NavigatorKeyboardAction::Dismiss => {
+            let Some(row_key) = selected_row else {
+                return;
+            };
+            if let Some(crate::app::NavigatorProjectionTarget::Node(node_key)) =
+                app.navigator_projection_state().row_targets.get(&row_key)
+            {
+                if app
+                    .domain_graph()
+                    .get_node(*node_key)
+                    .is_some_and(|node| node.lifecycle != crate::graph::NodeLifecycle::Cold)
+                {
+                    app.enqueue_workbench_intent(WorkbenchIntent::DismissNavigatorNode {
+                        node_key: *node_key,
+                        row_key: Some(row_key),
+                    });
+                }
+            }
+        }
+    }
 }
 
 fn containment_domain_from_row_key(row_key: &str) -> Option<&str> {
@@ -830,7 +1270,6 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
         if ui.button("Settings").clicked() {
             crate::shell::desktop::runtime::registries::phase3_publish_settings_route_requested(
                 &VersoAddress::settings(GraphshellSettingsPath::General).to_string(),
-                true,
             );
         }
         if ui.button("Done").clicked() {
@@ -1548,6 +1987,7 @@ fn history_manager_activity_chip(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn compositor_activity_for_history_manager_limits_recent_frames() {
@@ -1673,6 +2113,160 @@ mod tests {
                 mode: crate::app::ThreeDMode::Isometric,
                 z_source: crate::app::ZSource::BfsDepth { scale: 7.0 }
             }
+        ));
+    }
+
+    #[test]
+    fn navigator_node_single_click_selects_without_opening() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        enqueue_navigator_node_row_intent(
+            &mut app,
+            NodeKey::new(7),
+            Some("node:test".to_string()),
+            false,
+        );
+        let intents = app.take_pending_workbench_intents();
+
+        assert!(matches!(
+            intents.first(),
+            Some(WorkbenchIntent::SelectNavigatorNode { node_key, row_key })
+                if *node_key == NodeKey::new(7)
+                    && row_key.as_deref() == Some("node:test")
+        ));
+        assert_eq!(intents.len(), 1);
+    }
+
+    #[test]
+    fn navigator_node_double_click_selects_and_activates() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        enqueue_navigator_node_row_intent(
+            &mut app,
+            NodeKey::new(9),
+            Some("node:activate".to_string()),
+            true,
+        );
+        let intents = app.take_pending_workbench_intents();
+
+        assert!(matches!(
+            intents.last(),
+            Some(WorkbenchIntent::ActivateNavigatorNode { node_key, row_key })
+                if *node_key == NodeKey::new(9)
+                    && row_key.as_deref() == Some("node:activate")
+        ));
+    }
+
+    #[test]
+    fn navigator_saved_view_single_click_selects_without_opening() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = crate::app::GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_navigator_projection_seed_source(
+            crate::app::NavigatorProjectionSeedSource::SavedViewCollections,
+        );
+        let row_key = navigator_saved_view_row_key(&app, view_id).expect("saved view row key");
+        let mut intents = Vec::new();
+
+        select_navigator_non_node_row(&mut intents, Some(row_key.clone()));
+
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::SetNavigatorSelectedRows { rows }) if rows == &vec![row_key]
+        ));
+        assert!(app.take_pending_workbench_intents().is_empty());
+    }
+
+    #[test]
+    fn navigator_saved_view_double_click_selects_and_opens() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = crate::app::GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_navigator_projection_seed_source(
+            crate::app::NavigatorProjectionSeedSource::SavedViewCollections,
+        );
+        let row_key = navigator_saved_view_row_key(&app, view_id).expect("saved view row key");
+        let mut intents = Vec::new();
+
+        activate_navigator_saved_view_row(&mut app, view_id, Some(row_key.clone()), &mut intents);
+
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::SetNavigatorSelectedRows { rows }) if rows == &vec![row_key]
+        ));
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::OpenGraphViewPane { view_id: opened_view, mode }]
+                if *opened_view == view_id && *mode == crate::app::PendingTileOpenMode::Tab
+        ));
+    }
+
+    #[test]
+    fn navigator_keyboard_move_next_selects_first_saved_view_row() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = crate::app::GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_navigator_projection_seed_source(
+            crate::app::NavigatorProjectionSeedSource::SavedViewCollections,
+        );
+        let row_key = navigator_saved_view_row_key(&app, view_id).expect("saved view row key");
+        let mut intents = Vec::new();
+        let expanded_rows = HashSet::from([navigator_section_row_key("saved_views")]);
+        let selected_rows = HashSet::from([navigator_section_row_key("saved_views")]);
+
+        apply_navigator_keyboard_action(
+            NavigatorKeyboardAction::MoveNext,
+            &mut app,
+            &expanded_rows,
+            &selected_rows,
+            &mut intents,
+        );
+
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::SetNavigatorSelectedRows { rows }) if rows == &vec![row_key]
+        ));
+    }
+
+    #[test]
+    fn navigator_keyboard_activate_selected_saved_view_opens_view() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = crate::app::GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+        app.set_navigator_projection_seed_source(
+            crate::app::NavigatorProjectionSeedSource::SavedViewCollections,
+        );
+        let row_key = navigator_saved_view_row_key(&app, view_id).expect("saved view row key");
+        let mut intents = Vec::new();
+        let expanded_rows = HashSet::from([navigator_section_row_key("saved_views")]);
+        let selected_rows = HashSet::from([row_key]);
+
+        apply_navigator_keyboard_action(
+            NavigatorKeyboardAction::Activate,
+            &mut app,
+            &expanded_rows,
+            &selected_rows,
+            &mut intents,
+        );
+
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::OpenGraphViewPane { view_id: opened_view, mode }]
+                if *opened_view == view_id && *mode == crate::app::PendingTileOpenMode::Tab
+        ));
+    }
+
+    #[test]
+    fn toggling_navigator_structural_row_updates_expanded_rows() {
+        let mut intents = Vec::new();
+        let expanded_rows = HashSet::from(["section:workbench".to_string()]);
+
+        toggle_navigator_structural_row(&mut intents, &expanded_rows, "group:workbench:frame-1");
+
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::SetNavigatorExpandedRows { rows })
+                if rows.contains(&"section:workbench".to_string())
+                    && rows.contains(&"group:workbench:frame-1".to_string())
         ));
     }
 }
@@ -1839,6 +2433,7 @@ pub fn render_navigator_tool_pane_in_ui(
     }
 
     let selected_rows_current = app.navigator_projection_state().selected_rows.clone();
+    let expanded_rows_current = app.navigator_projection_state().expanded_rows.clone();
     let selected_row = selected_rows_current.iter().next().cloned();
     let selected_node_from_row = selected_row
         .as_ref()
@@ -1847,8 +2442,16 @@ pub fn render_navigator_tool_pane_in_ui(
             crate::app::NavigatorProjectionTarget::Node(node_key) => Some(*node_key),
             _ => None,
         });
+    let selected_saved_view_from_row = selected_row
+        .as_ref()
+        .and_then(|row| app.navigator_projection_state().row_targets.get(row))
+        .and_then(|target| match target {
+            crate::app::NavigatorProjectionTarget::SavedView(view_id) => Some(*view_id),
+            _ => None,
+        });
 
     let section_projection = app.navigator_section_projection();
+    let saved_views = &section_projection.saved_views;
     let groups = &section_projection.workbench_groups;
     let semantic_groups = &section_projection.semantic_groups;
     let folder_sections = &section_projection.folder_sections;
@@ -1858,7 +2461,8 @@ pub fn render_navigator_tool_pane_in_ui(
     let all_nodes = &section_projection.all_nodes;
 
     ui.label(format!(
-        "Sections: Workbench {}, Semantic {}, Folders {}, Domain {}, Unrelated {}, Recent {}, All Nodes {}",
+        "Sections: Saved Views {}, Workbench {}, Semantic {}, Folders {}, Domain {}, Unrelated {}, Recent {}, All Nodes {}",
+        saved_views.len(),
         groups.len(),
         semantic_groups.len(),
         folder_sections.len(),
@@ -1874,274 +2478,412 @@ pub fn render_navigator_tool_pane_in_ui(
         app.navigator_projection_state().expanded_rows.len(),
     ));
 
+    if !ui.ctx().wants_keyboard_input() {
+        ui.ctx().input(|input| {
+            if input.key_pressed(egui::Key::ArrowUp) {
+                apply_navigator_keyboard_action(
+                    NavigatorKeyboardAction::MovePrevious,
+                    app,
+                    &expanded_rows_current,
+                    &selected_rows_current,
+                    &mut intents,
+                );
+            }
+            if input.key_pressed(egui::Key::ArrowDown) {
+                apply_navigator_keyboard_action(
+                    NavigatorKeyboardAction::MoveNext,
+                    app,
+                    &expanded_rows_current,
+                    &selected_rows_current,
+                    &mut intents,
+                );
+            }
+            if input.key_pressed(egui::Key::ArrowLeft) {
+                apply_navigator_keyboard_action(
+                    NavigatorKeyboardAction::Collapse,
+                    app,
+                    &expanded_rows_current,
+                    &selected_rows_current,
+                    &mut intents,
+                );
+            }
+            if input.key_pressed(egui::Key::ArrowRight) {
+                apply_navigator_keyboard_action(
+                    NavigatorKeyboardAction::Expand,
+                    app,
+                    &expanded_rows_current,
+                    &selected_rows_current,
+                    &mut intents,
+                );
+            }
+            if input.key_pressed(egui::Key::Space) {
+                apply_navigator_keyboard_action(
+                    NavigatorKeyboardAction::Focus,
+                    app,
+                    &expanded_rows_current,
+                    &selected_rows_current,
+                    &mut intents,
+                );
+            }
+            if input.key_pressed(egui::Key::Enter) {
+                apply_navigator_keyboard_action(
+                    NavigatorKeyboardAction::Activate,
+                    app,
+                    &expanded_rows_current,
+                    &selected_rows_current,
+                    &mut intents,
+                );
+            }
+            if input.key_pressed(egui::Key::Delete) {
+                apply_navigator_keyboard_action(
+                    NavigatorKeyboardAction::Dismiss,
+                    app,
+                    &expanded_rows_current,
+                    &selected_rows_current,
+                    &mut intents,
+                );
+            }
+        });
+    }
+
     egui::ScrollArea::vertical()
         .max_height(260.0)
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            if section_projection.shows_saved_views_section() {
+                let section_row_key = navigator_section_row_key("saved_views");
+                if render_navigator_structural_row(
+                    ui,
+                    "Saved Views",
+                    &section_row_key,
+                    &expanded_rows_current,
+                    &mut intents,
+                ) {
+                    if saved_views.is_empty() {
+                        ui.small("No saved views registered.");
+                    } else {
+                        ui.indent(&section_row_key, |ui| {
+                            for view_id in saved_views {
+                                render_navigator_saved_view_row(
+                                    ui,
+                                    app,
+                                    *view_id,
+                                    &selected_rows_current,
+                                    &mut intents,
+                                );
+                            }
+                        });
+                    }
+                }
+            }
+
             if section_projection.shows_workbench_section() {
-                ui.collapsing("Workbench", |ui| {
+                let section_row_key = navigator_section_row_key("workbench");
+                if render_navigator_structural_row(
+                    ui,
+                    "Workbench",
+                    &section_row_key,
+                    &expanded_rows_current,
+                    &mut intents,
+                ) {
                     if groups.is_empty() {
                         ui.small("No arrangement groups.");
-                        return;
-                    }
-                    for group in groups {
-                        let header = match group.sub_kind {
-                            ArrangementSubKind::FrameMember => format!("Frame: {}", group.title),
-                            ArrangementSubKind::TileGroup => {
-                                format!("Tile Group: {}", group.title)
-                            }
-                            ArrangementSubKind::SplitPair => format!("Split Pair: {}", group.title),
-                        };
-                        let header_text =
-                            if matches!(group.sub_kind, ArrangementSubKind::FrameMember)
-                                && (app.selected_frame_name() == Some(group.title.as_str())
-                                    || app.current_frame_name() == Some(group.title.as_str()))
-                            {
-                                egui::RichText::new(header)
-                                    .small()
-                                    .strong()
-                                    .color(ui.visuals().selection.stroke.color)
-                            } else {
-                                egui::RichText::new(header)
-                            };
-                        ui.collapsing(header_text, |ui| {
-                            for node_key in &group.member_keys {
-                                let row_key = navigator_node_row_key(app, *node_key);
-                                let is_selected = row_key
-                                    .as_ref()
-                                    .is_some_and(|row| selected_rows_current.contains(row));
-                                let label = navigator_node_title(app, *node_key);
-                                let response = ui.selectable_label(is_selected, label);
-                                if response.clicked() {
-                                    if let Some(row) = row_key {
-                                        intents.push(
-                                            ViewAction::SetNavigatorSelectedRows {
-                                                rows: vec![row],
-                                            }
-                                            .into(),
-                                        );
+                    } else {
+                        ui.indent(&section_row_key, |ui| {
+                            for group in groups {
+                                let group_row_key =
+                                    navigator_group_row_key("workbench", &group.id);
+                                let header = match group.sub_kind {
+                                    ArrangementSubKind::FrameMember => {
+                                        format!("Frame: {}", group.title)
                                     }
-                                    intents.push(GraphIntent::OpenNodeFrameRouted {
-                                        key: *node_key,
-                                        prefer_frame: None,
+                                    ArrangementSubKind::TileGroup => {
+                                        format!("Tile Group: {}", group.title)
+                                    }
+                                    ArrangementSubKind::SplitPair => {
+                                        format!("Split Pair: {}", group.title)
+                                    }
+                                };
+                                let header_label = if matches!(
+                                    group.sub_kind,
+                                    ArrangementSubKind::FrameMember
+                                ) && (app.selected_frame_name() == Some(group.title.as_str())
+                                    || app.current_frame_name() == Some(group.title.as_str()))
+                                {
+                                    format!("{header} [active]")
+                                } else {
+                                    header
+                                };
+                                if render_navigator_structural_row(
+                                    ui,
+                                    &header_label,
+                                    &group_row_key,
+                                    &expanded_rows_current,
+                                    &mut intents,
+                                ) {
+                                    ui.indent(&group_row_key, |ui| {
+                                        for node_key in &group.member_keys {
+                                            render_navigator_node_row(
+                                                ui,
+                                                app,
+                                                *node_key,
+                                                &selected_rows_current,
+                                                &mut intents,
+                                                None,
+                                            );
+                                        }
                                     });
                                 }
                             }
                         });
                     }
-                });
+                }
             }
 
             if section_projection.shows_containment_sections() {
-                ui.collapsing("Folders", |ui| {
+                let section_row_key = navigator_section_row_key("folders");
+                if render_navigator_structural_row(
+                    ui,
+                    "Folders",
+                    &section_row_key,
+                    &expanded_rows_current,
+                    &mut intents,
+                ) {
                     if folder_sections.is_empty() {
                         ui.small("No containment folders.");
-                        return;
-                    }
-                    for (folder, node_keys) in folder_sections {
-                        ui.collapsing(file_tree_row_label(&format!("folder:{folder}")), |ui| {
-                            for node_key in node_keys {
-                                let row_key = navigator_node_row_key(app, *node_key);
-                                let is_selected = row_key
-                                    .as_ref()
-                                    .is_some_and(|row| selected_rows_current.contains(row));
-                                let response = ui.selectable_label(
-                                    is_selected,
-                                    navigator_node_title(app, *node_key),
-                                );
-                                if response.clicked() {
-                                    if let Some(row) = row_key {
-                                        intents.push(
-                                            ViewAction::SetNavigatorSelectedRows {
-                                                rows: vec![row],
-                                            }
-                                            .into(),
-                                        );
-                                    }
-                                    intents.push(GraphIntent::OpenNodeFrameRouted {
-                                        key: *node_key,
-                                        prefer_frame: None,
+                    } else {
+                        ui.indent(&section_row_key, |ui| {
+                            for (folder, node_keys) in folder_sections {
+                                let folder_row_key = navigator_group_row_key("folder", folder);
+                                if render_navigator_structural_row(
+                                    ui,
+                                    &file_tree_row_label(&format!("folder:{folder}")),
+                                    &folder_row_key,
+                                    &expanded_rows_current,
+                                    &mut intents,
+                                ) {
+                                    ui.indent(&folder_row_key, |ui| {
+                                        for node_key in node_keys {
+                                            render_navigator_node_row(
+                                                ui,
+                                                app,
+                                                *node_key,
+                                                &selected_rows_current,
+                                                &mut intents,
+                                                None,
+                                            );
+                                        }
                                     });
                                 }
                             }
                         });
                     }
-                });
+                }
             }
 
             if section_projection.shows_containment_sections() {
-                ui.collapsing("Domain", |ui| {
+                let section_row_key = navigator_section_row_key("domain");
+                if render_navigator_structural_row(
+                    ui,
+                    "Domain",
+                    &section_row_key,
+                    &expanded_rows_current,
+                    &mut intents,
+                ) {
                     if domain_sections.is_empty() {
                         ui.small("No domain containment rows.");
-                        return;
-                    }
-                    for (domain, node_keys) in domain_sections {
-                        ui.collapsing(file_tree_row_label(&format!("domain:{domain}")), |ui| {
-                            for node_key in node_keys {
-                                let row_key = navigator_node_row_key(app, *node_key);
-                                let is_selected = row_key
-                                    .as_ref()
-                                    .is_some_and(|row| selected_rows_current.contains(row));
-                                let response = ui.selectable_label(
-                                    is_selected,
-                                    navigator_node_title(app, *node_key),
-                                );
-                                if response.clicked() {
-                                    if let Some(row) = row_key {
-                                        intents.push(
-                                            ViewAction::SetNavigatorSelectedRows {
-                                                rows: vec![row],
-                                            }
-                                            .into(),
-                                        );
-                                    }
-                                    intents.push(GraphIntent::OpenNodeFrameRouted {
-                                        key: *node_key,
-                                        prefer_frame: None,
+                    } else {
+                        ui.indent(&section_row_key, |ui| {
+                            for (domain, node_keys) in domain_sections {
+                                let domain_row_key = navigator_group_row_key("domain", domain);
+                                if render_navigator_structural_row(
+                                    ui,
+                                    &file_tree_row_label(&format!("domain:{domain}")),
+                                    &domain_row_key,
+                                    &expanded_rows_current,
+                                    &mut intents,
+                                ) {
+                                    ui.indent(&domain_row_key, |ui| {
+                                        for node_key in node_keys {
+                                            render_navigator_node_row(
+                                                ui,
+                                                app,
+                                                *node_key,
+                                                &selected_rows_current,
+                                                &mut intents,
+                                                None,
+                                            );
+                                        }
                                     });
                                 }
                             }
                         });
                     }
-                });
+                }
             }
 
             if section_projection.shows_semantic_section() {
-                ui.collapsing("Semantic", |ui| {
+                let section_row_key = navigator_section_row_key("semantic");
+                if render_navigator_structural_row(
+                    ui,
+                    "Semantic",
+                    &section_row_key,
+                    &expanded_rows_current,
+                    &mut intents,
+                ) {
                     if semantic_groups.is_empty() {
                         ui.small("No semantic groups.");
-                        return;
-                    }
-                    for group in semantic_groups {
-                        ui.collapsing(format!("Group: {}", group.title), |ui| {
-                            for node_key in &group.member_keys {
-                                let row_key = navigator_node_row_key(app, *node_key);
-                                let is_selected = row_key
-                                    .as_ref()
-                                    .is_some_and(|row| selected_rows_current.contains(row));
-                                let response = ui.selectable_label(
-                                    is_selected,
-                                    navigator_node_title(app, *node_key),
-                                );
-                                if response.clicked() {
-                                    if let Some(row) = row_key {
-                                        intents.push(
-                                            ViewAction::SetNavigatorSelectedRows {
-                                                rows: vec![row],
-                                            }
-                                            .into(),
-                                        );
-                                    }
-                                    intents.push(GraphIntent::OpenNodeFrameRouted {
-                                        key: *node_key,
-                                        prefer_frame: None,
+                    } else {
+                        ui.indent(&section_row_key, |ui| {
+                            for group in semantic_groups {
+                                let semantic_row_key =
+                                    navigator_group_row_key("semantic", &group.title);
+                                if render_navigator_structural_row(
+                                    ui,
+                                    &format!("Group: {}", group.title),
+                                    &semantic_row_key,
+                                    &expanded_rows_current,
+                                    &mut intents,
+                                ) {
+                                    ui.indent(&semantic_row_key, |ui| {
+                                        for node_key in &group.member_keys {
+                                            render_navigator_node_row(
+                                                ui,
+                                                app,
+                                                *node_key,
+                                                &selected_rows_current,
+                                                &mut intents,
+                                                None,
+                                            );
+                                        }
                                     });
                                 }
                             }
                         });
                     }
-                });
+                }
             }
 
             if section_projection.shows_unrelated_section() {
-                ui.collapsing("Unrelated", |ui| {
+                let section_row_key = navigator_section_row_key("unrelated");
+                if render_navigator_structural_row(
+                    ui,
+                    "Unrelated",
+                    &section_row_key,
+                    &expanded_rows_current,
+                    &mut intents,
+                ) {
                     if unrelated_nodes.is_empty() {
                         ui.small("No unrelated nodes.");
-                        return;
-                    }
-                    for node_key in unrelated_nodes {
-                        let row_key = navigator_node_row_key(app, *node_key);
-                        let is_selected = row_key
-                            .as_ref()
-                            .is_some_and(|row| selected_rows_current.contains(row));
-                        let response =
-                            ui.selectable_label(is_selected, navigator_node_title(app, *node_key));
-                        if response.clicked() {
-                            if let Some(row) = row_key {
-                                intents.push(
-                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }.into(),
+                    } else {
+                        ui.indent(&section_row_key, |ui| {
+                            for node_key in unrelated_nodes {
+                                render_navigator_node_row(
+                                    ui,
+                                    app,
+                                    *node_key,
+                                    &selected_rows_current,
+                                    &mut intents,
+                                    None,
                                 );
                             }
-                            intents.push(GraphIntent::OpenNodeFrameRouted {
-                                key: *node_key,
-                                prefer_frame: None,
-                            });
-                        }
+                        });
                     }
-                });
+                }
             }
 
             if section_projection.shows_recent_section() {
-                ui.collapsing("Recent", |ui| {
+                let section_row_key = navigator_section_row_key("recent");
+                if render_navigator_structural_row(
+                    ui,
+                    "Recent",
+                    &section_row_key,
+                    &expanded_rows_current,
+                    &mut intents,
+                ) {
                     if recent_nodes.is_empty() {
                         ui.small("No traversal-derived recents.");
-                        return;
-                    }
-                    for (node_key, timestamp_ms) in recent_nodes {
-                        let row_key = navigator_node_row_key(app, *node_key);
-                        let is_selected = row_key
-                            .as_ref()
-                            .is_some_and(|row| selected_rows_current.contains(row));
-                        let label = format!(
-                            "{}  [{}]",
-                            navigator_node_title(app, *node_key),
-                            timestamp_ms
-                        );
-                        let response = ui.selectable_label(is_selected, label);
-                        if response.clicked() {
-                            if let Some(row) = row_key {
-                                intents.push(
-                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }.into(),
+                    } else {
+                        ui.indent(&section_row_key, |ui| {
+                            for (node_key, timestamp_ms) in recent_nodes {
+                                let label = format!(
+                                    "{}  [{}]",
+                                    navigator_node_label(app, *node_key),
+                                    timestamp_ms
+                                );
+                                render_navigator_node_row(
+                                    ui,
+                                    app,
+                                    *node_key,
+                                    &selected_rows_current,
+                                    &mut intents,
+                                    Some(label),
                                 );
                             }
-                            intents.push(GraphIntent::OpenNodeFrameRouted {
-                                key: *node_key,
-                                prefer_frame: None,
-                            });
-                        }
+                        });
                     }
-                });
+                }
             }
 
             if section_projection.shows_all_nodes_section() {
-                ui.collapsing("All Nodes", |ui| {
+                let section_row_key = navigator_section_row_key("all_nodes");
+                if render_navigator_structural_row(
+                    ui,
+                    "All Nodes",
+                    &section_row_key,
+                    &expanded_rows_current,
+                    &mut intents,
+                ) {
                     if all_nodes.is_empty() {
                         ui.small("No nodes in the graph.");
-                        return;
-                    }
-                    for node_key in all_nodes {
-                        let row_key = navigator_node_row_key(app, *node_key);
-                        let is_selected = row_key
-                            .as_ref()
-                            .is_some_and(|row| selected_rows_current.contains(row));
-                        let response =
-                            ui.selectable_label(is_selected, navigator_node_title(app, *node_key));
-                        if response.clicked() {
-                            if let Some(row) = row_key {
-                                intents.push(
-                                    ViewAction::SetNavigatorSelectedRows { rows: vec![row] }.into(),
+                    } else {
+                        ui.indent(&section_row_key, |ui| {
+                            for node_key in all_nodes {
+                                render_navigator_node_row(
+                                    ui,
+                                    app,
+                                    *node_key,
+                                    &selected_rows_current,
+                                    &mut intents,
+                                    None,
                                 );
                             }
-                            intents.push(GraphIntent::OpenNodeFrameRouted {
-                                key: *node_key,
-                                prefer_frame: None,
-                            });
-                        }
+                        });
                     }
-                });
+                }
             }
         });
 
     if let Some(selected_node) = selected_node_from_row {
+        let selected_row_key = selected_row.clone();
+        let can_dismiss_selected_node = app
+            .domain_graph()
+            .get_node(selected_node)
+            .is_some_and(|node| node.lifecycle != crate::graph::NodeLifecycle::Cold);
         ui.horizontal(|ui| {
             ui.label(format!(
                 "Selected node: {}",
                 navigator_node_title(app, selected_node)
             ));
-            if ui.button("Open Selected").clicked() {
-                intents.push(GraphIntent::OpenNodeFrameRouted {
-                    key: selected_node,
-                    prefer_frame: None,
+            if ui.button("Activate").clicked() {
+                app.enqueue_workbench_intent(WorkbenchIntent::ActivateNavigatorNode {
+                    node_key: selected_node,
+                    row_key: selected_row_key.clone(),
+                });
+            }
+            if ui
+                .add_enabled(can_dismiss_selected_node, egui::Button::new("Dismiss"))
+                .clicked()
+            {
+                app.enqueue_workbench_intent(WorkbenchIntent::DismissNavigatorNode {
+                    node_key: selected_node,
+                    row_key: selected_row_key.clone(),
+                });
+            }
+            if ui.button("Switch Surface").clicked() {
+                app.enqueue_workbench_intent(WorkbenchIntent::SwitchNavigatorNodeSurface {
+                    node_key: selected_node,
+                    row_key: selected_row_key.clone(),
                 });
             }
         });
@@ -2177,6 +2919,32 @@ pub fn render_navigator_tool_pane_in_ui(
                 });
             }
         }
+    }
+
+    if selected_node_from_row.is_none()
+        && let Some(selected_view) = selected_saved_view_from_row
+    {
+        let selected_row_key = selected_row.clone();
+        ui.horizontal(|ui| {
+            ui.label(format!(
+                "Selected saved view: {}",
+                navigator_saved_view_title(app, selected_view)
+            ));
+            if ui.button("Focus").clicked() {
+                app.enqueue_workbench_intent(WorkbenchIntent::FocusGraphView {
+                    view_id: selected_view,
+                });
+                select_navigator_non_node_row(&mut intents, selected_row_key.clone());
+            }
+            if ui.button("Open").clicked() {
+                activate_navigator_saved_view_row(
+                    app,
+                    selected_view,
+                    selected_row_key.clone(),
+                    &mut intents,
+                );
+            }
+        });
     }
 
     intents
@@ -2257,6 +3025,13 @@ fn omnibar_non_at_order_label(order: OmnibarNonAtOrderPreset) -> &'static str {
         OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal => {
             "Provider -> Contextual -> Global"
         }
+    }
+}
+
+fn navigator_sidebar_side_label(side: NavigatorSidebarSidePreference) -> &'static str {
+    match side {
+        NavigatorSidebarSidePreference::Left => "Left (Default)",
+        NavigatorSidebarSidePreference::Right => "Right",
     }
 }
 
@@ -2548,6 +3323,34 @@ fn render_settings_surface_in_ui_with_control_panel(
                                 "Dark theme is pinned regardless of OS preference."
                             }
                         },
+                    );
+
+                    ui.separator();
+                    ui.label("Workbench Host");
+                    ui.label(format!(
+                        "Default Navigator sidebar side: {}",
+                        navigator_sidebar_side_label(app.navigator_sidebar_side_preference())
+                    ));
+                    for side in [
+                        NavigatorSidebarSidePreference::Left,
+                        NavigatorSidebarSidePreference::Right,
+                    ] {
+                        if ui
+                            .selectable_label(
+                                app.navigator_sidebar_side_preference() == side,
+                                navigator_sidebar_side_label(side),
+                            )
+                            .clicked()
+                        {
+                            app.set_navigator_sidebar_side_preference(side);
+                        }
+                    }
+                    themed_secondary_small_label(
+                        ui,
+                        phase3_resolve_active_theme(app.default_registry_theme_id())
+                            .tokens
+                            .radial_chrome_text,
+                        "Controls which side the default desktop workbench-scoped Navigator host uses when no explicit layout constraint is active.",
                     );
 
                     ui.separator();

@@ -205,6 +205,7 @@ pub enum ActionId {
     GraphPhysicsConfig,
     GraphCommandPalette,
     GraphRadialMenu,
+    WorkbenchToggleOverlay,
     FrameSelect,
     FrameOpen,
     FrameOpenAsSplit,
@@ -252,6 +253,9 @@ impl ActionId {
             Self::GraphPhysicsConfig => &[input_action::workbench::OPEN_PHYSICS_SETTINGS],
             Self::GraphCommandPalette => &[input_action::graph::COMMAND_PALETTE_OPEN],
             Self::GraphRadialMenu => &[input_action::graph::RADIAL_MENU_OPEN],
+            Self::WorkbenchToggleOverlay => {
+                &[input_action::workbench::TOGGLE_WORKBENCH_OVERLAY]
+            }
             Self::PersistUndo => &[input_action::workbench::UNDO],
             Self::PersistRedo => &[input_action::workbench::REDO],
             Self::PersistOpenHistoryManager => &[input_action::workbench::OPEN_HISTORY_MANAGER],
@@ -306,6 +310,7 @@ impl ActionId {
             Self::GraphPhysicsConfig => "graph:physics_config",
             Self::GraphCommandPalette => "workbench:command_palette_open",
             Self::GraphRadialMenu => "workbench:radial_menu_open",
+            Self::WorkbenchToggleOverlay => "workbench:toggle_workbench_overlay",
             Self::FrameSelect => "frame:select",
             Self::FrameOpen => "frame:open",
             Self::FrameOpenAsSplit => "frame:open_as_split",
@@ -373,6 +378,7 @@ impl ActionId {
             Self::GraphPhysicsConfig => "Config",
             Self::GraphCommandPalette => "Cmd",
             Self::GraphRadialMenu => "Radial",
+            Self::WorkbenchToggleOverlay => "Workbench Ovl",
             Self::FrameSelect => "Select F",
             Self::FrameOpen => "Open F",
             Self::FrameOpenAsSplit => "Split F",
@@ -440,6 +446,7 @@ impl ActionId {
             Self::GraphPhysicsConfig => "Open Physics Settings",
             Self::GraphCommandPalette => "Open Command Palette",
             Self::GraphRadialMenu => "Open Radial Palette",
+            Self::WorkbenchToggleOverlay => "Toggle Workbench Overlay",
             Self::FrameSelect => "Select Frame",
             Self::FrameOpen => "Open Frame",
             Self::FrameOpenAsSplit => "Open Frame As Split",
@@ -507,6 +514,7 @@ impl ActionId {
             | Self::GraphPhysicsConfig
             | Self::GraphCommandPalette
             | Self::GraphRadialMenu
+            | Self::WorkbenchToggleOverlay
             | Self::FrameSelect
             | Self::FrameOpen
             | Self::FrameOpenAsSplit
@@ -593,6 +601,7 @@ fn all_action_ids() -> &'static [ActionId] {
         GraphPhysicsConfig,
         GraphCommandPalette,
         GraphRadialMenu,
+        WorkbenchToggleOverlay,
         FrameSelect,
         FrameOpen,
         FrameOpenAsSplit,
@@ -740,6 +749,7 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (GraphPhysicsConfig, true),
         (GraphCommandPalette, true),
         (GraphRadialMenu, true),
+        (WorkbenchToggleOverlay, true),
         (FrameSelect, frame_ops_enabled),
         (
             FrameOpen,
@@ -825,6 +835,7 @@ pub fn list_radial_actions_for_category(
         NodeUnpinSelected,
         NodeDetachToSplit,
         NodeNewAsTab,
+        WorkbenchToggleOverlay,
     ];
 
     let mut entries = list_actions_for_category(context, category);
@@ -1108,6 +1119,9 @@ mod tests {
                         | ActionId::FrameSuppressSplitOffer
                         | ActionId::FrameDelete
                         | ActionId::FrameEnableSplitOffer
+                        | ActionId::WorkbenchUnlockSurfaceLayout
+                        | ActionId::WorkbenchLockSurfaceLayout
+                        | ActionId::WorkbenchRememberLayoutPreference
                 )
         }) {
             assert!(entry.enabled, "{:?} should always be enabled", entry.id);
@@ -1272,6 +1286,20 @@ mod tests {
             assert!(entry.enabled);
             assert_eq!(action_id.category(), ActionCategory::Persistence);
         }
+    }
+
+    #[test]
+    fn test_workbench_overlay_action_is_listed_in_graph_bucket() {
+        let ctx = default_context();
+        let entries = list_actions_for_context(&ctx);
+
+        let entry = entries
+            .iter()
+            .find(|entry| entry.id == ActionId::WorkbenchToggleOverlay)
+            .unwrap_or_else(|| panic!("missing action entry for {:?}", ActionId::WorkbenchToggleOverlay));
+
+        assert!(entry.enabled);
+        assert_eq!(ActionId::WorkbenchToggleOverlay.category(), ActionCategory::Graph);
     }
 
     #[test]

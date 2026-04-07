@@ -47,6 +47,18 @@ impl_display_from_str!(WryRenderModePreference {
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NavigatorSidebarSidePreference {
+    #[default]
+    Left,
+    Right,
+}
+
+impl_display_from_str!(NavigatorSidebarSidePreference {
+    NavigatorSidebarSidePreference::Left => "left",
+    NavigatorSidebarSidePreference::Right => "right",
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsToolPage {
     #[default]
     General,
@@ -95,6 +107,8 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_WORKSPACE_USER_STYLESHEETS_NAME
             || name == Self::SETTINGS_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS_NAME
             || name == Self::SETTINGS_WEBVIEW_PREVIEW_WARM_REFRESH_SECS_NAME
+            || name == Self::SETTINGS_NAVIGATOR_SIDEBAR_SIDE_NAME
+            || name == Self::SETTINGS_WORKBENCH_DISPLAY_MODE_NAME
             || name == Self::SETTINGS_WORKBENCH_HOST_PINNED_NAME
             || name == Self::SETTINGS_WORKBENCH_PROFILE_STATE_NAME
             || name == Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME
@@ -644,6 +658,36 @@ impl GraphBrowserApp {
         self.save_webview_preview_warm_refresh_secs();
     }
 
+    pub fn navigator_sidebar_side_preference(&self) -> NavigatorSidebarSidePreference {
+        self.workspace.chrome_ui.navigator_sidebar_side_preference
+    }
+
+    pub fn set_navigator_sidebar_side_preference(
+        &mut self,
+        preference: NavigatorSidebarSidePreference,
+    ) {
+        self.workspace.chrome_ui.navigator_sidebar_side_preference = preference;
+        self.save_navigator_sidebar_side_preference();
+    }
+
+    pub fn preferred_default_navigator_surface_host(&self) -> SurfaceHostId {
+        crate::app::workbench_layout_policy::navigator_surface_host_for_sidebar_side(
+            self.navigator_sidebar_side_preference(),
+        )
+    }
+
+    pub fn workbench_display_mode(&self) -> WorkbenchDisplayMode {
+        self.workspace.chrome_ui.workbench_display_mode
+    }
+
+    pub fn set_workbench_display_mode(&mut self, mode: WorkbenchDisplayMode) {
+        self.workspace.chrome_ui.workbench_display_mode = mode;
+        if matches!(mode, WorkbenchDisplayMode::Dedicated) {
+            self.workspace.chrome_ui.show_workbench_overlay = false;
+        }
+        self.save_workbench_display_mode();
+    }
+
     pub fn workbench_host_pinned(&self) -> bool {
         self.workspace.chrome_ui.workbench_host_pinned
     }
@@ -651,6 +695,17 @@ impl GraphBrowserApp {
     pub fn set_workbench_host_pinned(&mut self, pinned: bool) {
         self.workspace.chrome_ui.workbench_host_pinned = pinned;
         self.save_workbench_host_pinned();
+    }
+
+    pub fn workbench_overlay_visible(&self) -> bool {
+        self.workspace.chrome_ui.show_workbench_overlay
+    }
+
+    pub fn set_workbench_overlay_visible(&mut self, visible: bool) {
+        if visible && matches!(self.workbench_display_mode(), WorkbenchDisplayMode::Dedicated) {
+            return;
+        }
+        self.workspace.chrome_ui.show_workbench_overlay = visible;
     }
 
     pub fn chrome_overlay_active(&self) -> bool {
@@ -726,6 +781,24 @@ impl GraphBrowserApp {
                 .chrome_ui
                 .webview_preview_warm_refresh_secs
                 .to_string(),
+        );
+    }
+
+    fn save_navigator_sidebar_side_preference(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_NAVIGATOR_SIDEBAR_SIDE_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .navigator_sidebar_side_preference
+                .to_string(),
+        );
+    }
+
+    fn save_workbench_display_mode(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_WORKBENCH_DISPLAY_MODE_NAME,
+            &self.workspace.chrome_ui.workbench_display_mode.to_string(),
         );
     }
 
@@ -1035,6 +1108,14 @@ impl GraphBrowserApp {
             .and_then(|raw| raw.trim().parse::<u64>().ok())
             .map(|secs| secs.clamp(5, 3600))
             .unwrap_or(Self::DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS);
+        self.workspace.chrome_ui.navigator_sidebar_side_preference = self
+            .load_workspace_layout_json(Self::SETTINGS_NAVIGATOR_SIDEBAR_SIDE_NAME)
+            .and_then(|raw| raw.parse::<NavigatorSidebarSidePreference>().ok())
+            .unwrap_or_default();
+        self.workspace.chrome_ui.workbench_display_mode = self
+            .load_workspace_layout_json(Self::SETTINGS_WORKBENCH_DISPLAY_MODE_NAME)
+            .and_then(|raw| raw.parse::<WorkbenchDisplayMode>().ok())
+            .unwrap_or_default();
         if let Some(raw) =
             self.load_workspace_layout_json(Self::SETTINGS_WORKBENCH_HOST_PINNED_NAME)
         {

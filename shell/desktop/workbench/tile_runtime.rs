@@ -480,6 +480,57 @@ pub(crate) fn effective_viewer_id_for_node_pane(
     TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
 }
 
+pub(crate) fn candidate_viewer_ids_for_node_pane(
+    state: &NodePaneState,
+    graph_app: &GraphBrowserApp,
+) -> Vec<String> {
+    let Some(node) = graph_app.domain_graph().get_node(state.node) else {
+        return Vec::new();
+    };
+
+    let mut candidates = Vec::new();
+    let mut push_candidate = |viewer_id: &str| {
+        if crate::shell::desktop::runtime::registries::phase0_describe_viewer(viewer_id).is_some()
+            && !candidates.iter().any(|existing| existing == viewer_id)
+        {
+            candidates.push(viewer_id.to_string());
+        }
+    };
+
+    if let Some(effective_viewer_id) = TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
+    {
+        push_candidate(&effective_viewer_id);
+    }
+
+    let selected = crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
+        node.url(),
+        node.mime_hint.as_deref(),
+    );
+    push_candidate(selected.viewer_id);
+
+    let is_http_content = node.url().starts_with("http://") || node.url().starts_with("https://");
+    if is_http_content {
+        push_candidate("viewer:webview");
+        if cfg!(feature = "wry")
+            && graph_app.wry_enabled()
+            && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry")
+        {
+            push_candidate("viewer:wry");
+        }
+    }
+
+    candidates.sort_by(|left, right| viewer_candidate_sort_key(left).cmp(&viewer_candidate_sort_key(right)));
+    candidates
+}
+
+fn viewer_candidate_sort_key(viewer_id: &str) -> (u8, &str) {
+    match viewer_id {
+        "viewer:webview" => (0, viewer_id),
+        "viewer:wry" => (1, viewer_id),
+        _ => (2, viewer_id),
+    }
+}
+
 pub(crate) fn fallback_reason_for_node_pane(
     state: &NodePaneState,
     graph_app: &GraphBrowserApp,

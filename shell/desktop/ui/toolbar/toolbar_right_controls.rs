@@ -2,9 +2,8 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
-use egui::{WidgetInfo, WidgetType};
 
-/// Renders the right-side Shell-owned controls: Settings and More menus.
+/// Renders the right-side Shell-owned controls: Settings menu.
 ///
 /// Graph "Fit" was removed per prototype conformance target (2026-04-06);
 /// it remains accessible via keyboard binding and the action registry.
@@ -16,7 +15,6 @@ pub(super) fn render_toolbar_right_controls(
     command_bar_focus_target: CommandBarFocusTarget,
     is_graph_view: bool,
     location_dirty: &mut bool,
-    show_clear_data_confirm: &mut bool,
     frame_intents: &mut Vec<GraphIntent>,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
@@ -35,19 +33,5 @@ pub(super) fn render_toolbar_right_controls(
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
         );
-    });
-
-    // Authority: Shell — destructive application-level action.
-    ui.menu_button("More", |ui| {
-        let clear_data_button = ui.button("Clear graph and saved data");
-        clear_data_button.widget_info(|| {
-            let mut info = WidgetInfo::new(WidgetType::Button);
-            info.label = Some("Clear graph and saved data".into());
-            info
-        });
-        if clear_data_button.clicked() {
-            *show_clear_data_confirm = true;
-            ui.close();
-        }
     });
 }

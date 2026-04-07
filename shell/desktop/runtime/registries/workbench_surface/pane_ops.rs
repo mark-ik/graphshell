@@ -1,4 +1,5 @@
 use super::*;
+use crate::util::CoordBridge;
 
 pub(super) fn handle_open_tool_pane_intent(
     graph_app: &mut GraphBrowserApp,
@@ -149,6 +150,201 @@ pub(super) fn handle_dismiss_tile_intent(
             graph_app.demote_node_to_cold_with_cause(key, LifecycleCause::ExplicitClose);
         }
         tile_view_ops::ensure_active_tile(tiles_tree);
+    }
+}
+
+fn node_has_workbench_presentation(tiles_tree: &Tree<TileKind>, node_key: NodeKey) -> bool {
+    tiles_tree.tiles.iter().any(|(_, tile)| {
+        matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
+            || matches!(
+                tile,
+                Tile::Pane(TileKind::Pane(
+                    crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+                )) if state.node == node_key
+            )
+    })
+}
+
+fn focus_node_presentation(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) -> bool {
+    tiles_tree.make_active(|_, tile| {
+        matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
+            || matches!(
+                tile,
+                Tile::Pane(TileKind::Pane(
+                    crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+                )) if state.node == node_key
+            )
+    })
+}
+
+fn active_visible_graph_view_id(
+    tiles_tree: &Tree<TileKind>,
+) -> Option<crate::app::GraphViewId> {
+    tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
+        let tile = tiles_tree.tiles.get(tile_id)?;
+        match tile {
+            Tile::Pane(TileKind::Graph(graph_ref)) => Some(graph_ref.graph_view_id),
+            Tile::Pane(TileKind::Pane(
+                crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref),
+            )) => Some(graph_ref.graph_view_id),
+            _ => None,
+        }
+    })
+}
+
+fn graph_view_id_for_navigation(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<crate::app::GraphViewId> {
+    active_visible_graph_view_id(tiles_tree)
+        .or_else(|| {
+            tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+                Tile::Pane(TileKind::Graph(graph_ref)) => Some(graph_ref.graph_view_id),
+                Tile::Pane(TileKind::Pane(
+                    crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref),
+                )) => Some(graph_ref.graph_view_id),
+                _ => None,
+            })
+        })
+        .or(graph_app.workspace.graph_runtime.focused_view)
+        .or_else(|| graph_app.workspace.graph_runtime.views.keys().next().copied())
+}
+
+fn offscreen_visible_graph_view_for_node(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+    node_key: NodeKey,
+) -> Option<crate::app::GraphViewId> {
+    let view_id = active_visible_graph_view_id(tiles_tree)?;
+    let canvas_rect = graph_app
+        .workspace
+        .graph_runtime
+        .graph_view_canvas_rects
+        .get(&view_id)?;
+    let position = graph_app.domain_graph().node_projected_position(node_key)?;
+    (!canvas_rect.contains(position.to_pos2())).then_some(view_id)
+}
+
+fn pane_id_for_node(tiles_tree: &Tree<TileKind>, node_key: NodeKey) -> Option<PaneId> {
+    tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+        Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(state.pane_id),
+        Tile::Pane(TileKind::Pane(
+            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
+        )) if state.node == node_key => Some(state.pane_id),
+        _ => None,
+    })
+}
+
+fn set_navigator_row_selection(graph_app: &mut GraphBrowserApp, row_key: Option<String>) {
+    if let Some(row_key) = row_key {
+        graph_app.set_navigator_selected_rows([row_key]);
+    }
+}
+
+pub(super) fn handle_select_navigator_node_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    node_key: NodeKey,
+    row_key: Option<String>,
+) {
+    set_navigator_row_selection(graph_app, row_key);
+    graph_app.apply_reducer_intents([GraphIntent::SelectNode {
+        key: node_key,
+        multi_select: false,
+    }]);
+    if let Some(view_id) = offscreen_visible_graph_view_for_node(graph_app, tiles_tree, node_key) {
+        graph_app.request_camera_command_for_view(
+            Some(view_id),
+            crate::app::CameraCommand::FitSelection,
+        );
+    }
+}
+
+pub(super) fn handle_activate_navigator_node_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    node_key: NodeKey,
+    row_key: Option<String>,
+) {
+    set_navigator_row_selection(graph_app, row_key);
+    if !graph_app.focused_selection().contains(&node_key) {
+        graph_app.apply_reducer_intents([GraphIntent::SelectNode {
+            key: node_key,
+            multi_select: false,
+        }]);
+    }
+
+    if node_has_workbench_presentation(tiles_tree, node_key) {
+        let _ = focus_node_presentation(tiles_tree, node_key);
+        return;
+    }
+
+    let lifecycle = graph_app
+        .domain_graph()
+        .get_node(node_key)
+        .map(|node| node.lifecycle);
+    if lifecycle == Some(crate::graph::NodeLifecycle::Cold) {
+        tile_view_ops::open_node_with_graphlet_routing(tiles_tree, graph_app, node_key);
+        return;
+    }
+
+    if let Some(view_id) = graph_view_id_for_navigation(graph_app, tiles_tree) {
+        tile_view_ops::open_or_focus_graph_pane_with_mode(tiles_tree, view_id, TileOpenMode::Tab);
+        graph_app.request_camera_command_for_view(
+            Some(view_id),
+            crate::app::CameraCommand::FitSelection,
+        );
+    }
+}
+
+pub(super) fn handle_dismiss_navigator_node_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    node_key: NodeKey,
+    row_key: Option<String>,
+) {
+    set_navigator_row_selection(graph_app, row_key);
+    if let Some(pane) = pane_id_for_node(tiles_tree, node_key) {
+        handle_dismiss_tile_intent(graph_app, tiles_tree, pane);
+        return;
+    }
+
+    if graph_app
+        .domain_graph()
+        .get_node(node_key)
+        .is_some_and(|node| node.lifecycle != crate::graph::NodeLifecycle::Cold)
+    {
+        graph_app.demote_node_to_cold_with_cause(node_key, LifecycleCause::ExplicitClose);
+    }
+}
+
+pub(super) fn handle_switch_navigator_node_surface_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    node_key: NodeKey,
+    row_key: Option<String>,
+) {
+    set_navigator_row_selection(graph_app, row_key);
+    if !graph_app.focused_selection().contains(&node_key) {
+        graph_app.apply_reducer_intents([GraphIntent::SelectNode {
+            key: node_key,
+            multi_select: false,
+        }]);
+    }
+
+    if matches!(active_visible_graph_view_id(tiles_tree), Some(_)) {
+        handle_activate_navigator_node_intent(graph_app, tiles_tree, node_key, None);
+        return;
+    }
+
+    if let Some(view_id) = graph_view_id_for_navigation(graph_app, tiles_tree) {
+        tile_view_ops::open_or_focus_graph_pane_with_mode(tiles_tree, view_id, TileOpenMode::Tab);
+        graph_app.request_camera_command_for_view(
+            Some(view_id),
+            crate::app::CameraCommand::FitSelection,
+        );
+    } else {
+        handle_activate_navigator_node_intent(graph_app, tiles_tree, node_key, None);
     }
 }
 

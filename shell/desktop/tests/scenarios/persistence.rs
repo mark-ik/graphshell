@@ -4,6 +4,7 @@ use crate::app::GraphBrowserApp;
 use crate::app::GraphIntent;
 use crate::app::GraphViewId;
 use crate::app::HelpPanelShortcut;
+use crate::app::NavigatorSidebarSidePreference;
 use crate::app::RadialMenuShortcut;
 use crate::app::SelectionUpdateMode;
 use crate::app::ToastAnchorPreference;
@@ -419,6 +420,22 @@ fn set_shortcut_bindings_persist_across_restart() {
     assert_eq!(
         reopened.workspace.chrome_ui.radial_menu_shortcut,
         RadialMenuShortcut::R
+    );
+}
+
+#[test]
+fn navigator_sidebar_side_preference_persists_across_restart() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let path = dir.path().to_path_buf();
+
+    let mut app = GraphBrowserApp::new_from_dir(path.clone());
+    app.set_navigator_sidebar_side_preference(NavigatorSidebarSidePreference::Right);
+    drop(app);
+
+    let reopened = GraphBrowserApp::new_from_dir(path);
+    assert_eq!(
+        reopened.navigator_sidebar_side_preference(),
+        NavigatorSidebarSidePreference::Right
     );
 }
 

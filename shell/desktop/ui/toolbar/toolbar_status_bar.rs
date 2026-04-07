@@ -109,8 +109,10 @@ fn workbench_layer_state_label(state: WorkbenchLayerState) -> &'static str {
     match state {
         WorkbenchLayerState::GraphOnly => "Graph only",
         WorkbenchLayerState::GraphOverlayActive => "Graph overlay",
+        WorkbenchLayerState::WorkbenchOverlayActive => "Workbench overlay",
         WorkbenchLayerState::WorkbenchActive => "Workbench active",
         WorkbenchLayerState::WorkbenchPinned => "Workbench pinned",
+        WorkbenchLayerState::WorkbenchOnly => "Workbench only",
     }
 }
 
@@ -253,6 +255,16 @@ fn build_shell_status_bar_model(
                 attention.primary_label, attention.primary_summary
             )),
         );
+    }
+
+    if matches!(
+        workbench_layer_state,
+        WorkbenchLayerState::WorkbenchOverlayActive
+    ) {
+        model.trailing.push(StatusChip::toned(
+            "Workbench overlay open",
+            StatusChipTone::Notice,
+        ));
     }
 
     if let Some(focus_state) = runtime_focus_state
@@ -499,6 +511,27 @@ mod tests {
         assert_eq!(leading, vec!["Host: Graph only".to_string()]);
         assert_eq!(center, vec!["No live content".to_string()]);
         assert_eq!(trailing, vec!["Sync: unavailable".to_string()]);
+    }
+
+    #[test]
+    fn status_bar_model_marks_workbench_overlay_open_explicitly() {
+        let model = build_shell_status_bar_model(
+            WorkbenchLayerState::WorkbenchOverlayActive,
+            &FocusedContentStatus::unavailable(None, None),
+            None,
+            test_sync_status("Sync: ready"),
+            #[cfg(feature = "diagnostics")]
+            None,
+        );
+
+        let (_, _, trailing) = chip_labels(&model);
+        assert_eq!(
+            trailing,
+            vec![
+                "Workbench overlay open".to_string(),
+                "Sync: ready".to_string(),
+            ]
+        );
     }
 
     #[test]

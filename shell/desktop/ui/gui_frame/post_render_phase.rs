@@ -9,6 +9,94 @@ use crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest;
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 use crate::shell::desktop::ui::workbench_host::{WorkbenchChromeProjection, WorkbenchLayerState};
 
+const WORKBENCH_AREA_DEFAULT_FRACTION: f32 = 0.46;
+const WORKBENCH_AREA_MAX_FRACTION: f32 = 0.82;
+const WORKBENCH_AREA_MIN_WIDTH: f32 = 360.0;
+const WORKBENCH_OVERLAY_WIDTH_FRACTION: f32 = 0.72;
+const WORKBENCH_OVERLAY_HEIGHT_FRACTION: f32 = 0.82;
+const WORKBENCH_OVERLAY_MIN_WIDTH: f32 = 520.0;
+const WORKBENCH_OVERLAY_MIN_HEIGHT: f32 = 360.0;
+const WORKBENCH_OVERLAY_MARGIN: f32 = 20.0;
+const WORKBENCH_OVERLAY_TITLE_BAR_HEIGHT: f32 = 30.0;
+const WORKBENCH_OVERLAY_DRAG_HANDLE_MAX_WIDTH: f32 = 180.0;
+const WORKBENCH_OVERLAY_RESIZE_GRIP: f32 = 18.0;
+
+fn workbench_area_max_width(available_rect: egui::Rect) -> f32 {
+    (available_rect.width() * WORKBENCH_AREA_MAX_FRACTION).max(WORKBENCH_AREA_MIN_WIDTH)
+}
+
+fn workbench_area_default_width(available_rect: egui::Rect) -> f32 {
+    (available_rect.width() * WORKBENCH_AREA_DEFAULT_FRACTION)
+        .clamp(WORKBENCH_AREA_MIN_WIDTH, workbench_area_max_width(available_rect))
+}
+
+fn workbench_overlay_max_size(available_rect: egui::Rect) -> egui::Vec2 {
+    egui::vec2(
+        (available_rect.width() - WORKBENCH_OVERLAY_MARGIN * 2.0).max(1.0),
+        (available_rect.height() - WORKBENCH_OVERLAY_MARGIN * 2.0).max(1.0),
+    )
+}
+
+fn workbench_overlay_default_size(available_rect: egui::Rect) -> egui::Vec2 {
+    let max_size = workbench_overlay_max_size(available_rect);
+    egui::vec2(
+        (available_rect.width() * WORKBENCH_OVERLAY_WIDTH_FRACTION)
+            .clamp(WORKBENCH_OVERLAY_MIN_WIDTH.min(max_size.x), max_size.x),
+        (available_rect.height() * WORKBENCH_OVERLAY_HEIGHT_FRACTION)
+            .clamp(WORKBENCH_OVERLAY_MIN_HEIGHT.min(max_size.y), max_size.y),
+    )
+}
+
+fn clamp_workbench_overlay_size(
+    available_rect: egui::Rect,
+    size: egui::Vec2,
+) -> egui::Vec2 {
+    let max_size = workbench_overlay_max_size(available_rect);
+    egui::vec2(
+        size.x.clamp(WORKBENCH_OVERLAY_MIN_WIDTH.min(max_size.x), max_size.x),
+        size.y.clamp(WORKBENCH_OVERLAY_MIN_HEIGHT.min(max_size.y), max_size.y),
+    )
+}
+
+fn workbench_overlay_default_pos(
+    available_rect: egui::Rect,
+    size: egui::Vec2,
+) -> egui::Pos2 {
+    egui::pos2(
+        available_rect.right() - size.x - WORKBENCH_OVERLAY_MARGIN,
+        available_rect.center().y - size.y * 0.5,
+    )
+}
+
+fn clamp_workbench_overlay_pos(
+    available_rect: egui::Rect,
+    size: egui::Vec2,
+    pos: egui::Pos2,
+) -> egui::Pos2 {
+    let min_x = available_rect.left() + WORKBENCH_OVERLAY_MARGIN;
+    let min_y = available_rect.top() + WORKBENCH_OVERLAY_MARGIN;
+    let max_x = (available_rect.right() - size.x - WORKBENCH_OVERLAY_MARGIN).max(min_x);
+    let max_y = (available_rect.bottom() - size.y - WORKBENCH_OVERLAY_MARGIN).max(min_y);
+    egui::pos2(pos.x.clamp(min_x, max_x), pos.y.clamp(min_y, max_y))
+}
+
+fn workbench_overlay_rect(
+    available_rect: egui::Rect,
+    stored_pos: Option<egui::Pos2>,
+    stored_size: Option<egui::Vec2>,
+) -> egui::Rect {
+    let size = clamp_workbench_overlay_size(
+        available_rect,
+        stored_size.unwrap_or_else(|| workbench_overlay_default_size(available_rect)),
+    );
+    let pos = clamp_workbench_overlay_pos(
+        available_rect,
+        size,
+        stored_pos.unwrap_or_else(|| workbench_overlay_default_pos(available_rect, size)),
+    );
+    egui::Rect::from_min_size(pos, size)
+}
+
 fn open_preferred_context_command_surface_for_webview_target(
     ctx: &egui::Context,
     graph_app: &mut GraphBrowserApp,
@@ -195,7 +283,12 @@ pub(crate) fn run_post_render_phase<FActive>(
         layer_state,
         WorkbenchLayerState::WorkbenchActive | WorkbenchLayerState::WorkbenchPinned
     ) {
+        let available_rect = ctx.available_rect();
         egui::SidePanel::right("workbench_area")
+            .resizable(true)
+            .default_width(workbench_area_default_width(available_rect))
+            .min_width(WORKBENCH_AREA_MIN_WIDTH)
+            .max_width(workbench_area_max_width(available_rect))
             .frame(egui::Frame::new().fill(egui::Color32::from_rgb(20, 20, 25)))
             .show(ctx, |ui| {
                 post_render_intents.extend(tile_render_pass::run_tile_render_pass_in_ui(
@@ -226,7 +319,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         #[cfg(feature = "diagnostics")]
                         diagnostics_state,
                         #[cfg(feature = "diagnostics")]
-                        runtime_focus_inspector,
+                        runtime_focus_inspector: runtime_focus_inspector.clone(),
                     },
                 ));
             });
@@ -235,16 +328,255 @@ pub(crate) fn run_post_render_phase<FActive>(
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(egui::Color32::from_rgb(20, 20, 25)))
         .show(ctx, |ui| {
-            post_render_intents.extend(tile_render_pass::render_primary_graph_in_ui(
-                ui,
-                graph_app,
-                tiles_tree,
-                &search_matches,
-                active_search_match,
-                graph_search_filter_mode,
-                search_query_active,
-            ));
+            if matches!(layer_state, WorkbenchLayerState::WorkbenchOnly) {
+                post_render_intents.extend(tile_render_pass::run_tile_render_pass_in_ui(
+                    ui,
+                    TileRenderPassArgs {
+                        ctx,
+                        graph_app,
+                        window,
+                        tiles_tree,
+                        tile_rendering_contexts,
+                        tile_favicon_textures,
+                        graph_search_matches: &search_matches,
+                        active_search_match,
+                        graph_search_filter_mode,
+                        search_query_active,
+                        app_state,
+                        rendering_context,
+                        window_rendering_context,
+                        responsive_webviews,
+                        webview_creation_backpressure,
+                        focused_node_hint,
+                        graph_surface_focused,
+                        suppress_runtime_side_effects: preview_mode_active,
+                        focus_ring_node_key,
+                        focus_ring_started_at,
+                        focus_ring_duration,
+                        control_panel,
+                        #[cfg(feature = "diagnostics")]
+                        diagnostics_state,
+                        #[cfg(feature = "diagnostics")]
+                        runtime_focus_inspector: runtime_focus_inspector.clone(),
+                    },
+                ));
+            } else {
+                post_render_intents.extend(tile_render_pass::render_primary_graph_in_ui(
+                    ui,
+                    graph_app,
+                    tiles_tree,
+                    &search_matches,
+                    active_search_match,
+                    graph_search_filter_mode,
+                    search_query_active,
+                ));
+            }
         });
+
+    if matches!(layer_state, WorkbenchLayerState::WorkbenchOverlayActive) {
+        let available_rect = ctx.available_rect();
+        let overlay_pos_id = egui::Id::new("workbench_overlay_pos");
+        let overlay_size_id = egui::Id::new("workbench_overlay_size");
+        let overlay_drag_origin_id = egui::Id::new("workbench_overlay_drag_origin");
+        let overlay_resize_origin_id = egui::Id::new("workbench_overlay_resize_origin");
+        let stored_overlay_pos = ctx.data_mut(|d| d.get_persisted::<egui::Pos2>(overlay_pos_id));
+        let stored_overlay_size =
+            ctx.data_mut(|d| d.get_persisted::<egui::Vec2>(overlay_size_id));
+        let overlay_default_size = workbench_overlay_default_size(available_rect);
+        let overlay_default_pos = workbench_overlay_default_pos(available_rect, overlay_default_size);
+        let overlay_default_rect =
+            egui::Rect::from_min_size(overlay_default_pos, overlay_default_size);
+        let overlay_rect =
+            workbench_overlay_rect(available_rect, stored_overlay_pos, stored_overlay_size);
+        let backdrop_layer = egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("workbench_overlay_backdrop"),
+        );
+        ctx.layer_painter(backdrop_layer).rect_filled(
+            available_rect,
+            0.0,
+            egui::Color32::from_rgba_unmultiplied(6, 8, 12, 168),
+        );
+
+        egui::Area::new(egui::Id::new("workbench_overlay_backdrop_hit"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(available_rect.min)
+            .interactable(true)
+            .show(ctx, |ui| {
+                let response = ui.allocate_rect(
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, available_rect.size()),
+                    egui::Sense::click(),
+                );
+                let clicked_outside_overlay = response.clicked()
+                    && response
+                        .interact_pointer_pos()
+                        .is_some_and(|pos| !overlay_rect.contains(pos));
+                if clicked_outside_overlay {
+                    graph_app.enqueue_workbench_intent(
+                        crate::app::WorkbenchIntent::SetWorkbenchOverlayVisible {
+                            visible: false,
+                        },
+                    );
+                }
+            });
+
+        let mut next_overlay_pos = overlay_rect.min;
+        let mut next_overlay_size = overlay_rect.size();
+        let mut reset_overlay_layout = false;
+        egui::Area::new(egui::Id::new("workbench_overlay_area"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(overlay_rect.min)
+            .movable(false)
+            .show(ctx, |ui| {
+                ui.set_min_size(overlay_rect.size());
+                let frame_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, overlay_rect.size());
+                let drag_handle_width = frame_rect
+                    .width()
+                    .min(WORKBENCH_OVERLAY_DRAG_HANDLE_MAX_WIDTH)
+                    .max(120.0);
+                let drag_rect = egui::Rect::from_min_size(
+                    frame_rect.min,
+                    egui::vec2(drag_handle_width, WORKBENCH_OVERLAY_TITLE_BAR_HEIGHT),
+                );
+                let drag_response = ui.interact(
+                    drag_rect,
+                    egui::Id::new("workbench_overlay_drag_handle"),
+                    egui::Sense::click_and_drag(),
+                );
+                if drag_response.drag_started() {
+                    ctx.data_mut(|d| d.insert_temp(overlay_drag_origin_id, overlay_rect.min));
+                }
+                if drag_response.dragged() {
+                    let drag_origin = ctx
+                        .data_mut(|d| d.get_temp::<egui::Pos2>(overlay_drag_origin_id))
+                        .unwrap_or(overlay_rect.min);
+                    next_overlay_pos = drag_origin + drag_response.drag_delta();
+                    ui.output_mut(|output| output.cursor_icon = egui::CursorIcon::Grabbing);
+                } else if drag_response.hovered() {
+                    ui.output_mut(|output| output.cursor_icon = egui::CursorIcon::Grab);
+                }
+
+                let resize_rect = egui::Rect::from_min_size(
+                    egui::pos2(
+                        (frame_rect.max.x - WORKBENCH_OVERLAY_RESIZE_GRIP).max(frame_rect.min.x),
+                        (frame_rect.max.y - WORKBENCH_OVERLAY_RESIZE_GRIP).max(frame_rect.min.y),
+                    ),
+                    egui::vec2(WORKBENCH_OVERLAY_RESIZE_GRIP, WORKBENCH_OVERLAY_RESIZE_GRIP),
+                );
+                let resize_response = ui.interact(
+                    resize_rect,
+                    egui::Id::new("workbench_overlay_resize_grip"),
+                    egui::Sense::click_and_drag(),
+                );
+                if resize_response.drag_started() {
+                    ctx.data_mut(|d| d.insert_temp(overlay_resize_origin_id, overlay_rect.size()));
+                }
+                if resize_response.dragged() {
+                    let resize_origin = ctx
+                        .data_mut(|d| d.get_temp::<egui::Vec2>(overlay_resize_origin_id))
+                        .unwrap_or(overlay_rect.size());
+                    next_overlay_size = resize_origin + resize_response.drag_delta();
+                    ui.output_mut(|output| output.cursor_icon = egui::CursorIcon::ResizeNwSe);
+                } else if resize_response.hovered() {
+                    ui.output_mut(|output| output.cursor_icon = egui::CursorIcon::ResizeNwSe);
+                }
+
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(18, 20, 28))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(62, 68, 82)))
+                    .corner_radius(egui::CornerRadius::same(14))
+                    .inner_margin(egui::Margin::same(12))
+                    .show(ui, |ui| {
+                        ui.set_min_size(overlay_rect.size());
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Workbench overlay").strong());
+                            ui.label(
+                                egui::RichText::new("Drag header • resize corner")
+                                    .small()
+                                    .color(egui::Color32::from_rgb(146, 152, 168)),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.small_button("Close overlay").clicked() {
+                                        graph_app.enqueue_workbench_intent(
+                                            crate::app::WorkbenchIntent::SetWorkbenchOverlayVisible {
+                                                visible: false,
+                                            },
+                                        );
+                                    }
+                                    if ui.small_button("Reset layout").clicked() {
+                                        reset_overlay_layout = true;
+                                    }
+                                },
+                            );
+                        });
+                        ui.separator();
+                        post_render_intents.extend(tile_render_pass::run_tile_render_pass_in_ui(
+                            ui,
+                            TileRenderPassArgs {
+                                ctx,
+                                graph_app,
+                                window,
+                                tiles_tree,
+                                tile_rendering_contexts,
+                                tile_favicon_textures,
+                                graph_search_matches: &search_matches,
+                                active_search_match,
+                                graph_search_filter_mode,
+                                search_query_active,
+                                app_state,
+                                rendering_context,
+                                window_rendering_context,
+                                responsive_webviews,
+                                webview_creation_backpressure,
+                                focused_node_hint,
+                                graph_surface_focused,
+                                suppress_runtime_side_effects: preview_mode_active,
+                                focus_ring_node_key,
+                                focus_ring_started_at,
+                                focus_ring_duration,
+                                control_panel,
+                                #[cfg(feature = "diagnostics")]
+                                diagnostics_state,
+                                #[cfg(feature = "diagnostics")]
+                                runtime_focus_inspector: runtime_focus_inspector.clone(),
+                            },
+                        ));
+                    });
+
+                let grip_stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(108, 116, 132));
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(resize_rect.right() - 11.0, resize_rect.bottom()),
+                        egui::pos2(resize_rect.right(), resize_rect.bottom() - 11.0),
+                    ],
+                    grip_stroke,
+                );
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(resize_rect.right() - 7.0, resize_rect.bottom()),
+                        egui::pos2(resize_rect.right(), resize_rect.bottom() - 7.0),
+                    ],
+                    grip_stroke,
+                );
+            });
+
+        if reset_overlay_layout {
+            next_overlay_pos = overlay_default_rect.min;
+            next_overlay_size = overlay_default_rect.size();
+        }
+        let clamped_overlay_size = clamp_workbench_overlay_size(available_rect, next_overlay_size);
+        let clamped_overlay_pos = clamp_workbench_overlay_pos(
+            available_rect,
+            clamped_overlay_size,
+            next_overlay_pos,
+        );
+        ctx.data_mut(|d| {
+            d.insert_persisted(overlay_pos_id, clamped_overlay_pos);
+            d.insert_persisted(overlay_size_id, clamped_overlay_size);
+        });
+    }
 
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
@@ -356,7 +688,11 @@ pub(crate) fn run_post_render_phase<FActive>(
 
 #[cfg(test)]
 mod tests {
-    use super::open_preferred_context_command_surface_for_webview_target;
+    use super::{
+        WORKBENCH_AREA_MIN_WIDTH, WORKBENCH_OVERLAY_MARGIN,
+        open_preferred_context_command_surface_for_webview_target, workbench_area_default_width,
+        workbench_area_max_width, workbench_overlay_default_size, workbench_overlay_rect,
+    };
     use crate::app::{ContextCommandSurfacePreference, GraphBrowserApp, ToolSurfaceReturnTarget};
     use servo::WebViewId;
 
@@ -453,5 +789,54 @@ mod tests {
         assert_eq!(app.pending_transient_surface_return_target(), None);
         assert!(!app.workspace.chrome_ui.show_context_palette);
         assert!(!app.workspace.chrome_ui.show_radial_menu);
+    }
+
+    #[test]
+    fn workbench_area_default_width_uses_large_resizable_footprint() {
+        let available_rect = egui::Rect::from_min_max(
+            egui::pos2(0.0, 0.0),
+            egui::pos2(1600.0, 900.0),
+        );
+
+        let default_width = workbench_area_default_width(available_rect);
+        let max_width = workbench_area_max_width(available_rect);
+
+        assert!(default_width >= WORKBENCH_AREA_MIN_WIDTH);
+        assert!(default_width > 600.0);
+        assert!(default_width <= max_width);
+    }
+
+    #[test]
+    fn workbench_overlay_rect_clamps_saved_layout_into_visible_bounds() {
+        let available_rect = egui::Rect::from_min_max(
+            egui::pos2(40.0, 30.0),
+            egui::pos2(1040.0, 730.0),
+        );
+
+        let rect = workbench_overlay_rect(
+            available_rect,
+            Some(egui::pos2(-240.0, -180.0)),
+            Some(egui::vec2(4000.0, 3000.0)),
+        );
+
+        assert!(rect.left() >= available_rect.left() + WORKBENCH_OVERLAY_MARGIN);
+        assert!(rect.top() >= available_rect.top() + WORKBENCH_OVERLAY_MARGIN);
+        assert!(rect.right() <= available_rect.right() - WORKBENCH_OVERLAY_MARGIN + 0.5);
+        assert!(rect.bottom() <= available_rect.bottom() - WORKBENCH_OVERLAY_MARGIN + 0.5);
+    }
+
+    #[test]
+    fn workbench_overlay_rect_defaults_to_right_aligned_overlay() {
+        let available_rect = egui::Rect::from_min_max(
+            egui::pos2(0.0, 0.0),
+            egui::pos2(1400.0, 900.0),
+        );
+
+        let rect = workbench_overlay_rect(available_rect, None, None);
+        let default_size = workbench_overlay_default_size(available_rect);
+
+        assert_eq!(rect.size(), default_size);
+        assert!(rect.right() <= available_rect.right() - WORKBENCH_OVERLAY_MARGIN + 0.5);
+        assert!((rect.center().y - available_rect.center().y).abs() <= 1.0);
     }
 }

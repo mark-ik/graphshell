@@ -278,6 +278,32 @@ fn settings_root_url_opens_transient_settings_overlay_by_default() {
 }
 
 #[test]
+fn settings_root_url_opens_hosted_settings_pane_when_workbench_is_active() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut tiles = Tiles::default();
+    let primary_graph = tiles.insert_pane(graph_pane(GraphViewId::new()));
+    let secondary_graph = tiles.insert_pane(graph_pane(GraphViewId::new()));
+    let tabs_root = tiles.insert_tab_tile(vec![primary_graph, secondary_graph]);
+    let mut tree = Tree::new("graphshell_tiles", tabs_root, tiles);
+    let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+    let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
+        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
+            .to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 1);
+    assert!(active_tool_pane(&tree, ToolPaneState::Settings));
+    assert!(!app.workspace.chrome_ui.show_settings_overlay);
+    assert_eq!(
+        app.workspace.chrome_ui.settings_tool_page,
+        SettingsToolPage::General
+    );
+}
+
+#[test]
 fn settings_sync_url_focuses_existing_settings_tool_pane_without_duplication() {
     let mut app = GraphBrowserApp::new_for_testing();
     let mut tiles = Tiles::default();

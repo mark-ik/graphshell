@@ -38,10 +38,10 @@ use crate::shell::desktop::ui::nav_targeting;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarOpenMode};
-use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+use crate::shell::desktop::workbench::pane_model::{PaneViewState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::{TileOpenMode, ToggleTileViewArgs};
-use egui_tiles::Tree;
+use egui_tiles::{Tile, Tree};
 use servo::WebViewId;
 use servo::{OffscreenRenderingContext, WindowRenderingContext};
 use std::rc::Rc;
@@ -222,6 +222,54 @@ pub(crate) fn active_graph_search_match(
 ) -> Option<NodeKey> {
     let idx = active_index?;
     matches.get(idx).copied()
+}
+
+fn preferred_workbench_overlay_region(
+    focus_authority: &RuntimeFocusAuthorityState,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<crate::shell::desktop::ui::gui_state::SemanticRegionFocus> {
+    focus_authority
+        .last_non_graph_pane_activation
+        .and_then(|pane_id| semantic_region_for_non_graph_pane(tiles_tree, pane_id))
+        .or_else(|| {
+            focus_authority
+                .pane_activation
+                .and_then(|pane_id| semantic_region_for_non_graph_pane(tiles_tree, pane_id))
+        })
+}
+
+fn semantic_region_for_non_graph_pane(
+    tiles_tree: &Tree<TileKind>,
+    pane_id: crate::shell::desktop::workbench::pane_model::PaneId,
+) -> Option<crate::shell::desktop::ui::gui_state::SemanticRegionFocus> {
+    tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+        Tile::Pane(TileKind::Pane(PaneViewState::Node(state))) if state.pane_id == pane_id => {
+            Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
+                pane_id: Some(pane_id),
+                node_key: Some(state.node),
+            })
+        }
+        Tile::Pane(TileKind::Pane(PaneViewState::Tool(tool_ref)))
+            if tool_ref.pane_id == pane_id =>
+        {
+            Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane {
+                pane_id: Some(pane_id),
+            })
+        }
+        Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(
+            crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
+                pane_id: Some(pane_id),
+                node_key: Some(state.node),
+            },
+        ),
+        #[cfg(feature = "diagnostics")]
+        Tile::Pane(TileKind::Tool(tool_ref)) if tool_ref.pane_id == pane_id => Some(
+            crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane {
+                pane_id: Some(pane_id),
+            },
+        ),
+        _ => None,
+    })
 }
 
 fn refresh_graph_search_matches(
@@ -1304,6 +1352,41 @@ fn prime_runtime_focus_authority_for_workbench_intent(
                 );
             }
         }
+        WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true } => {
+            let return_target = if focus_authority.tool_surface_return_target.is_none() {
+                crate::shell::desktop::runtime::registries::workbench_surface::active_tool_surface_return_target(tiles_tree)
+            } else {
+                focus_authority.tool_surface_return_target.clone()
+            };
+            crate::shell::desktop::ui::gui::apply_focus_command(
+                focus_authority,
+                crate::shell::desktop::ui::gui_state::FocusCommand::EnterToolPane { return_target },
+            );
+            if let Some(region) = preferred_workbench_overlay_region(focus_authority, tiles_tree) {
+                crate::shell::desktop::ui::gui::apply_focus_command(
+                    focus_authority,
+                    crate::shell::desktop::ui::gui_state::FocusCommand::SetSemanticRegion {
+                        region,
+                    },
+                );
+            }
+            crate::shell::desktop::ui::gui::capture_tool_surface_return_target_in_authority(
+                focus_authority,
+                tiles_tree,
+            );
+        }
+        WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false } => {
+            crate::shell::desktop::ui::gui::seed_tool_surface_return_target_from_authority(
+                focus_authority,
+                graph_app,
+            );
+            crate::shell::desktop::ui::gui::apply_focus_command(
+                focus_authority,
+                crate::shell::desktop::ui::gui_state::FocusCommand::ExitToolPane {
+                    restore_target: focus_authority.tool_surface_return_target.clone(),
+                },
+            );
+        }
         WorkbenchIntent::OpenToolPane { kind }
             if matches!(
                 kind,
@@ -1327,7 +1410,11 @@ fn prime_runtime_focus_authority_for_workbench_intent(
             );
         }
         WorkbenchIntent::OpenSettingsUrl { url } => {
-            if settings_url_targets_overlay(tiles_tree, url) {
+            if crate::shell::desktop::runtime::registries::workbench_surface::settings_url_targets_overlay(
+                graph_app,
+                tiles_tree,
+                url,
+            ) {
                 let return_target = if focus_authority.transient_surface_return_target.is_none() {
                     crate::shell::desktop::runtime::registries::workbench_surface::active_tool_surface_return_target(tiles_tree)
                 } else {
@@ -1397,18 +1484,6 @@ fn emit_dispatch_phase(phase: UxDispatchPhase) {
         channel_id: CHANNEL_UX_DISPATCH_PHASE,
         byte_len: phase as usize,
     });
-}
-
-fn settings_url_targets_overlay(tiles_tree: &Tree<TileKind>, url: &str) -> bool {
-    matches!(
-        GraphBrowserApp::resolve_settings_route(url),
-        Some(crate::app::SettingsRouteTarget::Settings(_))
-    ) && !tiles_tree.tiles.iter().any(|(_, tile)| {
-        matches!(
-            tile,
-            egui_tiles::Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Settings
-        )
-    })
 }
 
 fn modal_surface_active(graph_app: &GraphBrowserApp) -> bool {
@@ -1488,6 +1563,8 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::CloseRadialMenu
         | WorkbenchIntent::ToggleRadialMenu => UX_DISPATCH_NODE_COMMAND_SURFACE,
         WorkbenchIntent::OpenToolPane { .. }
+        | WorkbenchIntent::SetWorkbenchOverlayVisible { .. }
+        | WorkbenchIntent::SetWorkbenchDisplayMode { .. }
         | WorkbenchIntent::SetWorkbenchPinned { .. }
         | WorkbenchIntent::SetLayoutConstraintDraft { .. }
         | WorkbenchIntent::CommitLayoutConstraintDraft { .. }
@@ -1531,6 +1608,10 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::SetSurfaceConfigMode { .. }
         | WorkbenchIntent::DetachNodeToSplit { .. }
         | WorkbenchIntent::OpenNodeInPane { .. }
+        | WorkbenchIntent::SelectNavigatorNode { .. }
+        | WorkbenchIntent::ActivateNavigatorNode { .. }
+        | WorkbenchIntent::DismissNavigatorNode { .. }
+        | WorkbenchIntent::SwitchNavigatorNodeSurface { .. }
         | WorkbenchIntent::ReconcileGraphletTiles { .. }
         | WorkbenchIntent::RestorePaneToSemanticTabGroup { .. }
         | WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { .. }

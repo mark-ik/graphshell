@@ -288,9 +288,10 @@ impl GraphBrowserApp {
             ) => 3,
             SurfaceHostId::Role(_) => 4,
         });
-        navigator_hosts.into_iter().next().unwrap_or_else(|| {
-            SurfaceHostId::Navigator(crate::app::workbench_layout_policy::NavigatorHostId::Right)
-        })
+        navigator_hosts
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| self.preferred_default_navigator_surface_host())
     }
 
     pub fn visible_navigator_surface_hosts(&self) -> Vec<SurfaceHostId> {
@@ -319,9 +320,7 @@ impl GraphBrowserApp {
         });
 
         if navigator_hosts.is_empty() {
-            navigator_hosts.push(SurfaceHostId::Navigator(
-                crate::app::workbench_layout_policy::NavigatorHostId::Right,
-            ));
+            navigator_hosts.push(self.preferred_default_navigator_surface_host());
         }
 
         navigator_hosts
