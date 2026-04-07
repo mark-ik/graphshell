@@ -2,14 +2,7 @@
 
 **Date**: 2026-03-13
 **Last updated**: 2026-04-06
-**Status**: Archived — Implementation Complete
-
-> **Archive note (2026-04-06)**: All six implementation slices are fully landed.
-> The one remaining open item (sync badge expansion to Verse controls) has been
-> extracted to `../../verse_docs/implementation_strategy/2026-04-06_sync_badge_verse_controls_plan.md`
-> and is blocked on the Verse peer presence API.
-> A checkpoint copy of this document as of closure is at
-> `../../../archive_docs/checkpoint_2026-04-06/graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md`.
+**Status**: Design — Pre-Implementation
 **Purpose**: Define the host-based chrome architecture that replaces the current
 monolithic toolbar, aligning control surfaces with the semantic authority
 boundaries already present in the codebase. The desktop default is a
@@ -36,8 +29,7 @@ used here:
 `WorkbenchChromeProjection` therefore describes a derived host-chrome model for
 the workbench-scoped host, not an alternate owner of Navigator semantics.
 
-## Related
-
+**Related**:
 - `2026-03-01_ux_execution_control_plane.md`
 - `2026-02-28_ux_contract_register.md`
 - `2026-03-04_model_boundary_control_matrix.md`
@@ -71,7 +63,6 @@ flat bar containing controls from three distinct semantic scopes:
 | Command palette button | App — global overlay |
 
 This conflation means:
-
 - Controls appear and disappear based on `has_node_panes` in ad hoc ways
 - The bar carries no durable semantic identity
 - Graph-scope controls (sync, lens, physics, tag filters) have no stable home
@@ -177,7 +168,7 @@ controls, keeps the Omnibar centered, and carries graph-scope state chips and
 overflow. This layout stays stable regardless of what workbench structure is
 open.
 
-Workbench chrome renders primarily as a left-side workbench-scoped Navigator
+Workbench chrome renders primarily as a right-side workbench-scoped Navigator
 host on desktop. Its header carries pane-local controls for the focused pane,
 its scope row summarizes the active frame and tile group, and its scroll body
 renders a tree-style projection of the current pane structure. A compact
@@ -185,8 +176,8 @@ horizontal host form may exist later as a narrow-width fallback, but it is not
 the primary desktop expression.
 
 **Default side assumption:** the initial desktop implementation should place the
-workbench-scoped hybrid sidebar host on the left so graph and workbench
-navigator projection can share a single default desktop presentation.
+workbench-scoped sidebar host on the right so the left side remains available
+for other graph/navigation host configurations if needed.
 
 ---
 
@@ -227,7 +218,7 @@ based on what tiles are open.
 | Sync / Verse badge | Verse peer presence | Dot expands on click to peer list, `SyncNow`, trust controls |
 | Overflow (⋯) | Settings launcher, diagnostics export, clear data, help | Menu; settings acts as a launcher/router into page-backed settings surfaces rather than a dump of inline toggles (see §4.2) |
 
-#### Omnibar Path Rule
+**Omnibar path rule**
 
 The graph-position context shown in the Omnibar should not be based on arbitrary
 graph shortest path. Shortest path is valuable for explicit graph explanation
@@ -261,7 +252,7 @@ not modal dialogs, but they now have two presentation modes:
 This keeps settings page-backed and composable while preserving a lighter
 graph-only flow for quick configuration and inspection.
 
-#### Default Launcher Policy
+**Default launcher policy**
 
 - The default graph-scoped Navigator host `Settings` entry should open the most natural presentation
   for the current scope: overlay when the graph is the active context, hosted
@@ -345,17 +336,15 @@ workbench context. It uses `WorkbenchChromeProjection` (§6) as its data model.
   relationships into the tile tree, not the reverse.
 
 The sidebar body shows:
-
 - pane rows as the primary leaves: node panes, graph panes, and tool panes
 - lightweight split/group structure only where it helps orientation
 - active pane highlighting, runtime badges, and per-row actions
 
-#### Pane Row Behavior
+**Pane row behavior:**
 
 Pane rows are compact at rest: icon + truncated title + badge tokens. On click:
 focuses that pane. On hover or expand activation: the row reveals per-pane
 actions without a context menu:
-
 - Close (×)
 - Pin / Unpin snapshot
 - Promote to Active / Demote to Warm
@@ -487,8 +476,7 @@ pub enum TopologySegment {
 }
 ```
 
-### Derivation Source Priority
-
+**Derivation source priority:**
 1. Navigator/graph-backed arrangement and relation-family projection inputs —
    primary for semantic grouping and section meaning
 2. Workbench frame membership / frame context summaries needed for host chrome
@@ -526,27 +514,18 @@ pub enum WorkbenchLayerState {
 }
 ```
 
-### EnterWorkbench
-
-Triggered by:
-
+**EnterWorkbench** is triggered by:
 - Opening any hosted workbench surface beyond the primary graph surface:
   `OpenNode`, `OpenNodeFrameRouted`, `OpenGraphViewPane`, tiled tool/config
   pages, etc.
 - Explicitly promoting a transient overlay surface into a tiled workbench pane
 - Explicitly pinning the default workbench-scoped Navigator host
 
-### GraphOverlayActive
-
-Triggered by:
-
+**GraphOverlayActive** is triggered by:
 - Opening a transient over-graph settings/config/inspector page that is not yet
   tiled into the workbench
 
-### ExitWorkbench
-
-Triggered by:
-
+**ExitWorkbench** is triggered by:
 - Closing the last hosted workbench surface so the app returns to the primary
   graph surface only
 - Explicitly unpinning the default workbench-scoped Navigator host when no hosted workbench surfaces
@@ -610,7 +589,6 @@ pub enum ChromeRegion {
 ```
 
 Focus transitions:
-
 - **F6 cycle**: `GraphSurface` → `GraphScopedNavigatorHost` → `WorkbenchScopedNavigatorHost` (when visible) → `GraphSurface`
 - **Tab within graph-scoped host**: advances through control groups left-to-right
 - **Tab within workbench-scoped host**: advances header → scope chips → pane tree → structural footer
@@ -644,7 +622,6 @@ the correct surface.
 
 New intents that may be added as part of this work (not strictly required for
 Phase 1, but named here for completeness):
-
 - `WorkbenchIntent::EnterWorkbench` / `ExitWorkbench` — explicit layer transitions
 - `WorkbenchIntent::PinWorkbenchHost` / `UnpinWorkbenchHost` — persistence toggle
 - `WorkbenchIntent::SwapViewerBackend { pane, node, viewer_id_override }` — viewer picker result
@@ -670,7 +647,6 @@ Phase 1, but named here for completeness):
 6. Keep all existing controls in place otherwise — do not move physics or lens yet.
 
 **Acceptance criteria:**
-
 - Default graph/workbench Navigator hosts render without regressions when hosted
   workbench surfaces are active
 - Workbench-scoped host does not claim Back/Forward/Reload ownership
@@ -689,7 +665,6 @@ Phase 1, but named here for completeness):
 5. Add the compact topology token and hover-detail breadcrumb.
 
 **Acceptance criteria:**
-
 - Pane tree rows match the current frame/workbench context for the focused pane
 - Hover expands a pane row to show Close + Promote/Demote
 - Frame and tile-group chips route correctly through their dropdowns
@@ -705,7 +680,6 @@ Phase 1, but named here for completeness):
   focused-pane status rather than pane navigation dispatch.
 
 **Acceptance criteria:**
-
 - Undo/Redo visible and functional when graph canvas is focused
 - Back/Forward/Reload visible and functional in tiled tile chrome when a tiled
   content pane is focused
@@ -723,7 +697,6 @@ Phase 1, but named here for completeness):
 6. Expand sync badge to include `SyncNow` and trust controls on click.
 
 **Acceptance criteria:**
-
 - Physics panel no longer renders as a floating in-canvas overlay
 - Lens and view-dimension accessible from the graph-scoped host without entering settings
 - Active graph-view target is always legible in the graph-scoped host
@@ -731,7 +704,6 @@ Phase 1, but named here for completeness):
 - Sync badge expands to Verse controls
 
 **Current implementation status (2026-04-06):**
-
 - Landed: focused graph-view target, `Fit`, lens controls, semantic-depth toggle,
   physics run/pause/reheat/profile picker, ambient sync status, and graph-host
   overflow are now rendered from the graph-scoped host.
@@ -740,9 +712,7 @@ Phase 1, but named here for completeness):
   terms as dismiss chips.
 - Landed: the temporary in-canvas lens control overlay has been reduced to a
   narrow bridge note instead of remaining the primary control surface.
-- Extracted: sync badge expansion into Verse trust/actions is tracked separately in
-  `../../verse_docs/implementation_strategy/2026-04-06_sync_badge_verse_controls_plan.md`
-  (Verse-blocked). Slice 4 is otherwise fully landed.
+- Still open: sync badge expansion into trust / explicit Verse actions.
 
 ### Slice 5 — Viewer backend selector + tile-local viewer controls
 
@@ -755,25 +725,11 @@ Phase 1, but named here for completeness):
   apply layer.
 
 **Acceptance criteria:**
-
 - Reader mode toggle / compat affordance appears in tile-local chrome when the
   focused pane is a tiled web node
 - "Open with…" appears on pane row expand when multiple backends are available
 - Selecting a backend dispatches `SwapViewerBackend` and re-attaches the viewer
   for that tile
-
-**Current implementation status (2026-04-06):**
-
-- Landed: tiled node panes now render viewer-local chrome with navigation,
-  compact URL, zoom controls, and the Wry compatibility affordance directly in
-  tile-local UI.
-- Landed: workbench host pane rows now expose an `Open with…` picker whenever a
-  tiled node has multiple candidate backends or an active override.
-- Landed: backend changes dispatch `WorkbenchIntent::SwapViewerBackend`, update
-  the pane's `viewer_id_override`, and refresh the active pane render path.
-- Note: the user-facing Slice 5 behavior is complete; the only remaining nuance
-  is that tile-local controls are rendered directly from node-pane UI rather
-  than through a more generic viewer-contribution abstraction.
 
 ### Slice 6 — Settings routing + ambient badge cleanup
 
@@ -786,7 +742,6 @@ Phase 1, but named here for completeness):
    replace it.
 
 **Acceptance criteria:**
-
 - Config pages can remain transient overlays over the graph or be explicitly
   promoted into tiled workbench panes
 - Semantic depth active state is visible in the graph-scoped host
@@ -794,7 +749,6 @@ Phase 1, but named here for completeness):
 - Clear Data and similar destructive actions live in overflow, not as permanent chrome buttons
 
 **Current implementation status (2026-04-06):**
-
 - Landed: semantic-depth state is surfaced through the graph-scoped host chip,
   backend/degraded state is visible on workbench host pane rows, and Clear Data
   now routes through graph-host overflow instead of the shell toolbar.
@@ -817,7 +771,7 @@ Phase 1, but named here for completeness):
 - [ ] Graph-scoped host Undo/Redo remain graph-scoped
 - [ ] Back/Forward/Reload live in tile chrome, not in any Navigator host
 - [ ] Physics and lens controls accessible from graph-scoped host chips (no overlay panel)
-- [ ] Sync badge expands to Verse controls on click — tracked in `../../verse_docs/implementation_strategy/2026-04-06_sync_badge_verse_controls_plan.md`
+- [ ] Sync badge expands to Verse controls on click
 - [ ] Config pages open as transient overlays or workbench panes (no modal windows)
 - [ ] All existing `GraphIntent` dispatch paths preserved (no regressions)
 - [ ] Focus cycling (F6) covers the default graph/workbench Navigator hosts in the correct order
@@ -836,8 +790,7 @@ Phase 1, but named here for completeness):
 - New graph-scope features (new lens types, new tag filters) — this plan only
   relocates controls, not adds capabilities
 - Left-vs-right sidebar preference and a narrow-width compact fallback bar —
-  valid future work, but the default desktop presentation is now a left-side
-  hybrid sidebar
+  valid future work, but Phase 1 assumes a right-side desktop sidebar
 - Extending or replacing `egui_tiles` Container types — that is valid future work
   (new container semantics for frames, custom tile group shapes) but out of scope
   for the chrome split itself
