@@ -369,6 +369,31 @@ mod tests {
     }
 
     #[test]
+    fn test_reconcile_mappings_preserves_existing_selection() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let n1 = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+        let n2 = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://b.com".into(), Point2D::new(1.0, 1.0));
+        let w1 = test_webview_id();
+        app.map_webview_to_node(w1, n1);
+        app.select_node(n2, false);
+
+        let mut seen = HashSet::new();
+        seen.insert(w1);
+        let intents = reconcile_mappings_and_selection(&mut app, &seen, Some(w1));
+        app.apply_reducer_intents(intents);
+
+        assert_eq!(app.get_single_selected_node(), Some(n2));
+    }
+
+    #[test]
     fn test_apply_graph_view_submit_updates_selected_node_url() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app

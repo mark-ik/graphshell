@@ -74,11 +74,14 @@ pub(super) fn handle_address_bar_submit_intents(
     let input = url.trim();
     if let Some(query) = input.strip_prefix('@') {
         let intents = registries::phase2_execute_omnibox_node_search_action(app, query);
+        let matched_node = intents
+            .iter()
+            .any(|intent| matches!(intent, GraphIntent::SelectNode { .. }));
 
         return AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
-                mark_clean: true,
-                open_selected_tile: false,
+                mark_clean: matched_node,
+                open_selected_tile: matched_node,
             },
             intents,
             workbench_intents: Vec::new(),
@@ -138,7 +141,7 @@ pub(super) fn handle_address_bar_submit_intents(
             log::warn!("Failed to parse location: {}", input);
             return AddressBarIntentOutcome {
                 outcome: AddressBarSubmitOutcome {
-                    mark_clean: false,
+                    mark_clean: true,
                     open_selected_tile: false,
                 },
                 intents: Vec::new(),

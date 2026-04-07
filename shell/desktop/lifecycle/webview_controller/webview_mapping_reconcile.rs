@@ -8,6 +8,7 @@ pub(super) fn reconcile_mappings_and_selection(
     let mut intents = Vec::new();
     if let Some(active_wv_id) = active_webview
         && let Some(active_node_key) = app.get_node_for_webview(active_wv_id)
+        && app.focused_selection().primary().is_none()
     {
         intents.push(GraphIntent::SelectNode {
             key: active_node_key,
