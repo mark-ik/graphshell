@@ -178,7 +178,10 @@ pub use graph_views::{
     GraphViewLayoutManagerState, GraphViewState, PolicyValueSource, ResolvedLensPreset, SceneMode,
     SelectionEdgeProjectionOverride, SimulateBehaviorPreset, ThreeDMode, ViewDimension, ZSource,
 };
-pub(crate) use graph_views::{default_semantic_depth_dimension, is_semantic_depth_dimension};
+pub(crate) use graph_views::{
+    default_semantic_depth_dimension, default_view_dimension_for_mode, is_semantic_depth_dimension,
+    view_dimension_summary,
+};
 
 #[path = "app/graph_layout.rs"]
 pub(crate) mod graph_layout;

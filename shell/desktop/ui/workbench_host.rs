@@ -453,44 +453,20 @@ fn graph_view_switcher_visible(projection: &WorkbenchChromeProjection) -> bool {
     projection.active_graph_view.is_some() && !projection.extra_graph_views.is_empty()
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 struct GraphScopeControlSummary {
     view_id: GraphViewId,
     view_label: String,
     active_filter_chip_labels: Vec<String>,
     lens_label: String,
     lens_id: String,
-    dimension_label: &'static str,
-    dimension_tooltip: &'static str,
+    dimension: crate::app::ViewDimension,
+    dimension_label: String,
+    dimension_tooltip: String,
     semantic_depth_active: bool,
     physics_profile_id: String,
     physics_profile_label: String,
     physics_running: bool,
-}
-
-fn graph_dimension_summary(
-    dimension: &crate::app::ViewDimension,
-) -> (&'static str, &'static str, bool) {
-    if crate::app::is_semantic_depth_dimension(dimension) {
-        return (
-            "Depth",
-            "Semantic depth layering is active for the focused graph view.",
-            true,
-        );
-    }
-
-    match dimension {
-        crate::app::ViewDimension::TwoD => (
-            "2D",
-            "Standard 2D planar graph view.",
-            false,
-        ),
-        crate::app::ViewDimension::ThreeD { .. } => (
-            "3D",
-            "3D graph view is active without semantic depth layering.",
-            false,
-        ),
-    }
 }
 
 fn active_graph_scope_control_summary(
@@ -500,7 +476,7 @@ fn active_graph_scope_control_summary(
     let (view_id, view_label) = projection.active_graph_view.as_ref()?;
     let view = graph_app.workspace.graph_runtime.views.get(view_id)?;
     let (dimension_label, dimension_tooltip, semantic_depth_active) =
-        graph_dimension_summary(&view.dimension);
+        crate::app::view_dimension_summary(&view.dimension);
 
     Some(GraphScopeControlSummary {
         view_id: *view_id,
@@ -511,6 +487,7 @@ fn active_graph_scope_control_summary(
             .resolved_lens_id()
             .unwrap_or(crate::registries::atomic::lens::LENS_ID_DEFAULT)
             .to_string(),
+        dimension: view.dimension.clone(),
         dimension_label,
         dimension_tooltip,
         semantic_depth_active,
@@ -553,6 +530,90 @@ fn graph_scope_slot_strip_slots(
         .into_iter()
         .filter(|slot| !slot.archived)
         .collect()
+}
+
+fn render_view_dimension_menu(
+    ui: &mut egui::Ui,
+    summary: &GraphScopeControlSummary,
+    actions: &mut Vec<WorkbenchHostAction>,
+) {
+    let two_d_selected = matches!(summary.dimension, crate::app::ViewDimension::TwoD);
+    if ui
+        .selectable_label(two_d_selected, "2D")
+        .on_hover_text("Restore the focused graph view to the standard 2D planar mode")
+        .clicked()
+    {
+        actions.push(WorkbenchHostAction::SetViewDimension {
+            view_id: summary.view_id,
+            dimension: crate::app::ViewDimension::TwoD,
+        });
+        ui.close();
+    }
+
+    let twopointfive_dimension =
+        crate::app::default_view_dimension_for_mode(crate::app::ThreeDMode::TwoPointFive);
+    if ui
+        .selectable_label(summary.dimension == twopointfive_dimension, "2.5D")
+        .on_hover_text("Use the generic 2.5D projection preset with recency-derived depth")
+        .clicked()
+    {
+        actions.push(WorkbenchHostAction::SetViewDimension {
+            view_id: summary.view_id,
+            dimension: twopointfive_dimension,
+        });
+        ui.close();
+    }
+
+    let isometric_dimension =
+        crate::app::default_view_dimension_for_mode(crate::app::ThreeDMode::Isometric);
+    if ui
+        .selectable_label(summary.dimension == isometric_dimension, "Isometric")
+        .on_hover_text("Use the isometric projection preset with BFS-derived depth layering")
+        .clicked()
+    {
+        actions.push(WorkbenchHostAction::SetViewDimension {
+            view_id: summary.view_id,
+            dimension: isometric_dimension,
+        });
+        ui.close();
+    }
+
+    let standard_dimension =
+        crate::app::default_view_dimension_for_mode(crate::app::ThreeDMode::Standard);
+    if ui
+        .selectable_label(summary.dimension == standard_dimension, "Standard 3D")
+        .on_hover_text("Persist the full standard 3D view state without semantic depth layering")
+        .clicked()
+    {
+        actions.push(WorkbenchHostAction::SetViewDimension {
+            view_id: summary.view_id,
+            dimension: standard_dimension,
+        });
+        ui.close();
+    }
+
+    ui.separator();
+
+    let preset_label = if summary.semantic_depth_active {
+        "Restore prior view"
+    } else {
+        "UDC depth preset"
+    };
+    let preset_hover = if summary.semantic_depth_active {
+        "Restore the graph view dimension that was active before the UDC depth preset was applied"
+    } else {
+        "Apply the reversible UDC semantic-depth preset without losing the previous view dimension"
+    };
+    if ui
+        .selectable_label(summary.semantic_depth_active, preset_label)
+        .on_hover_text(preset_hover)
+        .clicked()
+    {
+        actions.push(WorkbenchHostAction::ToggleSemanticDepthView {
+            view_id: summary.view_id,
+        });
+        ui.close();
+    }
 }
 
 fn render_graph_view_slot_strip(
@@ -811,9 +872,24 @@ fn render_graph_scope_controls(
             },
         );
 
+        ui.menu_button(format!("View: {}", summary.dimension_label), |ui| {
+            render_view_dimension_menu(ui, &summary, actions);
+        })
+        .response
+        .on_hover_text(summary.dimension_tooltip.as_str());
+
+        let semantic_chip_label = if summary.semantic_depth_active {
+            "Restore"
+        } else {
+            "Depth"
+        };
         if ui
-            .selectable_label(summary.semantic_depth_active, summary.dimension_label)
-            .on_hover_text(summary.dimension_tooltip)
+            .selectable_label(summary.semantic_depth_active, semantic_chip_label)
+            .on_hover_text(if summary.semantic_depth_active {
+                "Restore the view dimension that was active before UDC depth layering"
+            } else {
+                "Apply the reversible UDC semantic-depth preset"
+            })
             .clicked()
         {
             actions.push(WorkbenchHostAction::ToggleSemanticDepthView {
@@ -2862,6 +2938,8 @@ pub(crate) fn render_workbench_host(
                     .navigator_specialty_views
                     .get(&host_layout.host)
                     .cloned();
+                let selected_node_count = graph_app.focused_selection().len();
+                let has_selected_pair = graph_app.focused_selection().ordered_pair().is_some();
                 ui.horizontal_wrapped(|ui| {
                     let ego_active = matches!(
                         active_specialty,
@@ -2869,7 +2947,10 @@ pub(crate) fn render_workbench_host(
                     );
                     let ego_label = if ego_active { "★ Ego" } else { "Ego view" };
                     if ui
-                        .small_button(ego_label)
+                        .add_enabled(
+                            selected_node_count > 0 || ego_active,
+                            egui::Button::new(ego_label),
+                        )
                         .on_hover_text("Derive ego-graphlet from selection and show in this host")
                         .clicked()
                     {
@@ -2877,6 +2958,64 @@ pub(crate) fn render_workbench_host(
                             None
                         } else {
                             Some(GraphletKind::Ego { radius: 1 })
+                        };
+                        post_host_actions.push(WorkbenchHostAction::SetNavigatorSpecialtyView {
+                            host: host_layout.host.clone(),
+                            kind,
+                        });
+                    }
+                    let corridor_active = matches!(
+                        active_specialty,
+                        Some(ref sv) if matches!(sv.kind, GraphletKind::Corridor)
+                    );
+                    let corridor_label = if corridor_active {
+                        "★ Corridor"
+                    } else {
+                        "Corridor"
+                    };
+                    if ui
+                        .add_enabled(
+                            has_selected_pair || corridor_active,
+                            egui::Button::new(corridor_label),
+                        )
+                        .on_hover_text(
+                            "Derive a corridor graphlet from the current two-node selection and show it in this host",
+                        )
+                        .clicked()
+                    {
+                        let kind = if corridor_active {
+                            None
+                        } else {
+                            Some(GraphletKind::Corridor)
+                        };
+                        post_host_actions.push(WorkbenchHostAction::SetNavigatorSpecialtyView {
+                            host: host_layout.host.clone(),
+                            kind,
+                        });
+                    }
+                    let component_active = matches!(
+                        active_specialty,
+                        Some(ref sv) if matches!(sv.kind, GraphletKind::Component)
+                    );
+                    let component_label = if component_active {
+                        "★ Component"
+                    } else {
+                        "Component"
+                    };
+                    if ui
+                        .add_enabled(
+                            selected_node_count > 0 || component_active,
+                            egui::Button::new(component_label),
+                        )
+                        .on_hover_text(
+                            "Derive a connected-component graphlet from the current selection and show it in this host",
+                        )
+                        .clicked()
+                    {
+                        let kind = if component_active {
+                            None
+                        } else {
+                            Some(GraphletKind::Component)
                         };
                         post_host_actions.push(WorkbenchHostAction::SetNavigatorSpecialtyView {
                             host: host_layout.host.clone(),
@@ -3388,6 +3527,10 @@ enum WorkbenchHostAction {
         view_id: GraphViewId,
         lens_id: String,
     },
+    SetViewDimension {
+        view_id: GraphViewId,
+        dimension: crate::app::ViewDimension,
+    },
     ToggleSemanticDepthView {
         view_id: GraphViewId,
     },
@@ -3461,13 +3604,14 @@ fn workbench_host_action_diagnostic_code(action: &WorkbenchHostAction) -> usize 
         WorkbenchHostAction::ToggleOverviewPlane => 39,
         WorkbenchHostAction::RequestFitToScreen => 40,
         WorkbenchHostAction::SetViewLensId { .. } => 41,
-        WorkbenchHostAction::ToggleSemanticDepthView { .. } => 42,
-        WorkbenchHostAction::ClearGraphViewFilter { .. } => 43,
-        WorkbenchHostAction::SetPhysicsProfile { .. } => 44,
-        WorkbenchHostAction::TogglePhysics => 45,
-        WorkbenchHostAction::ReheatPhysics => 46,
-        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 47,
-        WorkbenchHostAction::SyncHostPanelSize { .. } => 48,
+        WorkbenchHostAction::SetViewDimension { .. } => 42,
+        WorkbenchHostAction::ToggleSemanticDepthView { .. } => 43,
+        WorkbenchHostAction::ClearGraphViewFilter { .. } => 44,
+        WorkbenchHostAction::SetPhysicsProfile { .. } => 45,
+        WorkbenchHostAction::TogglePhysics => 46,
+        WorkbenchHostAction::ReheatPhysics => 47,
+        WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 48,
+        WorkbenchHostAction::SyncHostPanelSize { .. } => 49,
     }
 }
 
@@ -4321,6 +4465,10 @@ fn apply_workbench_host_action(
             graph_app.apply_reducer_intents([GraphIntent::SetViewLensId { view_id, lens_id }]);
             WorkbenchHostActionDispatchOutcome::Consumed
         }
+        WorkbenchHostAction::SetViewDimension { view_id, dimension } => {
+            graph_app.apply_reducer_intents([GraphIntent::SetViewDimension { view_id, dimension }]);
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
         WorkbenchHostAction::ToggleSemanticDepthView { view_id } => {
             graph_app.apply_reducer_intents([GraphIntent::ToggleSemanticDepthView { view_id }]);
             WorkbenchHostActionDispatchOutcome::Consumed
@@ -4824,6 +4972,43 @@ mod tests {
             .get(&graph_view)
             .expect("graph view state");
         assert!(crate::app::is_semantic_depth_dimension(&view.dimension));
+    }
+
+    #[test]
+    fn set_view_dimension_action_applies_explicit_dimension() {
+        let graph_view = GraphViewId::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.ensure_graph_view_registered(graph_view);
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let root = tiles.insert_tab_tile(vec![graph]);
+        let mut tree = Tree::new("workbench_host_set_view_dimension", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetViewDimension {
+                view_id: graph_view,
+                dimension: crate::app::default_view_dimension_for_mode(
+                    crate::app::ThreeDMode::Isometric,
+                ),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        let view = app
+            .workspace
+            .graph_runtime
+            .views
+            .get(&graph_view)
+            .expect("graph view state");
+        assert!(matches!(
+            view.dimension,
+            crate::app::ViewDimension::ThreeD {
+                mode: crate::app::ThreeDMode::Isometric,
+                z_source: crate::app::ZSource::BfsDepth { scale: 12.0 }
+            }
+        ));
     }
 
     #[test]
@@ -6846,6 +7031,134 @@ mod tests {
                 kind: Some(GraphletKind::Component),
             }] if queued_host == &host
         ));
+    }
+
+    #[test]
+    fn navigator_specialty_corridor_uses_selected_pair_and_tree_layout() {
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+        let mut app = GraphBrowserApp::new_for_testing();
+        let left = app.add_node_and_sync(
+            "https://example.com/graphlet-corridor-left".to_string(),
+            euclid::default::Point2D::new(-20.0, 0.0),
+        );
+        let middle = app.add_node_and_sync(
+            "https://example.com/graphlet-corridor-middle".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let right = app.add_node_and_sync(
+            "https://example.com/graphlet-corridor-right".to_string(),
+            euclid::default::Point2D::new(20.0, 0.0),
+        );
+        app.add_edge_and_sync(left, middle, crate::graph::EdgeType::Hyperlink, None);
+        app.add_edge_and_sync(middle, right, crate::graph::EdgeType::Hyperlink, None);
+        app.select_node(left, false);
+        app.select_node(right, true);
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_navigator_specialty_corridor", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetNavigatorSpecialtyView {
+                host: host.clone(),
+                kind: Some(GraphletKind::Corridor),
+            },
+            &mut app,
+            &mut tree,
+        );
+
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        let specialty = app
+            .workspace
+            .workbench_session
+            .navigator_specialty_views
+            .get(&host)
+            .cloned()
+            .expect("specialty view should be active");
+        assert_eq!(specialty.kind, GraphletKind::Corridor);
+
+        let view = app
+            .workspace
+            .graph_runtime
+            .views
+            .get(&specialty.view_id)
+            .expect("specialty view state should exist");
+        let mask = view
+            .graphlet_node_mask
+            .as_ref()
+            .expect("corridor specialty should publish a mask");
+        assert!(mask.contains(&left));
+        assert!(mask.contains(&middle));
+        assert!(mask.contains(&right));
+        assert!(matches!(
+            view.layout_policy.mode,
+            crate::registries::atomic::lens::LayoutMode::Tree { .. }
+        ));
+        assert_eq!(
+            view.resolved_layout_algorithm_id(),
+            crate::app::graph_layout::GRAPH_LAYOUT_TREE
+        );
+    }
+
+    #[test]
+    fn clearing_navigator_specialty_view_removes_mask_and_registration() {
+        let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
+        let mut app = GraphBrowserApp::new_for_testing();
+        let selected = app.add_node_and_sync(
+            "https://example.com/navigator-specialty-clear".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        app.select_node(selected, false);
+
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let mut tree = Tree::new("workbench_host_navigator_specialty_clear", root, tiles);
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetNavigatorSpecialtyView {
+                host: host.clone(),
+                kind: Some(GraphletKind::Component),
+            },
+            &mut app,
+            &mut tree,
+        );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        let specialty_view_id = app
+            .workspace
+            .workbench_session
+            .navigator_specialty_views
+            .get(&host)
+            .map(|view| view.view_id)
+            .expect("specialty view should be active before clearing");
+
+        apply_workbench_host_action(
+            WorkbenchHostAction::SetNavigatorSpecialtyView {
+                host: host.clone(),
+                kind: None,
+            },
+            &mut app,
+            &mut tree,
+        );
+        dispatch_pending_workbench_intents(&mut app, &mut tree);
+
+        assert!(
+            app.workspace
+                .workbench_session
+                .navigator_specialty_views
+                .get(&host)
+                .is_none(),
+            "specialty registration should clear"
+        );
+        assert!(
+            app.workspace
+                .graph_runtime
+                .views
+                .get(&specialty_view_id)
+                .is_some_and(|view| view.graphlet_node_mask.is_none()),
+            "specialty mask should clear from the derived view"
+        );
     }
 
     #[test]

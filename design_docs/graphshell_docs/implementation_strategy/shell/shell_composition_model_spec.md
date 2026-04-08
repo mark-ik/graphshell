@@ -5,7 +5,7 @@
 # Shell Composition Model Spec
 
 **Date**: 2026-03-25
-**Status**: Canonical / Active — Phases 1–3 implemented; Phase 4 deferred
+**Status**: Canonical / Active — Phases 1–4 implemented
 **Scope**: How Shell mounts and composes its major surfaces using egui's
 named-panel system; how `egui_tiles` is scoped to the Workbench area only;
 the three graph canvas hosting contexts; and the Navigator/Shell omnibar seam.
@@ -520,10 +520,32 @@ shows only scope badge; graph view tabs are not rendered by Shell-owned code.
 
 ### Phase 4 — `GraphCanvasHostCtx::NavigatorSpecialty`
 
-- Add `NavigatorSpecialty` variant to `GraphCanvasHostCtx`
-- Navigator can host a scoped graph canvas in a specialty host using a
-  `GraphletKind`-parameterized rendering context
-- Edge family mask and layout algorithm are Navigator-chosen for the specialty view
+**Status**: Implemented 2026-04-07
+
+- Added `NavigatorSpecialty` to `GraphCanvasHostCtx`
+- Navigator hosts now carry specialty graphlet state via
+   `navigator_specialty_views` and render a scoped graph canvas inside the host
+   using a `GraphletKind`-parameterized transient `GraphViewId`
+- Specialty views now derive from the current focused selection, not an ad hoc
+   local host cache
+- Navigator now chooses specialty-view policy at activation time:
+   corridor / bridge graphlets use tree layout, workbench-correspondence views
+   use grid layout, and other current specialty kinds default to the standard
+   force-directed graph canvas policy
+- Specialty edge-projection override is applied when the graphlet kind implies
+   a constrained family projection (`Session`, `WorkbenchCorrespondence`)
+
+**Implementation receipt (2026-04-07):**
+
+- `shell/desktop/ui/shell_layout_pass.rs` defines
+   `GraphCanvasHostCtx::NavigatorSpecialty { graphlet_kind }`
+- `app/intent_phases.rs` derives and maintains transient specialty graph views
+   under `workbench_session.navigator_specialty_views`
+- `shell/desktop/ui/workbench_host.rs` exposes ego / corridor / component
+   specialty controls, clears the active specialty view, and mounts the graphlet
+   canvas inside the Navigator host
+- `shell/desktop/workbench/tile_render_pass.rs` renders the scoped specialty
+   graph canvas and routes its mutation intents through Graph/Workbench paths
 
 **Acceptance**: ego graphlet / corridor view renders in a Navigator host with
 Navigator chrome; mutation intents from within it route to Graph domain normally.

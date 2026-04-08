@@ -95,7 +95,7 @@ misreported as complete.
 | Camera fit / smart fit | ✅ Done | `RequestFitToScreen` |
 | Target-locked / pointer-relative zoom | 📋 Planned | `2026-03-01_ux_migration_design_spec.md §5.2` |
 | Zoom to node | 📋 Planned | |
-| 2D ↔ 3D hotswitch (`ViewDimension`) | 📋 Planned | `SetViewDimension` intent exists; UI not yet wired |
+| 2D ↔ 3D hotswitch (`ViewDimension`) | 🟡 Partial | `SetViewDimension` and control-surface wiring now exist; projection/render/degradation lane remains deferred |
 | 3D canvas rendering variants (full 3D, stacked, soft 3D) | 🔭 Speculative | |
 | Level-of-Detail (LOD) rendering: Point / Compact / Expanded | 📋 Planned | Zoom-level-driven semantic zoom using the canonical 3-tier policy (`Point` < 0.55, `Compact` 0.55 .. < 1.10, `Expanded` >= 1.10) from `canvas/graph_node_edge_interaction_spec.md §4.8` |
 | Semantic fisheye / Degree of Interest (DOI) visualization | 🔭 Speculative | |

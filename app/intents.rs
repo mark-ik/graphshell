@@ -985,7 +985,7 @@ pub enum GraphIntent {
     /// Activate or clear a graphlet specialty view on a Navigator host.
     ///
     /// `kind = Some(k)` derives and activates an ego/corridor/component/etc.
-    /// graphlet anchored at the current primary selection.
+    /// graphlet anchored at the current focused selection.
     /// `kind = None` clears the specialty view for the given host.
     SetNavigatorSpecialtyView {
         host: crate::app::SurfaceHostId,

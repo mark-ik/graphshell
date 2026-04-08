@@ -2483,6 +2483,61 @@ pub(crate) fn default_semantic_depth_dimension() -> ViewDimension {
     }
 }
 
+pub(crate) fn default_view_dimension_for_mode(mode: ThreeDMode) -> ViewDimension {
+    match mode {
+        ThreeDMode::TwoPointFive => ViewDimension::ThreeD {
+            mode,
+            z_source: ZSource::Recency { max_depth: 8.0 },
+        },
+        ThreeDMode::Isometric => ViewDimension::ThreeD {
+            mode,
+            z_source: ZSource::BfsDepth { scale: 12.0 },
+        },
+        ThreeDMode::Standard => ViewDimension::ThreeD {
+            mode,
+            z_source: ZSource::Zero,
+        },
+    }
+}
+
+pub(crate) fn view_dimension_summary(dimension: &ViewDimension) -> (String, String, bool) {
+    if is_semantic_depth_dimension(dimension) {
+        return (
+            "Depth".to_string(),
+            "Semantic depth layering is active as a reversible 2.5D UDC preset for this graph view."
+                .to_string(),
+            true,
+        );
+    }
+
+    match dimension {
+        ViewDimension::TwoD => (
+            "2D".to_string(),
+            "Standard 2D planar graph view.".to_string(),
+            false,
+        ),
+        ViewDimension::ThreeD { mode, z_source } => {
+            let z_source_label = match z_source {
+                ZSource::Zero => "flat z",
+                ZSource::Recency { .. } => "recency depth",
+                ZSource::BfsDepth { .. } => "BFS depth",
+                ZSource::UdcLevel { .. } => "UDC depth",
+                ZSource::Manual => "manual z",
+            };
+            let (label, mode_label) = match mode {
+                ThreeDMode::TwoPointFive => ("2.5D", "fixed-camera 2.5D projection"),
+                ThreeDMode::Isometric => ("Iso", "fixed-angle isometric projection"),
+                ThreeDMode::Standard => ("3D", "standard 3D view state"),
+            };
+            (
+                label.to_string(),
+                format!("{mode_label} using {z_source_label} for derived z placement."),
+                false,
+            )
+        }
+    }
+}
+
 pub(crate) fn is_semantic_depth_dimension(dimension: &ViewDimension) -> bool {
     matches!(
         dimension,

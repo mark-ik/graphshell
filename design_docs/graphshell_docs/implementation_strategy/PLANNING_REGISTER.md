@@ -31,7 +31,7 @@
 - [shell/shell_backlog_pack.md](shell/shell_backlog_pack.md) - Shell execution backlog and Shell scenario-track IDs.
 - [shell/shell_overview_surface_spec.md](shell/shell_overview_surface_spec.md) - Concrete Shell overview surface that summarizes graph truth, Workbench truth, and shell/runtime truth without flattening ownership.
 - [shell/SHELL.md](shell/SHELL.md) - Shell domain spec: authority boundaries, five-domain model, Shell as only host, relationship to Navigator and Control aspect.
-- [shell/shell_composition_model_spec.md](shell/shell_composition_model_spec.md) - Shell composition model: `ShellLayoutPass` named-slot skeleton, `egui_tiles` scoped to `WorkbenchArea`, three graph canvas hosting contexts, `NavigatorContextProjection`/omnibar seam. Phases 1–3 implemented; Phase 4 (`NavigatorSpecialty`) deferred pending Navigator graphlet host infrastructure.
+- [shell/shell_composition_model_spec.md](shell/shell_composition_model_spec.md) - Shell composition model: `ShellLayoutPass` named-slot skeleton, `egui_tiles` scoped to `WorkbenchArea`, three graph canvas hosting contexts, `NavigatorContextProjection`/omnibar seam. Phases 1–4 implemented, including Navigator specialty graphlet hosts.
 
 ## Contents
 
@@ -808,6 +808,7 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
 1. **lane:roadmap (docs/planning, merge-safe default lane)**
   - Queue reconciled (2026-02-26): `#11`, `#12`, `#13`, `#14`, `#18` closed as completed adoption/planning slices.
   - Remaining open roadmap queue item: `#19` (`TwoD↔ThreeD` `ViewDimension` hotswitch; still deferred/blocked).
+  - Runtime control-surface wiring for `ViewDimension` landed on 2026-04-07 (`[SCAFFOLD:view-dimension-ui-wiring]` closed), but the broader projection/render/degradation lane for `#19` remains blocked on the prerequisites below.
   - Active docs-only execution guide for blocked-state parallel work: `design_docs/graphshell_docs/implementation_strategy/graph/2026-02-27_roadmap_lane_19_readiness_plan.md`.
   - Low conflict risk with runtime/render hot files; preferred background lane while no critical hotfix override is active
 

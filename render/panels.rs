@@ -133,6 +133,17 @@ fn apply_semantic_depth_view_toggle(app: &mut GraphBrowserApp) {
     );
 }
 
+fn apply_view_dimension_selection(app: &mut GraphBrowserApp, dimension: crate::app::ViewDimension) {
+    let Some(view_id) = camera_settings_target_view_id(app) else {
+        return;
+    };
+
+    apply_reducer_graph_intents_hardened(
+        app,
+        vec![GraphIntent::SetViewDimension { view_id, dimension }],
+    );
+}
+
 fn navigator_node_title(app: &GraphBrowserApp, node_key: NodeKey) -> String {
     app.user_visible_node_title(node_key)
         .unwrap_or_else(|| format!("Node {}", node_key.index()))
@@ -651,19 +662,69 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
     }
 
     ui.separator();
-    ui.label("Semantic View");
-    ui.small("Apply or restore the focused Graph View's reversible UDC depth layering.");
-    if let Some(button_label) = semantic_depth_view_toggle_label(app) {
-        if ui.button(button_label).clicked() {
-            apply_semantic_depth_view_toggle(app);
+    ui.label("View Dimension");
+    if let Some(view_id) = camera_settings_target_view_id(app) {
+        if let Some(view) = app.workspace.graph_runtime.views.get(&view_id) {
+            let current_dimension = view.dimension.clone();
+            let (_, tooltip, semantic_depth_active) =
+                crate::app::view_dimension_summary(&current_dimension);
+            ui.small(tooltip);
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .selectable_label(
+                        matches!(current_dimension, crate::app::ViewDimension::TwoD),
+                        "2D",
+                    )
+                    .clicked()
+                {
+                    apply_view_dimension_selection(app, crate::app::ViewDimension::TwoD);
+                }
+
+                let twopointfive_dimension =
+                    crate::app::default_view_dimension_for_mode(crate::app::ThreeDMode::TwoPointFive);
+                if ui
+                    .selectable_label(current_dimension == twopointfive_dimension, "2.5D")
+                    .clicked()
+                {
+                    apply_view_dimension_selection(app, twopointfive_dimension);
+                }
+
+                let isometric_dimension =
+                    crate::app::default_view_dimension_for_mode(crate::app::ThreeDMode::Isometric);
+                if ui
+                    .selectable_label(current_dimension == isometric_dimension, "Isometric")
+                    .clicked()
+                {
+                    apply_view_dimension_selection(app, isometric_dimension);
+                }
+
+                let standard_dimension =
+                    crate::app::default_view_dimension_for_mode(crate::app::ThreeDMode::Standard);
+                if ui
+                    .selectable_label(current_dimension == standard_dimension, "Standard 3D")
+                    .clicked()
+                {
+                    apply_view_dimension_selection(app, standard_dimension);
+                }
+
+                let semantic_label = if semantic_depth_active {
+                    "Restore View"
+                } else {
+                    "UDC Depth"
+                };
+                if ui
+                    .selectable_label(semantic_depth_active, semantic_label)
+                    .clicked()
+                {
+                    apply_semantic_depth_view_toggle(app);
+                }
+            });
+            ui.small(
+                "The UDC depth preset remains reversible; the explicit 2.5D / Isometric / Standard 3D buttons persist the chosen mode directly.",
+            );
         }
-        ui.small(if button_label == "Restore View" {
-            "The focused Graph View is currently using semantic depth layers; restore the prior dimension when finished."
-        } else {
-            "Lift nodes into UDC depth layers without changing layout or lens settings."
-        });
     } else {
-        ui.small("Select or focus a graph view to toggle the semantic depth view.");
+        ui.small("Select or focus a graph view to change its dimension mode.");
     }
 
     let mut config = app.workspace.graph_runtime.physics.clone();
@@ -2112,6 +2173,35 @@ mod tests {
             crate::app::ViewDimension::ThreeD {
                 mode: crate::app::ThreeDMode::Isometric,
                 z_source: crate::app::ZSource::BfsDepth { scale: 7.0 }
+            }
+        ));
+    }
+
+    #[test]
+    fn apply_view_dimension_selection_targets_focused_graph_view() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = crate::app::GraphViewId::new();
+        app.workspace.graph_runtime.views.insert(
+            view_id,
+            crate::app::GraphViewState::new_with_id(view_id, "Focused"),
+        );
+        app.workspace.graph_runtime.focused_view = Some(view_id);
+
+        apply_view_dimension_selection(
+            &mut app,
+            crate::app::default_view_dimension_for_mode(crate::app::ThreeDMode::Standard),
+        );
+
+        assert!(matches!(
+            app.workspace
+                .graph_runtime
+                .views
+                .get(&view_id)
+                .unwrap()
+                .dimension,
+            crate::app::ViewDimension::ThreeD {
+                mode: crate::app::ThreeDMode::Standard,
+                z_source: crate::app::ZSource::Zero
             }
         ));
     }

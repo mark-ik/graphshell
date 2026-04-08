@@ -712,28 +712,34 @@ impl GraphBrowserApp {
             {
                 if let Some(view_state) = self.workspace.graph_runtime.views.get_mut(&sv.view_id) {
                     view_state.graphlet_node_mask = None;
+                    view_state.apply_edge_projection_policy_override(None);
                 }
             }
             return;
         };
 
-        // Use the current primary selection as the graphlet anchor.
-        let anchors: Vec<NodeKey> = self.focused_selection().primary().into_iter().collect();
+        let anchors = self.navigator_specialty_selection_anchors(graphlet_kind);
 
         if anchors.is_empty() {
             // Cannot derive a graphlet without at least one anchor.
             return;
         }
 
+        let selectors = Self::navigator_specialty_selectors(graphlet_kind);
+
         let spec = crate::graph::GraphletSpec {
-            kind: graphlet_kind.clone(),
+            kind: graphlet_kind,
             anchors,
             scope: crate::graph::GraphletScope::Unbounded,
-            selectors: vec![],
+            selectors: selectors.clone(),
             ranking: None,
         };
         let resolved = crate::graph::derive_graphlet(&self.workspace.domain.graph, spec);
         let member_set: std::collections::HashSet<NodeKey> = resolved.members.into_iter().collect();
+        let (layout_mode, layout_algorithm_id) =
+            Self::navigator_specialty_layout_policy(graphlet_kind);
+        let edge_projection_override = (!selectors.is_empty())
+            .then(|| crate::app::EdgeProjectionState::new(selectors));
 
         // Re-use the existing specialty view's GraphViewId if present (avoids
         // churning the view registry every time the selection changes).
@@ -751,6 +757,8 @@ impl GraphBrowserApp {
         // Write the graphlet mask into the view state.
         if let Some(view_state) = self.workspace.graph_runtime.views.get_mut(&view_id) {
             view_state.graphlet_node_mask = Some(member_set);
+            view_state.apply_layout_policy_override(layout_mode, layout_algorithm_id);
+            view_state.apply_edge_projection_policy_override(edge_projection_override);
         }
 
         self.workspace
@@ -763,6 +771,71 @@ impl GraphBrowserApp {
                     view_id,
                 },
             );
+    }
+
+    fn navigator_specialty_selection_anchors(
+        &self,
+        graphlet_kind: crate::graph::GraphletKind,
+    ) -> Vec<NodeKey> {
+        if let Some((first, second)) = self.focused_selection().ordered_pair()
+            && matches!(
+                graphlet_kind,
+                crate::graph::GraphletKind::Corridor | crate::graph::GraphletKind::Bridge
+            )
+        {
+            return vec![first, second];
+        }
+
+        let mut anchors: Vec<NodeKey> = self.focused_selection().iter().copied().collect();
+        anchors.sort_by_key(|key| key.index());
+        if let Some(primary) = self.focused_selection().primary() {
+            anchors.retain(|key| *key != primary);
+            anchors.push(primary);
+        }
+        anchors
+    }
+
+    fn navigator_specialty_selectors(
+        graphlet_kind: crate::graph::GraphletKind,
+    ) -> Vec<crate::graph::RelationSelector> {
+        match graphlet_kind {
+            crate::graph::GraphletKind::Session => {
+                vec![crate::graph::RelationSelector::Family(
+                    crate::graph::EdgeFamily::Traversal,
+                )]
+            }
+            crate::graph::GraphletKind::WorkbenchCorrespondence => vec![
+                crate::graph::RelationSelector::Semantic(
+                    crate::graph::SemanticSubKind::UserGrouped,
+                ),
+                crate::graph::RelationSelector::Arrangement(
+                    crate::graph::ArrangementSubKind::FrameMember,
+                ),
+            ],
+            _ => Vec::new(),
+        }
+    }
+
+    fn navigator_specialty_layout_policy(
+        graphlet_kind: crate::graph::GraphletKind,
+    ) -> (crate::registries::atomic::lens::LayoutMode, String) {
+        match graphlet_kind {
+            crate::graph::GraphletKind::Corridor | crate::graph::GraphletKind::Bridge => (
+                crate::registries::atomic::lens::LayoutMode::Tree {
+                    direction: petgraph::Direction::Outgoing,
+                    layer_gap: 96.0,
+                },
+                crate::app::graph_layout::GRAPH_LAYOUT_TREE.to_string(),
+            ),
+            crate::graph::GraphletKind::WorkbenchCorrespondence => (
+                crate::registries::atomic::lens::LayoutMode::Grid { gap: 48.0 },
+                crate::app::graph_layout::GRAPH_LAYOUT_GRID.to_string(),
+            ),
+            _ => (
+                crate::registries::atomic::lens::LayoutMode::Free,
+                crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED.to_string(),
+            ),
+        }
     }
 
     /// Phase 4: canonical graph and domain mutations.
