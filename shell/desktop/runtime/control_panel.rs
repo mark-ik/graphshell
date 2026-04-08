@@ -31,7 +31,9 @@ use tokio_util::sync::CancellationToken;
 use crate::app::{GraphIntent, LifecycleCause, MemoryPressureLevel};
 use crate::graph::NodeKey;
 use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
-use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
+use crate::registries::infrastructure::mod_loader::{
+    discover_mod_manifests, resolve_mod_load_order,
+};
 use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
 use crate::shell::desktop::runtime::registries::agent::{Agent, AgentContext};
 use crate::shell::desktop::runtime::registries::nostr_core::{
@@ -994,7 +996,7 @@ async fn memory_monitor_worker(tx: mpsc::Sender<QueuedIntent>) {
 /// Discovers native mods and resolves dependency order. Emits activation
 /// events on success and load-failure events on dependency/resolve errors.
 async fn mod_loader_worker(tx: mpsc::Sender<QueuedIntent>) {
-    let manifests = discover_native_mods();
+    let manifests = discover_mod_manifests([]);
     match resolve_mod_load_order(&manifests) {
         Ok(ordered) => {
             for manifest in ordered {

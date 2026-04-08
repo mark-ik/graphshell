@@ -5,6 +5,7 @@
 //
 // See: design_docs/verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md
 
+use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
 };
@@ -76,11 +77,12 @@ pub(crate) fn activate() -> Result<(), String> {
 /// Phase 5 will implement `protocol:verse` handler for P2P sync.
 /// For now this is a stub (Phase 2.4 integration point).
 pub(crate) fn register_protocol_handlers(
-    providers: &mut crate::registries::atomic::ProtocolHandlerProviders,
+    providers: &mut ProtocolHandlerProviders,
 ) {
-    // TODO: Phase 5.1 — Register protocol:verse handler
-    let _ = providers; // Suppress unused warning
-    log::debug!("verse: protocol handler registration stub (Phase 5 implementation pending)");
+    providers.register_fn(|registry| {
+        registry.register_scheme("verse", "protocol:verse");
+    });
+    log::debug!("verse: registered protocol handler for verse");
 }
 
 /// P2P Identity stored in OS keychain

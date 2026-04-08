@@ -239,7 +239,7 @@ Done-gate:
 
 ### Phase B. Lifecycle Contract Definition
 
-1. Write `mod_lifecycle_integrity_spec.md`.
+1. Write `mod_lifecycle_integrity_spec.md`. ✅ Landed 2026-04-08.
 2. Define unknown-mod, failed-activation, and partial-registration behavior.
 3. Define rollback/quarantine expectations and diagnostics.
 
@@ -270,7 +270,7 @@ Done-gate:
 ### Phase E. WASM Track Activation
 
 1. Introduce the real runtime design for WASM loading and sandboxed host ABI.
-2. Implement `load_mod(path)` and related lifecycle paths.
+2. Implement `load_mod(path)` and related lifecycle paths. Initial headless Extism-backed path landed 2026-04-08 with sidecar-manifest admission, `WasmModSource` tracking, required guest exports (`init`, `render`, `on_event`, optional `update`), activation-time `init`, callable headless `render` / `on_event` host paths, deny-by-default capability checks, rollback-aware activation, and unload bookkeeping/quarantine semantics.
 3. Add unload/reload only after the load/register/rollback contract is stable.
 
 Done-gate:
@@ -292,12 +292,13 @@ Done-gate:
 
 1. Update `SUBSYSTEM_MODS.md` to reference this architecture plan.
 2. Add an explicit “runtime reality” section to the subsystem guide.
-3. Create `mod_lifecycle_integrity_spec.md` as the next missing canonical contract.
+3. Create `mod_lifecycle_integrity_spec.md` as the next missing canonical contract. ✅ Landed 2026-04-08.
 4. Add implementation follow-ons for:
    - unknown-mod activation handling
-   - registry cleanup/rollback semantics
+   - remaining registry cleanup/rollback diagnostics beyond the current rollback/quarantine core channels
    - built-in versus mod-owned provider wiring audit
    - accurate WASM-runtime status language across docs
+   - richer WASM guest ABI beyond the current headless `init`/`render`/`on_event`-validated Extism activation slice
 
 ---
 

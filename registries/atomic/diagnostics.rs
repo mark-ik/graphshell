@@ -52,7 +52,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED, CHANNEL_LAYOUT_FALLBACK_USED,
     CHANNEL_LENS_FALLBACK_USED, CHANNEL_LENS_RESOLVE_FAILED, CHANNEL_LENS_RESOLVE_SUCCEEDED,
     CHANNEL_MOD_DEPENDENCY_MISSING, CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED,
-    CHANNEL_MOD_LOAD_SUCCEEDED, CHANNEL_NOSTR_RELAY_CONNECT_FAILED,
+    CHANNEL_MOD_LOAD_SUCCEEDED, CHANNEL_MOD_QUARANTINED, CHANNEL_MOD_ROLLBACK_FAILED,
+    CHANNEL_MOD_ROLLBACK_SUCCEEDED, CHANNEL_MOD_UNLOAD_FAILED,
+    CHANNEL_NOSTR_RELAY_CONNECT_FAILED,
     CHANNEL_NOSTR_RELAY_CONNECT_STARTED, CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED,
     CHANNEL_NOSTR_RELAY_DISCONNECTED, CHANNEL_PERSISTENCE_RECOVER_FAILED,
     CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED, CHANNEL_PHYSICS_PROFILE_ACTIVATED,
@@ -91,6 +93,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_LAYOUT_GUTTER_DETECTED, CHANNEL_UX_LAYOUT_OVERLAP_DETECTED,
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
     CHANNEL_UX_PRESENTATION_BOUNDS_MISSING, CHANNEL_UX_PROBE_DISABLED, CHANNEL_UX_PROBE_REGISTERED,
+    CHANNEL_UX_SNAPSHOT_WRITTEN,
     CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT, CHANNEL_UX_RADIAL_MODE_FALLBACK,
     CHANNEL_UX_RADIAL_OVERFLOW, CHANNEL_UX_STRUCTURAL_VIOLATION, CHANNEL_UX_TREE_BUILD,
     CHANNEL_UX_TREE_SNAPSHOT_BUILT, CHANNEL_VERSE_PREINIT_CALL, CHANNEL_VERSE_SYNC_ACCESS_DENIED,
@@ -589,7 +592,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 162] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 167] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -687,6 +690,26 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 162] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_MOD_LOAD_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_MOD_ROLLBACK_SUCCEEDED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_MOD_ROLLBACK_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_MOD_QUARANTINED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_MOD_UNLOAD_FAILED,
         schema_version: 1,
         severity: ChannelSeverity::Error,
     },
@@ -952,6 +975,11 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 162] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_SNAPSHOT_WRITTEN,
         schema_version: 1,
         severity: ChannelSeverity::Info,
     },

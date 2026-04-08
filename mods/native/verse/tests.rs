@@ -2,7 +2,11 @@
 
 #[cfg(test)]
 mod step_5_1_tests {
-    use super::super::{P2PIdentitySecret, generate_p2p_secret_key, verse_manifest};
+    use super::super::{
+        P2PIdentitySecret, generate_p2p_secret_key, register_protocol_handlers, verse_manifest,
+    };
+    use crate::registries::atomic::ProtocolHandlerProviders;
+    use crate::registries::atomic::protocol::ProtocolContractRegistry;
 
     #[test]
     fn verse_manifest_declares_correct_provides() {
@@ -92,6 +96,17 @@ mod step_5_1_tests {
             "Keys should match after round-trip"
         );
         assert_eq!(identity.device_name, deserialized.device_name);
+    }
+
+    #[test]
+    fn verse_protocol_handlers_register_verse_scheme() {
+        let mut providers = ProtocolHandlerProviders::new();
+        register_protocol_handlers(&mut providers);
+
+        let mut registry = ProtocolContractRegistry::core_seed();
+        providers.apply_all(&mut registry);
+
+        assert!(registry.has_scheme("verse"));
     }
 }
 

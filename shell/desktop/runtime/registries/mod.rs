@@ -59,7 +59,10 @@ use crate::registries::domain::layout::viewer_surface::ViewerSurfaceResolution;
 use crate::registries::domain::presentation::{
     PresentationDomainProfileResolution, PresentationDomainRegistry,
 };
-use crate::registries::infrastructure::{ModExtensionRecord, ModRegistry, ModUnloadError};
+use crate::registries::infrastructure::{
+    ModExtensionRecord, ModRegistry, ModUnloadError, WasmModSource,
+};
+use crate::registries::infrastructure::mod_loader::ModActivationError;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use action::{
@@ -152,6 +155,10 @@ pub(crate) const CHANNEL_INVARIANT_TIMEOUT: &str = "registry.invariant.timeout";
 pub(crate) const CHANNEL_MOD_LOAD_STARTED: &str = "registry.mod.load_started";
 pub(crate) const CHANNEL_MOD_LOAD_SUCCEEDED: &str = "registry.mod.load_succeeded";
 pub(crate) const CHANNEL_MOD_LOAD_FAILED: &str = "registry.mod.load_failed";
+pub(crate) const CHANNEL_MOD_ROLLBACK_SUCCEEDED: &str = "registry.mod.rollback_succeeded";
+pub(crate) const CHANNEL_MOD_ROLLBACK_FAILED: &str = "registry.mod.rollback_failed";
+pub(crate) const CHANNEL_MOD_QUARANTINED: &str = "registry.mod.quarantined";
+pub(crate) const CHANNEL_MOD_UNLOAD_FAILED: &str = "registry.mod.unload_failed";
 pub(crate) const CHANNEL_MOD_DEPENDENCY_MISSING: &str = "registry.mod.dependency_missing";
 pub(crate) const CHANNEL_STARTUP_CONFIG_SNAPSHOT: &str = "startup.config.snapshot";
 pub(crate) const CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED: &str =
@@ -399,6 +406,7 @@ pub(crate) const CHANNEL_UX_RADIAL_LAYOUT: &str = "ux:radial_layout";
 pub(crate) const CHANNEL_UX_RADIAL_LABEL_COLLISION: &str = "ux:radial_label_collision";
 pub(crate) const CHANNEL_UX_RADIAL_MODE_FALLBACK: &str = "ux:radial_mode_fallback";
 pub(crate) const CHANNEL_UX_TREE_SNAPSHOT_BUILT: &str = "ux:tree_snapshot_built";
+pub(crate) const CHANNEL_UX_SNAPSHOT_WRITTEN: &str = "ux:snapshot_written";
 pub(crate) const CHANNEL_UX_PRESENTATION_BOUNDS_MISSING: &str = "ux:presentation_bounds_missing";
 pub(crate) const CHANNEL_UX_LAYOUT_GUTTER_DETECTED: &str = "ux:layout_gutter_detected";
 pub(crate) const CHANNEL_UX_LAYOUT_OVERLAP_DETECTED: &str = "ux:layout_overlap_detected";
@@ -558,7 +566,8 @@ impl DynamicRegistrySurfaces {
             ModExtensionRecord::Action { .. }
             | ModExtensionRecord::IndexProvider { .. }
             | ModExtensionRecord::Lens { .. }
-            | ModExtensionRecord::Theme { .. } => {}
+            | ModExtensionRecord::Theme { .. }
+            | ModExtensionRecord::WasmRuntime { .. } => {}
         }
         Ok(())
     }
@@ -621,6 +630,9 @@ impl DynamicRegistrySurfaces {
             ModExtensionRecord::Theme { theme_id } => {
                 self.theme.unregister_theme(&theme_id);
             }
+            ModExtensionRecord::WasmRuntime { mod_id } => {
+                crate::mods::wasm::deactivate_mod_headless(&mod_id)?;
+            }
         }
         Ok(())
     }
@@ -660,6 +672,21 @@ fn static_viewer_id_for_runtime_extension(extension: &str) -> Option<&'static st
         "html" | "htm" | "pdf" | "svg" => Some("viewer:webview"),
         _ => None,
     }
+}
+
+fn register_verse_mod_extensions(
+    dynamic: &mut DynamicRegistrySurfaces,
+) -> Result<Vec<ModExtensionRecord>, String> {
+    crate::mods::native::verse::activate()?;
+
+    let scheme = "verse";
+    let record = ModExtensionRecord::ProtocolScheme {
+        scheme: scheme.to_string(),
+        previously_present: dynamic.protocol.has_scheme(scheme),
+    };
+    dynamic.protocol.register_scheme(scheme);
+
+    Ok(vec![record])
 }
 
 fn register_verso_mod_extensions(dynamic: &mut DynamicRegistrySurfaces) -> Vec<ModExtensionRecord> {
@@ -1268,9 +1295,17 @@ impl RegistryRuntime {
         let mut dynamic = self.dynamic();
         *dynamic =
             Self::build_dynamic_surfaces(ProtocolRegistry::default(), ViewerRegistry::default());
-        let loaded = mod_registry.load_all_with_extensions(|mod_id| {
-            Self::activate_mod_into_runtime(&mut dynamic, mod_id)
-        });
+        let dynamic_ref = std::cell::RefCell::new(&mut *dynamic);
+        let loaded = mod_registry.load_all_with_extensions(
+            |manifest, wasm_source| {
+                let mut surfaces = dynamic_ref.borrow_mut();
+                Self::activate_mod_into_runtime(&mut surfaces, manifest, wasm_source)
+            },
+            |record| {
+                let mut surfaces = dynamic_ref.borrow_mut();
+                surfaces.remove_extension(record)
+            },
+        );
         for mod_id in loaded {
             self.route_mod_lifecycle_event(&mod_id, true);
         }
@@ -1279,19 +1314,37 @@ impl RegistryRuntime {
 
     fn activate_mod_into_runtime(
         dynamic: &mut DynamicRegistrySurfaces,
-        mod_id: &str,
-    ) -> Result<Vec<ModExtensionRecord>, String> {
-        match mod_id {
-            "mod:verso" | "verso" => Ok(register_verso_mod_extensions(dynamic)),
-            "mod:verse" | "verse" => {
-                crate::mods::native::verse::activate()?;
-                Ok(Vec::new())
+        manifest: &crate::registries::infrastructure::mod_loader::ModManifest,
+        wasm_source: Option<&WasmModSource>,
+    ) -> Result<Vec<ModExtensionRecord>, ModActivationError> {
+        match manifest.mod_type {
+            crate::registries::infrastructure::mod_loader::ModType::Wasm => {
+                let source = wasm_source
+                    .ok_or_else(|| {
+                        ModActivationError::failed(format!(
+                            "missing wasm source for {}",
+                            manifest.mod_id
+                        ))
+                    })?;
+                crate::mods::wasm::activate_mod_headless(manifest, source)
+                    .map_err(ModActivationError::failed)?;
+                Ok(vec![ModExtensionRecord::WasmRuntime {
+                    mod_id: manifest.mod_id.clone(),
+                }])
             }
-            _ => {
-                let activations =
-                    crate::registries::infrastructure::mod_activation::NativeModActivations::new();
-                activations.activate(mod_id)?;
-                Ok(Vec::new())
+            crate::registries::infrastructure::mod_loader::ModType::Native => {
+                match manifest.mod_id.as_str() {
+                    "mod:verso" | "verso" => Ok(register_verso_mod_extensions(dynamic)),
+                    "mod:verse" | "verse" => register_verse_mod_extensions(dynamic)
+                        .map_err(ModActivationError::failed),
+                    _ => {
+                        let activations = crate::registries::infrastructure::mod_activation::NativeModActivations::new();
+                        activations
+                            .activate(&manifest.mod_id)
+                            .map_err(ModActivationError::failed)?;
+                        Ok(Vec::new())
+                    }
+                }
             }
         }
     }
@@ -4164,6 +4217,34 @@ mod tests {
         assert!(protocol.supported);
         assert!(!protocol.fallback_used);
         assert_eq!(protocol.matched_scheme, "modtest");
+    }
+
+    #[test]
+    fn runtime_owned_mod_registry_registers_verse_protocol_scheme() {
+        let runtime = RegistryRuntime::new_with_mods();
+
+        let (protocol, _viewer) = runtime
+            .observe_navigation_url_with_control(
+                "verse://peer-device/session",
+                None,
+                ProtocolResolveControl::default(),
+            )
+            .expect("verse-backed runtime should resolve navigation");
+
+        assert!(protocol.supported);
+        assert!(!protocol.fallback_used);
+        assert_eq!(protocol.matched_scheme, "verse");
+        assert!(
+            runtime
+                .mod_registry
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .extension_records_for("verse")
+                .is_some_and(|records| records.iter().any(|record| matches!(
+                    record,
+                    ModExtensionRecord::ProtocolScheme { scheme, .. } if scheme == "verse"
+                )))
+        );
     }
 
     #[test]

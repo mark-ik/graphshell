@@ -42,10 +42,13 @@ OriginalFilename = "graphshell.exe"
 ProductName = "GraphShell Browser"
 
 [features]
-default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry"]
+default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry", "ux-probes", "ux-bridge"]
 diagnostics = []
 diagnostics_tests = []
-test-utils = []
+ux-semantics = []
+ux-probes = ["ux-semantics"]
+ux-bridge = ["ux-semantics"]
+test-utils = ["ux-probes", "ux-bridge"]
 crown = ["servo/crown"]
 debugmozjs = ["servo/debugmozjs"]
 gamepad = ["servo/gamepad"]
@@ -177,6 +180,8 @@ glow = "0.16.0"
 headers = "0.4"
 serde_json = "1.0"
 sysinfo = "0.37"
+extism = "1.13.0"
+wasmparser = "0.240.0"
 # For optional feature servo_allocator/use-system-allocator and servo_allocator/allocation-tracking
 servo_allocator = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-allocator" }
 surfman = { version = "0.11.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
@@ -221,6 +226,7 @@ tempfile = "3"
 tracing = "0.1.44"
 tracing-test = "0.2"
 inventory = "0.3"
+wat = "1"
 
 [patch.crates-io]
 egui = { git = "https://github.com/emilk/egui.git", rev = "5d8f393335e051785b4fd3af9ef92eda5b61177f" }

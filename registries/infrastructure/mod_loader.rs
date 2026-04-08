@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 // No direct DiagnosticsState import needed - this module emits via runtime diagnostics.
@@ -15,6 +16,7 @@ pub(crate) enum ModStatus {
     Loading,
     Active,
     Failed,
+    Quarantined,
     Unloaded,
 }
 
@@ -95,6 +97,9 @@ pub(crate) enum ModExtensionRecord {
     Theme {
         theme_id: String,
     },
+    WasmRuntime {
+        mod_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +116,64 @@ pub(crate) enum ModUnloadError {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ModActivationError {
+    reason: String,
+    applied_records: Vec<ModExtensionRecord>,
+}
+
+impl ModActivationError {
+    pub(crate) fn failed(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            applied_records: Vec::new(),
+        }
+    }
+
+    pub(crate) fn rollback(
+        reason: impl Into<String>,
+        applied_records: Vec<ModExtensionRecord>,
+    ) -> Self {
+        Self {
+            reason: reason.into(),
+            applied_records,
+        }
+    }
+
+    fn into_parts(self) -> (String, Vec<ModExtensionRecord>) {
+        (self.reason, self.applied_records)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WasmModSource {
+    pub(crate) module_path: PathBuf,
+    pub(crate) manifest_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModLoadPathError {
+    UnsupportedModPath(PathBuf),
+    MissingManifest(PathBuf),
+    InvalidManifest { path: PathBuf, reason: String },
+    InvalidCapability { capability: String },
+    InvalidWasmBinary(PathBuf),
+    Io { path: PathBuf, reason: String },
+    DuplicateModId(String),
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct DiskModManifest {
+    mod_id: String,
+    display_name: Option<String>,
+    #[serde(default)]
+    provides: Vec<String>,
+    #[serde(default)]
+    requires: Vec<String>,
+    #[serde(default)]
+    capabilities: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct NativeModRegistration {
     pub(crate) manifest: fn() -> ModManifest,
@@ -123,6 +186,94 @@ pub(crate) fn discover_native_mods() -> Vec<ModManifest> {
         .into_iter()
         .map(|registration| (registration.manifest)())
         .collect()
+}
+
+pub(crate) fn discover_mod_manifests(
+    additional_manifests: impl IntoIterator<Item = ModManifest>,
+) -> Vec<ModManifest> {
+    let mut manifests = discover_native_mods();
+    manifests.extend(additional_manifests);
+    manifests
+}
+
+fn parse_mod_capability(raw: &str) -> Result<ModCapability, ModLoadPathError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "network" => Ok(ModCapability::Network),
+        "filesystem" | "fs" => Ok(ModCapability::Filesystem),
+        "identity" => Ok(ModCapability::Identity),
+        "clipboard" => Ok(ModCapability::Clipboard),
+        "exec" => Ok(ModCapability::Exec),
+        other => Err(ModLoadPathError::InvalidCapability {
+            capability: other.to_string(),
+        }),
+    }
+}
+
+fn candidate_manifest_paths(path: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![path.with_extension("wasm.toml")];
+    if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+        candidates.push(path.with_file_name(format!("{stem}.mod.toml")));
+    }
+    candidates
+}
+
+fn validate_wasm_binary(path: &Path) -> Result<(), ModLoadPathError> {
+    let bytes = std::fs::read(path).map_err(|error| ModLoadPathError::Io {
+        path: path.to_path_buf(),
+        reason: error.to_string(),
+    })?;
+    if bytes.len() < 4 || bytes[..4] != [0x00, 0x61, 0x73, 0x6d] {
+        return Err(ModLoadPathError::InvalidWasmBinary(path.to_path_buf()));
+    }
+    Ok(())
+}
+
+fn read_wasm_mod_from_path(path: &Path) -> Result<(ModManifest, WasmModSource), ModLoadPathError> {
+    if path.extension().and_then(|ext| ext.to_str()) != Some("wasm") {
+        return Err(ModLoadPathError::UnsupportedModPath(path.to_path_buf()));
+    }
+
+    validate_wasm_binary(path)?;
+
+    let manifest_path = candidate_manifest_paths(path)
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .ok_or_else(|| ModLoadPathError::MissingManifest(path.to_path_buf()))?;
+    let manifest_raw = std::fs::read_to_string(&manifest_path).map_err(|error| {
+        ModLoadPathError::Io {
+            path: manifest_path.clone(),
+            reason: error.to_string(),
+        }
+    })?;
+    let disk_manifest: DiskModManifest = toml::from_str(&manifest_raw).map_err(|error| {
+        ModLoadPathError::InvalidManifest {
+            path: manifest_path.clone(),
+            reason: error.to_string(),
+        }
+    })?;
+
+    let capabilities = disk_manifest
+        .capabilities
+        .iter()
+        .map(|entry| parse_mod_capability(entry))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mod_id = disk_manifest.mod_id;
+    let display_name = disk_manifest.display_name.unwrap_or_else(|| mod_id.clone());
+
+    Ok((
+        ModManifest::new(
+            mod_id,
+            display_name,
+            ModType::Wasm,
+            disk_manifest.provides,
+            disk_manifest.requires,
+            capabilities,
+        ),
+        WasmModSource {
+            module_path: path.to_path_buf(),
+            manifest_path,
+        },
+    ))
 }
 
 pub(crate) fn resolve_mod_load_order(
@@ -225,6 +376,8 @@ pub(crate) struct ModRegistry {
     status: HashMap<String, ModStatus>,
     /// Resolved load order (topologically sorted)
     load_order: Vec<String>,
+    /// File-backed sources for admitted WASM mods.
+    wasm_sources: HashMap<String, WasmModSource>,
     /// Disabled mods for this registry instance.
     disabled_mod_ids: HashSet<String>,
     /// Registry surface extensions installed by each active mod.
@@ -279,11 +432,30 @@ pub(crate) fn runtime_has_capability(capability_id: &str) -> bool {
 }
 
 impl ModRegistry {
-    fn new_with_disabled(disabled_mod_ids: &HashSet<String>) -> Self {
-        let discovered = discover_native_mods();
-        let manifests = discovered
+    fn rollback_extension_records<F>(
+        installed_records: &mut Vec<ModExtensionRecord>,
+        rollback: &mut F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(ModExtensionRecord) -> Result<(), String>,
+    {
+        while let Some(record) = installed_records.pop() {
+            if let Err(reason) = rollback(record.clone()) {
+                installed_records.push(record);
+                return Err(reason);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn from_manifests_with_disabled(
+        manifests: Vec<ModManifest>,
+        disabled_mod_ids: &HashSet<String>,
+    ) -> Self {
+        let manifests = manifests
             .into_iter()
-            .map(|m| (m.mod_id.clone(), m))
+            .map(|manifest| (manifest.mod_id.clone(), manifest))
             .collect::<HashMap<_, _>>();
 
         let status = manifests
@@ -301,9 +473,19 @@ impl ModRegistry {
             manifests,
             status,
             load_order: Vec::new(),
+            wasm_sources: HashMap::new(),
             disabled_mod_ids: disabled_mod_ids.clone(),
             extension_records: HashMap::new(),
         }
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) fn from_manifests_for_tests(manifests: Vec<ModManifest>) -> Self {
+        Self::from_manifests_with_disabled(manifests, &HashSet::new())
+    }
+
+    fn new_with_disabled(disabled_mod_ids: &HashSet<String>) -> Self {
+        Self::from_manifests_with_disabled(discover_mod_manifests([]), disabled_mod_ids)
     }
 
     /// Create a new ModRegistry and discover all native mods.
@@ -347,22 +529,81 @@ impl ModRegistry {
         }
     }
 
+    pub(crate) fn load_mod(&mut self, path: impl AsRef<Path>) -> Result<String, ModLoadPathError> {
+        let (manifest, source) = read_wasm_mod_from_path(path.as_ref())?;
+        if self.manifests.contains_key(&manifest.mod_id) {
+            return Err(ModLoadPathError::DuplicateModId(manifest.mod_id));
+        }
+
+        let mod_id = manifest.mod_id.clone();
+        let initial_status = if self.disabled_mod_ids.contains(&mod_id) {
+            ModStatus::Unloaded
+        } else {
+            ModStatus::Discovered
+        };
+
+        self.manifests.insert(mod_id.clone(), manifest);
+        self.wasm_sources.insert(mod_id.clone(), source);
+        self.status.insert(mod_id.clone(), initial_status);
+        self.load_order.clear();
+
+        Ok(mod_id)
+    }
+
     /// Load all mods in dependency order.
     /// Emits lifecycle diagnostics for each mod.
     pub(crate) fn load_all(&mut self) -> Vec<String> {
-        self.load_all_with_extensions(|mod_id| {
-            Self::activate_native_mod(mod_id)?;
-            Ok(Vec::new())
-        })
+        self.load_all_with_extensions(
+            |manifest, wasm_source| match manifest.mod_type {
+                ModType::Native => {
+                    Self::activate_native_mod(&manifest.mod_id)
+                        .map_err(ModActivationError::failed)?;
+                    Ok(Vec::new())
+                }
+                ModType::Wasm => {
+                    let source = wasm_source.ok_or_else(|| {
+                        ModActivationError::failed(format!(
+                            "missing wasm source for {}",
+                            manifest.mod_id
+                        ))
+                    })?;
+                    crate::mods::wasm::activate_mod_headless(manifest, source)
+                        .map_err(ModActivationError::failed)?;
+                    Ok(vec![ModExtensionRecord::WasmRuntime {
+                        mod_id: manifest.mod_id.clone(),
+                    }])
+                }
+            },
+            |record| match record {
+                ModExtensionRecord::WasmRuntime { mod_id } => {
+                    crate::mods::wasm::deactivate_mod_headless(&mod_id)
+                }
+                ModExtensionRecord::ProtocolScheme { .. }
+                | ModExtensionRecord::ViewerMime { .. }
+                | ModExtensionRecord::ViewerExtension { .. }
+                | ModExtensionRecord::ViewerCapabilities { .. }
+                | ModExtensionRecord::Action { .. }
+                | ModExtensionRecord::IndexProvider { .. }
+                | ModExtensionRecord::Lens { .. }
+                | ModExtensionRecord::Theme { .. } => Ok(()),
+            },
+        )
     }
 
-    pub(crate) fn load_all_with_extensions<F>(&mut self, mut activate: F) -> Vec<String>
+    pub(crate) fn load_all_with_extensions<F, R>(
+        &mut self,
+        mut activate: F,
+        mut rollback: R,
+    ) -> Vec<String>
     where
-        F: FnMut(&str) -> Result<Vec<ModExtensionRecord>, String>,
+        F: FnMut(&ModManifest, Option<&WasmModSource>) -> Result<Vec<ModExtensionRecord>, ModActivationError>,
+        R: FnMut(ModExtensionRecord) -> Result<(), String>,
     {
         use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
         use crate::shell::desktop::runtime::registries::{
             CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED,
+            CHANNEL_MOD_QUARANTINED, CHANNEL_MOD_ROLLBACK_FAILED,
+            CHANNEL_MOD_ROLLBACK_SUCCEEDED,
         };
 
         let mut loaded = Vec::new();
@@ -384,7 +625,7 @@ impl ModRegistry {
 
             self.status.insert(mod_id.clone(), ModStatus::Loading);
 
-            let load_result = activate(mod_id);
+            let load_result = activate(manifest, self.wasm_sources.get(mod_id));
 
             match load_result {
                 Ok(extension_records) => {
@@ -398,11 +639,42 @@ impl ModRegistry {
                     });
                     loaded.push(mod_id.clone());
                 }
-                Err(e) => {
-                    self.status.insert(mod_id.clone(), ModStatus::Failed);
+                Err(error) => {
+                    let (reason, mut applied_records) = error.into_parts();
+                    let failure_reason = if applied_records.is_empty() {
+                        self.status.insert(mod_id.clone(), ModStatus::Failed);
+                        reason
+                    } else {
+                        match Self::rollback_extension_records(&mut applied_records, &mut rollback) {
+                            Ok(()) => {
+                                self.status.insert(mod_id.clone(), ModStatus::Failed);
+                                emit_event(DiagnosticEvent::MessageSent {
+                                    channel_id: CHANNEL_MOD_ROLLBACK_SUCCEEDED,
+                                    byte_len: mod_id.len() + reason.len(),
+                                });
+                                reason
+                            }
+                            Err(rollback_reason) => {
+                                self.status.insert(mod_id.clone(), ModStatus::Quarantined);
+                                self.extension_records
+                                    .insert(mod_id.clone(), applied_records);
+                                emit_event(DiagnosticEvent::MessageSent {
+                                    channel_id: CHANNEL_MOD_ROLLBACK_FAILED,
+                                    byte_len: mod_id.len() + rollback_reason.len(),
+                                });
+                                emit_event(DiagnosticEvent::MessageSent {
+                                    channel_id: CHANNEL_MOD_QUARANTINED,
+                                    byte_len: mod_id.len() + rollback_reason.len(),
+                                });
+                                format!(
+                                    "{reason}; rollback failed: {rollback_reason}"
+                                )
+                            }
+                        }
+                    };
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_MOD_LOAD_FAILED,
-                        byte_len: mod_id.len() + e.len(),
+                        byte_len: mod_id.len() + failure_reason.len(),
                     });
                 }
             }
@@ -423,6 +695,11 @@ impl ModRegistry {
     where
         F: FnMut(ModExtensionRecord) -> Result<(), String>,
     {
+        use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+        use crate::shell::desktop::runtime::registries::{
+            CHANNEL_MOD_QUARANTINED, CHANNEL_MOD_UNLOAD_FAILED,
+        };
+
         let normalized = mod_id.trim().to_ascii_lowercase();
         let Some(status) = self.status.get(&normalized).copied() else {
             return Err(ModUnloadError::UnknownMod(normalized));
@@ -441,21 +718,32 @@ impl ModRegistry {
             });
         }
 
-        for record in self
-            .extension_records
-            .remove(&manifest.mod_id)
-            .unwrap_or_default()
-            .into_iter()
-            .rev()
-        {
-            if let Err(reason) = remove_extension(record) {
-                self.status
-                    .insert(manifest.mod_id.clone(), ModStatus::Failed);
-                return Err(ModUnloadError::ExtensionRemovalFailed {
-                    mod_id: manifest.mod_id,
-                    reason,
-                });
+        let mut remove_entry = false;
+        if let Some(records) = self.extension_records.get_mut(&manifest.mod_id) {
+            while let Some(record) = records.pop() {
+                if let Err(reason) = remove_extension(record.clone()) {
+                    records.push(record);
+                    self.status
+                        .insert(manifest.mod_id.clone(), ModStatus::Quarantined);
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_MOD_UNLOAD_FAILED,
+                        byte_len: manifest.mod_id.len() + reason.len(),
+                    });
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_MOD_QUARANTINED,
+                        byte_len: manifest.mod_id.len() + reason.len(),
+                    });
+                    return Err(ModUnloadError::ExtensionRemovalFailed {
+                        mod_id: manifest.mod_id,
+                        reason,
+                    });
+                }
             }
+            remove_entry = true;
+        }
+
+        if remove_entry {
+            self.extension_records.remove(&manifest.mod_id);
         }
 
         self.status.insert(manifest.mod_id, ModStatus::Unloaded);
@@ -511,6 +799,10 @@ impl ModRegistry {
 
     pub(crate) fn extension_records_for(&self, mod_id: &str) -> Option<&[ModExtensionRecord]> {
         self.extension_records.get(mod_id).map(Vec::as_slice)
+    }
+
+    pub(crate) fn wasm_source(&self, mod_id: &str) -> Option<&WasmModSource> {
+        self.wasm_sources.get(mod_id)
     }
 
     /// Check if a specific capability is provided by any loaded mod
@@ -674,6 +966,13 @@ inventory::submit! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
+    use crate::shell::desktop::runtime::registries::{
+        CHANNEL_MOD_QUARANTINED, CHANNEL_MOD_ROLLBACK_FAILED,
+        CHANNEL_MOD_ROLLBACK_SUCCEEDED, CHANNEL_MOD_UNLOAD_FAILED,
+    };
 
     fn test_manifest(id: &str, provides: &[&str], requires: &[&str]) -> ModManifest {
         ModManifest::new(
@@ -701,6 +1000,19 @@ mod tests {
             .collect::<HashSet<_>>()
     }
 
+    fn write_wasm_fixture(
+        temp_dir: &tempfile::TempDir,
+        module_name: &str,
+        manifest_body: &str,
+    ) -> PathBuf {
+        let module_path = temp_dir.path().join(format!("{module_name}.wasm"));
+        let manifest_path = temp_dir.path().join(format!("{module_name}.wasm.toml"));
+        fs::write(&module_path, [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
+            .expect("fixture module should write");
+        fs::write(&manifest_path, manifest_body).expect("fixture manifest should write");
+        module_path
+    }
+
     #[test]
     fn discovers_native_mods_including_verso_and_nostrcore() {
         let mods = discover_native_mods();
@@ -708,6 +1020,21 @@ mod tests {
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:core-viewer"));
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:verso"));
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:nostrcore"));
+    }
+
+    #[test]
+    fn discover_mod_manifests_appends_additional_entries() {
+        let mods = discover_mod_manifests([ModManifest::new(
+            "mod:test-wasm",
+            "Test WASM",
+            ModType::Wasm,
+            vec!["viewer:test".to_string()],
+            vec!["ViewerRegistry".to_string()],
+            vec![ModCapability::Filesystem],
+        )]);
+
+        assert!(mods.iter().any(|entry| entry.mod_id == "mod:core-viewer"));
+        assert!(mods.iter().any(|entry| entry.mod_id == "mod:test-wasm"));
     }
 
     #[test]
@@ -773,6 +1100,64 @@ mod tests {
         assert_eq!(
             registry.get_status("mod:verso"),
             Some(ModStatus::Discovered)
+        );
+    }
+
+    #[test]
+    fn mixed_native_and_wasm_manifests_resolve_dependency_order() {
+        let protocol = test_manifest("mod:protocol", &["ProtocolRegistry"], &[]);
+        let wasm = ModManifest::new(
+            "mod:test-wasm",
+            "Test WASM",
+            ModType::Wasm,
+            vec!["protocol:test".to_string()],
+            vec!["ProtocolRegistry".to_string()],
+            vec![ModCapability::Network],
+        );
+
+        let ordered = resolve_mod_load_order(&[wasm.clone(), protocol.clone()])
+            .expect("mixed native/wasm dependency order should resolve");
+        let ids = ordered
+            .iter()
+            .map(|entry| entry.mod_id.as_str())
+            .collect::<Vec<_>>();
+        let protocol_idx = ids.iter().position(|id| *id == "mod:protocol").unwrap();
+        let wasm_idx = ids.iter().position(|id| *id == "mod:test-wasm").unwrap();
+        assert!(protocol_idx < wasm_idx);
+    }
+
+    #[test]
+    fn mod_registry_can_load_mixed_manifest_sets_with_extension_callback() {
+        let protocol = test_manifest("mod:protocol", &["ProtocolRegistry"], &[]);
+        let wasm = ModManifest::new(
+            "mod:test-wasm",
+            "Test WASM",
+            ModType::Wasm,
+            vec!["protocol:test".to_string()],
+            vec!["ProtocolRegistry".to_string()],
+            vec![ModCapability::Network],
+        );
+        let mut registry = ModRegistry::from_manifests_for_tests(vec![protocol, wasm]);
+
+        registry
+            .resolve_dependencies()
+            .expect("mixed registry should resolve dependencies");
+        let loaded = registry.load_all_with_extensions(
+            |manifest, _wasm_source| {
+                Ok(vec![ModExtensionRecord::Action {
+                    action_id: format!("action:{}", manifest.mod_id),
+                }])
+            },
+            |_record| Ok(()),
+        );
+
+        assert_eq!(loaded, vec!["mod:protocol".to_string(), "mod:test-wasm".to_string()]);
+        assert_eq!(registry.get_status("mod:test-wasm"), Some(ModStatus::Active));
+        assert_eq!(
+            registry.extension_records_for("mod:test-wasm"),
+            Some(&[ModExtensionRecord::Action {
+                action_id: "action:mod:test-wasm".to_string(),
+            }][..])
         );
     }
 
@@ -871,5 +1256,219 @@ mod tests {
         let test_safe = compute_active_capabilities_with_disabled(&disabled);
 
         assert_eq!(default, test_safe);
+    }
+
+    #[test]
+    fn load_mod_admits_path_backed_wasm_manifests() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should create");
+        let wasm_path = write_wasm_fixture(
+            &temp_dir,
+            "admitted",
+            "mod_id = \"mod:admitted\"\ndisplay_name = \"Admitted\"\nprovides = [\"protocol:admitted\"]\nrequires = [\"ProtocolRegistry\"]\n",
+        );
+        let mut registry = ModRegistry::from_manifests_for_tests(vec![test_manifest(
+            "mod:protocol",
+            &["ProtocolRegistry"],
+            &[],
+        )]);
+
+        let mod_id = registry.load_mod(&wasm_path).expect("wasm admission should succeed");
+
+        assert_eq!(mod_id, "mod:admitted");
+        assert_eq!(
+            registry
+                .get_manifest("mod:admitted")
+                .expect("admitted manifest should exist")
+                .mod_type,
+            ModType::Wasm
+        );
+        assert_eq!(
+            registry
+                .wasm_source("mod:admitted")
+                .expect("wasm source should be tracked")
+                .module_path,
+            wasm_path
+        );
+    }
+
+    #[test]
+    fn load_mod_rejects_unknown_capabilities() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should create");
+        let wasm_path = write_wasm_fixture(
+            &temp_dir,
+            "bad-capability",
+            "mod_id = \"mod:bad-capability\"\ndisplay_name = \"Bad Capability\"\ncapabilities = [\"graph-write\"]\n",
+        );
+        let mut registry = ModRegistry::from_manifests_for_tests(vec![]);
+
+        let error = registry
+            .load_mod(&wasm_path)
+            .expect_err("unknown capability should be rejected");
+        assert!(matches!(
+            error,
+            ModLoadPathError::InvalidCapability { capability } if capability == "graph-write"
+        ));
+    }
+
+    #[test]
+    fn load_all_rolls_back_applied_records_on_activation_failure() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        let protocol = test_manifest("mod:protocol", &["ProtocolRegistry"], &[]);
+        let failing = test_manifest("mod:failing", &["protocol:test"], &["ProtocolRegistry"]);
+        let mut registry = ModRegistry::from_manifests_for_tests(vec![protocol, failing]);
+
+        registry
+            .resolve_dependencies()
+            .expect("dependencies should resolve");
+
+        let loaded = registry.load_all_with_extensions(
+            |manifest, _wasm_source| {
+                if manifest.mod_id == "mod:failing" {
+                    Err(ModActivationError::rollback(
+                        "activation failed",
+                        vec![ModExtensionRecord::Action {
+                            action_id: "action:mod:failing".to_string(),
+                        }],
+                    ))
+                } else {
+                    Ok(vec![ModExtensionRecord::Action {
+                        action_id: format!("action:{}", manifest.mod_id),
+                    }])
+                }
+            },
+            |_record| Ok(()),
+        );
+
+        assert_eq!(loaded, vec!["mod:protocol".to_string()]);
+        assert_eq!(registry.get_status("mod:failing"), Some(ModStatus::Failed));
+        assert_eq!(registry.extension_records_for("mod:failing"), None);
+        assert!(diag_rx.try_iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::MessageSent { channel_id, .. }
+                if channel_id == CHANNEL_MOD_ROLLBACK_SUCCEEDED
+        )));
+    }
+
+    #[test]
+    fn load_all_quarantines_when_rollback_fails() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        let protocol = test_manifest("mod:protocol", &["ProtocolRegistry"], &[]);
+        let failing = test_manifest("mod:failing", &["protocol:test"], &["ProtocolRegistry"]);
+        let mut registry = ModRegistry::from_manifests_for_tests(vec![protocol, failing]);
+
+        registry
+            .resolve_dependencies()
+            .expect("dependencies should resolve");
+
+        let loaded = registry.load_all_with_extensions(
+            |manifest, _wasm_source| {
+                if manifest.mod_id == "mod:failing" {
+                    Err(ModActivationError::rollback(
+                        "activation failed",
+                        vec![ModExtensionRecord::Action {
+                            action_id: "action:mod:failing".to_string(),
+                        }],
+                    ))
+                } else {
+                    Ok(vec![ModExtensionRecord::Action {
+                        action_id: format!("action:{}", manifest.mod_id),
+                    }])
+                }
+            },
+            |record| match record {
+                ModExtensionRecord::Action { action_id } if action_id == "action:mod:failing" => {
+                    Err("simulated rollback failure".to_string())
+                }
+                _ => Ok(()),
+            },
+        );
+
+        assert_eq!(loaded, vec!["mod:protocol".to_string()]);
+        assert_eq!(
+            registry.get_status("mod:failing"),
+            Some(ModStatus::Quarantined)
+        );
+        assert_eq!(
+            registry.extension_records_for("mod:failing"),
+            Some(&[ModExtensionRecord::Action {
+                action_id: "action:mod:failing".to_string(),
+            }][..])
+        );
+        let emitted = diag_rx.try_iter().collect::<Vec<_>>();
+        assert!(emitted.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::MessageSent { channel_id, .. }
+                if *channel_id == CHANNEL_MOD_ROLLBACK_FAILED
+        )));
+        assert!(emitted.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::MessageSent { channel_id, .. }
+                if *channel_id == CHANNEL_MOD_QUARANTINED
+        )));
+    }
+
+    #[test]
+    fn unload_mod_quarantines_and_preserves_records_on_removal_failure() {
+        let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
+        install_global_sender(diag_tx);
+
+        let protocol = test_manifest("mod:protocol", &["ProtocolRegistry"], &[]);
+        let target = test_manifest("mod:target", &["protocol:test"], &["ProtocolRegistry"]);
+        let mut registry = ModRegistry::from_manifests_for_tests(vec![protocol, target]);
+
+        registry
+            .resolve_dependencies()
+            .expect("dependencies should resolve");
+        registry.load_all_with_extensions(
+            |manifest, _wasm_source| {
+                Ok(vec![ModExtensionRecord::Action {
+                    action_id: format!("action:{}", manifest.mod_id),
+                }])
+            },
+            |_record| Ok(()),
+        );
+        let _ = diag_rx.try_iter().collect::<Vec<_>>();
+
+        let error = registry
+            .unload_mod_with("mod:target", |record| match record {
+                ModExtensionRecord::Action { action_id }
+                    if action_id == "action:mod:target" =>
+                {
+                    Err("simulated removal failure".to_string())
+                }
+                _ => Ok(()),
+            })
+            .expect_err("unload should fail when removal fails");
+
+        assert!(matches!(
+            error,
+            ModUnloadError::ExtensionRemovalFailed { mod_id, reason }
+                if mod_id == "mod:target" && reason == "simulated removal failure"
+        ));
+        assert_eq!(
+            registry.get_status("mod:target"),
+            Some(ModStatus::Quarantined)
+        );
+        assert_eq!(
+            registry.extension_records_for("mod:target"),
+            Some(&[ModExtensionRecord::Action {
+                action_id: "action:mod:target".to_string(),
+            }][..])
+        );
+        let emitted = diag_rx.try_iter().collect::<Vec<_>>();
+        assert!(emitted.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::MessageSent { channel_id, .. }
+                if *channel_id == CHANNEL_MOD_UNLOAD_FAILED
+        )));
+        assert!(emitted.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::MessageSent { channel_id, .. }
+                if *channel_id == CHANNEL_MOD_QUARANTINED
+        )));
     }
 }
