@@ -1363,6 +1363,7 @@ mod tests {
                 active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
                 focused_node: None,
                 location_focused: true,
+                route_events: crate::shell::desktop::ui::toolbar::toolbar_ui::CommandRouteEventSequenceMetadata::default(),
             },
             omnibar: OmnibarSemanticMetadata {
                 active: true,
@@ -1372,6 +1373,7 @@ mod tests {
                 provider_status: None,
                 active_pane: None,
                 focused_node: None,
+                mailbox_events: crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarMailboxEventSequenceMetadata::default(),
             },
             command_palette: Some(PaletteSurfaceSemanticMetadata {
                 contextual_mode: false,

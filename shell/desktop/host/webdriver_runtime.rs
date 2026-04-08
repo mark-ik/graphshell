@@ -27,6 +27,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED, CHANNEL_HOST_WEBDRIVER_LOAD_URL_MISSING_WEBVIEW,
     CHANNEL_HOST_WEBDRIVER_LOAD_URL_REQUESTED,
 };
+#[cfg(feature = "ux-bridge")]
+use crate::shell::desktop::workbench::ux_bridge;
 
 use super::running_app_state::RunningAppState;
 use super::window::PlatformWindow;
@@ -378,6 +380,10 @@ impl WebDriverRuntime {
                     self.handle_input_event(state, webview_id, input_event, response_sender);
                 }
                 WebDriverCommandMsg::ScriptCommand(_, ref webdriver_script_command) => {
+                    #[cfg(feature = "ux-bridge")]
+                    if self.try_handle_ux_bridge_script_command(state, webdriver_script_command) {
+                        continue;
+                    }
                     self.handle_script_command(webdriver_script_command);
                     state.servo().execute_webdriver_command(msg);
                 }
@@ -514,6 +520,39 @@ impl WebDriverRuntime {
         }
     }
 
+    #[cfg(feature = "ux-bridge")]
+    fn try_handle_ux_bridge_script_command(
+        &self,
+        state: &RunningAppState,
+        script_command: &WebDriverScriptCommand,
+    ) -> bool {
+        let WebDriverScriptCommand::ExecuteScriptWithCallback(script, response_sender) =
+            script_command
+        else {
+            return false;
+        };
+
+        let Some(payload) = script.strip_prefix(ux_bridge::WEBDRIVER_SCRIPT_PREFIX) else {
+            return false;
+        };
+
+        let result = handle_ux_bridge_script_payload(payload, |intent| {
+            let window = state
+                .focused_window()
+                .or_else(|| state.windows().values().next().cloned())
+                .ok_or_else(|| {
+                    ux_bridge::UxBridgeError::transport_unavailable(
+                        "No embedder window is available for queued ux bridge actions.",
+                    )
+                })?;
+            window.notify_webdriver_workbench_intent_request(intent);
+            Ok(())
+        });
+
+        let _ = response_sender.send(Ok(json_value_to_js_value(&result)));
+        true
+    }
+
     fn handle_load_url(
         &self,
         state: &RunningAppState,
@@ -601,10 +640,68 @@ impl WebDriverRuntime {
     }
 }
 
+#[cfg(feature = "ux-bridge")]
+fn handle_ux_bridge_script_payload<F>(payload: &str, enqueue_intent: F) -> serde_json::Value
+where
+    F: FnOnce(crate::app::WorkbenchIntent) -> Result<(), ux_bridge::UxBridgeError>,
+{
+    let command = match ux_bridge::parse_transport_command(payload) {
+        Ok(command) => command,
+        Err(error) => return ux_bridge::error_json(&error),
+    };
+
+    match command {
+        ux_bridge::UxBridgeCommand::GetUxSnapshot
+        | ux_bridge::UxBridgeCommand::FindUxNode { .. }
+        | ux_bridge::UxBridgeCommand::GetFocusPath => match ux_bridge::handle_latest_snapshot_command(command) {
+            Ok(response) => ux_bridge::response_json(&response),
+            Err(error) => ux_bridge::error_json(&error),
+        },
+        ux_bridge::UxBridgeCommand::InvokeUxAction { selector, action } => {
+            let (intent, response) =
+                match ux_bridge::queued_workbench_intent_for_latest_snapshot(&selector, action) {
+                    Ok(result) => result,
+                    Err(error) => return ux_bridge::error_json(&error),
+                };
+            match enqueue_intent(intent) {
+                Ok(()) => ux_bridge::response_json(&response),
+                Err(error) => ux_bridge::error_json(&error),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "ux-bridge")]
+fn json_value_to_js_value(value: &serde_json::Value) -> JSValue {
+    match value {
+        serde_json::Value::Null => JSValue::Null,
+        serde_json::Value::Bool(value) => JSValue::Boolean(*value),
+        serde_json::Value::Number(value) => JSValue::Number(value.as_f64().unwrap_or_default()),
+        serde_json::Value::String(value) => JSValue::String(value.clone()),
+        serde_json::Value::Array(values) => {
+            JSValue::Array(values.iter().map(json_value_to_js_value).collect())
+        }
+        serde_json::Value::Object(entries) => JSValue::Object(
+            entries
+                .iter()
+                .map(|(key, value)| (key.clone(), json_value_to_js_value(value)))
+                .collect(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
+    #[cfg(feature = "ux-bridge")]
+    use crate::shell::desktop::ui::toolbar::toolbar_ui::{
+        CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
+        CommandSurfaceSemanticSnapshot, clear_command_surface_semantic_snapshot,
+        lock_command_surface_snapshot_tests, publish_command_surface_semantic_snapshot,
+    };
+    #[cfg(feature = "ux-bridge")]
+    use crate::shell::desktop::tests::harness::TestRegistry;
 
     #[test]
     fn webdriver_browser_action_helpers_emit_expected_diagnostics() {
@@ -667,5 +764,126 @@ mod tests {
             )),
             "expected load-url missing-webview diagnostic; got: {emitted:?}"
         );
+    }
+
+    #[cfg(feature = "ux-bridge")]
+    #[test]
+    fn ux_bridge_query_script_reports_missing_snapshot() {
+        crate::shell::desktop::workbench::ux_tree::clear_snapshot();
+
+        let response = handle_ux_bridge_script_payload(r#"{"command":"GetUxSnapshot"}"#, |_| {
+            panic!("query path should not enqueue workbench intents")
+        });
+
+        assert_eq!(
+            response["error"]["kind"],
+            serde_json::Value::String("SnapshotUnavailable".to_string())
+        );
+    }
+
+    #[cfg(feature = "ux-bridge")]
+    #[test]
+    fn ux_bridge_action_script_queues_open_command_palette() {
+        let _guard = lock_command_surface_snapshot_tests();
+        clear_command_surface_semantic_snapshot();
+        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+            command_bar: CommandBarSemanticMetadata {
+                active_pane: None,
+                focused_node: None,
+                location_focused: true,
+                route_events: CommandRouteEventSequenceMetadata::default(),
+            },
+            ..CommandSurfaceSemanticSnapshot::default()
+        });
+
+        let harness = TestRegistry::new();
+        let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
+            &harness.tiles_tree,
+            &harness.app,
+            0,
+        );
+        crate::shell::desktop::workbench::ux_tree::publish_snapshot(&snapshot);
+
+        let queued = std::cell::RefCell::new(None);
+        let response = handle_ux_bridge_script_payload(
+            ux_bridge::UxDriver::invoke_ux_action_script(
+                &ux_bridge::UxNodeSelector::ByRole(
+                    crate::shell::desktop::workbench::ux_tree::UxNodeRole::CommandBar,
+                ),
+                crate::shell::desktop::workbench::ux_tree::UxAction::Open,
+            )
+            .strip_prefix(ux_bridge::WEBDRIVER_SCRIPT_PREFIX)
+            .expect("driver should emit the reserved webdriver prefix"),
+            |intent| {
+                queued.replace(Some(intent));
+                Ok(())
+            },
+        );
+
+        assert_eq!(response["ok"], serde_json::Value::Bool(true));
+        assert_eq!(
+            response["response"]["status"],
+            serde_json::Value::String("Queued".to_string())
+        );
+        assert!(matches!(
+            queued.into_inner(),
+            Some(crate::app::WorkbenchIntent::OpenCommandPalette)
+        ));
+
+        clear_command_surface_semantic_snapshot();
+    }
+
+    #[cfg(feature = "ux-bridge")]
+    #[test]
+    fn ux_bridge_action_script_queues_node_pane_dismiss() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://webdriver-ux-bridge-node.example");
+        harness.open_node_tab(node);
+
+        let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
+            &harness.tiles_tree,
+            &harness.app,
+            0,
+        );
+        crate::shell::desktop::workbench::ux_tree::publish_snapshot(&snapshot);
+
+        let node_pane = snapshot
+            .semantic_nodes
+            .iter()
+            .find(|entry| {
+                matches!(
+                    entry.domain,
+                    crate::shell::desktop::workbench::ux_tree::UxDomainIdentity::Node {
+                        node_key,
+                        pane_id: Some(_),
+                        ..
+                    } if node_key == node
+                )
+            })
+            .expect("snapshot should include node pane semantic node");
+
+        let queued = std::cell::RefCell::new(None);
+        let response = handle_ux_bridge_script_payload(
+            ux_bridge::UxDriver::invoke_ux_action_script(
+                &ux_bridge::UxNodeSelector::ById(node_pane.ux_node_id.clone()),
+                crate::shell::desktop::workbench::ux_tree::UxAction::Close,
+            )
+            .strip_prefix(ux_bridge::WEBDRIVER_SCRIPT_PREFIX)
+            .expect("driver should emit the reserved webdriver prefix"),
+            |intent| {
+                queued.replace(Some(intent));
+                Ok(())
+            },
+        );
+
+        assert_eq!(response["ok"], serde_json::Value::Bool(true));
+        assert_eq!(
+            response["response"]["status"],
+            serde_json::Value::String("Queued".to_string())
+        );
+        assert!(matches!(
+            queued.into_inner(),
+            Some(crate::app::WorkbenchIntent::DismissTile { .. })
+        ));
     }
 }

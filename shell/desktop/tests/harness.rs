@@ -11,6 +11,10 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{
     CompositorFrameSample, CompositorTileSample, DiagnosticsState, HierarchySample,
 };
+use crate::shell::desktop::workbench::ux_bridge::{
+    self, UxBridgeError, UxBridgeResponse, UxDriver, UxNodeSelector,
+};
+use crate::shell::desktop::workbench::ux_tree::{self, UxAction, UxSemanticNode, UxTreeSnapshot};
 use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
@@ -49,6 +53,60 @@ impl TestRegistry {
             key,
             TileOpenMode::Tab,
         );
+    }
+
+    pub(crate) fn open_graph_tab(&mut self, view_id: GraphViewId) {
+        tile_view_ops::open_or_focus_graph_pane_with_mode(
+            &mut self.tiles_tree,
+            view_id,
+            TileOpenMode::Tab,
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    pub(crate) fn open_tool_tab(
+        &mut self,
+        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+    ) {
+        tile_view_ops::open_or_focus_tool_pane(&mut self.tiles_tree, kind);
+    }
+
+    pub(crate) fn ux_snapshot_via_driver(&mut self) -> Result<UxTreeSnapshot, UxBridgeError> {
+        match self.dispatch_ux_driver_script(&UxDriver::get_ux_snapshot_script())? {
+            UxBridgeResponse::Snapshot(snapshot) => Ok(snapshot),
+            other => Err(UxBridgeError::invalid_transport_payload(format!(
+                "expected Snapshot response, got {other:?}"
+            ))),
+        }
+    }
+
+    pub(crate) fn ux_find_node_via_driver(
+        &mut self,
+        selector: &UxNodeSelector,
+    ) -> Result<Option<UxSemanticNode>, UxBridgeError> {
+        match self.dispatch_ux_driver_script(&UxDriver::find_ux_node_script(selector))? {
+            UxBridgeResponse::Node(node) => Ok(node),
+            other => Err(UxBridgeError::invalid_transport_payload(format!(
+                "expected Node response, got {other:?}"
+            ))),
+        }
+    }
+
+    pub(crate) fn ux_focus_path_via_driver(&mut self) -> Result<Vec<String>, UxBridgeError> {
+        match self.dispatch_ux_driver_script(&UxDriver::get_focus_path_script())? {
+            UxBridgeResponse::FocusPath(path) => Ok(path),
+            other => Err(UxBridgeError::invalid_transport_payload(format!(
+                "expected FocusPath response, got {other:?}"
+            ))),
+        }
+    }
+
+    pub(crate) fn ux_invoke_action_via_driver(
+        &mut self,
+        selector: &UxNodeSelector,
+        action: UxAction,
+    ) -> Result<UxBridgeResponse, UxBridgeError> {
+        self.dispatch_ux_driver_script(&UxDriver::invoke_ux_action_script(selector, action))
     }
 
     pub(crate) fn map_test_webview(&mut self, key: NodeKey) {
@@ -165,6 +223,31 @@ impl TestRegistry {
                     .collect::<HashMap<_, _>>()
             })
             .unwrap_or_default()
+    }
+
+    fn dispatch_ux_driver_script(
+        &mut self,
+        script: &str,
+    ) -> Result<UxBridgeResponse, UxBridgeError> {
+        let payload = script
+            .strip_prefix(ux_bridge::WEBDRIVER_SCRIPT_PREFIX)
+            .ok_or_else(|| {
+                UxBridgeError::invalid_transport_payload(
+                    "UxDriver script did not use the reserved webdriver prefix.",
+                )
+            })?;
+        let command = ux_bridge::parse_transport_command(payload)?;
+
+        match command {
+            ux_bridge::UxBridgeCommand::InvokeUxAction { .. } => {
+                ux_bridge::handle_runtime_command(&mut self.app, &mut self.tiles_tree, command)
+            }
+            _ => {
+                let snapshot = ux_tree::build_snapshot(&self.tiles_tree, &self.app, 0);
+                ux_tree::publish_snapshot(&snapshot);
+                ux_bridge::handle_latest_snapshot_command(command)
+            }
+        }
     }
 }
 

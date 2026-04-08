@@ -257,6 +257,28 @@ pub(crate) struct CommandBarSemanticMetadata {
     pub(crate) active_pane: Option<PaneId>,
     pub(crate) focused_node: Option<NodeKey>,
     pub(crate) location_focused: bool,
+    pub(crate) route_events: CommandRouteEventSequenceMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CommandRouteEventSequenceMetadata {
+    pub(crate) resolved: u64,
+    pub(crate) fallback: u64,
+    pub(crate) no_target: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct OmnibarMailboxEventSequenceMetadata {
+    pub(crate) request_started: u64,
+    pub(crate) applied: u64,
+    pub(crate) failed: u64,
+    pub(crate) stale: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CommandSurfaceEventSequenceMetadata {
+    pub(crate) route_events: CommandRouteEventSequenceMetadata,
+    pub(crate) omnibar_mailbox_events: OmnibarMailboxEventSequenceMetadata,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -268,6 +290,7 @@ pub(crate) struct OmnibarSemanticMetadata {
     pub(crate) provider_status: Option<String>,
     pub(crate) active_pane: Option<PaneId>,
     pub(crate) focused_node: Option<NodeKey>,
+    pub(crate) mailbox_events: OmnibarMailboxEventSequenceMetadata,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -289,9 +312,67 @@ pub(crate) struct CommandSurfaceSemanticSnapshot {
 
 static LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT: OnceLock<Mutex<Option<CommandSurfaceSemanticSnapshot>>> =
     OnceLock::new();
+static COMMAND_SURFACE_EVENT_SEQUENCES: OnceLock<Mutex<CommandSurfaceEventSequenceMetadata>> =
+    OnceLock::new();
 
 fn command_surface_snapshot_cache() -> &'static Mutex<Option<CommandSurfaceSemanticSnapshot>> {
     LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
+
+fn command_surface_event_sequence_cache(
+) -> &'static Mutex<CommandSurfaceEventSequenceMetadata> {
+    COMMAND_SURFACE_EVENT_SEQUENCES
+        .get_or_init(|| Mutex::new(CommandSurfaceEventSequenceMetadata::default()))
+}
+
+fn update_command_surface_event_sequences(
+    mutator: impl FnOnce(&mut CommandSurfaceEventSequenceMetadata),
+) {
+    if let Ok(mut state) = command_surface_event_sequence_cache().lock() {
+        mutator(&mut state);
+    }
+}
+
+pub(crate) fn latest_command_surface_event_sequence_metadata(
+) -> CommandSurfaceEventSequenceMetadata {
+    command_surface_event_sequence_cache()
+        .lock()
+        .map(|state| *state)
+        .unwrap_or_default()
+}
+
+pub(crate) fn note_command_surface_route_resolved() {
+    update_command_surface_event_sequences(|state| {
+        state.route_events.resolved = state.route_events.resolved.saturating_add(1);
+    });
+}
+
+pub(crate) fn note_command_surface_route_fallback() {
+    update_command_surface_event_sequences(|state| {
+        state.route_events.fallback = state.route_events.fallback.saturating_add(1);
+    });
+}
+
+pub(crate) fn note_command_surface_route_no_target() {
+    update_command_surface_event_sequences(|state| {
+        state.route_events.no_target = state.route_events.no_target.saturating_add(1);
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn set_command_surface_event_sequence_metadata_for_tests(
+    metadata: CommandSurfaceEventSequenceMetadata,
+) {
+    if let Ok(mut state) = command_surface_event_sequence_cache().lock() {
+        *state = metadata;
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn clear_command_surface_event_sequence_metadata() {
+    if let Ok(mut state) = command_surface_event_sequence_cache().lock() {
+        *state = CommandSurfaceEventSequenceMetadata::default();
+    }
 }
 
 pub(crate) fn publish_command_surface_semantic_snapshot(
@@ -314,6 +395,8 @@ pub(crate) fn clear_command_surface_semantic_snapshot() {
     if let Ok(mut slot) = command_surface_snapshot_cache().lock() {
         *slot = None;
     }
+    #[cfg(test)]
+    clear_command_surface_event_sequence_metadata();
 }
 
 #[cfg(test)]
@@ -492,6 +575,7 @@ fn command_surface_semantic_snapshot(
     omnibar_search_session: &Option<OmnibarSearchSession>,
     location: &str,
 ) -> CommandSurfaceSemanticSnapshot {
+    let event_sequences = latest_command_surface_event_sequence_metadata();
     let location_focused = matches!(
         local_widget_focus,
         Some(LocalFocusTarget::ToolbarLocation { .. })
@@ -524,6 +608,7 @@ fn command_surface_semantic_snapshot(
             active_pane: command_bar_focus_target.active_pane(),
             focused_node: command_bar_focus_target.focused_node(),
             location_focused,
+            route_events: event_sequences.route_events,
         },
         omnibar: OmnibarSemanticMetadata {
             active: location_focused || omnibar_search_session.is_some(),
@@ -533,6 +618,7 @@ fn command_surface_semantic_snapshot(
             provider_status: omnibar_provider_status,
             active_pane: command_bar_focus_target.active_pane(),
             focused_node: command_bar_focus_target.focused_node(),
+            mailbox_events: event_sequences.omnibar_mailbox_events,
         },
         command_palette: graph_app
             .workspace
@@ -548,6 +634,12 @@ fn command_surface_semantic_snapshot(
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
+    update_command_surface_event_sequences(|state| {
+        state.omnibar_mailbox_events.request_started = state
+            .omnibar_mailbox_events
+            .request_started
+            .saturating_add(1);
+    });
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
@@ -557,6 +649,12 @@ pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_applied() {
+    update_command_surface_event_sequences(|state| {
+        state.omnibar_mailbox_events.applied = state
+            .omnibar_mailbox_events
+            .applied
+            .saturating_add(1);
+    });
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
@@ -566,6 +664,12 @@ pub(super) fn emit_omnibar_provider_mailbox_applied() {
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_failed() {
+    update_command_surface_event_sequences(|state| {
+        state.omnibar_mailbox_events.failed = state
+            .omnibar_mailbox_events
+            .failed
+            .saturating_add(1);
+    });
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
@@ -575,6 +679,12 @@ pub(super) fn emit_omnibar_provider_mailbox_failed() {
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_stale() {
+    update_command_surface_event_sequences(|state| {
+        state.omnibar_mailbox_events.stale = state
+            .omnibar_mailbox_events
+            .stale
+            .saturating_add(1);
+    });
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
@@ -873,8 +983,10 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
-        PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
+        CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
+        CommandSurfaceSemanticSnapshot, OmnibarMailboxEventSequenceMetadata,
+        OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
+        clear_command_surface_semantic_snapshot,
         enqueue_navigator_view_focus, enqueue_overview_plane_toggle,
         emit_omnibar_provider_mailbox_applied, emit_omnibar_provider_mailbox_failed,
         emit_omnibar_provider_mailbox_request_started, emit_omnibar_provider_mailbox_stale,
@@ -1008,6 +1120,7 @@ mod tests {
                 active_pane: None,
                 focused_node: None,
                 location_focused: true,
+                route_events: CommandRouteEventSequenceMetadata::default(),
             },
             omnibar: OmnibarSemanticMetadata {
                 active: true,
@@ -1017,6 +1130,7 @@ mod tests {
                 provider_status: Some("Suggestions: loading...".to_string()),
                 active_pane: None,
                 focused_node: None,
+                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
             },
             command_palette: Some(PaletteSurfaceSemanticMetadata {
                 contextual_mode: false,

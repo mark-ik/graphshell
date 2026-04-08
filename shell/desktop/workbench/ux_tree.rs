@@ -3,7 +3,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+#[cfg(test)]
+use std::cell::Cell;
 
 use egui_tiles::{Container, Tile, TileId, Tree};
 
@@ -12,26 +17,64 @@ use crate::app::{
     GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode, SurfaceHostId,
     ToolSurfaceReturnTarget, WorkbenchLayoutConstraint,
 };
-use crate::graph::NodeKey;
+use crate::graph::{NodeKey, NodeLifecycle};
 use crate::render::radial_menu::latest_semantic_snapshot;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::latest_command_surface_semantic_snapshot;
+use crate::shell::desktop::lifecycle::webview_backpressure::{
+    NodePaneAttachAttemptMetadata, take_node_pane_attach_attempt_metadata,
+};
+use crate::shell::desktop::ui::toolbar::toolbar_ui::{
+    CommandRouteEventSequenceMetadata, OmnibarMailboxEventSequenceMetadata,
+    latest_command_surface_semantic_snapshot,
+};
 
 use super::pane_model::TileRenderMode;
 use super::tile_kind::TileKind;
-use crate::shell::desktop::workbench::pane_model::PanePresentationMode;
+use crate::shell::desktop::workbench::pane_model::{PaneId, PanePresentationMode, ToolPaneState};
 
-pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 3;
+pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 5;
 pub(crate) const UX_TREE_PRESENTATION_SCHEMA_VERSION: u32 = 2;
 pub(crate) const UX_TREE_TRACE_SCHEMA_VERSION: u32 = 2;
 pub(crate) const UX_TREE_WORKBENCH_ROOT_ID: &str = "uxnode://workbench/root";
+const GRAPH_POINT_LOD_THRESHOLD: f32 = 0.55;
+const GRAPH_EXPANDED_LOD_THRESHOLD: f32 = 1.10;
+const GRAPH_POINT_LOD_STATUS_LABEL: &str = "Zoom in to interact with nodes.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UxGraphSemanticLodTier {
+    Point,
+    Compact,
+    Expanded,
+}
+
+impl UxGraphSemanticLodTier {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Point => "point",
+            Self::Compact => "compact",
+            Self::Expanded => "expanded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct UxGraphLodParityViolation {
+    pub(crate) graph_view_id: GraphViewId,
+    pub(crate) expected_tier: UxGraphSemanticLodTier,
+    pub(crate) actual_mode: &'static str,
+    pub(crate) graph_node_count: usize,
+    pub(crate) has_status_indicator: bool,
+    pub(crate) zoom: f32,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum UxNodeRole {
     Workbench,
     SplitContainer,
     TabContainer,
     GraphSurface,
     GraphNode,
+    StatusIndicator,
     NodePane,
     CommandBar,
     Omnibar,
@@ -49,7 +92,7 @@ pub(crate) enum UxNodeRole {
     ToolPane,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum UxAction {
     Focus,
     Close,
@@ -66,14 +109,19 @@ pub(crate) enum UxDomainIdentity {
     Workbench,
     GraphView {
         graph_view_id: GraphViewId,
+        pane_id: Option<PaneId>,
     },
     Node {
         node_key: NodeKey,
+        pane_id: Option<PaneId>,
+        lifecycle: NodeLifecycle,
+        attach_attempt: Option<NodePaneAttachAttemptMetadata>,
     },
     CommandBar {
         active_pane: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
         focused_node: Option<NodeKey>,
         location_focused: bool,
+        route_events: CommandRouteEventSequenceMetadata,
     },
     Omnibar {
         active: bool,
@@ -83,6 +131,7 @@ pub(crate) enum UxDomainIdentity {
         provider_status: Option<String>,
         active_pane: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
         focused_node: Option<NodeKey>,
+        mailbox_events: OmnibarMailboxEventSequenceMetadata,
     },
     CommandPalette {
         contextual_mode: bool,
@@ -93,7 +142,8 @@ pub(crate) enum UxDomainIdentity {
     },
     #[cfg(feature = "diagnostics")]
     Tool {
-        tool_kind: &'static str,
+        pane_id: PaneId,
+        tool_kind: ToolPaneState,
     },
     RadialSector {
         action_id: String,
@@ -282,9 +332,19 @@ pub(crate) fn classify_snapshot_diff_gate(
 }
 
 static LATEST_UX_TREE_SNAPSHOT: OnceLock<Mutex<Option<UxTreeSnapshot>>> = OnceLock::new();
+const UX_SNAPSHOT_PATH_ENV_VAR: &str = "GRAPHSHELL_UX_SNAPSHOT_PATH";
+
+#[cfg(test)]
+thread_local! {
+    static FORCE_UX_TREE_BUILD_FAILURE: Cell<bool> = const { Cell::new(false) };
+}
 
 fn snapshot_cache() -> &'static Mutex<Option<UxTreeSnapshot>> {
     LATEST_UX_TREE_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
+
+pub(crate) const fn runtime_enabled() -> bool {
+    cfg!(feature = "ux-semantics")
 }
 
 fn presentation_style_flags_for_mode(
@@ -325,44 +385,102 @@ pub(crate) fn build_snapshot(
     build_snapshot_with_rects(tiles_tree, graph_app, build_duration_us, &HashMap::new())
 }
 
+fn root_snapshot(
+    build_duration_us: u64,
+    degraded: bool,
+    transient_flags: Vec<&'static str>,
+) -> UxTreeSnapshot {
+    UxTreeSnapshot {
+        semantic_version: UX_TREE_SEMANTIC_SCHEMA_VERSION,
+        presentation_version: UX_TREE_PRESENTATION_SCHEMA_VERSION,
+        trace_version: UX_TREE_TRACE_SCHEMA_VERSION,
+        semantic_nodes: vec![UxSemanticNode {
+            ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
+            parent_ux_node_id: None,
+            role: UxNodeRole::Workbench,
+            label: if degraded {
+                "Workbench (degraded)".to_string()
+            } else {
+                "Workbench".to_string()
+            },
+            state: UxNodeState {
+                focused: true,
+                selected: false,
+                blocked: false,
+                degraded,
+            },
+            allowed_actions: vec![UxAction::Focus],
+            domain: UxDomainIdentity::Workbench,
+        }],
+        presentation_nodes: vec![UxPresentationNode {
+            ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
+            bounds: None,
+            render_mode: None,
+            z_pass: "workbench:root",
+            style_flags: vec!["spine:egui_tiles"],
+            transient_flags,
+        }],
+        trace_nodes: vec![UxTraceNode {
+            ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
+            event_route: "workbench.frame_loop",
+            backend_path: "egui_tiles",
+            diagnostics_counter: 0,
+        }],
+        trace_summary: UxTraceSummary {
+            build_duration_us,
+            route_events_observed: 0,
+            diagnostics_events_observed: 0,
+        },
+    }
+}
+
+fn node_lifecycle_for_key(graph_app: &GraphBrowserApp, node_key: NodeKey) -> NodeLifecycle {
+    graph_app
+        .domain_graph()
+        .get_node(node_key)
+        .map(|node| node.lifecycle)
+        .unwrap_or(NodeLifecycle::Cold)
+}
+
+fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
+
 pub(crate) fn build_snapshot_with_rects(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     build_duration_us: u64,
     node_rects: &HashMap<NodeKey, egui::Rect>,
 ) -> UxTreeSnapshot {
+    build_snapshot_with_rects_inner(tiles_tree, graph_app, build_duration_us, node_rects)
+}
+
+fn build_snapshot_with_rects_inner(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    build_duration_us: u64,
+    node_rects: &HashMap<NodeKey, egui::Rect>,
+) -> UxTreeSnapshot {
+    #[cfg(test)]
+    FORCE_UX_TREE_BUILD_FAILURE.with(|enabled| {
+        if enabled.get() {
+            panic!("forced ux tree build failure");
+        }
+    });
+
     let active: HashSet<TileId> = tiles_tree.active_tiles().into_iter().collect();
+    let node_attach_attempts = take_node_pane_attach_attempt_metadata();
 
-    let mut semantic_nodes = vec![UxSemanticNode {
-        ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
-        parent_ux_node_id: None,
-        role: UxNodeRole::Workbench,
-        label: "Workbench".to_string(),
-        state: UxNodeState {
-            focused: true,
-            selected: false,
-            blocked: false,
-            degraded: false,
-        },
-        allowed_actions: vec![UxAction::Focus],
-        domain: UxDomainIdentity::Workbench,
-    }];
-
-    let mut presentation_nodes = vec![UxPresentationNode {
-        ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
-        bounds: None,
-        render_mode: None,
-        z_pass: "workbench:root",
-        style_flags: vec!["spine:egui_tiles"],
-        transient_flags: Vec::new(),
-    }];
-
-    let mut trace_nodes = vec![UxTraceNode {
-        ux_node_id: UX_TREE_WORKBENCH_ROOT_ID.to_string(),
-        event_route: "workbench.frame_loop",
-        backend_path: "egui_tiles",
-        diagnostics_counter: 0,
-    }];
+    let mut snapshot = root_snapshot(build_duration_us, false, Vec::new());
+    let mut semantic_nodes = std::mem::take(&mut snapshot.semantic_nodes);
+    let mut presentation_nodes = std::mem::take(&mut snapshot.presentation_nodes);
+    let mut trace_nodes = std::mem::take(&mut snapshot.trace_nodes);
 
     if let Some(root) = tiles_tree.root() {
         push_nodes(
@@ -372,6 +490,7 @@ pub(crate) fn build_snapshot_with_rects(
             &active,
             Some(UX_TREE_WORKBENCH_ROOT_ID),
             node_rects,
+            &node_attach_attempts,
             &mut semantic_nodes,
             &mut presentation_nodes,
             &mut trace_nodes,
@@ -395,19 +514,30 @@ pub(crate) fn build_snapshot_with_rects(
         &mut trace_nodes,
     );
 
-    UxTreeSnapshot {
-        semantic_version: UX_TREE_SEMANTIC_SCHEMA_VERSION,
-        presentation_version: UX_TREE_PRESENTATION_SCHEMA_VERSION,
-        trace_version: UX_TREE_TRACE_SCHEMA_VERSION,
-        semantic_nodes,
-        presentation_nodes,
-        trace_nodes,
-        trace_summary: UxTraceSummary {
-            build_duration_us,
-            route_events_observed: 0,
-            diagnostics_events_observed: 0,
-        },
-    }
+    snapshot.semantic_nodes = semantic_nodes;
+    snapshot.presentation_nodes = presentation_nodes;
+    snapshot.trace_nodes = trace_nodes;
+    snapshot
+}
+
+pub(crate) fn try_build_snapshot_with_rects(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    build_duration_us: u64,
+    node_rects: &HashMap<NodeKey, egui::Rect>,
+) -> Result<UxTreeSnapshot, String> {
+    catch_unwind(AssertUnwindSafe(|| {
+        build_snapshot_with_rects_inner(tiles_tree, graph_app, build_duration_us, node_rects)
+    }))
+    .map_err(panic_payload_message)
+}
+
+pub(crate) fn degraded_root_only_snapshot(build_duration_us: u64) -> UxTreeSnapshot {
+    root_snapshot(
+        build_duration_us,
+        true,
+        vec!["degraded:build_failure"],
+    )
 }
 
 fn append_command_surface_nodes(
@@ -436,6 +566,7 @@ fn append_command_surface_nodes(
             active_pane: snapshot.command_bar.active_pane,
             focused_node: snapshot.command_bar.focused_node,
             location_focused: snapshot.command_bar.location_focused,
+            route_events: snapshot.command_bar.route_events,
         },
     });
     presentation_nodes.push(UxPresentationNode {
@@ -474,6 +605,7 @@ fn append_command_surface_nodes(
             provider_status: snapshot.omnibar.provider_status.clone(),
             active_pane: snapshot.omnibar.active_pane,
             focused_node: snapshot.omnibar.focused_node,
+            mailbox_events: snapshot.omnibar.mailbox_events,
         },
     });
     presentation_nodes.push(UxPresentationNode {
@@ -1075,6 +1207,195 @@ fn append_radial_palette_nodes(
     }
 }
 
+fn graph_view_zoom(graph_app: &GraphBrowserApp, graph_view_id: GraphViewId) -> f32 {
+    graph_app
+        .workspace
+        .graph_runtime
+        .graph_view_frames
+        .get(&graph_view_id)
+        .map(|frame| frame.zoom)
+        .filter(|zoom| *zoom > 0.0)
+        .or_else(|| {
+            graph_app
+                .workspace
+                .graph_runtime
+                .views
+                .get(&graph_view_id)
+                .map(|view| view.camera.current_zoom)
+                .filter(|zoom| *zoom > 0.0)
+        })
+        .unwrap_or(0.8)
+}
+
+fn graph_semantic_lod_tier_for_zoom(zoom: f32) -> UxGraphSemanticLodTier {
+    if zoom < GRAPH_POINT_LOD_THRESHOLD {
+        UxGraphSemanticLodTier::Point
+    } else if zoom < GRAPH_EXPANDED_LOD_THRESHOLD {
+        UxGraphSemanticLodTier::Compact
+    } else {
+        UxGraphSemanticLodTier::Expanded
+    }
+}
+
+fn graph_semantic_lod_tier(
+    graph_app: &GraphBrowserApp,
+    graph_view_id: GraphViewId,
+) -> UxGraphSemanticLodTier {
+    graph_semantic_lod_tier_for_zoom(graph_view_zoom(graph_app, graph_view_id))
+}
+
+fn append_graph_point_lod_status_indicator(
+    graph_view_id: GraphViewId,
+    pane_id: Option<PaneId>,
+    parent_ux_node_id: &str,
+    semantic_nodes: &mut Vec<UxSemanticNode>,
+    presentation_nodes: &mut Vec<UxPresentationNode>,
+    trace_nodes: &mut Vec<UxTraceNode>,
+) {
+    let status_id = format!("uxnode://workbench/graph/{graph_view_id:?}/status/point-lod");
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: status_id.clone(),
+        parent_ux_node_id: Some(parent_ux_node_id.to_string()),
+        role: UxNodeRole::StatusIndicator,
+        label: GRAPH_POINT_LOD_STATUS_LABEL.to_string(),
+        state: UxNodeState {
+            focused: false,
+            selected: false,
+            blocked: false,
+            degraded: false,
+        },
+        allowed_actions: Vec::new(),
+        domain: UxDomainIdentity::GraphView {
+            graph_view_id,
+            pane_id,
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: status_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "graph.layer.status",
+        style_flags: vec!["surface:status-indicator", "context:graph-lod-point"],
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: status_id,
+        event_route: "graph.status_route",
+        backend_path: "egui_graphs",
+        diagnostics_counter: 1,
+    });
+}
+
+fn append_graph_surface_semantics(
+    graph_app: &GraphBrowserApp,
+    ux_node_id: &str,
+    parent_ux_node_id: Option<&str>,
+    graph_view_id: GraphViewId,
+    pane_id: Option<PaneId>,
+    focused: bool,
+    tile_selected: bool,
+    style_flags: Vec<&'static str>,
+    semantic_nodes: &mut Vec<UxSemanticNode>,
+    presentation_nodes: &mut Vec<UxPresentationNode>,
+    trace_nodes: &mut Vec<UxTraceNode>,
+) {
+    let focused_selection = graph_app.focused_selection();
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: ux_node_id.to_string(),
+        parent_ux_node_id: parent_ux_node_id.map(str::to_string),
+        role: UxNodeRole::GraphSurface,
+        label: format!("Graph View {graph_view_id:?}"),
+        state: UxNodeState {
+            focused,
+            selected: tile_selected,
+            blocked: false,
+            degraded: false,
+        },
+        allowed_actions: vec![UxAction::Focus, UxAction::Close, UxAction::Navigate],
+        domain: UxDomainIdentity::GraphView {
+            graph_view_id,
+            pane_id,
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: ux_node_id.to_string(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "workbench.content",
+        style_flags,
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: ux_node_id.to_string(),
+        event_route: "graph.input_route",
+        backend_path: "egui_graphs",
+        diagnostics_counter: graph_app.domain_graph().node_count() as u64,
+    });
+
+    let graph_node_total = graph_app.domain_graph().node_count();
+    if graph_node_total > 0
+        && matches!(
+            graph_semantic_lod_tier(graph_app, graph_view_id),
+            UxGraphSemanticLodTier::Point
+        )
+    {
+        append_graph_point_lod_status_indicator(
+            graph_view_id,
+            pane_id,
+            ux_node_id,
+            semantic_nodes,
+            presentation_nodes,
+            trace_nodes,
+        );
+        return;
+    }
+
+    for (node_key, node) in graph_app.domain_graph().nodes() {
+        let graph_node_ux_id = format!(
+            "uxnode://workbench/graph/{graph_view_id:?}/node/{}",
+            node.id
+        );
+        let selected = focused_selection.contains(&node_key);
+        let focused_graph_node = focused_selection.primary() == Some(node_key);
+        let blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
+        let degraded = graph_app.runtime_crash_state_for_node(node_key).is_some();
+
+        semantic_nodes.push(UxSemanticNode {
+            ux_node_id: graph_node_ux_id.clone(),
+            parent_ux_node_id: Some(ux_node_id.to_string()),
+            role: UxNodeRole::GraphNode,
+            label: ux_tree_node_label(graph_app, node_key, node),
+            state: UxNodeState {
+                focused: focused_graph_node,
+                selected,
+                blocked,
+                degraded,
+            },
+            allowed_actions: vec![UxAction::Select, UxAction::Open, UxAction::Navigate],
+            domain: UxDomainIdentity::Node {
+                node_key,
+                pane_id: None,
+                lifecycle: node.lifecycle,
+                attach_attempt: None,
+            },
+        });
+        presentation_nodes.push(UxPresentationNode {
+            ux_node_id: graph_node_ux_id.clone(),
+            bounds: None,
+            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            z_pass: "graph.layer.node",
+            style_flags: vec!["surface:graph-node", "backend:egui_graphs"],
+            transient_flags: Vec::new(),
+        });
+        trace_nodes.push(UxTraceNode {
+            ux_node_id: graph_node_ux_id,
+            event_route: "graph.node_route",
+            backend_path: "egui_graphs",
+            diagnostics_counter: u64::from(selected),
+        });
+    }
+}
+
 fn push_nodes(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -1082,6 +1403,7 @@ fn push_nodes(
     active: &HashSet<TileId>,
     parent_ux_node_id: Option<&str>,
     node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
@@ -1101,77 +1423,19 @@ fn push_nodes(
         Tile::Pane(TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref),
         )) => {
-            let focused_selection = graph_app.focused_selection();
-            semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
-                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
-                role: UxNodeRole::GraphSurface,
-                label: format!("Graph View {:?}", view_ref.graph_view_id),
-                state: UxNodeState {
-                    focused,
-                    selected: tile_selected,
-                    blocked: false,
-                    degraded: false,
-                },
-                allowed_actions: vec![UxAction::Focus, UxAction::Navigate],
-                domain: UxDomainIdentity::GraphView {
-                    graph_view_id: view_ref.graph_view_id,
-                },
-            });
-            presentation_nodes.push(UxPresentationNode {
-                ux_node_id: ux_node_id.clone(),
-                bounds: None,
-                render_mode: Some(TileRenderMode::EmbeddedEgui),
-                z_pass: "workbench.content",
-                style_flags: vec!["surface:graph", "backend:egui_graphs"],
-                transient_flags: Vec::new(),
-            });
-            trace_nodes.push(UxTraceNode {
-                ux_node_id: ux_node_id.clone(),
-                event_route: "graph.input_route",
-                backend_path: "egui_graphs",
-                diagnostics_counter: graph_app.domain_graph().node_count() as u64,
-            });
-
-            for (node_key, node) in graph_app.domain_graph().nodes() {
-                let graph_node_ux_id = format!(
-                    "uxnode://workbench/graph/{:?}/node/{}",
-                    view_ref.graph_view_id, node.id
-                );
-                let selected = focused_selection.contains(&node_key);
-                let focused_graph_node = focused_selection.primary() == Some(node_key);
-                let blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
-                let degraded = graph_app.runtime_crash_state_for_node(node_key).is_some();
-
-                semantic_nodes.push(UxSemanticNode {
-                    ux_node_id: graph_node_ux_id.clone(),
-                    parent_ux_node_id: Some(ux_node_id.clone()),
-                    role: UxNodeRole::GraphNode,
-                    label: ux_tree_node_label(graph_app, node_key, node),
-                    state: UxNodeState {
-                        focused: focused_graph_node,
-                        selected,
-                        blocked,
-                        degraded,
-                    },
-                    allowed_actions: vec![UxAction::Select, UxAction::Open, UxAction::Navigate],
-                    domain: UxDomainIdentity::Node { node_key },
-                });
-                presentation_nodes.push(UxPresentationNode {
-                    ux_node_id: graph_node_ux_id.clone(),
-                    bounds: None,
-                    render_mode: Some(TileRenderMode::EmbeddedEgui),
-                    z_pass: "graph.layer.node",
-                    style_flags: vec!["surface:graph-node"],
-                    transient_flags: Vec::new(),
-                });
-                trace_nodes.push(UxTraceNode {
-                    ux_node_id: graph_node_ux_id,
-                    event_route: "graph.node_route",
-                    backend_path: "egui_graphs",
-                    diagnostics_counter: u64::from(selected),
-                });
-            }
+            append_graph_surface_semantics(
+                graph_app,
+                &ux_node_id,
+                parent_ux_node_id,
+                view_ref.graph_view_id,
+                Some(view_ref.pane_id),
+                focused,
+                tile_selected,
+                vec!["surface:graph", "backend:egui_graphs"],
+                semantic_nodes,
+                presentation_nodes,
+                trace_nodes,
+            );
         }
         Tile::Pane(TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
@@ -1200,6 +1464,9 @@ fn push_nodes(
                 ],
                 domain: UxDomainIdentity::Node {
                     node_key: state.node,
+                    pane_id: Some(state.pane_id),
+                    lifecycle: node_lifecycle_for_key(graph_app, state.node),
+                    attach_attempt: node_attach_attempts.get(&state.node).copied(),
                 },
             });
             let bounds = node_rects
@@ -1245,84 +1512,29 @@ fn push_nodes(
                     degraded: false,
                 },
                 allowed_actions: vec![UxAction::Focus, UxAction::Close],
-                domain: UxDomainIdentity::Tool { tool_kind },
+                domain: UxDomainIdentity::Tool {
+                    pane_id: tool.pane_id,
+                    tool_kind: tool.kind.clone(),
+                },
             });
         }
         Tile::Pane(TileKind::Graph(view_ref)) => {
-            let focused_selection = graph_app.focused_selection();
-            semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
-                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
-                role: UxNodeRole::GraphSurface,
-                label: format!("Graph View {:?}", view_ref.graph_view_id),
-                state: UxNodeState {
-                    focused,
-                    selected: tile_selected,
-                    blocked: false,
-                    degraded: false,
-                },
-                allowed_actions: vec![UxAction::Focus, UxAction::Navigate],
-                domain: UxDomainIdentity::GraphView {
-                    graph_view_id: view_ref.graph_view_id,
-                },
-            });
-            presentation_nodes.push(UxPresentationNode {
-                ux_node_id: ux_node_id.clone(),
-                bounds: None,
-                render_mode: Some(TileRenderMode::EmbeddedEgui),
-                z_pass: "workbench.content",
-                style_flags: presentation_style_flags_for_mode(
+            append_graph_surface_semantics(
+                graph_app,
+                &ux_node_id,
+                parent_ux_node_id,
+                view_ref.graph_view_id,
+                Some(view_ref.pane_id),
+                focused,
+                tile_selected,
+                presentation_style_flags_for_mode(
                     &["surface:graph", "backend:egui_graphs"],
                     view_ref.presentation_mode,
                 ),
-                transient_flags: Vec::new(),
-            });
-            trace_nodes.push(UxTraceNode {
-                ux_node_id: ux_node_id.clone(),
-                event_route: "graph.input_route",
-                backend_path: "egui_graphs",
-                diagnostics_counter: graph_app.domain_graph().node_count() as u64,
-            });
-
-            for (node_key, node) in graph_app.domain_graph().nodes() {
-                let graph_node_ux_id = format!(
-                    "uxnode://workbench/graph/{:?}/node/{}",
-                    view_ref.graph_view_id, node.id
-                );
-                let selected = focused_selection.contains(&node_key);
-                let focused_graph_node = focused_selection.primary() == Some(node_key);
-                let blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
-                let degraded = graph_app.runtime_crash_state_for_node(node_key).is_some();
-
-                semantic_nodes.push(UxSemanticNode {
-                    ux_node_id: graph_node_ux_id.clone(),
-                    parent_ux_node_id: Some(ux_node_id.clone()),
-                    role: UxNodeRole::GraphNode,
-                    label: ux_tree_node_label(graph_app, node_key, node),
-                    state: UxNodeState {
-                        focused: focused_graph_node,
-                        selected,
-                        blocked,
-                        degraded,
-                    },
-                    allowed_actions: vec![UxAction::Select, UxAction::Open, UxAction::Navigate],
-                    domain: UxDomainIdentity::Node { node_key },
-                });
-                presentation_nodes.push(UxPresentationNode {
-                    ux_node_id: graph_node_ux_id.clone(),
-                    bounds: None,
-                    render_mode: Some(TileRenderMode::EmbeddedEgui),
-                    z_pass: "workbench.content",
-                    style_flags: vec!["surface:graph-node", "backend:egui_graphs"],
-                    transient_flags: Vec::new(),
-                });
-                trace_nodes.push(UxTraceNode {
-                    ux_node_id: graph_node_ux_id,
-                    event_route: "graph.node_route",
-                    backend_path: "egui_graphs",
-                    diagnostics_counter: u64::from(selected),
-                });
-            }
+                semantic_nodes,
+                presentation_nodes,
+                trace_nodes,
+            );
         }
         Tile::Pane(TileKind::Node(state)) => {
             let focused_selection = graph_app.focused_selection();
@@ -1349,6 +1561,9 @@ fn push_nodes(
                 ],
                 domain: UxDomainIdentity::Node {
                     node_key: state.node,
+                    pane_id: Some(state.pane_id),
+                    lifecycle: node_lifecycle_for_key(graph_app, state.node),
+                    attach_attempt: node_attach_attempts.get(&state.node).copied(),
                 },
             });
             let bounds = node_rects
@@ -1392,7 +1607,10 @@ fn push_nodes(
                     degraded: false,
                 },
                 allowed_actions: vec![UxAction::Focus, UxAction::Close],
-                domain: UxDomainIdentity::Tool { tool_kind },
+                domain: UxDomainIdentity::Tool {
+                    pane_id: tool.pane_id,
+                    tool_kind: tool.kind.clone(),
+                },
             });
             presentation_nodes.push(UxPresentationNode {
                 ux_node_id: ux_node_id.clone(),
@@ -1456,6 +1674,7 @@ fn push_nodes(
                     active,
                     Some(ux_node_id.as_str()),
                     node_rects,
+                    node_attach_attempts,
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -1500,6 +1719,7 @@ fn push_nodes(
                     active,
                     Some(ux_node_id.as_str()),
                     node_rects,
+                    node_attach_attempts,
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -1545,6 +1765,7 @@ fn push_nodes(
                     active,
                     Some(ux_node_id.as_str()),
                     node_rects,
+                    node_attach_attempts,
                     semantic_nodes,
                     presentation_nodes,
                     trace_nodes,
@@ -1674,6 +1895,112 @@ pub(crate) fn interactive_label_presence_violation(snapshot: &UxTreeSnapshot) ->
     })
 }
 
+pub(crate) fn semantic_focus_uniqueness_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
+    let focused_nodes = snapshot
+        .semantic_nodes
+        .iter()
+        .filter(|node| node.state.focused)
+        .map(|node| node.ux_node_id.as_str())
+        .collect::<Vec<_>>();
+
+    (focused_nodes.len() > 1).then(|| {
+        format!(
+            "uxtree invariant failed: multiple focused semantic nodes advertised simultaneously: {}",
+            focused_nodes.join(", ")
+        )
+    })
+}
+
+pub(crate) fn semantic_id_uniqueness_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
+    let mut seen = HashSet::new();
+    snapshot.semantic_nodes.iter().find_map(|node| {
+        (!seen.insert(node.ux_node_id.as_str())).then(|| {
+            format!(
+                "uxtree invariant failed: duplicate semantic ux_node_id '{}' detected in one snapshot",
+                node.ux_node_id
+            )
+        })
+    })
+}
+
+pub(crate) fn node_pane_tombstone_lifecycle_violation(
+    snapshot: &UxTreeSnapshot,
+) -> Option<(String, String)> {
+    snapshot.semantic_nodes.iter().find_map(|node| {
+        if node.role != UxNodeRole::NodePane {
+            return None;
+        }
+
+        match &node.domain {
+            UxDomainIdentity::Node {
+                node_key,
+                lifecycle: NodeLifecycle::Tombstone,
+                ..
+            } => Some((
+                node.ux_node_id.clone(),
+                format!(
+                    "uxtree invariant failed: NodePane '{}' projected tombstoned node {:?}",
+                    node.ux_node_id, node_key
+                ),
+            )),
+            _ => None,
+        }
+    })
+}
+
+pub(crate) fn interactive_bounds_violation(
+    snapshot: &UxTreeSnapshot,
+) -> Option<(String, String)> {
+    let presentation_bounds: HashMap<&str, [f32; 4]> = snapshot
+        .presentation_nodes
+        .iter()
+        .filter_map(|node| node.bounds.map(|bounds| (node.ux_node_id.as_str(), bounds)))
+        .collect();
+
+    snapshot.semantic_nodes.iter().find_map(|node| {
+        if node.allowed_actions.is_empty() {
+            return None;
+        }
+
+        let bounds = presentation_bounds.get(node.ux_node_id.as_str())?;
+        let width = (bounds[2] - bounds[0]).max(0.0);
+        let height = (bounds[3] - bounds[1]).max(0.0);
+
+        ((width < 32.0) || (height < 32.0)).then(|| {
+            (
+                node.ux_node_id.clone(),
+                format!(
+                    "uxtree invariant failed: interactive ux_node_id '{}' has bounds {:.1}x{:.1} below 32x32 minimum",
+                    node.ux_node_id, width, height
+                ),
+            )
+        })
+    })
+}
+
+pub(crate) fn radial_sector_count_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
+    let has_radial_palette = snapshot
+        .semantic_nodes
+        .iter()
+        .any(|node| node.role == UxNodeRole::RadialPalette);
+    if !has_radial_palette {
+        return None;
+    }
+
+    let sector_count = snapshot
+        .semantic_nodes
+        .iter()
+        .filter(|node| node.role == UxNodeRole::RadialSector)
+        .count();
+
+    (!(1..=8).contains(&sector_count)).then(|| {
+        format!(
+            "uxtree invariant failed: radial palette projected {} radial sectors outside the 1..=8 bound",
+            sector_count
+        )
+    })
+}
+
 fn command_surface_capture_owners(snapshot: &UxTreeSnapshot) -> Vec<&'static str> {
     snapshot
         .semantic_nodes
@@ -1773,6 +2100,85 @@ pub(crate) fn command_surface_return_target_violation(
                 }
             )
         })
+    })
+}
+
+pub(crate) fn graph_lod_semantic_emission_violation(
+    snapshot: &UxTreeSnapshot,
+    graph_app: &GraphBrowserApp,
+) -> Option<UxGraphLodParityViolation> {
+    let focused_view = graph_app.workspace.graph_runtime.focused_view;
+    let graph_surface = snapshot
+        .semantic_nodes
+        .iter()
+        .find(|node| {
+            node.role == UxNodeRole::GraphSurface
+                && matches!(
+                    node.domain,
+                    UxDomainIdentity::GraphView { graph_view_id, .. }
+                        if Some(graph_view_id) == focused_view
+                )
+        })
+        .or_else(|| {
+            snapshot
+                .semantic_nodes
+                .iter()
+                .find(|node| node.role == UxNodeRole::GraphSurface)
+        })?;
+
+    let UxDomainIdentity::GraphView { graph_view_id, .. } = graph_surface.domain else {
+        return None;
+    };
+
+    let graph_node_count = snapshot
+        .semantic_nodes
+        .iter()
+        .filter(|node| {
+            node.role == UxNodeRole::GraphNode
+                && node.parent_ux_node_id.as_deref() == Some(graph_surface.ux_node_id.as_str())
+        })
+        .count();
+    let has_status_indicator = snapshot.semantic_nodes.iter().any(|node| {
+        node.role == UxNodeRole::StatusIndicator
+            && node.parent_ux_node_id.as_deref() == Some(graph_surface.ux_node_id.as_str())
+            && node.label == GRAPH_POINT_LOD_STATUS_LABEL
+    });
+    let zoom = graph_view_zoom(graph_app, graph_view_id);
+    let expected_tier = graph_semantic_lod_tier_for_zoom(zoom);
+    let total_graph_nodes = graph_app.domain_graph().node_count();
+    let actual_mode = if graph_node_count > 0 {
+        "graph_nodes"
+    } else if has_status_indicator {
+        "status_indicator"
+    } else {
+        "empty"
+    };
+
+    let mismatch = match expected_tier {
+        UxGraphSemanticLodTier::Point => {
+            if total_graph_nodes > 0 {
+                graph_node_count > 0 || !has_status_indicator
+            } else {
+                graph_node_count > 0 || has_status_indicator
+            }
+        }
+        UxGraphSemanticLodTier::Compact | UxGraphSemanticLodTier::Expanded => {
+            (total_graph_nodes > 0 && graph_node_count == 0) || has_status_indicator
+        }
+    };
+
+    mismatch.then(|| UxGraphLodParityViolation {
+        graph_view_id,
+        expected_tier,
+        actual_mode,
+        graph_node_count,
+        has_status_indicator,
+        zoom,
+        message: format!(
+            "uxtree invariant failed: graph view {graph_view_id:?} semantic emission mismatched active {} LOD at zoom {:.2} (mode={actual_mode}, graph_nodes={graph_node_count}, status_indicator={has_status_indicator})",
+            expected_tier.as_str(),
+            zoom,
+        ),
     })
 }
 
@@ -1885,8 +2291,7 @@ fn ux_tree_node_label(
     })
 }
 
-#[cfg(test)]
-pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::Value {
+pub(crate) fn snapshot_json(snapshot: &UxTreeSnapshot) -> serde_json::Value {
     serde_json::json!({
         "semantic_version": snapshot.semantic_version,
         "presentation_version": snapshot.presentation_version,
@@ -1924,6 +2329,49 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
     })
 }
 
+pub(crate) fn write_snapshot_to_path(
+    snapshot: &UxTreeSnapshot,
+    path: &Path,
+) -> Result<usize, String> {
+    let payload = serde_json::to_vec_pretty(&snapshot_json(snapshot))
+        .map_err(|error| format!("failed to serialize ux snapshot: {error}"))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "failed to create ux snapshot directory '{}': {error}",
+                parent.display()
+            )
+        })?;
+    }
+    fs::write(path, &payload).map_err(|error| {
+        format!(
+            "failed to write ux snapshot to '{}': {error}",
+            path.display()
+        )
+    })?;
+    Ok(payload.len())
+}
+
+pub(crate) fn write_snapshot_if_configured(
+    snapshot: &UxTreeSnapshot,
+) -> Result<Option<(PathBuf, usize)>, String> {
+    let Some(path) = std::env::var_os(UX_SNAPSHOT_PATH_ENV_VAR).map(PathBuf::from) else {
+        return Ok(None);
+    };
+    let bytes_written = write_snapshot_to_path(snapshot, &path)?;
+    Ok(Some((path, bytes_written)))
+}
+
+#[cfg(test)]
+pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::Value {
+    snapshot_json(snapshot)
+}
+
+#[cfg(test)]
+fn set_force_build_failure_for_tests(enabled: bool) {
+        FORCE_UX_TREE_BUILD_FAILURE.with(|flag| flag.set(enabled));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1935,9 +2383,10 @@ mod tests {
         clear_semantic_snapshot, publish_semantic_snapshot,
     };
     use crate::shell::desktop::ui::toolbar::toolbar_ui::{
-        CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
-        PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
-        publish_command_surface_semantic_snapshot,
+        CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
+        CommandSurfaceSemanticSnapshot, OmnibarMailboxEventSequenceMetadata,
+        OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
+        clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
     };
     use crate::shell::desktop::tests::harness::TestRegistry;
 
@@ -2038,6 +2487,222 @@ mod tests {
     }
 
     #[test]
+    fn semantic_focus_uniqueness_violation_flags_multiple_focused_nodes() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-focus-uniqueness.example");
+        harness.open_node_tab(node);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+
+        let mut focused_nodes = snapshot
+            .semantic_nodes
+            .iter_mut()
+            .filter(|entry| !entry.allowed_actions.is_empty())
+            .take(2)
+            .collect::<Vec<_>>();
+        assert_eq!(focused_nodes.len(), 2, "expected two interactive nodes to mark focused");
+        focused_nodes[0].state.focused = true;
+        focused_nodes[1].state.focused = true;
+
+        let violation = semantic_focus_uniqueness_violation(&snapshot)
+            .expect("probe should detect duplicate focus ownership");
+        assert!(violation.contains("multiple focused semantic nodes"));
+    }
+
+    #[test]
+    fn semantic_id_uniqueness_violation_flags_duplicate_semantic_ids() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-duplicate-id.example");
+        harness.open_node_tab(node);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+
+        let duplicate = snapshot
+            .semantic_nodes
+            .first()
+            .expect("snapshot should contain a root semantic node")
+            .clone();
+        snapshot.semantic_nodes.push(duplicate.clone());
+
+        let violation = semantic_id_uniqueness_violation(&snapshot)
+            .expect("probe should detect duplicate semantic node ids");
+        assert!(violation.contains(duplicate.ux_node_id.as_str()));
+    }
+
+    #[test]
+    fn snapshot_projects_node_lifecycle_into_node_domains() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-node-lifecycle.example");
+        harness.open_node_tab(node);
+
+        let expected_lifecycle = harness
+            .app
+            .domain_graph()
+            .get_node(node)
+            .expect("node should exist in the graph")
+            .lifecycle;
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+
+        let node_pane = snapshot
+            .semantic_nodes
+            .iter()
+            .find(|entry| entry.role == UxNodeRole::NodePane)
+            .expect("snapshot should contain a node pane semantic node");
+
+        assert!(matches!(
+            node_pane.domain,
+            UxDomainIdentity::Node {
+                node_key,
+                lifecycle,
+                ..
+            } if node_key == node && lifecycle == expected_lifecycle
+        ));
+    }
+
+    #[test]
+    fn node_pane_tombstone_lifecycle_violation_flags_tombstoned_node_pane() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-tombstone-pane.example");
+        harness.open_node_tab(node);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+
+        let node_pane_id = {
+            let node_pane = snapshot
+                .semantic_nodes
+                .iter_mut()
+                .find(|entry| entry.role == UxNodeRole::NodePane)
+                .expect("snapshot should contain a node pane semantic node");
+            node_pane.domain = UxDomainIdentity::Node {
+                node_key: node,
+                pane_id: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                lifecycle: NodeLifecycle::Tombstone,
+                attach_attempt: None,
+            };
+            node_pane.ux_node_id.clone()
+        };
+
+        let (node_path, violation) = node_pane_tombstone_lifecycle_violation(&snapshot)
+            .expect("probe should detect tombstoned node panes");
+        assert_eq!(node_path, node_pane_id);
+        assert!(violation.contains("tombstoned node"));
+    }
+
+    #[test]
+    fn interactive_bounds_violation_flags_subminimum_interactive_bounds() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-bounds.example");
+        harness.open_node_tab(node);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+
+        let interactive_id = snapshot
+            .semantic_nodes
+            .iter()
+            .find(|entry| {
+                !entry.allowed_actions.is_empty()
+                    && snapshot
+                        .presentation_nodes
+                        .iter()
+                        .any(|presentation| presentation.ux_node_id == entry.ux_node_id)
+            })
+            .expect("snapshot should contain an interactive semantic node with presentation")
+            .ux_node_id
+            .clone();
+        let presentation = snapshot
+            .presentation_nodes
+            .iter_mut()
+            .find(|entry| entry.ux_node_id == interactive_id)
+            .expect("interactive node should have presentation metadata");
+        presentation.bounds = Some([0.0, 0.0, 24.0, 18.0]);
+
+        let (node_path, violation) = interactive_bounds_violation(&snapshot)
+            .expect("probe should detect undersized interactive bounds");
+        assert_eq!(node_path, interactive_id);
+        assert!(violation.contains("24.0x18.0"));
+    }
+
+    #[test]
+    fn radial_sector_count_violation_flags_overfull_radial_palette() {
+        publish_semantic_snapshot(RadialPaletteSemanticSnapshot {
+            sectors: (0..9)
+                .map(|index| RadialSectorSemanticMetadata {
+                    tier: 1,
+                    domain_label: format!("Domain {index}"),
+                    action_id: format!("action.{index}"),
+                    enabled: true,
+                    page: 0,
+                    rail_position: index as f32 / 9.0,
+                    angle_rad: index as f32,
+                    hover_scale: 1.0,
+                })
+                .collect(),
+            summary: RadialPaletteSemanticSummary {
+                tier1_visible_count: 9,
+                tier2_visible_count: 0,
+                tier2_page: 0,
+                tier2_page_count: 0,
+                overflow_hidden_entries: 1,
+                label_pre_collisions: 0,
+                label_post_collisions: 0,
+                fallback_to_palette: false,
+                fallback_reason: None,
+            },
+        });
+
+        let harness = TestRegistry::new();
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        clear_semantic_snapshot();
+
+        let violation = radial_sector_count_violation(&snapshot)
+            .expect("probe should detect overfull radial palette sector count");
+        assert!(violation.contains("9 radial sectors"));
+    }
+
+    #[test]
+    fn try_build_snapshot_with_rects_reports_forced_builder_failure() {
+        let harness = TestRegistry::new();
+        set_force_build_failure_for_tests(true);
+
+        let result = try_build_snapshot_with_rects(
+            &harness.tiles_tree,
+            &harness.app,
+            5,
+            &HashMap::new(),
+        );
+
+        set_force_build_failure_for_tests(false);
+        assert!(result.is_err());
+        assert!(result.err().unwrap().contains("forced ux tree build failure"));
+    }
+
+    #[test]
+    fn degraded_root_only_snapshot_marks_root_as_degraded() {
+        let snapshot = degraded_root_only_snapshot(11);
+
+        assert_eq!(snapshot.semantic_nodes.len(), 1);
+        assert!(snapshot.semantic_nodes[0].state.degraded);
+        assert!(snapshot.presentation_nodes[0]
+            .transient_flags
+            .contains(&"degraded:build_failure"));
+    }
+
+    #[test]
+    fn write_snapshot_to_path_writes_json_payload() {
+        let harness = TestRegistry::new();
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let temp_path = std::env::temp_dir().join(format!(
+            "graphshell-ux-snapshot-{}.json",
+            std::process::id()
+        ));
+
+        let bytes_written = write_snapshot_to_path(&snapshot, &temp_path)
+            .expect("snapshot export should succeed");
+        let body = fs::read_to_string(&temp_path).expect("snapshot file should be readable");
+        let _ = fs::remove_file(&temp_path);
+
+        assert!(bytes_written > 0);
+        assert!(body.contains("semantic_version"));
+        assert!(body.contains(UX_TREE_WORKBENCH_ROOT_ID));
+    }
+
+    #[test]
     fn snapshot_projects_stable_parent_links_for_graph_surface_hierarchy() {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-parent-links.example");
@@ -2062,7 +2727,7 @@ mod tests {
         let graph_node = snapshot
             .semantic_nodes
             .iter()
-            .find(|entry| entry.role == UxNodeRole::GraphNode && matches!(entry.domain, UxDomainIdentity::Node { node_key } if node_key == node))
+            .find(|entry| entry.role == UxNodeRole::GraphNode && matches!(entry.domain, UxDomainIdentity::Node { node_key, .. } if node_key == node))
             .expect("selected graph node should be projected");
         assert_eq!(
             graph_node.parent_ux_node_id.as_deref(),
@@ -2168,6 +2833,128 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_omits_graph_nodes_and_projects_status_indicator_at_point_lod() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-point-lod.example");
+        harness.open_node_tab(node);
+
+        let initial_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let graph_view_id = initial_snapshot
+            .semantic_nodes
+            .iter()
+            .find_map(|entry| match entry.domain {
+                UxDomainIdentity::GraphView { graph_view_id, .. }
+                    if entry.role == UxNodeRole::GraphSurface =>
+                {
+                    Some(graph_view_id)
+                }
+                _ => None,
+            })
+            .expect("graph surface should advertise a graph view id");
+        harness.app.workspace.graph_runtime.graph_view_frames.insert(
+            graph_view_id,
+            crate::app::GraphViewFrame {
+                zoom: 0.4,
+                pan_x: 0.0,
+                pan_y: 0.0,
+            },
+        );
+
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+
+        assert!(
+            snapshot
+                .semantic_nodes
+                .iter()
+                .all(|entry| entry.role != UxNodeRole::GraphNode),
+            "point LOD should suppress graph-node semantic children"
+        );
+        assert!(snapshot.semantic_nodes.iter().any(|entry| {
+            entry.role == UxNodeRole::StatusIndicator
+                && entry.label == GRAPH_POINT_LOD_STATUS_LABEL
+        }));
+        assert!(graph_lod_semantic_emission_violation(&snapshot, &harness.app).is_none());
+    }
+
+    #[test]
+    fn snapshot_projects_graph_nodes_without_status_indicator_at_compact_lod() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-compact-lod.example");
+        harness.open_node_tab(node);
+
+        let initial_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let graph_view_id = initial_snapshot
+            .semantic_nodes
+            .iter()
+            .find_map(|entry| match entry.domain {
+                UxDomainIdentity::GraphView { graph_view_id, .. }
+                    if entry.role == UxNodeRole::GraphSurface =>
+                {
+                    Some(graph_view_id)
+                }
+                _ => None,
+            })
+            .expect("graph surface should advertise a graph view id");
+        harness.app.workspace.graph_runtime.graph_view_frames.insert(
+            graph_view_id,
+            crate::app::GraphViewFrame {
+                zoom: 0.8,
+                pan_x: 0.0,
+                pan_y: 0.0,
+            },
+        );
+
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+
+        assert!(snapshot
+            .semantic_nodes
+            .iter()
+            .any(|entry| entry.role == UxNodeRole::GraphNode));
+        assert!(snapshot
+            .semantic_nodes
+            .iter()
+            .all(|entry| entry.role != UxNodeRole::StatusIndicator));
+        assert!(graph_lod_semantic_emission_violation(&snapshot, &harness.app).is_none());
+    }
+
+    #[test]
+    fn graph_lod_semantic_emission_violation_detects_point_lod_mismatch() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-point-mismatch.example");
+        harness.open_node_tab(node);
+
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let graph_view_id = snapshot
+            .semantic_nodes
+            .iter()
+            .find_map(|entry| match entry.domain {
+                UxDomainIdentity::GraphView { graph_view_id, .. }
+                    if entry.role == UxNodeRole::GraphSurface =>
+                {
+                    Some(graph_view_id)
+                }
+                _ => None,
+            })
+            .expect("graph surface should advertise a graph view id");
+        harness.app.workspace.graph_runtime.graph_view_frames.insert(
+            graph_view_id,
+            crate::app::GraphViewFrame {
+                zoom: 0.4,
+                pan_x: 0.0,
+                pan_y: 0.0,
+            },
+        );
+
+        let violation = graph_lod_semantic_emission_violation(&snapshot, &harness.app)
+            .expect("point-tier mismatch should be detected");
+
+        assert_eq!(violation.graph_view_id, graph_view_id);
+        assert_eq!(violation.expected_tier, UxGraphSemanticLodTier::Point);
+        assert_eq!(violation.actual_mode, "graph_nodes");
+        assert!(violation.message.contains("mismatched active point LOD"));
+    }
+
+    #[test]
     fn snapshot_projects_radial_sector_metadata_when_available() {
         clear_semantic_snapshot();
         publish_semantic_snapshot(RadialPaletteSemanticSnapshot {
@@ -2260,6 +3047,7 @@ mod tests {
                 active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
                 focused_node: Some(NodeKey::new(17)),
                 location_focused: true,
+                route_events: CommandRouteEventSequenceMetadata::default(),
             },
             omnibar: OmnibarSemanticMetadata {
                 active: true,
@@ -2269,6 +3057,7 @@ mod tests {
                 provider_status: Some("Suggestions: loading...".to_string()),
                 active_pane: None,
                 focused_node: Some(NodeKey::new(17)),
+                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
             },
             command_palette: Some(PaletteSurfaceSemanticMetadata {
                 contextual_mode: false,
@@ -2339,6 +3128,7 @@ mod tests {
                 active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
                 focused_node: Some(NodeKey::new(9)),
                 location_focused: true,
+                route_events: CommandRouteEventSequenceMetadata::default(),
             },
             omnibar: OmnibarSemanticMetadata {
                 active: true,
@@ -2348,6 +3138,7 @@ mod tests {
                 provider_status: None,
                 active_pane: None,
                 focused_node: Some(NodeKey::new(9)),
+                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
             },
             command_palette: Some(PaletteSurfaceSemanticMetadata {
                 contextual_mode: false,
@@ -2379,6 +3170,7 @@ mod tests {
                 active_pane: None,
                 focused_node: None,
                 location_focused: false,
+                route_events: CommandRouteEventSequenceMetadata::default(),
             },
             omnibar: OmnibarSemanticMetadata {
                 active: false,
@@ -2388,6 +3180,7 @@ mod tests {
                 provider_status: None,
                 active_pane: None,
                 focused_node: None,
+                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
             },
             command_palette: Some(PaletteSurfaceSemanticMetadata {
                 contextual_mode: false,
@@ -2418,6 +3211,7 @@ mod tests {
                 active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
                 focused_node: None,
                 location_focused: false,
+                route_events: CommandRouteEventSequenceMetadata::default(),
             },
             omnibar: OmnibarSemanticMetadata {
                 active: false,
@@ -2427,6 +3221,7 @@ mod tests {
                 provider_status: None,
                 active_pane: None,
                 focused_node: None,
+                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
             },
             command_palette: Some(PaletteSurfaceSemanticMetadata {
                 contextual_mode: false,

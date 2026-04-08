@@ -27,7 +27,9 @@ use servo::{
 };
 use url::Url;
 
-use crate::app::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId};
+use crate::app::{
+    HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId, WorkbenchIntent,
+};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 #[cfg(all(
     feature = "diagnostics",
@@ -87,6 +89,9 @@ pub(crate) enum GraphSemanticEventKind {
     },
     HostOpenRequest {
         request: HostOpenRequest,
+    },
+    WebDriverWorkbenchIntentRequested {
+        intent: WorkbenchIntent,
     },
     WebViewCrashed {
         webview_id: RendererId,
@@ -511,6 +516,12 @@ impl EmbedderWindow {
             },
         };
         self.graph_events.enqueue(kind);
+        self.set_needs_update();
+    }
+
+    pub(crate) fn notify_webdriver_workbench_intent_request(&self, intent: WorkbenchIntent) {
+        self.graph_events
+            .enqueue(GraphSemanticEventKind::WebDriverWorkbenchIntentRequested { intent });
         self.set_needs_update();
     }
 

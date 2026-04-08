@@ -328,10 +328,11 @@ pub(crate) fn ingest_pre_frame(
         thumbnail_capture_rx,
         thumbnail_capture_in_flight,
     ));
-    let (semantic_events, responsive_webviews) =
+    let (semantic_events, pending_workbench_intents, responsive_webviews) =
         semantic_event_pipeline::runtime_events_and_responsive_from_events(
             app_state.take_pending_graph_events(),
         );
+    graph_app.extend_workbench_intents(pending_workbench_intents);
     frame_intents.extend(semantic_events.into_iter().map(Into::into));
     frame_intents.extend(thumbnail_pipeline::load_pending_favicons(
         ctx,

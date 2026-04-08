@@ -5,11 +5,39 @@
 **Priority**: Pre-renderer/WGPU required
 
 **Related**:
+
 - `SUBSYSTEM_UX_SEMANTICS.md`
+- `../../../archive_docs/checkpoint_2026-04-07/graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-04-07_ux_tree_probe_closure_plan.md`
 - `2026-04-05_command_surface_observability_and_at_plan.md`
 - `../subsystem_accessibility/accessibility_interaction_and_capability_spec.md`
 - `../subsystem_diagnostics/diagnostics_observability_and_harness_spec.md`
 - `../../2026-03-01_automated_ux_testing_research.md`
+
+**Implementation alignment note (2026-04-07)**:
+The layered `UxTreeSnapshot` model, per-frame build/publish path, and several
+pure invariant helpers are already landed in runtime code. A minimal real
+`UxProbeSet` now exists around the core invariant wrappers and emits
+`ux:probe_registered` lifecycle receipts in the runtime path. Probe panic
+isolation and suppression/rate limiting are now active. Snapshot export path
+and Point-tier graph LOD parity are now active in runtime code. The Cargo
+feature split is now live: `ux-probes` and `ux-bridge` both depend on
+`ux-semantics`, `test-utils` depends on both, and the default desktop feature
+set enables the current probe and bridge layers. The landed bridge surface is
+intentionally narrow: an in-process query handler (`GetUxSnapshot`,
+`FindUxNode`, `GetFocusPath`) now exists in Rust, while transport-backed action
+commands and YAML runner closure remain target-state. The archived execution receipt lives in
+`../../../archive_docs/checkpoint_2026-04-07/graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-04-07_ux_tree_probe_closure_plan.md`.
+
+As of Slice `3E`, the pre-WGPU contract-engine endpoint is explicitly frozen:
+`S1`, `S3`, `S7`, `S8`, `S9`, `S10`, `N5`, `M1`, `M2`, and `M5` are live runtime probes;
+`N1-N4` and `M3-M4` are scenario-only; `S2`, `S4`, `S5`, and `S6` are
+explicitly deferred until the projection grows the required state.
+
+`GraphNodeGroup` remains a target-state extension role rather than a pre-WGPU
+runtime requirement. Current graph-domain projection guarantees cover
+`GraphView` and `GraphNode`; grouping-aware structural nodes stay deferred until
+graph-backed group identity and collapse semantics are defined as stable
+runtime surfaces.
 
 ---
 
@@ -127,6 +155,11 @@ UxTree build output must match the active LOD tier each frame:
 
 Mismatch between active canvas LOD tier and UxTree emission mode must emit
 `ux:navigation_violation` (or `ux:contract_warning` when degraded fallback applies).
+
+Implementation note (2026-04-07): Point-tier status-indicator emission and the
+runtime `ux:navigation_violation` mismatch receipt are now active in the live
+workbench path. The bounded `3A`-`3E` closure receipt now lives in the archived
+`../../../archive_docs/checkpoint_2026-04-07/graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-04-07_ux_tree_probe_closure_plan.md`.
 
 ### 3.2 UxNodeId Stability Contracts
 
@@ -293,7 +326,7 @@ declared in the mod's `ModManifest` and must not shadow core role names.
 |------|-----------|-------------------|
 | `GraphNode` | One node in the graph canvas. Interactive (selectable, openable). | `TreeItem` |
 | `GraphEdge` | One edge between two graph nodes (if individually addressable). | `TreeItem` |
-| `GraphNodeGroup` | A cluster of graph nodes (Semantic Gravity group). | `Group` |
+| `GraphNodeGroup` | **Deferred extension role.** Intended future projection for graphlet / grouping-aware structural nodes once graph-backed group identity is stable. Not required for current pre-WGPU runtime closure. | `Group` |
 
 ### 4.6 Projection and Boundary Roles
 
@@ -317,8 +350,8 @@ declared in the mod's `ModManifest` and must not shadow core role names.
 | `Close` | Close the associated pane or tab. | `NodePane`, `ToolPane`, `Tab` |
 | `ScrollTo` | Scroll the parent container to make this node visible. | `GraphNode`, `ListItem` |
 | `Navigate` | Move semantic navigation context within a projection or route boundary without mutating graph truth ownership. | `GraphView`, `GraphViewLensScope`, `FileTreeProjection` (legacy) / `NavigatorProjection`, `RouteOpenBoundary`, `Region` |
-| `Expand` | Expand a collapsed region or group. | `GraphNodeGroup`, collapsible `Region` |
-| `Collapse` | Collapse an expanded region or group. | `GraphNodeGroup`, collapsible `Region` |
+| `Expand` | Expand a collapsed region or group. | Collapsible `Region` (and `GraphNodeGroup` if that deferred extension lands) |
+| `Collapse` | Collapse an expanded region or group. | Collapsible `Region` (and `GraphNodeGroup` if that deferred extension lands) |
 
 Actions that are not valid for the node's current state must not appear in the
 node's `actions` list. Example: `Open` is absent on a `GraphNode` if its lifecycle
@@ -366,13 +399,46 @@ node is present in the current snapshot (early return).
 ### 6.5 M2 — Placeholder timeout
 
 **Check**: For each `NodePane` with `state.degraded = true` (i.e., `TileRenderMode::Placeholder`),
-check if the pane has been in this state for more than 120 consecutive frames.
+check if the pane has been in this state for more than 120 consecutive frames
+after attach-attempt metadata shows retries, an in-flight attach, or retry cooldown.
 **Probe note**: This probe requires frame-level state across calls. The `UxProbeSet`
 maintains a `HashMap<UxNodeId, u64>` of degraded-since frame counters. The counter
 is reset when the node's `degraded` state clears. The counter is removed when the
-node disappears from the tree.
+node disappears from the tree. Runtime projection now carries per-node attach-attempt
+metadata into `UxDomainIdentity::Node`, and command-surface semantic projection now
+retains mailbox/route event sequence counters so stale-delivery and no-target
+observability remain checkable at probe time.
 
-### 6.6 Shared Modal Isolation + Focus Return Contract Table (normative)
+### 6.6 Pre-WGPU Runtime Classification (2026-04-07)
+
+| Contract | Classification | Current runtime surface |
+|---|---|---|
+| `S1` | Live runtime probe | `ux.probe.interactive_label_presence` |
+| `S2` | Explicitly deferred | Current semantic state does not project `hidden` |
+| `S3` | Live runtime probe | `ux.probe.focus_uniqueness` |
+| `S4` | Explicitly deferred | No `Dialog` / dismiss-button semantic subtree is projected |
+| `S5` | Explicitly deferred | Blocked recovery actions are not yet semantic child nodes |
+| `S6` | Explicitly deferred | Keyboard shortcut / node-selection action metadata is not projected |
+| `S7` | Live runtime probe | `ux.probe.semantic_id_uniqueness` |
+| `S8` | Live runtime probe | `ux.probe.radial_sector_count` |
+| `S9` | Live runtime probe | `ux.probe.interactive_bounds_minimum` |
+| `S10` | Live runtime probe | `ux.probe.command_surface_capture_owner` |
+| `N1` | Scenario-only | Needs focus-graph / tab-order traversal not present in snapshot |
+| `N2` | Scenario-only | Needs modal traversal / dismiss reachability via synthetic input |
+| `N3` | Scenario-only | Needs F6 region-cycle execution rather than snapshot-only inspection |
+| `N4` | Scenario-only | Needs tab traversal replay within modal context |
+| `N5` | Live runtime probe | `ux.probe.command_surface_return_target` |
+| `M1` | Live runtime probe | `ux.probe.node_pane_tombstone_lifecycle` |
+| `M2` | Live runtime probe | `ux.probe.node_pane_placeholder_timeout` |
+| `M3` | Scenario-only | Defined against clean `UxScenario` execution windows |
+| `M4` | Scenario-only | Defined against clean `UxScenario` runs without fault injection |
+| `M5` | Live runtime probe | `ux.probe.command_surface_observability_projection` |
+
+Non-canonical but still-live runtime checks outside the S/N/M register remain
+active: `ux.probe.presentation_id_consistency`,
+`ux.probe.trace_id_consistency`, and `ux.probe.semantic_parent_links`.
+
+### 6.7 Shared Modal Isolation + Focus Return Contract Table (normative)
 
 This table is canonical and mirrored verbatim in:
 
@@ -401,20 +467,25 @@ surface is therefore an explicit contract violation.
 
 ## 7. Feature Flag Behaviour
 
-| Feature flag | UxTree built | UxProbes run | UxBridge active | UxHarness available |
+Current Cargo/runtime behavior:
+
+| Build/configuration | UxTree built | UxProbes run | UxBridge active | UxHarness available |
 |---|---|---|---|---|
-| *(none — release)* | No | No | No | No |
-| `ux-semantics` | Yes | No | No | No |
-| `ux-probes` | Yes | Yes | No | No |
-| `ux-bridge` | Yes | No | Yes | No |
-| `test-utils` | Yes | Yes | Yes | Yes |
+| Desktop runtime without `ux-semantics` | No | No | No | No |
+| Desktop runtime with `ux-semantics` only | Yes | No | No | No |
+| Desktop runtime with `ux-probes` | Yes | Yes, for the currently registered core probes | No | No |
+| Desktop runtime with `ux-bridge` | Yes | No | Yes, in-process queries plus command-surface, node-pane, tool-pane, and graph-surface `InvokeUxAction` routing | No |
+| Desktop runtime with default features | Yes | Yes, for the currently registered core probes | Yes, in-process queries plus command-surface, node-pane, tool-pane, and graph-surface `InvokeUxAction` routing | No |
+| Desktop runtime with `test-utils` | Yes | Yes, for the currently registered core probes | Yes, in-process queries plus command-surface, node-pane, tool-pane, and graph-surface `InvokeUxAction` routing | Partial: `graphshell::test_utils` helpers, the `[[test]] scenarios` binary, and Rust-first scenario modules |
 
-`test-utils` implies all other UX flags. It is the flag used by the `[[test]]` binary.
-
-In production builds with `ux-semantics` but without `ux-probes`, the UxTree is built
-and available for consumption by the AccessKit bridge and the Diagnostic Inspector's
-UxTree view, but no probes run. This allows the semantic tree to power OS accessibility
-without paying the per-frame probe cost in shipping builds.
+`Cargo.toml` now carries a live `ux-semantics` / `ux-probes` / `ux-bridge`
+split. `ux-probes` and `ux-bridge` depend on `ux-semantics`, and `test-utils`
+layers on top of both. The bridge now supports a first real action slice for
+command-surface open/dismiss flows plus pane-backed node, tool-pane, and
+graph-surface focus/close flows in process. Transport-backed bridge/action
+closure remains partial: WebDriver can query immediately and queue that same
+landed slice via the host event path, but broader action coverage and generic
+harness transport are still future work.
 
 ---
 
@@ -434,7 +505,9 @@ Probes exceeding their allocation are candidates for migration to UxScenario ass
 
 ## 9. Diagnostics Channel Contracts
 
-All channels must be declared at startup under the `ux-semantics` feature.
+The diagnostics channels now follow the live UX feature boundary. Snapshot/build
+and semantic violation channels require `ux-semantics`; probe lifecycle and
+probe-run receipts additionally require `ux-probes`.
 
 ```
 ux:structural_violation   Error    S-series hard violation or N-series hard violation
@@ -450,10 +523,13 @@ ux:probe_disabled         Warn     UxProbe disabled (feature gate inactive or pr
 Channels must not be emitted when their feature gate is inactive. `ux:probe_registered`
 and `ux:probe_disabled` emit at startup during probe registration, before the frame loop.
 
-Implementation status note (2026-03-06): `ux:tree_build`, `ux:tree_snapshot_built`, and
-`ux:contract_warning` are wired in the workbench UxTree build/publish path; probe lifecycle
-channels (`ux:probe_registered`, `ux:probe_disabled`) are declared in diagnostics contracts and
-reserved for explicit probe runtime wiring under `ux-probes` feature execution.
+Implementation status note (2026-04-07): `ux:tree_build`, `ux:tree_snapshot_built`,
+`ux:snapshot_written`, `ux:contract_warning`, `ux:probe_registered`, and
+`ux:probe_disabled` are wired in the workbench UxTree build/publish path. The current
+runtime also wraps registered probes in panic isolation, rate-limits duplicate
+`(probe_id, node_path)` violations to one event per second, publishes structured
+`ux:tree_build` timing/build-status payloads, degrades to a root-only snapshot on builder
+failure, and writes snapshot exports only when `GRAPHSHELL_UX_SNAPSHOT_PATH` is set.
 
 ---
 

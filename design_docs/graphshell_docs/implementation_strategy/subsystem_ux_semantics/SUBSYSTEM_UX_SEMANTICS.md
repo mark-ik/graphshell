@@ -46,21 +46,21 @@ For UxTree purposes, this means semantic projection should remain legible across
 4. **Bridge-separation policy**: UxBridge transports test/control commands but does not become semantic owner of UX policy.
 5. **Accessibility-alignment policy**: UX semantics and accessibility mapping must stay aligned without duplicating ownership.
 
-## 0B. Current Closure State (2026-03-06)
+## 0B. Current Closure State (2026-04-07)
 
-- UxTree runtime snapshot build/publish, probe contracts, and diagnostics emission are active in the workbench render pipeline.
+- UxTree runtime snapshot build/publish, core probe contracts, and diagnostics emission are active in the workbench render pipeline.
+- A minimal real `UxProbeSet` is active for the currently landed core invariant wrappers, and the runtime now emits `ux:probe_registered` lifecycle receipts for active descriptors plus `ux:probe_disabled` receipts when probes are disabled after panic isolation trips.
+- Point-tier graph semantic parity is now active: GraphView surfaces suppress `GraphNode` semantic children below the Point LOD threshold and project the `StatusIndicator` child labeled `Zoom in to interact with nodes.` instead.
 - The UxTree -> AccessKit path is not fully closed yet as a single source-of-truth path across all surfaces.
-- Remaining closure gap is the end-to-end mapping path for WebView bridge injection + Graph Reader virtual-tree output under the same canonical UxTree ownership model.
+- The bounded `3A`-`3E` contract-coverage lane is now explicitly classified and closed as a finite endpoint.
+- The pre-WGPU runtime-capable contract lane is now fully closed: `M2` and `M5` joined the live probe set, and the remaining contract register is either live, scenario-only, or explicitly deferred.
+- Remaining closure gaps are therefore bridge/accessibility/harness alignment plus the end-to-end mapping path for WebView bridge injection and Graph Reader virtual-tree output under the same canonical UxTree ownership model.
 
 ## 0C. Runtime Reality Split
 
-The subsystem is no longer pre-implementation, but it is also not yet fully closed end-to-end.
-
-Current reality is better described as:
-
 - `UxProjection`: active
 - `UxDispatch`: partially active
-- `UxContracts`: partially active
+- `UxContracts`: active / partial
 - `UxBridge`: partial / not yet general-purpose
 - `UxScenarioHarness`: partial
 
@@ -154,6 +154,35 @@ Every registered invariant must carry:
 - A probe function: `fn(&UxTree) -> Option<UxContractViolation>`.
 - A human-readable description.
 
+### 3.5 Pre-WGPU Contract Classification (2026-04-07)
+
+| Contract | Classification | Current runtime surface |
+|---|---|---|
+| `S1` | Live runtime probe | `ux.probe.interactive_label_presence` |
+| `S2` | Explicitly deferred | Current semantic state does not project `hidden` |
+| `S3` | Live runtime probe | `ux.probe.focus_uniqueness` |
+| `S4` | Explicitly deferred | No `Dialog` / dismiss-button semantic subtree is projected |
+| `S5` | Explicitly deferred | Blocked recovery actions are not yet semantic child nodes |
+| `S6` | Explicitly deferred | Keyboard shortcut / node-selection action metadata is not projected |
+| `S7` | Live runtime probe | `ux.probe.semantic_id_uniqueness` |
+| `S8` | Live runtime probe | `ux.probe.radial_sector_count` |
+| `S9` | Live runtime probe | `ux.probe.interactive_bounds_minimum` |
+| `S10` | Live runtime probe | `ux.probe.command_surface_capture_owner` |
+| `N1` | Scenario-only | Needs focus-graph / tab-order traversal not present in snapshot |
+| `N2` | Scenario-only | Needs modal traversal / dismiss reachability via synthetic input |
+| `N3` | Scenario-only | Needs F6 region-cycle execution rather than snapshot-only inspection |
+| `N4` | Scenario-only | Needs tab traversal replay within modal context |
+| `N5` | Live runtime probe | `ux.probe.command_surface_return_target` |
+| `M1` | Live runtime probe | `ux.probe.node_pane_tombstone_lifecycle` |
+| `M2` | Live runtime probe | `ux.probe.node_pane_placeholder_timeout` |
+| `M3` | Scenario-only | Defined against clean `UxScenario` execution windows |
+| `M4` | Scenario-only | Defined against clean `UxScenario` runs without fault injection |
+| `M5` | Live runtime probe | `ux.probe.command_surface_observability_projection` |
+
+Non-canonical but still-live runtime checks outside the S/N/M register remain active:
+`ux.probe.presentation_id_consistency`, `ux.probe.trace_id_consistency`, and
+`ux.probe.semantic_parent_links`.
+
 ---
 
 ## 4. UxTree Architecture
@@ -163,7 +192,10 @@ Every registered invariant must carry:
 ```
 UxTree
   A per-frame projection of the Graphshell GUI state into a stable semantic tree.
-  Rebuilt every frame in test/probe mode; skipped in release unless ux-probes is active.
+  In the current runtime it is rebuilt in the workbench post-render path and cached
+  for same-frame/test consumers. The current Cargo shape now exposes
+  `ux-semantics`, `ux-probes`, and `ux-bridge`; `ux-probes` and `ux-bridge`
+  depend on `ux-semantics`, and the default desktop feature set enables both.
   Not a persistent data structure — it is recomputed, not diffed, each frame.
 
 UxNode
@@ -190,7 +222,8 @@ UxRole
   Interactive: Button, ToggleButton, MenuItem, RadialSector, TextInput, SearchField,
                OmnibarField, List, ListItem, Tab, TabPanel
   Informational: Heading, Text, Badge, ProgressBar, StatusIndicator
-  Graph-domain: GraphNode, GraphEdge, GraphNodeGroup
+  Graph-domain: GraphNode, GraphEdge
+  Deferred extension role: GraphNodeGroup (not part of the current pre-WGPU runtime closure)
 
 UxState
   Bitfield of dynamic state.
@@ -202,9 +235,10 @@ UxAction
   Values: Invoke, Focus, Dismiss, SetValue, Open, Close, ScrollTo, Expand, Collapse.
 
 UxSnapshot
-  Serializable, complete export of a UxTree. Format: YAML.
+  Serializable export shape for a UxTree.
   Used for snapshot baseline storage and regression diffing.
-  Human-readable; stored in tests/scenarios/snapshots/.
+  Current runtime note: in-memory snapshot publication is landed; file export is still
+  a closure item.
 
 UxDiff
   Structured diff between two UxSnapshots.
@@ -262,9 +296,9 @@ enables reliable snapshot diffing and meaningful UxScenario assertions.
 | `ux:navigation_violation` | Error | A navigation invariant (N-series) was violated |
 | `ux:contract_warning` | Warn | A soft invariant (Warn-severity S/M/N) was violated |
 | `ux:tree_build` | Info | UxTree build completed: node count, build duration, any build errors |
-| `ux:snapshot_written` | Info | A UxSnapshot was written to disk (debug mode) |
+| `ux:snapshot_written` | Info | A UxSnapshot was written to `GRAPHSHELL_UX_SNAPSHOT_PATH` when runtime export is enabled |
 | `ux:probe_registered` | Info | A UxProbe was registered at startup |
-| `ux:probe_disabled` | Warn | A UxProbe was registered but is disabled (feature gate inactive) |
+| `ux:probe_disabled` | Warn | A UxProbe is disabled either because its descriptor is inactive or because runtime panic isolation disabled it for the session |
 
 ### 5.2 UxViolation Event Schema
 
@@ -300,18 +334,27 @@ The UX Semantics section in the Diagnostic Inspector exposes:
 - Assert the probe does not fire on valid inputs.
 - Must be pure: no app state, no GUI, no egui context.
 
-**UxScenario tests (integration)**
-- Drive the app via `UxDriver` + `UxBridge`.
-- Navigate to a checkpoint, call `GetUxSnapshot`.
-- Assert invariants S1–S9 hold at the checkpoint.
-- Compare snapshot to stored baseline; fail on structural diff.
-- Assert no `ux:structural_violation` or `ux:navigation_violation` events in the
-  diagnostics channel for the scenario duration.
+**Rust critical-path scenario tests (current integration)**
+- Drive the app through `TestRegistry`, reducer/orchestration intents, and direct
+  `UxTree` snapshot capture.
+- Assert the pre-WGPU graph navigation, pane lifecycle, command-surface, modal,
+  and degraded-viewer flows in `shell/desktop/tests/scenarios/pre_wgpu_critical_path.rs`.
+- Compare normalized JSON snapshots against committed baselines in
+  `tests/scenarios/snapshots/` via `shell/desktop/tests/scenarios/ux_tree_diff_gate.rs`.
+- Assert diagnostics behavior directly from runtime state in the same Rust tests.
+
+**YAML UxScenario tests (planned closure)**
+- The future generic runner still targets `UxDriver` + `UxBridge` over committed
+  YAML fixtures in `tests/scenarios/ux/`.
+- Those fixtures are not executed by a generic runner today.
 
 **Snapshot regression tests (CI)**
-- Stored in `tests/scenarios/snapshots/`.
-- On every PR: run scenario suite, diff snapshots, block on structural changes.
-- State-only diffs (focus, loading): attach diff artifact, warn, do not block.
+- Stored in `tests/scenarios/snapshots/` as normalized JSON baselines for the
+  current Rust-first gate.
+- On every PR touching the relevant surfaces: run the Rust critical-path snapshot
+  gate, diff baselines, and block on semantic structural changes.
+- Presentation-only or trace-only diffs can remain non-blocking depending on the
+  diff-gate policy encoded in `ux_tree_diff_gate.rs`.
 
 **Manual smoke tests (milestone gates)**
 - Run 3–5 core scenarios manually in a headed build.
@@ -329,13 +372,16 @@ Required checks for PRs touching:
 
 Gate actions:
 - Run UxProbe unit tests.
-- Run core UxScenario suite (open_node, focus_cycle, modal_dismiss).
-- Diff snapshots; fail on structural change without explicit baseline update.
-- Assert zero `ux:structural_violation` events in scenario diagnostics logs.
+- Run the Rust critical-path scenario modules under `shell/desktop/tests/scenarios/`.
+- Run the JSON snapshot diff gate against `tests/scenarios/snapshots/`.
+- Run `cargo test --features test-utils --test scenarios` for the separate
+  smoke/capability binary.
+- YAML fixtures under `tests/scenarios/ux/` are not a merge-blocking runner gate yet.
 
 ### 6.3 Snapshot Baseline Policy
 
-Stored in `tests/scenarios/snapshots/`. Diff policy:
+Stored in `tests/scenarios/snapshots/` as normalized JSON baselines for the
+current Rust-first gate. Diff policy:
 
 | Field class | On mismatch |
 |-------------|-------------|
@@ -347,38 +393,59 @@ Stored in `tests/scenarios/snapshots/`. Diff policy:
 | `state.loading` | Warn only (timing-sensitive) |
 | `value` (text input contents) | Warn only (unless the scenario tests value) |
 
-To update a baseline: run `cargo test --features test-utils -- --update-snapshots`.
+To update the current pre-WGPU baselines:
+
+```powershell
+$env:GRAPHSHELL_UPDATE_UX_SNAPSHOTS='1'; cargo test pre_wgpu_critical_path_snapshots_match_baselines --quiet
+```
+
 Baseline updates require human review in PR.
 
 ---
 
 ## 7. UxBridge
 
-The UxBridge exposes the UxTree and accepts driver commands from test harness clients.
+The runtime now exposes a narrow real `UxBridge`: `shell/desktop/workbench/ux_bridge.rs`
+provides in-process handlers for `GetUxSnapshot`, `FindUxNode`, and
+`GetFocusPath`, plus a first real `InvokeUxAction` slice for command-surface
+open/dismiss flows, pane-backed node focus/dismiss, tool-pane focus/close, and
+graph-surface focus/close. The same module now also carries a small Rust-side
+`UxDriver` helper that emits the reserved WebDriver execute-script payloads for
+those commands, and the shared Rust-first desktop harness now consumes that
+helper directly.
 
 ### 7.1 Transport
 
-**Default (Phase 1–5)**: Custom WebDriver commands, handled in
-`RunningAppState::handle_webdriver_messages()`. Reuses the existing WebDriver HTTP
-server and Rust client. No new IPC channel needed.
+**Current (2026-04-07 follow-up)**: In-process Rust handlers, used by same-process
+tests and other runtime callers. The existing WebDriver execute-script path now
+also accepts a reserved `graphshell:ux-bridge:` payload prefix. Query commands
+are answered immediately from the latest published snapshot; the narrow
+action slice is queued onto the host graph-event path as a `WorkbenchIntent`
+rather than mutating UI state directly from the host layer.
+
+**Current transport caveat**: the host/runtime boundary still prevents direct UI
+mutation inside `WebDriverRuntime`. Transport-backed actions are therefore
+limited to actions that can be queued honestly and observed in a subsequent
+snapshot. Today that includes command-surface open/dismiss and pane-backed node
+focus/dismiss, tool-pane focus/close, and graph-surface focus/close.
 
 **Future (Phase 6+)**: Optional dedicated Unix socket / named pipe for sub-millisecond
 probing latency during animation contract checks.
 
-### 7.2 Command Catalogue
+### 7.2 Current and Target Command Catalogue
 
-| Command | Input | Output |
-|---------|-------|--------|
-| `GetUxSnapshot` | depth limit (optional) | Full or partial `UxSnapshot` (YAML) |
-| `FindUxNode` | selector (by ID, role, label, state) | Matching `UxNode` or `NotFound` |
-| `InvokeUxAction` | `UxNodeId`, `UxAction` | `Ok` or `UxContractViolation` |
-| `GetFocusPath` | — | Ordered `Vec<UxNodeId>` from root to focused node |
-| `GetDiagnosticsState` | channel filter (optional) | Current channel event state |
-| `StepPhysics` | tick count | — (advances the physics simulation N steps) |
-| `SetClock` | timestamp (ms) | — (overrides monotonic clock; for animation determinism) |
-| `SetInputMode` | `Mouse` / `Keyboard` / `Gamepad` | — |
-| `SeedRng` | u64 | Seeds the physics RNG for deterministic layout |
-| `GetActiveContracts` | — | List of registered `UxInvariant` IDs and their current status |
+| Command | Input | Output | Status |
+|---------|-------|--------|--------|
+| `GetUxSnapshot` | — | Full `UxTreeSnapshot` | Current: in-process handler plus reserved WebDriver execute-script envelope |
+| `FindUxNode` | selector (by ID, role, label, focused state) | Matching `UxSemanticNode` or `None` | Current: in-process handler plus reserved WebDriver execute-script envelope |
+| `GetFocusPath` | — | Ordered `Vec<UxNodeId>` from root to focused node | Current: in-process handler plus reserved WebDriver execute-script envelope |
+| `InvokeUxAction` | selector, `UxAction` | Action receipt (`Applied` in-process, `Queued` via WebDriver transport) | Current: command-surface open/dismiss, pane-backed node focus/dismiss, tool-pane focus/close, and graph-surface focus/close |
+| `GetDiagnosticsState` | channel filter (optional) | Current channel event state | Target-state |
+| `StepPhysics` | tick count | — (advances the physics simulation N steps) | Target-state |
+| `SetClock` | timestamp (ms) | — (overrides monotonic clock; for animation determinism) | Target-state |
+| `SetInputMode` | `Mouse` / `Keyboard` / `Gamepad` | — | Target-state |
+| `SeedRng` | u64 | Seeds the physics RNG for deterministic layout | Target-state |
+| `GetActiveContracts` | — | List of registered `UxInvariant` IDs and their current status | Target-state |
 
 ### 7.3 Determinism Requirements
 
@@ -395,30 +462,33 @@ probing latency during animation contract checks.
 
 ## 8. UxHarness (Test Driver Infrastructure)
 
-The `UxHarness` is the test-side infrastructure: `UxDriver` + scenario runner +
-snapshot store. Compiled only under `feature = "test-utils"`.
+The current harness is mixed rather than fully generic:
+- active today: Rust `TestRegistry` scenario modules under `shell/desktop/tests/scenarios/`,
+  normalized JSON snapshot baselines under `tests/scenarios/snapshots/`, and a
+  narrow `test-utils` integration binary at `tests/scenarios/main.rs`
+- planned closure: typed `UxDriver`, generic `UxBridge`, and a YAML scenario runner
 
 ### 8.1 Directory Layout
 
 ```
+shell/
+  desktop/
+    tests/
+      harness/                    # Current Rust-side test harness utilities
+      scenarios/                  # Current critical-path and diff-gate Rust tests
+        pre_wgpu_critical_path.rs
+        ux_tree_diff_gate.rs
+
 tests/
   scenarios/
-    main.rs                       # [[test]] binary entry point (existing)
-    ux/                           # UxScenario definitions (YAML)
-      open_node_flow.yaml
-      focus_cycle.yaml
-      modal_dismiss.yaml
-      radial_menu_structural.yaml
-    snapshots/                    # UxBaseline files (YAML, reviewed on change)
-      open_node_flow_end.yaml
-      focus_cycle_toolbar.yaml
-  harness/
-    lib.rs                        # UxHarness root
-    driver.rs                     # UxDriver: high-level API (open_node, assert_tree, etc.)
-    bridge_client.rs              # WebDriver HTTP client for UxBridge commands
-    snapshot.rs                   # UxSnapshot serialization + baseline diffing
-    contracts.rs                  # UxInvariant checkers (S/N/M series, pure functions)
-    scenario_runner.rs            # YAML scenario file parser + execution loop
+    main.rs                       # Separate [[test]] binary gated by `test-utils`
+    ux/                           # Committed YAML fixtures for future runner closure
+      facet_filter_entry_omnibar.yaml
+      facet_pane_focus_return.yaml
+      facet_pane_route_blocked_multiselect.yaml
+      facet_pane_route_success.yaml
+    snapshots/                    # Normalized JSON baselines reviewed on change
+      pre_wgpu_*.json
 ```
 
 ### 8.2 UxScenario File Format
@@ -447,21 +517,18 @@ expected_end_state:
 
 ### 8.3 Feature Gates
 
+Current Cargo/runtime shape:
+
 ```
-ux-semantics        Enables UxTree builder and UxBridge server-side handling.
-                    No test harness. Ships in all builds when enabled.
-                    Recommended for daily development builds.
+desktop runtime     `ux-semantics` gates the per-frame UxTree build/publish path.
+                    `ux-probes` and `ux-bridge` both depend on `ux-semantics`.
+                    Default desktop features enable both today.
 
-ux-probes           Enables UxProbeSet: per-frame structural invariant checking
-                    (S/N/M series). Requires ux-semantics.
-                    Emits ux:structural_violation events.
-
-ux-bridge           Enables UxBridge WebDriver command handlers.
-                    Requires ux-semantics. For use in test and debug builds.
-
-test-utils          Enables full UxHarness (UxDriver, scenario runner, snapshot store).
-                    Requires ux-bridge. Never included in release builds.
-                    Used by: [[test]] binary targets.
+test-utils          Enables the narrow extra test surface that exists today:
+                    `graphshell::test_utils`, the `[[test]] scenarios` binary,
+                    and the Rust-first scenario modules that can call the
+                    in-process query bridge. It does not imply a generic
+                    transport-backed UxBridge/UxDriver stack yet.
 ```
 
 ---
@@ -470,9 +537,13 @@ test-utils          Enables full UxHarness (UxDriver, scenario runner, snapshot 
 
 ### 9.1 Build Degradation
 
-If the `ux-semantics` feature is inactive (release builds without the feature), the
-UxTree builder is compiled out entirely. The UxBridge command handlers return
-`Feature not enabled` error responses. No runtime overhead.
+Current behavior with the landed feature split:
+
+If `ux-semantics` is inactive, the post-render path clears the cached snapshot
+and skips UxTree build/publish work entirely. If `ux-probes` is inactive, the
+UxTree may still build for semantics consumers but probe lifecycle emission and
+probe evaluation are no-op. If `ux-bridge` is inactive, the in-process query
+handlers are unavailable.
 
 ### 9.2 Runtime Degradation
 
@@ -485,9 +556,9 @@ UxTree builder is compiled out entirely. The UxBridge command handlers return
 
 ### 9.3 Probe Disabling
 
-Individual probes can be disabled at runtime via the Diagnostic Inspector (for
-debugging scenarios where a known violation is expected). Disabling a probe emits
-`ux:probe_disabled` Warn.
+The runtime now supports disabled probe descriptors at registration time and emits
+`ux:probe_disabled` for that path. Interactive per-probe disabling via the
+Diagnostic Inspector remains planned rather than implemented.
 
 ---
 
@@ -518,8 +589,8 @@ Accessibility subsystem's `AccessibilityCapabilities` struct.
 | Owner | Responsibility |
 |-------|----------------|
 | `UxTreeBuilder` (new) | Per-frame UxTree construction; `UxNodeId` path assignment; `UxState` derivation from app state. Lives in `shell/desktop/ui/ux_tree.rs`. |
-| `UxProbeSet` (new) | Registration and execution of `UxInvariant` probe functions; `UxViolation` event emission; panic isolation per probe. |
-| `UxBridge` (new) | WebDriver command handler extensions; serialization/deserialization of `UxSnapshot`; `InvokeUxAction` routing. Lives in `webdriver.rs` or `shell/desktop/ui/ux_bridge.rs`. |
+| `UxProbeSet` | Registration and execution of core `UxInvariant` probe functions; `UxViolation` event emission; per-probe panic isolation, suppression, and timing/budget accounting. Lives in `shell/desktop/workbench/ux_probes.rs`. |
+| `UxBridge` (new) | `shell/desktop/workbench/ux_bridge.rs` plus reserved WebDriver execute-script bridge handling in `shell/desktop/host/webdriver_runtime.rs`; serializes `UxSnapshot`/node/action receipts and routes the first command-surface action slice. |
 | `UxHarness` (new, gated) | `UxDriver` client; scenario file parser; snapshot store; baseline diffing. Lives in `tests/harness/`. |
 | Diagnostics Subsystem | Receives `UxViolationEvent`s via the existing channel infrastructure; stores and exposes them in the event ring. |
 | Accessibility Subsystem | Consumes `UxTree` output to populate the AccessKit node builder. One builder, two consumers. |
@@ -559,17 +630,21 @@ than walking the graph model directly.
 
 **What exists**:
 - `UxTree` snapshot build/publish exists in the workbench render pipeline.
+- A minimal real `UxProbeSet` exists for the currently landed core invariant wrappers.
+- Probe lifecycle registration receipts are emitted on `ux:probe_registered` for active core descriptors.
+- Probe panic isolation, runtime disablement, and one-second suppression/rate limiting are active in the probe runtime.
+- `S9` (minimum 32x32 logical-pixel bounds for interactive nodes when bounds are present) is active as a live warn-class runtime probe.
 - Snapshot diff-gate logic exists for semantic versus presentation changes.
 - Some UX dispatch and violation diagnostics are active in orchestration/runtime code.
 - Rust scenario-style tests exist for UxTree snapshot health and diff-gate policy.
 - A limited set of YAML UX scenarios exists under `tests/scenarios/ux/`.
 
 **What's missing / open**:
-- Full generic `UxProbeSet` / invariant-engine closure.
-- Full `UxBridge` command surface (`GetUxSnapshot`, `FindUxNode`, `InvokeUxAction`, `GetFocusPath`, etc.) as documented.
+- Full S/N/M invariant-family closure beyond the current core registered probes.
+- Transport-backed and mutating `UxBridge` closure beyond the current in-process
+  query handlers (`GetUxSnapshot`, `FindUxNode`, `GetFocusPath`).
 - YAML-driven `UxScenario` runner and typed `UxDriver` closure.
 - Full AccessKit consumption from the canonical UxTree path.
-- Feature flags `ux-semantics`, `ux-probes`, `ux-bridge` do not exist as the subsystem docs originally proposed.
 
 ---
 
@@ -582,6 +657,7 @@ Use `2026-03-08_unified_ux_semantics_architecture_plan.md` as the canonical road
 - Validate `UxNodeId` stability and snapshot semantics against the live tile tree.
 
 ### Phase 2: Contract Engine Closure
+- Extend the minimal real `UxProbeSet` beyond the current core registered probes.
 - Normalize implemented checks versus specified S/N/M invariant families.
 - Add the real generic probe registration/evaluation model where needed.
 

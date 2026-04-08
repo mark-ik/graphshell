@@ -247,6 +247,9 @@ pub(crate) fn run_tile_render_pass_in_ui(
     let focused_node_hint_before = *focused_node_hint;
 
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+    webview_backpressure::publish_node_pane_attach_attempt_metadata(
+        webview_creation_backpressure,
+    );
 
     let outputs = tile_post_render::render_tile_tree_and_collect_outputs(
         ui,

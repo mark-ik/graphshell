@@ -145,6 +145,12 @@ impl WindowGraphEventQueue {
                     event.seq, elapsed_ms, request.url, request.source, request.parent_webview_id
                 );
             }
+            GraphSemanticEventKind::WebDriverWorkbenchIntentRequested { intent } => {
+                debug!(
+                    "graph_event_trace seq={} t_ms={} kind=webdriver_workbench_intent intent={intent:?}",
+                    event.seq, elapsed_ms
+                );
+            }
             GraphSemanticEventKind::WebViewCrashed {
                 webview_id,
                 reason,

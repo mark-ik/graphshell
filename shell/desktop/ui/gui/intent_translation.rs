@@ -8,7 +8,10 @@ use super::*;
 pub(super) fn graph_intents_from_semantic_events(
     events: Vec<GraphSemanticEvent>,
 ) -> Vec<GraphIntent> {
-    semantic_event_pipeline::runtime_events_from_semantic_events(events)
+    let (runtime_events, workbench_intents) =
+        semantic_event_pipeline::runtime_events_from_semantic_events(events);
+    debug_assert!(workbench_intents.is_empty());
+    runtime_events
         .into_iter()
         .map(Into::into)
         .collect()
@@ -18,8 +21,9 @@ pub(super) fn graph_intents_from_semantic_events(
 pub(super) fn graph_intents_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
 ) -> (Vec<GraphIntent>, HashSet<WebViewId>) {
-    let (runtime_events, responsive_webviews) =
+    let (runtime_events, workbench_intents, responsive_webviews) =
         semantic_event_pipeline::runtime_events_and_responsive_from_events(events);
+    debug_assert!(workbench_intents.is_empty());
     (
         runtime_events.into_iter().map(Into::into).collect(),
         responsive_webviews,

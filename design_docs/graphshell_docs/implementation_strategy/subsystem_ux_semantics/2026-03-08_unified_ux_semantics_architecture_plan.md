@@ -1,7 +1,7 @@
 # Unified UX Semantics Architecture Plan
 
 **Date**: 2026-03-08
-**Last updated**: 2026-03-21
+**Last updated**: 2026-04-07
 **Status**: Active / architecture cleanup plan
 **Scope**: Reconcile the canonical UX Semantics subsystem contract with the actual runtime state of UxTree projection, dispatch diagnostics, and still-partial bridge/harness closure. Also catalogs high-leverage extensions that the live UxTree projection unlocks.
 
@@ -34,14 +34,14 @@ Today, the repo has:
 
 But it does not yet have:
 
-- the full generic `UxProbeSet` / invariant-engine architecture
+- the fuller invariant-engine closure beyond the current core registered probes
 - the full `UxBridge` command surface described in the specs
 - the YAML-driven UxScenario runner described in the specs
 - complete AccessKit consumption from one canonical UxTree path
 - feature flags (`ux-semantics`, `ux-probes`, `ux-bridge`) — everything compiles unconditionally
-- per-frame S/N/M invariant probe evaluation
+- full per-frame S/N/M invariant coverage
 
-The biggest gap: the subsystem has a well-built projection layer (the tree exists and is published) but no per-frame contract verification engine consuming it. The Wave 1–4 diagnostic channels are adjacent to this — they detect layout/paint problems — but the S/N/M invariant probes (e.g. "every button has a label", "exactly one focused node") are unimplemented at runtime.
+The biggest remaining gap: the subsystem now has a well-built projection layer and a minimal real contract engine with panic isolation, one-second suppression, per-frame timing/budget reporting, and Point-tier graph LOD parity, but only for the currently landed bounded subset of contract coverage. The Wave 1–4 diagnostic channels are adjacent to this — they detect layout/paint problems — and the next closure step is broadening probe coverage through the explicit `3B`-`3E` lane rather than unnamed follow-on slices.
 
 So the subsystem needs a more honest top-level architecture model: one that distinguishes what is already a runtime system from what is still a planned integration layer.
 
@@ -89,10 +89,11 @@ Owns:
 
 Current reality:
 
-- S/N/M invariant families are specified in docs but no generic `UxProbeSet` engine exists
-- checks are ad-hoc in tests rather than per-frame runtime probes
+- a minimal real `UxProbeSet` exists for core consistency and command-surface checks
 - the subsystem currently has narrower checks than the full S/N/M architecture implies
+- panic isolation and suppression semantics are implemented for the current registered probes
 - S9 (bounds ≥ 32×32px for interactive nodes) is now checkable without additional instrumentation — bounds are on the snapshot
+- Point-tier graph semantic parity is live: Point LOD emits the `StatusIndicator` child and suppresses `GraphNode` semantic children, with `ux:navigation_violation` emitted on mismatch
 
 ### 3.3 `UxDispatch`
 
@@ -147,6 +148,10 @@ Current reality:
 
 - `UxTreeSnapshot` with semantic/presentation/trace layers
 - snapshot build and publish in the workbench render path
+- a dedicated `ux_probes` runtime module with registered core probe descriptors
+- `ux:probe_registered` lifecycle emission for active core descriptors
+- runtime panic isolation, `ux:probe_disabled` disablement receipts, and one-second suppression/rate limiting for registered probes
+- recoverable snapshot build fallback plus real `ux:snapshot_written` export wiring
 - diff-gate severity model for semantic vs presentation changes
 - a concrete snapshot-consistency check
 - UX dispatch diagnostics around focus/navigation/orchestration flows
@@ -168,13 +173,12 @@ Current reality:
 
 ### 4.3 Missing
 
-- full generic `UxProbeSet` runtime (S1–S9, N1–N4, M1–M4 not evaluated per-frame)
+- full S1–S9, N1–N4, M1–M4 per-frame coverage
 - full `UxBridge` command/response implementation
 - generic YAML UxScenario runner with typed driver API
 - full core scenario suite closure as described in subsystem docs
 - complete AccessKit consumption from the same UxTree authority surface
 - feature flags `ux-semantics`, `ux-probes`, `ux-bridge` — everything compiles unconditionally
-- ux-snapshot YAML export to disk
 
 ---
 
@@ -216,10 +220,15 @@ The subsystem guide should stop claiming the original core trio is already wired
 
 ### Phase B. Contract Engine Closure
 
-1. Define the minimal real `UxProbeSet` architecture that matches the docs.
-2. Separate implemented checks from planned invariant families.
-3. Add explicit tracking for which contracts are live versus specified-only.
-4. Implement S9 bounds probe as the first live per-frame probe — unblocked by Wave 1.
+1. Extend the minimal real `UxProbeSet` beyond the current core descriptors.
+2. Preserve the landed panic isolation and suppression semantics while broadening coverage.
+3. Separate implemented checks from planned invariant families.
+4. Add explicit tracking for which contracts are live versus specified-only.
+5. Execute the bounded coverage lane explicitly:
+   - `3B`: snapshot-only structural coverage
+   - `3C`: traversal and modal runtime coverage
+   - `3D`: stateful runtime coverage
+   - `3E`: runtime-vs-scenario final classification
 
 ### Phase C. Bridge Surface Closure
 
@@ -286,11 +295,11 @@ The diagnostics pane currently shows compositor frames and channel counts. The U
 - This is a spatial browser debugging its own spatial structure in real time.
 - No analogues in other tooling.
 
-### 9.2 S9 Bounds-Checking Probe — Now Feasible
+### 9.2 S9 Bounds-Checking Probe — Landed
 
-Wave 1 landed `bounds` on `UxPresentationNode`. S9 ("every interactive node must have bounds ≥ 32×32px") is now checkable without any additional instrumentation. The probe is a trivial pure function over the snapshot.
+Wave 1 landed `bounds` on `UxPresentationNode`, and the current runtime now evaluates S9 ("every interactive node must have bounds ≥ 32×32px") as a live warn-class probe over the snapshot.
 
-With the `UxProbeSet` engine closed, S9 would fire in the diagnostics bus immediately on tiny tiles — catching a real class of touch/click-target bugs automatically.
+S9 now fires in the diagnostics bus immediately on tiny interactive surfaces — catching a real class of touch/click-target bugs automatically.
 
 ### 9.3 UxTree Diff as Persistence-Aware Regression Signal
 
@@ -328,6 +337,9 @@ This turns `UxContracts` from a pass/fail gate into a debugging timeline. Lets y
 ### 9.8 Graphlet-Aware UxTree Projection
 
 `UxDomainIdentity` has `GraphViewLensScope` with `lens_name` and `filter_count`. But graphlets (node groups) aren't yet projected into the UxTree as structural nodes — they're just edges in the graph model.
+
+Status: deferred post-WGPU extension, not part of the current UX semantics
+closure gate.
 
 Projecting `GraphNodeGroup` nodes into the UxTree would:
 

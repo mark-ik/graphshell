@@ -11,6 +11,23 @@
 - `../subsystem_diagnostics/diagnostics_observability_and_harness_spec.md`
 - `../../2026-03-01_automated_ux_testing_research.md`
 
+**Implementation alignment note (2026-04-07)**:
+- The current repo uses a Rust-first harness shape: `shell/desktop/tests/scenarios/*`
+  carries the active pre-WGPU UX coverage, and `tests/scenarios/snapshots/`
+  stores the committed normalized JSON baselines for that gate.
+- `tests/scenarios/main.rs` is a small `test-utils` integration binary with smoke
+  and capability checks only.
+- YAML fixtures under `tests/scenarios/ux/` are committed inputs for future
+  closure, and there is still no generic YAML runner or typed external
+  `UxDriver` yet. The runtime now does expose a narrow in-process `UxBridge`
+  query surface in `shell/desktop/workbench/ux_bridge.rs`
+  (`GetUxSnapshot`, `FindUxNode`, `GetFocusPath`) plus a small in-repo
+  `UxDriver` helper for emitting the reserved WebDriver bridge payloads. The
+  shared Rust-first desktop harness in `shell/desktop/tests/harness.rs` now
+  consumes that helper directly for scenario-level bridge queries/actions.
+- Sections that describe `UxDriver`, `UxBridge`, and YAML execution remain
+  target-state contracts unless they explicitly call out current runtime behavior.
+
 ---
 
 ## 1. Purpose and Scope
@@ -50,6 +67,10 @@ The UxScenario/UxHarness system has three distinct components:
 These components must remain separate. Scenario YAML is not executed directly by the
 app. The UxDriver is never linked into the app. The UxBridge does not implement
 scenario logic.
+
+Current repo note: only the scenario-fixture side of this model is partially
+present today. The generic `UxDriver`/`UxBridge` split is still planned rather
+than implemented.
 
 ---
 
@@ -92,6 +113,9 @@ These commands ensure a deterministic starting condition. They do not reset the
 app's graph state — that is controlled by `preconditions`.
 
 ### 3.2 UxDriver API Contract
+
+This section is target-state. There is no typed `UxDriver` implementation in the
+current repo.
 
 The `UxDriver` is the primary test-facing API. It provides:
 
@@ -137,6 +161,18 @@ not a `BridgeError` — it produces `AssertionError::Timeout`.
 
 ### 3.3 UxBridge Server Contract
 
+This section mixes current and target-state behavior. The current runtime
+exposes an in-process `UxBridgeCommand` / `UxBridgeResponse` surface for
+`GetUxSnapshot`, `FindUxNode`, `GetFocusPath`, and a narrow
+`InvokeUxAction` slice covering command-surface open/dismiss, pane-backed node
+focus/dismiss, tool-pane focus/close, and graph-surface focus/close. The same
+command set is reachable from WebDriver via a
+reserved `graphshell:ux-bridge:` execute-script payload, and
+`shell/desktop/workbench/ux_bridge.rs` now provides a small Rust-side
+`UxDriver` helper that emits those payloads, but host-transported actions are
+queued onto the UI event path rather than executed directly inside the host
+runtime.
+
 **B1 — Stateless responses**
 Each `UxBridgeCommand` is handled independently. The UxBridge holds no per-connection
 state. If the connection drops between commands, the next command starts fresh.
@@ -151,13 +187,20 @@ number of frames before requesting a snapshot (via `within_frames` semantics).
 1. Find the `UxNode` by `id` in the current snapshot.
 2. Verify `action` is in the node's `actions` list. If not: return
    `UxContractViolation { contract_id: "action_not_available", node_path: id, ... }`.
-3. Route the action to the correct app subsystem:
-   - `Invoke` / `Focus` / `Dismiss` on navigation elements → emit `GraphIntent` variants.
-   - `SetValue` on `OmnibarField` → update the omnibar text field state.
-   - `Open` on `GraphNode` → emit `GraphIntent::PromoteNodeToActive` and open a pane.
-   - `Close` on `NodePane` → emit the tile-close intent.
-4. Return `Ok(())` on successful dispatch. The driver waits for the effect to be
-   observable in a subsequent snapshot.
+3. Route the action to the correct app subsystem.
+  Current landed slice:
+  `Open` / `Focus` on `CommandBar` or `Omnibar` -> open command palette.
+  `Dismiss` on `CommandPalette` or `ContextPalette` -> close command palette.
+  `Open` / `Focus` on pane-backed `NodePane` -> focus the exact pane when present.
+  `Close` on pane-backed `NodePane` -> dismiss the pane and demote the node to `Cold`.
+  `Focus` on `ToolPane` -> open or focus the corresponding tool pane.
+  `Close` on `ToolPane` -> close the corresponding tool pane.
+  `Focus` on pane-backed `GraphSurface` -> open or focus the corresponding graph pane.
+  `Close` on pane-backed `GraphSurface` -> close the exact graph pane.
+4. Return a receipt.
+  In-process handlers return `Applied` after mutating app state.
+  WebDriver transport returns `Queued` after enqueueing the corresponding `WorkbenchIntent`.
+  The driver waits for the effect to be observable in a subsequent snapshot.
 
 **B4 — StepPhysics semantics**
 `StepPhysics(n)` advances the force-directed simulation by exactly `n` ticks without
@@ -182,6 +225,9 @@ and optionally `node_path` and `context` (arbitrary key-value pairs for debuggin
 
 Scenario files are YAML, stored in `tests/scenarios/ux/`. The runner discovers all
 `*.yaml` files in this directory.
+
+Current repo note: the committed YAML files are fixtures only today. The generic
+runner described below has not been landed.
 
 ### 4.1 Top-Level Fields
 
@@ -350,31 +396,28 @@ fail on a new baseline — it requires a human to commit it.
 
 ## 6. Core Scenario Suite
 
-These scenarios are required for CI. They must pass before any PR touching UI, workbench,
-graph, or UX semantics code can merge.
+Current CI-facing coverage is Rust-first. The required merge-blocking UX suite is:
 
-| Scenario file | ID | Coverage |
+| Runtime surface | Current file(s) | Coverage |
 |---------------|----|----------|
-| `open_node_flow.yaml` | `flow:open-node` | GraphNode → Open → NodePane, viewer active |
-| `focus_cycle.yaml` | `flow:focus-cycle` | F6 visits all landmark regions in order |
-| `modal_dismiss.yaml` | `flow:modal-dismiss` | Dialog open → keyboard dismiss (N2) |
-| `blocked_node_recovery.yaml` | `flow:blocked-node-recovery` | Node enters blocked state → recovery action visible (S5) |
-| `radial_menu_structural.yaml` | `flow:radial-menu-structural` | Radial menu open → 8 sectors present, all labeled (S1, S8) |
-| `command_surface_action_parity.yaml` | `flow:command-surface-action-parity` | Same `ActionId` invoked via keyboard/palette/radial/omnibar yields identical semantic result, target-scope resolution, and disabled-state reason text |
-| `omnibar_focus_ownership.yaml` | `flow:omnibar-focus-ownership` | Omnibar/search focus is explicit-only (no default capture), visible without caret dependency, and keyboard commands route to non-omnibar owners until explicit omnibar focus |
-| `modal_focus_return_close_restore.yaml` | `flow:modal-focus-return-close-restore` | Modal open/close and explicit restore paths follow deterministic return targets from shared modal-isolation contract table |
-| `focus_cycle_deterministic.yaml` | `flow:focus-cycle-deterministic` | Region-cycle (`F6`) order, wrap behavior, and capture exclusions are deterministic and match shared modal-isolation contract table |
+| Critical-path flow scenarios | `shell/desktop/tests/scenarios/pre_wgpu_critical_path.rs` | Graph navigation, pane lifecycle, command-surface parity, modal isolation, degraded viewer signaling |
+| Snapshot diff gate | `shell/desktop/tests/scenarios/ux_tree_diff_gate.rs` | Normalized JSON baseline comparison and semantic/presentation diff policy |
+| `test-utils` integration binary | `tests/scenarios/main.rs` | Smoke/capability checks for the separate `[[test]] scenarios` target |
 
-Additional scenarios are recommended but not required for CI gate:
+Committed YAML fixtures currently present in `tests/scenarios/ux/` are:
 
-| Scenario file | ID | Coverage |
-|---------------|----|----------|
-| `omnibar_navigation.yaml` | `flow:omnibar-nav` | Omnibar → URL entry → navigation intent |
-| `node_pane_degraded.yaml` | `flow:degraded-pane` | TileRenderMode::Placeholder → degraded state visible (M2) |
-| `graph_node_labels.yaml` | `flow:graph-node-labels` | All visible GraphNode nodes have labels (S1) |
-| `workbar_tab_switch.yaml` | `flow:workbar-switch` | Tab switch → correct pane becomes active |
+| Fixture file | Current status |
+|---------------|----------------|
+| `facet_filter_entry_omnibar.yaml` | Stored fixture only; not executed by a generic runner |
+| `facet_pane_focus_return.yaml` | Stored fixture only; not executed by a generic runner |
+| `facet_pane_route_blocked_multiselect.yaml` | Stored fixture only; not executed by a generic runner |
+| `facet_pane_route_success.yaml` | Stored fixture only; not executed by a generic runner |
+
+The broader YAML-driven suite described in earlier drafts remains target-state.
 
 ### 6.1 Command-Surface Parity Assertions (required for `flow:command-surface-action-parity`)
+
+This remains target-state until the generic YAML runner exists.
 
 - For a shared action fixture set (same graph/workbench preconditions), each invocation path (`Keyboard`, `SearchPalette`, `ContextPalette`, `RadialPalette`, `Omnibar`) must dispatch the same `ActionId`.
 - Target scope must resolve to the same semantic target identity (`NodeKey`, pane identity, graph scope) for equivalent invocation context.
@@ -540,7 +583,7 @@ mod ux_scenarios;            // new: imports harness::scenario_runner
 ```
 
 UxScenarios require `feature = "test-utils"`, which implies `ux-bridge` and
-`ux-semantics`. They run only when that feature is active:
+`ux-semantics` and `ux-probes`. They run only when that feature is active:
 
 ```
 cargo test --features test-utils --test scenarios -- ux_scenarios

@@ -12,15 +12,20 @@ use super::tile_compositor;
 use super::tile_grouping;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
+use super::ux_probes;
 use super::ux_tree;
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::diagnostics::{
+    DiagnosticEvent, emit_event, emit_message_received_with_payload,
+    emit_message_sent_with_payload, structured_payload_field,
+};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_LAYOUT_GUTTER_DETECTED,
-    CHANNEL_UX_LAYOUT_OVERLAP_DETECTED, CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
-    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_STRUCTURAL_VIOLATION,
-    CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+    CHANNEL_UX_LAYOUT_GUTTER_DETECTED, CHANNEL_UX_LAYOUT_OVERLAP_DETECTED,
+    CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_PRESENTATION_BOUNDS_MISSING, CHANNEL_UX_PROBE_DISABLED,
+    CHANNEL_UX_PROBE_REGISTERED, CHANNEL_UX_SNAPSHOT_WRITTEN, CHANNEL_UX_TREE_BUILD,
+    CHANNEL_UX_TREE_SNAPSHOT_BUILT,
 };
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::ui::persistence_ops;
@@ -458,83 +463,204 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         .map(|(_, node_key, rect)| (node_key, rect))
         .collect();
 
-    let uxtree_snapshot = ux_tree::build_snapshot_with_rects(
-        tiles_tree,
-        graph_app,
-        uxtree_build_started.elapsed().as_micros() as u64,
-        &node_rect_map,
-    );
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: CHANNEL_UX_TREE_BUILD,
-        latency_us: uxtree_build_started.elapsed().as_micros() as u64,
-    });
-    ux_tree::publish_snapshot(&uxtree_snapshot);
-    let layout_policy_intents = graph_app.evaluate_workbench_layout_policy(&uxtree_snapshot);
-    if !layout_policy_intents.is_empty() {
-        graph_app.extend_workbench_intents(layout_policy_intents);
-    }
-    emit_event(DiagnosticEvent::MessageSent {
-        channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
-        byte_len: uxtree_snapshot.semantic_nodes.len(),
-    });
-    if let Some(message) = ux_tree::presentation_id_consistency_violation(&uxtree_snapshot) {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_CONTRACT_WARNING,
-            byte_len: message.len(),
-        });
-    }
-    if let Some(message) = ux_tree::interactive_label_presence_violation(&uxtree_snapshot) {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
-            byte_len: message.len(),
-        });
-    }
-    if let Some(message) = ux_tree::trace_id_consistency_violation(&uxtree_snapshot) {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
-            byte_len: message.len(),
-        });
-    }
-    if let Some(message) = ux_tree::semantic_parent_link_violation(&uxtree_snapshot) {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
-            byte_len: message.len(),
-        });
-    }
-    if let Some(message) = ux_tree::command_surface_capture_owner_violation(&uxtree_snapshot) {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
-            byte_len: message.len(),
-        });
-    }
-    if let Some(message) = ux_tree::command_surface_return_target_violation(&uxtree_snapshot) {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
-            byte_len: message.len(),
-        });
-    }
-    // Emit a diagnostic if any NodePane semantic node has no presentation bounds —
-    // indicates a tile that was rendered by the semantic tree but never laid out by the compositor.
-    let bounds_missing_count = ux_tree::node_pane_bounds_missing_count(&uxtree_snapshot);
-    if bounds_missing_count > 0 {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
-            byte_len: bounds_missing_count,
-        });
-    }
+    if ux_tree::runtime_enabled() {
+        for event in ux_probes::drain_probe_lifecycle_events() {
+            let (channel_id, byte_len) = match event {
+                ux_probes::UxProbeLifecycleEvent::Registered {
+                    probe_id,
+                    description,
+                } => (
+                    CHANNEL_UX_PROBE_REGISTERED,
+                    probe_id.len() + description.len(),
+                ),
+                ux_probes::UxProbeLifecycleEvent::Disabled { probe_id, reason } => (
+                    CHANNEL_UX_PROBE_DISABLED,
+                    probe_id.len() + reason.len(),
+                ),
+            };
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id,
+                byte_len,
+            });
+        }
 
-    let coverage = ux_tree::run_coverage_analysis(&node_rect_map);
-    if coverage.gutter_pair_count > 0 {
+        let build_latency_us = uxtree_build_started.elapsed().as_micros() as u64;
+        let (uxtree_snapshot, build_error) =
+            match ux_tree::try_build_snapshot_with_rects(
+                tiles_tree,
+                graph_app,
+                build_latency_us,
+                &node_rect_map,
+            ) {
+                Ok(snapshot) => (snapshot, None),
+                Err(error) => (
+                    ux_tree::degraded_root_only_snapshot(build_latency_us),
+                    Some(error),
+                ),
+            };
+        ux_tree::publish_snapshot(&uxtree_snapshot);
+        if let Some(lod_violation) =
+            ux_tree::graph_lod_semantic_emission_violation(&uxtree_snapshot, graph_app)
+        {
+            emit_message_sent_with_payload(
+                CHANNEL_UX_NAVIGATION_VIOLATION,
+                lod_violation.message.len(),
+                vec![
+                    structured_payload_field("message", lod_violation.message),
+                    structured_payload_field(
+                        "graph_view_id",
+                        lod_violation.graph_view_id.as_uuid().to_string(),
+                    ),
+                    structured_payload_field("expected_tier", lod_violation.expected_tier.as_str()),
+                    structured_payload_field("actual_mode", lod_violation.actual_mode),
+                    structured_payload_field("graph_nodes", lod_violation.graph_node_count.to_string()),
+                    structured_payload_field(
+                        "status_indicator",
+                        lod_violation.has_status_indicator.to_string(),
+                    ),
+                    structured_payload_field("zoom", format!("{:.2}", lod_violation.zoom)),
+                ],
+            );
+        }
+        let layout_policy_intents = graph_app.evaluate_workbench_layout_policy(&uxtree_snapshot);
+        if !layout_policy_intents.is_empty() {
+            graph_app.extend_workbench_intents(layout_policy_intents);
+        }
         emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_LAYOUT_GUTTER_DETECTED,
-            byte_len: coverage.gutter_pair_count,
+            channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+            byte_len: uxtree_snapshot.semantic_nodes.len(),
         });
-    }
-    if coverage.overlap_pair_count > 0 {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_UX_LAYOUT_OVERLAP_DETECTED,
-            byte_len: coverage.overlap_pair_count,
-        });
+        let probe_report = ux_probes::evaluate_registered_probes(&uxtree_snapshot, build_latency_us);
+        let snapshot_export = ux_tree::write_snapshot_if_configured(&uxtree_snapshot);
+        if let Ok(Some((path, byte_len))) = &snapshot_export {
+            emit_message_sent_with_payload(
+                CHANNEL_UX_SNAPSHOT_WRITTEN,
+                *byte_len,
+                vec![
+                    structured_payload_field("path", path.display().to_string()),
+                    structured_payload_field(
+                        "semantic_nodes",
+                        uxtree_snapshot.semantic_nodes.len().to_string(),
+                    ),
+                ],
+            );
+        }
+        let mut tree_build_fields = vec![
+            structured_payload_field(
+                "semantic_nodes",
+                uxtree_snapshot.semantic_nodes.len().to_string(),
+            ),
+            structured_payload_field(
+                "registered_probes",
+                probe_report.registered_probe_count.to_string(),
+            ),
+            structured_payload_field(
+                "active_probes",
+                probe_report.active_probe_count.to_string(),
+            ),
+            structured_payload_field(
+                "executed_probes",
+                probe_report.executed_probe_count.to_string(),
+            ),
+            structured_payload_field(
+                "probe_latency_us",
+                probe_report.execution_latency_us.to_string(),
+            ),
+            structured_payload_field(
+                "total_latency_us",
+                probe_report.total_latency_us.to_string(),
+            ),
+            structured_payload_field(
+                "probe_skipped",
+                probe_report.skipped_for_build_budget.to_string(),
+            ),
+            structured_payload_field("budget_status", probe_report.budget_status().to_string()),
+            structured_payload_field("build_degraded", build_error.is_some().to_string()),
+        ];
+        if let Some(error) = build_error.as_ref() {
+            tree_build_fields.push(structured_payload_field("build_error", error.clone()));
+        }
+        match snapshot_export {
+            Ok(Some((path, _))) => {
+                tree_build_fields.push(structured_payload_field(
+                    "snapshot_export",
+                    "written",
+                ));
+                tree_build_fields.push(structured_payload_field(
+                    "snapshot_path",
+                    path.display().to_string(),
+                ));
+            }
+            Ok(None) => {
+                tree_build_fields.push(structured_payload_field(
+                    "snapshot_export",
+                    "disabled",
+                ));
+            }
+            Err(error) => {
+                tree_build_fields.push(structured_payload_field(
+                    "snapshot_export",
+                    "failed",
+                ));
+                tree_build_fields.push(structured_payload_field("snapshot_error", error));
+            }
+        }
+        emit_message_received_with_payload(
+            CHANNEL_UX_TREE_BUILD,
+            build_latency_us,
+            tree_build_fields,
+        );
+        for event in ux_probes::drain_probe_lifecycle_events() {
+            let (channel_id, byte_len) = match event {
+                ux_probes::UxProbeLifecycleEvent::Registered {
+                    probe_id,
+                    description,
+                } => (
+                    CHANNEL_UX_PROBE_REGISTERED,
+                    probe_id.len() + description.len(),
+                ),
+                ux_probes::UxProbeLifecycleEvent::Disabled { probe_id, reason } => (
+                    CHANNEL_UX_PROBE_DISABLED,
+                    probe_id.len() + reason.len(),
+                ),
+            };
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id,
+                byte_len,
+            });
+        }
+        for violation in probe_report.violations {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: violation.channel_id,
+                byte_len: violation.message.len()
+                    + violation.node_path.as_ref().map_or(0, |path| path.len()),
+            });
+        }
+        // Emit a diagnostic if any NodePane semantic node has no presentation bounds —
+        // indicates a tile that was rendered by the semantic tree but never laid out by the compositor.
+        let bounds_missing_count = ux_tree::node_pane_bounds_missing_count(&uxtree_snapshot);
+        if bounds_missing_count > 0 {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
+                byte_len: bounds_missing_count,
+            });
+        }
+
+        let coverage = ux_tree::run_coverage_analysis(&node_rect_map);
+        if coverage.gutter_pair_count > 0 {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_LAYOUT_GUTTER_DETECTED,
+                byte_len: coverage.gutter_pair_count,
+            });
+        }
+        if coverage.overlap_pair_count > 0 {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_LAYOUT_OVERLAP_DETECTED,
+                byte_len: coverage.overlap_pair_count,
+            });
+        }
+    } else {
+        ux_tree::clear_snapshot();
     }
 
     let tab_groups_after = tile_grouping::node_pane_tab_group_memberships(tiles_tree);

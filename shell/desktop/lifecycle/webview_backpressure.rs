@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use backon::{BackoffBuilder, ExponentialBuilder};
@@ -74,6 +75,80 @@ pub(crate) struct WebviewCreationBackpressureState {
     pending: Option<WebviewCreationProbe>,
     cooldown_until: Option<Instant>,
     cooldown_step: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct NodePaneAttachAttemptMetadata {
+    pub(crate) retry_count: u8,
+    pub(crate) pending_attempt_age_ms: Option<u64>,
+    pub(crate) cooldown_remaining_ms: Option<u64>,
+}
+
+static NODE_PANE_ATTACH_ATTEMPT_METADATA: OnceLock<
+    Mutex<HashMap<NodeKey, NodePaneAttachAttemptMetadata>>,
+> = OnceLock::new();
+
+fn node_pane_attach_attempt_metadata_cache(
+) -> &'static Mutex<HashMap<NodeKey, NodePaneAttachAttemptMetadata>> {
+    NODE_PANE_ATTACH_ATTEMPT_METADATA.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn duration_to_ms(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+pub(crate) fn publish_node_pane_attach_attempt_metadata(
+    webview_creation_backpressure: &HashMap<NodeKey, WebviewCreationBackpressureState>,
+) {
+    let now = Instant::now();
+    let metadata = webview_creation_backpressure
+        .iter()
+        .filter_map(|(&node_key, state)| {
+            let pending_attempt_age_ms = state
+                .pending
+                .map(|probe| duration_to_ms(now.saturating_duration_since(probe.started_at)));
+            let cooldown_remaining_ms = state
+                .cooldown_until
+                .and_then(|deadline| deadline.checked_duration_since(now))
+                .map(duration_to_ms);
+            if state.retry_count == 0
+                && pending_attempt_age_ms.is_none()
+                && cooldown_remaining_ms.is_none()
+            {
+                return None;
+            }
+
+            Some((
+                node_key,
+                NodePaneAttachAttemptMetadata {
+                    retry_count: state.retry_count,
+                    pending_attempt_age_ms,
+                    cooldown_remaining_ms,
+                },
+            ))
+        })
+        .collect();
+
+    if let Ok(mut slot) = node_pane_attach_attempt_metadata_cache().lock() {
+        *slot = metadata;
+    }
+}
+
+pub(crate) fn take_node_pane_attach_attempt_metadata(
+) -> HashMap<NodeKey, NodePaneAttachAttemptMetadata> {
+    node_pane_attach_attempt_metadata_cache()
+        .lock()
+        .map(|mut slot| std::mem::take(&mut *slot))
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+pub(crate) fn publish_node_pane_attach_attempt_metadata_for_tests(
+    metadata: HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
+) {
+    if let Ok(mut slot) = node_pane_attach_attempt_metadata_cache().lock() {
+        *slot = metadata;
+    }
 }
 
 fn creation_cooldown_delay(step: usize) -> Duration {

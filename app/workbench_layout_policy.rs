@@ -688,6 +688,9 @@ mod tests {
                 allowed_actions: vec![UxAction::Focus],
                 domain: UxDomainIdentity::Node {
                     node_key: crate::graph::NodeKey::new(1),
+                    pane_id: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                    lifecycle: crate::graph::NodeLifecycle::Cold,
+                    attach_attempt: None,
                 },
             }],
             presentation_nodes: vec![UxPresentationNode {

@@ -1,5 +1,6 @@
 use super::super::harness::TestRegistry;
 use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
+use crate::shell::desktop::workbench::ux_bridge::UxNodeSelector;
 use crate::shell::desktop::workbench::ux_tree;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
@@ -21,7 +22,7 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
         snapshot_json
             .get("semantic_version")
             .and_then(|v| v.as_u64()),
-        Some(3),
+        Some(5),
         "semantic schema version should be present"
     );
     assert_eq!(
@@ -50,6 +51,15 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
         violation.is_none(),
         "healthy selected-node flow should satisfy semantic/presentation consistency invariant"
     );
+
+    let bridge_focus_path = harness
+        .ux_focus_path_via_driver()
+        .expect("driver-backed focus path query should succeed");
+    assert_eq!(bridge_focus_path.first().map(String::as_str), Some(ux_tree::UX_TREE_WORKBENCH_ROOT_ID));
+    assert!(
+        !bridge_focus_path.is_empty(),
+        "bridge focus path should include at least the canonical workbench root"
+    );
 }
 
 #[test]
@@ -61,6 +71,7 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
             active_pane: None,
             focused_node: None,
             location_focused: false,
+            route_events: crate::shell::desktop::ui::toolbar::toolbar_ui::CommandRouteEventSequenceMetadata::default(),
         },
         omnibar: OmnibarSemanticMetadata {
             active: false,
@@ -70,6 +81,7 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
             provider_status: None,
             active_pane: None,
             focused_node: None,
+            mailbox_events: crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarMailboxEventSequenceMetadata::default(),
         },
         command_palette: Some(PaletteSurfaceSemanticMetadata {
             contextual_mode: false,
@@ -81,7 +93,7 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
         context_palette: None,
     });
 
-    let harness = TestRegistry::new();
+    let mut harness = TestRegistry::new();
     let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 7);
     let snapshot_json = ux_tree::snapshot_json_for_tests(&snapshot);
     let semantic_nodes = snapshot_json
@@ -108,6 +120,14 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
         ux_tree::command_surface_return_target_violation(&snapshot).is_none(),
         "command-surface snapshot should preserve a valid return path"
     );
+
+    let command_bar = harness
+        .ux_find_node_via_driver(&UxNodeSelector::ByRoleAndLabel(
+            ux_tree::UxNodeRole::CommandBar,
+            "Command Bar".to_string(),
+        ))
+        .expect("driver-backed find-node query should succeed");
+    assert!(command_bar.is_some(), "bridge should resolve the command bar semantic node");
 
     clear_command_surface_semantic_snapshot();
 }

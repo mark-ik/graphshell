@@ -6,13 +6,14 @@ use std::collections::HashSet;
 #[cfg(feature = "diagnostics")]
 use std::time::Instant;
 
-use crate::app::RuntimeEvent;
+use crate::app::{RuntimeEvent, WorkbenchIntent};
 use crate::shell::desktop::host::window::{GraphSemanticEvent, GraphSemanticEventKind};
 
 pub(crate) fn runtime_events_from_semantic_events(
     events: Vec<GraphSemanticEvent>,
-) -> Vec<RuntimeEvent> {
+) -> (Vec<RuntimeEvent>, Vec<WorkbenchIntent>) {
     let mut events_out = Vec::with_capacity(events.len());
+    let mut workbench_intents = Vec::new();
     for event in events {
         match event.kind {
             GraphSemanticEventKind::UrlChanged {
@@ -87,14 +88,17 @@ pub(crate) fn runtime_events_from_semantic_events(
                 );
                 events_out.push(RuntimeEvent::HostOpenRequest { request });
             }
+            GraphSemanticEventKind::WebDriverWorkbenchIntentRequested { intent } => {
+                workbench_intents.push(intent);
+            }
         }
     }
-    events_out
+    (events_out, workbench_intents)
 }
 
 pub(crate) fn runtime_events_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
-) -> (Vec<RuntimeEvent>, HashSet<servo::WebViewId>) {
+) -> (Vec<RuntimeEvent>, Vec<WorkbenchIntent>, HashSet<servo::WebViewId>) {
     #[cfg(feature = "diagnostics")]
     let ingest_started = Instant::now();
     #[cfg(feature = "diagnostics")]
@@ -117,11 +121,12 @@ pub(crate) fn runtime_events_and_responsive_from_events(
                 responsive_webviews.insert(*webview_id);
             }
             GraphSemanticEventKind::WebViewCrashed { .. }
-            | GraphSemanticEventKind::HostOpenRequest { .. } => {}
+            | GraphSemanticEventKind::HostOpenRequest { .. }
+            | GraphSemanticEventKind::WebDriverWorkbenchIntentRequested { .. } => {}
         }
     }
 
-    let runtime_events = runtime_events_from_semantic_events(events);
+    let (runtime_events, workbench_intents) = runtime_events_from_semantic_events(events);
 
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_event(
@@ -153,7 +158,7 @@ pub(crate) fn runtime_events_and_responsive_from_events(
             elapsed,
         );
     }
-    (runtime_events, responsive_webviews)
+    (runtime_events, workbench_intents, responsive_webviews)
 }
 
 #[cfg(test)]
@@ -237,7 +242,8 @@ mod tests {
         #[case] event: GraphSemanticEvent,
         #[case] expected_kind: &str,
     ) {
-        let runtime_events = runtime_events_from_semantic_events(vec![event]);
+        let (runtime_events, workbench_intents) = runtime_events_from_semantic_events(vec![event]);
+        assert!(workbench_intents.is_empty());
         assert_eq!(runtime_events.len(), 1);
         let kind = match &runtime_events[0] {
             RuntimeEvent::WebViewUrlChanged { .. } => "url",
@@ -316,14 +322,16 @@ mod tests {
                         set.insert(*webview_id);
                     },
                     GraphSemanticEvent { kind: GraphSemanticEventKind::HostOpenRequest { .. }, .. } => {},
+                    GraphSemanticEvent { kind: GraphSemanticEventKind::WebDriverWorkbenchIntentRequested { .. }, .. } => {},
                     GraphSemanticEvent { kind: GraphSemanticEventKind::WebViewCrashed { .. }, .. } => {},
                 }
                 set
             });
 
-            let (runtime_events, responsive) = runtime_events_and_responsive_from_events(events);
+            let (runtime_events, workbench_intents, responsive) = runtime_events_and_responsive_from_events(events);
 
             prop_assert_eq!(runtime_events.len(), expected_event_count);
+            prop_assert!(workbench_intents.is_empty());
             prop_assert_eq!(responsive, expected_responsive);
         }
     }
@@ -350,7 +358,8 @@ mod tests {
             }),
         ];
 
-        let (runtime_events, responsive) = runtime_events_and_responsive_from_events(events);
+        let (runtime_events, workbench_intents, responsive) = runtime_events_and_responsive_from_events(events);
+        assert!(workbench_intents.is_empty());
         let intent_kinds = runtime_events
             .iter()
             .map(|intent| match intent {
@@ -375,7 +384,8 @@ mod tests {
             new_url: "https://trace.example".to_string(),
         })];
 
-        let (runtime_events, responsive) = runtime_events_and_responsive_from_events(events);
+        let (runtime_events, workbench_intents, responsive) = runtime_events_and_responsive_from_events(events);
+        assert!(workbench_intents.is_empty());
         tracing::info!(
             "semantic_pipeline ingest_events={} emitted_intents={} responsive_webviews={}",
             1,

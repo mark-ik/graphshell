@@ -352,12 +352,12 @@ fn find_webview_parent_ux_node_id(snapshot: &UxTreeSnapshot, node_key: NodeKey) 
         .iter()
         .find(|node| {
             node.role == UxNodeRole::NodePane
-                && matches!(node.domain, UxDomainIdentity::Node { node_key: mapped } if mapped == node_key)
+                && matches!(node.domain, UxDomainIdentity::Node { node_key: mapped, .. } if mapped == node_key)
         })
         .or_else(|| {
             snapshot.semantic_nodes.iter().find(|node| {
                 node.role == UxNodeRole::GraphNode
-                    && matches!(node.domain, UxDomainIdentity::Node { node_key: mapped } if mapped == node_key)
+                    && matches!(node.domain, UxDomainIdentity::Node { node_key: mapped, .. } if mapped == node_key)
             })
         })
         .map(|node| node.ux_node_id.clone())
@@ -421,7 +421,7 @@ fn focused_graph_surface(
         .semantic_nodes
         .iter()
         .find_map(|node| match node.domain {
-            UxDomainIdentity::GraphView { graph_view_id }
+            UxDomainIdentity::GraphView { graph_view_id, .. }
                 if node.role == UxNodeRole::GraphSurface && focused_view == Some(graph_view_id) =>
             {
                 Some((node.ux_node_id.clone(), graph_view_id))
@@ -433,7 +433,7 @@ fn focused_graph_surface(
                 .semantic_nodes
                 .iter()
                 .find_map(|node| match node.domain {
-                    UxDomainIdentity::GraphView { graph_view_id }
+                    UxDomainIdentity::GraphView { graph_view_id, .. }
                         if node.role == UxNodeRole::GraphSurface =>
                     {
                         Some((node.ux_node_id.clone(), graph_view_id))
@@ -701,7 +701,7 @@ fn projected_affordance_for_uxtree_node(
     annotations: &[TileAffordanceAnnotation],
 ) -> Option<TileAffordanceAccessibilityProjection> {
     match &node.domain {
-        UxDomainIdentity::Node { node_key } => {
+        UxDomainIdentity::Node { node_key, .. } => {
             selected_node_affordance_projection_from_annotations(*node_key, annotations)
         }
         _ => None,
@@ -715,6 +715,7 @@ fn map_uxtree_role_to_accesskit_role(role: UxNodeRole) -> egui::accesskit::Role 
         UxNodeRole::TabContainer => egui::accesskit::Role::TabList,
         UxNodeRole::GraphSurface => egui::accesskit::Role::ScrollView,
         UxNodeRole::GraphNode => egui::accesskit::Role::TreeItem,
+        UxNodeRole::StatusIndicator => egui::accesskit::Role::Status,
         UxNodeRole::NodePane => egui::accesskit::Role::Pane,
         UxNodeRole::CommandBar => egui::accesskit::Role::Toolbar,
         UxNodeRole::Omnibar => egui::accesskit::Role::TextInput,
