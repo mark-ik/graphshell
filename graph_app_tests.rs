@@ -5631,6 +5631,185 @@ fn suggest_node_tags_intent_stores_display_only_suggestions_and_prunes_on_tag_co
     assert!(app.node_has_canonical_tag(key, "udc:519.6"));
 }
 
+#[test]
+fn import_webfinger_into_graph_creates_identity_cluster() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let import = crate::middlenet::webfinger::WebFingerImport {
+        subject: "acct:mark@example.net".to_string(),
+        aliases: vec!["https://example.net/~mark".to_string()],
+        profile_pages: vec!["https://example.net/profile".to_string()],
+        gemini_capsules: vec!["gemini://example.net/profile".to_string()],
+        gopher_resources: vec!["gopher://example.net/1/users/mark".to_string()],
+        misfin_mailboxes: vec!["misfin://mark@example.net".to_string()],
+        nostr_identities: vec!["nostr:npub1example".to_string()],
+        activitypub_actors: vec!["https://example.net/users/mark".to_string()],
+        other_endpoints: vec![crate::middlenet::webfinger::WebFingerEndpoint {
+            rel: "avatar".to_string(),
+            media_type: Some("image/png".to_string()),
+            href: "https://example.net/avatar.png".to_string(),
+        }],
+    };
+
+    let subject = app
+        .import_webfinger_into_graph("mark@example.net", &import, None)
+        .expect("webfinger import should succeed");
+
+    let subject_node = app
+        .workspace
+        .domain
+        .graph
+        .get_node(subject)
+        .expect("subject node should exist");
+    assert_eq!(subject_node.url(), "acct:mark@example.net");
+    assert_eq!(subject_node.title, "Identity: mark@example.net");
+    assert!(app.node_has_canonical_tag(subject, "#webfinger"));
+    assert!(app.node_has_canonical_tag(subject, "#identity"));
+    assert!(app.node_has_canonical_tag(subject, "#discovery"));
+
+    let (alias_key, alias_node) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://example.net/~mark")
+        .expect("alias node should exist");
+    assert_eq!(alias_node.title, "Alias: https://example.net/~mark");
+    assert!(app.node_has_canonical_tag(alias_key, "#alias"));
+
+    let (profile_key, profile_node) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://example.net/profile")
+        .expect("profile node should exist");
+    assert_eq!(profile_node.title, "Profile: https://example.net/profile");
+    assert!(app.node_has_canonical_tag(profile_key, "#profile"));
+
+    let (gemini_key, _) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("gemini://example.net/profile")
+        .expect("gemini node should exist");
+    assert!(app.node_has_canonical_tag(gemini_key, "#gemini"));
+
+    let (gopher_key, _) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("gopher://example.net/1/users/mark")
+        .expect("gopher node should exist");
+    assert!(app.node_has_canonical_tag(gopher_key, "#gopher"));
+
+    let (misfin_key, _) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("misfin://mark@example.net")
+        .expect("misfin node should exist");
+    assert!(app.node_has_canonical_tag(misfin_key, "#misfin"));
+
+    let (nostr_key, _) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("nostr:npub1example")
+        .expect("nostr node should exist");
+    assert!(app.node_has_canonical_tag(nostr_key, "#nostr"));
+
+    let (activitypub_key, _) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://example.net/users/mark")
+        .expect("activitypub node should exist");
+    assert!(app.node_has_canonical_tag(activitypub_key, "#activitypub"));
+
+    let (endpoint_key, endpoint_node) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://example.net/avatar.png")
+        .expect("other endpoint node should exist");
+    assert_eq!(endpoint_node.title, "Endpoint (avatar): https://example.net/avatar.png");
+    assert!(app.node_has_canonical_tag(endpoint_key, "#endpoint"));
+
+    let edge_key = app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(subject, profile_key)
+        .expect("subject should connect to profile");
+    let payload = app
+        .workspace
+        .domain
+        .graph
+        .get_edge(edge_key)
+        .expect("edge payload should exist");
+    assert_eq!(payload.label(), Some("profile"));
+
+    assert_eq!(app.get_single_selected_node(), Some(subject));
+}
+
+#[test]
+fn import_webfinger_into_graph_reuses_existing_nodes_without_clobbering_titles() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let subject = app.add_node_and_sync(
+        "acct:mark@example.net".to_string(),
+        Point2D::new(10.0, 20.0),
+    );
+    let profile = app.add_node_and_sync(
+        "https://example.net/profile".to_string(),
+        Point2D::new(30.0, 20.0),
+    );
+    if let Some(node) = app.workspace.domain.graph.get_node_mut(profile) {
+        node.title = "Mark profile card".to_string();
+    }
+
+    let import = crate::middlenet::webfinger::WebFingerImport {
+        subject: "acct:mark@example.net".to_string(),
+        aliases: Vec::new(),
+        profile_pages: vec!["https://example.net/profile".to_string()],
+        gemini_capsules: Vec::new(),
+        gopher_resources: Vec::new(),
+        misfin_mailboxes: Vec::new(),
+        nostr_identities: Vec::new(),
+        activitypub_actors: Vec::new(),
+        other_endpoints: Vec::new(),
+    };
+
+    let imported_subject = app
+        .import_webfinger_into_graph("acct:mark@example.net", &import, None)
+        .expect("webfinger import should succeed");
+    assert_eq!(imported_subject, subject);
+
+    let (_, profile_node) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://example.net/profile")
+        .expect("profile node should still exist");
+    assert_eq!(profile_node.title, "Mark profile card");
+
+    let profile_edge = app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(subject, profile)
+        .expect("profile edge should exist after first import");
+
+    let repeated_subject = app
+        .import_webfinger_into_graph("acct:mark@example.net", &import, None)
+        .expect("repeated import should succeed");
+    assert_eq!(repeated_subject, subject);
+    assert_eq!(
+        app.workspace
+            .domain
+            .graph
+            .find_edge_key(subject, profile),
+        Some(profile_edge)
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Faceted filter — spec §9 acceptance criteria
 // "Reducer owns filter truth": UI submits intent; reducer result drives visible

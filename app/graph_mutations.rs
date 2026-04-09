@@ -5,6 +5,64 @@ use crate::services::persistence::types::{
     PersistedSemanticSubKind,
 };
 
+const TAG_WEBFINGER: &str = "#webfinger";
+const TAG_DISCOVERY: &str = "#discovery";
+const TAG_IDENTITY: &str = "#identity";
+const TAG_ALIAS: &str = "#alias";
+const TAG_PROFILE: &str = "#profile";
+const TAG_GEMINI: &str = "#gemini";
+const TAG_GOPHER: &str = "#gopher";
+const TAG_MISFIN: &str = "#misfin";
+const TAG_NOSTR: &str = "#nostr";
+const TAG_ACTIVITYPUB: &str = "#activitypub";
+const TAG_ENDPOINT: &str = "#endpoint";
+const WEBFINGER_CLUSTER_RADIUS: f32 = 180.0;
+
+struct WebFingerNodeSpec {
+    url: String,
+    title: String,
+    relation_label: &'static str,
+    tags: &'static [&'static str],
+}
+
+fn webfinger_display_target(target: &str) -> &str {
+    target.strip_prefix("acct:").unwrap_or(target)
+}
+
+fn webfinger_subject_title(subject: &str) -> String {
+    format!("Identity: {}", webfinger_display_target(subject))
+}
+
+fn webfinger_prefixed_title(prefix: &str, target: &str) -> String {
+    format!("{prefix}: {}", webfinger_display_target(target))
+}
+
+fn webfinger_endpoint_title(endpoint: &crate::middlenet::webfinger::WebFingerEndpoint) -> String {
+    let rel = endpoint.rel.trim();
+    if rel.is_empty() {
+        webfinger_prefixed_title("Endpoint", &endpoint.href)
+    } else {
+        format!("Endpoint ({rel}): {}", webfinger_display_target(&endpoint.href))
+    }
+}
+
+fn webfinger_cluster_position(
+    center: euclid::default::Point2D<f32>,
+    index: usize,
+    total: usize,
+) -> euclid::default::Point2D<f32> {
+    if total == 0 {
+        return center;
+    }
+
+    let fraction = index as f32 / total as f32;
+    let angle = fraction * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+    euclid::default::Point2D::new(
+        center.x + WEBFINGER_CLUSTER_RADIUS * angle.cos(),
+        center.y + WEBFINGER_CLUSTER_RADIUS * 0.72 * angle.sin(),
+    )
+}
+
 fn edge_type_to_assertion(
     edge_type: crate::graph::EdgeType,
     edge_label: Option<String>,
@@ -490,6 +548,206 @@ impl GraphBrowserApp {
             self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         }
         edge_key
+    }
+
+    pub(crate) fn import_webfinger_into_graph(
+        &mut self,
+        resource: &str,
+        import: &crate::middlenet::webfinger::WebFingerImport,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let normalized_resource = crate::middlenet::webfinger::normalize_resource(resource)?;
+        let subject_url = crate::middlenet::webfinger::normalize_resource(&import.subject)
+            .unwrap_or_else(|_| normalized_resource.clone());
+        let subject_position = self.suggested_new_node_position(anchor);
+        let subject_node = self.ensure_webfinger_import_node(
+            subject_url.clone(),
+            webfinger_subject_title(&subject_url),
+            subject_position,
+            &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_IDENTITY],
+        );
+
+        let mut seen_urls = std::collections::HashSet::from([subject_url.clone()]);
+        let mut alias_specs = Vec::new();
+        let mut profile_specs = Vec::new();
+        let mut gemini_specs = Vec::new();
+        let mut gopher_specs = Vec::new();
+        let mut misfin_specs = Vec::new();
+        let mut nostr_specs = Vec::new();
+        let mut activitypub_specs = Vec::new();
+        let mut other_specs = Vec::new();
+
+        let mut push_spec = |specs: &mut Vec<WebFingerNodeSpec>, spec: WebFingerNodeSpec| {
+            let trimmed = spec.url.trim();
+            if trimmed.is_empty() {
+                return;
+            }
+            if seen_urls.insert(trimmed.to_string()) {
+                specs.push(spec);
+            }
+        };
+
+        if normalized_resource != subject_url {
+            push_spec(
+                &mut alias_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_prefixed_title("Alias", &normalized_resource),
+                    url: normalized_resource,
+                    relation_label: "alias",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_ALIAS],
+                },
+            );
+        }
+
+        for alias in &import.aliases {
+            push_spec(
+                &mut alias_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_prefixed_title("Alias", alias),
+                    url: alias.clone(),
+                    relation_label: "alias",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_ALIAS],
+                },
+            );
+        }
+
+        for profile in &import.profile_pages {
+            push_spec(
+                &mut profile_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_prefixed_title("Profile", profile),
+                    url: profile.clone(),
+                    relation_label: "profile",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_PROFILE],
+                },
+            );
+        }
+
+        for capsule in &import.gemini_capsules {
+            push_spec(
+                &mut gemini_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_prefixed_title("Gemini capsule", capsule),
+                    url: capsule.clone(),
+                    relation_label: "gemini",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_GEMINI],
+                },
+            );
+        }
+
+        for resource in &import.gopher_resources {
+            push_spec(
+                &mut gopher_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_prefixed_title("Gopher resource", resource),
+                    url: resource.clone(),
+                    relation_label: "gopher",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_GOPHER],
+                },
+            );
+        }
+
+        for mailbox in &import.misfin_mailboxes {
+            push_spec(
+                &mut misfin_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_prefixed_title("Misfin mailbox", mailbox),
+                    url: mailbox.clone(),
+                    relation_label: "misfin",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_MISFIN],
+                },
+            );
+        }
+
+        for identity in &import.nostr_identities {
+            push_spec(
+                &mut nostr_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_prefixed_title("Nostr identity", identity),
+                    url: identity.clone(),
+                    relation_label: "nostr",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_NOSTR],
+                },
+            );
+        }
+
+        for actor in &import.activitypub_actors {
+            push_spec(
+                &mut activitypub_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_prefixed_title("ActivityPub actor", actor),
+                    url: actor.clone(),
+                    relation_label: "activitypub",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_ACTIVITYPUB],
+                },
+            );
+        }
+
+        for endpoint in &import.other_endpoints {
+            push_spec(
+                &mut other_specs,
+                WebFingerNodeSpec {
+                    title: webfinger_endpoint_title(endpoint),
+                    url: endpoint.href.clone(),
+                    relation_label: "endpoint",
+                    tags: &[TAG_WEBFINGER, TAG_DISCOVERY, TAG_ENDPOINT],
+                },
+            );
+        }
+
+        let total_specs = alias_specs.len()
+            + profile_specs.len()
+            + gemini_specs.len()
+            + gopher_specs.len()
+            + misfin_specs.len()
+            + nostr_specs.len()
+            + activitypub_specs.len()
+            + other_specs.len();
+        let mut index = 0usize;
+
+        for specs in [
+            &alias_specs,
+            &profile_specs,
+            &gemini_specs,
+            &gopher_specs,
+            &misfin_specs,
+            &nostr_specs,
+            &activitypub_specs,
+            &other_specs,
+        ] {
+            for spec in specs.iter() {
+                let position = webfinger_cluster_position(subject_position, index, total_specs);
+                index += 1;
+                let node_key = self.ensure_webfinger_import_node(
+                    spec.url.clone(),
+                    spec.title.clone(),
+                    position,
+                    spec.tags,
+                );
+                if node_key == subject_node {
+                    continue;
+                }
+                let _ = self.add_edge_and_sync(subject_node, node_key, crate::graph::EdgeType::Hyperlink, None);
+                let _ = self.add_edge_and_sync(
+                    subject_node,
+                    node_key,
+                    crate::graph::EdgeType::UserGrouped,
+                    Some(spec.relation_label.to_string()),
+                );
+            }
+        }
+
+        self.select_node(subject_node, false);
+        Ok(subject_node)
+    }
+
+    pub(crate) fn fetch_and_import_webfinger_into_graph(
+        &mut self,
+        resource: &str,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let import = crate::middlenet::webfinger::fetch_import(resource)?;
+        self.import_webfinger_into_graph(resource, &import, anchor)
     }
 
     pub fn assert_relation_and_sync(
@@ -1695,6 +1953,57 @@ impl GraphBrowserApp {
 
     pub fn note_record(&self, note_id: NoteId) -> Option<&NoteRecord> {
         self.workspace.domain.notes.get(&note_id)
+    }
+
+    fn ensure_webfinger_import_node(
+        &mut self,
+        url: String,
+        title: String,
+        position: euclid::default::Point2D<f32>,
+        tags: &[&str],
+    ) -> NodeKey {
+        let key = if let Some((key, _)) = self.domain_graph().get_node_by_url(&url) {
+            key
+        } else {
+            self.add_node_and_sync(url, position)
+        };
+
+        self.set_node_title_if_empty_or_url_and_log(key, title);
+        self.apply_webfinger_tags(key, tags);
+        key
+    }
+
+    fn set_node_title_if_empty_or_url_and_log(&mut self, key: NodeKey, title: String) {
+        let should_update = self
+            .workspace
+            .domain
+            .graph
+            .get_node(key)
+            .is_some_and(|node| {
+                let current_title = node.title.trim();
+                current_title.is_empty() || current_title == node.url()
+            });
+        if !should_update {
+            return;
+        }
+
+        let GraphDeltaResult::NodeMetadataUpdated(changed) =
+            self.apply_graph_delta_and_sync(GraphDelta::SetNodeTitle { key, title })
+        else {
+            unreachable!("title delta must return NodeMetadataUpdated");
+        };
+        if changed {
+            self.log_title_mutation(key);
+        }
+    }
+
+    fn apply_webfinger_tags(&mut self, key: NodeKey, tags: &[&str]) {
+        for tag in tags {
+            self.apply_reducer_intents([GraphIntent::TagNode {
+                key,
+                tag: (*tag).to_string(),
+            }]);
+        }
     }
 
     pub(crate) fn apply_graph_delta_and_sync(&mut self, delta: GraphDelta) -> GraphDeltaResult {
