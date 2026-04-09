@@ -297,6 +297,41 @@ fn sector_a_content_pipeline_routes_gemini_node_to_middlenet_viewer() {
 }
 
 #[test]
+fn sector_a_content_pipeline_routes_json_feed_node_to_middlenet_viewer() {
+    let harness = TestRegistry::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let key = app.add_node_and_sync(
+        "https://example.com/feeds/updates.jsonfeed".to_string(),
+        Point2D::new(0.0, 0.0),
+    );
+
+    let node = app
+        .workspace
+        .domain
+        .graph
+        .get_node(key)
+        .expect("node should exist");
+    let parsed = ServoUrl::parse(node.url()).expect("url should parse");
+    let decision = registries::phase0_decide_navigation_for_tests(
+        &harness.diagnostics,
+        parsed,
+        node.mime_hint.as_deref(),
+    );
+    let viewer_surface =
+        registries::phase3_resolve_viewer_surface_profile(decision.viewer.viewer_id);
+
+    assert_eq!(
+        decision.protocol.inferred_mime_hint.as_deref(),
+        Some("application/feed+json")
+    );
+    assert_eq!(decision.viewer.viewer_id, "viewer:middlenet");
+    assert_eq!(
+        viewer_surface.resolved_id,
+        crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DOCUMENT
+    );
+}
+
+#[test]
 fn phase2_action_registry_omnibox_search_emits_action_channels() {
     let mut harness = TestRegistry::new();
     let mut app = GraphBrowserApp::new_for_testing();

@@ -41,7 +41,9 @@ impl MiddleNetEngine {
                 (parse_plain_text(body), None)
             }
             MiddleNetContentKind::Markdown => (parse_markdown(body), None),
-            MiddleNetContentKind::Rss | MiddleNetContentKind::Atom => {
+            MiddleNetContentKind::Rss
+            | MiddleNetContentKind::Atom
+            | MiddleNetContentKind::JsonFeed => {
                 match parse_feed(source.content_kind, body) {
                     Ok((document, title_hint)) => (document, title_hint),
                     Err(error) => {

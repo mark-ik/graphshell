@@ -665,7 +665,8 @@ fn static_viewer_id_for_runtime_mime(mime: &str) -> Option<&'static str> {
         | "text/x-gophermap"
         | "application/x-finger"
         | "application/rss+xml"
-        | "application/atom+xml" => Some("viewer:middlenet"),
+        | "application/atom+xml"
+        | "application/feed+json" => Some("viewer:middlenet"),
         "text/html"
         | "application/pdf"
         | "image/svg+xml"
@@ -678,6 +679,7 @@ fn static_viewer_id_for_runtime_mime(mime: &str) -> Option<&'static str> {
 
 fn static_viewer_id_for_runtime_extension(extension: &str) -> Option<&'static str> {
     match extension {
+        "jsonfeed" => Some("viewer:middlenet"),
         "html" | "htm" | "pdf" | "svg" => Some("viewer:webview"),
         _ => None,
     }

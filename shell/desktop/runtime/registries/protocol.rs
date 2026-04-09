@@ -220,6 +220,9 @@ fn infer_middlenet_mime_hint(uri: &str, scheme: &str) -> Option<String> {
     if lower.ends_with(".atom") {
         return Some("application/atom+xml".to_string());
     }
+    if lower.ends_with(".jsonfeed") {
+        return Some("application/feed+json".to_string());
+    }
     None
 }
 
@@ -351,6 +354,17 @@ mod tests {
         assert_eq!(
             resolution.inferred_mime_hint.as_deref(),
             Some("application/gophermap")
+        );
+    }
+
+    #[test]
+    fn protocol_resolution_infers_json_feed_extension_mime_hint() {
+        let registry = ProtocolRegistry::default();
+        let resolution = registry.resolve("https://example.com/feeds/updates.jsonfeed");
+
+        assert_eq!(
+            resolution.inferred_mime_hint.as_deref(),
+            Some("application/feed+json")
         );
     }
 }

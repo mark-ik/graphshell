@@ -15,6 +15,7 @@ pub enum MiddleNetContentKind {
     Html,
     Rss,
     Atom,
+    JsonFeed,
     PlainText,
 }
 
@@ -91,6 +92,7 @@ impl MiddleNetContentKind {
             MiddleNetContentKind::Html => "HTML",
             MiddleNetContentKind::Rss => "RSS",
             MiddleNetContentKind::Atom => "Atom",
+            MiddleNetContentKind::JsonFeed => "JSON Feed",
             MiddleNetContentKind::PlainText => "Plain text",
         }
     }
@@ -106,6 +108,7 @@ fn content_kind_from_mime(mime: &str) -> Option<MiddleNetContentKind> {
         "text/markdown" | "text/x-markdown" => Some(MiddleNetContentKind::Markdown),
         "application/rss+xml" => Some(MiddleNetContentKind::Rss),
         "application/atom+xml" => Some(MiddleNetContentKind::Atom),
+        "application/feed+json" => Some(MiddleNetContentKind::JsonFeed),
         "text/plain" => Some(MiddleNetContentKind::PlainText),
         _ => None,
     }
@@ -127,6 +130,7 @@ fn content_kind_from_extension(extension: &str) -> Option<MiddleNetContentKind> 
         "md" | "markdown" => Some(MiddleNetContentKind::Markdown),
         "rss" => Some(MiddleNetContentKind::Rss),
         "atom" => Some(MiddleNetContentKind::Atom),
+        "jsonfeed" => Some(MiddleNetContentKind::JsonFeed),
         _ => None,
     }
 }
@@ -168,5 +172,12 @@ mod tests {
         let titan = MiddleNetSource::detect("titan://capsule.example/edit/page", None)
             .expect("titan source should resolve");
         assert_eq!(titan.content_kind, MiddleNetContentKind::GeminiText);
+
+        let json_feed = MiddleNetSource::detect(
+            "https://example.com/feed.jsonfeed",
+            Some("application/feed+json"),
+        )
+        .expect("json feed source should resolve");
+        assert_eq!(json_feed.content_kind, MiddleNetContentKind::JsonFeed);
     }
 }

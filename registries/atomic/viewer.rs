@@ -442,6 +442,7 @@ impl Default for ViewerRegistry {
         registry.register_mime("application/x-finger", "viewer:middlenet");
         registry.register_mime("application/rss+xml", "viewer:middlenet");
         registry.register_mime("application/atom+xml", "viewer:middlenet");
+        registry.register_mime("application/feed+json", "viewer:middlenet");
         registry.register_mime("text/plain", "viewer:plaintext");
         registry.register_mime("text/markdown", "viewer:markdown");
         registry.register_mime("text/x-markdown", "viewer:markdown");
@@ -467,6 +468,7 @@ impl Default for ViewerRegistry {
         registry.register_extension("gophermap", "viewer:middlenet");
         registry.register_extension("rss", "viewer:middlenet");
         registry.register_extension("atom", "viewer:middlenet");
+        registry.register_extension("jsonfeed", "viewer:middlenet");
         #[cfg(feature = "pdf")]
         registry.register_extension("pdf", "viewer:pdf");
         registry.register_extension("csv", "viewer:csv");
@@ -768,6 +770,17 @@ mod tests {
         let registry = ViewerRegistry::default();
         let selection =
             registry.select_for_uri("https://example.com/capsule.gmi", Some("text/gemini"));
+
+        assert_eq!(selection.viewer_id, "viewer:middlenet");
+        assert!(!selection.fallback_used);
+        assert_eq!(selection.matched_by, "mime");
+    }
+
+    #[test]
+    fn viewer_registry_selects_middlenet_for_json_feed_mime() {
+        let registry = ViewerRegistry::default();
+        let selection =
+            registry.select_for_uri("https://example.com/feed.jsonfeed", Some("application/feed+json"));
 
         assert_eq!(selection.viewer_id, "viewer:middlenet");
         assert!(!selection.fallback_used);

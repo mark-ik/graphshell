@@ -656,6 +656,7 @@ fn content_kind_from_content_type(meta: &str) -> Option<MiddleNetContentKind> {
         "text/markdown" | "text/x-markdown" => Some(MiddleNetContentKind::Markdown),
         "application/rss+xml" => Some(MiddleNetContentKind::Rss),
         "application/atom+xml" => Some(MiddleNetContentKind::Atom),
+        "application/feed+json" => Some(MiddleNetContentKind::JsonFeed),
         _ => None,
     }
 }
@@ -979,6 +980,14 @@ mod tests {
         assert_eq!(
             target,
             "titan://example.org/raw/Test;size=10;mime=text/plain;token=hello?username=Alex"
+        );
+    }
+
+    #[test]
+    fn content_type_mapping_recognizes_json_feed() {
+        assert_eq!(
+            content_kind_from_content_type("application/feed+json; charset=utf-8"),
+            Some(MiddleNetContentKind::JsonFeed)
         );
     }
 

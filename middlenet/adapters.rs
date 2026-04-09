@@ -4,6 +4,7 @@
 
 use crate::middlenet::document::{SimpleBlock, SimpleDocument};
 use crate::middlenet::source::MiddleNetContentKind;
+use serde::Deserialize;
 
 pub(crate) fn parse_gophermap(body: &str) -> SimpleDocument {
     let mut blocks = Vec::new();
@@ -203,17 +204,45 @@ pub(crate) fn parse_feed(
     content_kind: MiddleNetContentKind,
     body: &str,
 ) -> Result<(SimpleDocument, Option<String>), String> {
-    let xml = roxmltree::Document::parse(body)
-        .map_err(|error| format!("Feed XML parse failed: {error}"))?;
-
     match content_kind {
-        MiddleNetContentKind::Rss => parse_rss_feed(&xml),
-        MiddleNetContentKind::Atom => parse_atom_feed(&xml),
+        MiddleNetContentKind::Rss | MiddleNetContentKind::Atom => {
+            let xml = roxmltree::Document::parse(body)
+                .map_err(|error| format!("Feed XML parse failed: {error}"))?;
+            match content_kind {
+                MiddleNetContentKind::Rss => parse_rss_feed(&xml),
+                MiddleNetContentKind::Atom => parse_atom_feed(&xml),
+                _ => unreachable!("xml feed kinds are matched above"),
+            }
+        }
+        MiddleNetContentKind::JsonFeed => parse_json_feed(body),
         _ => Err(format!(
             "Feed adapter does not support '{}' content.",
             content_kind.label()
         )),
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct JsonFeed {
+    title: Option<String>,
+    home_page_url: Option<String>,
+    feed_url: Option<String>,
+    description: Option<String>,
+    #[serde(default)]
+    items: Vec<JsonFeedItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JsonFeedItem {
+    id: Option<String>,
+    url: Option<String>,
+    external_url: Option<String>,
+    title: Option<String>,
+    summary: Option<String>,
+    content_text: Option<String>,
+    content_html: Option<String>,
+    date_published: Option<String>,
+    date_modified: Option<String>,
 }
 
 fn parse_ordered_markdown_item(line: &str) -> Option<String> {
@@ -309,6 +338,70 @@ fn parse_atom_feed(
         let entry_date = child_text(entry, "updated").or_else(|| child_text(entry, "published"));
         let entry_summary = child_text(entry, "summary").or_else(|| child_text(entry, "content"));
         let entry_link = atom_link_href(entry);
+        append_feed_entry(
+            &mut blocks,
+            entry_title.as_deref(),
+            entry_date.as_deref(),
+            entry_summary.as_deref(),
+            entry_link.as_deref(),
+        );
+        entry_count += 1;
+    }
+
+    if entry_count == 0 {
+        blocks.push(SimpleBlock::Paragraph(
+            "This feed does not contain any entries yet.".to_string(),
+        ));
+    }
+
+    trim_trailing_rule(&mut blocks);
+    Ok((SimpleDocument::Blocks(blocks), title))
+}
+
+fn parse_json_feed(body: &str) -> Result<(SimpleDocument, Option<String>), String> {
+    let feed: JsonFeed =
+        serde_json::from_str(body).map_err(|error| format!("JSON Feed parse failed: {error}"))?;
+
+    let title = normalized_optional_feed_text(feed.title.as_deref());
+    let description = normalized_optional_feed_text(feed.description.as_deref());
+    let link = normalized_optional_feed_text(
+        feed.home_page_url
+            .as_deref()
+            .or(feed.feed_url.as_deref()),
+    );
+
+    let mut blocks = Vec::new();
+    append_feed_header(
+        &mut blocks,
+        title.as_deref(),
+        description.as_deref(),
+        link.as_deref(),
+    );
+
+    let mut entry_count = 0;
+    for item in &feed.items {
+        let entry_title = item
+            .title
+            .as_deref()
+            .or(item.id.as_deref())
+            .and_then(|value| normalized_optional_feed_text(Some(value)));
+        let entry_date = item
+            .date_published
+            .as_deref()
+            .or(item.date_modified.as_deref())
+            .and_then(|value| normalized_optional_feed_text(Some(value)));
+        let entry_summary = item
+            .summary
+            .as_deref()
+            .or(item.content_text.as_deref())
+            .or(item.content_html.as_deref())
+            .and_then(|value| normalized_optional_feed_text(Some(value)));
+        let entry_link = item
+            .url
+            .as_deref()
+            .or(item.external_url.as_deref())
+            .and_then(|value| normalized_optional_feed_text(Some(value)));
+
         append_feed_entry(
             &mut blocks,
             entry_title.as_deref(),
@@ -429,6 +522,10 @@ fn normalize_feed_text(text: &str) -> String {
         .to_string()
 }
 
+fn normalized_optional_feed_text(text: Option<&str>) -> Option<String> {
+    text.map(normalize_feed_text).filter(|text| !text.is_empty())
+}
+
 fn strip_markup(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut inside_tag = false;
@@ -531,4 +628,33 @@ mod tests {
                 assert!(blocks.iter().any(|block| matches!(block, SimpleBlock::Quote(text) if text == "2026-04-08T10:00:00Z")));
                 assert!(blocks.iter().any(|block| matches!(block, SimpleBlock::Link { href, .. } if href == "https://example.com/entry-one")));
         }
+
+            #[test]
+            fn json_feed_adapter_parses_feed_title_and_entries() {
+                let (document, title) = parse_feed(
+                    MiddleNetContentKind::JsonFeed,
+                    r#"{
+                        "version": "https://jsonfeed.org/version/1.1",
+                        "title": "Graphshell Notes",
+                        "home_page_url": "https://example.com/",
+                        "description": "Recent updates from <b>Graphshell</b>",
+                        "items": [
+                        {
+                            "id": "entry-1",
+                            "url": "https://example.com/posts/1",
+                            "title": "First note",
+                            "content_html": "Hello <i>world</i>",
+                            "date_published": "2026-04-08T10:00:00Z"
+                        }
+                        ]
+                    }"#,
+                )
+                .expect("json feed should parse");
+
+                assert_eq!(title.as_deref(), Some("Graphshell Notes"));
+                let SimpleDocument::Blocks(blocks) = document;
+                assert!(blocks.iter().any(|block| matches!(block, SimpleBlock::Paragraph(text) if text == "Recent updates from Graphshell")));
+                assert!(blocks.iter().any(|block| matches!(block, SimpleBlock::Quote(text) if text == "2026-04-08T10:00:00Z")));
+                assert!(blocks.iter().any(|block| matches!(block, SimpleBlock::Link { href, .. } if href == "https://example.com/posts/1")));
+            }
 }
