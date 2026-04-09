@@ -98,11 +98,11 @@ The middlenet framing is productively modest.
 - **The intermediate document model is a rendering AST, not a user-facing format.** Each source format is parsed into this internal tree; the tree is a rendering target, not a richer protocol output.
 - **Each source format is rendered as itself.** Gemini content renders as gemtext; Gopher renders as a Gopher menu or document; Markdown renders as Markdown. The shared model is the internal parse target, not a reason to enrich or homogenize the output of any individual format. Gemtext's intentional minimalism is a deliberate design stance and should be respected.
 
-### 3.6 Markdown as the authored-content format
+### 3.4 Markdown as the authored-content format
 
 When Graphshell itself needs to author content — graph node annotations,
 published artifacts, co-op shared documents — the format is **Markdown**
-(CommonMark base). This is already a Tier A rendering lane and familiar to
+(CommonMark base). This is already a first-class document lane and familiar to
 most users.
 
 Conservative Graphshell-specific extensions (e.g. graph-link syntax) may be
@@ -113,7 +113,7 @@ content that Graphshell itself produces or stores.
 This keeps authored content distinct from browsed content and prevents
 "MiddleNet document format" from silently becoming a new protocol invention.
 
-### 3.4 Strong network layer separation
+### 3.5 Strong network layer separation
 
 The network architecture is already better-specified than many projects at this stage.
 
@@ -123,7 +123,7 @@ The network architecture is already better-specified than many projects at this 
   - community: libp2p/Verse.
 - It also correctly treats Nostr as a social capability fabric and WebRTC as a media/signaling capability rather than pretending all protocols do the same job.
 
-### 3.5 Co-op scope discipline
+### 3.6 Co-op scope discipline
 
 The co-op model is usefully constrained.
 
@@ -238,7 +238,9 @@ This matters because the user-facing promise is not merely "we can store and syn
 
 One especially important reality surfaced in the critique:
 
-- the middlenet engine vision is heavily gated by the WebRender/wgpu work.
+- the broader full-web browser vision is still heavily gated by the
+  WebRender/wgpu work, even though the Middlenet document/transport lane can
+  proceed independently.
 
 This does not invalidate the architecture, but it does imply a sequencing truth:
 
@@ -258,22 +260,30 @@ The more honest product framing in the near term is:
 
 The supplied protocol inventory is broader than Graphshell should implement, but it is useful as landscape mapping.
 
-### 6.1 High-value core smallnet/document lanes
+### 6.1 High-value core smallnet lanes
 
-These align strongly with the current architecture:
+These align strongly with the current architecture, but they do not all belong
+in the same product surface.
+
+Core document/read lanes:
 
 - Gemini
 - Gopher
 - Finger
-- Titan
-- Misfin
 - Spartan
 - Nex
 - RSS / Atom
 - Markdown / plain text
 - static HTML
 
-These either already appear in current docs or are close extensions of existing design logic.
+Adjacent mutation/messaging lanes:
+
+- Titan
+- Misfin
+
+These either already appear in current docs or are close extensions of
+existing design logic, but Titan and Misfin should remain mutation/messaging
+surfaces rather than being folded into the passive document renderer.
 
 ### 6.2 Technically interesting but likely low-priority lanes
 
@@ -643,52 +653,85 @@ If a protocol primarily answers:
 This rule prevents Graphshell from treating every protocol as if it belongs in
 the same registry or product surface.
 
-### 10.9 User-facing tiering
+### 10.9 User-facing surface emphasis
 
-The protocol landscape also becomes easier to manage if Graphshell uses a
-simple user-facing tier model.
+The protocol landscape becomes easier to manage when Graphshell uses a small
+set of user-facing product surfaces first, and only derives tier shorthand
+from those surfaces afterward.
 
-#### Tier A — directly user-felt browsing and publishing lanes
+#### Document surface
 
-These have the strongest claim on first-class UI support:
+These are the protocols and formats with the strongest claim on first-class
+reading, rendering, and authored-document UI support:
 
 - Gemini
 - gemtext
 - Gopher
 - Finger
+- Spartan
+- Nex
 - RSS / Atom / JSON Feed
 - static HTML
 - Markdown / plain text
-- WebFinger
-- Titan
-- Misfin
 - gempub
 
-#### Tier B — user-felt adjacent support lanes
+#### Identity and discovery surface
 
-These matter a lot, but often appear as support for a bigger feature rather
-than the first visible browser surface:
+These resolve people, handles, and service endpoints into graph-native identity
+objects rather than rendered documents:
 
+- WebFinger
 - NIP-05
-- ActivityPub read-only
+- Matrix identity bindings
+- ActivityPub actor identities
+
+#### Mutation and messaging surface
+
+These protocols need explicit permissions, auditability, and outcome handling
+rather than being treated as passive browsing:
+
+- Titan
+- Misfin
+- WebMention
+- ActivityPub write path, if ever adopted
+
+#### Collaboration and presence surface
+
+These matter a lot, but they support a bigger collaborative feature rather than
+the first visible browsing surface:
+
 - Matrix
 - WebRTC fallback
+- iroh
+- Cable
+- Nostr DMs / relay messaging where appropriate
+
+#### Storage and receivable artifact surface
+
+These provide fetch, sync, replication, or receivable artifact transport:
+
+- VerseBlob
 - IPFS / IPNS
 - BitTorrent / WebTorrent / magnet
+- Hypercore
+- NNCP
 
-#### Tier C — backend, research, or niche lanes
+#### Research and niche lanes
 
 These may still be strategically useful, but should not compete for immediate
 product attention unless a very specific use case emerges:
 
-- Hypercore
-- NNCP
 - Scorpion
 - Mercury
 - Text Protocol
 - Scroll
 - XMPP pubsub
 - other niche smallnet variants
+
+If Graphshell keeps a Tier A/B/C shorthand, it should be attached to specific
+capabilities within a surface, such as a first-class document lane or an
+experimental storage lane, rather than used as a single mixed ranking across
+unlike protocol jobs.
 
 ### 10.10 Why this matters
 

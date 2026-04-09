@@ -15,3 +15,4 @@ pub(crate) mod engine;
 pub(crate) mod misfin;
 pub(crate) mod source;
 pub(crate) mod transport;
+pub(crate) mod webfinger;
