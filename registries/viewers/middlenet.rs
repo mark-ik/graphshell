@@ -8,10 +8,10 @@ use std::sync::{Mutex, OnceLock};
 use crate::middlenet::document::{SimpleBlock, SimpleDocument};
 use crate::middlenet::engine::{MiddleNetEngine, MiddleNetLoadResult};
 use crate::middlenet::misfin::{
-    self, MisfinAddress, MisfinIdentitySpec,
+    self, MisfinAddress, MisfinIdentitySpec, MisfinSendOutcome,
 };
 use crate::middlenet::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
-use crate::middlenet::transport::titan_upload;
+use crate::middlenet::transport::{TitanUploadOutcome, titan_upload};
 use crate::registries::atomic::viewer::{
     EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput,
 };
@@ -253,6 +253,22 @@ fn render_misfin_view(
         ui.label("Subject");
         ui.add(egui::TextEdit::singleline(&mut state.misfin_subject).desired_width(f32::INFINITY));
     });
+
+    let sender_spec = sender_spec_from_state(state);
+
+    egui::CollapsingHeader::new("Identity and trust")
+        .default_open(true)
+        .show(ui, |ui| {
+            render_misfin_management_controls(
+                ui,
+                ctx.node_key,
+                url,
+                sender_spec.as_ref(),
+                state,
+                app_commands,
+            );
+        });
+
     ui.label("Body preview");
     ui.add(
         egui::TextEdit::multiline(&mut state.misfin_body)
@@ -284,7 +300,7 @@ fn render_misfin_view(
                 &MiddleNetContent {
                     source: MiddleNetSource {
                         canonical_uri: Some(ctx.node_url.to_string()),
-                        title_hint: state.misfin_subject.is_empty().then_some(None).unwrap_or_else(|| Some(state.misfin_subject.clone())),
+                        title_hint: trim_optional(&state.misfin_subject),
                         content_kind: MiddleNetContentKind::GeminiText,
                     },
                     document: preview_document,
@@ -303,22 +319,11 @@ fn render_misfin_view(
         });
 
     if ui.button("Send Misfin message").clicked() {
-        let sender_address = match MisfinAddress::parse(&format!(
-            "{}@{}",
-            state.misfin_from_mailbox.trim(),
-            state.misfin_from_host.trim()
-        )) {
-            Ok(address) => address,
-            Err(error) => {
-                state.misfin_status = Some(error);
-                render_status(ui, state.misfin_status.as_deref(), true);
-                return;
-            }
-        };
-
-        let sender = MisfinIdentitySpec {
-            address: sender_address,
-            blurb: trim_optional(&state.misfin_blurb),
+        let Some(sender) = sender_spec.as_ref() else {
+            let message = "Misfin send needs a valid sender mailbox and host.".to_string();
+            state.misfin_status = Some(message.clone());
+            render_status(ui, state.misfin_status.as_deref(), true);
+            return;
         };
 
         let wire_message = if state.misfin_wire_message.trim().is_empty() {
@@ -344,34 +349,13 @@ fn render_misfin_view(
 
         match misfin::send_message(url, &sender, &wire_message) {
             Ok(outcome) => {
-                if let Some(permanent_redirect) = outcome.permanent_redirect.as_ref() {
-                    intents.push(crate::app::GraphIntent::SetNodeUrl {
-                        key: ctx.node_key,
-                        new_url: misfin::url_string_for_address(permanent_redirect, url.port()),
-                    });
-                }
-
-                let status_text = format!(
-                    "Misfin status {} for {}{}{}",
-                    outcome.status,
-                    outcome.final_recipient.as_addr_spec(),
-                    if outcome.meta.is_empty() { "" } else { ": " },
-                    outcome.meta,
-                );
-                let level = notice_level_for_status(outcome.status, outcome.permanent_redirect.is_some());
-                state.misfin_status = Some(status_text.clone());
-                queue_node_notice(
-                    app_commands,
+                state.misfin_status = Some(apply_misfin_send_outcome(
                     ctx.node_key,
-                    level,
-                    status_text.clone(),
-                    "Misfin send".to_string(),
-                    if let Some(permanent_redirect) = outcome.permanent_redirect.as_ref() {
-                        format!("{} -> {}", outcome.final_recipient.as_addr_spec(), permanent_redirect.as_addr_spec())
-                    } else {
-                        status_text
-                    },
-                );
+                    url,
+                    &outcome,
+                    intents,
+                    app_commands,
+                ));
             }
             Err(error) => {
                 state.misfin_status = Some(error.clone());
@@ -430,48 +414,13 @@ fn render_titan_editor(
         let token = trim_optional(&state.titan_token);
         match titan_upload(url, state.titan_draft.as_bytes(), mime.as_deref(), token.as_deref()) {
             Ok(outcome) => {
-                let status = outcome.status;
-                let status_text = format!("Titan status {status}: {}", outcome.meta);
-                state.titan_status = Some(status_text.clone());
-
-                if (20..=29).contains(&status) {
-                    intents.push(crate::app::GraphIntent::SetNodeUrl {
-                        key: node_key,
-                        new_url: url.to_string(),
-                    });
-                    queue_node_notice(
-                        app_commands,
-                        node_key,
-                        crate::app::UiNotificationLevel::Success,
-                        status_text.clone(),
-                        "Titan upload".to_string(),
-                        status_text,
-                    );
-                } else if (30..=39).contains(&status)
-                    && let Some(redirect_url) = resolve_redirect_url(url, &outcome.meta)
-                {
-                    intents.push(crate::app::GraphIntent::SetNodeUrl {
-                        key: node_key,
-                        new_url: redirect_url,
-                    });
-                    queue_node_notice(
-                        app_commands,
-                        node_key,
-                        crate::app::UiNotificationLevel::Warning,
-                        status_text.clone(),
-                        "Titan upload".to_string(),
-                        format!("redirected: {}", outcome.meta),
-                    );
-                } else {
-                    queue_node_notice(
-                        app_commands,
-                        node_key,
-                        notice_level_for_status(status, false),
-                        status_text.clone(),
-                        "Titan upload".to_string(),
-                        status_text,
-                    );
-                }
+                state.titan_status = Some(apply_titan_upload_outcome(
+                    node_key,
+                    url,
+                    &outcome,
+                    intents,
+                    app_commands,
+                ));
             }
             Err(error) => {
                 state.titan_status = Some(error.clone());
@@ -510,9 +459,189 @@ fn resolve_redirect_url(base: &url::Url, meta: &str) -> Option<String> {
         .map(|url| url.to_string())
 }
 
+fn sender_spec_from_state(state: &MiddleNetViewerState) -> Option<MisfinIdentitySpec> {
+    let address = MisfinAddress::parse(&format!(
+        "{}@{}",
+        state.misfin_from_mailbox.trim(),
+        state.misfin_from_host.trim()
+    ))
+    .ok()?;
+    Some(MisfinIdentitySpec {
+        address,
+        blurb: trim_optional(&state.misfin_blurb),
+    })
+}
+
 fn trim_optional(input: &str) -> Option<String> {
     let trimmed = input.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn render_misfin_management_controls(
+    ui: &mut egui::Ui,
+    node_key: crate::graph::NodeKey,
+    url: &url::Url,
+    sender: Option<&MisfinIdentitySpec>,
+    state: &mut MiddleNetViewerState,
+    app_commands: &mut Vec<crate::app::AppCommand>,
+) {
+    match sender {
+        Some(sender) => match misfin::identity_status(sender) {
+            Ok(status) => {
+                ui.label(format!("Sender identity: {}", status.address));
+                if let Some(path) = status.path.as_ref() {
+                    ui.small(format!("Identity file: {}", path.display()));
+                } else {
+                    ui.small("Identity file: unavailable on this host");
+                }
+                if let Some(fingerprint) = status.certificate_fingerprint.as_deref() {
+                    ui.small(format!("Certificate fingerprint: {}", short_fingerprint(fingerprint)));
+                } else if status.exists {
+                    ui.small("Certificate fingerprint: unavailable");
+                } else {
+                    ui.small("Certificate fingerprint: not generated yet");
+                }
+
+                ui.horizontal(|ui| {
+                    let ensure_label = if status.exists {
+                        "Rotate sender identity"
+                    } else {
+                        "Generate sender identity"
+                    };
+                    if ui.button(ensure_label).clicked() {
+                        match if status.exists {
+                            misfin::rotate_identity(sender)
+                        } else {
+                            misfin::ensure_identity(sender)
+                        } {
+                            Ok(new_status) => {
+                                let message = if status.exists {
+                                    format!("Rotated Misfin identity for {}", new_status.address)
+                                } else {
+                                    format!("Generated Misfin identity for {}", new_status.address)
+                                };
+                                state.misfin_status = Some(message.clone());
+                                queue_node_notice(
+                                    app_commands,
+                                    node_key,
+                                    crate::app::UiNotificationLevel::Success,
+                                    message.clone(),
+                                    "Misfin identity".to_string(),
+                                    message,
+                                );
+                            }
+                            Err(error) => {
+                                state.misfin_status = Some(error.clone());
+                                queue_node_notice(
+                                    app_commands,
+                                    node_key,
+                                    crate::app::UiNotificationLevel::Error,
+                                    error.clone(),
+                                    "Misfin identity".to_string(),
+                                    error,
+                                );
+                            }
+                        }
+                    }
+
+                    if ui.button("Forget sender identity").clicked() {
+                        match misfin::forget_identity(sender) {
+                            Ok(true) => {
+                                let message = format!(
+                                    "Forgot Misfin identity for {}",
+                                    sender.address.as_addr_spec()
+                                );
+                                state.misfin_status = Some(message.clone());
+                                queue_node_notice(
+                                    app_commands,
+                                    node_key,
+                                    crate::app::UiNotificationLevel::Warning,
+                                    message.clone(),
+                                    "Misfin identity".to_string(),
+                                    message,
+                                );
+                            }
+                            Ok(false) => {
+                                state.misfin_status = Some("No persisted Misfin identity to forget.".to_string());
+                            }
+                            Err(error) => {
+                                state.misfin_status = Some(error.clone());
+                                queue_node_notice(
+                                    app_commands,
+                                    node_key,
+                                    crate::app::UiNotificationLevel::Error,
+                                    error.clone(),
+                                    "Misfin identity".to_string(),
+                                    error,
+                                );
+                            }
+                        }
+                    }
+                });
+            }
+            Err(error) => {
+                ui.small(error);
+            }
+        },
+        None => {
+            ui.small("Enter a sender mailbox and host to manage the Misfin identity.");
+        }
+    }
+
+    ui.add_space(4.0);
+
+    match misfin::trust_status(url) {
+        Ok(status) => {
+            ui.label(format!("Recipient trust: {}", status.authority));
+            if let Some(path) = status.path.as_ref() {
+                ui.small(format!("Known-hosts file: {}", path.display()));
+            } else {
+                ui.small("Known-hosts file: unavailable on this host");
+            }
+            match status.fingerprint_sha256.as_deref() {
+                Some(fingerprint) => {
+                    ui.small(format!("Trusted fingerprint: {}", short_fingerprint(fingerprint)));
+                }
+                None => {
+                    ui.small("Trusted fingerprint: not recorded yet");
+                }
+            }
+
+            if ui.button("Forget recipient trust").clicked() {
+                match misfin::forget_known_host(url) {
+                    Ok(true) => {
+                        let message = format!("Forgot Misfin trust for {}", status.authority);
+                        state.misfin_status = Some(message.clone());
+                        queue_node_notice(
+                            app_commands,
+                            node_key,
+                            crate::app::UiNotificationLevel::Warning,
+                            message.clone(),
+                            "Misfin trust".to_string(),
+                            message,
+                        );
+                    }
+                    Ok(false) => {
+                        state.misfin_status = Some("No persisted Misfin trust to forget.".to_string());
+                    }
+                    Err(error) => {
+                        state.misfin_status = Some(error.clone());
+                        queue_node_notice(
+                            app_commands,
+                            node_key,
+                            crate::app::UiNotificationLevel::Error,
+                            error.clone(),
+                            "Misfin trust".to_string(),
+                            error,
+                        );
+                    }
+                }
+            }
+        }
+        Err(error) => {
+            ui.small(error);
+        }
+    }
 }
 
 fn derive_misfin_wire_message(subject: &str, body: &str) -> String {
@@ -569,6 +698,107 @@ fn notice_level_for_status(
         crate::app::UiNotificationLevel::Success
     } else {
         crate::app::UiNotificationLevel::Error
+    }
+}
+
+fn apply_titan_upload_outcome(
+    node_key: crate::graph::NodeKey,
+    url: &url::Url,
+    outcome: &TitanUploadOutcome,
+    intents: &mut Vec<crate::app::GraphIntent>,
+    app_commands: &mut Vec<crate::app::AppCommand>,
+) -> String {
+    let status = outcome.status;
+    let status_text = format!("Titan status {status}: {}", outcome.meta);
+
+    if (20..=29).contains(&status) {
+        intents.push(crate::app::GraphIntent::SetNodeUrl {
+            key: node_key,
+            new_url: url.to_string(),
+        });
+        queue_node_notice(
+            app_commands,
+            node_key,
+            crate::app::UiNotificationLevel::Success,
+            status_text.clone(),
+            "Titan upload".to_string(),
+            status_text.clone(),
+        );
+    } else if (30..=39).contains(&status)
+        && let Some(redirect_url) = resolve_redirect_url(url, &outcome.meta)
+    {
+        intents.push(crate::app::GraphIntent::SetNodeUrl {
+            key: node_key,
+            new_url: redirect_url,
+        });
+        queue_node_notice(
+            app_commands,
+            node_key,
+            crate::app::UiNotificationLevel::Warning,
+            status_text.clone(),
+            "Titan upload".to_string(),
+            format!("redirected: {}", outcome.meta),
+        );
+    } else {
+        queue_node_notice(
+            app_commands,
+            node_key,
+            notice_level_for_status(status, false),
+            status_text.clone(),
+            "Titan upload".to_string(),
+            status_text.clone(),
+        );
+    }
+
+    status_text
+}
+
+fn apply_misfin_send_outcome(
+    node_key: crate::graph::NodeKey,
+    url: &url::Url,
+    outcome: &MisfinSendOutcome,
+    intents: &mut Vec<crate::app::GraphIntent>,
+    app_commands: &mut Vec<crate::app::AppCommand>,
+) -> String {
+    if let Some(permanent_redirect) = outcome.permanent_redirect.as_ref() {
+        intents.push(crate::app::GraphIntent::SetNodeUrl {
+            key: node_key,
+            new_url: misfin::url_string_for_address(permanent_redirect, url.port()),
+        });
+    }
+
+    let status_text = format!(
+        "Misfin status {} for {}{}{}",
+        outcome.status,
+        outcome.final_recipient.as_addr_spec(),
+        if outcome.meta.is_empty() { "" } else { ": " },
+        outcome.meta,
+    );
+    queue_node_notice(
+        app_commands,
+        node_key,
+        notice_level_for_status(outcome.status, outcome.permanent_redirect.is_some()),
+        status_text.clone(),
+        "Misfin send".to_string(),
+        if let Some(permanent_redirect) = outcome.permanent_redirect.as_ref() {
+            format!(
+                "{} -> {}",
+                outcome.final_recipient.as_addr_spec(),
+                permanent_redirect.as_addr_spec()
+            )
+        } else {
+            status_text.clone()
+        },
+    );
+
+    status_text
+}
+
+fn short_fingerprint(fingerprint: &str) -> String {
+    if fingerprint.len() <= 16 {
+        fingerprint.to_string()
+    } else {
+        format!("{}..{}", &fingerprint[..8], &fingerprint[fingerprint.len() - 8..])
     }
 }
 
@@ -692,5 +922,92 @@ mod tests {
         assert!(preview.contains(": friend@example.net"));
         assert!(preview.contains("# Hello"));
         assert!(preview.contains("Body line"));
+    }
+
+    #[test]
+    fn titan_redirect_outcome_retargets_node_and_warns() {
+        let node_key = crate::graph::NodeKey::new(7);
+        let url = url::Url::parse("titan://capsule.example/edit/start").expect("url should parse");
+        let outcome = TitanUploadOutcome {
+            status: 31,
+            meta: "/next".to_string(),
+            body: String::new(),
+        };
+        let mut intents = Vec::new();
+        let mut app_commands = Vec::new();
+
+        let status =
+            apply_titan_upload_outcome(node_key, &url, &outcome, &mut intents, &mut app_commands);
+
+        assert_eq!(status, "Titan status 31: /next");
+        assert!(matches!(
+            intents.as_slice(),
+            [crate::app::GraphIntent::SetNodeUrl { key, new_url }]
+                if *key == node_key && new_url == "titan://capsule.example/next"
+        ));
+        assert!(matches!(
+            app_commands.as_slice(),
+            [crate::app::AppCommand::NodeStatusNotice { request }]
+                if request.level == crate::app::UiNotificationLevel::Warning
+                    && request.message == "Titan status 31: /next"
+        ));
+    }
+
+    #[test]
+    fn misfin_success_outcome_queues_success_notice_without_redirect() {
+        let node_key = crate::graph::NodeKey::new(9);
+        let url = url::Url::parse("misfin://queen@localhost:1958").expect("url should parse");
+        let outcome = MisfinSendOutcome {
+            final_recipient: MisfinAddress::parse("queen@localhost").expect("recipient should parse"),
+            status: 20,
+            meta: "abcdef".to_string(),
+            recipient_fingerprint: Some("abcdef".to_string()),
+            permanent_redirect: None,
+        };
+        let mut intents = Vec::new();
+        let mut app_commands = Vec::new();
+
+        let status =
+            apply_misfin_send_outcome(node_key, &url, &outcome, &mut intents, &mut app_commands);
+
+        assert_eq!(status, "Misfin status 20 for queen@localhost: abcdef");
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app_commands.as_slice(),
+            [crate::app::AppCommand::NodeStatusNotice { request }]
+                if request.level == crate::app::UiNotificationLevel::Success
+                    && request.message == "Misfin status 20 for queen@localhost: abcdef"
+        ));
+    }
+
+    #[test]
+    fn misfin_redirect_outcome_retargets_node_and_warns() {
+        let node_key = crate::graph::NodeKey::new(11);
+        let url = url::Url::parse("misfin://queen@localhost:1960").expect("url should parse");
+        let outcome = MisfinSendOutcome {
+            final_recipient: MisfinAddress::parse("queen2@localhost").expect("recipient should parse"),
+            status: 20,
+            meta: "fedcba".to_string(),
+            recipient_fingerprint: Some("fedcba".to_string()),
+            permanent_redirect: Some(MisfinAddress::parse("queen2@localhost").expect("redirect should parse")),
+        };
+        let mut intents = Vec::new();
+        let mut app_commands = Vec::new();
+
+        let status =
+            apply_misfin_send_outcome(node_key, &url, &outcome, &mut intents, &mut app_commands);
+
+        assert_eq!(status, "Misfin status 20 for queen2@localhost: fedcba");
+        assert!(matches!(
+            intents.as_slice(),
+            [crate::app::GraphIntent::SetNodeUrl { key, new_url }]
+                if *key == node_key && new_url == "misfin://queen2@localhost:1960"
+        ));
+        assert!(matches!(
+            app_commands.as_slice(),
+            [crate::app::AppCommand::NodeStatusNotice { request }]
+                if request.level == crate::app::UiNotificationLevel::Warning
+                    && request.message == "Misfin status 20 for queen2@localhost: fedcba"
+        ));
     }
 }

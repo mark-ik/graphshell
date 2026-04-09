@@ -76,6 +76,22 @@ pub(crate) struct MisfinSendOutcome {
     pub(crate) permanent_redirect: Option<MisfinAddress>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MisfinIdentityStatus {
+    pub(crate) address: String,
+    pub(crate) path: Option<PathBuf>,
+    pub(crate) exists: bool,
+    pub(crate) blurb: Option<String>,
+    pub(crate) certificate_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MisfinTrustStatus {
+    pub(crate) authority: String,
+    pub(crate) path: Option<PathBuf>,
+    pub(crate) fingerprint_sha256: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct MisfinKnownHostRecord {
     authority: String,
@@ -300,6 +316,30 @@ pub(crate) fn send_message(
     send_message_with_paths(url, sender, message, &known_hosts, identity_root.as_deref(), 0)
 }
 
+pub(crate) fn identity_status(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
+    identity_status_with_root(spec, misfin_identity_root().as_deref())
+}
+
+pub(crate) fn ensure_identity(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
+    ensure_identity_with_root(spec, misfin_identity_root().as_deref())
+}
+
+pub(crate) fn rotate_identity(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
+    rotate_identity_with_root(spec, misfin_identity_root().as_deref())
+}
+
+pub(crate) fn forget_identity(spec: &MisfinIdentitySpec) -> Result<bool, String> {
+    forget_identity_with_root(spec, misfin_identity_root().as_deref())
+}
+
+pub(crate) fn trust_status(url: &url::Url) -> Result<MisfinTrustStatus, String> {
+    trust_status_with_path(url, misfin_known_hosts_path().as_deref())
+}
+
+pub(crate) fn forget_known_host(url: &url::Url) -> Result<bool, String> {
+    forget_known_host_with_path(url, misfin_known_hosts_path().as_deref())
+}
+
 pub(crate) fn url_string_for_address(address: &MisfinAddress, explicit_port: Option<u16>) -> String {
     if let Some(port) = explicit_port {
         format!("misfin://{}@{}:{port}", address.mailbox, address.host)
@@ -486,6 +526,117 @@ fn load_or_create_identity(
     Ok(identity)
 }
 
+fn identity_status_with_root(
+    spec: &MisfinIdentitySpec,
+    identity_root: Option<&Path>,
+) -> Result<MisfinIdentityStatus, String> {
+    let path = identity_root.map(|root| identity_path_for_spec(spec, root));
+    let Some(path) = path else {
+        return Ok(MisfinIdentityStatus {
+            address: spec.address.as_addr_spec(),
+            path: None,
+            exists: false,
+            blurb: spec.blurb.clone(),
+            certificate_fingerprint: None,
+        });
+    };
+
+    if !path.exists() {
+        return Ok(MisfinIdentityStatus {
+            address: spec.address.as_addr_spec(),
+            path: Some(path),
+            exists: false,
+            blurb: spec.blurb.clone(),
+            certificate_fingerprint: None,
+        });
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|error| format!("Failed to read Misfin identity '{}': {error}", path.display()))?;
+    let persisted: PersistedMisfinIdentity = serde_json::from_str(&content)
+        .map_err(|error| format!("Failed to parse Misfin identity '{}': {error}", path.display()))?;
+    let certificate_der = decode_hex(&persisted.certificate_der_hex)?;
+
+    Ok(MisfinIdentityStatus {
+        address: persisted.address,
+        path: Some(path),
+        exists: true,
+        blurb: persisted.blurb,
+        certificate_fingerprint: Some(sha256_hex(&certificate_der)),
+    })
+}
+
+fn ensure_identity_with_root(
+    spec: &MisfinIdentitySpec,
+    identity_root: Option<&Path>,
+) -> Result<MisfinIdentityStatus, String> {
+    let _ = load_or_create_identity(spec, identity_root)?;
+    identity_status_with_root(spec, identity_root)
+}
+
+fn rotate_identity_with_root(
+    spec: &MisfinIdentitySpec,
+    identity_root: Option<&Path>,
+) -> Result<MisfinIdentityStatus, String> {
+    let _ = forget_identity_with_root(spec, identity_root)?;
+    ensure_identity_with_root(spec, identity_root)
+}
+
+fn forget_identity_with_root(
+    spec: &MisfinIdentitySpec,
+    identity_root: Option<&Path>,
+) -> Result<bool, String> {
+    let Some(identity_root) = identity_root else {
+        return Ok(false);
+    };
+    let path = identity_path_for_spec(spec, identity_root);
+    if !path.exists() {
+        return Ok(false);
+    }
+    fs::remove_file(&path)
+        .map_err(|error| format!("Failed to remove Misfin identity '{}': {error}", path.display()))?;
+    Ok(true)
+}
+
+fn trust_status_with_path(
+    url: &url::Url,
+    known_hosts_path: Option<&Path>,
+) -> Result<MisfinTrustStatus, String> {
+    let authority = authority_for_url(url)?;
+    let path = known_hosts_path.map(Path::to_path_buf);
+    let fingerprint_sha256 = if let Some(path) = known_hosts_path {
+        load_known_hosts_from_path(path)
+            .map_err(|error| format!("Failed to read Misfin known hosts '{}': {error}", path.display()))?
+            .get(&authority)
+            .map(|record| record.fingerprint_sha256.clone())
+    } else {
+        None
+    };
+
+    Ok(MisfinTrustStatus {
+        authority,
+        path,
+        fingerprint_sha256,
+    })
+}
+
+fn forget_known_host_with_path(
+    url: &url::Url,
+    known_hosts_path: Option<&Path>,
+) -> Result<bool, String> {
+    let Some(path) = known_hosts_path else {
+        return Ok(false);
+    };
+    let authority = authority_for_url(url)?;
+    let mut records = load_known_hosts_from_path(path)
+        .map_err(|error| format!("Failed to read Misfin known hosts '{}': {error}", path.display()))?;
+    let removed = records.remove(&authority).is_some();
+    if removed {
+        persist_known_hosts_to_path(path, records.values().cloned().collect())?;
+    }
+    Ok(removed)
+}
+
 fn generate_identity(spec: &MisfinIdentitySpec) -> Result<MisfinClientIdentity, String> {
     let key_pair = KeyPair::generate().map_err(|error| format!("Misfin key generation failed: {error}"))?;
     let mut params = CertificateParams::new(vec![spec.address.host.clone()])
@@ -587,6 +738,11 @@ fn redirected_url(current_url: &url::Url, address: &MisfinAddress) -> Result<url
     Ok(redirected)
 }
 
+fn authority_for_url(url: &url::Url) -> Result<String, String> {
+    let recipient = MisfinAddress::from_url(url)?;
+    Ok(format!("{}:{}", recipient.host, url.port().unwrap_or(MISFIN_DEFAULT_PORT)))
+}
+
 fn parse_sender_line(line: &str) -> Option<MisfinSender> {
     let remainder = line.strip_prefix('<')?.trim();
     if remainder.is_empty() {
@@ -629,6 +785,10 @@ fn split_once_whitespace(input: &str) -> (&str, Option<&str>) {
     } else {
         (head, Some(tail))
     }
+}
+
+fn identity_path_for_spec(spec: &MisfinIdentitySpec, identity_root: &Path) -> PathBuf {
+    identity_root.join(format!("{}.json", sanitize_filename(&spec.address.as_addr_spec())))
 }
 
 #[cfg(not(test))]
@@ -679,6 +839,21 @@ fn load_known_hosts_from_path(
             Ok(HashMap::new())
         }
     }
+}
+
+fn persist_known_hosts_to_path(
+    path: &Path,
+    mut records: Vec<MisfinKnownHostRecord>,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create Misfin known-hosts parent '{}': {error}", parent.display()))?;
+    }
+    records.sort_by(|left, right| left.authority.cmp(&right.authority));
+    let content = serde_json::to_string_pretty(&records)
+        .map_err(|error| format!("Failed to serialize Misfin known hosts '{}': {error}", path.display()))?;
+    fs::write(path, content)
+        .map_err(|error| format!("Failed to persist Misfin known hosts '{}': {error}", path.display()))
 }
 
 fn normalize_fingerprint(input: &str) -> String {
@@ -934,6 +1109,45 @@ mod tests {
         assert_eq!(outcome.permanent_redirect.map(|address| address.as_addr_spec()), Some("queen2@localhost".to_string()));
         assert_eq!(outcome.recipient_fingerprint.as_deref(), Some("fedcba"));
         server.join().expect("server joins cleanly");
+    }
+
+    #[test]
+    fn identity_status_reports_persisted_identity() {
+        let tempdir = TempDir::new().expect("temp dir should be created");
+        let spec = MisfinIdentitySpec {
+            address: MisfinAddress::parse("worker@hive.local").expect("sender should parse"),
+            blurb: Some("Worker Bee".to_string()),
+        };
+
+        let status = ensure_identity_with_root(&spec, Some(tempdir.path()))
+            .expect("identity should be created");
+
+        assert!(status.exists);
+        assert_eq!(status.address, "worker@hive.local");
+        assert!(status.path.expect("identity path should exist").exists());
+        assert!(status.certificate_fingerprint.is_some());
+    }
+
+    #[test]
+    fn forget_known_host_removes_persisted_record() {
+        let tempdir = TempDir::new().expect("temp dir should be created");
+        let path = tempdir.path().join("misfin_known_hosts.json");
+        persist_known_hosts_to_path(
+            &path,
+            vec![MisfinKnownHostRecord {
+                authority: "localhost:1958".to_string(),
+                fingerprint_sha256: "abc123".to_string(),
+            }],
+        )
+        .expect("known hosts should persist");
+
+        let url = url::Url::parse("misfin://queen@localhost").expect("url should parse");
+        let removed = forget_known_host_with_path(&url, Some(&path))
+            .expect("known host removal should succeed");
+        let status = trust_status_with_path(&url, Some(&path)).expect("status should load");
+
+        assert!(removed);
+        assert!(status.fingerprint_sha256.is_none());
     }
 
     fn build_test_tls_config(hostname: &str) -> ServerConfig {
