@@ -228,6 +228,7 @@ fn disabled_action_reason(
         | ActionId::NodeMoveToActivePane
         | ActionId::NodeWarmSelect
         | ActionId::NodeRemoveFromGraphlet
+        | ActionId::NodeImportWebFinger
         | ActionId::NodeCopyUrl
         | ActionId::NodeCopyTitle => {
             if !action_context.any_selected && action_context.target_node.is_none() {
@@ -1293,6 +1294,73 @@ pub(crate) fn execute_action_with_layout_target(
             });
             intents.extend(runtime_intents);
         }
+        ActionId::NodeImportWebFinger => {
+            if let Some(key) = open_target {
+                let resource = app
+                    .domain_graph()
+                    .get_node(key)
+                    .map(|node| node.url().trim().to_string())
+                    .unwrap_or_default();
+
+                if resource.is_empty() {
+                    app.request_node_status_notice(
+                        key,
+                        crate::app::UiNotificationLevel::Error,
+                        "WebFinger import failed: node URL is empty",
+                        Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                            action: "WebFinger import".to_string(),
+                            detail: "failed: node URL is empty".to_string(),
+                        }),
+                    );
+                } else {
+                    let node_count_before = app.domain_graph().node_count();
+                    match app.fetch_and_import_webfinger_into_graph(&resource, Some(key)) {
+                        Ok(subject_key) => {
+                            let node_count_after = app.domain_graph().node_count();
+                            let new_nodes = node_count_after.saturating_sub(node_count_before);
+                            let subject_url = app
+                                .domain_graph()
+                                .get_node(subject_key)
+                                .map(|node| node.url().to_string())
+                                .unwrap_or_else(|| resource.clone());
+                            let message = if new_nodes == 0 {
+                                format!("Imported WebFinger discovery for {resource}")
+                            } else {
+                                format!(
+                                    "Imported WebFinger discovery for {resource} (+{new_nodes} node(s))"
+                                )
+                            };
+                            let detail = if new_nodes == 0 {
+                                format!("{} -> {}", resource, subject_url)
+                            } else {
+                                format!("{} -> {}; +{} node(s)", resource, subject_url, new_nodes)
+                            };
+                            app.request_node_status_notice(
+                                subject_key,
+                                crate::app::UiNotificationLevel::Success,
+                                message,
+                                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                                    action: "WebFinger import".to_string(),
+                                    detail,
+                                }),
+                            );
+                        }
+                        Err(error) => {
+                            let detail = format!("failed: {}: {}", resource, error);
+                            app.request_node_status_notice(
+                                key,
+                                crate::app::UiNotificationLevel::Error,
+                                format!("WebFinger import failed for {}: {}", resource, error),
+                                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                                    action: "WebFinger import".to_string(),
+                                    detail,
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2088,6 +2156,44 @@ mod tests {
                 .map(|state| state.node_key),
             Some(node)
         );
+    }
+
+    #[test]
+    fn execute_action_webfinger_import_queues_error_notice_for_unsupported_resource() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "misfin://friend@example.net".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::NodeImportWebFinger,
+            None,
+            Some(node),
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        let request = app
+            .take_pending_node_status_notice()
+            .expect("webfinger import should queue a notice");
+        assert_eq!(request.key, node);
+        assert_eq!(request.level, crate::app::UiNotificationLevel::Error);
+        assert!(request.message.contains("WebFinger import failed"));
+        assert!(request.message.contains("misfin://friend@example.net"));
+        assert!(matches!(
+            request.audit_event,
+            Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                action,
+                detail,
+            }) if action == "WebFinger import"
+                && detail.contains("failed:")
+                && detail.contains("misfin://friend@example.net")
+        ));
     }
 
     #[test]

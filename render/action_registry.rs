@@ -183,6 +183,7 @@ pub enum ActionId {
     NodeMoveToActivePane,
     NodeWarmSelect,
     NodeRemoveFromGraphlet,
+    NodeImportWebFinger,
     /// Soft-delete selected nodes → Ghost Node (Tombstone lifecycle).
     NodeMarkTombstone,
     NodeCopyUrl,
@@ -292,6 +293,7 @@ impl ActionId {
             Self::NodeMoveToActivePane => "node:move_to_active_pane",
             Self::NodeWarmSelect => "node:warm_select",
             Self::NodeRemoveFromGraphlet => "node:remove_from_graphlet",
+            Self::NodeImportWebFinger => "node:import_webfinger",
             Self::NodeMarkTombstone => "node:mark_tombstone",
             Self::NodeCopyUrl => "node:copy_url",
             Self::NodeCopyTitle => "node:copy_title",
@@ -360,6 +362,7 @@ impl ActionId {
             Self::NodeMoveToActivePane => "Move",
             Self::NodeWarmSelect => "Open Cold",
             Self::NodeRemoveFromGraphlet => "Leave Group",
+            Self::NodeImportWebFinger => "WebFinger",
             Self::NodeMarkTombstone => "Ghost",
             Self::NodeCopyUrl => "Copy URL",
             Self::NodeCopyTitle => "Copy Title",
@@ -428,6 +431,7 @@ impl ActionId {
             Self::NodeMoveToActivePane => "Move Node to Active Pane",
             Self::NodeWarmSelect => "Open Cold Selection as Tiles",
             Self::NodeRemoveFromGraphlet => "Remove from Graphlet",
+            Self::NodeImportWebFinger => "Import WebFinger Discovery",
             Self::NodeMarkTombstone => "Ghost Selected Node(s)",
             Self::NodeCopyUrl => "Copy Node URL",
             Self::NodeCopyTitle => "Copy Node Title",
@@ -501,6 +505,7 @@ impl ActionId {
             | Self::NodeRenderWry
             | Self::NodeWarmSelect
             | Self::NodeRemoveFromGraphlet
+            | Self::NodeImportWebFinger
             | Self::NodeMarkTombstone => ActionCategory::Node,
             Self::EdgeConnectPair | Self::EdgeConnectBoth | Self::EdgeRemoveUser => {
                 ActionCategory::Edge
@@ -588,6 +593,7 @@ fn all_action_ids() -> &'static [ActionId] {
         NodeRenderWry,
         NodeWarmSelect,
         NodeRemoveFromGraphlet,
+        NodeImportWebFinger,
         NodeMarkTombstone,
         EdgeConnectPair,
         EdgeConnectBoth,
@@ -735,6 +741,7 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         ),
         (NodeWarmSelect, node_ops_enabled),
         (NodeRemoveFromGraphlet, node_ops_enabled),
+        (NodeImportWebFinger, node_ops_enabled),
         (NodeMarkTombstone, node_ops_enabled),
         // Edge
         (EdgeConnectPair, pair_enabled),
@@ -914,6 +921,12 @@ mod tests {
                 .find(|e| e.id == ActionId::NodeEditTags)
                 .is_some_and(|entry| !entry.enabled)
         );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeImportWebFinger)
+                .is_some_and(|entry| !entry.enabled)
+        );
     }
 
     #[test]
@@ -932,6 +945,12 @@ mod tests {
             entries
                 .iter()
                 .find(|e| e.id == ActionId::NodeEditTags)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeImportWebFinger)
                 .is_some_and(|entry| entry.enabled)
         );
     }
@@ -1306,6 +1325,10 @@ mod tests {
     fn test_representative_action_labels_convey_purpose_in_context() {
         let cases = [
             (ActionId::NodeCopyUrl, ["Copy", "URL"].as_slice()),
+            (
+                ActionId::NodeImportWebFinger,
+                ["Import", "WebFinger"].as_slice(),
+            ),
             (ActionId::NodeDelete, ["Delete", "Node"].as_slice()),
             (ActionId::NodeOpenFrame, ["Open", "Frame"].as_slice()),
             (ActionId::EdgeConnectPair, ["Connect", "Target"].as_slice()),
