@@ -5,7 +5,7 @@
 # Middlenet Vision Synthesis
 
 **Date**: 2026-03-30  
-**Status**: Research synthesis / architectural critique consolidation  
+**Status**: Research synthesis / architectural critique consolidation with 2026-04-09 implementation baseline  
 **Purpose**: Consolidate the current Graphshell "middlenet browser" vision, a broad protocol survey, and multiple rounds of critique into one usable research document instead of a transcript bundle.
 
 **Related docs**:
@@ -13,6 +13,8 @@
 - [`../technical_architecture/2026-03-29_middlenet_engine_spec.md`](../technical_architecture/2026-03-29_middlenet_engine_spec.md)
 - [`../technical_architecture/2026-03-29_portable_web_core_host_envelopes.md`](../technical_architecture/2026-03-29_portable_web_core_host_envelopes.md)
 - [`../technical_architecture/2026-03-30_protocol_modularity_and_host_capability_model.md`](../technical_architecture/2026-03-30_protocol_modularity_and_host_capability_model.md)
+- [`../technical_architecture/2026-04-09_identity_convergence_and_person_node_model.md`](../technical_architecture/2026-04-09_identity_convergence_and_person_node_model.md)
+- [`../technical_architecture/2026-04-09_graphshell_verse_uri_scheme.md`](../technical_architecture/2026-04-09_graphshell_verse_uri_scheme.md)
 - [`../technical_architecture/GRAPHSHELL_AS_BROWSER.md`](../technical_architecture/GRAPHSHELL_AS_BROWSER.md)
 - [`../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md`](../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md)
 - [`../../verso_docs/research/2026-03-28_smolnet_follow_on_audit.md`](../../verso_docs/research/2026-03-28_smolnet_follow_on_audit.md)
@@ -48,6 +50,31 @@ architecture policy in
 [`2026-03-30_protocol_modularity_and_host_capability_model.md`](../technical_architecture/2026-03-30_protocol_modularity_and_host_capability_model.md).
 This file should remain a synthesis and critique surface, not a rival policy
 authority.
+
+### 1.1 Implementation Baseline (2026-04-09)
+
+Several gaps identified by the original synthesis are now at least partially
+implemented in code:
+
+- protocol-faithful Middlenet adapters exist for Gemini/gemtext, Gopher,
+  Finger, RSS, Atom, JSON Feed, Markdown, and plain text,
+- `viewer:middlenet` routing is live on native desktop,
+- person-node convergence now includes WebFinger, NIP-05, Matrix, and
+  ActivityPub actor resolution, merge/reuse, Titan/Misfin person helpers, and
+  protocol capability modeling,
+- identity-resolution provenance now includes cache state, freshness TTLs,
+  refresh actions, and inspector/audit-panel surfacing,
+- Markdown remains the authored Graphshell default while browsed content is
+  still expected to render as itself.
+
+The main missing pieces are now clearer:
+
+- the extracted portable engine and browser/mobile host envelopes are still
+  target architecture, not shipped repository fact,
+- discovery, ranking, aggregation, and search remain substantially weaker than
+  the transport/document lane,
+- a canonical URI scheme note and explicit graph-object classification model
+  are still needed to keep the broader vision coherent.
 
 ---
 
@@ -97,6 +124,7 @@ The middlenet framing is productively modest.
 - The shared intermediate document model is the right architectural anchor for Gemini/Gopher/Finger/RSS/Markdown/static HTML.
 - **The intermediate document model is a rendering AST, not a user-facing format.** Each source format is parsed into this internal tree; the tree is a rendering target, not a richer protocol output.
 - **Each source format is rendered as itself.** Gemini content renders as gemtext; Gopher renders as a Gopher menu or document; Markdown renders as Markdown. The shared model is the internal parse target, not a reason to enrich or homogenize the output of any individual format. Gemtext's intentional minimalism is a deliberate design stance and should be respected.
+- Accessibility should follow **faithful render plus optional assistive enrichment**, not protocol replacement. The right move is to preserve simple protocols as themselves while layering optional summaries, navigation aids, speech-friendly views, and graph-aware assistive projections on top.
 
 ### 3.4 Markdown as the authored-content format
 
@@ -112,6 +140,10 @@ content that Graphshell itself produces or stores.
 
 This keeps authored content distinct from browsed content and prevents
 "MiddleNet document format" from silently becoming a new protocol invention.
+
+HTML may still become a richer long-term authored/publication target later, but
+that should happen only through an explicit architectural decision rather than
+through accidental drift away from the current Markdown baseline.
 
 ### 3.5 Strong network layer separation
 
@@ -333,6 +365,11 @@ These are the most valuable additions or clarifications surfaced by the combined
 
 Current docs mention WebFinger, but it is still somewhat secondary in wording.
 
+As of 2026-04-09, the implementation gap here is smaller than the doc gap:
+WebFinger is already a first-class identity import lane in code. What remains
+missing is a canonical note and broader discovery/trust policy that treats it
+as a durable product surface rather than an incidental resolver.
+
 The synthesis view is:
 
 - WebFinger is not just "preferred over Finger."
@@ -348,9 +385,11 @@ This deserves first-class treatment in protocol/discovery docs.
 
 ### 7.2 NIP-05 + WebFinger + person-node convergence is missing
 
-This is one of the strongest insights from the final gap analysis.
+This was one of the strongest insights from the final gap analysis, and it is
+now **partially implemented**.
 
-Graphshell needs a "person node" model capable of resolving and storing:
+Graphshell now has a person-node convergence path capable of resolving and
+storing:
 
 - human handle (`alice@example.com`),
 - Nostr `npub`,
@@ -361,7 +400,13 @@ Graphshell needs a "person node" model capable of resolving and storing:
 - ActivityPub actor URL,
 - additional verified endpoints.
 
-This would turn the social layer from a bag of protocols into a coherent graph-native identity model.
+What remains missing is not the raw merge/import path so much as the canonical
+architecture note and the harder trust/binding closures:
+
+- Gemini client certificate identity UX,
+- stronger sender binding for Misfin and other message surfaces,
+- explicit verification/conflict rules across protocol claims,
+- community-synced identity policy beyond local graph truth.
 
 ### 7.3 WebRTC data-channel fallback for browser envelopes
 
@@ -407,15 +452,9 @@ This is less about ideological completeness than about making Graphshell capable
 
 ### 7.6 JSON Feed should sit beside RSS/Atom
 
-This is a simple but worthwhile completion.
-
-If Graphshell claims a feed/document lane, then:
-
-- RSS,
-- Atom,
-- JSON Feed
-
-should be treated as one cluster.
+This is now effectively **done in code**. JSON Feed already sits beside RSS and
+Atom in the Middlenet adapter and viewer-routing layer. The remaining work is
+to make that canonical in the docs and in future discovery/aggregation plans.
 
 ### 7.7 ActivityPub should at least exist as a read-only lane
 
@@ -423,13 +462,15 @@ Graphshell already cares about structured web, social publication, and community
 
 That makes ActivityPub relevant even if full federation is not a priority.
 
-The most realistic first move is:
+The most realistic first move is still:
 
 - read-only ActivityPub ingestion/parsing,
 - ActivityStreams JSON-LD interpretation,
 - graph representation of actors, posts, replies, and linked artifacts.
 
-This opens a path into the fediverse without requiring Graphshell to become a fediverse server.
+The current codebase is now **partially through the door**: actor resolution and
+person-node convergence are implemented, but posts, replies, and broader
+ActivityStreams object ingestion are not yet present.
 
 ---
 
@@ -483,32 +524,40 @@ Ideas like Willow may still be strategically relevant as comparative research, e
 
 ### 9.1 High priority
 
-1. Write a first-class identity convergence note:
-   - WebFinger,
-   - NIP-05,
-   - person-node model,
-   - endpoint binding rules.
+1. Maintain a first-class identity convergence note and use it as the canonical
+  reference for person-node policy:
+  - WebFinger,
+  - NIP-05,
+  - person-node model,
+  - endpoint binding rules,
+  - provenance and refresh semantics.
 
-2. Write a Graphshell/Verse URI scheme spec:
-   - nodes,
-   - sessions,
-   - rooms/cabals/communities,
-   - portable graph artifacts.
+2. Maintain a Graphshell/Verse URI scheme spec around the canonical
+  `verso://` address space:
+  - nodes,
+  - sessions,
+  - rooms/cabals/communities,
+  - portable graph artifacts,
+  - compatibility aliases.
 
 3. Decide and document the browser-envelope co-op reality:
    - WebRTC fallback,
    - degraded support,
    - or explicit non-support for now.
 
-4. Expand protocol/discovery docs so WebFinger is listed as a first-class discovery lane, not only as a preference note.
+4. Write an explicit graph-object classification model for publication vs
+  annotation vs traversal vs ephemeral session state.
 
 ### 9.2 Medium priority
 
-1. Add JSON Feed to the feed/document protocol cluster.
+1. Write the discovery/aggregation plan for CAPCOM, Antenna, Cosmos,
+  Spacewalk, and GUS as separate but composable graph-enrichment signals.
 2. Add `ipfs://` / `ipns://` as explicit receivable URL-scheme candidates.
-3. Add a read-only ActivityPub/ActivityStreams research note.
+3. Extend ActivityPub from actor resolution into a read-only
+  posts/replies/artifact lane.
 4. Add BitTorrent/WebTorrent/magnet as receivable protocol research.
-5. Add an explicit graph-object classification model for publication vs annotation vs traversal vs ephemeral session state.
+5. Add trust/binding UI policy for cross-protocol identities and plaintext vs
+  secure transport labeling.
 
 ### 9.3 Low priority
 

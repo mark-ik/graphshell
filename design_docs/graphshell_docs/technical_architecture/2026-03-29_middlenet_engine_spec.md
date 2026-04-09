@@ -5,7 +5,7 @@
 # MiddleNet and the Portable MiddleNet Engine
 
 **Date**: 2026-03-29
-**Status**: Design note — architectural position, not a build plan
+**Status**: Design note — target architecture with phased delivery baseline
 **Scope**: Define the MiddleNet protocol space, name the portable WASM rendering
 engine that serves it, and describe how it fits into each host envelope.
 
@@ -18,6 +18,10 @@ engine that serves it, and describe how it fits into each host envelope.
   — Cargo workspace layout: crate responsibilities, dependency graph, migration steps
 - [`2026-03-30_protocol_modularity_and_host_capability_model.md`](2026-03-30_protocol_modularity_and_host_capability_model.md)
   — canonical protocol packaging classes, default portable floor, and host-aware degradation model
+- [`2026-04-09_identity_convergence_and_person_node_model.md`](2026-04-09_identity_convergence_and_person_node_model.md)
+  — current person-node convergence baseline, endpoint binding rules, and resolution provenance model
+- [`2026-04-09_graphshell_verse_uri_scheme.md`](2026-04-09_graphshell_verse_uri_scheme.md)
+  — canonical `verso://` address space, compatibility aliases, and reserved future categories
 - [`2026-02-18_universal_node_content_model.md`](2026-02-18_universal_node_content_model.md)
   — node as persistent content container independent of renderer
 - [`../../verso_docs/technical_architecture/VERSO_AS_PEER.md`](../../verso_docs/technical_architecture/VERSO_AS_PEER.md)
@@ -54,16 +58,53 @@ MiddleNet content is characterised by:
 - Predictable layout over dynamic layout
 - Protocols that fit in a single connection without persistent JS runtimes
 
+## 1.1 Current Baseline and Phased Delivery
+
+As of 2026-04-09, Graphshell already ships a meaningful **native desktop
+Middlenet lane**, but it does **not** yet ship the extracted portable engine as
+its own crate stack.
+
+Current implementation reality:
+
+- `viewer:middlenet` is already a real viewer route on native desktop beside
+  `viewer:servo` and `viewer:wry`.
+- Protocol-faithful adapters already exist for Gemini/gemtext, Gopher, Finger,
+  RSS, Atom, JSON Feed, Markdown, and plain text, with Titan and Misfin helper
+  surfaces for mutation and messaging.
+- WebFinger, NIP-05, Matrix, and ActivityPub actor resolution already feed a
+  person-node model with cached provenance, freshness TTLs, and refresh UI.
+- The extracted `graphshell-web-core` / `graphshell-comms` split, browser/PWA
+  envelopes, Boa/WIT integration, Wizer snapshotting, and reader-mode HTTP are
+  still future phases rather than present repository facts.
+
+This means the doc should be read as a **phased delivery target**:
+
+1. **Phase 0: native baseline**.
+   Graphshell continues shipping native desktop Middlenet adapters, viewer
+   routing, person-node convergence, and selective Servo/Wry delegation.
+2. **Phase 1: extraction boundary**.
+   Pull protocol/document adapters and host seams into portable crates without
+   yet promising browser-host execution.
+3. **Phase 2: portable document engine**.
+   Land a first extracted smallnet/document engine for native and controlled
+   WASM hosts, starting with protocol-faithful Tier 0/1 content.
+4. **Phase 3: browser/mobile envelopes**.
+   Add host-aware degradation, browser transport policies, and co-op envelope
+   decisions only after the extracted engine boundary is real.
+
 ---
 
 ## 2. The Portable MiddleNet Engine
 
-The **portable MiddleNet engine** is the WASM-compilable rendering crate that
-serves MiddleNet content across all host envelopes. It is the concrete realisation
-of the "portable web core" described in the host envelopes doc, named here for
-its scope.
+The **portable MiddleNet engine** names the target WASM-compilable rendering
+crate intended to serve MiddleNet content across all host envelopes. It is the
+concrete realisation of the "portable web core" described in the host envelopes
+doc, named here for its scope.
 
 ### 2.1 Core properties
+
+These are **target properties for phases 2 and 3**, not claims about the
+current extracted state of the Graphshell repository.
 
 - **Fully WASM-compilable** — targets `wasm32-wasip2` (native WASM runtime)
   and `wasm32-unknown-unknown` (browser, via WebGPU). Same binary everywhere.
@@ -141,6 +182,11 @@ Following Lagrange's architecture, all MiddleNet protocols parse to the same
 intermediate document model before rendering. After parsing, the renderer is
 format-agnostic — it operates on the DOM tree, not on the source format.
 
+The current repository already implements much of the **protocol-faithful
+adapter surface** behind this idea, but it does so inside the native Graphshell
+codebase rather than through the fully extracted html5ever/Stylo/Taffy/Boa
+engine stack described below.
+
 ```
 gemini://  → gemtext parser   ─┐
 gopher://  → gopher parser    ─┤→ DOM tree + CSS rules → Taffy/Stylo/WebRender
@@ -162,6 +208,7 @@ Each protocol parser maps its native semantics to DOM equivalents:
 | Nex | `<ul>` of `<a>` links (Gemini-style `=>`) + `<pre>` for files |
 | Misfin | `text/gemini` base + additional block types for message metadata |
 | RSS/Atom | `<article>` list with `<h2>`, `<p>`, `<time>`, `<a>` |
+| JSON Feed | `<article>` list with `<h2>`, `<p>`, `<time>`, `<a>` |
 | Markdown | Parsed to equivalent heading/paragraph/link/code blocks |
 
 This means styling (via CSS) and layout (via Taffy/Stylo) work identically
@@ -178,7 +225,36 @@ A per-node user preference disables conversion and renders the raw gopher
 source as monospace preformatted text. This is the same behaviour Lagrange
 exposes as "disable Gopher menu styling autodetection."
 
-### 3.3 Security preference hierarchy
+### 3.3 Faithful render plus optional assistive enrichment
+
+Graphshell's accessibility and protocol policy should be:
+
+- render Gemini, Gopher, gemtext, feeds, Markdown, and other source grammars
+  **as themselves**,
+- preserve the protocol's authored shape rather than silently replacing it with
+  richer proprietary semantics,
+- add optional assistive structure **on top** of that faithful render when it
+  materially improves orientation, comprehension, or accessibility.
+
+Simple protocols are not inherently less accessible than HTML, but they do
+push more responsibility onto the client. For Graphshell that means optional
+layers such as:
+
+- heading and outline summaries,
+- section/action inventories,
+- speech-friendly or low-distraction views,
+- alt-text and preformatted-block handling,
+- graph-aware provenance and "why is this here?" assistive summaries.
+
+This also preserves the current authored-content boundary:
+
+- **Markdown** remains Graphshell's default inward-facing authored format for
+  notes, annotations, and lightweight shared documents.
+- **HTML** may become a richer long-term authored/publication surface later,
+  but that would be an explicit architectural shift, not an accidental drift
+  caused by how browsed content is rendered.
+
+### 3.4 Security preference hierarchy
 
 The engine defaults to the secure protocol where there is meaningful overlap:
 
@@ -191,7 +267,7 @@ faithfully. Show the protocol name and plaintext nature as a neutral
 informational indicator — not an alarm. Warn on encryption *failures*
 (untrusted or expired certificates), not on encryption *absence*.
 
-### 3.4 Packaging and ownership boundary
+### 3.5 Packaging and ownership boundary
 
 The MiddleNet engine owns shared document-model adapters and rendering
 semantics. It does **not** own transport realization.
@@ -210,7 +286,10 @@ Default vs optional protocol packaging is governed by
 
 ## 4. MiddleNet Protocol Coverage
 
-The engine targets this protocol surface, in priority order:
+The long-term engine target surface is below. Current Graphshell coverage today
+is strongest in Gemini/Gopher/Finger, RSS/Atom/JSON Feed, Markdown/plain text,
+WebFinger, and the Titan/Misfin person workflows; Spartan, Nex, Guppy,
+reader-mode HTTP, and browser-host execution remain planned.
 
 ### Tier 0 — Smallnet (no JS required)
 
@@ -225,7 +304,7 @@ The engine targets this protocol surface, in priority order:
 
 ### Tier 1 — Document web (no JS required)
 
-- **RSS / Atom** — feed parsing and article list rendering
+- **RSS / Atom / JSON Feed** — feed parsing and article list rendering
 - **Static HTML** — blogs, docs, wikis, forums (HTML + CSS, no JS)
 - **Markdown / plain text** — direct rendering
 - **`data:` URIs** — inline document rendering
@@ -252,8 +331,9 @@ The engine targets this protocol surface, in priority order:
 
 ## 4. Host Envelope Roles
 
-The engine's role differs per envelope. In all cases, the same WASM binary is
-used; the host envelope determines which capabilities it is granted.
+The engine's role differs per envelope. **Only the native desktop role exists
+today.** The other envelopes are target roles once extraction, host capability
+seams, and browser-envelope policy decisions are complete.
 
 ### Native desktop
 
@@ -347,6 +427,11 @@ The existing Verso mod provides `viewer:servo` (Servo + WebRender/GL) and
 `viewer:wry` (OS webview overlay). These are native-only, process-coupled, and
 cover fullnet.
 
+Today Graphshell operates as a native desktop application with `viewer:middlenet`,
+`viewer:servo`, and `viewer:wry` routing inside the same repository. The
+portable MiddleNet engine described here is therefore still an extraction and
+host-portability project, not a completed subsystem boundary.
+
 The MiddleNet engine is a separate concern:
 
 | Property | Verso (Servo/Wry) | MiddleNet engine |
@@ -385,7 +470,8 @@ type. In extension/PWA/mobile envelopes, only the MiddleNet engine is available.
 
 ---
 
-*The MiddleNet engine is the portable answer to "what does Graphshell render when
-it has no OS webview and no full browser engine?" — smallnet protocols,
-documents, feeds, and lightly interactive pages, rendered at document fidelity,
-everywhere Graphshell runs.*
+*The MiddleNet engine is the portable answer to "what does Graphshell render
+when it has no OS webview and no full browser engine?" The current codebase
+already covers much of the protocol-faithful document lane natively; the
+remaining work is to extract, phase, and host that lane without giving up
+faithful render or the Markdown-vs-HTML authored-content boundary.*
