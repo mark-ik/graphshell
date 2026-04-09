@@ -16,7 +16,8 @@ use crate::model::graph::ClassificationStatus;
 use crate::util::CoordBridge;
 use egui::Vec2;
 use euclid::default::Point2D;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::canvas_visuals::{
     active_presentation_profile, active_view_filter_expr, evaluate_active_view_filter,
@@ -1799,35 +1800,50 @@ pub(super) fn selected_node_enrichment_summary(
 
     use super::semantic_tags::ClassificationChip;
     use crate::graph::{ClassificationProvenance, ClassificationStatus};
+    let resolution_audits = latest_identity_resolution_audits(app, selected_key);
     let display_classifications: Vec<ClassificationChip> = app
         .domain_graph()
         .node_classifications(selected_key)
         .map(|classifications| {
             classifications
                 .iter()
-                .map(|c| ClassificationChip {
-                    value: c.value.clone(),
-                    label: c.label.clone().unwrap_or_else(|| c.value.clone()),
-                    provenance: match c.provenance {
+                .map(|c| {
+                    let scheme = format!("{:?}", c.scheme);
+                    let resolution_detail = parse_resolution_chip_metadata(
+                        &c.scheme,
+                        &c.value,
+                        resolution_audits.get(&scheme),
+                    );
+                    ClassificationChip {
+                        value: c.value.clone(),
+                        label: resolution_detail
+                            .as_ref()
+                            .map(|detail| detail.label.clone())
+                            .or_else(|| c.label.clone())
+                            .unwrap_or_else(|| c.value.clone()),
+                        provenance: match c.provenance {
                         ClassificationProvenance::UserAuthored => "User",
                         ClassificationProvenance::Imported => "Imported",
                         ClassificationProvenance::InheritedFromSource => "Inherited",
                         ClassificationProvenance::RegistryDerived => "Registry",
                         ClassificationProvenance::AgentSuggested => "Agent",
                         ClassificationProvenance::CommunitySynced => "Community",
-                    },
-                    status: match c.status {
+                        },
+                        status: match c.status {
                         ClassificationStatus::Accepted => "Accepted",
                         ClassificationStatus::Suggested => "Suggested",
                         ClassificationStatus::Rejected => "Rejected",
                         ClassificationStatus::Verified => "Verified",
                         ClassificationStatus::Imported => "Imported",
-                    },
-                    confidence: c.confidence,
-                    primary: c.primary,
-                    scheme: format!("{:?}", c.scheme),
-                    node_key: selected_key,
-                    classification_value: c.value.clone(),
+                        },
+                        confidence: c.confidence,
+                        primary: c.primary,
+                        scheme: scheme.clone(),
+                        metadata: resolution_detail.as_ref().map(|detail| detail.metadata.clone()),
+                        hover_detail: resolution_detail.as_ref().map(|detail| detail.hover.clone()),
+                        node_key: selected_key,
+                        classification_value: c.value.clone(),
+                    }
                 })
                 .collect()
         })
@@ -1875,6 +1891,106 @@ pub(super) fn selected_node_enrichment_summary(
                     }
                 )
             }),
+    })
+}
+
+struct ResolutionChipMetadata {
+    label: String,
+    metadata: String,
+    hover: String,
+}
+
+fn latest_identity_resolution_audits(
+    app: &GraphBrowserApp,
+    selected_key: NodeKey,
+) -> HashMap<String, crate::middlenet::identity::IdentityResolutionAuditRecord> {
+    let Some(node) = app.domain_graph().get_node(selected_key) else {
+        return HashMap::new();
+    };
+    app.node_audit_history_entries(node.id, 32)
+        .into_iter()
+        .filter_map(|entry| match entry {
+            crate::services::persistence::types::LogEntry::AppendNodeAuditEvent { event, .. } => {
+                match event {
+                    crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                        action,
+                        detail,
+                    } => crate::middlenet::identity::parse_identity_resolution_audit_event(
+                        &action,
+                        &detail,
+                    ),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .fold(HashMap::new(), |mut acc, record| {
+            acc.entry(format!("Custom(\"resolution:{}\")", record.protocol.key()))
+                .or_insert(record);
+            acc
+        })
+}
+
+fn parse_resolution_chip_metadata(
+    scheme: &crate::model::graph::ClassificationScheme,
+    value: &str,
+    audit: Option<&crate::middlenet::identity::IdentityResolutionAuditRecord>,
+) -> Option<ResolutionChipMetadata> {
+    let protocol = match scheme {
+        crate::model::graph::ClassificationScheme::Custom(custom) => custom
+            .strip_prefix("resolution:")
+            .and_then(crate::middlenet::capabilities::MiddlenetProtocol::from_key)?,
+        _ => return None,
+    };
+    let descriptor = crate::middlenet::capabilities::descriptor(protocol);
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let (freshness, cache_state, age_label, sources, changed_label) = if let Some(audit) = audit {
+        let age_ms = now_ms.saturating_sub(audit.resolved_at_ms);
+        let age_label = if age_ms < 60_000 {
+            format!("{}s ago", age_ms / 1_000)
+        } else if age_ms < 3_600_000 {
+            format!("{}m ago", age_ms / 60_000)
+        } else if age_ms < 86_400_000 {
+            format!("{}h ago", age_ms / 3_600_000)
+        } else {
+            format!("{}d ago", age_ms / 86_400_000)
+        };
+        (
+            audit.freshness.label().to_string(),
+            match audit.cache_state {
+                crate::middlenet::identity::IdentityResolutionCacheState::Hit => "Cache hit",
+                crate::middlenet::identity::IdentityResolutionCacheState::Miss => "Cache miss",
+            }
+            .to_string(),
+            age_label,
+            if audit.source_endpoints.is_empty() {
+                "No source endpoints recorded".to_string()
+            } else {
+                format!("Sources: {}", audit.source_endpoints.join(", "))
+            },
+            audit.changed.map(|changed| if changed { "Changed" } else { "Unchanged" }.to_string()),
+        )
+    } else {
+        (
+            "No audit".to_string(),
+            "Cache unknown".to_string(),
+            "age unknown".to_string(),
+            "No source endpoints recorded".to_string(),
+            None,
+        )
+    };
+    let metadata = if let Some(changed) = changed_label {
+        format!("resolution:{} · {} · {} · {} · {}", protocol.key(), freshness, cache_state, age_label, changed)
+    } else {
+        format!("resolution:{} · {} · {} · {}", protocol.key(), freshness, cache_state, age_label)
+    };
+    Some(ResolutionChipMetadata {
+        label: format!("Resolved via {}", descriptor.display_name),
+        metadata,
+        hover: format!("Query: {}\n{}", value, sources),
     })
 }
 

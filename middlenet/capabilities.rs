@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use std::time::Duration;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ProtocolCapability {
     DiscoverIdentity,
@@ -35,6 +37,36 @@ impl MiddlenetProtocol {
             Self::Misfin => "misfin",
         }
     }
+
+    pub(crate) fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "webfinger" => Some(Self::WebFinger),
+            "nip05" => Some(Self::Nip05),
+            "matrix" => Some(Self::Matrix),
+            "activitypub" => Some(Self::ActivityPub),
+            "gemini" => Some(Self::Gemini),
+            "titan" => Some(Self::Titan),
+            "misfin" => Some(Self::Misfin),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProtocolFreshness {
+    Fresh,
+    Stale,
+    NoPolicy,
+}
+
+impl ProtocolFreshness {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Fresh => "Fresh",
+            Self::Stale => "Stale",
+            Self::NoPolicy => "No TTL",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,8 +77,14 @@ pub(crate) struct ProtocolDescriptor {
     pub(crate) identity_requirement_label: Option<&'static str>,
     pub(crate) action_name: Option<&'static str>,
     pub(crate) success_prefix: Option<&'static str>,
+    pub(crate) freshness_ttl: Option<Duration>,
     pub(crate) capabilities: &'static [ProtocolCapability],
 }
+
+const WEBFINGER_FRESHNESS_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const NIP05_FRESHNESS_TTL: Duration = Duration::from_secs(12 * 60 * 60);
+const MATRIX_FRESHNESS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const ACTIVITYPUB_FRESHNESS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 const ALL_PROTOCOLS: [MiddlenetProtocol; 7] = [
     MiddlenetProtocol::WebFinger,
@@ -67,6 +105,7 @@ pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
             identity_requirement_label: Some("WebFinger identity"),
             action_name: Some("WebFinger import"),
             success_prefix: Some("Imported WebFinger discovery"),
+            freshness_ttl: Some(WEBFINGER_FRESHNESS_TTL),
             capabilities: &[
                 ProtocolCapability::DiscoverIdentity,
                 ProtocolCapability::HttpFetch,
@@ -79,6 +118,7 @@ pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
             identity_requirement_label: Some("NIP-05 identity"),
             action_name: Some("NIP-05 resolve"),
             success_prefix: Some("Resolved NIP-05 identity"),
+            freshness_ttl: Some(NIP05_FRESHNESS_TTL),
             capabilities: &[
                 ProtocolCapability::ResolveIdentity,
                 ProtocolCapability::HttpFetch,
@@ -91,6 +131,7 @@ pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
             identity_requirement_label: Some("Matrix identity"),
             action_name: Some("Matrix resolve"),
             success_prefix: Some("Resolved Matrix profile"),
+            freshness_ttl: Some(MATRIX_FRESHNESS_TTL),
             capabilities: &[
                 ProtocolCapability::ResolveIdentity,
                 ProtocolCapability::HttpFetch,
@@ -103,6 +144,7 @@ pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
             identity_requirement_label: Some("ActivityPub actor identity"),
             action_name: Some("ActivityPub import"),
             success_prefix: Some("Imported ActivityPub actor"),
+            freshness_ttl: Some(ACTIVITYPUB_FRESHNESS_TTL),
             capabilities: &[
                 ProtocolCapability::ResolveIdentity,
                 ProtocolCapability::HttpFetch,
@@ -115,6 +157,7 @@ pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
             identity_requirement_label: Some("Gemini endpoint"),
             action_name: None,
             success_prefix: None,
+            freshness_ttl: None,
             capabilities: &[ProtocolCapability::KnownHosts],
         },
         MiddlenetProtocol::Titan => ProtocolDescriptor {
@@ -124,6 +167,7 @@ pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
             identity_requirement_label: Some("Gemini/Titan publication endpoint"),
             action_name: None,
             success_prefix: None,
+            freshness_ttl: None,
             capabilities: &[
                 ProtocolCapability::PublishArtifact,
                 ProtocolCapability::KnownHosts,
@@ -136,6 +180,7 @@ pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
             identity_requirement_label: Some("Misfin mailbox identity"),
             action_name: None,
             success_prefix: None,
+            freshness_ttl: None,
             capabilities: &[
                 ProtocolCapability::DeliverMessage,
                 ProtocolCapability::KnownHosts,
@@ -170,6 +215,22 @@ pub(crate) fn primary_protocol_for_capability(
     capability: ProtocolCapability,
 ) -> Option<MiddlenetProtocol> {
     protocols_with_capability(capability).next()
+}
+
+pub(crate) fn freshness_state(
+    protocol: MiddlenetProtocol,
+    resolved_at_ms: u64,
+    now_ms: u64,
+) -> ProtocolFreshness {
+    let Some(ttl) = descriptor(protocol).freshness_ttl else {
+        return ProtocolFreshness::NoPolicy;
+    };
+    let age_ms = now_ms.saturating_sub(resolved_at_ms);
+    if age_ms <= ttl.as_millis() as u64 {
+        ProtocolFreshness::Fresh
+    } else {
+        ProtocolFreshness::Stale
+    }
 }
 
 pub(crate) fn normalize_identity_action_resource(
@@ -237,6 +298,26 @@ mod tests {
             )
             .expect("activitypub actor should normalize"),
             "https://social.example/users/mark"
+        );
+    }
+
+    #[test]
+    fn freshness_state_respects_protocol_ttl() {
+        assert_eq!(
+            freshness_state(MiddlenetProtocol::Nip05, 1_000, 1_000 + 60_000),
+            ProtocolFreshness::Fresh
+        );
+        assert_eq!(
+            freshness_state(
+                MiddlenetProtocol::Nip05,
+                1_000,
+                1_000 + NIP05_FRESHNESS_TTL.as_millis() as u64 + 1,
+            ),
+            ProtocolFreshness::Stale
+        );
+        assert_eq!(
+            freshness_state(MiddlenetProtocol::Titan, 1_000, 9_000),
+            ProtocolFreshness::NoPolicy
         );
     }
 }

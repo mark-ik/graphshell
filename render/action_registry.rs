@@ -187,6 +187,7 @@ pub enum ActionId {
     NodeResolveNip05,
     NodeResolveMatrix,
     NodeResolveActivityPub,
+    NodeRefreshPersonIdentity,
     /// Soft-delete selected nodes → Ghost Node (Tombstone lifecycle).
     NodeMarkTombstone,
     NodeCopyUrl,
@@ -300,6 +301,7 @@ impl ActionId {
             Self::NodeResolveNip05 => "node:resolve_nip05",
             Self::NodeResolveMatrix => "node:resolve_matrix",
             Self::NodeResolveActivityPub => "node:resolve_activitypub",
+            Self::NodeRefreshPersonIdentity => "node:refresh_person_identity",
             Self::NodeMarkTombstone => "node:mark_tombstone",
             Self::NodeCopyUrl => "node:copy_url",
             Self::NodeCopyTitle => "node:copy_title",
@@ -372,6 +374,7 @@ impl ActionId {
             Self::NodeResolveNip05 => "NIP-05",
             Self::NodeResolveMatrix => "Matrix",
             Self::NodeResolveActivityPub => "ActivityPub",
+            Self::NodeRefreshPersonIdentity => "Refresh Identity",
             Self::NodeMarkTombstone => "Ghost",
             Self::NodeCopyUrl => "Copy URL",
             Self::NodeCopyTitle => "Copy Title",
@@ -444,6 +447,7 @@ impl ActionId {
             Self::NodeResolveNip05 => "Resolve NIP-05 Identity",
             Self::NodeResolveMatrix => "Resolve Matrix Profile",
             Self::NodeResolveActivityPub => "Import ActivityPub Actor",
+            Self::NodeRefreshPersonIdentity => "Refresh Person Identity",
             Self::NodeMarkTombstone => "Ghost Selected Node(s)",
             Self::NodeCopyUrl => "Copy Node URL",
             Self::NodeCopyTitle => "Copy Node Title",
@@ -521,6 +525,7 @@ impl ActionId {
             | Self::NodeResolveNip05
             | Self::NodeResolveMatrix
             | Self::NodeResolveActivityPub
+            | Self::NodeRefreshPersonIdentity
             | Self::NodeMarkTombstone => ActionCategory::Node,
             Self::EdgeConnectPair | Self::EdgeConnectBoth | Self::EdgeRemoveUser => {
                 ActionCategory::Edge
@@ -612,6 +617,7 @@ fn all_action_ids() -> &'static [ActionId] {
         NodeResolveNip05,
         NodeResolveMatrix,
         NodeResolveActivityPub,
+        NodeRefreshPersonIdentity,
         NodeMarkTombstone,
         EdgeConnectPair,
         EdgeConnectBoth,
@@ -763,6 +769,7 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (NodeResolveNip05, node_ops_enabled),
         (NodeResolveMatrix, node_ops_enabled),
         (NodeResolveActivityPub, node_ops_enabled),
+        (NodeRefreshPersonIdentity, node_ops_enabled),
         (NodeMarkTombstone, node_ops_enabled),
         // Edge
         (EdgeConnectPair, pair_enabled),
@@ -954,6 +961,12 @@ mod tests {
                 .find(|e| e.id == ActionId::NodeResolveNip05)
                 .is_some_and(|entry| !entry.enabled)
             );
+            assert!(
+                entries
+                    .iter()
+                    .find(|e| e.id == ActionId::NodeRefreshPersonIdentity)
+                    .is_some_and(|entry| !entry.enabled)
+            );
     }
 
     #[test]
@@ -990,6 +1003,12 @@ mod tests {
             entries
                 .iter()
                 .find(|e| e.id == ActionId::NodeResolveActivityPub)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeRefreshPersonIdentity)
                 .is_some_and(|entry| entry.enabled)
         );
     }
@@ -1379,6 +1398,10 @@ mod tests {
             (
                 ActionId::NodeResolveActivityPub,
                 ["Import", "ActivityPub"].as_slice(),
+            ),
+            (
+                ActionId::NodeRefreshPersonIdentity,
+                ["Refresh", "Identity"].as_slice(),
             ),
             (ActionId::NodeDelete, ["Delete", "Node"].as_slice()),
             (ActionId::NodeOpenFrame, ["Open", "Frame"].as_slice()),

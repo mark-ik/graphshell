@@ -3,13 +3,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nostr::ToBech32;
 use reqwest::header::ACCEPT;
-use serde::Deserialize;
-#[cfg(test)]
-use std::sync::{Mutex, OnceLock};
+use serde::{Deserialize, Serialize};
 
 const IDENTITY_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(10);
 const ACTIVITYPUB_ACCEPT: &str = "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\", application/ld+json;q=0.9, application/json;q=0.8";
@@ -27,6 +26,7 @@ pub(crate) struct IdentityResolutionProvenance {
     pub(crate) source_endpoints: Vec<String>,
     pub(crate) resolved_at_ms: u64,
     pub(crate) cache_state: IdentityResolutionCacheState,
+    pub(crate) freshness: crate::middlenet::capabilities::ProtocolFreshness,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +40,44 @@ struct CachedIdentityResolution {
     profile: PersonIdentityProfile,
     source_endpoints: Vec<String>,
     resolved_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdentityResolutionActionKind {
+    Resolve,
+    Refresh,
+}
+
+impl IdentityResolutionActionKind {
+    pub(crate) fn action_label(self) -> &'static str {
+        match self {
+            Self::Resolve => "Identity resolution",
+            Self::Refresh => "Identity refresh",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdentityResolutionAuditRecord {
+    pub(crate) action_kind: IdentityResolutionActionKind,
+    pub(crate) protocol: crate::middlenet::capabilities::MiddlenetProtocol,
+    pub(crate) query_resource: String,
+    pub(crate) cache_state: IdentityResolutionCacheState,
+    pub(crate) freshness: crate::middlenet::capabilities::ProtocolFreshness,
+    pub(crate) resolved_at_ms: u64,
+    pub(crate) source_endpoints: Vec<String>,
+    pub(crate) changed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IdentityResolutionAuditPayload {
+    protocol_key: String,
+    query_resource: String,
+    cache_state: String,
+    freshness: String,
+    resolved_at_ms: u64,
+    source_endpoints: Vec<String>,
+    changed: Option<bool>,
 }
 
 fn identity_resolution_cache(
@@ -102,7 +140,6 @@ pub(crate) struct PersonIdentityProfile {
     pub(crate) aliases: Vec<String>,
     pub(crate) other_endpoints: Vec<crate::middlenet::webfinger::WebFingerEndpoint>,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PersonArtifactKind {
     Post,
@@ -111,19 +148,19 @@ pub(crate) enum PersonArtifactKind {
 }
 
 impl PersonArtifactKind {
+    pub(crate) fn title_prefix(self) -> &'static str {
+        match self {
+            Self::Post => "Post",
+            Self::SharedData => "Shared data",
+            Self::MessageNotification => "Message notification",
+        }
+    }
+
     pub(crate) fn route_segment(self) -> &'static str {
         match self {
             Self::Post => "post",
             Self::SharedData => "shared-data",
             Self::MessageNotification => "message-notification",
-        }
-    }
-
-    pub(crate) fn title_prefix(self) -> &'static str {
-        match self {
-            Self::Post => "Post",
-            Self::SharedData => "Shared Data",
-            Self::MessageNotification => "Message Notification",
         }
     }
 
@@ -174,11 +211,16 @@ impl PersonIdentityProfile {
     ) -> Result<Self, String> {
         let normalized_resource = crate::middlenet::webfinger::normalize_resource(resource)?;
         let subject = crate::middlenet::webfinger::normalize_resource(&import.subject)
-            .unwrap_or_else(|_| normalized_resource.clone());
-        let mut profile = Self {
-            human_handle: subject.strip_prefix("acct:").map(str::to_string),
+            .unwrap_or_else(|_| import.subject.clone());
+        let human_handle = subject
+            .strip_prefix("acct:")
+            .map(str::to_string)
+            .or_else(|| normalized_resource.strip_prefix("acct:").map(str::to_string));
+
+        let mut profile = PersonIdentityProfile {
+            human_handle,
             webfinger_resource: Some(subject.clone()),
-            ..Self::default()
+            ..Default::default()
         };
 
         if normalized_resource != subject {
@@ -267,26 +309,17 @@ impl PersonIdentityProfile {
     }
 
     pub(crate) fn push_matrix_mxid(&mut self, input: &str) -> Result<(), String> {
-        push_unique(
-            &mut self.matrix_mxids,
-            normalize_matrix_mxid(input)?,
-        );
+        push_unique(&mut self.matrix_mxids, normalize_matrix_mxid(input)?);
         Ok(())
     }
 
     pub(crate) fn push_nostr_identity(&mut self, input: &str) -> Result<(), String> {
-        push_unique(
-            &mut self.nostr_identities,
-            normalize_nostr_identity(input)?,
-        );
+        push_unique(&mut self.nostr_identities, normalize_nostr_identity(input)?);
         Ok(())
     }
 
     pub(crate) fn push_misfin_mailbox(&mut self, input: &str) -> Result<(), String> {
-        push_unique(
-            &mut self.misfin_mailboxes,
-            normalize_misfin_mailbox(input)?,
-        );
+        push_unique(&mut self.misfin_mailboxes, normalize_misfin_mailbox(input)?);
         Ok(())
     }
 
@@ -353,27 +386,50 @@ pub(crate) fn resolve_person_identity_profile(
     protocol: crate::middlenet::capabilities::MiddlenetProtocol,
     resource: &str,
 ) -> Result<ResolvedPersonIdentityProfile, String> {
+    resolve_person_identity_profile_with_options(protocol, resource, false)
+}
+
+pub(crate) fn refresh_person_identity_profile(
+    protocol: crate::middlenet::capabilities::MiddlenetProtocol,
+    resource: &str,
+) -> Result<ResolvedPersonIdentityProfile, String> {
+    resolve_person_identity_profile_with_options(protocol, resource, true)
+}
+
+fn resolve_person_identity_profile_with_options(
+    protocol: crate::middlenet::capabilities::MiddlenetProtocol,
+    resource: &str,
+    bypass_cache: bool,
+) -> Result<ResolvedPersonIdentityProfile, String> {
     let normalized = crate::middlenet::capabilities::normalize_identity_action_resource(
         protocol,
         resource,
     )?;
 
-    if let Some(cached) = identity_resolution_cache()
-        .lock()
-        .expect("identity resolution cache lock poisoned")
-        .get(&(protocol, normalized.clone()))
-        .cloned()
-    {
-        return Ok(ResolvedPersonIdentityProfile {
-            profile: cached.profile,
-            provenance: IdentityResolutionProvenance {
+    if !bypass_cache {
+        if let Some(cached) = identity_resolution_cache()
+            .lock()
+            .expect("identity resolution cache lock poisoned")
+            .get(&(protocol, normalized.clone()))
+            .cloned()
+        {
+            let freshness = crate::middlenet::capabilities::freshness_state(
                 protocol,
-                query_resource: normalized,
-                source_endpoints: cached.source_endpoints,
-                resolved_at_ms: cached.resolved_at_ms,
-                cache_state: IdentityResolutionCacheState::Hit,
-            },
-        });
+                cached.resolved_at_ms,
+                unix_timestamp_ms_now(),
+            );
+            return Ok(ResolvedPersonIdentityProfile {
+                profile: cached.profile,
+                provenance: IdentityResolutionProvenance {
+                    protocol,
+                    query_resource: normalized,
+                    source_endpoints: cached.source_endpoints,
+                    resolved_at_ms: cached.resolved_at_ms,
+                    cache_state: IdentityResolutionCacheState::Hit,
+                    freshness,
+                },
+            });
+        }
     }
 
     let source_endpoints = identity_resolution_source_endpoints(protocol, &normalized)?;
@@ -401,6 +457,11 @@ pub(crate) fn resolve_person_identity_profile(
         }
     };
     let resolved_at_ms = unix_timestamp_ms_now();
+    let freshness = crate::middlenet::capabilities::freshness_state(
+        protocol,
+        resolved_at_ms,
+        resolved_at_ms,
+    );
     identity_resolution_cache()
         .lock()
         .expect("identity resolution cache lock poisoned")
@@ -420,7 +481,61 @@ pub(crate) fn resolve_person_identity_profile(
             source_endpoints,
             resolved_at_ms,
             cache_state: IdentityResolutionCacheState::Miss,
+            freshness,
         },
+    })
+}
+
+pub(crate) fn format_identity_resolution_audit_detail(
+    record: &IdentityResolutionAuditRecord,
+) -> String {
+    let payload = IdentityResolutionAuditPayload {
+        protocol_key: record.protocol.key().to_string(),
+        query_resource: record.query_resource.clone(),
+        cache_state: match record.cache_state {
+            IdentityResolutionCacheState::Miss => "miss".to_string(),
+            IdentityResolutionCacheState::Hit => "hit".to_string(),
+        },
+        freshness: match record.freshness {
+            crate::middlenet::capabilities::ProtocolFreshness::Fresh => "fresh".to_string(),
+            crate::middlenet::capabilities::ProtocolFreshness::Stale => "stale".to_string(),
+            crate::middlenet::capabilities::ProtocolFreshness::NoPolicy => "no-policy".to_string(),
+        },
+        resolved_at_ms: record.resolved_at_ms,
+        source_endpoints: record.source_endpoints.clone(),
+        changed: record.changed,
+    };
+    serde_json::to_string(&payload).unwrap_or_else(|_| record.query_resource.clone())
+}
+
+pub(crate) fn parse_identity_resolution_audit_event(
+    action: &str,
+    detail: &str,
+) -> Option<IdentityResolutionAuditRecord> {
+    let action_kind = match action {
+        "Identity resolution" => IdentityResolutionActionKind::Resolve,
+        "Identity refresh" => IdentityResolutionActionKind::Refresh,
+        _ => return None,
+    };
+    let payload: IdentityResolutionAuditPayload = serde_json::from_str(detail).ok()?;
+    Some(IdentityResolutionAuditRecord {
+        action_kind,
+        protocol: crate::middlenet::capabilities::MiddlenetProtocol::from_key(&payload.protocol_key)?,
+        query_resource: payload.query_resource,
+        cache_state: match payload.cache_state.as_str() {
+            "miss" => IdentityResolutionCacheState::Miss,
+            "hit" => IdentityResolutionCacheState::Hit,
+            _ => return None,
+        },
+        freshness: match payload.freshness.as_str() {
+            "fresh" => crate::middlenet::capabilities::ProtocolFreshness::Fresh,
+            "stale" => crate::middlenet::capabilities::ProtocolFreshness::Stale,
+            "no-policy" => crate::middlenet::capabilities::ProtocolFreshness::NoPolicy,
+            _ => return None,
+        },
+        resolved_at_ms: payload.resolved_at_ms,
+        source_endpoints: payload.source_endpoints,
+        changed: payload.changed,
     })
 }
 
@@ -1295,6 +1410,10 @@ mod tests {
                 )
                 .expect("first resolution should succeed");
                 assert_eq!(first.provenance.cache_state, IdentityResolutionCacheState::Miss);
+                assert_eq!(
+                    first.provenance.freshness,
+                    crate::middlenet::capabilities::ProtocolFreshness::Fresh
+                );
                 assert_eq!(first.provenance.query_resource, "mark@example.net");
             });
 

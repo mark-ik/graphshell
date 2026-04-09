@@ -47,6 +47,12 @@ struct PersonIdentityNodeSpec {
     relation: PersonIdentityRelation,
 }
 
+pub(crate) struct PersonIdentityRefreshOutcome {
+    pub(crate) person_key: NodeKey,
+    pub(crate) refreshed_protocols: usize,
+    pub(crate) changed: bool,
+}
+
 fn person_title(profile: &crate::middlenet::identity::PersonIdentityProfile) -> String {
     format!("Person: {}", webfinger_display_target(profile.preferred_label()))
 }
@@ -101,6 +107,17 @@ fn person_resolution_scheme(
         "resolution:{}",
         protocol.key()
     ))
+}
+
+fn parse_person_resolution_scheme(
+    scheme: &crate::model::graph::ClassificationScheme,
+) -> Option<crate::middlenet::capabilities::MiddlenetProtocol> {
+    match scheme {
+        crate::model::graph::ClassificationScheme::Custom(value) => value
+            .strip_prefix("resolution:")
+            .and_then(crate::middlenet::capabilities::MiddlenetProtocol::from_key),
+        _ => None,
+    }
 }
 
 fn person_identity_classification_candidates(
@@ -1114,6 +1131,51 @@ impl GraphBrowserApp {
             actor_url,
             anchor,
         )
+    }
+
+    pub(crate) fn refresh_person_identity_resolutions(
+        &mut self,
+        person_key: NodeKey,
+    ) -> Result<PersonIdentityRefreshOutcome, String> {
+        if !self.node_has_canonical_tag(person_key, TAG_PERSON) {
+            return Err("Selected node is not a person node.".to_string());
+        }
+        let queries = self.person_resolution_queries(person_key);
+        if queries.is_empty() {
+            return Err("Person node has no recorded resolution provenance.".to_string());
+        }
+
+        let before = self.person_identity_refresh_fingerprint(person_key);
+        let mut current_person = person_key;
+        for (protocol, query) in &queries {
+            let resolved = crate::middlenet::identity::refresh_person_identity_profile(*protocol, query)?;
+            current_person = self.import_person_identity_into_graph(&resolved.profile, Some(current_person))?;
+            self.record_identity_resolution_provenance(
+                current_person,
+                &resolved,
+                crate::middlenet::identity::IdentityResolutionActionKind::Refresh,
+                None,
+            );
+        }
+        let after = self.person_identity_refresh_fingerprint(current_person);
+        let changed = before != after;
+        self.log_node_audit_event(
+            current_person,
+            crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                action: "Identity refresh".to_string(),
+                detail: format!(
+                    "refreshed {} protocol(s); changed={}",
+                    queries.len(),
+                    if changed { "yes" } else { "no" }
+                ),
+            },
+        );
+
+        Ok(PersonIdentityRefreshOutcome {
+            person_key: current_person,
+            refreshed_protocols: queries.len(),
+            changed,
+        })
     }
 
     pub(crate) fn deliver_person_message_notification_via_misfin(
@@ -2635,7 +2697,12 @@ impl GraphBrowserApp {
     ) -> Result<NodeKey, String> {
         let resolved = crate::middlenet::identity::resolve_person_identity_profile(protocol, resource)?;
         let person_key = self.import_person_identity_into_graph(&resolved.profile, anchor)?;
-        self.record_identity_resolution_provenance(person_key, &resolved);
+        self.record_identity_resolution_provenance(
+            person_key,
+            &resolved,
+            crate::middlenet::identity::IdentityResolutionActionKind::Resolve,
+            None,
+        );
         Ok(person_key)
     }
 
@@ -2643,6 +2710,8 @@ impl GraphBrowserApp {
         &mut self,
         person_key: NodeKey,
         resolved: &crate::middlenet::identity::ResolvedPersonIdentityProfile,
+        action_kind: crate::middlenet::identity::IdentityResolutionActionKind,
+        changed: Option<bool>,
     ) {
         let descriptor = crate::middlenet::capabilities::descriptor(resolved.provenance.protocol);
         self.ensure_identity_classification(
@@ -2651,30 +2720,65 @@ impl GraphBrowserApp {
             resolved.provenance.query_resource.clone(),
             Some(format!("Resolved via {}", descriptor.display_name)),
         );
-
-        let cache = match resolved.provenance.cache_state {
-            crate::middlenet::identity::IdentityResolutionCacheState::Miss => "miss",
-            crate::middlenet::identity::IdentityResolutionCacheState::Hit => "hit",
-        };
-        let sources = if resolved.provenance.source_endpoints.is_empty() {
-            "none".to_string()
-        } else {
-            resolved.provenance.source_endpoints.join(", ")
-        };
         self.log_node_audit_event(
             person_key,
             crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                action: "Identity resolution".to_string(),
-                detail: format!(
-                    "protocol={}; query={}; cache={}; resolved_at_ms={}; sources={}",
-                    descriptor.display_name,
-                    resolved.provenance.query_resource,
-                    cache,
-                    resolved.provenance.resolved_at_ms,
-                    sources,
+                action: action_kind.action_label().to_string(),
+                detail: crate::middlenet::identity::format_identity_resolution_audit_detail(
+                    &crate::middlenet::identity::IdentityResolutionAuditRecord {
+                        action_kind,
+                        protocol: resolved.provenance.protocol,
+                        query_resource: resolved.provenance.query_resource.clone(),
+                        cache_state: resolved.provenance.cache_state,
+                        freshness: resolved.provenance.freshness,
+                        resolved_at_ms: resolved.provenance.resolved_at_ms,
+                        source_endpoints: resolved.provenance.source_endpoints.clone(),
+                        changed,
+                    },
                 ),
             },
         );
+    }
+
+    fn person_resolution_queries(
+        &self,
+        key: NodeKey,
+    ) -> Vec<(crate::middlenet::capabilities::MiddlenetProtocol, String)> {
+        self.domain_graph()
+            .node_classifications(key)
+            .map(|classifications| {
+                classifications
+                    .iter()
+                    .filter_map(|classification| {
+                        parse_person_resolution_scheme(&classification.scheme)
+                            .map(|protocol| (protocol, classification.value.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn person_identity_refresh_fingerprint(
+        &self,
+        key: NodeKey,
+    ) -> std::collections::BTreeSet<String> {
+        let mut fingerprint = std::collections::BTreeSet::new();
+        if let Some(classifications) = self.domain_graph().node_classifications(key) {
+            for classification in classifications {
+                fingerprint.insert(format!("c:{:?}:{}", classification.scheme, classification.value));
+            }
+        }
+        for neighbor in self.domain_graph().out_neighbors(key) {
+            if let Some(node) = self.domain_graph().get_node(neighbor) {
+                fingerprint.insert(format!("out:{}", node.url()));
+            }
+        }
+        for neighbor in self.domain_graph().in_neighbors(key) {
+            if let Some(node) = self.domain_graph().get_node(neighbor) {
+                fingerprint.insert(format!("in:{}", node.url()));
+            }
+        }
+        fingerprint
     }
 
     fn person_identity_value_for_capability(

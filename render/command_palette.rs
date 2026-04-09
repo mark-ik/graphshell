@@ -232,6 +232,7 @@ fn disabled_action_reason(
         | ActionId::NodeResolveNip05
         | ActionId::NodeResolveMatrix
         | ActionId::NodeResolveActivityPub
+        | ActionId::NodeRefreshPersonIdentity
         | ActionId::NodeCopyUrl
         | ActionId::NodeCopyTitle => {
             if !action_context.any_selected && action_context.target_node.is_none() {
@@ -1441,6 +1442,51 @@ pub(crate) fn execute_action_with_layout_target(
                 );
             }
         }
+        ActionId::NodeRefreshPersonIdentity => {
+            if let Some(key) = open_target {
+                match app.refresh_person_identity_resolutions(key) {
+                    Ok(outcome) => {
+                        let message = if outcome.changed {
+                            format!(
+                                "Refreshed {} identity resolution(s) for person (+changes)",
+                                outcome.refreshed_protocols
+                            )
+                        } else {
+                            format!(
+                                "Refreshed {} identity resolution(s) for person (no changes)",
+                                outcome.refreshed_protocols
+                            )
+                        };
+                        let detail = format!(
+                            "person={} refreshed_protocols={} changed={}",
+                            outcome.person_key.index(),
+                            outcome.refreshed_protocols,
+                            if outcome.changed { "yes" } else { "no" }
+                        );
+                        app.request_node_status_notice(
+                            outcome.person_key,
+                            crate::app::UiNotificationLevel::Success,
+                            message,
+                            Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                                action: "Identity refresh".to_string(),
+                                detail,
+                            }),
+                        );
+                    }
+                    Err(error) => {
+                        app.request_node_status_notice(
+                            key,
+                            crate::app::UiNotificationLevel::Error,
+                            format!("Identity refresh failed: {error}"),
+                            Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                                action: "Identity refresh".to_string(),
+                                detail: format!("failed: {error}"),
+                            }),
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2532,6 +2578,59 @@ mod tests {
             assert!(request
                 .message
                 .contains("Imported ActivityPub actor for https://social.example/users/mark"));
+        });
+    }
+
+    #[test]
+    fn execute_action_refresh_person_identity_queues_refresh_notice() {
+        crate::middlenet::identity::with_test_identity_resolution_cache_scope(|| {
+            let mut app = GraphBrowserApp::new_for_testing();
+            let mut profile = crate::middlenet::identity::PersonIdentityProfile {
+                human_handle: Some("mark@example.net".to_string()),
+                nip05_identifier: Some("mark@example.net".to_string()),
+                ..Default::default()
+            };
+            profile
+                .push_gemini_capsule("gemini://capsule.example/~mark")
+                .expect("capsule should normalize");
+            let person = crate::middlenet::identity::with_test_resolve_nip05_override(
+                "mark@example.net",
+                Ok(profile.clone()),
+                || {
+                    app.resolve_and_import_person_identity_from_nip05("mark@example.net", None)
+                        .expect("initial import should succeed")
+                },
+            );
+            let mut enriched = profile;
+            enriched
+                .push_profile_page("https://example.net/~mark")
+                .expect("profile page should normalize");
+            let mut intents = Vec::new();
+
+            crate::middlenet::identity::with_test_resolve_nip05_override(
+                "mark@example.net",
+                Ok(enriched),
+                || {
+                    execute_action(
+                        &mut app,
+                        ActionId::NodeRefreshPersonIdentity,
+                        None,
+                        Some(person),
+                        &mut intents,
+                        None,
+                        None,
+                    );
+                },
+            );
+
+            assert!(intents.is_empty());
+            let request = app
+                .take_pending_node_status_notice()
+                .expect("identity refresh should queue a success notice");
+            assert_eq!(request.key, person);
+            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert!(request.message.contains("Refreshed 1 identity resolution(s) for person"));
+            assert!(request.message.contains("+changes"));
         });
     }
 

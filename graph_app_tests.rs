@@ -6137,7 +6137,7 @@ fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hi
             .expect("person node should exist")
             .id;
         let audit_history = app.node_audit_history_entries(node_id, 8);
-        let resolution_details = audit_history
+        let resolution_records = audit_history
             .into_iter()
             .filter_map(|entry| match entry {
                 crate::services::persistence::types::LogEntry::AppendNodeAuditEvent { event, .. } => {
@@ -6145,22 +6145,33 @@ fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hi
                         crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
                             action,
                             detail,
-                        } if action == "Identity resolution" => Some(detail),
+                        } if action == "Identity resolution" => {
+                            crate::middlenet::identity::parse_identity_resolution_audit_event(
+                                &action,
+                                &detail,
+                            )
+                        }
                         _ => None,
                     }
                 }
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert!(resolution_details.iter().any(|detail| {
-            detail.contains("protocol=NIP-05")
-                && detail.contains("query=mark@example.net")
-                && detail.contains("cache=miss")
+        assert!(resolution_records.iter().any(|record| {
+            record.protocol == crate::middlenet::capabilities::MiddlenetProtocol::Nip05
+                && record.query_resource == "mark@example.net"
+                && record.cache_state
+                    == crate::middlenet::identity::IdentityResolutionCacheState::Miss
+                && record.action_kind
+                    == crate::middlenet::identity::IdentityResolutionActionKind::Resolve
         }));
-        assert!(resolution_details.iter().any(|detail| {
-            detail.contains("protocol=NIP-05")
-                && detail.contains("query=mark@example.net")
-                && detail.contains("cache=hit")
+        assert!(resolution_records.iter().any(|record| {
+            record.protocol == crate::middlenet::capabilities::MiddlenetProtocol::Nip05
+                && record.query_resource == "mark@example.net"
+                && record.cache_state
+                    == crate::middlenet::identity::IdentityResolutionCacheState::Hit
+                && record.action_kind
+                    == crate::middlenet::identity::IdentityResolutionActionKind::Resolve
         }));
     });
 }

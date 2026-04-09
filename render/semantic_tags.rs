@@ -43,6 +43,8 @@ pub(super) struct ClassificationChip {
     pub(super) confidence: f32,
     pub(super) primary: bool,
     pub(super) scheme: String,
+    pub(super) metadata: Option<String>,
+    pub(super) hover_detail: Option<String>,
     pub(super) node_key: crate::graph::NodeKey,
     pub(super) classification_value: String,
 }
@@ -476,12 +478,16 @@ pub(super) fn render_classification_chips(
                 let button_text = format!("{}{}", chip.label, primary_marker);
                 let button = egui::Button::new(egui::RichText::new(&button_text).small());
                 let hover = format!(
-                    "{}\nScheme: {}\nProvenance: {}\nStatus: {}\nConfidence: {:.0}%",
+                    "{}\nScheme: {}\nProvenance: {}\nStatus: {}\nConfidence: {:.0}%{}",
                     chip.value,
                     chip.scheme,
                     chip.provenance,
                     chip.status,
                     chip.confidence * 100.0,
+                    chip.hover_detail
+                        .as_ref()
+                        .map(|detail| format!("\n{detail}"))
+                        .unwrap_or_default(),
                 );
                 if ui.add(button).on_hover_text(hover).clicked() {
                     // Filter graph to nodes sharing this classification value
@@ -496,7 +502,12 @@ pub(super) fn render_classification_chips(
                     );
                 }
                 ui.label(
-                    egui::RichText::new(format!("{} · {}", chip.provenance, chip.status))
+                    egui::RichText::new(
+                        chip.metadata
+                            .as_ref()
+                            .cloned()
+                            .unwrap_or_else(|| format!("{} · {}", chip.provenance, chip.status))
+                    )
                         .small()
                         .color(theme_tokens.radial_chrome_text),
                 );

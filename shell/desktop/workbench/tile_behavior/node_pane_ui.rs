@@ -930,11 +930,34 @@ fn render_node_audit_panel(
                     ),
                     NodeAuditEventKind::ActionRecorded { action, detail } => (
                         "✦",
-                        if detail.is_empty() {
-                            action.clone()
+                        if let Some(record) = crate::middlenet::identity::parse_identity_resolution_audit_event(action, detail) {
+                            let descriptor = crate::middlenet::capabilities::descriptor(record.protocol);
+                            let cache = match record.cache_state {
+                                crate::middlenet::identity::IdentityResolutionCacheState::Hit => "cache hit",
+                                crate::middlenet::identity::IdentityResolutionCacheState::Miss => "cache miss",
+                            };
+                            let changed = record
+                                .changed
+                                .map(|value| if value { ", changed" } else { ", unchanged" })
+                                .unwrap_or("");
+                            format!(
+                                "{} {} ({}, {}{})",
+                                match record.action_kind {
+                                    crate::middlenet::identity::IdentityResolutionActionKind::Resolve => "Resolved",
+                                    crate::middlenet::identity::IdentityResolutionActionKind::Refresh => "Refreshed",
+                                },
+                                descriptor.display_name,
+                                record.freshness.label().to_ascii_lowercase(),
+                                cache,
+                                changed,
+                            )
                         } else {
-                            format!("{action}: {detail}")
-                        },
+                            if detail.is_empty() {
+                                action.clone()
+                            } else {
+                                format!("{action}: {detail}")
+                            }
+                        }
                     ),
                     NodeAuditEventKind::Tombstoned => ("🪦", "Tombstoned".to_string()),
                     NodeAuditEventKind::Restored => ("♻", "Restored".to_string()),
