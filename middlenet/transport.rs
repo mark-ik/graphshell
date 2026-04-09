@@ -292,6 +292,18 @@ pub(crate) fn titan_upload(
     titan_upload_with_store(url, content, mime, token, &known_hosts)
 }
 
+#[cfg(test)]
+pub(crate) fn titan_upload_for_tests(
+    url: &url::Url,
+    content: &[u8],
+    mime: Option<&str>,
+    token: Option<&str>,
+    known_hosts_path: &Path,
+) -> Result<TitanUploadOutcome, String> {
+    let known_hosts = GeminiKnownHostsStore::new_for_tests(known_hosts_path.to_path_buf());
+    titan_upload_with_store(url, content, mime, token, &known_hosts)
+}
+
 fn titan_upload_with_store(
     url: &url::Url,
     content: &[u8],

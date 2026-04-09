@@ -1128,6 +1128,7 @@ impl ArrangementSubKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Archive, Serialize, Deserialize)]
 #[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
 pub(crate) enum EdgeKind {
+    SemanticRelation,
     Hyperlink,
     TraversalDerived,
     UserGrouped,
@@ -1260,6 +1261,12 @@ pub struct UserGroupedData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Default)]
+pub struct SemanticData {
+    pub sub_kinds: BTreeSet<SemanticSubKind>,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Default)]
 pub struct TraversalData {
     pub traversals: Vec<Traversal>,
     pub metrics: EdgeMetrics,
@@ -1347,6 +1354,7 @@ impl ArrangementData {
 pub struct EdgePayload {
     pub(crate) families: BTreeSet<EdgeFamily>,
     pub(crate) kinds: BTreeSet<EdgeKind>,
+    pub semantic: Option<SemanticData>,
     pub user_grouped: Option<UserGroupedData>,
     pub traversal: Option<TraversalData>,
     pub arrangement: Option<ArrangementData>,
@@ -1360,6 +1368,7 @@ impl EdgePayload {
         Self {
             families: BTreeSet::new(),
             kinds: BTreeSet::new(),
+            semantic: None,
             user_grouped: None,
             traversal: None,
             arrangement: None,
@@ -1377,7 +1386,10 @@ impl EdgePayload {
 
     fn sync_family_from_kind(&mut self, kind: EdgeKind) {
         match kind {
-            EdgeKind::Hyperlink | EdgeKind::UserGrouped | EdgeKind::AgentDerived => {
+            EdgeKind::SemanticRelation
+            | EdgeKind::Hyperlink
+            | EdgeKind::UserGrouped
+            | EdgeKind::AgentDerived => {
                 let _ = self.families.insert(EdgeFamily::Semantic);
             }
             EdgeKind::TraversalDerived => {
@@ -1397,11 +1409,7 @@ impl EdgePayload {
 
     fn prune_family(&mut self, family: EdgeFamily) {
         let keep = match family {
-            EdgeFamily::Semantic => {
-                self.kinds.contains(&EdgeKind::Hyperlink)
-                    || self.kinds.contains(&EdgeKind::UserGrouped)
-                    || self.kinds.contains(&EdgeKind::AgentDerived)
-            }
+            EdgeFamily::Semantic => self.semantic.as_ref().is_some_and(|data| !data.sub_kinds.is_empty()),
             EdgeFamily::Traversal => self.kinds.contains(&EdgeKind::TraversalDerived),
             EdgeFamily::Containment => self.kinds.contains(&EdgeKind::ContainmentRelation),
             EdgeFamily::Arrangement => self.kinds.contains(&EdgeKind::ArrangementRelation),
@@ -1416,29 +1424,112 @@ impl EdgePayload {
         }
     }
 
+    fn sync_semantic_kinds(&mut self) {
+        let Some((sub_kinds, label)) = self
+            .semantic
+            .as_ref()
+            .map(|data| (data.sub_kinds.clone(), data.label.clone()))
+        else {
+            self.kinds.remove(&EdgeKind::SemanticRelation);
+            self.kinds.remove(&EdgeKind::Hyperlink);
+            self.kinds.remove(&EdgeKind::UserGrouped);
+            self.kinds.remove(&EdgeKind::AgentDerived);
+            self.user_grouped = None;
+            self.prune_family(EdgeFamily::Semantic);
+            return;
+        };
+
+        let has_generic_semantics = sub_kinds.iter().copied().any(|sub_kind| {
+            !matches!(
+                sub_kind,
+                SemanticSubKind::Hyperlink
+                    | SemanticSubKind::UserGrouped
+                    | SemanticSubKind::AgentDerived
+            )
+        });
+        if has_generic_semantics {
+            let inserted = self.kinds.insert(EdgeKind::SemanticRelation);
+            if inserted {
+                self.sync_family_from_kind(EdgeKind::SemanticRelation);
+            }
+        } else {
+            self.kinds.remove(&EdgeKind::SemanticRelation);
+        }
+
+        if sub_kinds.contains(&SemanticSubKind::Hyperlink) {
+            let inserted = self.kinds.insert(EdgeKind::Hyperlink);
+            if inserted {
+                self.sync_family_from_kind(EdgeKind::Hyperlink);
+            }
+        } else {
+            self.kinds.remove(&EdgeKind::Hyperlink);
+        }
+
+        if sub_kinds.contains(&SemanticSubKind::UserGrouped) {
+            let inserted = self.kinds.insert(EdgeKind::UserGrouped);
+            if inserted {
+                self.sync_family_from_kind(EdgeKind::UserGrouped);
+            }
+            let user_grouped = self
+                .user_grouped
+                .get_or_insert_with(UserGroupedData::default);
+            user_grouped.label = label.clone();
+        } else {
+            self.kinds.remove(&EdgeKind::UserGrouped);
+            self.user_grouped = None;
+        }
+
+        if sub_kinds.contains(&SemanticSubKind::AgentDerived) {
+            let inserted = self.kinds.insert(EdgeKind::AgentDerived);
+            if inserted {
+                self.sync_family_from_kind(EdgeKind::AgentDerived);
+            }
+        } else {
+            self.kinds.remove(&EdgeKind::AgentDerived);
+        }
+
+        self.prune_family(EdgeFamily::Semantic);
+    }
+
+    fn insert_semantic_relation(
+        &mut self,
+        sub_kind: SemanticSubKind,
+        label: Option<String>,
+    ) -> bool {
+        let data = self.semantic.get_or_insert_with(SemanticData::default);
+        let inserted = data.sub_kinds.insert(sub_kind);
+        let mut changed = inserted;
+        if let Some(label) = label
+            && data.label.as_ref() != Some(&label)
+        {
+            data.label = Some(label);
+            changed = true;
+        }
+        self.sync_semantic_kinds();
+        changed
+    }
+
+    fn remove_semantic_relation(&mut self, sub_kind: SemanticSubKind) -> bool {
+        let Some(data) = self.semantic.as_mut() else {
+            return false;
+        };
+        if !data.sub_kinds.remove(&sub_kind) {
+            return false;
+        }
+        if data.sub_kinds.is_empty() {
+            self.semantic = None;
+        }
+        self.sync_semantic_kinds();
+        true
+    }
+
     pub fn assert_relation(&mut self, assertion: EdgeAssertion) -> bool {
         match assertion {
             EdgeAssertion::Semantic {
-                sub_kind: SemanticSubKind::Hyperlink,
+                sub_kind,
                 label,
                 ..
-            } => self.add_edge_kind(EdgeType::Hyperlink, label),
-            EdgeAssertion::Semantic {
-                sub_kind: SemanticSubKind::UserGrouped,
-                label,
-                ..
-            } => self.add_edge_kind(EdgeType::UserGrouped, label),
-            EdgeAssertion::Semantic {
-                sub_kind: SemanticSubKind::AgentDerived,
-                decay_progress,
-                ..
-            } => self.add_edge_kind(
-                EdgeType::AgentDerived {
-                    decay_progress: decay_progress.unwrap_or(0.0),
-                },
-                None,
-            ),
-            EdgeAssertion::Semantic { .. } => false,
+            } => self.insert_semantic_relation(sub_kind, label),
             EdgeAssertion::Containment { sub_kind } => {
                 self.add_edge_kind(EdgeType::ContainmentRelation(sub_kind), None)
             }
@@ -1460,24 +1551,9 @@ impl EdgePayload {
 
     pub fn add_edge_kind(&mut self, edge_type: EdgeType, label: Option<String>) -> bool {
         match edge_type {
-            EdgeType::Hyperlink => {
-                let inserted = self.kinds.insert(EdgeKind::Hyperlink);
-                self.sync_family_from_kind(EdgeKind::Hyperlink);
-                inserted
-            }
+            EdgeType::Hyperlink => self.insert_semantic_relation(SemanticSubKind::Hyperlink, label),
             EdgeType::UserGrouped => {
-                let inserted = self.kinds.insert(EdgeKind::UserGrouped);
-                self.sync_family_from_kind(EdgeKind::UserGrouped);
-                let data = self
-                    .user_grouped
-                    .get_or_insert_with(UserGroupedData::default);
-                if let Some(label) = label
-                    && data.label.as_ref() != Some(&label)
-                {
-                    data.label = Some(label);
-                    return true;
-                }
-                inserted
+                self.insert_semantic_relation(SemanticSubKind::UserGrouped, label)
             }
             EdgeType::History => {
                 let inserted = self.kinds.insert(EdgeKind::TraversalDerived);
@@ -1509,9 +1585,7 @@ impl EdgePayload {
                 inserted
             }
             EdgeType::AgentDerived { .. } => {
-                let inserted = self.kinds.insert(EdgeKind::AgentDerived);
-                self.sync_family_from_kind(EdgeKind::AgentDerived);
-                inserted
+                self.insert_semantic_relation(SemanticSubKind::AgentDerived, label)
             }
         }
     }
@@ -1523,18 +1597,10 @@ impl EdgePayload {
     pub fn has_relation(&self, selector: RelationSelector) -> bool {
         match selector {
             RelationSelector::Family(family) => self.families.contains(&family),
-            RelationSelector::Semantic(SemanticSubKind::Hyperlink) => {
-                self.has_edge_type(EdgeType::Hyperlink)
-            }
-            RelationSelector::Semantic(SemanticSubKind::UserGrouped) => {
-                self.has_edge_type(EdgeType::UserGrouped)
-            }
-            RelationSelector::Semantic(SemanticSubKind::AgentDerived) => {
-                self.has_edge_type(EdgeType::AgentDerived {
-                    decay_progress: 0.0,
-                })
-            }
-            RelationSelector::Semantic(_) => false,
+            RelationSelector::Semantic(sub_kind) => self
+                .semantic
+                .as_ref()
+                .is_some_and(|data| data.sub_kinds.contains(&sub_kind)),
             RelationSelector::Containment(sub_kind) => {
                 self.has_edge_type(EdgeType::ContainmentRelation(sub_kind))
             }
@@ -1600,18 +1666,7 @@ impl EdgePayload {
                 self.remove_edge_type(EdgeType::History)
             }
             RelationSelector::Family(_) => false,
-            RelationSelector::Semantic(SemanticSubKind::Hyperlink) => {
-                self.remove_edge_type(EdgeType::Hyperlink)
-            }
-            RelationSelector::Semantic(SemanticSubKind::UserGrouped) => {
-                self.remove_edge_type(EdgeType::UserGrouped)
-            }
-            RelationSelector::Semantic(SemanticSubKind::AgentDerived) => {
-                self.remove_edge_type(EdgeType::AgentDerived {
-                    decay_progress: 0.0,
-                })
-            }
-            RelationSelector::Semantic(_) => false,
+            RelationSelector::Semantic(sub_kind) => self.remove_semantic_relation(sub_kind),
             RelationSelector::Containment(sub_kind) => {
                 self.remove_edge_type(EdgeType::ContainmentRelation(sub_kind))
             }
@@ -1649,12 +1704,8 @@ impl EdgePayload {
 
     pub fn remove_edge_kind(&mut self, edge_type: EdgeType) -> bool {
         match edge_type {
-            EdgeType::Hyperlink if self.kinds.remove(&EdgeKind::Hyperlink) => true,
-            EdgeType::UserGrouped if self.kinds.remove(&EdgeKind::UserGrouped) => {
-                self.user_grouped = None;
-                self.prune_family(EdgeFamily::Semantic);
-                true
-            }
+            EdgeType::Hyperlink => self.remove_semantic_relation(SemanticSubKind::Hyperlink),
+            EdgeType::UserGrouped => self.remove_semantic_relation(SemanticSubKind::UserGrouped),
             EdgeType::History if self.kinds.remove(&EdgeKind::TraversalDerived) => {
                 self.traversal = None;
                 self.prune_family(EdgeFamily::Traversal);
@@ -1699,9 +1750,8 @@ impl EdgePayload {
                 self.prune_family(EdgeFamily::Imported);
                 true
             }
-            EdgeType::AgentDerived { .. } if self.kinds.remove(&EdgeKind::AgentDerived) => {
-                self.prune_family(EdgeFamily::Semantic);
-                true
+            EdgeType::AgentDerived { .. } => {
+                self.remove_semantic_relation(SemanticSubKind::AgentDerived)
             }
             _ => false,
         }
@@ -1712,13 +1762,22 @@ impl EdgePayload {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.kinds.is_empty()
+        self.kinds.is_empty() && self.provenance.is_none()
     }
 
     pub fn label(&self) -> Option<&str> {
-        self.user_grouped
+        self.semantic
             .as_ref()
             .and_then(|data| data.label.as_deref())
+            .or_else(|| {
+                self.user_grouped
+            .as_ref()
+            .and_then(|data| data.label.as_deref())
+            })
+    }
+
+    pub fn semantic_data(&self) -> Option<&SemanticData> {
+        self.semantic.as_ref()
     }
 
     pub fn traversal_data(&self) -> Option<&TraversalData> {
@@ -1798,6 +1857,14 @@ pub struct EdgeView {
     pub from: NodeKey,
     pub to: NodeKey,
     pub edge_type: EdgeType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticEdgeView {
+    pub from: NodeKey,
+    pub to: NodeKey,
+    pub sub_kind: SemanticSubKind,
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2980,7 +3047,7 @@ impl Graph {
             let from = e.source();
             let to = e.target();
             let payload = e.weight();
-            let mut out = Vec::with_capacity(6);
+            let mut out = Vec::with_capacity(7);
             if payload.has_kind(EdgeKind::Hyperlink) {
                 out.push(EdgeView {
                     from,
@@ -3039,6 +3106,31 @@ impl Graph {
                 });
             }
             out.into_iter()
+        })
+    }
+
+    pub fn semantic_edges(&self) -> impl Iterator<Item = SemanticEdgeView> + '_ {
+        self.inner.edge_references().flat_map(|edge| {
+            let from = edge.source();
+            let to = edge.target();
+            let payload = edge.weight();
+            let label = payload.label().map(str::to_string);
+            payload
+                .semantic_data()
+                .map(|data| {
+                    data.sub_kinds
+                        .iter()
+                        .copied()
+                        .map(|sub_kind| SemanticEdgeView {
+                            from,
+                            to,
+                            sub_kind,
+                            label: label.clone(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+                .into_iter()
         })
     }
 
@@ -3425,23 +3517,67 @@ impl Graph {
                         })
                         .collect(),
                     semantic: Some(PersistedSemanticEdgeData {
-                        sub_kinds: [
-                            payload
-                                .has_edge_type(EdgeType::Hyperlink)
-                                .then_some(PersistedSemanticSubKind::Hyperlink),
-                            payload
-                                .has_edge_type(EdgeType::UserGrouped)
-                                .then_some(PersistedSemanticSubKind::UserGrouped),
-                            payload
-                                .has_edge_type(EdgeType::AgentDerived {
-                                    decay_progress: 0.0,
-                                })
-                                .then_some(PersistedSemanticSubKind::AgentDerived),
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .collect(),
-                        label: payload.label().map(str::to_string),
+                        sub_kinds: payload
+                            .semantic_data()
+                            .map(|data| {
+                                data.sub_kinds
+                                    .iter()
+                                    .copied()
+                                    .map(|sub_kind| match sub_kind {
+                                        SemanticSubKind::Hyperlink => {
+                                            PersistedSemanticSubKind::Hyperlink
+                                        }
+                                        SemanticSubKind::UserGrouped => {
+                                            PersistedSemanticSubKind::UserGrouped
+                                        }
+                                        SemanticSubKind::AgentDerived => {
+                                            PersistedSemanticSubKind::AgentDerived
+                                        }
+                                        SemanticSubKind::Cites => PersistedSemanticSubKind::Cites,
+                                        SemanticSubKind::Quotes => {
+                                            PersistedSemanticSubKind::Quotes
+                                        }
+                                        SemanticSubKind::Summarizes => {
+                                            PersistedSemanticSubKind::Summarizes
+                                        }
+                                        SemanticSubKind::Elaborates => {
+                                            PersistedSemanticSubKind::Elaborates
+                                        }
+                                        SemanticSubKind::ExampleOf => {
+                                            PersistedSemanticSubKind::ExampleOf
+                                        }
+                                        SemanticSubKind::Supports => {
+                                            PersistedSemanticSubKind::Supports
+                                        }
+                                        SemanticSubKind::Contradicts => {
+                                            PersistedSemanticSubKind::Contradicts
+                                        }
+                                        SemanticSubKind::Questions => {
+                                            PersistedSemanticSubKind::Questions
+                                        }
+                                        SemanticSubKind::SameEntityAs => {
+                                            PersistedSemanticSubKind::SameEntityAs
+                                        }
+                                        SemanticSubKind::DuplicateOf => {
+                                            PersistedSemanticSubKind::DuplicateOf
+                                        }
+                                        SemanticSubKind::CanonicalMirrorOf => {
+                                            PersistedSemanticSubKind::CanonicalMirrorOf
+                                        }
+                                        SemanticSubKind::DependsOn => {
+                                            PersistedSemanticSubKind::DependsOn
+                                        }
+                                        SemanticSubKind::Blocks => PersistedSemanticSubKind::Blocks,
+                                        SemanticSubKind::NextStep => {
+                                            PersistedSemanticSubKind::NextStep
+                                        }
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        label: payload
+                            .semantic_data()
+                            .and_then(|data| data.label.clone()),
                         agent_decay_progress: payload
                             .has_edge_type(EdgeType::AgentDerived {
                                 decay_progress: 0.0,
@@ -3708,15 +3844,50 @@ impl Graph {
             if let (Some(from), Some(to)) = (from_key, to_key) {
                 if let Some(semantic) = &pedge.semantic {
                     for sub_kind in &semantic.sub_kinds {
-                        let edge_type = match sub_kind {
-                            PersistedSemanticSubKind::Hyperlink => EdgeType::Hyperlink,
-                            PersistedSemanticSubKind::UserGrouped => EdgeType::UserGrouped,
-                            PersistedSemanticSubKind::AgentDerived => EdgeType::AgentDerived {
-                                decay_progress: semantic.agent_decay_progress.unwrap_or(0.0),
+                        let assertion = EdgeAssertion::Semantic {
+                            sub_kind: match sub_kind {
+                                PersistedSemanticSubKind::Hyperlink => SemanticSubKind::Hyperlink,
+                                PersistedSemanticSubKind::UserGrouped => {
+                                    SemanticSubKind::UserGrouped
+                                }
+                                PersistedSemanticSubKind::AgentDerived => {
+                                    SemanticSubKind::AgentDerived
+                                }
+                                PersistedSemanticSubKind::Cites => SemanticSubKind::Cites,
+                                PersistedSemanticSubKind::Quotes => SemanticSubKind::Quotes,
+                                PersistedSemanticSubKind::Summarizes => {
+                                    SemanticSubKind::Summarizes
+                                }
+                                PersistedSemanticSubKind::Elaborates => {
+                                    SemanticSubKind::Elaborates
+                                }
+                                PersistedSemanticSubKind::ExampleOf => {
+                                    SemanticSubKind::ExampleOf
+                                }
+                                PersistedSemanticSubKind::Supports => SemanticSubKind::Supports,
+                                PersistedSemanticSubKind::Contradicts => {
+                                    SemanticSubKind::Contradicts
+                                }
+                                PersistedSemanticSubKind::Questions => {
+                                    SemanticSubKind::Questions
+                                }
+                                PersistedSemanticSubKind::SameEntityAs => {
+                                    SemanticSubKind::SameEntityAs
+                                }
+                                PersistedSemanticSubKind::DuplicateOf => {
+                                    SemanticSubKind::DuplicateOf
+                                }
+                                PersistedSemanticSubKind::CanonicalMirrorOf => {
+                                    SemanticSubKind::CanonicalMirrorOf
+                                }
+                                PersistedSemanticSubKind::DependsOn => SemanticSubKind::DependsOn,
+                                PersistedSemanticSubKind::Blocks => SemanticSubKind::Blocks,
+                                PersistedSemanticSubKind::NextStep => SemanticSubKind::NextStep,
                             },
-                            _ => continue,
+                            label: semantic.label.clone(),
+                            decay_progress: semantic.agent_decay_progress,
                         };
-                        let _ = graph.add_edge(from, to, edge_type, semantic.label.clone());
+                        let _ = graph.assert_relation(from, to, assertion);
                     }
                 }
                 if let Some(arrangement) = &pedge.arrangement {
@@ -4186,6 +4357,38 @@ mod tests {
     }
 
     #[test]
+    fn test_assert_relation_preserves_generic_semantic_subkind() {
+        let mut graph = Graph::new();
+        let a = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let b = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
+
+        graph
+            .assert_relation(
+                a,
+                b,
+                EdgeAssertion::Semantic {
+                    sub_kind: SemanticSubKind::SameEntityAs,
+                    label: Some("identity".to_string()),
+                    decay_progress: None,
+                },
+            )
+            .expect("semantic relation should be asserted");
+
+        let edge_key = graph.find_edge_key(a, b).expect("semantic edge should exist");
+        let payload = graph.get_edge(edge_key).expect("semantic payload should exist");
+        assert!(payload.has_relation(RelationSelector::Semantic(SemanticSubKind::SameEntityAs)));
+        assert_eq!(payload.label(), Some("identity"));
+
+        let semantic_edges = graph.semantic_edges().collect::<Vec<_>>();
+        assert!(semantic_edges.iter().any(|edge| {
+            edge.from == a
+                && edge.to == b
+                && edge.sub_kind == SemanticSubKind::SameEntityAs
+                && edge.label.as_deref() == Some("identity")
+        }));
+    }
+
+    #[test]
     fn test_remove_node() {
         let mut graph = Graph::new();
         let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
@@ -4385,6 +4588,33 @@ mod tests {
         let edge_key = restored.find_edge_key(from, to).unwrap();
         let payload = restored.get_edge(edge_key).unwrap();
         assert_eq!(payload.label(), Some("tab-group"));
+    }
+
+    #[test]
+    fn test_snapshot_preserves_generic_semantic_relations() {
+        let mut graph = Graph::new();
+        let from = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let to = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+        graph
+            .assert_relation(
+                from,
+                to,
+                EdgeAssertion::Semantic {
+                    sub_kind: SemanticSubKind::CanonicalMirrorOf,
+                    label: Some("profile".to_string()),
+                    decay_progress: None,
+                },
+            )
+            .expect("canonical mirror relation should be asserted");
+
+        let snapshot = graph.to_snapshot();
+        let restored = Graph::from_snapshot(&snapshot);
+        let edge_key = restored.find_edge_key(from, to).expect("semantic edge should restore");
+        let payload = restored.get_edge(edge_key).expect("semantic payload should restore");
+        assert!(payload.has_relation(RelationSelector::Semantic(
+            SemanticSubKind::CanonicalMirrorOf,
+        )));
+        assert_eq!(payload.label(), Some("profile"));
     }
 
     #[test]

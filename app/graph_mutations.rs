@@ -58,10 +58,10 @@ fn person_identity_node_title(prefix: &str, target: &str) -> String {
 fn person_node_url(
     profile: &crate::middlenet::identity::PersonIdentityProfile,
 ) -> Result<String, String> {
-    let canonical_identity = profile
-        .canonical_identity()
+    let canonical_seed = profile
+        .canonical_seed()
         .ok_or_else(|| "Person identity profile must include at least one canonical identity.".to_string())?;
-    let person_id = uuid::Uuid::new_v5(&uuid::Uuid::nil(), canonical_identity.as_bytes());
+    let person_id = uuid::Uuid::new_v5(&uuid::Uuid::nil(), canonical_seed.as_bytes());
     Ok(
         crate::util::VersoAddress::Other {
             category: "person".to_string(),
@@ -92,6 +92,39 @@ fn person_artifact_url(person_url: &str, kind: crate::middlenet::identity::Perso
 
 fn person_identity_scheme(kind: &str) -> crate::model::graph::ClassificationScheme {
     crate::model::graph::ClassificationScheme::Custom(format!("identity:{kind}"))
+}
+
+fn person_identity_classification_candidates(
+    profile: &crate::middlenet::identity::PersonIdentityProfile,
+) -> Vec<(crate::model::graph::ClassificationScheme, String)> {
+    let mut candidates = Vec::new();
+
+    if let Some(handle) = &profile.human_handle {
+        candidates.push((person_identity_scheme("handle"), handle.clone()));
+    }
+    if let Some(resource) = &profile.webfinger_resource {
+        candidates.push((person_identity_scheme("webfinger"), resource.clone()));
+    }
+    if let Some(nip05_identifier) = &profile.nip05_identifier {
+        candidates.push((person_identity_scheme("nip05"), nip05_identifier.clone()));
+    }
+    for mxid in &profile.matrix_mxids {
+        candidates.push((person_identity_scheme("matrix"), mxid.clone()));
+    }
+    for identity in &profile.nostr_identities {
+        candidates.push((person_identity_scheme("nostr"), identity.clone()));
+    }
+    for mailbox in &profile.misfin_mailboxes {
+        candidates.push((person_identity_scheme("misfin"), mailbox.clone()));
+    }
+    for capsule in &profile.gemini_capsules {
+        candidates.push((person_identity_scheme("gemini"), capsule.clone()));
+    }
+    for actor in &profile.activitypub_actors {
+        candidates.push((person_identity_scheme("activitypub"), actor.clone()));
+    }
+
+    candidates
 }
 
 fn webfinger_display_target(target: &str) -> &str {
@@ -824,14 +857,20 @@ impl GraphBrowserApp {
         profile: &crate::middlenet::identity::PersonIdentityProfile,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let person_url = person_node_url(profile)?;
         let person_position = self.suggested_new_node_position(anchor);
-        let person_key = self.ensure_webfinger_import_node(
-            person_url,
-            person_title(profile),
-            person_position,
-            &[TAG_PERSON, TAG_IDENTITY],
-        );
+        let person_key = if let Some(existing_key) = self.find_person_node_for_identity_profile(profile) {
+            self.set_node_title_if_empty_or_url_and_log(existing_key, person_title(profile));
+            self.apply_node_tags(existing_key, &[TAG_PERSON, TAG_IDENTITY]);
+            existing_key
+        } else {
+            let person_url = person_node_url(profile)?;
+            self.ensure_webfinger_import_node(
+                person_url,
+                person_title(profile),
+                person_position,
+                &[TAG_PERSON, TAG_IDENTITY],
+            )
+        };
 
         self.ensure_person_identity_classifications(person_key, profile);
         let mut person_tags = vec![TAG_PERSON, TAG_IDENTITY];
@@ -1027,6 +1066,189 @@ impl GraphBrowserApp {
     ) -> Result<NodeKey, String> {
         let import = crate::middlenet::webfinger::fetch_import(resource)?;
         self.import_person_identity_from_webfinger(resource, &import, anchor)
+    }
+
+    pub(crate) fn resolve_and_import_person_identity_from_nip05(
+        &mut self,
+        identifier: &str,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let profile = crate::middlenet::identity::resolve_nip05_profile(identifier)?;
+        self.import_person_identity_into_graph(&profile, anchor)
+    }
+
+    pub(crate) fn resolve_and_import_person_identity_from_matrix(
+        &mut self,
+        mxid: &str,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let profile = crate::middlenet::identity::resolve_matrix_profile(mxid)?;
+        self.import_person_identity_into_graph(&profile, anchor)
+    }
+
+    pub(crate) fn resolve_and_import_person_identity_from_activitypub(
+        &mut self,
+        actor_url: &str,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let profile = crate::middlenet::identity::resolve_activitypub_actor(actor_url)?;
+        self.import_person_identity_into_graph(&profile, anchor)
+    }
+
+    pub(crate) fn deliver_person_message_notification_via_misfin(
+        &mut self,
+        person_key: NodeKey,
+        sender: &crate::middlenet::misfin::MisfinIdentitySpec,
+        message: &str,
+        anchor: Option<NodeKey>,
+    ) -> Result<(
+        NodeKey,
+        crate::middlenet::misfin::MisfinSendOutcome,
+    ), String> {
+        let mailbox = self
+            .person_identity_values(person_key, "misfin")
+            .into_iter()
+            .next()
+            .ok_or_else(|| "Person node is missing a Misfin mailbox identity.".to_string())?;
+        let mailbox_url = url::Url::parse(&mailbox)
+            .map_err(|error| format!("Invalid Misfin mailbox '{mailbox}': {error}"))?;
+        let outcome = crate::middlenet::misfin::send_message(&mailbox_url, sender, message)?;
+        let artifact_url = crate::middlenet::misfin::url_string_for_address(
+            &outcome.final_recipient,
+            None,
+        );
+        let artifact_key = self.create_person_artifact_node(
+            person_key,
+            crate::middlenet::identity::PersonArtifactKind::MessageNotification,
+            None,
+            Some(artifact_url),
+            anchor,
+        )?;
+        Ok((artifact_key, outcome))
+    }
+
+    pub(crate) fn publish_person_artifact_via_titan(
+        &mut self,
+        person_key: NodeKey,
+        kind: crate::middlenet::identity::PersonArtifactKind,
+        target_url: Option<&str>,
+        content: &[u8],
+        mime: Option<&str>,
+        token: Option<&str>,
+        title: Option<String>,
+        anchor: Option<NodeKey>,
+    ) -> Result<(
+        NodeKey,
+        crate::middlenet::transport::TitanUploadOutcome,
+    ), String> {
+        let resolved_target = if let Some(target_url) = target_url.map(str::trim).filter(|value| !value.is_empty()) {
+            target_url.to_string()
+        } else {
+            self.person_identity_values(person_key, "gemini")
+                .into_iter()
+                .next()
+                .ok_or_else(|| "Person node is missing a Gemini/Titan publication endpoint.".to_string())?
+        };
+        let parsed_target = url::Url::parse(&resolved_target)
+            .map_err(|error| format!("Invalid Titan target URL '{resolved_target}': {error}"))?;
+        let outcome = crate::middlenet::transport::titan_upload(
+            &parsed_target,
+            content,
+            mime,
+            token,
+        )?;
+        let artifact_key = self.create_person_artifact_node(
+            person_key,
+            kind,
+            title,
+            Some(resolved_target),
+            anchor,
+        )?;
+        Ok((artifact_key, outcome))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn deliver_person_message_notification_via_misfin_for_tests(
+        &mut self,
+        person_key: NodeKey,
+        sender: &crate::middlenet::misfin::MisfinIdentitySpec,
+        message: &str,
+        anchor: Option<NodeKey>,
+        known_hosts_path: &std::path::Path,
+        identity_root: &std::path::Path,
+    ) -> Result<(
+        NodeKey,
+        crate::middlenet::misfin::MisfinSendOutcome,
+    ), String> {
+        let mailbox = self
+            .person_identity_values(person_key, "misfin")
+            .into_iter()
+            .next()
+            .ok_or_else(|| "Person node is missing a Misfin mailbox identity.".to_string())?;
+        let mailbox_url = url::Url::parse(&mailbox)
+            .map_err(|error| format!("Invalid Misfin mailbox '{mailbox}': {error}"))?;
+        let outcome = crate::middlenet::misfin::send_message_for_tests(
+            &mailbox_url,
+            sender,
+            message,
+            known_hosts_path,
+            identity_root,
+        )?;
+        let artifact_url = crate::middlenet::misfin::url_string_for_address(
+            &outcome.final_recipient,
+            None,
+        );
+        let artifact_key = self.create_person_artifact_node(
+            person_key,
+            crate::middlenet::identity::PersonArtifactKind::MessageNotification,
+            None,
+            Some(artifact_url),
+            anchor,
+        )?;
+        Ok((artifact_key, outcome))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn publish_person_artifact_via_titan_for_tests(
+        &mut self,
+        person_key: NodeKey,
+        kind: crate::middlenet::identity::PersonArtifactKind,
+        target_url: Option<&str>,
+        content: &[u8],
+        mime: Option<&str>,
+        token: Option<&str>,
+        title: Option<String>,
+        anchor: Option<NodeKey>,
+        known_hosts_path: &std::path::Path,
+    ) -> Result<(
+        NodeKey,
+        crate::middlenet::transport::TitanUploadOutcome,
+    ), String> {
+        let resolved_target = if let Some(target_url) = target_url.map(str::trim).filter(|value| !value.is_empty()) {
+            target_url.to_string()
+        } else {
+            self.person_identity_values(person_key, "gemini")
+                .into_iter()
+                .next()
+                .ok_or_else(|| "Person node is missing a Gemini/Titan publication endpoint.".to_string())?
+        };
+        let parsed_target = url::Url::parse(&resolved_target)
+            .map_err(|error| format!("Invalid Titan target URL '{resolved_target}': {error}"))?;
+        let outcome = crate::middlenet::transport::titan_upload_for_tests(
+            &parsed_target,
+            content,
+            mime,
+            token,
+            known_hosts_path,
+        )?;
+        let artifact_key = self.create_person_artifact_node(
+            person_key,
+            kind,
+            title,
+            Some(resolved_target),
+            anchor,
+        )?;
+        Ok((artifact_key, outcome))
     }
 
     pub(crate) fn create_person_artifact_node(
@@ -2306,6 +2528,38 @@ impl GraphBrowserApp {
         self.set_node_title_if_empty_or_url_and_log(key, title);
         self.apply_node_tags(key, tags);
         key
+    }
+
+    fn find_person_node_for_identity_profile(
+        &self,
+        profile: &crate::middlenet::identity::PersonIdentityProfile,
+    ) -> Option<NodeKey> {
+        let identity_candidates = person_identity_classification_candidates(profile);
+        self.domain_graph().nodes().find_map(|(key, _)| {
+            if !self.node_has_canonical_tag(key, TAG_PERSON) {
+                return None;
+            }
+            let classifications = self.domain_graph().node_classifications(key)?;
+            identity_candidates.iter().any(|(scheme, value)| {
+                classifications.iter().any(|classification| {
+                    classification.scheme == *scheme && classification.value == *value
+                })
+            }).then_some(key)
+        })
+    }
+
+    fn person_identity_values(&self, key: NodeKey, kind: &str) -> Vec<String> {
+        let scheme = person_identity_scheme(kind);
+        self.domain_graph()
+            .node_classifications(key)
+            .map(|classifications| {
+                classifications
+                    .iter()
+                    .filter(|classification| classification.scheme == scheme)
+                    .map(|classification| classification.value.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn ensure_person_identity_classifications(

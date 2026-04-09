@@ -5911,6 +5911,21 @@ fn import_person_identity_into_graph_binds_supported_identities_to_person_node()
         .get_edge(grouped_edge)
         .expect("grouped edge should exist");
     assert_eq!(grouped_payload.label(), Some("webfinger"));
+    let acct_identity_edge = app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(acct_key, person_key)
+        .expect("webfinger identity should carry a semantic same-entity relation");
+    let acct_identity_payload = app
+        .workspace
+        .domain
+        .graph
+        .get_edge(acct_identity_edge)
+        .expect("same-entity payload should exist");
+    assert!(acct_identity_payload.has_relation(crate::graph::RelationSelector::Semantic(
+        crate::graph::SemanticSubKind::SameEntityAs,
+    )));
 
     let (profile_key, _) = app
         .domain_graph()
@@ -5929,6 +5944,21 @@ fn import_person_identity_into_graph_binds_supported_identities_to_person_node()
         .get_edge(profile_relation)
         .expect("profile relation should exist");
     assert_eq!(profile_payload.label(), Some("profile"));
+    let profile_identity_edge = app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(profile_key, person_key)
+        .expect("profile node should carry a canonical-mirror relation");
+    let profile_identity_payload = app
+        .workspace
+        .domain
+        .graph
+        .get_edge(profile_identity_edge)
+        .expect("canonical mirror payload should exist");
+    assert!(profile_identity_payload.has_relation(crate::graph::RelationSelector::Semantic(
+        crate::graph::SemanticSubKind::CanonicalMirrorOf,
+    )));
 
     assert_eq!(app.get_single_selected_node(), Some(person_key));
 }
@@ -6025,6 +6055,255 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
         .get_edge(grouped_edge)
         .expect("grouped edge should exist");
     assert_eq!(grouped_payload.label(), Some("message-notification"));
+}
+
+#[test]
+fn import_person_identity_into_graph_reuses_existing_person_for_resolved_identity_matches() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut activitypub_profile = crate::middlenet::identity::PersonIdentityProfile::default();
+    activitypub_profile
+        .push_activitypub_actor("https://social.example/users/mark")
+        .expect("activitypub actor should normalize");
+    let first_person = app
+        .import_person_identity_into_graph(&activitypub_profile, None)
+        .expect("initial person import should succeed");
+
+    let mut enriched_profile = crate::middlenet::identity::PersonIdentityProfile {
+        human_handle: Some("mark@example.net".to_string()),
+        ..Default::default()
+    };
+    enriched_profile
+        .set_nip05_identifier("mark@example.net")
+        .expect("nip-05 identifier should normalize");
+    enriched_profile
+        .push_activitypub_actor("https://social.example/users/mark")
+        .expect("shared activitypub actor should normalize");
+
+    let merged_person = app
+        .import_person_identity_into_graph(&enriched_profile, None)
+        .expect("enriched import should merge into the existing person");
+
+    assert_eq!(merged_person, first_person);
+    let classifications = app
+        .domain_graph()
+        .node_classifications(merged_person)
+        .expect("merged person classifications should exist");
+    assert!(classifications.iter().any(|classification| {
+        classification.scheme
+            == crate::model::graph::ClassificationScheme::Custom("identity:nip05".to_string())
+            && classification.value == "mark@example.net"
+    }));
+}
+
+#[test]
+fn deliver_person_message_notification_via_misfin_requires_bound_mailbox() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let profile = crate::middlenet::identity::PersonIdentityProfile {
+        human_handle: Some("mark@example.net".to_string()),
+        ..Default::default()
+    };
+    let person_key = app
+        .import_person_identity_into_graph(&profile, None)
+        .expect("person identity import should succeed");
+    let sender = crate::middlenet::misfin::MisfinIdentitySpec {
+        address: crate::middlenet::misfin::MisfinAddress::parse("sender@example.net")
+            .expect("sender address should parse"),
+        blurb: None,
+    };
+
+    let error = app
+        .deliver_person_message_notification_via_misfin(person_key, &sender, "hello", None)
+        .expect_err("delivery should fail without a bound mailbox");
+
+    assert!(error.contains("missing a Misfin mailbox identity"));
+}
+
+#[test]
+fn publish_person_artifact_via_titan_requires_target_or_bound_gemini_endpoint() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let profile = crate::middlenet::identity::PersonIdentityProfile {
+        human_handle: Some("mark@example.net".to_string()),
+        ..Default::default()
+    };
+    let person_key = app
+        .import_person_identity_into_graph(&profile, None)
+        .expect("person identity import should succeed");
+
+    let error = app
+        .publish_person_artifact_via_titan(
+            person_key,
+            crate::middlenet::identity::PersonArtifactKind::Post,
+            None,
+            b"hello",
+            Some("text/plain"),
+            None,
+            Some("Hello".to_string()),
+            None,
+        )
+        .expect_err("publication should fail without a target or gemini endpoint");
+
+    assert!(error.contains("missing a Gemini/Titan publication endpoint"));
+}
+
+#[test]
+fn deliver_person_message_notification_via_misfin_for_tests_creates_artifact_and_returns_outcome() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let known_hosts_path = dir.path().join("misfin_known_hosts.json");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+    let port = listener.local_addr().expect("address").port();
+
+    let server = std::thread::spawn(move || {
+        let config = build_identity_test_tls_config("localhost");
+        let (stream, _) = listener.accept().expect("accept");
+        let mut tls = rustls::StreamOwned::new(
+            rustls::ServerConnection::new(std::sync::Arc::new(config))
+                .expect("server connection"),
+            stream,
+        );
+        let mut reader = std::io::BufReader::new(tls);
+        let mut request = String::new();
+        std::io::BufRead::read_line(&mut reader, &mut request).expect("request line");
+        assert_eq!(request, "misfin://queen@localhost Hello bees\r\n");
+
+        tls = reader.into_inner();
+        std::io::Write::write_all(&mut tls, b"20 abcdef1234\r\n").expect("response");
+        std::io::Write::flush(&mut tls).expect("flush");
+    });
+
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut profile = crate::middlenet::identity::PersonIdentityProfile {
+        human_handle: Some("queen@localhost".to_string()),
+        ..Default::default()
+    };
+    profile
+        .push_misfin_mailbox(&format!("misfin://queen@localhost:{port}"))
+        .expect("misfin mailbox should normalize");
+    let person_key = app
+        .import_person_identity_into_graph(&profile, None)
+        .expect("person import should succeed");
+    let sender = crate::middlenet::misfin::MisfinIdentitySpec {
+        address: crate::middlenet::misfin::MisfinAddress::parse("worker@hive.local")
+            .expect("sender address should parse"),
+        blurb: Some("Worker Bee".to_string()),
+    };
+
+    let (artifact_key, outcome) = app
+        .deliver_person_message_notification_via_misfin_for_tests(
+            person_key,
+            &sender,
+            "Hello bees",
+            None,
+            &known_hosts_path,
+            dir.path(),
+        )
+        .expect("misfin delivery should succeed");
+
+    assert_eq!(outcome.status, 20);
+    assert_eq!(outcome.final_recipient.as_addr_spec(), "queen@localhost");
+    let artifact = app
+        .domain_graph()
+        .get_node(artifact_key)
+        .expect("message artifact should exist");
+    assert_eq!(artifact.url(), "misfin://queen@localhost");
+    assert!(artifact.title.starts_with("Message Notification from Person:"));
+    assert!(app.node_has_canonical_tag(artifact_key, "#message-notification"));
+    server.join().expect("server should finish");
+}
+
+#[test]
+fn publish_person_artifact_via_titan_for_tests_uploads_and_creates_artifact() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let known_hosts_path = dir.path().join("gemini_known_hosts.json");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+    let port = listener.local_addr().expect("address").port();
+
+    let server = std::thread::spawn(move || {
+        let config = build_identity_test_tls_config("localhost");
+        let (stream, _) = listener.accept().expect("accept");
+        let mut tls = rustls::StreamOwned::new(
+            rustls::ServerConnection::new(std::sync::Arc::new(config))
+                .expect("server connection"),
+            stream,
+        );
+        let mut reader = std::io::BufReader::new(tls);
+        let mut request = String::new();
+        std::io::BufRead::read_line(&mut reader, &mut request).expect("request line");
+        assert_eq!(
+            request,
+            format!(
+                "titan://localhost:{port}/raw/upload;size=11;mime=text/plain;token=secret\r\n"
+            )
+        );
+        let mut body = [0_u8; 11];
+        std::io::Read::read_exact(&mut reader, &mut body).expect("request body");
+        assert_eq!(&body, b"hello titan");
+
+        tls = reader.into_inner();
+        std::io::Write::write_all(&mut tls, b"20 text/gemini\r\nUpload succeeded\n")
+            .expect("response");
+        std::io::Write::flush(&mut tls).expect("flush");
+    });
+
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut profile = crate::middlenet::identity::PersonIdentityProfile {
+        human_handle: Some("mark@example.net".to_string()),
+        ..Default::default()
+    };
+    profile
+        .push_gemini_capsule(&format!("gemini://localhost:{port}/raw/upload"))
+        .expect("gemini capsule should normalize");
+    let person_key = app
+        .import_person_identity_into_graph(&profile, None)
+        .expect("person import should succeed");
+
+    let (artifact_key, outcome) = app
+        .publish_person_artifact_via_titan_for_tests(
+            person_key,
+            crate::middlenet::identity::PersonArtifactKind::SharedData,
+            None,
+            b"hello titan",
+            Some("text/plain"),
+            Some("secret"),
+            Some("Launch Notes".to_string()),
+            None,
+            &known_hosts_path,
+        )
+        .expect("titan publication should succeed");
+
+    assert_eq!(outcome.status, 20);
+    assert_eq!(outcome.meta, "text/gemini");
+    let artifact = app
+        .domain_graph()
+        .get_node(artifact_key)
+        .expect("shared-data artifact should exist");
+    assert_eq!(artifact.url(), &format!("gemini://localhost:{port}/raw/upload"));
+    assert_eq!(artifact.title, "Launch Notes");
+    assert!(app.node_has_canonical_tag(artifact_key, "#shared-data"));
+    server.join().expect("server should finish");
+}
+
+fn build_identity_test_tls_config(hostname: &str) -> rustls::ServerConfig {
+    let key_pair = rcgen::KeyPair::generate().expect("keypair should generate");
+    let mut params = rcgen::CertificateParams::new(vec![hostname.to_string()])
+        .expect("certificate params should build");
+    params.not_before = rcgen::date_time_ymd(2024, 1, 1);
+    params.not_after = rcgen::date_time_ymd(2099, 12, 31);
+
+    let cert = params
+        .self_signed(&key_pair)
+        .expect("self-signed cert should build");
+    let cert_der = rustls::pki_types::CertificateDer::from(cert.der().to_vec());
+    let key_der = rustls::pki_types::PrivateKeyDer::try_from(key_pair.serialize_der())
+        .expect("key der should convert");
+
+    rustls::ServerConfig::builder_with_provider(
+        rustls::crypto::aws_lc_rs::default_provider().into(),
+    )
+    .with_protocol_versions(rustls::DEFAULT_VERSIONS)
+    .expect("rustls default protocol versions should be valid for test server")
+    .with_no_client_auth()
+    .with_single_cert(vec![cert_der], key_der)
+    .expect("server config should build")
 }
 
 // ---------------------------------------------------------------------------

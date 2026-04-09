@@ -316,6 +316,25 @@ pub(crate) fn send_message(
     send_message_with_paths(url, sender, message, &known_hosts, identity_root.as_deref(), 0)
 }
 
+#[cfg(test)]
+pub(crate) fn send_message_for_tests(
+    url: &url::Url,
+    sender: &MisfinIdentitySpec,
+    message: &str,
+    known_hosts_path: &Path,
+    identity_root: &Path,
+) -> Result<MisfinSendOutcome, String> {
+    let known_hosts = MisfinKnownHostsStore::new_for_tests(known_hosts_path.to_path_buf());
+    send_message_with_paths(
+        url,
+        sender,
+        message,
+        &known_hosts,
+        Some(identity_root),
+        0,
+    )
+}
+
 pub(crate) fn identity_status(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
     identity_status_with_root(spec, misfin_identity_root().as_deref())
 }

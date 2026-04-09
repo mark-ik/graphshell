@@ -184,6 +184,9 @@ pub enum ActionId {
     NodeWarmSelect,
     NodeRemoveFromGraphlet,
     NodeImportWebFinger,
+    NodeResolveNip05,
+    NodeResolveMatrix,
+    NodeResolveActivityPub,
     /// Soft-delete selected nodes → Ghost Node (Tombstone lifecycle).
     NodeMarkTombstone,
     NodeCopyUrl,
@@ -294,6 +297,9 @@ impl ActionId {
             Self::NodeWarmSelect => "node:warm_select",
             Self::NodeRemoveFromGraphlet => "node:remove_from_graphlet",
             Self::NodeImportWebFinger => "node:import_webfinger",
+            Self::NodeResolveNip05 => "node:resolve_nip05",
+            Self::NodeResolveMatrix => "node:resolve_matrix",
+            Self::NodeResolveActivityPub => "node:resolve_activitypub",
             Self::NodeMarkTombstone => "node:mark_tombstone",
             Self::NodeCopyUrl => "node:copy_url",
             Self::NodeCopyTitle => "node:copy_title",
@@ -363,6 +369,9 @@ impl ActionId {
             Self::NodeWarmSelect => "Open Cold",
             Self::NodeRemoveFromGraphlet => "Leave Group",
             Self::NodeImportWebFinger => "WebFinger",
+            Self::NodeResolveNip05 => "NIP-05",
+            Self::NodeResolveMatrix => "Matrix",
+            Self::NodeResolveActivityPub => "ActivityPub",
             Self::NodeMarkTombstone => "Ghost",
             Self::NodeCopyUrl => "Copy URL",
             Self::NodeCopyTitle => "Copy Title",
@@ -432,6 +441,9 @@ impl ActionId {
             Self::NodeWarmSelect => "Open Cold Selection as Tiles",
             Self::NodeRemoveFromGraphlet => "Remove from Graphlet",
             Self::NodeImportWebFinger => "Import WebFinger Discovery",
+            Self::NodeResolveNip05 => "Resolve NIP-05 Identity",
+            Self::NodeResolveMatrix => "Resolve Matrix Profile",
+            Self::NodeResolveActivityPub => "Import ActivityPub Actor",
             Self::NodeMarkTombstone => "Ghost Selected Node(s)",
             Self::NodeCopyUrl => "Copy Node URL",
             Self::NodeCopyTitle => "Copy Node Title",
@@ -506,6 +518,9 @@ impl ActionId {
             | Self::NodeWarmSelect
             | Self::NodeRemoveFromGraphlet
             | Self::NodeImportWebFinger
+            | Self::NodeResolveNip05
+            | Self::NodeResolveMatrix
+            | Self::NodeResolveActivityPub
             | Self::NodeMarkTombstone => ActionCategory::Node,
             Self::EdgeConnectPair | Self::EdgeConnectBoth | Self::EdgeRemoveUser => {
                 ActionCategory::Edge
@@ -594,6 +609,9 @@ fn all_action_ids() -> &'static [ActionId] {
         NodeWarmSelect,
         NodeRemoveFromGraphlet,
         NodeImportWebFinger,
+        NodeResolveNip05,
+        NodeResolveMatrix,
+        NodeResolveActivityPub,
         NodeMarkTombstone,
         EdgeConnectPair,
         EdgeConnectBoth,
@@ -742,6 +760,9 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (NodeWarmSelect, node_ops_enabled),
         (NodeRemoveFromGraphlet, node_ops_enabled),
         (NodeImportWebFinger, node_ops_enabled),
+        (NodeResolveNip05, node_ops_enabled),
+        (NodeResolveMatrix, node_ops_enabled),
+        (NodeResolveActivityPub, node_ops_enabled),
         (NodeMarkTombstone, node_ops_enabled),
         // Edge
         (EdgeConnectPair, pair_enabled),
@@ -927,6 +948,12 @@ mod tests {
                 .find(|e| e.id == ActionId::NodeImportWebFinger)
                 .is_some_and(|entry| !entry.enabled)
         );
+            assert!(
+                entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeResolveNip05)
+                .is_some_and(|entry| !entry.enabled)
+            );
     }
 
     #[test]
@@ -951,6 +978,18 @@ mod tests {
             entries
                 .iter()
                 .find(|e| e.id == ActionId::NodeImportWebFinger)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeResolveMatrix)
+                .is_some_and(|entry| entry.enabled)
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeResolveActivityPub)
                 .is_some_and(|entry| entry.enabled)
         );
     }
@@ -1328,6 +1367,18 @@ mod tests {
             (
                 ActionId::NodeImportWebFinger,
                 ["Import", "WebFinger"].as_slice(),
+            ),
+            (
+                ActionId::NodeResolveNip05,
+                ["Resolve", "NIP-05"].as_slice(),
+            ),
+            (
+                ActionId::NodeResolveMatrix,
+                ["Resolve", "Matrix"].as_slice(),
+            ),
+            (
+                ActionId::NodeResolveActivityPub,
+                ["Import", "ActivityPub"].as_slice(),
             ),
             (ActionId::NodeDelete, ["Delete", "Node"].as_slice()),
             (ActionId::NodeOpenFrame, ["Open", "Frame"].as_slice()),

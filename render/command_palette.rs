@@ -229,6 +229,9 @@ fn disabled_action_reason(
         | ActionId::NodeWarmSelect
         | ActionId::NodeRemoveFromGraphlet
         | ActionId::NodeImportWebFinger
+        | ActionId::NodeResolveNip05
+        | ActionId::NodeResolveMatrix
+        | ActionId::NodeResolveActivityPub
         | ActionId::NodeCopyUrl
         | ActionId::NodeCopyTitle => {
             if !action_context.any_selected && action_context.target_node.is_none() {
@@ -807,6 +810,82 @@ pub(crate) fn execute_action(
     );
 }
 
+fn execute_identity_import_action<Normalize, Execute>(
+    app: &mut GraphBrowserApp,
+    key: NodeKey,
+    action_name: &str,
+    success_prefix: &str,
+    normalize_resource: Normalize,
+    execute: Execute,
+) where
+    Normalize: FnOnce(String) -> String,
+    Execute: FnOnce(&mut GraphBrowserApp, &str, Option<NodeKey>) -> Result<NodeKey, String>,
+{
+    let raw_resource = app
+        .domain_graph()
+        .get_node(key)
+        .map(|node| node.url().trim().to_string())
+        .unwrap_or_default();
+
+    if raw_resource.is_empty() {
+        app.request_node_status_notice(
+            key,
+            crate::app::UiNotificationLevel::Error,
+            format!("{action_name} failed: node URL is empty"),
+            Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                action: action_name.to_string(),
+                detail: "failed: node URL is empty".to_string(),
+            }),
+        );
+        return;
+    }
+
+    let resource = normalize_resource(raw_resource);
+    let node_count_before = app.domain_graph().node_count();
+    match execute(app, &resource, Some(key)) {
+        Ok(subject_key) => {
+            let node_count_after = app.domain_graph().node_count();
+            let new_nodes = node_count_after.saturating_sub(node_count_before);
+            let subject_url = app
+                .domain_graph()
+                .get_node(subject_key)
+                .map(|node| node.url().to_string())
+                .unwrap_or_else(|| resource.clone());
+            let message = if new_nodes == 0 {
+                format!("{success_prefix} for {resource}")
+            } else {
+                format!("{success_prefix} for {resource} (+{new_nodes} node(s))")
+            };
+            let detail = if new_nodes == 0 {
+                format!("{} -> {}", resource, subject_url)
+            } else {
+                format!("{} -> {}; +{} node(s)", resource, subject_url, new_nodes)
+            };
+            app.request_node_status_notice(
+                subject_key,
+                crate::app::UiNotificationLevel::Success,
+                message,
+                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                    action: action_name.to_string(),
+                    detail,
+                }),
+            );
+        }
+        Err(error) => {
+            let detail = format!("failed: {}: {}", resource, error);
+            app.request_node_status_notice(
+                key,
+                crate::app::UiNotificationLevel::Error,
+                format!("{action_name} failed for {}: {}", resource, error),
+                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                    action: action_name.to_string(),
+                    detail,
+                }),
+            );
+        }
+    }
+}
+
 pub(crate) fn execute_action_with_layout_target(
     app: &mut GraphBrowserApp,
     action_id: ActionId,
@@ -1296,69 +1375,58 @@ pub(crate) fn execute_action_with_layout_target(
         }
         ActionId::NodeImportWebFinger => {
             if let Some(key) = open_target {
-                let resource = app
-                    .domain_graph()
-                    .get_node(key)
-                    .map(|node| node.url().trim().to_string())
-                    .unwrap_or_default();
-
-                if resource.is_empty() {
-                    app.request_node_status_notice(
-                        key,
-                        crate::app::UiNotificationLevel::Error,
-                        "WebFinger import failed: node URL is empty",
-                        Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                            action: "WebFinger import".to_string(),
-                            detail: "failed: node URL is empty".to_string(),
-                        }),
-                    );
-                } else {
-                    let node_count_before = app.domain_graph().node_count();
-                    match app.fetch_and_import_person_identity_from_webfinger(&resource, Some(key)) {
-                        Ok(subject_key) => {
-                            let node_count_after = app.domain_graph().node_count();
-                            let new_nodes = node_count_after.saturating_sub(node_count_before);
-                            let subject_url = app
-                                .domain_graph()
-                                .get_node(subject_key)
-                                .map(|node| node.url().to_string())
-                                .unwrap_or_else(|| resource.clone());
-                            let message = if new_nodes == 0 {
-                                format!("Imported WebFinger discovery for {resource}")
-                            } else {
-                                format!(
-                                    "Imported WebFinger discovery for {resource} (+{new_nodes} node(s))"
-                                )
-                            };
-                            let detail = if new_nodes == 0 {
-                                format!("{} -> {}", resource, subject_url)
-                            } else {
-                                format!("{} -> {}; +{} node(s)", resource, subject_url, new_nodes)
-                            };
-                            app.request_node_status_notice(
-                                subject_key,
-                                crate::app::UiNotificationLevel::Success,
-                                message,
-                                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                                    action: "WebFinger import".to_string(),
-                                    detail,
-                                }),
-                            );
-                        }
-                        Err(error) => {
-                            let detail = format!("failed: {}: {}", resource, error);
-                            app.request_node_status_notice(
-                                key,
-                                crate::app::UiNotificationLevel::Error,
-                                format!("WebFinger import failed for {}: {}", resource, error),
-                                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                                    action: "WebFinger import".to_string(),
-                                    detail,
-                                }),
-                            );
-                        }
-                    }
-                }
+                execute_identity_import_action(
+                    app,
+                    key,
+                    "WebFinger import",
+                    "Imported WebFinger discovery",
+                    |resource| resource,
+                    |app, resource, anchor| {
+                        app.fetch_and_import_person_identity_from_webfinger(resource, anchor)
+                    },
+                );
+            }
+        }
+        ActionId::NodeResolveNip05 => {
+            if let Some(key) = open_target {
+                execute_identity_import_action(
+                    app,
+                    key,
+                    "NIP-05 resolve",
+                    "Resolved NIP-05 identity",
+                    |resource| resource.strip_prefix("nip05:").unwrap_or(&resource).to_string(),
+                    |app, resource, anchor| {
+                        app.resolve_and_import_person_identity_from_nip05(resource, anchor)
+                    },
+                );
+            }
+        }
+        ActionId::NodeResolveMatrix => {
+            if let Some(key) = open_target {
+                execute_identity_import_action(
+                    app,
+                    key,
+                    "Matrix resolve",
+                    "Resolved Matrix profile",
+                    |resource| resource.strip_prefix("mxid:").unwrap_or(&resource).to_string(),
+                    |app, resource, anchor| {
+                        app.resolve_and_import_person_identity_from_matrix(resource, anchor)
+                    },
+                );
+            }
+        }
+        ActionId::NodeResolveActivityPub => {
+            if let Some(key) = open_target {
+                execute_identity_import_action(
+                    app,
+                    key,
+                    "ActivityPub import",
+                    "Imported ActivityPub actor",
+                    |resource| resource,
+                    |app, resource, anchor| {
+                        app.resolve_and_import_person_identity_from_activitypub(resource, anchor)
+                    },
+                );
             }
         }
     }
@@ -2288,6 +2356,163 @@ mod tests {
                 && detail.contains("https://social.example/users/mark -> verso://person/")
                 && detail.contains("+4 node(s)")
         ));
+    }
+
+    #[test]
+    fn execute_action_resolve_nip05_imports_person_and_queues_success_notice() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "nip05:mark@example.net".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let mut intents = Vec::new();
+        let profile = crate::middlenet::identity::PersonIdentityProfile {
+            human_handle: Some("mark@example.net".to_string()),
+            nip05_identifier: Some("mark@example.net".to_string()),
+            nostr_identities: vec!["nostr:npub1example".to_string()],
+            ..Default::default()
+        };
+
+        crate::middlenet::identity::with_test_resolve_nip05_override(
+            "mark@example.net",
+            Ok(profile),
+            || {
+                execute_action(
+                    &mut app,
+                    ActionId::NodeResolveNip05,
+                    None,
+                    Some(node),
+                    &mut intents,
+                    None,
+                    None,
+                );
+            },
+        );
+
+        assert!(intents.is_empty());
+        let subject_key = app
+            .get_single_selected_node()
+            .expect("person node should be selected after NIP-05 resolve");
+        let subject_node = app
+            .domain_graph()
+            .get_node(subject_key)
+            .expect("person node should exist");
+        assert!(subject_node.url().starts_with("verso://person/"));
+        assert_eq!(subject_node.title, "Person: mark@example.net");
+        let request = app
+            .take_pending_node_status_notice()
+            .expect("nip-05 resolve should queue a success notice");
+        assert_eq!(request.key, subject_key);
+        assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+        assert!(request.message.contains("Resolved NIP-05 identity for mark@example.net"));
+        assert!(matches!(
+            request.audit_event,
+            Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                action,
+                detail,
+            }) if action == "NIP-05 resolve"
+                && detail.contains("mark@example.net -> verso://person/")
+        ));
+    }
+
+    #[test]
+    fn execute_action_resolve_matrix_imports_person_and_queues_success_notice() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "mxid:@mark:matrix.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let mut intents = Vec::new();
+        let mut profile = crate::middlenet::identity::PersonIdentityProfile {
+            human_handle: Some("mark@matrix.example".to_string()),
+            ..Default::default()
+        };
+        profile
+            .push_matrix_mxid("@mark:matrix.example")
+            .expect("matrix mxid should normalize");
+
+        crate::middlenet::identity::with_test_resolve_matrix_override(
+            "@mark:matrix.example",
+            Ok(profile),
+            || {
+                execute_action(
+                    &mut app,
+                    ActionId::NodeResolveMatrix,
+                    None,
+                    Some(node),
+                    &mut intents,
+                    None,
+                    None,
+                );
+            },
+        );
+
+        assert!(intents.is_empty());
+        let subject_key = app
+            .get_single_selected_node()
+            .expect("person node should be selected after Matrix resolve");
+        let subject_node = app
+            .domain_graph()
+            .get_node(subject_key)
+            .expect("person node should exist");
+        assert!(subject_node.url().starts_with("verso://person/"));
+        assert_eq!(subject_node.title, "Person: mark@matrix.example");
+        let request = app
+            .take_pending_node_status_notice()
+            .expect("matrix resolve should queue a success notice");
+        assert_eq!(request.key, subject_key);
+        assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+        assert!(request.message.contains("Resolved Matrix profile for @mark:matrix.example"));
+    }
+
+    #[test]
+    fn execute_action_import_activitypub_imports_person_and_queues_success_notice() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let resource = "https://social.example/users/mark";
+        let node = app.add_node_and_sync(
+            resource.to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let mut intents = Vec::new();
+        let mut profile = crate::middlenet::identity::PersonIdentityProfile {
+            human_handle: Some("mark@social.example".to_string()),
+            ..Default::default()
+        };
+        profile
+            .push_activitypub_actor(resource)
+            .expect("activitypub actor should normalize");
+        profile
+            .push_profile_page("https://social.example/@mark")
+            .expect("profile page should normalize");
+
+        crate::middlenet::identity::with_test_resolve_activitypub_override(
+            resource,
+            Ok(profile),
+            || {
+                execute_action(
+                    &mut app,
+                    ActionId::NodeResolveActivityPub,
+                    None,
+                    Some(node),
+                    &mut intents,
+                    None,
+                    None,
+                );
+            },
+        );
+
+        assert!(intents.is_empty());
+        let subject_key = app
+            .get_single_selected_node()
+            .expect("person node should be selected after ActivityPub import");
+        let request = app
+            .take_pending_node_status_notice()
+            .expect("activitypub import should queue a success notice");
+        assert_eq!(request.key, subject_key);
+        assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+        assert!(request
+            .message
+            .contains("Imported ActivityPub actor for https://social.example/users/mark"));
     }
 
     #[test]
