@@ -1105,11 +1105,22 @@ impl GraphBrowserApp {
         NodeKey,
         crate::middlenet::misfin::MisfinSendOutcome,
     ), String> {
+        let protocol = crate::middlenet::capabilities::primary_protocol_for_capability(
+            crate::middlenet::capabilities::ProtocolCapability::DeliverMessage,
+        )
+        .ok_or_else(|| "No Middlenet delivery protocol is configured.".to_string())?;
         let mailbox = self
-            .person_identity_values(person_key, "misfin")
-            .into_iter()
-            .next()
-            .ok_or_else(|| "Person node is missing a Misfin mailbox identity.".to_string())?;
+            .person_identity_value_for_capability(
+                person_key,
+                crate::middlenet::capabilities::ProtocolCapability::DeliverMessage,
+            )
+            .map(|(_, value)| value)
+            .ok_or_else(|| {
+                let label = crate::middlenet::capabilities::descriptor(protocol)
+                    .identity_requirement_label
+                    .unwrap_or("delivery identity");
+                format!("Person node is missing a {label}.")
+            })?;
         let mailbox_url = url::Url::parse(&mailbox)
             .map_err(|error| format!("Invalid Misfin mailbox '{mailbox}': {error}"))?;
         let outcome = crate::middlenet::misfin::send_message(&mailbox_url, sender, message)?;
@@ -1144,10 +1155,21 @@ impl GraphBrowserApp {
         let resolved_target = if let Some(target_url) = target_url.map(str::trim).filter(|value| !value.is_empty()) {
             target_url.to_string()
         } else {
-            self.person_identity_values(person_key, "gemini")
-                .into_iter()
-                .next()
-                .ok_or_else(|| "Person node is missing a Gemini/Titan publication endpoint.".to_string())?
+            let protocol = crate::middlenet::capabilities::primary_protocol_for_capability(
+                crate::middlenet::capabilities::ProtocolCapability::PublishArtifact,
+            )
+            .ok_or_else(|| "No Middlenet publication protocol is configured.".to_string())?;
+            self.person_identity_value_for_capability(
+                person_key,
+                crate::middlenet::capabilities::ProtocolCapability::PublishArtifact,
+            )
+            .map(|(_, value)| value)
+            .ok_or_else(|| {
+                let label = crate::middlenet::capabilities::descriptor(protocol)
+                    .identity_requirement_label
+                    .unwrap_or("publication endpoint");
+                format!("Person node is missing a {label}.")
+            })?
         };
         let parsed_target = url::Url::parse(&resolved_target)
             .map_err(|error| format!("Invalid Titan target URL '{resolved_target}': {error}"))?;
@@ -1180,11 +1202,22 @@ impl GraphBrowserApp {
         NodeKey,
         crate::middlenet::misfin::MisfinSendOutcome,
     ), String> {
+        let protocol = crate::middlenet::capabilities::primary_protocol_for_capability(
+            crate::middlenet::capabilities::ProtocolCapability::DeliverMessage,
+        )
+        .ok_or_else(|| "No Middlenet delivery protocol is configured.".to_string())?;
         let mailbox = self
-            .person_identity_values(person_key, "misfin")
-            .into_iter()
-            .next()
-            .ok_or_else(|| "Person node is missing a Misfin mailbox identity.".to_string())?;
+            .person_identity_value_for_capability(
+                person_key,
+                crate::middlenet::capabilities::ProtocolCapability::DeliverMessage,
+            )
+            .map(|(_, value)| value)
+            .ok_or_else(|| {
+                let label = crate::middlenet::capabilities::descriptor(protocol)
+                    .identity_requirement_label
+                    .unwrap_or("delivery identity");
+                format!("Person node is missing a {label}.")
+            })?;
         let mailbox_url = url::Url::parse(&mailbox)
             .map_err(|error| format!("Invalid Misfin mailbox '{mailbox}': {error}"))?;
         let outcome = crate::middlenet::misfin::send_message_for_tests(
@@ -1227,10 +1260,21 @@ impl GraphBrowserApp {
         let resolved_target = if let Some(target_url) = target_url.map(str::trim).filter(|value| !value.is_empty()) {
             target_url.to_string()
         } else {
-            self.person_identity_values(person_key, "gemini")
-                .into_iter()
-                .next()
-                .ok_or_else(|| "Person node is missing a Gemini/Titan publication endpoint.".to_string())?
+            let protocol = crate::middlenet::capabilities::primary_protocol_for_capability(
+                crate::middlenet::capabilities::ProtocolCapability::PublishArtifact,
+            )
+            .ok_or_else(|| "No Middlenet publication protocol is configured.".to_string())?;
+            self.person_identity_value_for_capability(
+                person_key,
+                crate::middlenet::capabilities::ProtocolCapability::PublishArtifact,
+            )
+            .map(|(_, value)| value)
+            .ok_or_else(|| {
+                let label = crate::middlenet::capabilities::descriptor(protocol)
+                    .identity_requirement_label
+                    .unwrap_or("publication endpoint");
+                format!("Person node is missing a {label}.")
+            })?
         };
         let parsed_target = url::Url::parse(&resolved_target)
             .map_err(|error| format!("Invalid Titan target URL '{resolved_target}': {error}"))?;
@@ -2560,6 +2604,23 @@ impl GraphBrowserApp {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    fn person_identity_value_for_capability(
+        &self,
+        key: NodeKey,
+        capability: crate::middlenet::capabilities::ProtocolCapability,
+    ) -> Option<(crate::middlenet::capabilities::MiddlenetProtocol, String)> {
+        crate::middlenet::capabilities::protocols_with_capability(capability).find_map(
+            |protocol| {
+                let kind = crate::middlenet::capabilities::descriptor(protocol)
+                    .identity_classification_kind?;
+                self.person_identity_values(key, kind)
+                    .into_iter()
+                    .next()
+                    .map(|value| (protocol, value))
+            },
+        )
     }
 
     fn ensure_person_identity_classifications(

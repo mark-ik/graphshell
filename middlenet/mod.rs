@@ -11,6 +11,7 @@
 
 pub(crate) mod document;
 pub(crate) mod adapters;
+pub(crate) mod capabilities;
 pub(crate) mod engine;
 pub(crate) mod identity;
 pub(crate) mod misfin;

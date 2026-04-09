@@ -810,17 +810,18 @@ pub(crate) fn execute_action(
     );
 }
 
-fn execute_identity_import_action<Normalize, Execute>(
+fn execute_identity_import_action<Execute>(
     app: &mut GraphBrowserApp,
     key: NodeKey,
-    action_name: &str,
-    success_prefix: &str,
-    normalize_resource: Normalize,
+    protocol: crate::middlenet::capabilities::MiddlenetProtocol,
     execute: Execute,
 ) where
-    Normalize: FnOnce(String) -> String,
     Execute: FnOnce(&mut GraphBrowserApp, &str, Option<NodeKey>) -> Result<NodeKey, String>,
 {
+    let descriptor = crate::middlenet::capabilities::descriptor(protocol);
+    let action_name = descriptor
+        .action_name
+        .unwrap_or(descriptor.display_name);
     let raw_resource = app
         .domain_graph()
         .get_node(key)
@@ -840,7 +841,25 @@ fn execute_identity_import_action<Normalize, Execute>(
         return;
     }
 
-    let resource = normalize_resource(raw_resource);
+    let resource = match crate::middlenet::capabilities::normalize_identity_action_resource(
+        protocol,
+        &raw_resource,
+    ) {
+        Ok(resource) => resource,
+        Err(error) => {
+            let detail = format!("failed: {}: {}", raw_resource, error);
+            app.request_node_status_notice(
+                key,
+                crate::app::UiNotificationLevel::Error,
+                format!("{action_name} failed for {}: {}", raw_resource, error),
+                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                    action: action_name.to_string(),
+                    detail,
+                }),
+            );
+            return;
+        }
+    };
     let node_count_before = app.domain_graph().node_count();
     match execute(app, &resource, Some(key)) {
         Ok(subject_key) => {
@@ -851,6 +870,7 @@ fn execute_identity_import_action<Normalize, Execute>(
                 .get_node(subject_key)
                 .map(|node| node.url().to_string())
                 .unwrap_or_else(|| resource.clone());
+            let success_prefix = descriptor.success_prefix.unwrap_or(action_name);
             let message = if new_nodes == 0 {
                 format!("{success_prefix} for {resource}")
             } else {
@@ -1378,9 +1398,7 @@ pub(crate) fn execute_action_with_layout_target(
                 execute_identity_import_action(
                     app,
                     key,
-                    "WebFinger import",
-                    "Imported WebFinger discovery",
-                    |resource| resource,
+                    crate::middlenet::capabilities::MiddlenetProtocol::WebFinger,
                     |app, resource, anchor| {
                         app.fetch_and_import_person_identity_from_webfinger(resource, anchor)
                     },
@@ -1392,9 +1410,7 @@ pub(crate) fn execute_action_with_layout_target(
                 execute_identity_import_action(
                     app,
                     key,
-                    "NIP-05 resolve",
-                    "Resolved NIP-05 identity",
-                    |resource| resource.strip_prefix("nip05:").unwrap_or(&resource).to_string(),
+                    crate::middlenet::capabilities::MiddlenetProtocol::Nip05,
                     |app, resource, anchor| {
                         app.resolve_and_import_person_identity_from_nip05(resource, anchor)
                     },
@@ -1406,9 +1422,7 @@ pub(crate) fn execute_action_with_layout_target(
                 execute_identity_import_action(
                     app,
                     key,
-                    "Matrix resolve",
-                    "Resolved Matrix profile",
-                    |resource| resource.strip_prefix("mxid:").unwrap_or(&resource).to_string(),
+                    crate::middlenet::capabilities::MiddlenetProtocol::Matrix,
                     |app, resource, anchor| {
                         app.resolve_and_import_person_identity_from_matrix(resource, anchor)
                     },
@@ -1420,9 +1434,7 @@ pub(crate) fn execute_action_with_layout_target(
                 execute_identity_import_action(
                     app,
                     key,
-                    "ActivityPub import",
-                    "Imported ActivityPub actor",
-                    |resource| resource,
+                    crate::middlenet::capabilities::MiddlenetProtocol::ActivityPub,
                     |app, resource, anchor| {
                         app.resolve_and_import_person_identity_from_activitypub(resource, anchor)
                     },

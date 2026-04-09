@@ -746,6 +746,51 @@ The better question is:
 
 That keeps the protocol landscape useful instead of overwhelming.
 
+### 10.11 Follow-on implementation rule: protocol capabilities first
+
+Once Graphshell supports more than a handful of protocols, per-protocol routing
+logic starts to leak everywhere:
+
+- action dispatch,
+- trust handling,
+- identity import,
+- publication,
+- message delivery,
+- and endpoint selection from person nodes.
+
+The next architectural step should be a **protocol capability model** that
+answers questions like:
+
+- can this protocol discover an identity?
+- can it resolve a profile?
+- can it publish an artifact?
+- can it deliver a message?
+- does it depend on HTTP fetch or a known-hosts trust store?
+
+This is more important than it sounds. Without a capability layer, Graphshell
+keeps asking whether a flow is WebFinger, Matrix, ActivityPub, Titan, or
+Misfin. With a capability layer, Graphshell can instead ask what the user is
+trying to do and then choose the protocol(s) that satisfy that job.
+
+That shift matters for four reasons:
+
+- it reduces stringly-typed protocol branching in app code,
+- it gives future protocols a stable slot in the architecture,
+- it makes trust/caching policy easier to share across protocols,
+- and it keeps the product model organized by user job rather than by protocol
+  trivia.
+
+The first practical slice should stay narrow:
+
+- define a small descriptor table for the current Middlenet protocols,
+- record identity/discovery, mutation, and trust-related capabilities,
+- route identity-import normalization through that table,
+- and use capability-based endpoint selection when person nodes publish or
+  deliver through protocol-specific lanes.
+
+That is enough to establish the abstraction without pretending the whole
+protocol stack has already been generalized.
+
 ---
 
 ## 11. Suggested Near-Term Product Framing

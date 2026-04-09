@@ -303,6 +303,10 @@ pub(crate) fn normalize_matrix_mxid(input: &str) -> Result<String, String> {
     Ok(format!("@{}:{}", localpart.trim(), server.trim().to_ascii_lowercase()))
 }
 
+pub(crate) fn normalize_activitypub_actor_url(input: &str) -> Result<String, String> {
+    normalize_httpish_url(input, "ActivityPub actor")
+}
+
 pub(crate) fn normalize_nostr_identity(input: &str) -> Result<String, String> {
     let trimmed = input.trim();
     let identity = trimmed.strip_prefix("nostr:").unwrap_or(trimmed).trim();
@@ -469,7 +473,7 @@ pub(crate) fn resolve_activitypub_actor(actor_url: &str) -> Result<PersonIdentit
         }
     }
 
-    let actor_url = normalize_httpish_url(actor_url, "ActivityPub actor")?;
+    let actor_url = normalize_activitypub_actor_url(actor_url)?;
     let client = identity_http_client()?;
     let actor_endpoint = url::Url::parse(&actor_url)
         .map_err(|error| format!("Invalid ActivityPub actor URL '{actor_url}': {error}"))?;
