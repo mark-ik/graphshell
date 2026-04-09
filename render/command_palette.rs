@@ -2278,253 +2278,261 @@ mod tests {
 
     #[test]
     fn execute_action_webfinger_import_imports_graph_and_queues_success_notice() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let resource = "https://social.example/users/mark";
-        let node = app.add_node_and_sync(
-            resource.to_string(),
-            euclid::default::Point2D::new(0.0, 0.0),
-        );
-        let mut intents = Vec::new();
-        let import = crate::middlenet::webfinger::WebFingerImport {
-            subject: "acct:mark@social.example".to_string(),
-            aliases: Vec::new(),
-            profile_pages: vec!["https://social.example/profile".to_string()],
-            gemini_capsules: vec!["gemini://social.example/~mark".to_string()],
-            gopher_resources: Vec::new(),
-            misfin_mailboxes: Vec::new(),
-            nostr_identities: Vec::new(),
-            activitypub_actors: Vec::new(),
-            other_endpoints: Vec::new(),
-        };
+        crate::middlenet::identity::with_test_identity_resolution_cache_scope(|| {
+            let mut app = GraphBrowserApp::new_for_testing();
+            let resource = "https://social.example/users/mark";
+            let node = app.add_node_and_sync(
+                resource.to_string(),
+                euclid::default::Point2D::new(0.0, 0.0),
+            );
+            let mut intents = Vec::new();
+            let import = crate::middlenet::webfinger::WebFingerImport {
+                subject: "acct:mark@social.example".to_string(),
+                aliases: Vec::new(),
+                profile_pages: vec!["https://social.example/profile".to_string()],
+                gemini_capsules: vec!["gemini://social.example/~mark".to_string()],
+                gopher_resources: Vec::new(),
+                misfin_mailboxes: Vec::new(),
+                nostr_identities: Vec::new(),
+                activitypub_actors: Vec::new(),
+                other_endpoints: Vec::new(),
+            };
 
-        crate::middlenet::webfinger::with_test_fetch_import_override(
-            resource,
-            Ok(import),
-            || {
-                execute_action(
-                    &mut app,
-                    ActionId::NodeImportWebFinger,
-                    None,
-                    Some(node),
-                    &mut intents,
-                    None,
-                    None,
-                );
-            },
-        );
+            crate::middlenet::webfinger::with_test_fetch_import_override(
+                resource,
+                Ok(import),
+                || {
+                    execute_action(
+                        &mut app,
+                        ActionId::NodeImportWebFinger,
+                        None,
+                        Some(node),
+                        &mut intents,
+                        None,
+                        None,
+                    );
+                },
+            );
 
-        assert!(intents.is_empty());
-        let subject_key = app
-            .get_single_selected_node()
-            .expect("person node should be selected after import");
-        let subject_node = app
-            .domain_graph()
-            .get_node(subject_key)
-            .expect("person node should be created");
-        assert!(subject_node.url().starts_with("verso://person/"));
-        assert_eq!(subject_node.title, "Person: mark@social.example");
-        assert!(app.node_has_canonical_tag(subject_key, "#person"));
-        assert!(app.node_has_canonical_tag(subject_key, "#webfinger"));
-        assert!(app.node_has_canonical_tag(subject_key, "#identity"));
+            assert!(intents.is_empty());
+            let subject_key = app
+                .get_single_selected_node()
+                .expect("person node should be selected after import");
+            let subject_node = app
+                .domain_graph()
+                .get_node(subject_key)
+                .expect("person node should be created");
+            assert!(subject_node.url().starts_with("verso://person/"));
+            assert_eq!(subject_node.title, "Person: mark@social.example");
+            assert!(app.node_has_canonical_tag(subject_key, "#person"));
+            assert!(app.node_has_canonical_tag(subject_key, "#webfinger"));
+            assert!(app.node_has_canonical_tag(subject_key, "#identity"));
 
-        let (acct_key, acct_node) = app
-            .domain_graph()
-            .get_node_by_url("acct:mark@social.example")
-            .expect("acct identity node should be created");
-        assert_eq!(acct_node.title, "WebFinger identity: mark@social.example");
-        assert!(app.node_has_canonical_tag(acct_key, "#webfinger"));
+            let (acct_key, acct_node) = app
+                .domain_graph()
+                .get_node_by_url("acct:mark@social.example")
+                .expect("acct identity node should be created");
+            assert_eq!(acct_node.title, "WebFinger identity: mark@social.example");
+            assert!(app.node_has_canonical_tag(acct_key, "#webfinger"));
 
-        let (_, profile_node) = app
-            .domain_graph()
-            .get_node_by_url("https://social.example/profile")
-            .expect("profile node should be created");
-        assert_eq!(profile_node.title, "Profile: https://social.example/profile");
+            let (_, profile_node) = app
+                .domain_graph()
+                .get_node_by_url("https://social.example/profile")
+                .expect("profile node should be created");
+            assert_eq!(profile_node.title, "Profile: https://social.example/profile");
 
-        let (alias_key, alias_node) = app
-            .domain_graph()
-            .get_node_by_url(resource)
-            .expect("resource alias node should still exist");
-        assert_eq!(alias_key, node);
-        assert_eq!(alias_node.title, format!("Alias: {resource}"));
-        assert!(app.node_has_canonical_tag(alias_key, "#alias"));
+            let (alias_key, alias_node) = app
+                .domain_graph()
+                .get_node_by_url(resource)
+                .expect("resource alias node should still exist");
+            assert_eq!(alias_key, node);
+            assert_eq!(alias_node.title, format!("Alias: {resource}"));
+            assert!(app.node_has_canonical_tag(alias_key, "#alias"));
 
-        assert!(app
-            .domain_graph()
-            .get_node_by_url("gemini://social.example/~mark")
-            .is_some());
-        let request = app
-            .take_pending_node_status_notice()
-            .expect("webfinger import should queue a success notice");
-        assert_eq!(request.key, subject_key);
-        assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-        assert!(request.message.contains("Imported WebFinger discovery for https://social.example/users/mark"));
-        assert!(request.message.contains("+4 node(s)"));
-        assert!(matches!(
-            request.audit_event,
-            Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                action,
-                detail,
-            }) if action == "WebFinger import"
-                && detail.contains("https://social.example/users/mark -> verso://person/")
-                && detail.contains("+4 node(s)")
-        ));
+            assert!(app
+                .domain_graph()
+                .get_node_by_url("gemini://social.example/~mark")
+                .is_some());
+            let request = app
+                .take_pending_node_status_notice()
+                .expect("webfinger import should queue a success notice");
+            assert_eq!(request.key, subject_key);
+            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert!(request.message.contains("Imported WebFinger discovery for https://social.example/users/mark"));
+            assert!(request.message.contains("+4 node(s)"));
+            assert!(matches!(
+                request.audit_event,
+                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                    action,
+                    detail,
+                }) if action == "WebFinger import"
+                    && detail.contains("https://social.example/users/mark -> verso://person/")
+                    && detail.contains("+4 node(s)")
+            ));
+        });
     }
 
     #[test]
     fn execute_action_resolve_nip05_imports_person_and_queues_success_notice() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let node = app.add_node_and_sync(
-            "nip05:mark@example.net".to_string(),
-            euclid::default::Point2D::new(0.0, 0.0),
-        );
-        let mut intents = Vec::new();
-        let profile = crate::middlenet::identity::PersonIdentityProfile {
-            human_handle: Some("mark@example.net".to_string()),
-            nip05_identifier: Some("mark@example.net".to_string()),
-            nostr_identities: vec!["nostr:npub1example".to_string()],
-            ..Default::default()
-        };
+        crate::middlenet::identity::with_test_identity_resolution_cache_scope(|| {
+            let mut app = GraphBrowserApp::new_for_testing();
+            let node = app.add_node_and_sync(
+                "nip05:mark@example.net".to_string(),
+                euclid::default::Point2D::new(0.0, 0.0),
+            );
+            let mut intents = Vec::new();
+            let profile = crate::middlenet::identity::PersonIdentityProfile {
+                human_handle: Some("mark@example.net".to_string()),
+                nip05_identifier: Some("mark@example.net".to_string()),
+                nostr_identities: vec!["nostr:npub1example".to_string()],
+                ..Default::default()
+            };
 
-        crate::middlenet::identity::with_test_resolve_nip05_override(
-            "mark@example.net",
-            Ok(profile),
-            || {
-                execute_action(
-                    &mut app,
-                    ActionId::NodeResolveNip05,
-                    None,
-                    Some(node),
-                    &mut intents,
-                    None,
-                    None,
-                );
-            },
-        );
+            crate::middlenet::identity::with_test_resolve_nip05_override(
+                "mark@example.net",
+                Ok(profile),
+                || {
+                    execute_action(
+                        &mut app,
+                        ActionId::NodeResolveNip05,
+                        None,
+                        Some(node),
+                        &mut intents,
+                        None,
+                        None,
+                    );
+                },
+            );
 
-        assert!(intents.is_empty());
-        let subject_key = app
-            .get_single_selected_node()
-            .expect("person node should be selected after NIP-05 resolve");
-        let subject_node = app
-            .domain_graph()
-            .get_node(subject_key)
-            .expect("person node should exist");
-        assert!(subject_node.url().starts_with("verso://person/"));
-        assert_eq!(subject_node.title, "Person: mark@example.net");
-        let request = app
-            .take_pending_node_status_notice()
-            .expect("nip-05 resolve should queue a success notice");
-        assert_eq!(request.key, subject_key);
-        assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-        assert!(request.message.contains("Resolved NIP-05 identity for mark@example.net"));
-        assert!(matches!(
-            request.audit_event,
-            Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                action,
-                detail,
-            }) if action == "NIP-05 resolve"
-                && detail.contains("mark@example.net -> verso://person/")
-        ));
+            assert!(intents.is_empty());
+            let subject_key = app
+                .get_single_selected_node()
+                .expect("person node should be selected after NIP-05 resolve");
+            let subject_node = app
+                .domain_graph()
+                .get_node(subject_key)
+                .expect("person node should exist");
+            assert!(subject_node.url().starts_with("verso://person/"));
+            assert_eq!(subject_node.title, "Person: mark@example.net");
+            let request = app
+                .take_pending_node_status_notice()
+                .expect("nip-05 resolve should queue a success notice");
+            assert_eq!(request.key, subject_key);
+            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert!(request.message.contains("Resolved NIP-05 identity for mark@example.net"));
+            assert!(matches!(
+                request.audit_event,
+                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                    action,
+                    detail,
+                }) if action == "NIP-05 resolve"
+                    && detail.contains("mark@example.net -> verso://person/")
+            ));
+        });
     }
 
     #[test]
     fn execute_action_resolve_matrix_imports_person_and_queues_success_notice() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let node = app.add_node_and_sync(
-            "mxid:@mark:matrix.example".to_string(),
-            euclid::default::Point2D::new(0.0, 0.0),
-        );
-        let mut intents = Vec::new();
-        let mut profile = crate::middlenet::identity::PersonIdentityProfile {
-            human_handle: Some("mark@matrix.example".to_string()),
-            ..Default::default()
-        };
-        profile
-            .push_matrix_mxid("@mark:matrix.example")
-            .expect("matrix mxid should normalize");
+        crate::middlenet::identity::with_test_identity_resolution_cache_scope(|| {
+            let mut app = GraphBrowserApp::new_for_testing();
+            let node = app.add_node_and_sync(
+                "mxid:@mark:matrix.example".to_string(),
+                euclid::default::Point2D::new(0.0, 0.0),
+            );
+            let mut intents = Vec::new();
+            let mut profile = crate::middlenet::identity::PersonIdentityProfile {
+                human_handle: Some("mark@matrix.example".to_string()),
+                ..Default::default()
+            };
+            profile
+                .push_matrix_mxid("@mark:matrix.example")
+                .expect("matrix mxid should normalize");
 
-        crate::middlenet::identity::with_test_resolve_matrix_override(
-            "@mark:matrix.example",
-            Ok(profile),
-            || {
-                execute_action(
-                    &mut app,
-                    ActionId::NodeResolveMatrix,
-                    None,
-                    Some(node),
-                    &mut intents,
-                    None,
-                    None,
-                );
-            },
-        );
+            crate::middlenet::identity::with_test_resolve_matrix_override(
+                "@mark:matrix.example",
+                Ok(profile),
+                || {
+                    execute_action(
+                        &mut app,
+                        ActionId::NodeResolveMatrix,
+                        None,
+                        Some(node),
+                        &mut intents,
+                        None,
+                        None,
+                    );
+                },
+            );
 
-        assert!(intents.is_empty());
-        let subject_key = app
-            .get_single_selected_node()
-            .expect("person node should be selected after Matrix resolve");
-        let subject_node = app
-            .domain_graph()
-            .get_node(subject_key)
-            .expect("person node should exist");
-        assert!(subject_node.url().starts_with("verso://person/"));
-        assert_eq!(subject_node.title, "Person: mark@matrix.example");
-        let request = app
-            .take_pending_node_status_notice()
-            .expect("matrix resolve should queue a success notice");
-        assert_eq!(request.key, subject_key);
-        assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-        assert!(request.message.contains("Resolved Matrix profile for @mark:matrix.example"));
+            assert!(intents.is_empty());
+            let subject_key = app
+                .get_single_selected_node()
+                .expect("person node should be selected after Matrix resolve");
+            let subject_node = app
+                .domain_graph()
+                .get_node(subject_key)
+                .expect("person node should exist");
+            assert!(subject_node.url().starts_with("verso://person/"));
+            assert_eq!(subject_node.title, "Person: mark@matrix.example");
+            let request = app
+                .take_pending_node_status_notice()
+                .expect("matrix resolve should queue a success notice");
+            assert_eq!(request.key, subject_key);
+            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert!(request.message.contains("Resolved Matrix profile for @mark:matrix.example"));
+        });
     }
 
     #[test]
     fn execute_action_import_activitypub_imports_person_and_queues_success_notice() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let resource = "https://social.example/users/mark";
-        let node = app.add_node_and_sync(
-            resource.to_string(),
-            euclid::default::Point2D::new(0.0, 0.0),
-        );
-        let mut intents = Vec::new();
-        let mut profile = crate::middlenet::identity::PersonIdentityProfile {
-            human_handle: Some("mark@social.example".to_string()),
-            ..Default::default()
-        };
-        profile
-            .push_activitypub_actor(resource)
-            .expect("activitypub actor should normalize");
-        profile
-            .push_profile_page("https://social.example/@mark")
-            .expect("profile page should normalize");
+        crate::middlenet::identity::with_test_identity_resolution_cache_scope(|| {
+            let mut app = GraphBrowserApp::new_for_testing();
+            let resource = "https://social.example/users/mark";
+            let node = app.add_node_and_sync(
+                resource.to_string(),
+                euclid::default::Point2D::new(0.0, 0.0),
+            );
+            let mut intents = Vec::new();
+            let mut profile = crate::middlenet::identity::PersonIdentityProfile {
+                human_handle: Some("mark@social.example".to_string()),
+                ..Default::default()
+            };
+            profile
+                .push_activitypub_actor(resource)
+                .expect("activitypub actor should normalize");
+            profile
+                .push_profile_page("https://social.example/@mark")
+                .expect("profile page should normalize");
 
-        crate::middlenet::identity::with_test_resolve_activitypub_override(
-            resource,
-            Ok(profile),
-            || {
-                execute_action(
-                    &mut app,
-                    ActionId::NodeResolveActivityPub,
-                    None,
-                    Some(node),
-                    &mut intents,
-                    None,
-                    None,
-                );
-            },
-        );
+            crate::middlenet::identity::with_test_resolve_activitypub_override(
+                resource,
+                Ok(profile),
+                || {
+                    execute_action(
+                        &mut app,
+                        ActionId::NodeResolveActivityPub,
+                        None,
+                        Some(node),
+                        &mut intents,
+                        None,
+                        None,
+                    );
+                },
+            );
 
-        assert!(intents.is_empty());
-        let subject_key = app
-            .get_single_selected_node()
-            .expect("person node should be selected after ActivityPub import");
-        let request = app
-            .take_pending_node_status_notice()
-            .expect("activitypub import should queue a success notice");
-        assert_eq!(request.key, subject_key);
-        assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-        assert!(request
-            .message
-            .contains("Imported ActivityPub actor for https://social.example/users/mark"));
+            assert!(intents.is_empty());
+            let subject_key = app
+                .get_single_selected_node()
+                .expect("person node should be selected after ActivityPub import");
+            let request = app
+                .take_pending_node_status_notice()
+                .expect("activitypub import should queue a success notice");
+            assert_eq!(request.key, subject_key);
+            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert!(request
+                .message
+                .contains("Imported ActivityPub actor for https://social.example/users/mark"));
+        });
     }
 
     #[test]

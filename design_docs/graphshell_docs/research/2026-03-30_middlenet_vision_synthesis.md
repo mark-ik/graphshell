@@ -791,6 +791,17 @@ The first practical slice should stay narrow:
 That is enough to establish the abstraction without pretending the whole
 protocol stack has already been generalized.
 
+The next slice after that should also stay concrete:
+
+- cache resolved identity profiles by `(protocol, normalized query)`,
+- record the normalized query as durable person-node provenance,
+- and append audit history that captures cache hit/miss state, source
+  endpoint(s), and resolution time.
+
+That gives Graphshell a usable notion of identity freshness and provenance
+before it attempts a larger cross-protocol refresh scheduler or trust-policy
+unification.
+
 ---
 
 ## 11. Suggested Near-Term Product Framing

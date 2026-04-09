@@ -6096,6 +6096,76 @@ fn import_person_identity_into_graph_reuses_existing_person_for_resolved_identit
 }
 
 #[test]
+fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hits() {
+    crate::middlenet::identity::with_test_identity_resolution_cache_scope(|| {
+        let dir = TempDir::new().expect("temp dir should be created");
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let profile = crate::middlenet::identity::PersonIdentityProfile {
+            human_handle: Some("mark@example.net".to_string()),
+            nip05_identifier: Some("mark@example.net".to_string()),
+            ..Default::default()
+        };
+
+        let first_person = crate::middlenet::identity::with_test_resolve_nip05_override(
+            "mark@example.net",
+            Ok(profile),
+            || {
+                app.resolve_and_import_person_identity_from_nip05("mark@example.net", None)
+                    .expect("first resolve should succeed")
+            },
+        );
+
+        let second_person = app
+            .resolve_and_import_person_identity_from_nip05("nip05:mark@example.net", None)
+            .expect("second resolve should hit the in-memory cache");
+
+        assert_eq!(first_person, second_person);
+        let classifications = app
+            .domain_graph()
+            .node_classifications(first_person)
+            .expect("resolved person should carry classifications");
+        assert!(classifications.iter().any(|classification| {
+            classification.scheme
+                == crate::model::graph::ClassificationScheme::Custom(
+                    "resolution:nip05".to_string(),
+                ) && classification.value == "mark@example.net"
+        }));
+
+        let node_id = app
+            .domain_graph()
+            .get_node(first_person)
+            .expect("person node should exist")
+            .id;
+        let audit_history = app.node_audit_history_entries(node_id, 8);
+        let resolution_details = audit_history
+            .into_iter()
+            .filter_map(|entry| match entry {
+                crate::services::persistence::types::LogEntry::AppendNodeAuditEvent { event, .. } => {
+                    match event {
+                        crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                            action,
+                            detail,
+                        } if action == "Identity resolution" => Some(detail),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(resolution_details.iter().any(|detail| {
+            detail.contains("protocol=NIP-05")
+                && detail.contains("query=mark@example.net")
+                && detail.contains("cache=miss")
+        }));
+        assert!(resolution_details.iter().any(|detail| {
+            detail.contains("protocol=NIP-05")
+                && detail.contains("query=mark@example.net")
+                && detail.contains("cache=hit")
+        }));
+    });
+}
+
+#[test]
 fn deliver_person_message_notification_via_misfin_requires_bound_mailbox() {
     let mut app = GraphBrowserApp::new_for_testing();
     let profile = crate::middlenet::identity::PersonIdentityProfile {

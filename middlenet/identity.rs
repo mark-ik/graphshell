@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::{BTreeMap, HashMap};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nostr::ToBech32;
 use reqwest::header::ACCEPT;
@@ -13,6 +13,42 @@ use std::sync::{Mutex, OnceLock};
 
 const IDENTITY_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(10);
 const ACTIVITYPUB_ACCEPT: &str = "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\", application/ld+json;q=0.9, application/json;q=0.8";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdentityResolutionCacheState {
+    Miss,
+    Hit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdentityResolutionProvenance {
+    pub(crate) protocol: crate::middlenet::capabilities::MiddlenetProtocol,
+    pub(crate) query_resource: String,
+    pub(crate) source_endpoints: Vec<String>,
+    pub(crate) resolved_at_ms: u64,
+    pub(crate) cache_state: IdentityResolutionCacheState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedPersonIdentityProfile {
+    pub(crate) profile: PersonIdentityProfile,
+    pub(crate) provenance: IdentityResolutionProvenance,
+}
+
+#[derive(Debug, Clone)]
+struct CachedIdentityResolution {
+    profile: PersonIdentityProfile,
+    source_endpoints: Vec<String>,
+    resolved_at_ms: u64,
+}
+
+fn identity_resolution_cache(
+) -> &'static Mutex<HashMap<(crate::middlenet::capabilities::MiddlenetProtocol, String), CachedIdentityResolution>> {
+    static CACHE: OnceLock<
+        Mutex<HashMap<(crate::middlenet::capabilities::MiddlenetProtocol, String), CachedIdentityResolution>>,
+    > = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 #[cfg(test)]
 #[derive(Clone)]
@@ -43,6 +79,12 @@ fn test_matrix_override() -> &'static Mutex<Option<TestResolveProfileOverride>> 
 fn test_activitypub_override() -> &'static Mutex<Option<TestResolveProfileOverride>> {
     static OVERRIDE: OnceLock<Mutex<Option<TestResolveProfileOverride>>> = OnceLock::new();
     OVERRIDE.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(test)]
+fn test_identity_resolution_cache_run_lock() -> &'static Mutex<()> {
+    static RUN_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    RUN_LOCK.get_or_init(|| Mutex::new(()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -307,6 +349,81 @@ pub(crate) fn normalize_activitypub_actor_url(input: &str) -> Result<String, Str
     normalize_httpish_url(input, "ActivityPub actor")
 }
 
+pub(crate) fn resolve_person_identity_profile(
+    protocol: crate::middlenet::capabilities::MiddlenetProtocol,
+    resource: &str,
+) -> Result<ResolvedPersonIdentityProfile, String> {
+    let normalized = crate::middlenet::capabilities::normalize_identity_action_resource(
+        protocol,
+        resource,
+    )?;
+
+    if let Some(cached) = identity_resolution_cache()
+        .lock()
+        .expect("identity resolution cache lock poisoned")
+        .get(&(protocol, normalized.clone()))
+        .cloned()
+    {
+        return Ok(ResolvedPersonIdentityProfile {
+            profile: cached.profile,
+            provenance: IdentityResolutionProvenance {
+                protocol,
+                query_resource: normalized,
+                source_endpoints: cached.source_endpoints,
+                resolved_at_ms: cached.resolved_at_ms,
+                cache_state: IdentityResolutionCacheState::Hit,
+            },
+        });
+    }
+
+    let source_endpoints = identity_resolution_source_endpoints(protocol, &normalized)?;
+    let profile = match protocol {
+        crate::middlenet::capabilities::MiddlenetProtocol::WebFinger => {
+            let import = crate::middlenet::webfinger::fetch_import(&normalized)?;
+            PersonIdentityProfile::from_webfinger_import(&normalized, &import)?
+        }
+        crate::middlenet::capabilities::MiddlenetProtocol::Nip05 => {
+            resolve_nip05_profile(&normalized)?
+        }
+        crate::middlenet::capabilities::MiddlenetProtocol::Matrix => {
+            resolve_matrix_profile(&normalized)?
+        }
+        crate::middlenet::capabilities::MiddlenetProtocol::ActivityPub => {
+            resolve_activitypub_actor(&normalized)?
+        }
+        crate::middlenet::capabilities::MiddlenetProtocol::Gemini
+        | crate::middlenet::capabilities::MiddlenetProtocol::Titan
+        | crate::middlenet::capabilities::MiddlenetProtocol::Misfin => {
+            return Err(format!(
+                "{} is not an identity resolution protocol.",
+                crate::middlenet::capabilities::descriptor(protocol).display_name
+            ));
+        }
+    };
+    let resolved_at_ms = unix_timestamp_ms_now();
+    identity_resolution_cache()
+        .lock()
+        .expect("identity resolution cache lock poisoned")
+        .insert(
+            (protocol, normalized.clone()),
+            CachedIdentityResolution {
+                profile: profile.clone(),
+                source_endpoints: source_endpoints.clone(),
+                resolved_at_ms,
+            },
+        );
+    Ok(ResolvedPersonIdentityProfile {
+        profile,
+        provenance: IdentityResolutionProvenance {
+            protocol,
+            query_resource: normalized,
+            source_endpoints,
+            resolved_at_ms,
+            cache_state: IdentityResolutionCacheState::Miss,
+        },
+    })
+}
+
 pub(crate) fn normalize_nostr_identity(input: &str) -> Result<String, String> {
     let trimmed = input.trim();
     let identity = trimmed.strip_prefix("nostr:").unwrap_or(trimmed).trim();
@@ -372,6 +489,75 @@ fn normalize_url_with_scheme(input: &str, expected_scheme: &str, label: &str) ->
         ));
     }
     Ok(url.to_string())
+}
+
+fn identity_resolution_source_endpoints(
+    protocol: crate::middlenet::capabilities::MiddlenetProtocol,
+    resource: &str,
+) -> Result<Vec<String>, String> {
+    match protocol {
+        crate::middlenet::capabilities::MiddlenetProtocol::WebFinger => {
+            Ok(vec![crate::middlenet::webfinger::endpoint_url(resource)?.to_string()])
+        }
+        crate::middlenet::capabilities::MiddlenetProtocol::Nip05 => {
+            let normalized = normalize_nip05_identifier(resource)?;
+            let (localpart, host) = normalized
+                .split_once('@')
+                .ok_or_else(|| format!("NIP-05 identifier '{normalized}' is incomplete."))?;
+            let origin = url::Url::parse(&format!("https://{host}/"))
+                .map_err(|error| format!("Invalid NIP-05 origin for '{normalized}': {error}"))?;
+            Ok(vec![nip05_endpoint(&origin, localpart)?.to_string()])
+        }
+        crate::middlenet::capabilities::MiddlenetProtocol::Matrix => {
+            let normalized = normalize_matrix_mxid(resource)?;
+            let (_, server) = normalized
+                .split_once(':')
+                .ok_or_else(|| format!("Matrix MXID '{normalized}' is incomplete."))?;
+            let origin = url::Url::parse(&format!("https://{server}/"))
+                .map_err(|error| format!("Invalid Matrix discovery origin for '{normalized}': {error}"))?;
+            Ok(vec![
+                origin
+                    .join("/.well-known/matrix/client")
+                    .map_err(|error| format!("Failed to build Matrix discovery URL: {error}"))?
+                    .to_string(),
+            ])
+        }
+        crate::middlenet::capabilities::MiddlenetProtocol::ActivityPub => {
+            Ok(vec![normalize_activitypub_actor_url(resource)?])
+        }
+        crate::middlenet::capabilities::MiddlenetProtocol::Gemini
+        | crate::middlenet::capabilities::MiddlenetProtocol::Titan
+        | crate::middlenet::capabilities::MiddlenetProtocol::Misfin => Err(format!(
+            "{} is not an identity resolution protocol.",
+            crate::middlenet::capabilities::descriptor(protocol).display_name
+        )),
+    }
+}
+
+fn unix_timestamp_ms_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+fn clear_identity_resolution_cache_for_tests() {
+    identity_resolution_cache()
+        .lock()
+        .expect("identity resolution cache lock poisoned")
+        .clear();
+}
+
+#[cfg(test)]
+pub(crate) fn with_test_identity_resolution_cache_scope<T>(run: impl FnOnce() -> T) -> T {
+    let _run_lock = test_identity_resolution_cache_run_lock()
+        .lock()
+        .expect("identity resolution cache run lock poisoned");
+    clear_identity_resolution_cache_for_tests();
+    let outcome = run();
+    clear_identity_resolution_cache_for_tests();
+    outcome
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) {
@@ -1091,5 +1277,35 @@ mod tests {
         }));
 
         server.join().expect("server should finish");
+    }
+
+    #[test]
+    fn resolve_person_identity_profile_uses_cache_for_normalized_identity_queries() {
+        with_test_identity_resolution_cache_scope(|| {
+            let profile = PersonIdentityProfile {
+                human_handle: Some("mark@example.net".to_string()),
+                nip05_identifier: Some("mark@example.net".to_string()),
+                ..Default::default()
+            };
+
+            with_test_resolve_nip05_override("mark@example.net", Ok(profile.clone()), || {
+                let first = resolve_person_identity_profile(
+                    crate::middlenet::capabilities::MiddlenetProtocol::Nip05,
+                    "nip05:mark@example.net",
+                )
+                .expect("first resolution should succeed");
+                assert_eq!(first.provenance.cache_state, IdentityResolutionCacheState::Miss);
+                assert_eq!(first.provenance.query_resource, "mark@example.net");
+            });
+
+            let second = resolve_person_identity_profile(
+                crate::middlenet::capabilities::MiddlenetProtocol::Nip05,
+                "mark@example.net",
+            )
+            .expect("second resolution should be served from cache");
+            assert_eq!(second.provenance.cache_state, IdentityResolutionCacheState::Hit);
+            assert_eq!(second.provenance.query_resource, "mark@example.net");
+            assert_eq!(second.profile.nip05_identifier.as_deref(), Some("mark@example.net"));
+        });
     }
 }

@@ -94,6 +94,15 @@ fn person_identity_scheme(kind: &str) -> crate::model::graph::ClassificationSche
     crate::model::graph::ClassificationScheme::Custom(format!("identity:{kind}"))
 }
 
+fn person_resolution_scheme(
+    protocol: crate::middlenet::capabilities::MiddlenetProtocol,
+) -> crate::model::graph::ClassificationScheme {
+    crate::model::graph::ClassificationScheme::Custom(format!(
+        "resolution:{}",
+        protocol.key()
+    ))
+}
+
 fn person_identity_classification_candidates(
     profile: &crate::middlenet::identity::PersonIdentityProfile,
 ) -> Vec<(crate::model::graph::ClassificationScheme, String)> {
@@ -1064,8 +1073,11 @@ impl GraphBrowserApp {
         resource: &str,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let import = crate::middlenet::webfinger::fetch_import(resource)?;
-        self.import_person_identity_from_webfinger(resource, &import, anchor)
+        self.resolve_and_import_person_identity(
+            crate::middlenet::capabilities::MiddlenetProtocol::WebFinger,
+            resource,
+            anchor,
+        )
     }
 
     pub(crate) fn resolve_and_import_person_identity_from_nip05(
@@ -1073,8 +1085,11 @@ impl GraphBrowserApp {
         identifier: &str,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let profile = crate::middlenet::identity::resolve_nip05_profile(identifier)?;
-        self.import_person_identity_into_graph(&profile, anchor)
+        self.resolve_and_import_person_identity(
+            crate::middlenet::capabilities::MiddlenetProtocol::Nip05,
+            identifier,
+            anchor,
+        )
     }
 
     pub(crate) fn resolve_and_import_person_identity_from_matrix(
@@ -1082,8 +1097,11 @@ impl GraphBrowserApp {
         mxid: &str,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let profile = crate::middlenet::identity::resolve_matrix_profile(mxid)?;
-        self.import_person_identity_into_graph(&profile, anchor)
+        self.resolve_and_import_person_identity(
+            crate::middlenet::capabilities::MiddlenetProtocol::Matrix,
+            mxid,
+            anchor,
+        )
     }
 
     pub(crate) fn resolve_and_import_person_identity_from_activitypub(
@@ -1091,8 +1109,11 @@ impl GraphBrowserApp {
         actor_url: &str,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let profile = crate::middlenet::identity::resolve_activitypub_actor(actor_url)?;
-        self.import_person_identity_into_graph(&profile, anchor)
+        self.resolve_and_import_person_identity(
+            crate::middlenet::capabilities::MiddlenetProtocol::ActivityPub,
+            actor_url,
+            anchor,
+        )
     }
 
     pub(crate) fn deliver_person_message_notification_via_misfin(
@@ -2604,6 +2625,56 @@ impl GraphBrowserApp {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    fn resolve_and_import_person_identity(
+        &mut self,
+        protocol: crate::middlenet::capabilities::MiddlenetProtocol,
+        resource: &str,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let resolved = crate::middlenet::identity::resolve_person_identity_profile(protocol, resource)?;
+        let person_key = self.import_person_identity_into_graph(&resolved.profile, anchor)?;
+        self.record_identity_resolution_provenance(person_key, &resolved);
+        Ok(person_key)
+    }
+
+    fn record_identity_resolution_provenance(
+        &mut self,
+        person_key: NodeKey,
+        resolved: &crate::middlenet::identity::ResolvedPersonIdentityProfile,
+    ) {
+        let descriptor = crate::middlenet::capabilities::descriptor(resolved.provenance.protocol);
+        self.ensure_identity_classification(
+            person_key,
+            person_resolution_scheme(resolved.provenance.protocol),
+            resolved.provenance.query_resource.clone(),
+            Some(format!("Resolved via {}", descriptor.display_name)),
+        );
+
+        let cache = match resolved.provenance.cache_state {
+            crate::middlenet::identity::IdentityResolutionCacheState::Miss => "miss",
+            crate::middlenet::identity::IdentityResolutionCacheState::Hit => "hit",
+        };
+        let sources = if resolved.provenance.source_endpoints.is_empty() {
+            "none".to_string()
+        } else {
+            resolved.provenance.source_endpoints.join(", ")
+        };
+        self.log_node_audit_event(
+            person_key,
+            crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                action: "Identity resolution".to_string(),
+                detail: format!(
+                    "protocol={}; query={}; cache={}; resolved_at_ms={}; sources={}",
+                    descriptor.display_name,
+                    resolved.provenance.query_resource,
+                    cache,
+                    resolved.provenance.resolved_at_ms,
+                    sources,
+                ),
+            },
+        );
     }
 
     fn person_identity_value_for_capability(

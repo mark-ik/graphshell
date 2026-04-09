@@ -23,6 +23,20 @@ pub(crate) enum MiddlenetProtocol {
     Misfin,
 }
 
+impl MiddlenetProtocol {
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::WebFinger => "webfinger",
+            Self::Nip05 => "nip05",
+            Self::Matrix => "matrix",
+            Self::ActivityPub => "activitypub",
+            Self::Gemini => "gemini",
+            Self::Titan => "titan",
+            Self::Misfin => "misfin",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProtocolDescriptor {
     pub(crate) protocol: MiddlenetProtocol,
