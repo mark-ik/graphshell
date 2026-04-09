@@ -455,6 +455,85 @@ fn pending_node_status_notice_records_audit_event() {
 }
 
 #[test]
+fn pending_node_status_notices_record_titan_and_misfin_management_audit_events() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+    let key = app.workspace.domain.graph.add_node(
+        "misfin://friend@example.net".into(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let mut toasts = egui_notify::Toasts::default();
+
+    app.request_node_status_notice(
+        key,
+        UiNotificationLevel::Warning,
+        "Titan status 31: /next",
+        Some(NodeAuditEventKind::ActionRecorded {
+            action: "Titan upload".to_string(),
+            detail: "redirected: /next".to_string(),
+        }),
+    );
+    app.request_node_status_notice(
+        key,
+        UiNotificationLevel::Success,
+        "Generated Misfin identity for worker@example.net",
+        Some(NodeAuditEventKind::ActionRecorded {
+            action: "Misfin identity".to_string(),
+            detail: "Generated Misfin identity for worker@example.net".to_string(),
+        }),
+    );
+    app.request_node_status_notice(
+        key,
+        UiNotificationLevel::Warning,
+        "Forgot Misfin trust for example.net:1958",
+        Some(NodeAuditEventKind::ActionRecorded {
+            action: "Misfin trust".to_string(),
+            detail: "Forgot Misfin trust for example.net:1958".to_string(),
+        }),
+    );
+
+    gui_orchestration::handle_pending_node_status_notices(&mut app, &mut toasts);
+
+    let node_id = app
+        .domain_graph()
+        .get_node(key)
+        .expect("node should exist")
+        .id;
+    let entries = app.node_audit_history_entries(node_id, 10);
+
+    assert!(entries.iter().any(|entry| {
+        matches!(
+            entry,
+            crate::services::persistence::types::LogEntry::AppendNodeAuditEvent {
+                event: NodeAuditEventKind::ActionRecorded { action, detail },
+                ..
+            } if action == "Titan upload" && detail == "redirected: /next"
+        )
+    }));
+    assert!(entries.iter().any(|entry| {
+        matches!(
+            entry,
+            crate::services::persistence::types::LogEntry::AppendNodeAuditEvent {
+                event: NodeAuditEventKind::ActionRecorded { action, detail },
+                ..
+            } if action == "Misfin identity"
+                && detail == "Generated Misfin identity for worker@example.net"
+        )
+    }));
+    assert!(entries.iter().any(|entry| {
+        matches!(
+            entry,
+            crate::services::persistence::types::LogEntry::AppendNodeAuditEvent {
+                event: NodeAuditEventKind::ActionRecorded { action, detail },
+                ..
+            } if action == "Misfin trust"
+                && detail == "Forgot Misfin trust for example.net:1958"
+        )
+    }));
+    assert!(app.take_pending_node_status_notice().is_none());
+}
+
+#[test]
 fn frame_url_intent_opens_frame_tile_group_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     // Add two member nodes and register the frame in the graph by syncing
