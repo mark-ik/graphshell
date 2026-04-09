@@ -95,6 +95,23 @@ The middlenet framing is productively modest.
 
 - [`2026-03-29_middlenet_engine_spec.md`](../technical_architecture/2026-03-29_middlenet_engine_spec.md) correctly defines MiddleNet as an observation about a class of content rather than a new protocol.
 - The shared intermediate document model is the right architectural anchor for Gemini/Gopher/Finger/RSS/Markdown/static HTML.
+- **The intermediate document model is a rendering AST, not a user-facing format.** Each source format is parsed into this internal tree; the tree is a rendering target, not a richer protocol output.
+- **Each source format is rendered as itself.** Gemini content renders as gemtext; Gopher renders as a Gopher menu or document; Markdown renders as Markdown. The shared model is the internal parse target, not a reason to enrich or homogenize the output of any individual format. Gemtext's intentional minimalism is a deliberate design stance and should be respected.
+
+### 3.6 Markdown as the authored-content format
+
+When Graphshell itself needs to author content — graph node annotations,
+published artifacts, co-op shared documents — the format is **Markdown**
+(CommonMark base). This is already a Tier A rendering lane and familiar to
+most users.
+
+Conservative Graphshell-specific extensions (e.g. graph-link syntax) may be
+added where there is clear product need, but the base is standard CommonMark.
+This is not a new protocol; it is a content-format decision for authored
+content that Graphshell itself produces or stores.
+
+This keeps authored content distinct from browsed content and prevents
+"MiddleNet document format" from silently becoming a new protocol invention.
 
 ### 3.4 Strong network layer separation
 
