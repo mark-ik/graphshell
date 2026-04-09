@@ -6,9 +6,30 @@ use std::time::Duration;
 
 use reqwest::header::ACCEPT;
 use serde::Deserialize;
+#[cfg(test)]
+use std::sync::{Mutex, OnceLock};
 
 const WEBFINGER_TIMEOUT: Duration = Duration::from_secs(10);
 const WEBFINGER_ACCEPT: &str = "application/jrd+json, application/json;q=0.9";
+
+#[cfg(test)]
+#[derive(Clone)]
+struct TestFetchImportOverride {
+    resource: String,
+    result: Result<WebFingerImport, String>,
+}
+
+#[cfg(test)]
+fn test_fetch_import_override() -> &'static Mutex<Option<TestFetchImportOverride>> {
+    static OVERRIDE: OnceLock<Mutex<Option<TestFetchImportOverride>>> = OnceLock::new();
+    OVERRIDE.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(test)]
+fn test_fetch_import_override_run_lock() -> &'static Mutex<()> {
+    static RUN_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    RUN_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub(crate) struct WebFingerDocument {
@@ -151,8 +172,46 @@ pub(crate) fn fetch_document(resource: &str) -> Result<WebFingerDocument, String
 }
 
 pub(crate) fn fetch_import(resource: &str) -> Result<WebFingerImport, String> {
+    #[cfg(test)]
+    {
+        if let Some(override_state) = test_fetch_import_override()
+            .lock()
+            .expect("webfinger test fetch override lock poisoned")
+            .as_ref()
+            .filter(|override_state| override_state.resource == resource)
+            .cloned()
+        {
+            return override_state.result;
+        }
+    }
+
     let document = fetch_document(resource)?;
     Ok(WebFingerImport::from_document(&document))
+}
+
+#[cfg(test)]
+pub(crate) fn with_test_fetch_import_override<T>(
+    resource: &str,
+    result: Result<WebFingerImport, String>,
+    run: impl FnOnce() -> T,
+) -> T {
+    let _run_lock = test_fetch_import_override_run_lock()
+        .lock()
+        .expect("webfinger test fetch override lock poisoned");
+    let previous = {
+        let mut override_slot = test_fetch_import_override()
+            .lock()
+            .expect("webfinger test fetch override lock poisoned");
+        override_slot.replace(TestFetchImportOverride {
+            resource: resource.to_string(),
+            result,
+        })
+    };
+    let outcome = run();
+    *test_fetch_import_override()
+        .lock()
+        .expect("webfinger test fetch override lock poisoned") = previous;
+    outcome
 }
 
 fn fetch_document_from_endpoint(endpoint: &url::Url) -> Result<WebFingerDocument, String> {
