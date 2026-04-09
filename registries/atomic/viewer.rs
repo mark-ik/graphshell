@@ -17,12 +17,14 @@ pub(crate) const VIEWER_ID_FALLBACK: &str = "viewer:webview";
 /// `GraphBrowserApp`.
 pub(crate) struct EmbeddedViewerOutput {
     pub(crate) intents: Vec<crate::app::GraphIntent>,
+    pub(crate) app_commands: Vec<crate::app::AppCommand>,
 }
 
 impl EmbeddedViewerOutput {
     pub(crate) fn empty() -> Self {
         Self {
             intents: Vec::new(),
+            app_commands: Vec::new(),
         }
     }
 }
@@ -74,6 +76,7 @@ impl EmbeddedViewerRegistry {
     pub(crate) fn default_with_viewers() -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(SettingsViewer));
+        registry.register(Box::new(super::super::viewers::MiddleNetEmbeddedViewer));
         registry.register(Box::new(super::super::viewers::PlaintextEmbeddedViewer));
         registry.register(Box::new(super::super::viewers::ImageEmbeddedViewer));
         registry.register(Box::new(super::super::viewers::DirectoryEmbeddedViewer));
@@ -332,6 +335,10 @@ impl ViewerRegistry {
             }
         }
 
+        if let Some(viewer_id) = middlenet_viewer_for_uri_scheme(uri) {
+            return self.selection(viewer_id, false, "scheme");
+        }
+
         if let Some(mime) = mime_hint.map(|m| m.to_ascii_lowercase())
             && let Some(viewer_id) = self.mime_handlers.get(&mime)
         {
@@ -427,6 +434,14 @@ impl Default for ViewerRegistry {
         registry.register_mime("application/x-graphshell-settings", "viewer:settings");
         registry.register_mime("application/x-graphshell-internal", "viewer:webview");
         registry.register_mime("text/html", "viewer:webview");
+        registry.register_mime("text/gemini", "viewer:middlenet");
+        registry.register_mime("text/x-gemini", "viewer:middlenet");
+        registry.register_mime("application/gophermap", "viewer:middlenet");
+        registry.register_mime("application/x-gophermap", "viewer:middlenet");
+        registry.register_mime("text/x-gophermap", "viewer:middlenet");
+        registry.register_mime("application/x-finger", "viewer:middlenet");
+        registry.register_mime("application/rss+xml", "viewer:middlenet");
+        registry.register_mime("application/atom+xml", "viewer:middlenet");
         registry.register_mime("text/plain", "viewer:plaintext");
         registry.register_mime("text/markdown", "viewer:markdown");
         registry.register_mime("text/x-markdown", "viewer:markdown");
@@ -447,6 +462,11 @@ impl Default for ViewerRegistry {
             registry.register_mime("audio/aac", "viewer:audio");
         }
         registry.register_extension("md", "viewer:markdown");
+        registry.register_extension("gmi", "viewer:middlenet");
+        registry.register_extension("gemini", "viewer:middlenet");
+        registry.register_extension("gophermap", "viewer:middlenet");
+        registry.register_extension("rss", "viewer:middlenet");
+        registry.register_extension("atom", "viewer:middlenet");
         #[cfg(feature = "pdf")]
         registry.register_extension("pdf", "viewer:pdf");
         registry.register_extension("csv", "viewer:csv");
@@ -476,6 +496,7 @@ impl Default for ViewerRegistry {
                 history: CapabilityDeclaration::full(),
             },
         );
+        registry.register_capabilities("viewer:middlenet", ViewerSubsystemCapabilities::full());
         registry.register_capabilities("viewer:settings", ViewerSubsystemCapabilities::full());
         registry.register_capabilities("viewer:metadata", ViewerSubsystemCapabilities::full());
         registry.register_capabilities("viewer:plaintext", ViewerSubsystemCapabilities::full());
@@ -499,9 +520,23 @@ fn render_mode_for_viewer_id(viewer_id: &str) -> ViewerRenderMode {
     match viewer_id {
         "viewer:webview" => ViewerRenderMode::CompositedTexture,
         "viewer:wry" => ViewerRenderMode::NativeOverlay,
-        "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
+        "viewer:middlenet" | "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
         | "viewer:settings" | "viewer:metadata" | "viewer:audio" => ViewerRenderMode::EmbeddedEgui,
         _ => ViewerRenderMode::Placeholder,
+    }
+}
+
+fn middlenet_viewer_for_uri_scheme(uri: &str) -> Option<&'static str> {
+    match uri.split_once(':').map(|(scheme, _)| scheme.to_ascii_lowercase()) {
+        Some(scheme)
+            if matches!(
+                scheme.as_str(),
+                "gemini" | "titan" | "gopher" | "finger" | "spartan" | "misfin"
+            ) =>
+        {
+            Some("viewer:middlenet")
+        }
+        _ => None,
     }
 }
 
@@ -696,6 +731,47 @@ mod tests {
             registry.select_for(Some("text/plain"), AddressKind::File),
             "viewer:plaintext"
         );
+    }
+
+    #[test]
+    fn viewer_registry_selects_middlenet_for_gemini_scheme_without_mime_hint() {
+        let registry = ViewerRegistry::default();
+        let selection = registry.select_for_uri("gemini://example.com/start", None);
+
+        assert_eq!(selection.viewer_id, "viewer:middlenet");
+        assert!(!selection.fallback_used);
+        assert_eq!(selection.matched_by, "scheme");
+    }
+
+    #[test]
+    fn viewer_registry_selects_middlenet_for_spartan_scheme_without_mime_hint() {
+        let registry = ViewerRegistry::default();
+        let selection = registry.select_for_uri("spartan://example.com/start", None);
+
+        assert_eq!(selection.viewer_id, "viewer:middlenet");
+        assert!(!selection.fallback_used);
+        assert_eq!(selection.matched_by, "scheme");
+    }
+
+    #[test]
+    fn viewer_registry_selects_middlenet_for_titan_scheme_without_mime_hint() {
+        let registry = ViewerRegistry::default();
+        let selection = registry.select_for_uri("titan://example.com/edit/start", None);
+
+        assert_eq!(selection.viewer_id, "viewer:middlenet");
+        assert!(!selection.fallback_used);
+        assert_eq!(selection.matched_by, "scheme");
+    }
+
+    #[test]
+    fn viewer_registry_selects_middlenet_for_gemini_mime() {
+        let registry = ViewerRegistry::default();
+        let selection =
+            registry.select_for_uri("https://example.com/capsule.gmi", Some("text/gemini"));
+
+        assert_eq!(selection.viewer_id, "viewer:middlenet");
+        assert!(!selection.fallback_used);
+        assert_eq!(selection.matched_by, "mime");
     }
 
     #[test]

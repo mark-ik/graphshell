@@ -555,6 +555,8 @@ pub enum NodeAuditEventKind {
     /// Node URL was changed out-of-band (not via NavigateNode navigation).
     /// Used when a node's URL is set directly rather than through navigation.
     UrlChanged { new_url: String },
+    /// A viewer or workflow recorded a notable node-scoped action.
+    ActionRecorded { action: String, detail: String },
     /// Node was tombstoned (soft-deleted).
     Tombstoned,
     /// Node was restored from tombstone state.

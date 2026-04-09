@@ -33,7 +33,7 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use uuid::Uuid;
 
-use super::simple_document::SimpleDocument;
+use crate::middlenet::document::{SimpleBlock, SimpleDocument};
 use crate::model::archive::ArchivePrivacyClass;
 
 // ---------------------------------------------------------------------------
@@ -279,27 +279,27 @@ fn route_request(path: &str, registry: &CapsuleRegistry, hostname: &str) -> Gemi
 
 fn serve_index(registry: &CapsuleRegistry, hostname: &str) -> GeminiResponse {
     let mut doc_blocks = vec![
-        super::simple_document::SimpleBlock::Heading {
+        SimpleBlock::Heading {
             level: 1,
             text: format!("{hostname} — Graphshell Capsule"),
         },
-        super::simple_document::SimpleBlock::Paragraph(
+        SimpleBlock::Paragraph(
             "This capsule is served by Graphshell.".to_string(),
         ),
     ];
 
     let nodes = registry.all();
     if nodes.is_empty() {
-        doc_blocks.push(super::simple_document::SimpleBlock::Paragraph(
+        doc_blocks.push(SimpleBlock::Paragraph(
             "No nodes are currently shared from this capsule.".to_string(),
         ));
     } else {
-        doc_blocks.push(super::simple_document::SimpleBlock::Heading {
+        doc_blocks.push(SimpleBlock::Heading {
             level: 2,
             text: "Shared nodes".to_string(),
         });
         for node in &nodes {
-            doc_blocks.push(super::simple_document::SimpleBlock::Link {
+            doc_blocks.push(SimpleBlock::Link {
                 text: node.title.clone(),
                 href: format!("gemini://{hostname}/node/{}", node.node_id),
             });

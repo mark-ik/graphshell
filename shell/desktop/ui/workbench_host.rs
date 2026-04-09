@@ -3820,6 +3820,7 @@ fn viewer_backend_display_name(viewer_id: &str) -> &str {
     match viewer_id {
         "viewer:webview" => "Servo",
         "viewer:wry" => "Wry",
+        "viewer:middlenet" => "MiddleNet",
         "viewer:plaintext" => "Text",
         "viewer:markdown" => "Markdown",
         "viewer:pdf" => "PDF",
@@ -3912,6 +3913,66 @@ fn open_with_picker_visible(entry: &WorkbenchPaneEntry) -> bool {
         && entry.node_viewer_summary.as_ref().is_some_and(|summary| {
             summary.available_viewer_ids.len() > 1 || summary.viewer_override.is_some()
         })
+}
+
+fn quick_switch_viewer_ids(summary: &WorkbenchNodeViewerSummary) -> Vec<&str> {
+    let mut viewer_ids = Vec::new();
+    if summary
+        .available_viewer_ids
+        .iter()
+        .any(|viewer_id| viewer_id == "viewer:middlenet")
+    {
+        viewer_ids.push("viewer:middlenet");
+    }
+    viewer_ids
+}
+
+fn render_inline_viewer_quick_switches(
+    ui: &mut egui::Ui,
+    entry: &WorkbenchPaneEntry,
+    actions: &mut Vec<WorkbenchHostAction>,
+) {
+    let WorkbenchPaneKind::Node { node_key } = entry.kind else {
+        return;
+    };
+    let Some(summary) = entry.node_viewer_summary.as_ref() else {
+        return;
+    };
+    let quick_viewers = quick_switch_viewer_ids(summary);
+    if quick_viewers.is_empty() {
+        return;
+    }
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new("Quick switch:").small().weak());
+        let auto_selected = summary.viewer_override.is_none();
+        if ui
+            .selectable_label(auto_selected, "Auto")
+            .on_hover_text("Use the registry-selected viewer for this content")
+            .clicked()
+        {
+            actions.push(WorkbenchHostAction::SwapViewerBackend {
+                pane: entry.pane_id,
+                node: node_key,
+                viewer_id_override: None,
+            });
+        }
+
+        for viewer_id in quick_viewers {
+            let selected = summary.viewer_override.as_deref() == Some(viewer_id);
+            if ui
+                .selectable_label(selected, viewer_backend_display_name(viewer_id))
+                .on_hover_text(viewer_id)
+                .clicked()
+            {
+                actions.push(WorkbenchHostAction::SwapViewerBackend {
+                    pane: entry.pane_id,
+                    node: node_key,
+                    viewer_id_override: Some(ViewerId::new(viewer_id.to_string())),
+                });
+            }
+        }
+    });
 }
 
 fn render_open_with_picker(
@@ -4040,6 +4101,8 @@ fn render_tree_node(
             }
             if open_with_picker_visible(entry) {
                 ui.add_space((depth as f32) * 10.0 + 2.0);
+                render_inline_viewer_quick_switches(ui, entry, actions);
+                ui.add_space(2.0);
                 render_open_with_picker(ui, entry, actions, "workbench_host_tree_open_with");
             }
             ui.add_space(6.0);
@@ -4131,6 +4194,7 @@ fn render_pane_row(
         });
     });
     if open_with_picker_visible(entry) {
+        render_inline_viewer_quick_switches(ui, entry, actions);
         render_open_with_picker(ui, entry, actions, "workbench_host_list_open_with");
     }
     ui.add_space(2.0);

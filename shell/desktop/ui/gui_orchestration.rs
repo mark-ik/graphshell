@@ -9,8 +9,9 @@ use arboard::Clipboard;
 
 use crate::app::{
     ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry,
-    GraphSearchOrigin, GraphSearchRequest, LifecycleCause, PendingTileOpenMode, SearchDisplayMode,
-    UndoBoundaryReason, WorkbenchIntent,
+    GraphSearchOrigin, GraphSearchRequest, LifecycleCause, NodeStatusNoticeRequest,
+    PendingTileOpenMode, SearchDisplayMode, UiNotificationLevel, UndoBoundaryReason,
+    WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
@@ -674,6 +675,26 @@ pub(crate) fn handle_pending_clipboard_copy_requests(
     }
 }
 
+pub(crate) fn handle_pending_node_status_notices(
+    graph_app: &mut GraphBrowserApp,
+    toasts: &mut egui_notify::Toasts,
+) {
+    while let Some(NodeStatusNoticeRequest {
+        key,
+        level,
+        message,
+        audit_event,
+    }) = graph_app.take_pending_node_status_notice()
+    {
+        emit_node_status_toast(toasts, level, &message);
+
+        let Some(event) = audit_event else {
+            continue;
+        };
+        graph_app.log_node_audit_event(key, event);
+    }
+}
+
 fn handle_pending_clipboard_copy_request(
     graph_app: &GraphBrowserApp,
     clipboard: &mut Option<Clipboard>,
@@ -697,6 +718,24 @@ fn handle_pending_clipboard_copy_request(
         Err(e) => {
             emit_clipboard_copy_failure(e.to_string().len());
             toasts.error(clipboard_copy_failure_text(e.to_string().as_str()));
+        }
+    }
+}
+
+fn emit_node_status_toast(
+    toasts: &mut egui_notify::Toasts,
+    level: UiNotificationLevel,
+    message: &str,
+) {
+    match level {
+        UiNotificationLevel::Success => {
+            toasts.success(message);
+        }
+        UiNotificationLevel::Warning => {
+            toasts.warning(message);
+        }
+        UiNotificationLevel::Error => {
+            toasts.error(message);
         }
     }
 }

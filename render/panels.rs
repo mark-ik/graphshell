@@ -1802,6 +1802,14 @@ fn render_mixed_timeline_rows(
                                 "\u{1F517}",
                                 format!("URL \u{2192} {}", &new_url[..new_url.len().min(32)]),
                             ),
+                            NodeAuditEventKind::ActionRecorded { action, detail } => (
+                                "\u{2726}",
+                                if detail.is_empty() {
+                                    action.clone()
+                                } else {
+                                    format!("{action}: {detail}")
+                                },
+                            ),
                             NodeAuditEventKind::Tombstoned => {
                                 ("\u{1FAA6}", "Tombstoned".to_string())
                             }

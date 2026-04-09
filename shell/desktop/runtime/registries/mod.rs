@@ -642,6 +642,7 @@ fn static_viewer_id(viewer_id: &str) -> Option<&'static str> {
     match viewer_id {
         "viewer:webview" => Some("viewer:webview"),
         "viewer:wry" => Some("viewer:wry"),
+        "viewer:middlenet" => Some("viewer:middlenet"),
         "viewer:plaintext" => Some("viewer:plaintext"),
         "viewer:markdown" => Some("viewer:markdown"),
         "viewer:image" => Some("viewer:image"),
@@ -657,6 +658,14 @@ fn static_viewer_id(viewer_id: &str) -> Option<&'static str> {
 
 fn static_viewer_id_for_runtime_mime(mime: &str) -> Option<&'static str> {
     match mime {
+        "text/gemini"
+        | "text/x-gemini"
+        | "application/gophermap"
+        | "application/x-gophermap"
+        | "text/x-gophermap"
+        | "application/x-finger"
+        | "application/rss+xml"
+        | "application/atom+xml" => Some("viewer:middlenet"),
         "text/html"
         | "application/pdf"
         | "image/svg+xml"

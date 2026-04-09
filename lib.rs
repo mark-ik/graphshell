@@ -18,6 +18,7 @@ mod app;
 mod domain;
 mod graph;
 mod input;
+mod middlenet;
 mod model;
 mod render;
 mod services;

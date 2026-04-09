@@ -132,6 +132,12 @@ impl Default for ProtocolRegistry {
             "data",
             "verso",
             "graphshell",
+            "gemini",
+            "titan",
+            "gopher",
+            "finger",
+            "spartan",
+            "misfin",
         ] {
             registry.register_scheme(scheme);
         }
@@ -146,6 +152,10 @@ fn infer_mime_hint(uri: &str, scheme: &str) -> Option<String> {
 
     if scheme == "data" {
         return infer_data_uri_mime_hint(uri);
+    }
+
+    if let Some(mime_hint) = infer_middlenet_mime_hint(uri, scheme) {
+        return Some(mime_hint);
     }
 
     let trimmed = url::Url::parse(uri)
@@ -187,6 +197,30 @@ fn infer_data_uri_mime_hint(uri: &str) -> Option<String> {
 fn infer_graphshell_mime_hint(uri: &str) -> Option<String> {
     let parsed = VersoAddress::parse(uri)?;
     Some(parsed.inferred_mime_hint().to_string())
+}
+
+fn infer_middlenet_mime_hint(uri: &str, scheme: &str) -> Option<String> {
+    match scheme {
+        "gemini" | "titan" | "spartan" | "misfin" => return Some("text/gemini".to_string()),
+        "gopher" => return Some("application/gophermap".to_string()),
+        "finger" => return Some("application/x-finger".to_string()),
+        _ => {}
+    }
+
+    let lower = uri.to_ascii_lowercase();
+    if lower.ends_with(".gmi") || lower.ends_with(".gemini") {
+        return Some("text/gemini".to_string());
+    }
+    if lower.ends_with(".gophermap") {
+        return Some("application/gophermap".to_string());
+    }
+    if lower.ends_with(".rss") {
+        return Some("application/rss+xml".to_string());
+    }
+    if lower.ends_with(".atom") {
+        return Some("application/atom+xml".to_string());
+    }
+    None
 }
 
 #[cfg(test)]
@@ -284,6 +318,39 @@ mod tests {
         assert_eq!(
             resolution.inferred_mime_hint.as_deref(),
             Some("application/x-graphshell-settings")
+        );
+    }
+
+    #[test]
+    fn protocol_resolution_supports_gemini_scheme_with_middle_mime_hint() {
+        let registry = ProtocolRegistry::default();
+        let resolution = registry.resolve("gemini://example.com/start");
+
+        assert!(resolution.supported);
+        assert!(!resolution.fallback_used);
+        assert_eq!(resolution.matched_scheme, "gemini");
+        assert_eq!(resolution.inferred_mime_hint.as_deref(), Some("text/gemini"));
+    }
+
+    #[test]
+    fn protocol_resolution_supports_titan_scheme_with_middle_mime_hint() {
+        let registry = ProtocolRegistry::default();
+        let resolution = registry.resolve("titan://example.com/edit/start");
+
+        assert!(resolution.supported);
+        assert!(!resolution.fallback_used);
+        assert_eq!(resolution.matched_scheme, "titan");
+        assert_eq!(resolution.inferred_mime_hint.as_deref(), Some("text/gemini"));
+    }
+
+    #[test]
+    fn protocol_resolution_infers_gophermap_extension_mime_hint() {
+        let registry = ProtocolRegistry::default();
+        let resolution = registry.resolve("file:///capsule/gophermap");
+
+        assert_eq!(
+            resolution.inferred_mime_hint.as_deref(),
+            Some("application/gophermap")
         );
     }
 }

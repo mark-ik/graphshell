@@ -4,6 +4,7 @@ use std::time::Instant;
 use euclid::default::Point2D;
 
 use crate::graph::{NodeKey, RelationSelector};
+use crate::services::persistence::types::NodeAuditEventKind;
 
 use super::{
     CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand, GraphSearchRequest,
@@ -54,6 +55,21 @@ pub enum BrowserCommandTarget {
 pub struct RuntimeUserStylesheetSpec {
     pub path: PathBuf,
     pub source: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiNotificationLevel {
+    Success,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeStatusNoticeRequest {
+    pub key: NodeKey,
+    pub level: UiNotificationLevel,
+    pub message: String,
+    pub audit_event: Option<NodeAuditEventKind>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +181,9 @@ pub enum AppCommand {
     },
     ClipboardCopy {
         request: ClipboardCopyRequest,
+    },
+    NodeStatusNotice {
+        request: NodeStatusNoticeRequest,
     },
     ProtocolProbe {
         key: NodeKey,

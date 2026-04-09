@@ -51,7 +51,10 @@ impl EmbeddedViewer for PlaintextEmbeddedViewer {
             }
         }
 
-        EmbeddedViewerOutput { intents }
+        EmbeddedViewerOutput {
+            intents,
+            app_commands: Vec::new(),
+        }
     }
 }
 

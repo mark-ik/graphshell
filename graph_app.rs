@@ -127,8 +127,9 @@ mod history_runtime;
 #[path = "app/intents.rs"]
 mod intents;
 pub use intents::{
-    AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation, RuntimeEvent,
-    RuntimeUserStylesheetSpec, ViewAction,
+    AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation,
+    NodeStatusNoticeRequest, RuntimeEvent, RuntimeUserStylesheetSpec, UiNotificationLevel,
+    ViewAction,
 };
 
 #[path = "app/clip_capture.rs"]

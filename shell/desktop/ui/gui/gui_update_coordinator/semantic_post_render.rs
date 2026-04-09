@@ -6,6 +6,7 @@ pub(super) fn finalize_update_frame(
     clipboard: &mut Option<Clipboard>,
     toasts: &mut egui_notify::Toasts,
 ) {
+    gui_orchestration::handle_pending_node_status_notices(graph_app, toasts);
     gui_orchestration::handle_pending_clipboard_copy_requests(graph_app, clipboard, toasts);
     toasts.show(ctx);
 }

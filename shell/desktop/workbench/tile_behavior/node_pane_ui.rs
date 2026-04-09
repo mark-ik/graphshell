@@ -229,6 +229,9 @@ fn render_node_pane_impl(
                 for intent in output.intents {
                     behavior.queue_post_render_intent(intent);
                 }
+                for command in output.app_commands {
+                    behavior.graph_app.enqueue_app_command(command);
+                }
                 true
             } else {
                 false
@@ -924,6 +927,14 @@ fn render_node_audit_panel(
                     NodeAuditEventKind::UrlChanged { new_url } => (
                         "🔗",
                         format!("URL → {}", truncate_host_or_path(new_url, 32)),
+                    ),
+                    NodeAuditEventKind::ActionRecorded { action, detail } => (
+                        "✦",
+                        if detail.is_empty() {
+                            action.clone()
+                        } else {
+                            format!("{action}: {detail}")
+                        },
                     ),
                     NodeAuditEventKind::Tombstoned => ("🪦", "Tombstoned".to_string()),
                     NodeAuditEventKind::Restored => ("♻", "Restored".to_string()),

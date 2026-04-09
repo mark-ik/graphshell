@@ -21,7 +21,9 @@ use crate::shell::desktop::ui::workbench_host::{
     WorkbenchPaneEntry, WorkbenchPaneKind,
 };
 use crate::shell::desktop::workbench::semantic_tabs::SemanticTabAffordance;
-use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode, ViewerSwitchReason};
+use crate::shell::desktop::workbench::pane_model::{
+    PaneId, TileRenderMode, ViewerId, ViewerSwitchReason,
+};
 #[cfg(test)]
 use crate::shell::desktop::workbench::pane_model::PanePresentationMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -704,6 +706,32 @@ fn viewer_content_actions(chrome_projection: &WorkbenchChromeProjection) -> Vec<
                     },
                 ),
             });
+            if active_entry
+                .node_viewer_summary
+                .as_ref()
+                .is_some_and(|summary| {
+                    summary
+                        .available_viewer_ids
+                        .iter()
+                        .any(|viewer_id| viewer_id == "viewer:middlenet")
+                        && summary.viewer_override.as_deref() != Some("viewer:middlenet")
+                })
+            {
+                actions.push(OverviewQuickAction {
+                    label: "Use MiddleNet".to_string(),
+                    owner: OverviewActionOwner::Viewer,
+                    hover_text:
+                        "Pin the active node to the embedded MiddleNet renderer instead of relying on auto selection."
+                            .to_string(),
+                    dispatch: OverviewQuickActionDispatch::Workbench(
+                        WorkbenchIntent::SwapViewerBackend {
+                            pane: active_entry.pane_id,
+                            node: *node_key,
+                            viewer_id_override: Some(ViewerId::new("viewer:middlenet")),
+                        },
+                    ),
+                });
+            }
             actions.push(OverviewQuickAction {
                 label: "Viewer settings".to_string(),
                 owner: OverviewActionOwner::Viewer,
@@ -2500,7 +2528,7 @@ mod tests {
                     runtime_blocked: false,
                     runtime_crashed: false,
                     fallback_reason: None,
-                    available_viewer_ids: vec![],
+                    available_viewer_ids: vec!["viewer:webview".to_string()],
                 }),
                 presentation_mode: PanePresentationMode::Tiled,
                 is_active: true,
@@ -2535,6 +2563,68 @@ mod tests {
                 action.dispatch,
                 OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenToolUrl { .. })
             )
+        }));
+    }
+
+    #[test]
+    fn viewer_content_actions_offer_explicit_middlenet_override_when_available() {
+        let pane_id = PaneId::new();
+        let node_key = crate::graph::NodeKey::new(21);
+        let host_layout = test_host_layout();
+        let projection = WorkbenchChromeProjection {
+            layer_state: crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::WorkbenchActive,
+            chrome_policy: crate::shell::desktop::ui::workbench_host::ChromeExposurePolicy::GraphPlusWorkbenchHost,
+            host_layout: host_layout.clone(),
+            host_layouts: vec![host_layout],
+            active_graph_view: None,
+            extra_graph_views: vec![],
+            active_pane_title: Some("Feed".to_string()),
+            active_frame_name: Some("frame-a".to_string()),
+            saved_frame_names: vec![],
+            navigator_groups: vec![],
+            pane_entries: vec![WorkbenchPaneEntry {
+                pane_id,
+                kind: WorkbenchPaneKind::Node { node_key },
+                title: "Feed".to_string(),
+                subtitle: Some("application/rss+xml".to_string()),
+                arrangement_memberships: vec![],
+                semantic_tab_affordance: None,
+                node_viewer_summary: Some(WorkbenchNodeViewerSummary {
+                    effective_viewer_id: Some("viewer:webview".to_string()),
+                    viewer_override: None,
+                    viewer_switch_reason: ViewerSwitchReason::PolicyPinned,
+                    render_mode: TileRenderMode::EmbeddedEgui,
+                    runtime_blocked: false,
+                    runtime_crashed: false,
+                    fallback_reason: None,
+                    available_viewer_ids: vec![
+                        "viewer:webview".to_string(),
+                        "viewer:middlenet".to_string(),
+                    ],
+                }),
+                presentation_mode: PanePresentationMode::Tiled,
+                is_active: true,
+                closable: true,
+            }],
+            tree_root: None,
+            active_graphlet_roster: vec![],
+        };
+
+        let actions = viewer_content_actions(&projection);
+
+        assert!(actions.iter().any(|action| {
+            action.owner == OverviewActionOwner::Viewer
+                && action.label == "Use MiddleNet"
+                && matches!(
+                    action.dispatch,
+                    OverviewQuickActionDispatch::Workbench(WorkbenchIntent::SwapViewerBackend {
+                        pane,
+                        node,
+                        viewer_id_override: Some(ref viewer_id_override),
+                    }) if pane == pane_id
+                        && node == node_key
+                        && viewer_id_override.as_str() == "viewer:middlenet"
+                )
         }));
     }
 

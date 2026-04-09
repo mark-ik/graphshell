@@ -255,6 +255,48 @@ fn sector_a_content_pipeline_runs_end_to_end_for_tagged_markdown_node() {
 }
 
 #[test]
+fn sector_a_content_pipeline_routes_gemini_node_to_middlenet_viewer() {
+    let mut harness = TestRegistry::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let key = app.add_node_and_sync(
+        "gemini://capsule.example/start".to_string(),
+        Point2D::new(0.0, 0.0),
+    );
+
+    let node = app
+        .workspace
+        .domain
+        .graph
+        .get_node(key)
+        .expect("node should exist");
+    let parsed = ServoUrl::parse(node.url()).expect("url should parse");
+    let decision = registries::phase0_decide_navigation_for_tests(
+        &harness.diagnostics,
+        parsed,
+        node.mime_hint.as_deref(),
+    );
+    let viewer_surface =
+        registries::phase3_resolve_viewer_surface_profile(decision.viewer.viewer_id);
+
+    assert_eq!(decision.protocol.inferred_mime_hint.as_deref(), Some("text/gemini"));
+    assert_eq!(decision.viewer.viewer_id, "viewer:middlenet");
+    assert_eq!(
+        viewer_surface.resolved_id,
+        crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DOCUMENT
+    );
+
+    let snapshot = harness.snapshot();
+    assert!(
+        TestRegistry::channel_count(&snapshot, "registry.protocol.resolve_succeeded") > 0,
+        "protocol resolve success channel should be emitted"
+    );
+    assert!(
+        TestRegistry::channel_count(&snapshot, "registry.viewer.select_succeeded") > 0,
+        "viewer select success channel should be emitted"
+    );
+}
+
+#[test]
 fn phase2_action_registry_omnibox_search_emits_action_channels() {
     let mut harness = TestRegistry::new();
     let mut app = GraphBrowserApp::new_for_testing();

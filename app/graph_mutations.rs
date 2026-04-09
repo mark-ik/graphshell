@@ -747,6 +747,18 @@ impl GraphBrowserApp {
         }
     }
 
+    pub(crate) fn log_node_audit_event(
+        &mut self,
+        node_key: NodeKey,
+        event: crate::services::persistence::types::NodeAuditEventKind,
+    ) {
+        if let Some(store) = &mut self.services.persistence
+            && let Some(node) = self.workspace.domain.graph.get_node(node_key)
+        {
+            store.log_audit_event(&node.id.to_string(), event, Self::unix_timestamp_ms_now());
+        }
+    }
+
     pub(crate) fn maybe_add_history_traversal_edge(
         &mut self,
         node_key: NodeKey,

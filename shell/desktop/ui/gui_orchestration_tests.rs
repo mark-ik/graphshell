@@ -1,8 +1,9 @@
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode, SearchDisplayMode,
-    ToolSurfaceReturnTarget, WorkbenchIntent,
+    ToolSurfaceReturnTarget, UiNotificationLevel, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
+use crate::services::persistence::types::NodeAuditEventKind;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED,
@@ -411,6 +412,46 @@ fn unknown_settings_url_intent_is_not_consumed_by_orchestration_authority() {
         WorkbenchIntent::OpenSettingsUrl { url } => assert_eq!(url, &unresolved_url),
         other => panic!("expected unresolved OpenSettingsUrl intent, got {other:?}"),
     }
+}
+
+#[test]
+fn pending_node_status_notice_records_audit_event() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+    let key = app.workspace.domain.graph.add_node(
+        "misfin://friend@example.net".into(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let mut toasts = egui_notify::Toasts::default();
+
+    app.request_node_status_notice(
+        key,
+        UiNotificationLevel::Success,
+        "Misfin status 20 for friend@example.net",
+        Some(NodeAuditEventKind::ActionRecorded {
+            action: "Misfin send".to_string(),
+            detail: "Misfin status 20 for friend@example.net".to_string(),
+        }),
+    );
+
+    gui_orchestration::handle_pending_node_status_notices(&mut app, &mut toasts);
+
+    let node_id = app
+        .domain_graph()
+        .get_node(key)
+        .expect("node should exist")
+        .id;
+    let entries = app.node_audit_history_entries(node_id, 10);
+    assert!(entries.iter().any(|entry| {
+        matches!(
+            entry,
+            crate::services::persistence::types::LogEntry::AppendNodeAuditEvent {
+                event: NodeAuditEventKind::ActionRecorded { action, .. },
+                ..
+            } if action == "Misfin send"
+        )
+    }));
+    assert!(app.take_pending_node_status_notice().is_none());
 }
 
 #[test]

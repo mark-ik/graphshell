@@ -38,7 +38,10 @@ impl EmbeddedViewer for DirectoryEmbeddedViewer {
                 ui.colored_label(egui::Color32::from_rgb(220, 80, 80), err);
             }
         }
-        EmbeddedViewerOutput { intents }
+        EmbeddedViewerOutput {
+            intents,
+            app_commands: Vec::new(),
+        }
     }
 }
 

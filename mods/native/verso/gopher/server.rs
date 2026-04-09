@@ -21,8 +21,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
+use crate::middlenet::document::{SimpleBlock, SimpleDocument};
 use crate::model::archive::ArchivePrivacyClass;
-use crate::mods::native::verso::gemini::SimpleDocument;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -218,11 +218,11 @@ fn route_selector(selector: &str, registry: &GopherRegistry, hostname: &str, por
 
 fn serve_root_menu(registry: &GopherRegistry, hostname: &str, port: u16) -> String {
     let index_doc = SimpleDocument::Blocks(vec![
-        crate::mods::native::verso::gemini::SimpleBlock::Heading {
+        SimpleBlock::Heading {
             level: 1,
             text: format!("{hostname} — Graphshell Gopherspace"),
         },
-        crate::mods::native::verso::gemini::SimpleBlock::Paragraph(
+        SimpleBlock::Paragraph(
             "This gopherspace is served by Graphshell.".to_string(),
         ),
     ]);

@@ -611,6 +611,32 @@ impl GraphBrowserApp {
         }
     }
 
+    pub fn request_node_status_notice(
+        &mut self,
+        key: NodeKey,
+        level: UiNotificationLevel,
+        message: impl Into<String>,
+        audit_event: Option<crate::services::persistence::types::NodeAuditEventKind>,
+    ) {
+        self.enqueue_app_command(AppCommand::NodeStatusNotice {
+            request: NodeStatusNoticeRequest {
+                key,
+                level,
+                message: message.into(),
+                audit_event,
+            },
+        });
+    }
+
+    pub fn take_pending_node_status_notice(&mut self) -> Option<NodeStatusNoticeRequest> {
+        match self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::NodeStatusNotice { .. })
+        })? {
+            AppCommand::NodeStatusNotice { request } => Some(request),
+            _ => None,
+        }
+    }
+
     pub fn request_switch_data_dir(&mut self, path: impl AsRef<Path>) {
         self.enqueue_app_command(AppCommand::SwitchDataDir {
             path: path.as_ref().to_path_buf(),

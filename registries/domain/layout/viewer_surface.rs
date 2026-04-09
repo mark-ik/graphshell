@@ -104,7 +104,7 @@ impl Default for ViewerSurfaceRegistry {
 }
 
 fn profile_id_for_viewer(viewer_id: &str, capability: Option<&ViewerCapability>) -> &'static str {
-    if matches!(viewer_id, "viewer:pdf" | "viewer:markdown") {
+    if matches!(viewer_id, "viewer:pdf" | "viewer:markdown" | "viewer:middlenet") {
         return VIEWER_SURFACE_DOCUMENT;
     }
 
@@ -176,6 +176,23 @@ mod tests {
         };
 
         let resolution = registry.resolve_for_viewer("viewer:markdown", Some(&capability));
+        assert_eq!(resolution.resolved_id, VIEWER_SURFACE_DOCUMENT);
+        assert!(resolution.profile.reader_mode_default);
+    }
+
+    #[test]
+    fn viewer_surface_registry_maps_middlenet_to_document_profile() {
+        let registry = ViewerSurfaceRegistry::default();
+        let capability = ViewerCapability {
+            viewer_id: "viewer:middlenet".to_string(),
+            supported_mime_types: vec!["text/gemini".to_string()],
+            supported_extensions: vec!["gmi".to_string()],
+            render_mode: ViewerRenderMode::EmbeddedEgui,
+            overlay_affordance: true,
+            subsystems: crate::registries::atomic::viewer::ViewerSubsystemCapabilities::full(),
+        };
+
+        let resolution = registry.resolve_for_viewer("viewer:middlenet", Some(&capability));
         assert_eq!(resolution.resolved_id, VIEWER_SURFACE_DOCUMENT);
         assert!(resolution.profile.reader_mode_default);
     }

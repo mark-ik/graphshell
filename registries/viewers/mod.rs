@@ -1,4 +1,5 @@
 mod plaintext;
+mod middlenet;
 mod image_viewer;
 mod directory;
 #[cfg(feature = "pdf")]
@@ -7,6 +8,7 @@ mod pdf;
 mod audio;
 
 pub(crate) use plaintext::PlaintextEmbeddedViewer;
+pub(crate) use middlenet::MiddleNetEmbeddedViewer;
 pub(crate) use image_viewer::ImageEmbeddedViewer;
 pub(crate) use directory::DirectoryEmbeddedViewer;
 #[cfg(feature = "pdf")]

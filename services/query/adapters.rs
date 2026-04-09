@@ -155,6 +155,9 @@ pub fn fact_matches_text(fact: &ProjectedFact, needle_lower: &str) -> bool {
             NodeAuditEventKind::Tagged { tag } => format!("Tagged {}", tag),
             NodeAuditEventKind::Untagged { tag } => format!("Untagged {}", tag),
             NodeAuditEventKind::UrlChanged { new_url } => format!("UrlChanged {}", new_url),
+            NodeAuditEventKind::ActionRecorded { action, detail } => {
+                format!("{} {}", action, detail)
+            }
             NodeAuditEventKind::Pinned => "Pinned".to_string(),
             NodeAuditEventKind::Unpinned => "Unpinned".to_string(),
             NodeAuditEventKind::Tombstoned => "Tombstoned".to_string(),
