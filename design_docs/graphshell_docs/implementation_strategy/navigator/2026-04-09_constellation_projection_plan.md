@@ -118,3 +118,65 @@ Recommended first slice:
 5. open/reveal/scope verbs consistent with Navigator grammar.
 
 This is enough to validate whether the feature genuinely helps orientation.
+
+---
+
+## 8. Implementation Slices
+
+### Slice A: Relation Inventory and Graphlet Inputs
+
+- define the initial typed relation inputs for reply, reference, citation, and
+     frontier candidate status,
+- ensure the projection can ingest them without pretending all relations are
+     identical,
+- align projection data with graphlet boundaries.
+
+### Slice B: Active Constellation Projection State
+
+- add owner state for the active anchor item and current local-world scope,
+- preserve frontier items distinctly from current constellation members,
+- route open/reveal/scope actions through Navigator-owned projection state.
+
+### Slice C: Specialty Layout and Ranking
+
+- provide a layout that emphasizes the anchor and nearby reply/reference shape,
+- support compact cluster ranking or ordering rules,
+- keep candidate expansions separate from confirmed cluster members.
+
+### Slice D: Input Adapters
+
+- ingest at least one real source family such as Cosmos or Bubble-style data,
+- prove the projection can map imported reply/reference metadata into the
+     constellation model,
+- avoid hardwiring the feature to one service-specific vocabulary.
+
+---
+
+## 9. Validation
+
+### Manual
+
+1. Open a known thread-like cluster and verify the anchor is visually and
+      semantically distinct.
+2. Verify direct replies, references, and frontier candidates are not rendered
+      as one flat list.
+3. Verify opening a new anchor updates only the owning projection context.
+4. Verify the same imported cluster can be reopened without losing local-world
+      orientation.
+
+### Automated
+
+- projection-builder tests for anchor/frontier membership,
+- relation-type tests for reply/reference distinction,
+- Navigator routing tests for open/reveal/scope actions.
+
+---
+
+## 10. Done Gate
+
+This slice closes when:
+
+- at least one real imported thread-like source can project into a
+     constellation,
+- the projection distinguishes anchor, member, and frontier roles,
+- and the user can navigate the local world as more than a plain feed list.

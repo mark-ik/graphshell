@@ -164,3 +164,64 @@ without collapsing them into one concept.
 
 This gives Graphshell a real browser-operations floor before broader protocol
 expansion.
+
+---
+
+## 9. Implementation Slices
+
+### Slice A: Source Object and Relationship State
+
+- define source-node fields needed by Navigator,
+- add explicit relationship state for candidate, subscribed, muted, and
+  archived,
+- keep relationship state separate from health observations.
+
+### Slice B: Health Computation and Refresh Visibility
+
+- compute `healthy`, `stale`, `empty`, `redirected`, `broken`, and `unknown`
+  from explicit observations,
+- surface last successful refresh, failure, or redirect state,
+- route refresh through a canonical action surface.
+
+### Slice C: Provenance and Recent-Update Surface
+
+- show why a source exists,
+- show which signal lane or discovery pack introduced it,
+- provide a recent-update list or count tied to that source.
+
+### Slice D: Candidate Promotion and Cleanup
+
+- support promote candidate to subscribed,
+- support remove candidate without breaking durable subscriptions,
+- preserve provenance for later audit and pack cleanup.
+
+---
+
+## 10. Validation
+
+### Manual
+
+1. Add a discovery candidate and verify it appears as `candidate`, not
+  `subscribed`.
+2. Promote that source into a subscription and verify the state change is
+  explicit and reversible.
+3. Refresh a source and verify health fields and timestamps change without
+  corrupting provenance.
+4. Inspect a stale or broken source and verify the reason is visible.
+
+### Automated
+
+- state-model tests for relationship and health transitions,
+- provenance tests proving lane and pack metadata persist across refreshes,
+- UI or reducer tests for promote/remove/archive/mute flows.
+
+---
+
+## 11. Done Gate
+
+This slice closes when:
+
+- source relationship state and health state are both explicit,
+- the user can promote, mute, archive, refresh, and inspect sources,
+- provenance and recent-update context are visible,
+- and discovery candidates are no longer conflated with subscriptions.

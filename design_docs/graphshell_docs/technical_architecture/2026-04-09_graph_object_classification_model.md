@@ -211,3 +211,67 @@ Minimum useful split:
 7. session/presence.
 
 That is the floor required for the next stage of Middlenet and co-op design.
+
+---
+
+## 7. Implementation Slices
+
+### Slice A: Canonical Classification Enum and Metadata Axes
+
+- add a canonical object-class inventory,
+- define the required metadata axes for durability, provenance, retention,
+  authorship, and addressability,
+- ensure the inventory is usable across graph storage, routing, and inspectors.
+
+### Slice B: Imported Source vs Snapshot Split
+
+- separate source/address objects from fetched content snapshots,
+- keep imported content time-bound and provenance-bearing,
+- stop overloading one generic node notion for both roles.
+
+### Slice C: Identity, Publication, and Signal Distinctions
+
+- make person and future community/service identity objects explicit,
+- separate publication/message artifacts from both source snapshots and local
+  notes,
+- add observation/signal records or edge classifications for discovery and
+  freshness provenance.
+
+### Slice D: Session and Presence Policy
+
+- classify live co-op/session state separately from durable content,
+- apply stricter retention and sharing policy,
+- ensure host-envelope constraints can be attached to this class cleanly.
+
+---
+
+## 8. Validation
+
+### Architecture
+
+- every inspectable object class has a clear retention and provenance story,
+- address objects and content snapshots are not conflated,
+- session/presence state is not accidentally treated as durable publication or
+  note content.
+
+### Implementation
+
+1. Inspect imported content and verify source identity, snapshot identity, and
+   signal provenance are all distinguishable.
+2. Inspect a person or message artifact and verify it does not route through
+   generic page assumptions.
+3. Inspect live co-op or presence state and verify it carries explicit
+   retention limits.
+
+---
+
+## 9. Done Gate
+
+This note is operationalized when:
+
+- the system has a canonical object-class inventory,
+- at least the minimum seven-way split is reflected in storage or metadata
+  policy,
+- command surfaces and inspectors can differentiate those classes,
+- and future Middlenet/co-op work no longer depends on one undifferentiated
+  node model.

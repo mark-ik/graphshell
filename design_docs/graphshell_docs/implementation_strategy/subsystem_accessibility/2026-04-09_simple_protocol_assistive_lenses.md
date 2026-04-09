@@ -93,3 +93,59 @@ Recommended first slice:
 
 This is enough to improve accessibility without accidentally replacing the
 source protocol with a richer private format.
+
+---
+
+## 6. Implementation Slices
+
+### Slice A: Assistive Lens Contract
+
+- define a typed assistive-lens descriptor,
+- record supported protocols, added structure, and degradation behavior,
+- ensure each lens declares whether faithful source access remains available.
+
+### Slice B: Outline and Structure Lenses
+
+- add heading or section inventory for gemtext and Markdown-like content,
+- expose link/action summaries where structure is otherwise implicit,
+- preserve return-to-faithful behavior.
+
+### Slice C: Feed and Thread Summaries
+
+- add compact assistive summaries for feed-like and thread-like content,
+- ensure these are clearly labeled as summaries or assistive modes,
+- avoid silently transforming the canonical source representation.
+
+### Slice D: Accessibility Mode Surfacing
+
+- show current mode as faithful, assistive, summarized, or transformed,
+- ensure screen-reader and keyboard paths can discover the active mode,
+- degrade cleanly when a lens cannot be computed.
+
+---
+
+## 7. Validation
+
+### Manual
+
+1. Open a Gemini or feed document and switch into an assistive lens.
+2. Verify the active mode is labeled and reversible.
+3. Verify the faithful source render remains accessible.
+4. Verify unsupported lenses degrade honestly instead of appearing broken.
+
+### Automated
+
+- descriptor tests for protocol support and degradation metadata,
+- rendering tests for outline and summary modes,
+- accessibility regressions for mode labeling and keyboard discovery.
+
+---
+
+## 8. Done Gate
+
+This slice closes when:
+
+- assistive lenses are explicit typed overlays,
+- at least one outline/structure lens and one summary lens are usable,
+- mode labeling is visible and non-visual-accessible,
+- and faithful protocol rendering remains the default truth.

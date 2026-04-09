@@ -248,3 +248,69 @@ The next notes or implementation-facing follow-ons should be:
 The key architectural discipline is simple: **separate the signals, preserve
 their provenance, and let Graphshell combine them deliberately rather than by
 accident.**
+
+---
+
+## 9. Implementation Slices
+
+### Slice A: Signal Taxonomy in Data Shape
+
+- add canonical signal-family labels for discovery, freshness, clustering,
+   search, and neighborhood traversal,
+- ensure surfaced results retain lane provenance,
+- prevent imported results from collapsing into a single generic aggregator
+   shape.
+
+### Slice B: Source and Subscription Split
+
+- define source objects separately from user subscription state,
+- preserve candidate-versus-subscribed semantics,
+- ensure freshness and discovery lanes can both point at the same source
+   without becoming the same relation.
+
+### Slice C: Lane-Specific Surfaces
+
+- expose discovery candidates, recent updates, search results, and clustered
+   constellations as distinct surfaces,
+- permit blended views only if lane provenance remains visible,
+- ensure user questions differ cleanly by surface.
+
+### Slice D: Provenance UI
+
+- show why a result is visible,
+- show which engine, walk path, or source surfaced it,
+- show whether the item is a candidate, clustered artifact, search hit, or
+   subscribed-source update.
+
+---
+
+## 10. Validation
+
+### Manual
+
+1. Verify a discovered source candidate is not presented as an active
+    subscription by default.
+2. Verify a recent-update surface explains freshness without pretending to be a
+    discovery ranking surface.
+3. Verify search results expose engine provenance and index context.
+4. Verify neighborhood-walk results show an explainable path rather than a
+    generic score.
+
+### Contract
+
+- every surfaced item can answer which signal family surfaced it,
+- source nodes, imported artifacts, and provenance/signal records remain
+   separable,
+- blended views do not erase original lane identity.
+
+---
+
+## 11. Done Gate
+
+This note is implemented at the architectural floor when:
+
+- the five signal families exist as explicit product lanes,
+- provenance is preserved per surfaced item,
+- at least one user-visible surface exists for discovery, freshness, and one of
+   clustering/search/neighborhood traversal,
+- and Graphshell no longer relies on a vague single "aggregator" concept.

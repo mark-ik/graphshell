@@ -220,3 +220,68 @@ The next closure steps are:
 4. keep the portable product model singular even while host realizations differ.
 
 The key architectural discipline is: **one co-op model, explicit host truth**.
+
+---
+
+## 9. Implementation Slices
+
+### Slice A: Host Capability Matrix
+
+- define canonical co-op capability states per host envelope,
+- enumerate which actions map to `full`, `delegated`, `observe-only`, or
+  `unsupported`,
+- make the matrix consumable by routing, diagnostics, and feature visibility.
+
+### Slice B: Routing and Visibility Gating
+
+- gate co-op actions by host capability instead of accidental runtime failure,
+- ensure unsupported actions are hidden or clearly labeled,
+- thread capability results into command surfaces and UI affordances.
+
+### Slice C: Diagnostics and Honest Degradation
+
+- emit diagnostics when a host cannot realize a requested co-op action,
+- surface whether the limitation is transport, lifecycle, or policy driven,
+- ensure delegated or observe-only modes are explicitly named.
+
+### Slice D: Browser-Host Realization Decision
+
+- decide whether the first browser-safe path is WebRTC, delegated bridge,
+  observe-only, or explicit non-support,
+- capture that decision in the host matrix and session routing model,
+- avoid shipping a browser surface that implies parity before transport truth
+  exists.
+
+---
+
+## 10. Validation
+
+### Manual
+
+1. Verify desktop hosts expose only the co-op actions validated for native
+   hosting and participation.
+2. Verify browser or extension envelopes do not show host/join actions that are
+   unsupported for that envelope.
+3. Verify a degraded or delegated action is labeled as such instead of failing
+   as if parity were expected.
+4. Verify diagnostics or UI reason text make the host limitation visible.
+
+### Contract
+
+- host envelopes resolve to one canonical capability state per co-op action,
+- action visibility is driven from capability truth rather than ad hoc callsite
+  checks,
+- no browser host silently substitutes a weaker transport while presenting
+  full-parity semantics.
+
+---
+
+## 11. Done Gate
+
+This note is operationalized when:
+
+- a host-by-host co-op capability matrix exists,
+- UI and routing consume that matrix,
+- unsupported and degraded actions are honest and diagnosable,
+- and browser-host co-op is not advertised beyond what the chosen transport
+  path can actually realize.

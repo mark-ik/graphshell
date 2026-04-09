@@ -142,3 +142,66 @@ feature expansion.
 
 Without owner-scoped branching, future co-op, Navigator specialties, and richer
 browser surfaces will keep inventing incompatible local history rules.
+
+---
+
+## 9. Implementation Slices
+
+### Slice A: Owner-Scoped Branch Identity
+
+- define branch identity and owner identity separately,
+- persist one active branch per owner,
+- support sibling branches without promoting them to global workspace truth.
+
+### Slice B: Alternate-Forward Branch Creation
+
+- create a branch when a user navigates away from historical state while
+  preserving prior future state,
+- record timestamps and optional labels,
+- keep branch creation explicit in the model even if UI remains minimal.
+
+### Slice C: Branch Inspection and Switching
+
+- provide a local UI for inspecting branches belonging to one owner,
+- allow branch switching without mutating another owner's state,
+- show current head and recent branch metadata.
+
+### Slice D: Shared-Session Interaction Rules
+
+- define how synchronized shared branches interact with local alternates,
+- keep private local branches possible where policy allows,
+- ensure degraded hosts can expose a reduced model without changing the core
+  semantics.
+
+---
+
+## 10. Validation
+
+### Manual
+
+1. Navigate within one owner, branch from a prior state, and verify the prior
+   future remains available as a sibling branch.
+2. Switch branches for one owner and verify another owner's active branch is
+   unchanged.
+3. Verify a synchronized session branch can coexist with a local alternate when
+   policy allows.
+4. Verify owner-scoped branch inspection stays tied to the correct pane, frame,
+   or view.
+
+### Automated
+
+- history-model tests for branch creation and active-head tracking,
+- routing tests for owner-local branch switching,
+- regression tests preventing global cross-owner branch rewrites.
+
+---
+
+## 11. Done Gate
+
+This slice closes when:
+
+- branch state is scoped to explicit owners,
+- alternate-forward navigation creates durable sibling branches,
+- a user can inspect and switch local branches per owner,
+- and shared-session interaction no longer depends on an implicit global
+  history model.

@@ -137,3 +137,65 @@ Suitable early packs include:
 
 The goal is not to canonize one public web. The goal is to make opt-in
 exploration easier.
+
+---
+
+## 8. Implementation Slices
+
+### Slice A: Pack Manifest Schema
+
+- define a manifest shape with pack metadata, item list, version, and curator
+  provenance,
+- validate item kinds and canonical addresses,
+- keep pack provenance explicit and durable.
+
+### Slice B: Preview and Install Flow
+
+- allow a user to inspect pack metadata before installation,
+- preview included items,
+- install pack items as candidates by default rather than silent
+  subscriptions.
+
+### Slice C: Provenance-Preserving Removal
+
+- track which sources were created by which pack,
+- allow removal of pack-only candidates,
+- preserve explicitly promoted subscriptions on pack removal unless the user
+  requests otherwise.
+
+### Slice D: Pack Refresh and Update Path
+
+- support pack version refresh,
+- show which new or changed items would be introduced,
+- preserve install-time provenance for audit and rollback.
+
+---
+
+## 9. Validation
+
+### Manual
+
+1. Inspect a discovery pack before installation and verify included items are
+   previewable.
+2. Install a pack and verify items land as candidates unless explicitly marked
+   otherwise.
+3. Promote one candidate to subscribed, remove the pack, and verify the
+   explicit subscription remains.
+4. Refresh a pack definition and verify version/provenance are visible.
+
+### Automated
+
+- manifest-parse tests,
+- provenance tests for pack install and removal,
+- reducer or action tests for preview/install/remove/update flows.
+
+---
+
+## 10. Done Gate
+
+This slice closes when:
+
+- discovery packs have a stable manifest schema,
+- install is previewable and explicit,
+- pack-created candidates retain provenance,
+- and pack removal/update flows are reversible and understandable.
