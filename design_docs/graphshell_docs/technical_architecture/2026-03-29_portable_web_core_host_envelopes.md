@@ -42,6 +42,16 @@ This note records the conclusion of the 2026-03-29 architecture discussion:
 
 This is a product-architecture position, not a final crate-name decision.
 
+Important clarification:
+
+- `wasm32-unknown-unknown` is the portable **browser-host** target.
+- `wasm32-wasip2` is the portable **runtime/service-host** target.
+- Windows/macOS/Linux desktop apps remain native hosts by default.
+
+That means WASI is not the main desktop packaging story. It is the portable
+runtime story for capabilities that need sockets, listeners, storage backends,
+or headless embedding outside the browser.
+
 ---
 
 ## 2. Naming Clarification
@@ -170,6 +180,7 @@ Examples by host:
 | Firefox/Chrome extension | Same portable web core | extension permissions, background worker, content-script/page integration, optional native messaging |
 | Browser tab / hosted site | Same portable web core | browser-only APIs, no native bridge unless companion service exists |
 | iOS / Android | Same portable web core | mobile storage, mobile permissions, mobile shell integration |
+| Native WASM runtime / service host | Same portable web core | `wasi:sockets`, `wasi:filesystem`, component embedding, headless/service lifecycle |
 
 ---
 
@@ -418,6 +429,14 @@ response serialisation, content routing from `SimpleDocument`) is portable
 today. The only change needed for `wasm32-wasip2` is replacing tokio's
 platform-native async runtime with a WASI-compatible executor (e.g. `wstd`, or
 tokio with the WASI target when that stabilises).
+
+This is the important product interpretation:
+
+- `wasm32-unknown-unknown` proves the core works in browser-hosted contexts.
+- `wasm32-wasip2` gives Graphshell a portable service/runtime target for
+  protocol servers, relay/storage workers, background graph updaters, tests,
+  and embedded non-browser hosts.
+- native desktop remains the straightforward UI app deployment target.
 
 ### 12.3 Native-only (never in the portable core)
 

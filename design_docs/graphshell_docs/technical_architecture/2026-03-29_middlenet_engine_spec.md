@@ -106,8 +106,12 @@ doc, named here for its scope.
 These are **target properties for phases 2 and 3**, not claims about the
 current extracted state of the Graphshell repository.
 
-- **Fully WASM-compilable** — targets `wasm32-wasip2` (native WASM runtime)
-  and `wasm32-unknown-unknown` (browser, via WebGPU). Same binary everywhere.
+- **Fully targetable across native + browser WASM + WASI runtime hosts** —
+  targets `wasm32-unknown-unknown` as the browser portability floor and
+  `wasm32-wasip2` as the portable runtime/service floor for native WASM
+  hosts. Native desktop builds remain native binaries. The goal is one
+  codebase and one architectural core across these targets, not literally one
+  identical binary.
 - **Async compositing as architecture** — layout and paint never block on JS.
   CSS renders immediately; JS mutations arrive through a command buffer and are
   applied on the next compositor frame.
@@ -368,9 +372,28 @@ Full web rendering is the surrounding browser page itself.
 
 ### Mobile (iOS / Android)
 
-The engine runs via a WASM runtime or compiled natively. Platform-provided
+The engine may eventually run via a WASM runtime, but the primary assumption is
+still a native mobile host build around the same portable core. Platform-provided
 webview (WKWebView / Android WebView) handles full web; the engine handles
 smallnet and MiddleNet document lanes.
+
+### Native WASM runtime / service host
+
+`wasm32-wasip2` is best understood here, not as the default desktop app format.
+
+This target is for:
+
+- headless or helper processes,
+- embeddable document/protocol components,
+- protocol servers and inbox/listener surfaces,
+- storage/index/archive workers,
+- async graph update services,
+- test and harness runtimes,
+- future standalone service-style hosts such as `graphshell-server`
+
+This is the target that makes "portable runtime with sockets/filesystem-like
+capabilities" meaningful. It is a complement to native desktop and browser
+WASM, not a replacement for either.
 
 ---
 

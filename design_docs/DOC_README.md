@@ -42,10 +42,12 @@ It serves three goals:
 - - Is the way you want this system to work consistent with our architectural guarantees (modularity, parallelization, access through intents and not direct state mutation, componentization as opposed to consolidation into monolithic core files, centralization of testing + diagnostic threading to automate testing)?
 - - How can we refine the integration to meet our feature goals but respect our architecture?
 - **Implementation feedback loop** (DOC_POLICY §13): every implementation is also a design probe. After each implementation pass, disseminate structural learnings to the relevant plans/docs in the same session. If a carrier model, API surface, or data shape changes, check which downstream plans depend on the old shape and add dependency notes or blocking guards before the next dependent step proceeds. It is acceptable for a plan to describe something not yet fully implemented — it is not acceptable for a plan to be silent about an architectural problem visible in code.
+- For smolweb and middlenet content, prefer faithful protocol rendering plus optional assistive enrichment. Do not silently erase source protocol semantics in the name of convenience or polish.
+- For smolweb expansion, prioritize browser-maturity capabilities such as trust UX, subscription/source health, source/page tools, retention boundaries, and wayfinding before widening protocol surface area for its own sake.
 
 ## Design Docs Index
 
-Last updated: April 5, 2026
+Last updated: April 9, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -73,6 +75,8 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/research/2026-03-04_standards_alignment_report.md](graphshell_docs/research/2026-03-04_standards_alignment_report.md) - **Canonical standards adoption register.** Maps adopted vs. referenced-only external standards to every Graphshell domain. Resolves contradictions (ActivityPub vs. W3C VC/DID, RFC 6902 vs. CRDTs, rkyv vs. dag-cbor for Verse wire format, UUID v4/v7 namespace split, WCAG 2.2 vs. EN 301 549). All subsystem specs cite their adopted standards from this document. Read this before designing any new subsystem or Verse protocol.
 - [graphshell_docs/research/2026-03-27_ambient_graph_visual_effects.md](graphshell_docs/research/2026-03-27_ambient_graph_visual_effects.md) - Ambient canvas visual effects: temporal decay, graphlet halos, rhythm/pulse, warm-node particle emission, tidal influence, edge tension arcs. Default-on/off split, configurability model, and open design questions.
 - [graphshell_docs/research/2026-03-29_graph_interaction_brainstorm.md](graphshell_docs/research/2026-03-29_graph_interaction_brainstorm.md) - Validated graph interaction ideas: gravity wells, reading river, knowledge decay, constellation templates, merge detection, breadcrumb trails, orbital ego graphlets, portal nodes, filesystem projection, git-like branching, variable node size, citation overlap, sonification.
+- [graphshell_docs/research/2026-04-09_smolweb_graph_enrichment_and_accessibility_note.md](graphshell_docs/research/2026-04-09_smolweb_graph_enrichment_and_accessibility_note.md) - Smolweb opportunity note covering Bubble, CAPCOM, Antenna, Cosmos, Spacewalk, GUS, IRC, Wander, `history-tree`, irchiver, HTML vs Markdown, and the "faithful render plus optional assistive enrichment" recommendation.
+- [graphshell_docs/research/2026-04-09_smolweb_browser_capability_gaps.md](graphshell_docs/research/2026-04-09_smolweb_browser_capability_gaps.md) - Capability-gap note for maturing Graphshell as a smolweb browser: trust/certificate UX, subscription and source health, source/page tools, discovery separation, wayfinding surfaces, retention boundaries, hosted comms, mutation/publication loops, explainable routing, and host-aware degradation.
 
 ### Graphshell Technical Architecture
 
@@ -303,6 +307,7 @@ Graphshell social-domain docs cover hosted communication surfaces and related sh
 ### Graphshell Social Implementation Strategy
 
 - [graphshell_docs/implementation_strategy/social/COMMS_AS_APPLETS.md](graphshell_docs/implementation_strategy/social/COMMS_AS_APPLETS.md) - Canonical positioning note for Comms as a Graphshell-hosted applet/surface family spanning Matrix rooms, Nostr social lanes, and Verso bilateral co-op/chat surfaces.
+- [graphshell_docs/implementation_strategy/social/comms/2026-04-09_irc_public_comms_lane_positioning.md](graphshell_docs/implementation_strategy/social/comms/2026-04-09_irc_public_comms_lane_positioning.md) - Positions IRC as a public Comms lane for smolweb/community spaces: narrow first slice, hosted applet boundary, link capture into Graphshell, and opt-in retention only.
 - [graphshell_docs/implementation_strategy/social/profile/PROFILE.md](graphshell_docs/implementation_strategy/social/profile/PROFILE.md) - Canonical social profile surface spec: host-side profile composition, publication lanes, and boundary between public identity profile vs `GraphshellProfile` app/workflow configuration.
 - [graphshell_docs/implementation_strategy/social/profile/CAPSULE_PROFILE.md](graphshell_docs/implementation_strategy/social/profile/CAPSULE_PROFILE.md) - Canonical publication mapping spec from social profile cards into concrete Nostr kind 0, Finger text, and Gemini/Gopher capsule profile documents.
 - [graphshell_docs/implementation_strategy/social/profile/2026-03-28_social_profile_type_sketch.md](graphshell_docs/implementation_strategy/social/profile/2026-03-28_social_profile_type_sketch.md) - Rust-facing type sketch for `SocialProfileCard`, `CapsuleProfile`, disclosure policy carriers, `GraphshellProfile` associations, and secret-provider references.

@@ -88,8 +88,8 @@ Thin binding wrappers around `graphshell-core`. No logic of their own.
 ### 3.3 `graphshell-web-core`
 
 The portable MiddleNet rendering engine. Compiles to `wasm32-unknown-unknown`
-(browser, via WebGPU) and `wasm32-wasip2` (native WASM runtimes, via
-wasi-gfx). Also compiles natively with zero overhead.
+(browser, via WebGPU) and `wasm32-wasip2` (portable runtime/service hosts, via
+WASI interfaces). Also compiles natively with zero overhead.
 
 Owns: html5ever DOM parsing, Stylo (single-threaded), Taffy layout, Parley
 text, WebRender-wgpu rendering, Boa JS engine (via WIT command buffer),
@@ -107,7 +107,8 @@ Full spec: [`2026-03-29_middlenet_engine_spec.md`](2026-03-29_middlenet_engine_s
 ### 3.4 `graphshell-comms`
 
 Portable comms protocol client logic. Compiles to `wasm32-unknown-unknown`
-(browser WebSocket/fetch paths) and `wasm32-wasip2` (wasi:sockets paths).
+(browser WebSocket/fetch paths) and `wasm32-wasip2` (portable runtime/service
+paths using `wasi:sockets` and related interfaces).
 
 Owns:
 
@@ -128,8 +129,9 @@ Owns:
 and parses bytes; hosts move the bytes.
 
 Does **not** own: TLS sessions, TCP/UDP sockets, TLS certificates,
-keypair storage, server listeners (those are wasip2-tier, in the desktop
-host or a future `graphshell-server` crate).
+keypair storage, server listeners (those are runtime-host concerns; they may
+live in the native desktop host or a future `graphshell-server` crate built
+around `wasm32-wasip2`).
 
 **Relationship to `graphshell-web-core`**: `graphshell-comms` provides
 parsers that `graphshell-web-core` can call to convert protocol responses
@@ -152,8 +154,10 @@ Gopher, Finger inbox), OS keychain integration, filesystem paths, native
 GPU surface, window management.
 
 The desktop host is also the home for `wasm32-wasip2`-tier capabilities
-that run natively without overhead: server listeners, iroh QUIC transport,
-fjall/redb storage backends.
+that also have a meaningful portable runtime/service form: server listeners,
+iroh QUIC transport, fjall/redb storage backends. Desktop remains the default
+UI app host; `wasm32-wasip2` is the companion runtime target for headless,
+embedded, or service-style deployments.
 
 ---
 
@@ -234,8 +238,8 @@ compose the portable crates and add platform I/O.
 | `graphshell-core` | ✅ target | ✅ | ✅ |
 | `graphshell-core-wasm` | ✅ (binding layer only) | — | — |
 | `graphshell-core-uniffi` | — | — | ✅ (`cdylib`) |
-| `graphshell-comms` | ✅ (fetch/WS paths) | ✅ (sockets paths) | ✅ |
-| `graphshell-web-core` | ✅ (WebGPU) | ✅ (wasi-gfx) | ✅ |
+| `graphshell-comms` | ✅ (browser/extension fetch + WS paths) | ✅ (runtime/service sockets paths) | ✅ |
+| `graphshell-web-core` | ✅ (browser WebGPU path) | ✅ (runtime/service embedding path) | ✅ |
 | `hosts/graphshell-desktop` | — | — | ✅ |
 | `hosts/graphshell-{firefox,chrome}` | ✅ | — | — |
 | `hosts/graphshell-{ios,android}` | — | — | ✅ (`cdylib`) |
