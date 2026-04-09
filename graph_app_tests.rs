@@ -5810,6 +5810,223 @@ fn import_webfinger_into_graph_reuses_existing_nodes_without_clobbering_titles()
     );
 }
 
+#[test]
+fn import_person_identity_into_graph_binds_supported_identities_to_person_node() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut profile = crate::middlenet::identity::PersonIdentityProfile {
+        human_handle: Some("mark@example.net".to_string()),
+        webfinger_resource: Some("acct:mark@example.net".to_string()),
+        ..Default::default()
+    };
+    profile
+        .set_nip05_identifier("mark@example.net")
+        .expect("nip-05 should normalize");
+    profile
+        .push_matrix_mxid("@mark:matrix.example")
+        .expect("matrix mxid should normalize");
+    profile
+        .push_nostr_identity("npub1example")
+        .expect("nostr identity should normalize");
+    profile
+        .push_misfin_mailbox("misfin://mark@example.net")
+        .expect("misfin mailbox should normalize");
+    profile
+        .push_gemini_capsule("gemini://example.net/~mark")
+        .expect("gemini capsule should normalize");
+    profile
+        .push_activitypub_actor("https://example.net/users/mark")
+        .expect("activitypub actor should normalize");
+    profile
+        .push_profile_page("https://example.net/profile")
+        .expect("profile page should normalize");
+    profile.push_alias("https://example.net/~mark".to_string());
+
+    let person_key = app
+        .import_person_identity_into_graph(&profile, None)
+        .expect("person identity import should succeed");
+
+    let person_node = app
+        .domain_graph()
+        .get_node(person_key)
+        .expect("person node should exist");
+    assert!(person_node.url().starts_with("verso://person/"));
+    assert_eq!(person_node.title, "Person: mark@example.net");
+    assert!(app.node_has_canonical_tag(person_key, "#person"));
+    assert!(app.node_has_canonical_tag(person_key, "#identity"));
+    assert!(app.node_has_canonical_tag(person_key, "#webfinger"));
+    assert!(app.node_has_canonical_tag(person_key, "#nostr"));
+    assert!(app.node_has_canonical_tag(person_key, "#matrix"));
+
+    let classifications = app
+        .workspace
+        .domain
+        .graph
+        .node_classifications(person_key)
+        .expect("person classifications should exist");
+    assert!(classifications.iter().any(|classification| {
+        classification.scheme
+            == crate::model::graph::ClassificationScheme::Custom("identity:webfinger".to_string())
+            && classification.value == "acct:mark@example.net"
+    }));
+    assert!(classifications.iter().any(|classification| {
+        classification.scheme
+            == crate::model::graph::ClassificationScheme::Custom("identity:nip05".to_string())
+            && classification.value == "mark@example.net"
+    }));
+    assert!(classifications.iter().any(|classification| {
+        classification.scheme
+            == crate::model::graph::ClassificationScheme::Custom("identity:matrix".to_string())
+            && classification.value == "@mark:matrix.example"
+    }));
+
+    let (mxid_key, mxid_node) = app
+        .domain_graph()
+        .get_node_by_url("mxid:@mark:matrix.example")
+        .expect("matrix identity node should exist");
+    assert_eq!(mxid_node.title, "Matrix identity: @mark:matrix.example");
+    assert!(app.node_has_canonical_tag(mxid_key, "#matrix"));
+
+    let (nip05_key, nip05_node) = app
+        .domain_graph()
+        .get_node_by_url("nip05:mark@example.net")
+        .expect("nip-05 node should exist");
+    assert_eq!(nip05_node.title, "NIP-05 identity: mark@example.net");
+    assert!(app.node_has_canonical_tag(nip05_key, "#nip05"));
+
+    let (acct_key, acct_node) = app
+        .domain_graph()
+        .get_node_by_url("acct:mark@example.net")
+        .expect("webfinger identity node should exist");
+    assert_eq!(acct_node.title, "WebFinger identity: mark@example.net");
+    let grouped_edge = app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(person_key, acct_key)
+        .expect("person node should group the webfinger identity node");
+    let grouped_payload = app
+        .workspace
+        .domain
+        .graph
+        .get_edge(grouped_edge)
+        .expect("grouped edge should exist");
+    assert_eq!(grouped_payload.label(), Some("webfinger"));
+
+    let (profile_key, _) = app
+        .domain_graph()
+        .get_node_by_url("https://example.net/profile")
+        .expect("profile node should exist");
+    let profile_relation = app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(person_key, profile_key)
+        .expect("person node should group profile endpoints");
+    let profile_payload = app
+        .workspace
+        .domain
+        .graph
+        .get_edge(profile_relation)
+        .expect("profile relation should exist");
+    assert_eq!(profile_payload.label(), Some("profile"));
+
+    assert_eq!(app.get_single_selected_node(), Some(person_key));
+}
+
+#[test]
+fn create_person_artifact_node_links_generated_content_back_to_person() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let profile = crate::middlenet::identity::PersonIdentityProfile {
+        human_handle: Some("mark@example.net".to_string()),
+        webfinger_resource: Some("acct:mark@example.net".to_string()),
+        ..Default::default()
+    };
+    let person_key = app
+        .import_person_identity_into_graph(&profile, None)
+        .expect("person identity import should succeed");
+
+    let post_key = app
+        .create_person_artifact_node(
+            person_key,
+            crate::middlenet::identity::PersonArtifactKind::Post,
+            Some("Launch Notes".to_string()),
+            None,
+            None,
+        )
+        .expect("person post should be created");
+    let shared_data_key = app
+        .create_person_artifact_node(
+            person_key,
+            crate::middlenet::identity::PersonArtifactKind::SharedData,
+            None,
+            None,
+            None,
+        )
+        .expect("shared data artifact should be created");
+    let message_key = app
+        .create_person_artifact_node(
+            person_key,
+            crate::middlenet::identity::PersonArtifactKind::MessageNotification,
+            None,
+            None,
+            None,
+        )
+        .expect("message notification should be created");
+
+    let post_node = app
+        .domain_graph()
+        .get_node(post_key)
+        .expect("post node should exist");
+    assert!(post_node.url().contains("/post/"));
+    assert_eq!(post_node.title, "Launch Notes");
+    assert!(app.node_has_canonical_tag(post_key, "#post"));
+    assert!(app.node_has_canonical_tag(post_key, "#person-artifact"));
+
+    let shared_node = app
+        .domain_graph()
+        .get_node(shared_data_key)
+        .expect("shared data node should exist");
+    assert!(shared_node.url().contains("/shared-data/"));
+    assert!(shared_node.title.starts_with("Shared Data from Person:"));
+    assert!(app.node_has_canonical_tag(shared_data_key, "#shared-data"));
+
+    let message_node = app
+        .domain_graph()
+        .get_node(message_key)
+        .expect("message node should exist");
+    assert!(message_node.url().contains("/message-notification/"));
+    assert!(message_node.title.starts_with("Message Notification from Person:"));
+    assert!(app.node_has_canonical_tag(message_key, "#message-notification"));
+
+    let generated_edge = app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(post_key, person_key)
+        .expect("post should carry generated-from relation back to person");
+    let generated_payload = app
+        .workspace
+        .domain
+        .graph
+        .get_edge(generated_edge)
+        .expect("generated edge should exist");
+    assert_eq!(generated_payload.label(), None);
+
+    let grouped_edge = app
+        .workspace
+        .domain
+        .graph
+        .find_edge_key(person_key, message_key)
+        .expect("person should group emitted message notifications");
+    let grouped_payload = app
+        .workspace
+        .domain
+        .graph
+        .get_edge(grouped_edge)
+        .expect("grouped edge should exist");
+    assert_eq!(grouped_payload.label(), Some("message-notification"));
+}
+
 // ---------------------------------------------------------------------------
 // Faceted filter — spec §9 acceptance criteria
 // "Reducer owns filter truth": UI submits intent; reducer result drives visible

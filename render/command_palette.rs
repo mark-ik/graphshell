@@ -1314,7 +1314,7 @@ pub(crate) fn execute_action_with_layout_target(
                     );
                 } else {
                     let node_count_before = app.domain_graph().node_count();
-                    match app.fetch_and_import_webfinger_into_graph(&resource, Some(key)) {
+                    match app.fetch_and_import_person_identity_from_webfinger(&resource, Some(key)) {
                         Ok(subject_key) => {
                             let node_count_after = app.domain_graph().node_count();
                             let new_nodes = node_count_after.saturating_sub(node_count_before);
@@ -2234,13 +2234,25 @@ mod tests {
         );
 
         assert!(intents.is_empty());
-        let (subject_key, subject_node) = app
+        let subject_key = app
+            .get_single_selected_node()
+            .expect("person node should be selected after import");
+        let subject_node = app
             .domain_graph()
-            .get_node_by_url("acct:mark@social.example")
-            .expect("subject node should be created");
-        assert_eq!(subject_node.title, "Identity: mark@social.example");
+            .get_node(subject_key)
+            .expect("person node should be created");
+        assert!(subject_node.url().starts_with("verso://person/"));
+        assert_eq!(subject_node.title, "Person: mark@social.example");
+        assert!(app.node_has_canonical_tag(subject_key, "#person"));
         assert!(app.node_has_canonical_tag(subject_key, "#webfinger"));
         assert!(app.node_has_canonical_tag(subject_key, "#identity"));
+
+        let (acct_key, acct_node) = app
+            .domain_graph()
+            .get_node_by_url("acct:mark@social.example")
+            .expect("acct identity node should be created");
+        assert_eq!(acct_node.title, "WebFinger identity: mark@social.example");
+        assert!(app.node_has_canonical_tag(acct_key, "#webfinger"));
 
         let (_, profile_node) = app
             .domain_graph()
@@ -2260,23 +2272,21 @@ mod tests {
             .domain_graph()
             .get_node_by_url("gemini://social.example/~mark")
             .is_some());
-        assert_eq!(app.get_single_selected_node(), Some(subject_key));
-
         let request = app
             .take_pending_node_status_notice()
             .expect("webfinger import should queue a success notice");
         assert_eq!(request.key, subject_key);
         assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
         assert!(request.message.contains("Imported WebFinger discovery for https://social.example/users/mark"));
-        assert!(request.message.contains("+3 node(s)"));
+        assert!(request.message.contains("+4 node(s)"));
         assert!(matches!(
             request.audit_event,
             Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
                 action,
                 detail,
             }) if action == "WebFinger import"
-                && detail.contains("https://social.example/users/mark -> acct:mark@social.example")
-                && detail.contains("+3 node(s)")
+                && detail.contains("https://social.example/users/mark -> verso://person/")
+                && detail.contains("+4 node(s)")
         ));
     }
 

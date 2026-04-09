@@ -8,14 +8,21 @@ use crate::services::persistence::types::{
 const TAG_WEBFINGER: &str = "#webfinger";
 const TAG_DISCOVERY: &str = "#discovery";
 const TAG_IDENTITY: &str = "#identity";
+const TAG_PERSON: &str = "#person";
 const TAG_ALIAS: &str = "#alias";
 const TAG_PROFILE: &str = "#profile";
 const TAG_GEMINI: &str = "#gemini";
 const TAG_GOPHER: &str = "#gopher";
 const TAG_MISFIN: &str = "#misfin";
 const TAG_NOSTR: &str = "#nostr";
+const TAG_MATRIX: &str = "#matrix";
+const TAG_NIP05: &str = "#nip05";
 const TAG_ACTIVITYPUB: &str = "#activitypub";
 const TAG_ENDPOINT: &str = "#endpoint";
+const TAG_POST: &str = "#post";
+const TAG_SHARED_DATA: &str = "#shared-data";
+const TAG_MESSAGE_NOTIFICATION: &str = "#message-notification";
+const TAG_PERSON_ARTIFACT: &str = "#person-artifact";
 const WEBFINGER_CLUSTER_RADIUS: f32 = 180.0;
 
 struct WebFingerNodeSpec {
@@ -23,6 +30,68 @@ struct WebFingerNodeSpec {
     title: String,
     relation_label: &'static str,
     tags: &'static [&'static str],
+}
+
+#[derive(Clone, Copy)]
+enum PersonIdentityRelation {
+    SameEntityAs,
+    CanonicalMirrorOf,
+    GroupedOnly,
+}
+
+struct PersonIdentityNodeSpec {
+    url: String,
+    title: String,
+    relation_label: &'static str,
+    tags: &'static [&'static str],
+    relation: PersonIdentityRelation,
+}
+
+fn person_title(profile: &crate::middlenet::identity::PersonIdentityProfile) -> String {
+    format!("Person: {}", webfinger_display_target(profile.preferred_label()))
+}
+
+fn person_identity_node_title(prefix: &str, target: &str) -> String {
+    format!("{prefix}: {}", webfinger_display_target(target))
+}
+
+fn person_node_url(
+    profile: &crate::middlenet::identity::PersonIdentityProfile,
+) -> Result<String, String> {
+    let canonical_identity = profile
+        .canonical_identity()
+        .ok_or_else(|| "Person identity profile must include at least one canonical identity.".to_string())?;
+    let person_id = uuid::Uuid::new_v5(&uuid::Uuid::nil(), canonical_identity.as_bytes());
+    Ok(
+        crate::util::VersoAddress::Other {
+            category: "person".to_string(),
+            segments: vec![person_id.to_string()],
+        }
+        .to_string(),
+    )
+}
+
+fn person_artifact_url(person_url: &str, kind: crate::middlenet::identity::PersonArtifactKind) -> String {
+    let person_id = crate::util::VersoAddress::parse(person_url)
+        .and_then(|address| match address {
+            crate::util::VersoAddress::Other { category, segments }
+                if category == "person" && !segments.is_empty() => segments.into_iter().next(),
+            _ => None,
+        })
+        .unwrap_or_else(|| uuid::Uuid::new_v5(&uuid::Uuid::nil(), person_url.as_bytes()).to_string());
+    crate::util::VersoAddress::Other {
+        category: "person".to_string(),
+        segments: vec![
+            person_id,
+            kind.route_segment().to_string(),
+            uuid::Uuid::new_v4().to_string(),
+        ],
+    }
+    .to_string()
+}
+
+fn person_identity_scheme(kind: &str) -> crate::model::graph::ClassificationScheme {
+    crate::model::graph::ClassificationScheme::Custom(format!("identity:{kind}"))
 }
 
 fn webfinger_display_target(target: &str) -> &str {
@@ -748,6 +817,272 @@ impl GraphBrowserApp {
     ) -> Result<NodeKey, String> {
         let import = crate::middlenet::webfinger::fetch_import(resource)?;
         self.import_webfinger_into_graph(resource, &import, anchor)
+    }
+
+    pub(crate) fn import_person_identity_into_graph(
+        &mut self,
+        profile: &crate::middlenet::identity::PersonIdentityProfile,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let person_url = person_node_url(profile)?;
+        let person_position = self.suggested_new_node_position(anchor);
+        let person_key = self.ensure_webfinger_import_node(
+            person_url,
+            person_title(profile),
+            person_position,
+            &[TAG_PERSON, TAG_IDENTITY],
+        );
+
+        self.ensure_person_identity_classifications(person_key, profile);
+        let mut person_tags = vec![TAG_PERSON, TAG_IDENTITY];
+        if profile.webfinger_resource.is_some() || profile.human_handle.is_some() {
+            person_tags.push(TAG_WEBFINGER);
+        }
+        if profile.nip05_identifier.is_some() {
+            person_tags.push(TAG_NIP05);
+        }
+        if !profile.matrix_mxids.is_empty() {
+            person_tags.push(TAG_MATRIX);
+        }
+        if !profile.nostr_identities.is_empty() {
+            person_tags.push(TAG_NOSTR);
+        }
+        if !profile.misfin_mailboxes.is_empty() {
+            person_tags.push(TAG_MISFIN);
+        }
+        if !profile.activitypub_actors.is_empty() {
+            person_tags.push(TAG_ACTIVITYPUB);
+        }
+        if !profile.gemini_capsules.is_empty() {
+            person_tags.push(TAG_GEMINI);
+        }
+        self.apply_node_tags(person_key, &person_tags);
+
+        let mut specs = Vec::new();
+        let mut push_spec = |spec: PersonIdentityNodeSpec| {
+            if !spec.url.trim().is_empty() && !specs.iter().any(|existing: &PersonIdentityNodeSpec| existing.url == spec.url) {
+                specs.push(spec);
+            }
+        };
+
+        if let Some(resource) = &profile.webfinger_resource {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("WebFinger identity", resource),
+                url: resource.clone(),
+                relation_label: "webfinger",
+                tags: &[TAG_WEBFINGER, TAG_IDENTITY],
+                relation: PersonIdentityRelation::SameEntityAs,
+            });
+        }
+        if let Some(nip05_identifier) = &profile.nip05_identifier {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("NIP-05 identity", nip05_identifier),
+                url: format!("nip05:{nip05_identifier}"),
+                relation_label: "nip05",
+                tags: &[TAG_NIP05, TAG_IDENTITY, TAG_NOSTR],
+                relation: PersonIdentityRelation::SameEntityAs,
+            });
+        }
+        for mxid in &profile.matrix_mxids {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("Matrix identity", mxid),
+                url: format!("mxid:{mxid}"),
+                relation_label: "matrix",
+                tags: &[TAG_MATRIX, TAG_IDENTITY],
+                relation: PersonIdentityRelation::SameEntityAs,
+            });
+        }
+        for identity in &profile.nostr_identities {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("Nostr identity", identity),
+                url: identity.clone(),
+                relation_label: "nostr",
+                tags: &[TAG_NOSTR, TAG_IDENTITY],
+                relation: PersonIdentityRelation::SameEntityAs,
+            });
+        }
+        for mailbox in &profile.misfin_mailboxes {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("Misfin mailbox", mailbox),
+                url: mailbox.clone(),
+                relation_label: "misfin",
+                tags: &[TAG_MISFIN, TAG_IDENTITY],
+                relation: PersonIdentityRelation::SameEntityAs,
+            });
+        }
+        for actor in &profile.activitypub_actors {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("ActivityPub actor", actor),
+                url: actor.clone(),
+                relation_label: "activitypub",
+                tags: &[TAG_ACTIVITYPUB, TAG_IDENTITY],
+                relation: PersonIdentityRelation::SameEntityAs,
+            });
+        }
+        for alias in &profile.aliases {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("Alias", alias),
+                url: alias.clone(),
+                relation_label: "alias",
+                tags: &[TAG_ALIAS, TAG_IDENTITY],
+                relation: PersonIdentityRelation::SameEntityAs,
+            });
+        }
+        for page in &profile.profile_pages {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("Profile", page),
+                url: page.clone(),
+                relation_label: "profile",
+                tags: &[TAG_PROFILE, TAG_IDENTITY],
+                relation: PersonIdentityRelation::CanonicalMirrorOf,
+            });
+        }
+        for capsule in &profile.gemini_capsules {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("Gemini capsule", capsule),
+                url: capsule.clone(),
+                relation_label: "gemini",
+                tags: &[TAG_GEMINI, TAG_PROFILE, TAG_IDENTITY],
+                relation: PersonIdentityRelation::CanonicalMirrorOf,
+            });
+        }
+        for resource in &profile.gopher_resources {
+            push_spec(PersonIdentityNodeSpec {
+                title: person_identity_node_title("Gopher resource", resource),
+                url: resource.clone(),
+                relation_label: "gopher",
+                tags: &[TAG_GOPHER, TAG_PROFILE, TAG_IDENTITY],
+                relation: PersonIdentityRelation::CanonicalMirrorOf,
+            });
+        }
+        for endpoint in &profile.other_endpoints {
+            push_spec(PersonIdentityNodeSpec {
+                title: webfinger_endpoint_title(endpoint),
+                url: endpoint.href.clone(),
+                relation_label: "endpoint",
+                tags: &[TAG_ENDPOINT, TAG_IDENTITY],
+                relation: PersonIdentityRelation::GroupedOnly,
+            });
+        }
+
+        let total_specs = specs.len();
+        for (index, spec) in specs.iter().enumerate() {
+            let position = webfinger_cluster_position(person_position, index, total_specs);
+            let node_key = self.ensure_webfinger_import_node(
+                spec.url.clone(),
+                spec.title.clone(),
+                position,
+                spec.tags,
+            );
+            if node_key == person_key {
+                continue;
+            }
+            let _ = self.add_edge_and_sync(person_key, node_key, crate::graph::EdgeType::Hyperlink, None);
+            let _ = self.add_edge_and_sync(
+                person_key,
+                node_key,
+                crate::graph::EdgeType::UserGrouped,
+                Some(spec.relation_label.to_string()),
+            );
+
+            let semantic_relation = match spec.relation {
+                PersonIdentityRelation::SameEntityAs => Some(crate::graph::SemanticSubKind::SameEntityAs),
+                PersonIdentityRelation::CanonicalMirrorOf => Some(crate::graph::SemanticSubKind::CanonicalMirrorOf),
+                PersonIdentityRelation::GroupedOnly => None,
+            };
+            if let Some(sub_kind) = semantic_relation {
+                let _ = self.assert_relation_and_sync(
+                    node_key,
+                    person_key,
+                    crate::graph::EdgeAssertion::Semantic {
+                        sub_kind,
+                        label: Some(spec.relation_label.to_string()),
+                        decay_progress: None,
+                    },
+                );
+            }
+        }
+
+        self.select_node(person_key, false);
+        Ok(person_key)
+    }
+
+    pub(crate) fn import_person_identity_from_webfinger(
+        &mut self,
+        resource: &str,
+        import: &crate::middlenet::webfinger::WebFingerImport,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let profile = crate::middlenet::identity::PersonIdentityProfile::from_webfinger_import(
+            resource,
+            import,
+        )?;
+        self.import_person_identity_into_graph(&profile, anchor)
+    }
+
+    pub(crate) fn fetch_and_import_person_identity_from_webfinger(
+        &mut self,
+        resource: &str,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let import = crate::middlenet::webfinger::fetch_import(resource)?;
+        self.import_person_identity_from_webfinger(resource, &import, anchor)
+    }
+
+    pub(crate) fn create_person_artifact_node(
+        &mut self,
+        person_key: NodeKey,
+        kind: crate::middlenet::identity::PersonArtifactKind,
+        title: Option<String>,
+        url: Option<String>,
+        anchor: Option<NodeKey>,
+    ) -> Result<NodeKey, String> {
+        let (person_url, person_title_value) = self
+            .domain_graph()
+            .get_node(person_key)
+            .map(|node| (node.url().to_string(), node.title.clone()))
+            .ok_or_else(|| format!("Unknown person node {:?}.", person_key))?;
+        if !self.node_has_canonical_tag(person_key, TAG_PERSON) {
+            return Err(format!(
+                "Node '{}' is not a canonical person node.",
+                person_url
+            ));
+        }
+
+        let artifact_url = url.unwrap_or_else(|| person_artifact_url(&person_url, kind));
+        let artifact_position = self.suggested_new_node_position(anchor.or(Some(person_key)));
+        let artifact_key = self.add_node_and_sync(artifact_url, artifact_position);
+        let resolved_title = title.unwrap_or_else(|| {
+            format!(
+                "{} from {}",
+                kind.title_prefix(),
+                webfinger_display_target(&person_title_value)
+            )
+        });
+        self.set_node_title_if_empty_or_url_and_log(artifact_key, resolved_title);
+        let mut tags = vec![TAG_PERSON_ARTIFACT, TAG_IDENTITY];
+        match kind {
+            crate::middlenet::identity::PersonArtifactKind::Post => tags.push(TAG_POST),
+            crate::middlenet::identity::PersonArtifactKind::SharedData => tags.push(TAG_SHARED_DATA),
+            crate::middlenet::identity::PersonArtifactKind::MessageNotification => {
+                tags.push(TAG_MESSAGE_NOTIFICATION)
+            }
+        }
+        self.apply_node_tags(artifact_key, &tags);
+        let _ = self.add_edge_and_sync(
+            person_key,
+            artifact_key,
+            crate::graph::EdgeType::UserGrouped,
+            Some(kind.relation_label().to_string()),
+        );
+        let _ = self.assert_relation_and_sync(
+            artifact_key,
+            person_key,
+            crate::graph::EdgeAssertion::Provenance {
+                sub_kind: crate::graph::ProvenanceSubKind::GeneratedFrom,
+            },
+        );
+        Ok(artifact_key)
     }
 
     pub fn assert_relation_and_sync(
@@ -1969,8 +2304,120 @@ impl GraphBrowserApp {
         };
 
         self.set_node_title_if_empty_or_url_and_log(key, title);
-        self.apply_webfinger_tags(key, tags);
+        self.apply_node_tags(key, tags);
         key
+    }
+
+    fn ensure_person_identity_classifications(
+        &mut self,
+        key: NodeKey,
+        profile: &crate::middlenet::identity::PersonIdentityProfile,
+    ) {
+        if let Some(handle) = &profile.human_handle {
+            self.ensure_identity_classification(
+                key,
+                person_identity_scheme("handle"),
+                handle.clone(),
+                Some("Human handle".to_string()),
+            );
+        }
+        if let Some(resource) = &profile.webfinger_resource {
+            self.ensure_identity_classification(
+                key,
+                person_identity_scheme("webfinger"),
+                resource.clone(),
+                Some("WebFinger resource".to_string()),
+            );
+        }
+        if let Some(nip05_identifier) = &profile.nip05_identifier {
+            self.ensure_identity_classification(
+                key,
+                person_identity_scheme("nip05"),
+                nip05_identifier.clone(),
+                Some("NIP-05 identifier".to_string()),
+            );
+        }
+        for mxid in &profile.matrix_mxids {
+            self.ensure_identity_classification(
+                key,
+                person_identity_scheme("matrix"),
+                mxid.clone(),
+                Some("Matrix MXID".to_string()),
+            );
+        }
+        for identity in &profile.nostr_identities {
+            self.ensure_identity_classification(
+                key,
+                person_identity_scheme("nostr"),
+                identity.clone(),
+                Some("Nostr identity".to_string()),
+            );
+        }
+        for mailbox in &profile.misfin_mailboxes {
+            self.ensure_identity_classification(
+                key,
+                person_identity_scheme("misfin"),
+                mailbox.clone(),
+                Some("Misfin mailbox".to_string()),
+            );
+        }
+        for capsule in &profile.gemini_capsules {
+            self.ensure_identity_classification(
+                key,
+                person_identity_scheme("gemini"),
+                capsule.clone(),
+                Some("Gemini capsule".to_string()),
+            );
+        }
+        for actor in &profile.activitypub_actors {
+            self.ensure_identity_classification(
+                key,
+                person_identity_scheme("activitypub"),
+                actor.clone(),
+                Some("ActivityPub actor".to_string()),
+            );
+        }
+    }
+
+    fn ensure_identity_classification(
+        &mut self,
+        key: NodeKey,
+        scheme: crate::model::graph::ClassificationScheme,
+        value: String,
+        label: Option<String>,
+    ) {
+        let should_add = self
+            .workspace
+            .domain
+            .graph
+            .node_classifications(key)
+            .is_none_or(|classifications| {
+                !classifications.iter().any(|classification| {
+                    classification.scheme == scheme && classification.value == value
+                })
+            });
+        if should_add {
+            let primary = self
+                .workspace
+                .domain
+                .graph
+                .node_classifications(key)
+                .is_none_or(|classifications| {
+                    !classifications.iter().any(|classification| classification.scheme == scheme)
+                });
+            self.apply_reducer_intents([GraphIntent::AssignClassification {
+                key,
+                classification: crate::model::graph::NodeClassification {
+                    scheme: scheme.clone(),
+                    value: value.clone(),
+                    label,
+                    confidence: 1.0,
+                    provenance: crate::model::graph::ClassificationProvenance::Imported,
+                    status: crate::model::graph::ClassificationStatus::Imported,
+                    primary,
+                },
+            }]);
+        }
     }
 
     fn set_node_title_if_empty_or_url_and_log(&mut self, key: NodeKey, title: String) {
@@ -1997,7 +2444,7 @@ impl GraphBrowserApp {
         }
     }
 
-    fn apply_webfinger_tags(&mut self, key: NodeKey, tags: &[&str]) {
+    fn apply_node_tags(&mut self, key: NodeKey, tags: &[&str]) {
         for tag in tags {
             self.apply_reducer_intents([GraphIntent::TagNode {
                 key,
