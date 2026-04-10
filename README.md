@@ -2,6 +2,10 @@
 
     A prototype, spatial, P2P web browser
 
+## CURRENT STATUS
+
+In the middle of adapting the wgpu gui bridge, webrender fork, and Servo fork to do rendering with wgpu and not glow/gleam/opengl. Stuff is, welp, going better than expected. It's absolutely wild. I've got wgpu 29, I've got wgpu, hal and all, I got a serendipitous way to get webgl compatibility aside from running , and, well, I haven't hit inevitable brick wall after wall like I expected. But graphshell itself is messy, and will be until I'm done. My thinking is the scope expansion will be tamed by the need to constrain for wasm32-unknown-unknown compilation of a core subset of compatible features. There is real functional work in the current status of graphshell but also bugs and a lot of unfinished design. All I can do is keep at it.
+
 ## Canvas
 
 - Force-directed node graph canvas (that's the spatial bit) where nodes represent content (webviews, documents, media, file directories)
