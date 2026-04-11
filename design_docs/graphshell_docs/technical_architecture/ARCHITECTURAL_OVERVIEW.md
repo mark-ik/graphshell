@@ -228,7 +228,7 @@ Open concerns as of 2026-03-08. See `../../archive_docs/checkpoint_2026-03-27/gr
 - Temporal preview/replay is spec-complete but runtime-pending.
 - Faceted filtering is spec-complete but runtime-pending.
 - TileRenderMode is active; non-web viewers (Wry/PDF/Markdown) are planned.
-- wgpu/WebRender migration is **deferred indefinitely** (2026-03-12). Graphshell ships on egui_glow / Servo GL compositor.
+- Graphshell's UI backend now runs on egui-wgpu. Remaining renderer work centers on WebRender/runtime convergence and retiring the Servo GL parent-render callback bridge.
 - v0.0.2 release gate: AG0–AG8 all closed with evidence (see `2026-03-03_pre_wgpu_plot.md`).
 
 For status-by-feature, use `implementation_strategy/2026-03-01_complete_feature_inventory.md`.

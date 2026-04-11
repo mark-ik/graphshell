@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
+use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::ui::dialog::DialogCommand;
 use crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest;
 #[cfg(feature = "diagnostics")]
@@ -142,6 +143,7 @@ fn open_preferred_context_command_surface_for_webview_target(
 
 pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
+    pub(crate) ui_render_backend: &'a mut UiRenderBackendHandle,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) headed_window: &'a HeadedWindow,
@@ -184,6 +186,7 @@ pub(crate) fn run_post_render_phase<FActive>(
 {
     let PostRenderPhaseArgs {
         ctx,
+        ui_render_backend,
         graph_app,
         window,
         headed_window,
@@ -295,6 +298,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                     ui,
                     TileRenderPassArgs {
                         ctx,
+                        ui_render_backend,
                         graph_app,
                         window,
                         tiles_tree,
@@ -333,6 +337,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                     ui,
                     TileRenderPassArgs {
                         ctx,
+                        ui_render_backend,
                         graph_app,
                         window,
                         tiles_tree,
@@ -516,6 +521,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                             ui,
                             TileRenderPassArgs {
                                 ctx,
+                                ui_render_backend,
                                 graph_app,
                                 window,
                                 tiles_tree,

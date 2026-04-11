@@ -62,7 +62,7 @@ The phased execution plan for the wgpu renderer is in
 
 ### 2.2 What must never cross the backend boundary
 
-- direct `egui_glow::CallbackFn` or `glow::Context` references in workbench or UI modules
+- direct GL callback shim or `glow::Context` references in workbench or UI modules
   — those are backend implementation details, not embedder APIs,
 - direct `wgpu::Device`, `wgpu::Queue`, or `wgpu::Texture` references in workbench or UI
   modules — the backend boundary mediates all GPU resource exposure,
@@ -75,11 +75,11 @@ The phased execution plan for the wgpu renderer is in
 
 ```text
 BackendContentBridgeMode =
-  | GlowCallback
-    -- current production path; egui_glow CallbackFn; GL state must be
+  | GlCallback
+    -- current production content bridge; Servo parent-render callback; GL state must be
        saved/restored by CompositorAdapter around every content callback
-  | WgpuPreferredFallbackGlowCallback
-    -- future path; wgpu texture handoff is primary; GlowCallback activates
+  | WgpuPreferredFallbackGlCallback
+    -- future path; wgpu texture handoff is primary; GlCallback activates
        when wgpu interop capability is absent
 ```
 
@@ -87,9 +87,9 @@ BackendContentBridgeMode =
 
 - `active_backend_content_bridge_policy()` is the sole function that determines the active
   mode at runtime.
-- The function currently returns `GlowCallback` unconditionally (Glow remains the
-  production composition path for the current milestone).
-- The function will return `WgpuPreferredFallbackGlowCallback` only after readiness gates
+- The function currently returns `GlCallback` unconditionally (the GL callback bridge remains the
+  production content path for the current milestone).
+- The function will return `WgpuPreferredFallbackGlCallback` only after readiness gates
   G1–G5 in the readiness gate document are all closed with linked tracker evidence.
 - No code outside `render_backend` may call `active_backend_content_bridge_policy()` and
   then act on the result directly — all callers must go through the bridge selection helpers
@@ -101,8 +101,8 @@ BackendContentBridgeMode =
 reinit). It is not recalculated per-frame or per-tile. Mode changes require a documented
 reinit or restart path.
 
-**Invariant**: `WgpuPreferredFallbackGlowCallback` is not a permanent dual-path mode. It
-is a migration bridge. The Glow path within `WgpuPreferredFallbackGlowCallback` must be
+**Invariant**: `WgpuPreferredFallbackGlCallback` is not a permanent dual-path mode. It
+is a migration bridge. The GL path within `WgpuPreferredFallbackGlCallback` must be
 retired once wgpu + fallback make it redundant for all supported targets.
 
 ---
@@ -119,8 +119,8 @@ BackendContentBridgeCapabilities {
     wgpu_interop_available: bool,
     -- true iff: wgpu device initialized, Servo WebRender wgpu backend active,
     --           shared device handoff succeeded, zero-copy texture path available
-    glow_fallback_available: bool,
-    -- true iff: egui_glow context initialized and usable (expected: always true
+    gl_fallback_available: bool,
+    -- true iff: the GL parent-render callback path is initialized and usable
     --           on any platform Graphshell supports)
     probe_diagnostics_channel: DiagnosticChannelId,
     -- the channel on which probe results are emitted
@@ -145,15 +145,15 @@ Returning `true` when the path would fail at frame time is a correctness bug.
 
 ---
 
-## 5. Glow Path Contract (Current Production)
+## 5. GL Callback Path Contract (Current Production)
 
 ### 5.1 Content callback interface
 
-On the Glow path, the `CompositorAdapter` invokes Servo's `render_to_parent` callback
-inside an `egui::PaintCallback` with an `egui_glow::CallbackFn`.
+On the GL callback path, the `CompositorAdapter` invokes Servo's `render_to_parent` callback
+through the backend callback shim owned by `render_backend`.
 
-The `render_backend` module owns the `BackendCallbackFn` type alias. No caller outside
-`render_backend` or `compositor_adapter` may construct or invoke a raw `egui_glow::CallbackFn`.
+No caller outside `render_backend` or `compositor_adapter` may construct or invoke a raw
+backend callback shim.
 
 ### 5.2 GL state isolation contract
 
@@ -286,9 +286,9 @@ is promoted to production. Parity is a readiness gate (G5).
 
 | Scenario | Active mode | Fallback result |
 |----------|-------------|----------------|
-| wgpu interop probe returns false | `WgpuPreferredFallbackGlowCallback` | Glow path activates; `CHANNEL_BACKEND_WGPU_INTEROP_UNAVAILABLE` emitted |
-| GL context lost | `GlowCallback` | Frame skipped; `CHANNEL_COMPOSITOR_GL_STATE_VIOLATION` emitted; recovery per GPU surface lifecycle spec |
-| wgpu device lost | `WgpuPreferredFallbackGlowCallback` | Glow path activates if available; `Error` diagnostic emitted; reinit attempted |
+| wgpu interop probe returns false | `WgpuPreferredFallbackGlCallback` | GL path activates; `CHANNEL_BACKEND_WGPU_INTEROP_UNAVAILABLE` emitted |
+| GL context lost | `GlCallback` | Frame skipped; `CHANNEL_COMPOSITOR_GL_STATE_VIOLATION` emitted; recovery per GPU surface lifecycle spec |
+| wgpu device lost | `WgpuPreferredFallbackGlCallback` | GL path activates if available; `Error` diagnostic emitted; reinit attempted |
 | Both paths unavailable | any | Compositor output is `Placeholder`; `Error` diagnostic emitted |
 
 **Invariant**: A fallback activation must never be silent. At minimum one `Warn` or `Error`
@@ -296,20 +296,20 @@ diagnostic must be emitted each time the primary path degrades to a fallback.
 
 ---
 
-## 9. Glow Retirement Conditions
+## 9. GL Callback Retirement Conditions
 
-The Glow path may be retired (removed from the production codebase) only when all of the
+The GL callback path may be retired (removed from the production codebase) only when all of the
 following are true, each with linked tracker evidence:
 
 1. Compositor replay diagnostics parity: wgpu path emits equivalent diagnostic coverage to
-   the Glow baseline on the same compositor scenarios.
+  the GL baseline on the same compositor scenarios.
 2. No open stabilization regressions tied to pass-order, callback-state isolation, or
-   overlay affordance visibility that are Glow-path-specific.
+  overlay affordance visibility that are GL-path-specific.
 3. Fallback path behavior validated in at least one non-interop environment (e.g. a device
    where `wgpu_interop_available` returns false).
 4. All required pass-contract scenarios covered by wgpu-primary + fallback-safe paths with
    tracker-linked evidence.
-5. One full release cycle on `WgpuPreferredFallbackGlowCallback` with no Glow-path
+5. One full release cycle on `WgpuPreferredFallbackGlCallback` with no GL-path
    activations reported from the production distribution.
 
 Until all five conditions are met, the Glow path remains a first-class code path, not a
@@ -336,9 +336,9 @@ Any new feature slice touching rendering or composition must comply with:
 ## 11. Acceptance Criteria
 
 1. `render_backend` is the sole module that selects or switches backend bridge mode.
-2. No `egui_glow` or `wgpu` types escape the backend boundary into workbench or UI modules.
+2. No backend-specific callback or GPU types escape the backend boundary into workbench or UI modules.
 3. GL state save/restore covers scissor, viewport, blend, active texture unit, and bound
-   framebuffer on the Glow path.
+  framebuffer on the GL callback path.
 4. Capability probe accurately reflects wgpu interop availability; false positives are
    correctness bugs.
 5. All diagnostics channels defined in §7 are registered and emitting.

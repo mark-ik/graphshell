@@ -4190,7 +4190,7 @@ Object {
                 presentation_us: 10,
                 violation: false,
                 bridge_path: "gl.render_to_parent_callback",
-                bridge_mode: "glow_callback",
+                bridge_mode: "gl_callback",
                 tile_rect_px: [0, 0, 64, 64],
                 render_size_px: [64, 64],
                 chaos_enabled: false,
@@ -4223,7 +4223,7 @@ Object {
                 presentation_us: 20,
                 violation: true,
                 bridge_path: "gl.render_to_parent_callback",
-                bridge_mode: "glow_callback",
+                bridge_mode: "gl_callback",
                 tile_rect_px: [4, 8, 120, 80],
                 render_size_px: [120, 80],
                 chaos_enabled: false,
@@ -4289,7 +4289,7 @@ Object {
         );
         assert_eq!(
             payload["measurement_contract"]["latest"]["bridge_mode"].as_str(),
-            Some("glow_callback")
+            Some("gl_callback")
         );
         assert!(payload["samples"].is_array());
     }

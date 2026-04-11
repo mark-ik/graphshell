@@ -4,6 +4,10 @@
 
 use super::*;
 
+use crate::shell::desktop::render_backend::{
+    begin_ui_render_backend_paint, end_ui_render_backend_paint,
+};
+
 pub(super) fn paint(gui: &mut Gui, window: &Window) {
     begin_paint_pass(gui);
     gui.context.submit_frame(window);
@@ -11,14 +15,9 @@ pub(super) fn paint(gui: &mut Gui, window: &Window) {
 }
 
 fn begin_paint_pass(gui: &Gui) {
-    gui.rendering_context
-        .make_current()
-        .expect("Could not make RenderingContext current");
-    gui.rendering_context
-        .parent_context()
-        .prepare_for_rendering();
+    begin_ui_render_backend_paint(gui.rendering_context.as_ref());
 }
 
 fn end_paint_pass(gui: &Gui) {
-    gui.rendering_context.parent_context().present();
+    end_ui_render_backend_paint(gui.rendering_context.as_ref());
 }

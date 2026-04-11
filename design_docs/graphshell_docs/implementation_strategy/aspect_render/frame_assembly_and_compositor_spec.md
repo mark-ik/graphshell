@@ -29,7 +29,7 @@ This spec defines the canonical contracts for:
 4. **Embedder decomposition seams** — `EmbedderCore` vs `RunningAppState` boundary.
 5. **Frame loop coordination** — begin/layout/paint ownership.
 
-This spec covers the **current render architecture** and what is being actively built. It does not specify the deferred `egui_glow → egui_wgpu` migration (see `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`).
+This spec covers the **current render architecture** and what is being actively built. The `egui_glow → egui_wgpu` UI-backend cut has already landed; the remaining renderer work is the deeper WebRender/runtime bridge path rather than the old egui backend swap.
 
 Historical note: the earlier composited-viewer contract note has been archived. Any still-relevant future-work ideas from its Appendix A are tracked in `../PLANNING_REGISTER.md` §0.10 rather than in a separate active render-contract doc.
 

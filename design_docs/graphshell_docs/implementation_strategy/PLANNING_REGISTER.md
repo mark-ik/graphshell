@@ -675,7 +675,7 @@ Issue linkage:
 
 ### 0.12 WebRender Readiness Gate + Feature Guardrails
 
-**Status: Product cutover deferred; upstream-readiness exploration remains valid (reframed 2026-03-14).** Graphshell remains on egui_glow / Servo GL compositor for product delivery, but the newer upstream posture makes WebRender-first `wgpu` exploration viable again. The key shift is to avoid a long-lived behavioral Servo fork: renderer work should target upstream/editable WebRender first, with thin Servo integration and Graphshell validation.
+**Status: UI-backend cut landed; upstream-readiness exploration remains active (updated 2026-04-10).** Graphshell now uses `egui-wgpu` for UI composition, while the remaining renderer work focuses on WebRender-first `wgpu` convergence and eventual retirement of the Servo GL parent-render callback bridge. The key shift is to avoid a long-lived behavioral Servo fork: renderer work should target upstream/editable WebRender first, with thin Servo integration and Graphshell validation.
 
 Original decision (2026-03-01): keep Glow active for current milestone delivery, but start WebRender/wgpu switch-readiness work under explicit guardrails. That product switch is still deferred; the readiness work is no longer assumed dead if it can proceed via the lighter upstream-first path.
 

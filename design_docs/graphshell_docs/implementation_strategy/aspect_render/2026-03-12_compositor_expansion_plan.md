@@ -1,9 +1,9 @@
-# Compositor Expansion Plan — Glow-First Semantic Composition
+# Compositor Expansion Plan — GL Parent-Render Semantic Composition
 
 **Date**: 2026-03-12
 **Status**: Active strategy
 **Author**: Arc + Mark
-**Context**: The wgpu renderer migration is deferred indefinitely (2026-03-12). The egui_glow / Servo GL compositor is the production renderer. This plan identifies how to get substantially more out of the existing compositor architecture now that it is no longer a holding pattern for a migration.
+**Context**: Graphshell now uses `egui-wgpu` for UI composition, but Servo content still reaches the workbench through a GL parent-render callback bridge. This plan identifies how to get substantially more out of the existing compositor architecture while that bridge remains in service.
 
 **Relates to**:
 - `frame_assembly_and_compositor_spec.md` — canonical pass contract (this plan extends, does not replace)

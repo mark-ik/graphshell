@@ -201,7 +201,7 @@ This note does not cover:
   (`SUBSYSTEM_STORAGE.md`).
 - **Verse swarm resource management**: Verse is Tier 2+; its specific gossipsub
   fan-out and DHT load budgets are a Verse-layer concern.
-- **GPU memory pressure**: Servo texture allocation and egui_glow frame
+- **GPU memory pressure**: Servo texture allocation and egui-wgpu frame
   management. Those are render-pipeline concerns outside ControlPanel's scope.
 
 ---

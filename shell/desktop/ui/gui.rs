@@ -15,7 +15,7 @@ use egui_winit::EventResponse;
 use euclid::{Length, Point2D};
 use log::warn;
 use servo::{
-    DeviceIndependentPixel, LoadStatus, OffscreenRenderingContext, RenderingContext, WebViewId,
+    DeviceIndependentPixel, LoadStatus, OffscreenRenderingContext, WebViewId,
     WindowRenderingContext,
 };
 use url::Url;
@@ -49,7 +49,8 @@ use crate::shell::desktop::host::window::GraphSemanticEvent;
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::render_backend::{
-    UiRenderBackendContract, UiRenderBackendHandle, create_ui_render_backend,
+    UiHostRenderBootstrap, UiRenderBackendContract, UiRenderBackendHandle, UiRenderBackendInit,
+    activate_ui_render_backend, create_ui_render_backend,
 };
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 #[cfg(feature = "diagnostics")]
@@ -226,9 +227,7 @@ impl Drop for Gui {
             self.control_panel.shutdown().await;
         });
 
-        self.rendering_context
-            .make_current()
-            .expect("Could not make window RenderingContext current");
+        activate_ui_render_backend(self.rendering_context.as_ref());
         self.context.destroy_surface();
     }
 }
@@ -297,17 +296,20 @@ impl Gui {
         winit_window: &Window,
         event_loop: &ActiveEventLoop,
         event_loop_proxy: EventLoopProxy<AppEvent>,
-        rendering_context: Rc<OffscreenRenderingContext>,
-        window_rendering_context: Rc<WindowRenderingContext>,
+        render_host: UiHostRenderBootstrap,
         initial_url: Url,
         graph_data_dir: Option<PathBuf>,
         graph_snapshot_interval_secs: Option<u64>,
         worker_idle_threshold_secs: Option<u64>,
     ) -> Self {
-        rendering_context
-            .make_current()
-            .expect("Could not make window RenderingContext current");
-        let mut context = create_ui_render_backend(event_loop, rendering_context.glow_gl_api());
+        let mut context = create_ui_render_backend(
+            event_loop,
+            UiRenderBackendInit {
+                window: winit_window,
+                render_host: &render_host,
+            },
+        );
+        let (rendering_context, window_rendering_context) = render_host.into_contexts();
 
         context.init_surface_accesskit(event_loop, winit_window, event_loop_proxy);
         winit_window.set_visible(true);
@@ -777,9 +779,7 @@ impl Gui {
         // Note: We need Rc<RunningAppState> for runtime viewer creation, but this method
         // is called from trait methods that only provide &RunningAppState.
         // The caller should have Rc available at the call site.
-        self.rendering_context
-            .make_current()
-            .expect("Could not make RenderingContext current");
+        activate_ui_render_backend(self.rendering_context.as_ref());
         tree_bootstrap::ensure_tiles_tree_root(&mut self.tiles_tree);
         let local_widget_focus = self
             .runtime_state
@@ -847,9 +847,10 @@ impl Gui {
             toasts,
             graph_app.workspace.chrome_ui.toast_anchor_preference,
         );
-        context.run_ui_frame(winit_window, |ctx| {
+        context.run_ui_frame(winit_window, |ctx, ui_render_backend| {
             Self::execute_update_frame(ExecuteUpdateFrameArgs {
                 ctx,
+            ui_render_backend,
                 winit_window,
                 state,
                 window,

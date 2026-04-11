@@ -1,7 +1,7 @@
 # Servo wgpu Upgrade Audit Report
 
 **Date**: 2026-03-03
-**Status**: Active audit receipt / integration enabling evidence (reframed 2026-03-14). Graphshell still ships on egui_glow, but this report now feeds an upstream-WebRender-first renderer strategy rather than a Servo-fork-first migration.
+**Status**: Active audit receipt / integration enabling evidence (updated 2026-04-10). Graphshell now uses `egui-wgpu` for UI composition, and this report feeds an upstream-WebRender-first renderer strategy rather than a Servo-fork-first migration.
 **Scope**: Servo-side `wgpu 26 -> 27` compatibility audit for the WebRender wgpu migration lane
 **Primary workspace**: `../servo-graphshell` for thin integration/audit work, plus a local editable `../webrender` checkout for primary renderer development
 **Related plans**:

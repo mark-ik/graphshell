@@ -8,6 +8,7 @@
 - `../../research/2026-04-02_scene_mode_ux_sketch.md`
 - `../../research/scene_customization.md`
 - `2026-04-02_parry2d_scene_enrichment_plan.md`
+- `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md`
 - `graph_node_edge_interaction_spec.md`
 - `layout_behaviors_and_physics_spec.md`
 - `multi_view_pane_spec.md`
@@ -28,6 +29,19 @@ This plan defines the first explicit mode structure for graph-scene interaction:
 These are not separate graph types. They are different interaction and projection modes over the same graph truth.
 
 The purpose of this plan is to make that distinction explicit in runtime state, interaction contracts, and persistence boundaries before scene behavior grows further.
+
+**Architecture alignment (2026-04-10)**:
+
+- the canonical multi-layer scene substrate is now defined in
+  `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md`,
+- `Browse`, `Arrange`, and `Simulate` are the user-facing modes over that
+  shared scene substrate,
+- `Browse` and `Arrange` target the Vello world-render path plus Parry-backed
+  query/editor geometry without requiring live rigid-body simulation,
+- `Simulate` is the only scene mode that activates Rapier,
+- node-avatar presets, scene props, triggers, routes, scene packages, and
+  Wasmtime-backed scene objects are follow-on capabilities inside this same
+  architecture rather than separate parallel tracks.
 
 **Execution update (2026-04-02)**:
 
@@ -78,6 +92,7 @@ This mode is view-owned state, not graph-canonical state.
 - edges are subdued or hidden unless useful
 - selection and peek interactions are emphasized
 - authored scene controls are present but not foregrounded
+- no Rapier world allocation is required
 
 #### Arrange
 
@@ -85,6 +100,8 @@ This mode is view-owned state, not graph-canonical state.
 - region creation and gather/sort actions are foregrounded
 - soft scene behaviors are available
 - users can deliberately shape space without full simulation complexity
+- Parry/Vello-backed scene composition is available without requiring live
+  rigid-body simulation
 
 #### Simulate
 
@@ -93,6 +110,9 @@ This mode is view-owned state, not graph-canonical state.
 - relationship overlays are demand-driven
 - the canvas behaves as a scene without losing graph explainability
 - per-view behavior presets can bias the scene feel without changing graph truth
+- Rapier is the live physics world for this mode
+- node-avatar presets, scene props, triggers, and routes are the intended
+  object-world extension surface for this mode
 
 ---
 
@@ -313,6 +333,15 @@ The mode model is established when:
 - `Simulate` exposes at least one concrete behavior-control surface beyond overlays,
 - arrange-oriented commands exist conceptually as scene actions rather than hidden future behavior,
 - the graph remains canonical and none of the new mode logic becomes graph truth.
+
+**Shared acceptance shape with the scene/projection architecture plan**:
+
+- `Browse` and `Arrange` do not require Rapier world allocation,
+- `Simulate` enables Rapier behaviors without mutating graph topology,
+- scene composition roundtrips through view snapshots while derived runtime
+  state does not,
+- scene scripts operate only through explicit Wasmtime-backed
+  capabilities/events.
 
 ---
 

@@ -1,8 +1,8 @@
 # Egui WGPU and Custom Canvas Migration Requirements
 
 **Date:** 2026-02-27  
-**Status:** Research baseline (full custom-canvas branch; not the default immediate execution plan)  
-**Scope:** What Graphshell must know, decide, and prove before pursuing the full migration path from `egui_glow` + `egui_graphs` to `egui_wgpu` + a Graphshell-owned custom canvas while retaining `egui` + `egui_tiles`.
+**Status:** Research baseline (written before the 2026-04-10 egui-wgpu UI cut; still useful for custom-canvas planning)  
+**Scope:** What Graphshell must know, decide, and prove before pursuing the full migration path from the old `egui_glow` + `egui_graphs` stack to `egui_wgpu` + a Graphshell-owned custom canvas while retaining `egui` + `egui_tiles`.
 
 ---
 
@@ -12,7 +12,7 @@ This document describes the **full custom-canvas target branch**, not the minimu
 
 The current canonical execution stance is:
 
-- backend migration (`egui_glow` -> `egui_wgpu`) is tracked separately and remains blocked by embedder/runtime readiness
+- the `egui_glow` -> `egui_wgpu` UI-backend cut has landed; remaining questions concern deeper runtime interop and the custom-canvas branch
 - custom canvas replacement is conditional and should only advance if `egui_graphs` becomes a proven bottleneck
 
 For the purposes of this research document only, assume the target stack is:
@@ -22,7 +22,7 @@ For the purposes of this research document only, assume the target stack is:
 - `egui_wgpu` as the egui renderer backend
 - a Graphshell-owned custom canvas replacing `egui_graphs`
 
-Assume the current stack being replaced is:
+Assume the historical stack being replaced was:
 
 - `egui_glow` for egui rendering
 - `egui_graphs` for graph canvas rendering and interaction
@@ -58,11 +58,11 @@ These are not implementation details. They are gating questions.
 
 ### 3.1 Runtime viewer surface interoperability
 
-Graphshell currently has a GL-bound compositor path:
+At the time this research was written, Graphshell had a GL-bound compositor path:
 
-- [gui.rs](../../../shell/desktop/ui/gui.rs) uses `egui_glow::EguiGlow`
-- [compositor_adapter.rs](../../../shell/desktop/workbench/compositor_adapter.rs) uses `egui::PaintCallback` plus `egui_glow::CallbackFn`
-- that adapter enforces OpenGL state guardrails around composited runtime viewer passes
+- [gui.rs](../../../shell/desktop/ui/gui.rs) used `egui_glow::EguiGlow`
+- [compositor_adapter.rs](../../../shell/desktop/workbench/compositor_adapter.rs) used `egui::PaintCallback` plus `egui_glow::CallbackFn`
+- that adapter enforced OpenGL state guardrails around composited runtime viewer passes
 
 Before any `egui_wgpu` migration begins, Graphshell must know:
 
@@ -615,7 +615,7 @@ If any of these are missing, the migration is still in exploration mode.
 The best framing is:
 
 1. Treat `egui_graphs` removal as the main architectural goal.
-2. Treat `egui_glow` removal as a renderer/backend goal that follows explicit interop proof.
+2. Treat the now-landed `egui_glow` removal as a renderer/backend goal that had to follow explicit interop proof.
 3. Keep `egui_tiles` unless it later becomes a demonstrated blocker.
 4. Make the custom canvas the new product-owned surface.
 5. Keep the early implementation small, measurable, and reversible.

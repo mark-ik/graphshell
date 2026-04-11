@@ -2,44 +2,101 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+mod gl_backend;
+mod wgpu_backend;
+
+use std::rc::Rc;
 use std::sync::Arc;
 
-use egui::{Context, LayerId, PaintCallback, Rect as EguiRect};
-use egui_glow::glow;
-use egui_winit::EventResponse;
 use euclid::{Point2D, Rect, Size2D};
-use servo::OffscreenRenderingContext;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
+use servo::{OffscreenRenderingContext, WindowRenderingContext};
 use winit::window::Window;
 
-type BackendCallbackFn = egui_glow::CallbackFn;
-type UiRenderBackend = egui_glow::EguiGlow;
+pub(crate) use gl_backend::{
+    BackendFramebufferHandle, BackendGraphicsContext, BackendParentRenderCallback,
+    backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
+    backend_chaos_framebuffer_handle, backend_framebuffer_binding,
+    backend_framebuffer_from_binding, backend_is_blend_enabled, backend_is_scissor_enabled,
+    backend_primary_texture_unit, backend_scissor_box, backend_set_active_texture, backend_set_blend_enabled,
+    backend_set_scissor_box, backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
+};
+pub(crate) use wgpu_backend::{
+    BackendCustomPass, UiRenderBackendContract, UiRenderBackendHandle, activate_ui_render_backend,
+    begin_ui_render_backend_paint, create_ui_render_backend, custom_pass_from_backend_viewport,
+    end_ui_render_backend_paint, register_custom_paint_callback, texture_id_from_token,
+    texture_token_from_handle,
+};
 
-pub(crate) type BackendGraphicsContext = glow::Context;
-pub(crate) type BackendFramebufferHandle = glow::NativeFramebuffer;
-pub(crate) type BackendGraphicsApi = std::sync::Arc<BackendGraphicsContext>;
-pub(crate) type BackendParentRenderCallback = std::sync::Arc<
-    dyn Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync,
->;
+pub(crate) struct UiHostRenderBootstrap {
+    rendering_context: Rc<OffscreenRenderingContext>,
+    window_rendering_context: Rc<WindowRenderingContext>,
+    wgpu: UiWgpuHostBootstrap,
+}
+
+impl UiHostRenderBootstrap {
+    pub(crate) fn new(
+        rendering_context: Rc<OffscreenRenderingContext>,
+        window_rendering_context: Rc<WindowRenderingContext>,
+    ) -> Self {
+        Self {
+            rendering_context,
+            window_rendering_context,
+            wgpu: UiWgpuHostBootstrap::default(),
+        }
+    }
+
+    pub(crate) fn rendering_context(&self) -> &OffscreenRenderingContext {
+        self.rendering_context.as_ref()
+    }
+
+    pub(crate) fn window_rendering_context(&self) -> &WindowRenderingContext {
+        self.window_rendering_context.as_ref()
+    }
+
+    pub(crate) fn into_contexts(self) -> (Rc<OffscreenRenderingContext>, Rc<WindowRenderingContext>) {
+        (self.rendering_context, self.window_rendering_context)
+    }
+
+    pub(crate) fn wgpu_bootstrap(&self) -> &UiWgpuHostBootstrap {
+        &self.wgpu
+    }
+}
+
+pub(crate) struct UiRenderBackendInit<'a> {
+    pub(crate) window: &'a Window,
+    pub(crate) render_host: &'a UiHostRenderBootstrap,
+}
+
+#[derive(Clone)]
+pub(crate) struct UiWgpuHostBootstrap {
+    pub(crate) configuration: egui_wgpu::WgpuConfiguration,
+}
+
+impl Default for UiWgpuHostBootstrap {
+    fn default() -> Self {
+        Self {
+            configuration: egui_wgpu::WgpuConfiguration::default(),
+        }
+    }
+}
 
 const BACKEND_BRIDGE_MODE_ENV_VAR: &str = "GRAPHSHELL_BACKEND_BRIDGE_MODE";
 const BACKEND_BRIDGE_READINESS_GATE_ENV_VAR: &str =
     "GRAPHSHELL_ENABLE_WGPU_BRIDGE_READINESS_GATE";
 const SERVO_WGPU_BACKEND_ENV_VAR: &str = "SERVO_WGPU_BACKEND";
-const BACKEND_BRIDGE_PATH_GLOW_CALLBACK: &str = "gl.render_to_parent_callback";
-const BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GLOW: &str =
-    "wgpu.preferred.fallback_glow.render_to_parent_callback";
+const BACKEND_BRIDGE_PATH_GL_CALLBACK: &str = "gl.render_to_parent_callback";
+const BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GL: &str =
+    "wgpu.preferred.fallback_gl.render_to_parent_callback";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackendContentBridgeMode {
-    GlowCallback,
-    WgpuPreferredFallbackGlowCallback,
+    GlCallback,
+    WgpuPreferredFallbackGlCallback,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BackendContentBridgePolicy {
-    GlowBaseline,
+    GlBaseline,
     ExperimentalEnvRequestedMode,
 }
 
@@ -87,17 +144,17 @@ fn requested_backend_content_bridge_mode() -> BackendContentBridgeMode {
         .ok()
         .map(|value| value.trim().to_ascii_lowercase())
         .map(|value| match value.as_str() {
-            "wgpu_preferred" => BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback,
-            _ => BackendContentBridgeMode::GlowCallback,
+            "wgpu_preferred" => BackendContentBridgeMode::WgpuPreferredFallbackGlCallback,
+            _ => BackendContentBridgeMode::GlCallback,
         })
-        .unwrap_or(BackendContentBridgeMode::GlowCallback)
+        .unwrap_or(BackendContentBridgeMode::GlCallback)
 }
 
 fn active_backend_content_bridge_policy() -> BackendContentBridgePolicy {
     if env_flag_enabled(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR) {
         BackendContentBridgePolicy::ExperimentalEnvRequestedMode
     } else {
-        BackendContentBridgePolicy::GlowBaseline
+        BackendContentBridgePolicy::GlBaseline
     }
 }
 
@@ -115,14 +172,14 @@ fn resolve_backend_content_bridge_mode(
     capabilities: BackendContentBridgeCapabilities,
 ) -> BackendContentBridgeMode {
     match policy {
-        BackendContentBridgePolicy::GlowBaseline => BackendContentBridgeMode::GlowCallback,
+        BackendContentBridgePolicy::GlBaseline => BackendContentBridgeMode::GlCallback,
         BackendContentBridgePolicy::ExperimentalEnvRequestedMode => {
             let requested = requested_backend_content_bridge_mode();
             match requested {
-                BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback
+                BackendContentBridgeMode::WgpuPreferredFallbackGlCallback
                     if !capabilities.supports_wgpu_parent_render_bridge =>
                 {
-                    BackendContentBridgeMode::GlowCallback
+                    BackendContentBridgeMode::GlCallback
                 }
                 mode => mode,
             }
@@ -231,18 +288,18 @@ pub(crate) fn select_content_bridge_from_render_context(
 
 pub(crate) fn backend_content_bridge_path(mode: BackendContentBridgeMode) -> &'static str {
     match mode {
-        BackendContentBridgeMode::GlowCallback => BACKEND_BRIDGE_PATH_GLOW_CALLBACK,
-        BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback => {
-            BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GLOW
+        BackendContentBridgeMode::GlCallback => BACKEND_BRIDGE_PATH_GL_CALLBACK,
+        BackendContentBridgeMode::WgpuPreferredFallbackGlCallback => {
+            BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GL
         }
     }
 }
 
 pub(crate) fn backend_content_bridge_mode_label(mode: BackendContentBridgeMode) -> &'static str {
     match mode {
-        BackendContentBridgeMode::GlowCallback => "glow_callback",
-        BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback => {
-            "wgpu_preferred_fallback_glow_callback"
+        BackendContentBridgeMode::GlCallback => "gl_callback",
+        BackendContentBridgeMode::WgpuPreferredFallbackGlCallback => {
+            "wgpu_preferred_fallback_gl_callback"
         }
     }
 }
@@ -263,257 +320,15 @@ pub(crate) struct BackendParentRenderRegionInPixels {
     pub(crate) height_px: i32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct BackendTextureToken(pub(crate) egui::TextureId);
-
-#[derive(Clone)]
-pub(crate) struct BackendCustomPass {
-    callback: Arc<BackendCallbackFn>,
-}
-
-impl BackendCustomPass {
-    pub(crate) fn from_callback_fn(callback: BackendCallbackFn) -> Self {
-        Self {
-            callback: Arc::new(callback),
-        }
-    }
-}
-
-pub(crate) fn custom_pass_from_backend_viewport<F>(render: F) -> BackendCustomPass
-where
-    F: Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync + 'static,
-{
-    BackendCustomPass::from_callback_fn(BackendCallbackFn::new(move |info, painter| {
-        let clip = info.viewport_in_pixels();
-        render(
-            painter.gl(),
-            BackendViewportInPixels {
-                left_px: clip.left_px,
-                from_bottom_px: clip.from_bottom_px,
-                width_px: clip.width_px,
-                height_px: clip.height_px,
-            },
-        );
-    }))
-}
-
-pub(crate) fn backend_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {
-    let mut scissor_box = [0_i32; 4];
-
-    unsafe {
-        glow::HasContext::get_parameter_i32_slice(gl, glow::SCISSOR_BOX, &mut scissor_box);
-    }
-
-    scissor_box
-}
-
-pub(crate) fn backend_set_scissor_box(gl: &BackendGraphicsContext, scissor_box: [i32; 4]) {
-    unsafe {
-        glow::HasContext::scissor(
-            gl,
-            scissor_box[0],
-            scissor_box[1],
-            scissor_box[2],
-            scissor_box[3],
-        );
-    }
-}
-
-pub(crate) fn backend_is_scissor_enabled(gl: &BackendGraphicsContext) -> bool {
-    unsafe { glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST) }
-}
-
-pub(crate) fn backend_set_scissor_enabled(gl: &BackendGraphicsContext, enabled: bool) {
-    unsafe {
-        if enabled {
-            glow::HasContext::enable(gl, glow::SCISSOR_TEST);
-        } else {
-            glow::HasContext::disable(gl, glow::SCISSOR_TEST);
-        }
-    }
-}
-
-pub(crate) fn backend_viewport(gl: &BackendGraphicsContext) -> [i32; 4] {
-    let mut viewport = [0_i32; 4];
-
-    unsafe {
-        glow::HasContext::get_parameter_i32_slice(gl, glow::VIEWPORT, &mut viewport);
-    }
-
-    viewport
-}
-
-pub(crate) fn backend_set_viewport(gl: &BackendGraphicsContext, viewport: [i32; 4]) {
-    unsafe {
-        glow::HasContext::viewport(gl, viewport[0], viewport[1], viewport[2], viewport[3]);
-    }
-}
-
-pub(crate) fn backend_is_blend_enabled(gl: &BackendGraphicsContext) -> bool {
-    unsafe { glow::HasContext::is_enabled(gl, glow::BLEND) }
-}
-
-pub(crate) fn backend_set_blend_enabled(gl: &BackendGraphicsContext, enabled: bool) {
-    unsafe {
-        if enabled {
-            glow::HasContext::enable(gl, glow::BLEND);
-        } else {
-            glow::HasContext::disable(gl, glow::BLEND);
-        }
-    }
-}
-
-pub(crate) fn backend_active_texture(gl: &BackendGraphicsContext) -> i32 {
-    unsafe { glow::HasContext::get_parameter_i32(gl, glow::ACTIVE_TEXTURE) }
-}
-
-pub(crate) fn backend_set_active_texture(gl: &BackendGraphicsContext, texture: u32) {
-    unsafe {
-        glow::HasContext::active_texture(gl, texture);
-    }
-}
-
-pub(crate) fn backend_framebuffer_binding(gl: &BackendGraphicsContext) -> i32 {
-    unsafe { glow::HasContext::get_parameter_i32(gl, glow::FRAMEBUFFER_BINDING) }
-}
-
-pub(crate) fn backend_bind_framebuffer(
-    gl: &BackendGraphicsContext,
-    framebuffer: Option<BackendFramebufferHandle>,
-) {
-    unsafe {
-        glow::HasContext::bind_framebuffer(gl, glow::FRAMEBUFFER, framebuffer);
-    }
-}
-
-pub(crate) fn backend_framebuffer_from_binding(binding: i32) -> Option<BackendFramebufferHandle> {
-    if binding <= 0 {
-        None
-    } else {
-        std::num::NonZeroU32::new(binding as u32).map(glow::NativeFramebuffer)
-    }
-}
-
-pub(crate) fn backend_chaos_framebuffer_handle() -> BackendFramebufferHandle {
-    glow::NativeFramebuffer(std::num::NonZeroU32::new(9).expect("non-zero"))
-}
-
-pub(crate) fn backend_primary_texture_unit() -> u32 {
-    glow::TEXTURE0
-}
-
-pub(crate) fn backend_chaos_alternate_texture_unit() -> u32 {
-    glow::TEXTURE3
-}
-
-pub(crate) fn texture_token_from_handle(handle: &egui::TextureHandle) -> BackendTextureToken {
-    BackendTextureToken(handle.id())
-}
-
-pub(crate) fn texture_id_from_token(token: BackendTextureToken) -> egui::TextureId {
-    token.0
-}
-
-pub(crate) fn create_ui_render_backend(
-    event_loop: &ActiveEventLoop,
-    gl_api: BackendGraphicsApi,
-) -> UiRenderBackendHandle {
-    UiRenderBackendHandle {
-        inner: UiRenderBackend::new(event_loop, gl_api, None, None, false),
-    }
-}
-
-pub(crate) struct UiRenderBackendHandle {
-    inner: UiRenderBackend,
-}
-
-pub(crate) trait UiRenderBackendContract {
-    fn init_surface_accesskit<Event>(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window: &Window,
-        event_loop_proxy: EventLoopProxy<Event>,
-    ) where
-        Event: From<egui_winit::accesskit_winit::Event> + Send + 'static;
-
-    fn egui_context(&self) -> &Context;
-    fn egui_context_mut(&mut self) -> &mut Context;
-    fn egui_winit_state_mut(&mut self) -> &mut egui_winit::State;
-
-    fn handle_window_event(&mut self, window: &Window, event: &WindowEvent) -> EventResponse;
-    fn run_ui_frame(&mut self, window: &Window, run_ui: impl FnMut(&Context));
-
-    fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken;
-
-    fn submit_frame(&mut self, window: &Window);
-    fn destroy_surface(&mut self);
-}
-
-impl UiRenderBackendContract for UiRenderBackendHandle {
-    fn init_surface_accesskit<Event>(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window: &Window,
-        event_loop_proxy: EventLoopProxy<Event>,
-    ) where
-        Event: From<egui_winit::accesskit_winit::Event> + Send + 'static,
-    {
-        self.inner
-            .egui_winit
-            .init_accesskit(event_loop, window, event_loop_proxy);
-    }
-
-    fn egui_context(&self) -> &Context {
-        &self.inner.egui_ctx
-    }
-
-    fn egui_context_mut(&mut self) -> &mut Context {
-        &mut self.inner.egui_ctx
-    }
-
-    fn egui_winit_state_mut(&mut self) -> &mut egui_winit::State {
-        &mut self.inner.egui_winit
-    }
-
-    fn handle_window_event(&mut self, window: &Window, event: &WindowEvent) -> EventResponse {
-        self.inner.on_window_event(window, event)
-    }
-
-    fn run_ui_frame(&mut self, window: &Window, run_ui: impl FnMut(&Context)) {
-        self.inner.run(window, run_ui)
-    }
-
-    fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken {
-        BackendTextureToken(texture_id)
-    }
-
-    fn submit_frame(&mut self, window: &Window) {
-        self.inner.paint(window);
-    }
-
-    fn destroy_surface(&mut self) {
-        self.inner.destroy();
-    }
-}
-
-pub(crate) fn register_custom_paint_callback(
-    ctx: &Context,
-    layer: LayerId,
-    rect: EguiRect,
-    callback: BackendCustomPass,
-) {
-    ctx.layer_painter(layer).add(PaintCallback {
-        rect,
-        callback: callback.callback,
-    });
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn bridge_mode_defaults_to_glow_callback() {
+    fn bridge_mode_defaults_to_gl_callback() {
         let _guard = backend_bridge_test_env_lock()
             .lock()
             .expect("env lock poisoned");
@@ -522,7 +337,7 @@ mod tests {
         let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
         let selected = select_backend_content_bridge(callback);
 
-        assert_eq!(selected.mode, BackendContentBridgeMode::GlowCallback);
+        assert_eq!(selected.mode, BackendContentBridgeMode::GlCallback);
     }
 
     #[test]
@@ -544,14 +359,14 @@ mod tests {
 
         assert_eq!(
             selected.mode,
-            BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback
+            BackendContentBridgeMode::WgpuPreferredFallbackGlCallback
         );
 
         clear_backend_bridge_env_for_tests();
     }
 
     #[test]
-    fn active_policy_uses_glow_even_when_env_requests_wgpu_preferred() {
+    fn active_policy_uses_gl_even_when_env_requests_wgpu_preferred() {
         let _guard = backend_bridge_test_env_lock()
             .lock()
             .expect("env lock poisoned");
@@ -566,13 +381,13 @@ mod tests {
             },
         );
 
-        assert_eq!(selected.mode, BackendContentBridgeMode::GlowCallback);
+        assert_eq!(selected.mode, BackendContentBridgeMode::GlCallback);
 
         clear_backend_bridge_env_for_tests();
     }
 
     #[test]
-    fn bridge_mode_falls_back_to_glow_when_wgpu_capability_is_unavailable() {
+    fn bridge_mode_falls_back_to_gl_when_wgpu_capability_is_unavailable() {
         let _guard = backend_bridge_test_env_lock()
             .lock()
             .expect("env lock poisoned");
@@ -588,7 +403,7 @@ mod tests {
             },
         );
 
-        assert_eq!(selected.mode, BackendContentBridgeMode::GlowCallback);
+        assert_eq!(selected.mode, BackendContentBridgeMode::GlCallback);
 
         clear_backend_bridge_env_for_tests();
     }
@@ -612,7 +427,7 @@ mod tests {
 
         assert_eq!(
             selected.mode,
-            BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback
+            BackendContentBridgeMode::WgpuPreferredFallbackGlCallback
         );
 
         clear_backend_bridge_env_for_tests();
@@ -643,14 +458,14 @@ mod tests {
     #[test]
     fn bridge_path_maps_per_bridge_mode() {
         assert_eq!(
-            backend_content_bridge_path(BackendContentBridgeMode::GlowCallback),
-            BACKEND_BRIDGE_PATH_GLOW_CALLBACK
+            backend_content_bridge_path(BackendContentBridgeMode::GlCallback),
+            BACKEND_BRIDGE_PATH_GL_CALLBACK
         );
         assert_eq!(
             backend_content_bridge_path(
-                BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback,
+                BackendContentBridgeMode::WgpuPreferredFallbackGlCallback,
             ),
-            BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GLOW
+            BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GL
         );
     }
 }

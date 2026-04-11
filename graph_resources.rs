@@ -10,11 +10,14 @@ use cfg_if::cfg_if;
 use servo::resources::{self, Resource};
 
 static CMD_RESOURCE_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+static RESOURCE_READER: ResourceReader = ResourceReader;
 
 struct ResourceReader;
 
+servo::submit_resource_reader!(&RESOURCE_READER);
+
 pub fn init() {
-    resources::set(Box::new(ResourceReader));
+    let _ = resources_dir_path();
 }
 
 pub(crate) fn resources_dir_path() -> PathBuf {

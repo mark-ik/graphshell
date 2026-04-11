@@ -15,6 +15,7 @@
 - `petgraph_algorithm_utilization_spec.md` — algorithmic analysis capabilities shared across surfaces
 - `2026-03-11_graph_enrichment_plan.md` — automated and user-initiated graph enrichment
 - `2026-04-01_swatch_spec_extraction_plan.md` — reusable compact graph projection contract for embedded swatch surfaces
+- `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md` — canonical scene-substrate plan for Vello world rendering, projected view modes, Parry query/editing, and Rapier `Simulate` behavior
 - `workbench_frame_tile_interaction_spec.md`
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`
@@ -116,6 +117,13 @@ Archive note:
 External graph-rendering libraries are a useful reminder that the canvas should be treated as a subsystem, not just a widget. The Graph domain should own simulation policy, scene derivation, interaction semantics, and diagnostics contracts; rendering backends should consume those contracts rather than define them.
 
 This supports the current Graph-versus-Workbench boundary and the deferred custom-canvas direction: backend replacement should not change graph truth or graph-space semantics.
+
+As of 2026-04-10, the active scene-substrate direction for projected graph and
+scene rendering is defined in
+`2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md`.
+Treat that document as the canonical execution anchor for Vello-backed
+world rendering, Parry-owned scene queries/editor geometry, and Rapier-backed
+`Simulate` behavior.
 
 ---
 

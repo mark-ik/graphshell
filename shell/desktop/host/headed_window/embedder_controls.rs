@@ -3,8 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use servo::{
-    AuthenticationRequest, EmbedderControl, EmbedderControlId, GenericSender, PermissionRequest,
-    WebViewId,
+    AuthenticationRequest, BluetoothDeviceSelectionRequest, EmbedderControl,
+    EmbedderControlId, PermissionRequest, WebViewId,
 };
 
 use super::HeadedWindow;
@@ -101,13 +101,9 @@ pub(super) fn hide_embedder_control(
 pub(super) fn show_bluetooth_device_dialog(
     window: &HeadedWindow,
     webview_id: WebViewId,
-    devices: Vec<String>,
-    response_sender: GenericSender<Option<String>>,
+    request: BluetoothDeviceSelectionRequest,
 ) {
-    window.add_dialog(
-        webview_id,
-        Dialog::new_device_selection_dialog(devices, response_sender),
-    );
+    window.add_dialog(webview_id, Dialog::new_device_selection_dialog(request));
 }
 
 pub(super) fn show_permission_dialog(

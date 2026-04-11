@@ -798,8 +798,6 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
         time_profiler_trace_path: cmd_args
             .profiler_trace_path
             .map(|p| p.to_string_lossy().into_owned()),
-        nonincremental_layout: cmd_args.nonincremental_layout,
-        user_stylesheets: Vec::new(),
         hard_fail: cmd_args.hard_fail,
         multiprocess: cmd_args.multiprocess,
         background_hang_monitor: cmd_args.background_hang_monitor,
@@ -817,7 +815,6 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
             .local_script_source
             .map(|p| p.to_string_lossy().into_owned()),
         unminify_css: cmd_args.unminify_css,
-        print_pwm: cmd_args.print_pwm,
         force_ipc: cmd_args.force_ipc,
     };
 
@@ -1048,7 +1045,7 @@ fn test_user_stylesheets_flow_through_app_preferences() {
     let arg = format!("--user-stylesheet {}", stylesheet_path.display());
     let (opts, _, app_preferences) = test_parse(&arg);
 
-    assert!(opts.user_stylesheets.is_empty());
+    assert!(!opts.force_ipc);
     assert_eq!(app_preferences.user_stylesheets.len(), 1);
     assert_eq!(
         app_preferences.user_stylesheets[0].source(),

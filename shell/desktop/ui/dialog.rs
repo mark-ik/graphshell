@@ -3,21 +3,20 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::path::Path;
-use std::sync::Arc;
 
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use egui::{
     Area, Button, CornerRadius, Frame, Id, Modal, Order, RichText, Sense, Stroke, Vec2, pos2,
 };
-use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog};
+use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use euclid::Length;
 use log::warn;
 use servo::{
     AlertDialog, AuthenticationRequest, ColorPicker, ConfirmDialog, ContextMenu, ContextMenuItem,
-    DeviceIndependentPixel, DeviceIntRect, EmbedderControlId, FilePicker, GenericSender,
-    PermissionRequest, PromptDialog, RgbColor, SelectElement, SelectElementOption,
-    SelectElementOptionOrOptgroup, SimpleDialog, WebViewId,
+    BluetoothDeviceDescription, BluetoothDeviceSelectionRequest, DeviceIndependentPixel,
+    DeviceIntRect, EmbedderControlId, FilePicker, PermissionRequest, PromptDialog, RgbColor,
+    SelectElement, SelectElementOption, SelectElementOptionOrOptgroup, SimpleDialog, WebViewId,
 };
 
 /// The minimum width of many UI elements including dialog boxes and menus,
@@ -58,9 +57,9 @@ pub enum Dialog {
         request: Option<PermissionRequest>,
     },
     SelectDevice {
-        devices: Vec<String>,
+        devices: Vec<BluetoothDeviceDescription>,
         selected_device_index: usize,
-        response_sender: GenericSender<Option<String>>,
+        request: Option<BluetoothDeviceSelectionRequest>,
     },
     SelectElement {
         maybe_prompt: Option<SelectElement>,
@@ -104,7 +103,7 @@ impl Dialog {
             dialog = dialog
                 .add_file_filter(
                     "All Supported Types",
-                    Arc::new(move |path: &Path| {
+                    Filter::new(move |path: &Path| {
                         path.extension()
                             .and_then(|e| e.to_str())
                             .is_some_and(|ext| {
@@ -149,14 +148,11 @@ impl Dialog {
         }
     }
 
-    pub fn new_device_selection_dialog(
-        devices: Vec<String>,
-        response_sender: GenericSender<Option<String>>,
-    ) -> Self {
+    pub fn new_device_selection_dialog(request: BluetoothDeviceSelectionRequest) -> Self {
         Dialog::SelectDevice {
-            devices,
+            devices: request.devices().clone(),
             selected_device_index: 0,
-            response_sender,
+            request: Some(request),
         }
     }
 
@@ -496,7 +492,7 @@ impl Dialog {
             Dialog::SelectDevice {
                 devices,
                 selected_device_index,
-                response_sender,
+                request,
             } => {
                 let mut is_open = true;
                 let modal = Modal::new("device_picker".into());
@@ -508,11 +504,10 @@ impl Dialog {
                     frame.content_ui.add_space(10.0);
 
                     egui::ComboBox::from_label("")
-                        .selected_text(&devices[*selected_device_index + 1])
+                        .selected_text(&devices[*selected_device_index].name)
                         .show_ui(&mut frame.content_ui, |ui| {
-                            for i in (0..devices.len() - 1).step_by(2) {
-                                let device_name = &devices[i + 1];
-                                ui.selectable_value(selected_device_index, i, device_name);
+                            for (i, device) in devices.iter().enumerate() {
+                                ui.selectable_value(selected_device_index, i, &device.name);
                             }
                         });
 
@@ -525,8 +520,9 @@ impl Dialog {
                             if ui.button("Ok").clicked()
                                 || ui.input(|i| i.key_pressed(egui::Key::Enter))
                             {
-                                if let Err(e) = response_sender
-                                    .send(Some(devices[*selected_device_index].clone()))
+                                if let Some(request) = request.take()
+                                    && let Err(e) =
+                                        request.pick_device(&devices[*selected_device_index])
                                 {
                                     warn!("Failed to send device selection: {}", e);
                                 }
@@ -535,7 +531,9 @@ impl Dialog {
                             if ui.button("Cancel").clicked()
                                 || ui.input(|i| i.key_pressed(egui::Key::Escape))
                             {
-                                if let Err(e) = response_sender.send(None) {
+                                if let Some(request) = request.take()
+                                    && let Err(e) = request.cancel()
+                                {
                                     warn!("Failed to send cancellation: {}", e);
                                 }
                                 is_open = false;
@@ -570,17 +568,17 @@ impl Dialog {
                 let area = egui::Area::new(egui::Id::new("select-window"))
                     .fixed_pos(egui::pos2(position.min.x as f32, position.max.y as f32));
 
-                let mut selected_option = prompt.selected_option();
+                let mut selected_options = prompt.selected_options();
 
                 fn display_option(
                     ui: &mut egui::Ui,
                     option: &SelectElementOption,
-                    selected_option: &mut Option<usize>,
+                    selected_options: &mut Vec<usize>,
                     is_open: &mut bool,
                     in_group: bool,
+                    allow_multiple: bool,
                 ) {
-                    let is_checked =
-                        selected_option.is_some_and(|selected_index| selected_index == option.id);
+                    let is_checked = selected_options.contains(&option.id);
 
                     // TODO: Surely there's a better way to align text in a selectable label in egui.
                     let label_text = if in_group {
@@ -602,8 +600,19 @@ impl Dialog {
                         .inner;
 
                     if clickable_area.clicked() && !option.is_disabled {
-                        *selected_option = Some(option.id);
-                        *is_open = false;
+                        if allow_multiple {
+                            if let Some(position) =
+                                selected_options.iter().position(|id| *id == option.id)
+                            {
+                                selected_options.remove(position);
+                            } else {
+                                selected_options.push(option.id);
+                            }
+                        } else {
+                            selected_options.clear();
+                            selected_options.push(option.id);
+                            *is_open = false;
+                        }
                     }
 
                     if clickable_area.hovered() && option.is_disabled {
@@ -625,9 +634,10 @@ impl Dialog {
                                         display_option(
                                             ui,
                                             option,
-                                            &mut selected_option,
+                                            &mut selected_options,
                                             &mut is_open,
                                             false,
+                                            prompt.allow_select_multiple(),
                                         );
                                     }
                                     SelectElementOptionOrOptgroup::Optgroup { label, options } => {
@@ -637,9 +647,10 @@ impl Dialog {
                                             display_option(
                                                 ui,
                                                 option,
-                                                &mut selected_option,
+                                                &mut selected_options,
                                                 &mut is_open,
                                                 true,
+                                                prompt.allow_select_multiple(),
                                             );
                                         }
                                     }
@@ -656,7 +667,7 @@ impl Dialog {
                     ctx.request_repaint();
                 }
 
-                prompt.select(selected_option);
+                prompt.select(selected_options);
 
                 if !is_open {
                     maybe_prompt.take().unwrap().submit();

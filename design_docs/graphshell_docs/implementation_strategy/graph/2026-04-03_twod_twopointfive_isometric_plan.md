@@ -12,6 +12,7 @@
 - `2026-04-03_layout_backend_state_ownership_plan.md`
 - `2026-04-03_wasm_layout_runtime_plan.md`
 - `2026-04-03_layout_transition_and_history_plan.md`
+- `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md`
 - `view_dimension_spec.md`
 - `2026-02-27_viewdimension_acceptance_contract.md`
 - `2026-04-02_scene_mode_ux_plan.md`
@@ -33,6 +34,16 @@ This lane depends on the shared persisted carrier described in
 `2026-04-03_layout_backend_state_ownership_plan.md`. It does **not** depend on the runtime-loaded
 guest layout work in `2026-04-03_wasm_layout_runtime_plan.md`, though projection modes should be
 able to consume either built-in or guest-computed 2D layout truth later.
+
+**Architecture alignment (2026-04-10)**:
+
+- the multi-layer scene/render substrate is now defined in
+  `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md`,
+- `TwoPointFive` and `Isometric` remain projection modes over canonical 2D
+  layout truth,
+- those projection modes now target the shared projected-scene + Vello
+  world-render path,
+- `Standard` remains architecture-only and is not part of this milestone.
 
 ---
 
@@ -78,7 +89,8 @@ interaction model while adding depth cues.
 
 ### Target 2 Tasks
 
-1. Implement a fixed-camera projection pass for node/edge rendering.
+1. Implement a fixed-camera projection pass for node/edge rendering through the
+   shared projected-scene + Vello world-render path.
 2. Keep pan/zoom ownership aligned with existing 2D camera behavior.
 3. Ensure selection, hover, and hit testing remain continuous under projection.
 4. Expose diagnostic evidence for mode enter, mode exit, and degraded fallback.
@@ -101,7 +113,8 @@ placement can remain a deterministic projection of 2D positions plus quantized d
 ### Target 3 Tasks
 
 1. Define layer quantization rules for `ZSource` inputs such as BFS depth, UDC level, or recency.
-2. Render the same underlying graph with a fixed isometric projection.
+2. Render the same underlying graph with a fixed isometric projection on the
+   shared projected-scene + Vello world-render path.
 3. Preserve label, hover, and selection semantics across layer separation.
 4. Keep the mode within the current graph-view interaction contract rather than requiring a
    separate 3D navigation model.
@@ -125,7 +138,8 @@ This plan should not quietly grow into a full 3D renderer effort.
 1. Define the explicit boundary between projected 2.5D / isometric rendering and full 3D scene
    navigation.
 2. Keep all mode transitions lossless with respect to underlying 2D layout truth.
-3. Require a separate authority before adding orbit, tilt, or true 3D camera persistence.
+3. Require a separate authority before adding orbit, tilt, true 3D camera
+   persistence, or a non-projected `Standard` renderer path.
 
 ### Target 4 Validation Tests
 
@@ -139,4 +153,5 @@ This plan should not quietly grow into a full 3D renderer effort.
 
 This plan is complete when Graphshell can render `TwoPointFive` and `Isometric` as stable,
 per-view projection modes over the existing 2D layout truth, with deterministic degradation to
-`TwoD` and without pretending that full reorientable 3D is already solved.
+`TwoD`, targeting the shared projected-scene + Vello world-render path, and
+without pretending that full reorientable 3D is already solved.

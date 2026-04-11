@@ -11,6 +11,8 @@
 
 **External Reference**: Wu Yu-Wei, "WebRender wgpu", https://wusyong.github.io/posts/webrender-wgpu/
 
+**Historical note (2026-04-10):** This research document predates the landed `egui-wgpu` UI cut. Any references below that treat the egui backend swap as future work should be read as historical context; the remaining open work is the deeper WebRender/runtime bridge.
+
 ---
 
 ## 1. Problem Statement
@@ -24,8 +26,8 @@ Graphshell's target stack:
    with diagnostics. The root cause is shared GL context ownership, not a Graphshell design
    flaw.
 
-2. **wgpu migration blocker**: Graphshell's own renderer is being migrated from `egui_glow`
-   to `egui_wgpu` (tracked in `#183`, gated by `#180`). Issue `#180` is specifically:
+2. **wgpu migration blocker**: At the time this research was written, Graphshell's own renderer was being migrated from `egui_glow`
+  to `egui_wgpu` (tracked in `#183`, gated by `#180`). Issue `#180` is specifically:
    "prove the runtime-viewer GL → wgpu bridge." A WebRender wgpu backend would solve `#180`
    cleanly: if Servo's compositor path emits a `wgpu::Texture` instead of a GL texture,
    the bridge becomes a zero-copy or near-zero-copy wgpu texture handoff, not a cross-API
@@ -143,7 +145,7 @@ GL texture (compositor output)
     ↓
 [Graphshell CompositorAdapter — GL path, save/restore state]
     ↓
-egui_glow frame pass (GL texture blit)
+historical egui_glow frame pass (GL texture blit)
     ↓
 Screen
 ```
@@ -336,7 +338,7 @@ The C+F policy requires the GL fallback path to remain valid during wgpu bring-u
 
 | Test | Condition | Expected behavior |
 |------|-----------|-----------------|
-| GL fallback on wgpu capability miss | wgpu adapter lacks required features | Servo falls back to GL renderer; Graphshell uses `GlowCallback` bridge mode |
+| GL fallback on wgpu capability miss | wgpu adapter lacks required features | Servo falls back to GL renderer; Graphshell uses `GlCallback` bridge mode |
 | Mixed-mode stability | GL bridge active for Servo; wgpu active for egui | Both paths share no state; no rendering corruption |
 | Capability probe accuracy | `BackendContentBridgeCapabilities` probe runs | Returns `false` for wgpu interop when wgpu Servo renderer is not available |
 
@@ -384,7 +386,7 @@ with upstream goals.
    addition.
 
 4. **Graphshell-specific layer stays in Graphshell**: The `CompositorAdapter` wgpu path,
-   the `BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback` selection logic, and
+   the `BackendContentBridgeMode::WgpuPreferredFallbackGlCallback` selection logic, and
    the diagnostics channels are Graphshell-owned. These do not need upstream acceptance.
 
 ### 6.2 Upstream API Changes Required
@@ -612,7 +614,7 @@ implementation plan is written. They are the inputs to the spike work in §7.2.
 | Dimension | Finding |
 |-----------|---------|
 | **Recommended approach** | Parallel wgpu `Device` + `Renderer` inside WebRender, with GL path retained behind flag |
-| **Key benefit for Graphshell** | Closes `#180` (runtime-viewer GL→wgpu bridge), enabling the `egui_glow` → `egui_wgpu` migration tracked in `#183` |
+| **Key benefit for Graphshell** | Closes `#180` (runtime-viewer GL→wgpu bridge), the dependency that the now-landed `egui_glow` → `egui_wgpu` migration tracked in `#183` relied on |
 | **Compositor improvement** | Replaces GL state save/restore (chaos mode) with structurally isolated wgpu command encoder scoping |
 | **Feasibility** | Medium: bounded scope in WebRender; medium risk in shader translation and shared device ownership |
 | **QA definition** | Pixel parity with GL baseline; frame budget ≤4 ms/tile; fallback path valid; diagnostics channels emitting |
@@ -825,7 +827,7 @@ The GL backend also still owns the mature compositor integration paths:
 
 In Graphshell terms, this is especially important because the current product contract still
 depends on GL compositor behavior at the Servo boundary, and the Graphshell bridge policy keeps
-`GlowCallback` as the current production path.
+`GlCallback` as the current production path.
 
 ### 11.8 Profiler, Queries, and Capture
 

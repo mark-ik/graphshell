@@ -10,6 +10,7 @@ publish = false
 rust-version = "1.92.0"
 
 [workspace]
+members = ["crates/graph-tree"]
 
 [lib]
 name = "graphshell"
@@ -86,7 +87,7 @@ image = { version = "0.25", default-features = false, features = ["avif", "rayon
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 libc = "0.2"
-servo = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "libservo", features = ["background_hang_monitor", "bluetooth", "testbinding"], default-features = false }
+servo = { path = "../servo/components/servo", features = ["background_hang_monitor", "bluetooth", "testbinding"], default-features = false }
 log = "0.4.29"
 mime_guess = "2.0.5"
 raw-window-handle = "0.6"
@@ -114,7 +115,7 @@ url = "2.5"
 uuid = { version = "1.21.0", features = ["serde", "v4"] }
 rand = "0.8"
 rand_09 = { package = "rand", version = "0.9" }
-webdriver_server = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-webdriver-server" }
+webdriver_server = { path = "../servo/components/webdriver_server", package = "servo-webdriver-server" }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
@@ -140,20 +141,20 @@ ohos-window-manager-sys = { version = "0.1", features = ["api-14"] }
 xcomponent-sys = { version = "0.3.5", features = ["api-14", "keyboard-types"] }
 
 [target.'cfg(any(target_os = "android", target_env = "ohos"))'.dependencies]
-base = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-base" }
+base = { path = "../servo/components/shared/base", package = "servo-base" }
 nix = { version = "0.30", features = ["fs"] }
 serde_json = "1.0"
 surfman = { version = "0.11.0", features = ["sm-angle-default", "chains"] }
 
 [target.'cfg(not(any(target_os = "android", target_env = "ohos", target_os = "ios")))'.dependencies]
 dirs = "6.0"
-egui = { version = "0.33.3", features = ["accesskit"] }
-egui-file-dialog = "0.12.0"
-egui-winit = { version = "0.33.3", default-features = false, features = ["accesskit", "clipboard", "wayland"] }
-egui_glow = { version = "0.33.3", features = ["winit"] }
-egui_graphs = { version = "0.29.0", features = ["events"] }
-egui_tiles = { version = "0.14.1", features = ["serde"] }
-egui-notify = "0.21"
+egui = "0.34.1"
+egui-file-dialog = "0.13.0"
+egui-winit = { version = "0.34.1", default-features = false, features = ["accesskit", "clipboard", "wayland"] }
+egui-wgpu = { version = "0.34.1", features = ["winit", "wayland"] }
+egui_graphs = { version = "0.30.0", features = ["events"] }
+egui_tiles = { version = "0.15.0", features = ["serde"] }
+egui-notify = "0.22.0"
 arboard = "3"
 nucleo = "0.5.0"
 parking_lot = "0.12"
@@ -183,8 +184,9 @@ serde_json = "1.0"
 sysinfo = "0.37"
 extism = "1.13.0"
 wasmparser = "0.240.0"
+pollster = "0.4.0"
 # For optional feature servo_allocator/use-system-allocator and servo_allocator/allocation-tracking
-servo_allocator = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-allocator" }
+servo_allocator = { path = "../servo/components/allocator", package = "servo-allocator" }
 surfman = { version = "0.11.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
 winit = "0.30.13"
 wry = { version = "0.55", optional = true }
@@ -196,7 +198,7 @@ rodio = { version = "0.20", optional = true, default-features = false }
 sig = "1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-servo = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "libservo", features = ["no-wgl"] }
+servo = { path = "../servo/components/servo", features = ["no-wgl"] }
 webview2-com = "0.38.2"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
@@ -219,7 +221,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 ] }
 
 [dev-dependencies]
-base = { git = "https://github.com/servo/servo.git", tag = "v0.0.6", package = "servo-base" }
+base = { path = "../servo/components/shared/base", package = "servo-base" }
 insta = "1"
 proptest = "1"
 rstest = "0.26"
@@ -230,8 +232,9 @@ inventory = "0.3"
 wat = "1"
 
 [patch.crates-io]
-egui = { git = "https://github.com/emilk/egui.git", rev = "5d8f393335e051785b4fd3af9ef92eda5b61177f" }
-egui-winit = { git = "https://github.com/emilk/egui.git", rev = "5d8f393335e051785b4fd3af9ef92eda5b61177f" }
+webrender = { path = "../webrender/webrender" }
+webrender_api = { path = "../webrender/webrender_api" }
+wr_malloc_size_of = { path = "../webrender/wr_malloc_size_of" }
 
 [[test]]
 name = "scenarios"

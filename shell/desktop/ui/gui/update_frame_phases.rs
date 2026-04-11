@@ -90,6 +90,7 @@ pub(super) struct SemanticLifecyclePhaseArgs<'a> {
 
 pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     pub(super) ctx: &'a egui::Context,
+    pub(super) ui_render_backend: &'a mut UiRenderBackendHandle,
     pub(super) graph_app: &'a mut GraphBrowserApp,
     pub(super) window: &'a EmbedderWindow,
     pub(super) headed_window: &'a headed_window::HeadedWindow,
@@ -143,6 +144,7 @@ pub(super) struct PreFrameAndIntentInitArgs<'a> {
 
 pub(super) struct ExecuteUpdateFrameArgs<'a> {
     pub(super) ctx: &'a egui::Context,
+    pub(super) ui_render_backend: &'a mut UiRenderBackendHandle,
     pub(super) winit_window: &'a Window,
     pub(super) state: &'a RunningAppState,
     pub(super) window: &'a EmbedderWindow,

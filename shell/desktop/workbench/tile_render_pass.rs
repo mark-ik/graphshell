@@ -23,6 +23,7 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::render::{self, GraphAction};
+use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{
     ChromeProjectionSource, DialogOwner, EmbedderWindow, InputTarget,
@@ -40,6 +41,7 @@ use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,
+    pub ui_render_backend: &'a mut UiRenderBackendHandle,
     pub graph_app: &'a mut GraphBrowserApp,
     pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a mut Tree<TileKind>,
@@ -215,6 +217,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
 ) -> Vec<GraphIntent> {
     let TileRenderPassArgs {
         ctx,
+        ui_render_backend,
         graph_app,
         window,
         tiles_tree,
@@ -665,6 +668,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
     let composite_started = Instant::now();
     tile_compositor::composite_active_node_pane_webviews(
         ctx,
+        ui_render_backend,
         tiles_tree,
         window,
         graph_app,

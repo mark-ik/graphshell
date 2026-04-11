@@ -25,6 +25,7 @@ use crate::app::{GraphBrowserApp, VisibleNavigationRegionSet};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::atomic::lens::{GlyphOverlay, LensOverlayDescriptor};
 use crate::registries::domain::presentation::PresentationProfile;
+use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -590,6 +591,7 @@ fn suppression_reason_channel(reason: OverlaySuppressionReason) -> &'static str 
 
 fn run_composited_texture_content_pass(
     ctx: &egui::Context,
+    ui_render_backend: &mut UiRenderBackendHandle,
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
     presentation: &PresentationProfile,
@@ -732,6 +734,7 @@ fn run_composited_texture_content_pass(
     );
     match CompositorAdapter::compose_webview_content_pass(
         ctx,
+        ui_render_backend,
         node_key,
         tile_rect,
         ctx.pixels_per_point(),
@@ -931,8 +934,18 @@ pub(crate) fn activate_focused_node_for_frame(
     }
 }
 
+fn retained_node_keys_for_active_tile_rects(
+    active_tile_rects: &[(PaneId, NodeKey, egui::Rect)],
+) -> HashSet<NodeKey> {
+    active_tile_rects
+        .iter()
+        .map(|(_, node_key, _)| *node_key)
+        .collect()
+}
+
 pub(crate) fn composite_active_node_pane_webviews(
     ctx: &egui::Context,
+    ui_render_backend: &mut UiRenderBackendHandle,
     tiles_tree: &Tree<TileKind>,
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
@@ -948,6 +961,8 @@ pub(crate) fn composite_active_node_pane_webviews(
         "composite_active_node_pane_runtime_viewers: {} tiles",
         active_tile_rects.len()
     );
+    let retained_node_keys = retained_node_keys_for_active_tile_rects(&active_tile_rects);
+    CompositorAdapter::retire_stale_content_resources(ui_render_backend, &retained_node_keys);
     let presentation = active_presentation_profile(graph_app);
     let mut pass_tracker = CompositorPassTracker::new();
     let mut pending_overlay_passes: Vec<OverlayStrokePass> = Vec::new();
@@ -1077,6 +1092,7 @@ pub(crate) fn composite_active_node_pane_webviews(
         {
             run_composited_texture_content_pass(
                 ctx,
+                ui_render_backend,
                 window,
                 graph_app,
                 &presentation,
@@ -1923,6 +1939,36 @@ mod tests {
             tile_rect,
             semantic: test_semantic_input(node_key, render_mode),
         }
+    }
+
+    #[test]
+    fn retained_node_keys_for_active_tile_rects_deduplicates_nodes() {
+        let a = NodeKey::new(200);
+        let b = NodeKey::new(201);
+        let tree = tree_with_two_active_nodes(a, b);
+        let a_pane = pane_id_for_node(&tree, a);
+        let b_pane = pane_id_for_node(&tree, b);
+        let active_tile_rects = vec![
+            (
+                a_pane,
+                a,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 10.0)),
+            ),
+            (
+                PaneId::default(),
+                a,
+                egui::Rect::from_min_max(egui::pos2(10.0, 0.0), egui::pos2(20.0, 10.0)),
+            ),
+            (
+                b_pane,
+                b,
+                egui::Rect::from_min_max(egui::pos2(20.0, 0.0), egui::pos2(30.0, 10.0)),
+            ),
+        ];
+
+        let retained = retained_node_keys_for_active_tile_rects(&active_tile_rects);
+
+        assert_eq!(retained, HashSet::from([a, b]));
     }
 
     #[test]

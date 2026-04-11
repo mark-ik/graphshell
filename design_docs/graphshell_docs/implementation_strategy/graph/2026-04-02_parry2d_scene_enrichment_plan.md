@@ -83,6 +83,7 @@ Still open in this plan:
 **Relates to**:
 
 - `../../research/scene_customization.md`
+- `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md`
 - `2026-02-24_physics_engine_extensibility_plan.md`
 - `layout_behaviors_and_physics_spec.md`
 - `graph_node_edge_interaction_spec.md`
@@ -118,6 +119,17 @@ while preserving current authority rules:
 - scene state remains per-view,
 - style remains representational.
 
+**Architecture alignment (2026-04-10)**:
+
+- the broader scene program is now anchored in
+  `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md`,
+- `parry2d` remains the geometry/query/editor layer within that architecture,
+- `rapier2d` is explicitly a later `SceneMode::Simulate` physics-world layer,
+  not a replacement for this slice,
+- the current runtime-region work should be treated as the foundation for
+  future collider authoring, projected hit proxies, route editing, and
+  package-backed geometry assets.
+
 ---
 
 ## 2. Scope and Non-Goals
@@ -149,6 +161,15 @@ This slice does **not** include:
 - graph-canonical scene authority.
 
 This is a runtime-only, geometry-assisted enrichment slice.
+
+It is also explicitly **not** the owner of:
+
+- live rigid-body simulation,
+- bounce/sliding/joint behavior,
+- scene-script execution,
+- or the world-render stack itself.
+
+Those responsibilities belong to later layers in the anchored scene program.
 
 ---
 
@@ -428,3 +449,19 @@ The next checkpoint should evaluate:
 - whether authored region UX is compelling enough to justify persistence and editor surfaces.
 
 Only if those needs are concrete should Graphshell advance to the `rapier2d` scene-mode plan.
+
+When that follow-on does occur, this plan's intended carry-forward value is:
+
+- Parry-backed collider/query infrastructure for editor tooling,
+- projected hit proxies for `TwoPointFive` and `Isometric`,
+- route/path geometry editing,
+- and package-backed geometry assets that remain useful even when Rapier is
+  active.
+
+**Shared acceptance shape with the anchored scene program**:
+
+- missing scene-package geometry assets degrade safely with diagnostics,
+- `Browse` and `Arrange` can rely on Parry/Vello without Rapier world
+  allocation,
+- `Simulate` may later layer Rapier on top of Parry-owned authoring/query
+  structures without mutating graph topology.

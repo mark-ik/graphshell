@@ -563,7 +563,7 @@ UxProbeSet continue operating.
 
 `AC3` — **Structural spine authority**
 - UxTree build traverses `egui_tiles` as the structural spine.
-- Semantic ownership does not depend on `egui_glow` state or APIs.
+- Semantic ownership does not depend on backend-specific GL callback state or APIs.
 
 `AC4` — **Graph surface enrichment**
 - Graph semantic nodes carry graph-domain identity (`GraphViewId`) and graph-surface metadata derived from app/graph surface state.

@@ -447,7 +447,7 @@ This is the important product interpretation:
 | `keyring` (OS keychain) | Platform keychain API |
 | `mdns-sd` (local discovery) | Raw UDP multicast; no WASI equivalent |
 | `gilrs` (gamepad) | Platform HID |
-| `winit` / `egui` / `egui_glow` | Platform windowing + OpenGL |
+| `winit` / `egui` / `egui-wgpu` | Platform windowing + GPU-backed UI composition |
 | Native filesystem paths (direct `std::fs`) | Use `wasi:filesystem` abstraction instead |
 
 ### 12.4 The working rule for capability placement

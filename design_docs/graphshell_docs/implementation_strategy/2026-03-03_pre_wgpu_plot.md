@@ -1,7 +1,7 @@
 # Pre-WGPU Plot — Graphshell v0.0.2 Release Plan
 
 **Date**: 2026-03-03  
-**Status**: Active / Canonical release plan  
+**Status**: Historical release-plan snapshot; retained for v0.0.2 gate archaeology  
 **Purpose**: Define the overarching v0.0.2 release — the first feature-complete pre-wgpu milestone where the application is usable.
 
 **Versioning policy reference**: `system/VERSIONING_POLICY.md` — v0.0.2 is a **minor bump** representing "significant architecture milestone + notable user-facing capability expansion."
@@ -10,7 +10,7 @@
 
 ## 1) What v0.0.2 Means
 
-v0.0.2 is the **application readiness gate**: the point at which Graphshell is a usable spatial browser on the current rendering stack (egui_glow / Servo GL compositor). It is the precondition for starting the egui_glow → egui_wgpu renderer migration.
+v0.0.2 is the **application readiness gate** captured by the pre-cut plan: the point at which Graphshell was considered a usable spatial browser on the then-current rendering stack (historically `egui_glow` / Servo GL compositor). The `egui-wgpu` UI cut has since landed.
 
 **v0.0.2 ships when**:
 
@@ -24,7 +24,7 @@ v0.0.2 is the **application readiness gate**: the point at which Graphshell is a
 
 **v0.0.2 does NOT include**:
 
-- egui_glow → egui_wgpu renderer migration (that is the post-v0.0.2 gate sequence).
+- the historical `egui_glow` → `egui_wgpu` renderer migration gate sequence (that cut has now landed).
 - WebRender wgpu backend (Track B, phases P0–P12).
 - Speculative features (DOI/fisheye, SketchLay, advanced gesture modes).
 - Verse intelligence subsystem (incubation lane).
@@ -235,14 +235,14 @@ Validation gate:
 
 **Status**: `blocked` (by AG0–AG8)
 
-Feature objective: Ship v0.0.2 on the current egui_glow / Servo GL compositor stack when application readiness is true.
+Feature objective: Ship v0.0.2 on the then-current pre-cut stack when application readiness is true.
 
-**Note (2026-03-12)**: The post-v0.0.2 wgpu renderer migration (egui_glow → egui_wgpu, WebRender wgpu backend, G1–G5 readiness gates, P0–P12 phases) is **deferred indefinitely**. Maintaining a Servo fork to drive the wgpu backend forward is not viable at current scale, and upstream acceptance is unlikely. The GL compositor stack (egui_glow) remains the production renderer. The `#180` GL bridge precondition is therefore no longer a release blocker for v0.0.2.
+**Historical note (updated 2026-04-10)**: This section records the 2026-03-12 deferral posture. The `egui-wgpu` UI cut has since landed; remaining renderer work now concerns deeper WebRender/runtime bridge convergence rather than the old egui backend swap itself.
 
 Validation gate:
 
 - All AG0–AG8 closed with evidence.
-- Test guide §4 minimum acceptance checks are green on the egui_glow stack.
+- Test guide §4 minimum acceptance checks are green on the then-current stack.
 
 ### AG1/AG2 Stabilization Notes (2026-03-03)
 
@@ -539,11 +539,11 @@ Phases are not strictly sequential. The following can run in parallel:
 
 ## 11) Post-v0.0.2: Renderer Migration — Deferred Indefinitely (2026-03-12)
 
-**Decision**: The wgpu renderer migration is deferred indefinitely. Maintaining a Servo fork to drive the WebRender wgpu backend forward is not viable at current scale, and upstream is unlikely to accept the work. Graphshell ships on `egui_glow` / Servo GL compositor.
+**Historical decision snapshot**: This section records the 2026-03-12 deferral posture before the later `egui-wgpu` UI cut landed. It should no longer be read as the current renderer status.
 
 The following tracks are **suspended** until conditions change:
 
-- Track B: egui_glow → egui_wgpu renderer switch (G1–G5 readiness gates)
+- Track B: deeper WebRender/runtime bridge work beyond the now-landed `egui-wgpu` UI cut
 - WebRender wgpu implementation (P0–P12 phases)
 - Servo wgpu upgrade work (`#180`, `#183`, `#245`)
 

@@ -50,7 +50,7 @@ Maintenance convention: "Active" = released 2025 or 2026. "Stable" = no recent r
 | `egui-winit` | ✅ Active | window/event integration | `accesskit`, `clipboard`, `wayland` features |
 | `egui_tiles` | ✅ Active | `pane_model.rs`, workbench split/tab tree | `serde` feature; workbench tile layout engine |
 | `egui_graphs` | ✅ Active | graph canvas rendering | `events` feature; force-directed graph display |
-| `egui_glow` | 🔄 Transitional | `render_backend/mod.rs` | Active GL renderer; drops when wgpu backend lands |
+| `egui-wgpu` | ✅ Active | `render_backend/mod.rs`, `render_backend/wgpu_backend.rs` | Current egui renderer backend |
 | `egui-notify` | ✅ Active | toast notifications | User-facing transient status messages |
 | `egui-file-dialog` | ✅ Active | file open/save dialogs | Profile import/export, resource picker |
 | `winit` | ✅ Active | `desktop/` window management | `0.30.12`; event loop, window, input events |
@@ -63,7 +63,7 @@ Maintenance convention: "Active" = released 2025 or 2026. "Stable" = no recent r
 
 | Dep | Status | Used in | Notes |
 | --- | --- | --- | --- |
-| `glow` | 🔄 Transitional | re-exported via `egui_glow` in `render_backend/mod.rs` | OpenGL abstraction; drops with wgpu migration |
+| `glow` | 🔄 Transitional | `render_backend/gl_backend.rs` | OpenGL abstraction retained for the Servo parent-render callback bridge |
 | `surfman` | 🔄 Transitional | `headed_window.rs`, `accelerated_gl_media.rs` | GL surface/context management; drops with wgpu migration |
 | `raw-window-handle` | ✅ Active | window handle plumbing | `0.6`; bridge between winit and render backends |
 | `dpi` | ✅ Active | HiDPI scale factor | Used throughout event handling and layout |
@@ -191,7 +191,7 @@ Maintenance convention: "Active" = released 2025 or 2026. "Stable" = no recent r
 | Category | Count | Notes |
 | --- | --- | --- |
 | ✅ Active | ~40 | In use, no plans to drop |
-| 🔄 Transitional | 3 | `glow`, `egui_glow`, `surfman` — drop together with wgpu migration |
+| 🔄 Transitional | 2 | `glow`, `surfman` — retained for the Servo parent-render callback bridge |
 | 📦 Pre-staged | 15 | Zero usage today; reserved for future features |
 | 🔧 Build-only | 2 | `cc`, `winresource` |
 | 🔭 Speculative | 2 | `tracing-perfetto`, `hitrace` (optional features, no production path yet) |
@@ -216,15 +216,15 @@ Maintenance convention: "Active" = released 2025 or 2026. "Stable" = no recent r
 | `keyring` | OS keychain storage for Verse Ed25519 identity key |
 | `inventory` | Static registration for `DiagnosticChannelDescriptor`, `ActionRegistry` entries |
 
-#### Transitional group — wgpu migration path
+#### Transitional group — bridge retirement path
 
-`glow`, `egui_glow`, and `surfman` are dropped together when the wgpu renderer backend lands. See `2026-03-01_webrender_wgpu_renderer_research.md` for the plan. `egui_wgpu` (part of the egui repo) is a direct drop-in for `egui_glow` — no egui call-site changes required.
+`egui-wgpu` is now the active Graphshell UI backend. `glow` and `surfman` remain only because Servo content still enters the compositor through a GL parent-render callback bridge. See `2026-03-01_webrender_wgpu_renderer_research.md` for the remaining bridge-retirement plan.
 
 ---
 
 ## Part 2 — Crates of Interest
 
-Crates tracked for future adoption. Not yet in `Cargo.toml`. Verified against crates.io as of 2026-03-01.
+Crates tracked for future adoption, plus one chronology marker for a render-path crate that has since been adopted. Verified against crates.io as of 2026-03-01 unless noted otherwise.
 
 Rules applied:
 
@@ -238,7 +238,7 @@ Rules applied:
 
 | Crate | Latest | License | Status | Notes |
 | --- | --- | --- | --- | --- |
-| `egui-wgpu` | 0.33.3 | MIT OR Apache-2.0 | 🟢 Adopt when ready | Part of egui mono-repo; exact drop-in for `egui_glow`. Adoption trigger: WebRender wgpu migration milestone |
+| `egui-wgpu` | 0.34.1 | MIT OR Apache-2.0 | ✅ Adopted | Current egui renderer backend in Graphshell |
 | `egui_extras` | 0.33.3 | MIT OR Apache-2.0 | 🟢 Adopt when ready | `TableBuilder` for `viewer:csv`; `RetainedImage` for image viewer; same release cadence as egui |
 | `tiny-skia` | 0.12.0 | BSD-3-Clause | 🟢 Adopt when ready | Pulled transitively by `resvg`; may need direct dep for pixel-level canvas ops. BSD-3 compatible |
 | `wgpu` | 26.0.1 | MIT OR Apache-2.0 | 🟢 Adopt when ready | Already in lock file via servo. Direct dep needed for wgpu canvas migration |

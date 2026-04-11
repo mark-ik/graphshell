@@ -2,7 +2,7 @@
 
 **Date**: 2026-03-03  
 **Status**: Execution checklist (feature/gate based only)  
-**Purpose**: Define the closure program that must pass before starting `egui_glow -> egui_wgpu`, consistent with the deferral and readiness policy.
+**Purpose**: Define the historical closure program that was required before starting the `egui_glow -> egui_wgpu` cut. The UI-backend cut has since landed; this checklist remains useful only as gate archaeology for deeper WebRender/runtime bridge work.
 
 **Canonical alignment**:
 

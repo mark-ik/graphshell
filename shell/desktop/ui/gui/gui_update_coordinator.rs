@@ -21,6 +21,7 @@ impl Gui {
         ));
         let ExecuteUpdateFrameArgs {
             ctx,
+            ui_render_backend,
             winit_window,
             state,
             window,
@@ -156,6 +157,7 @@ impl Gui {
 
         Self::run_semantic_and_post_render_phases(SemanticAndPostRenderPhaseArgs {
             ctx,
+            ui_render_backend,
             graph_app,
             window,
             headed_window,

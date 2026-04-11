@@ -673,11 +673,7 @@ pub fn render_graph_in_ui_collect_actions(
     if pointer_in_visible_graph_region {
         let mut captured_wheel_zoom = false;
         ui.input_mut(|input| {
-            let scroll_delta = if input.smooth_scroll_delta.y.abs() > f32::EPSILON {
-                input.smooth_scroll_delta.y
-            } else {
-                input.raw_scroll_delta.y
-            };
+            let scroll_delta = input.smooth_scroll_delta.y;
 
             if scroll_delta.abs() <= f32::EPSILON {
                 return;
@@ -691,7 +687,6 @@ pub fn render_graph_in_ui_collect_actions(
                 let anchor = input.pointer.latest_pos().map(|p| (p.x, p.y));
                 app.queue_pending_wheel_zoom_delta(view_id, scroll_delta, anchor);
                 input.smooth_scroll_delta.y = 0.0;
-                input.raw_scroll_delta.y = 0.0;
             } else {
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,

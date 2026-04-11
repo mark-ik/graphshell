@@ -17,8 +17,9 @@ use log::{debug, info, warn};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 use servo::{
     AuthenticationRequest, Cursor, DeviceIndependentIntRect, DeviceIndependentPixel,
+    BluetoothDeviceSelectionRequest,
     DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint, EmbedderControl,
-    EmbedderControlId, GenericSender, ImeEvent, InputEvent, InputEventId, InputEventResult,
+    EmbedderControlId, ImeEvent, InputEvent, InputEventId, InputEventResult,
     InputMethodControl, KeyboardEvent, MouseLeftViewportEvent, OffscreenRenderingContext,
     PermissionRequest, RenderingContext, ScreenGeometry, Theme, TouchEvent, TouchEventType,
     TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
@@ -54,6 +55,7 @@ use crate::shell::desktop::host::window::{
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
+use crate::shell::desktop::render_backend::UiHostRenderBootstrap;
 use crate::shell::desktop::ui::dialog::Dialog;
 use crate::shell::desktop::ui::gui::Gui;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarNavAction;
@@ -195,12 +197,15 @@ impl HeadedWindow {
             .expect("Could not make window RenderingContext current");
 
         let rendering_context = Rc::new(window_rendering_context.offscreen_context(inner_size));
+        let render_host = UiHostRenderBootstrap::new(
+            rendering_context.clone(),
+            window_rendering_context.clone(),
+        );
         let gui = RefCell::new(Gui::new(
             &winit_window,
             event_loop,
             event_loop_proxy.clone(),
-            rendering_context.clone(),
-            window_rendering_context.clone(),
+            render_host,
             initial_url,
             app_preferences.graph_data_dir.clone(),
             app_preferences.graph_snapshot_interval_secs,
@@ -739,7 +744,7 @@ impl HeadedWindow {
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
                             input_routing::set_webview_relative_mouse_point(self, local_point);
-                            webview.pinch_zoom(
+                            webview.adjust_pinch_zoom(
                                 delta as f32 + 1.0,
                                 self.webview_relative_mouse_point.get(),
                             );
@@ -1147,10 +1152,9 @@ impl PlatformWindowDialogs for HeadedWindow {
     fn show_bluetooth_device_dialog(
         &self,
         webview_id: WebViewId,
-        devices: Vec<String>,
-        response_sender: GenericSender<Option<String>>,
+        request: BluetoothDeviceSelectionRequest,
     ) {
-        embedder_controls::show_bluetooth_device_dialog(self, webview_id, devices, response_sender);
+        embedder_controls::show_bluetooth_device_dialog(self, webview_id, request);
     }
 
     fn show_permission_dialog(&self, webview_id: WebViewId, permission_request: PermissionRequest) {

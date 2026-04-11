@@ -756,9 +756,11 @@ A Canonical view can show the graph in 2D while a Divergent view shows it in Sof
 
 ---
 
-### Render Backend: egui_glow + Custom OpenGL Pass
+### Historical Render Backend: egui_glow + Custom OpenGL Pass
 
-The current render backend is `egui_glow` (OpenGL via the `glow` crate, version 0.16.0).
+Historical note: this section describes the pre-2026-04-10 UI backend. Graphshell now uses `egui-wgpu` for UI composition, while the Servo content bridge still relies on GL callback interop.
+
+At the time this section was written, the render backend was `egui_glow` (OpenGL via the `glow` crate, version 0.16.0).
 egui's `Painter::add(Shape::Callback(PaintCallback { ... }))` mechanism allows custom OpenGL
 draw calls to be injected at a specific Z-order within the egui paint list.
 
@@ -772,8 +774,8 @@ This is the natural 3D render path:
    3D space using the current MVP matrix — this replaces egui_graphs' 2D hit-testing for 3D views.
 
 **Why not wgpu?** wgpu is in the Cargo.lock as a transitive dep (likely from Servo/mozjs), but
-Graphshell's own render path uses `egui_glow`. Introducing wgpu as a first-class dependency just
-for 3D would add a second GPU API with its own state management. The glow path is already in use;
+Graphshell's own render path used `egui_glow` at the time. Introducing wgpu as a first-class dependency just
+for 3D would have added a second GPU API with its own state management. The glow path was already in use;
 extending it is lower cost.
 
 **Why not bevy?** Bevy is a full game engine with its own ECS, asset pipeline, windowing, and
@@ -913,8 +915,8 @@ them, connect them with `Joint` constraints, and define `Sensor` volumes that tr
 when bodies enter or leave them. Each simulation step, you call `world.step()` and read updated
 `RigidBody.translation()` values back into your own data structures.
 
-The integration with egui_glow is **zero-coupling**: rapier computes positions on the CPU;
-egui_glow draws them on the GPU via OpenGL. There is no shared pipeline. The only integration
+The integration with egui_glow was **zero-coupling**: rapier computed positions on the CPU;
+egui_glow drew them on the GPU via OpenGL. There was no shared pipeline. The only integration
 point is one position read per node per frame — extract `body.translation()` and write it to
 `node.location()` before the egui_graphs `GraphView` renders. This is O(n) and effectively free
 at any graph size that fits in a frame budget.
@@ -1044,7 +1046,7 @@ constraints, and edit the scene itself, making it a powerful tool for **theming 
 
 ### rapier + egui_glow: No GPU Conflict
 
-rapier is CPU-only. egui_glow is GPU-only (OpenGL). burn-wgpu (when integrated) is GPU-only
+rapier is CPU-only. egui_glow was GPU-only (OpenGL). burn-wgpu (when integrated) is GPU-only
 (wgpu compute, separate context). These three pipelines never share state:
 
 ```
@@ -1053,8 +1055,8 @@ GPU:  egui_glow      →  OpenGL draw calls  (reads positions from CPU)
 GPU:  burn-wgpu      →  WebGPU compute     (reads node embeddings, writes similarity scores)
 ```
 
-There is no GPU memory sharing between egui_glow's OpenGL context and burn's wgpu context.
-This is fine — the output of burn (similarity scores, embeddings) flows back to the CPU as
+There was no GPU memory sharing between egui_glow's OpenGL context and burn's wgpu context.
+That was fine — the output of burn (similarity scores, embeddings) flowed back to the CPU as
 `Vec<f32>`, where rapier consumes them as force parameters (semantic physics hook). Neither
 engine needs to read the other's GPU memory.
 
@@ -1064,7 +1066,7 @@ engine needs to read the other's GPU memory.
 
 burn's wgpu backend (`burn-wgpu`) uses wgpu as a compute backend — it is not a render backend.
 It creates its own `wgpu::Device` and `wgpu::Queue` independently of egui_glow's OpenGL context.
-These coexist in the same process with no conflict. Graphshell does not need to switch its render
+These could coexist in the same process with no conflict. Graphshell did not need to switch its render
 backend from egui_glow to wgpu to use burn.
 
 The only constraint is that burn-wgpu needs a wgpu-compatible GPU adapter. On platforms where
@@ -1074,7 +1076,7 @@ CPU backend automatically. From Graphshell's perspective, burn is a pure compute
 it has no coupling to the render path.
 
 **The question of a future wgpu render backend for Graphshell itself** (replacing egui_glow)
-is separate. egui_glow is the render backend today and is fully sufficient for 2D, Soft 3D, and
+was separate when this section was written. At that point, egui_glow was the render backend and was fully sufficient for 2D, Soft 3D, and
 Isometric. 3D with a complex scene might eventually benefit from a wgpu render path (for
 better mobile/WebGPU support, compute shaders for LOD culling, etc.). That is a future render
 backend migration decision, not a burn integration concern. The two can proceed independently:
@@ -1164,7 +1166,7 @@ or a capability flag in `AppPreferences`.
 The 2.5D mode is described semantically but not visually:
 
 - How is z rendered? Drop shadow? Node size scaling? Opacity? Parallax offset?
-- What is the rendering budget for z-depth cues in egui_glow (PaintCallback overhead)?
+- What was the rendering budget for z-depth cues in egui_glow (PaintCallback overhead)?
 - Are edges rendered with depth cues (thinner/more transparent for distant nodes)?
 
 **burn embeddings → physics data flow**

@@ -14,7 +14,8 @@ use std::sync::{Mutex, OnceLock};
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{
     BackendContentBridge, BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext,
-    BackendParentRenderCallback, BackendParentRenderRegionInPixels, BackendViewportInPixels,
+    BackendParentRenderCallback, BackendParentRenderRegionInPixels, BackendTextureToken,
+    BackendViewportInPixels,
     backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
     backend_chaos_framebuffer_handle, backend_content_bridge_mode_label,
     backend_content_bridge_path, backend_framebuffer_binding, backend_framebuffer_from_binding,
@@ -22,7 +23,8 @@ use crate::shell::desktop::render_backend::{
     backend_scissor_box, backend_set_active_texture, backend_set_blend_enabled,
     backend_set_scissor_box, backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
     custom_pass_from_backend_viewport, register_custom_paint_callback,
-    select_content_bridge_from_render_context,
+    select_content_bridge_from_render_context, texture_id_from_token, UiRenderBackendContract,
+    UiRenderBackendHandle,
 };
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
@@ -55,6 +57,8 @@ static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static COMPOSITOR_REPLAY_RING: OnceLock<Mutex<std::collections::VecDeque<CompositorReplaySample>>> =
     OnceLock::new();
 static COMPOSITOR_CONTENT_CALLBACKS: OnceLock<Mutex<HashMap<NodeKey, RegisteredContentCallback>>> =
+    OnceLock::new();
+static COMPOSITOR_NATIVE_TEXTURES: OnceLock<Mutex<HashMap<NodeKey, BackendTextureToken>>> =
     OnceLock::new();
 #[cfg(feature = "diagnostics")]
 static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
@@ -110,6 +114,18 @@ fn replay_ring() -> &'static Mutex<std::collections::VecDeque<CompositorReplaySa
 
 fn content_callback_registry() -> &'static Mutex<HashMap<NodeKey, RegisteredContentCallback>> {
     COMPOSITOR_CONTENT_CALLBACKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn compositor_native_texture_registry() -> &'static Mutex<HashMap<NodeKey, BackendTextureToken>> {
+    COMPOSITOR_NATIVE_TEXTURES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+fn clear_native_textures_for_tests() {
+    compositor_native_texture_registry()
+        .lock()
+        .expect("compositor native texture registry mutex poisoned")
+        .clear();
 }
 
 fn push_replay_sample(sample: CompositorReplaySample) {
@@ -525,6 +541,7 @@ impl CompositorAdapter {
     /// to the adapter boundary rather than call sites.
     pub(crate) fn compose_webview_content_pass(
         ctx: &Context,
+        ui_render_backend: &mut UiRenderBackendHandle,
         node_key: NodeKey,
         tile_rect: EguiRect,
         pixels_per_point: f32,
@@ -543,6 +560,14 @@ impl CompositorAdapter {
             webview.paint();
         }) {
             return CompositedContentPassOutcome::PaintFailed;
+        }
+
+        if let Some(texture_token) =
+            Self::upsert_native_content_texture(node_key, render_context, ui_render_backend)
+        {
+            Self::unregister_content_callback(node_key);
+            Self::paint_native_content_texture(ctx, node_key, tile_rect, texture_token);
+            return CompositedContentPassOutcome::Registered;
         }
 
         if !Self::register_content_callback_from_render_context(node_key, render_context) {
@@ -603,6 +628,49 @@ impl CompositorAdapter {
             .is_some()
     }
 
+    pub(crate) fn retire_node_content_resources<B>(
+        ui_render_backend: &mut B,
+        node_key: NodeKey,
+    ) where
+        B: UiRenderBackendContract,
+    {
+        Self::unregister_content_callback(node_key);
+
+        if let Some(texture_token) = compositor_native_texture_registry()
+            .lock()
+            .expect("compositor native texture registry mutex poisoned")
+            .remove(&node_key)
+        {
+            ui_render_backend.free_native_texture(texture_token);
+        }
+    }
+
+    pub(crate) fn retire_stale_content_resources<B>(
+        ui_render_backend: &mut B,
+        retained_nodes: &HashSet<NodeKey>,
+    ) where
+        B: UiRenderBackendContract,
+    {
+        let stale_callbacks: HashSet<_> = content_callback_registry()
+            .lock()
+            .expect("compositor content callback registry mutex poisoned")
+            .keys()
+            .copied()
+            .filter(|node_key| !retained_nodes.contains(node_key))
+            .collect();
+        let stale_native_textures: HashSet<_> = compositor_native_texture_registry()
+            .lock()
+            .expect("compositor native texture registry mutex poisoned")
+            .keys()
+            .copied()
+            .filter(|node_key| !retained_nodes.contains(node_key))
+            .collect();
+
+        for node_key in stale_callbacks.union(&stale_native_textures).copied() {
+            Self::retire_node_content_resources(ui_render_backend, node_key);
+        }
+    }
+
     pub(crate) fn compose_registered_content_pass(
         ctx: &Context,
         node_key: NodeKey,
@@ -613,6 +681,40 @@ impl CompositorAdapter {
         };
         Self::register_content_pass(ctx, node_key, tile_rect, callback);
         CompositedContentPassOutcome::Registered
+    }
+
+    fn paint_native_content_texture(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        texture_token: BackendTextureToken,
+    ) {
+        ctx.layer_painter(Self::content_layer(node_key)).image(
+            texture_id_from_token(texture_token),
+            tile_rect,
+            EguiRect::from_min_max(egui::pos2(0.0, 1.0), egui::pos2(1.0, 0.0)),
+            egui::Color32::WHITE,
+        );
+    }
+
+    fn upsert_native_content_texture(
+        node_key: NodeKey,
+        render_context: &OffscreenRenderingContext,
+        ui_render_backend: &mut UiRenderBackendHandle,
+    ) -> Option<BackendTextureToken> {
+        let (device, queue) = ui_render_backend.shared_wgpu_device_queue()?;
+        let imported_texture = render_context.import_to_shared_wgpu_texture(device, queue)?;
+        let existing = compositor_native_texture_registry()
+            .lock()
+            .expect("compositor native texture registry mutex poisoned")
+            .get(&node_key)
+            .copied();
+        let token = ui_render_backend.upsert_native_texture(existing, &imported_texture)?;
+        compositor_native_texture_registry()
+            .lock()
+            .expect("compositor native texture registry mutex poisoned")
+            .insert(node_key, token);
+        Some(token)
     }
 
     pub(crate) fn prepare_composited_target(
@@ -1197,11 +1299,14 @@ impl CompositorAdapter {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::cell::{Cell, RefCell};
+    use std::sync::{Mutex, OnceLock};
 
     use crate::graph::NodeKey;
     use crate::shell::desktop::render_backend::{
-        BackendContentBridgeCapabilities, BackendParentRenderCallback,
+        BackendContentBridgeCapabilities, BackendParentRenderCallback, BackendTextureToken,
+        UiRenderBackendContract,
         BackendParentRenderRegionInPixels, backend_bridge_test_env_lock,
         backend_content_bridge_mode_label, backend_content_bridge_path,
         clear_backend_bridge_env_for_tests, select_backend_content_bridge_with_capabilities,
@@ -1228,12 +1333,100 @@ mod tests {
         COMPOSITOR_REPLAY_RING_CAPACITY, CompositedContentPassOutcome, CompositorAdapter,
         CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
         chaos_mode_enabled_from_raw, chaos_probe_passed, clear_content_callbacks_for_tests,
-        clear_replay_samples_for_tests, emit_chaos_probe_outcome, framebuffer_binding_target,
+        clear_native_textures_for_tests, clear_replay_samples_for_tests,
+        compositor_native_texture_registry, content_callback_registry,
+        emit_chaos_probe_outcome, framebuffer_binding_target,
         gl_state_change_flags, gl_state_violated, push_replay_sample, replay_samples_snapshot,
         record_registered_content_bridge_receipt_for_tests,
         run_guarded_callback, run_guarded_callback_with_snapshots,
         run_guarded_callback_with_snapshots_and_perturbation,
     };
+
+    struct RecordingBackend {
+        ctx: egui::Context,
+        freed_textures: Vec<BackendTextureToken>,
+    }
+
+    impl Default for RecordingBackend {
+        fn default() -> Self {
+            Self {
+                ctx: egui::Context::default(),
+                freed_textures: Vec::new(),
+            }
+        }
+    }
+
+    impl UiRenderBackendContract for RecordingBackend {
+        fn init_surface_accesskit<Event>(
+            &mut self,
+            _event_loop: &winit::event_loop::ActiveEventLoop,
+            _window: &winit::window::Window,
+            _event_loop_proxy: winit::event_loop::EventLoopProxy<Event>,
+        ) where
+            Event: From<egui_winit::accesskit_winit::Event> + Send + 'static,
+        {
+        }
+
+        fn egui_context(&self) -> &egui::Context {
+            &self.ctx
+        }
+
+        fn egui_context_mut(&mut self) -> &mut egui::Context {
+            &mut self.ctx
+        }
+
+        fn egui_winit_state_mut(&mut self) -> &mut egui_winit::State {
+            panic!("egui_winit state should not be used in compositor retirement tests")
+        }
+
+        fn handle_window_event(
+            &mut self,
+            _window: &winit::window::Window,
+            _event: &winit::event::WindowEvent,
+        ) -> egui_winit::EventResponse {
+            panic!("window events should not be used in compositor retirement tests")
+        }
+
+        fn run_ui_frame(
+            &mut self,
+            _window: &winit::window::Window,
+            _run_ui: impl FnMut(&egui::Context, &mut Self),
+        ) {
+            panic!("ui frame execution should not be used in compositor retirement tests")
+        }
+
+        fn register_texture_token(
+            &mut self,
+            texture_id: egui::TextureId,
+        ) -> BackendTextureToken {
+            BackendTextureToken(texture_id)
+        }
+
+        fn shared_wgpu_device_queue(&self) -> Option<(servo::wgpu::Device, servo::wgpu::Queue)> {
+            None
+        }
+
+        fn upsert_native_texture(
+            &mut self,
+            _existing: Option<BackendTextureToken>,
+            _texture: &servo::wgpu::Texture,
+        ) -> Option<BackendTextureToken> {
+            None
+        }
+
+        fn free_native_texture(&mut self, token: BackendTextureToken) {
+            self.freed_textures.push(token);
+        }
+
+        fn submit_frame(&mut self, _window: &winit::window::Window) {}
+
+        fn destroy_surface(&mut self) {}
+    }
+
+    fn resource_retirement_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn pass_scheduler_runs_content_before_overlay() {
@@ -1453,6 +1646,7 @@ mod tests {
     #[test]
     fn compose_registered_content_pass_requires_registered_callback() {
         clear_content_callbacks_for_tests();
+        clear_native_textures_for_tests();
 
         let ctx = egui::Context::default();
         let outcome = CompositorAdapter::compose_registered_content_pass(
@@ -1470,6 +1664,7 @@ mod tests {
     #[test]
     fn synthetic_viewer_can_register_generic_content_callback() {
         clear_content_callbacks_for_tests();
+        clear_native_textures_for_tests();
 
         let ctx = egui::Context::default();
         let node_key = NodeKey::new(902);
@@ -1492,12 +1687,119 @@ mod tests {
     }
 
     #[test]
+    fn retire_node_content_resources_releases_callback_and_native_texture() {
+        let _guard = resource_retirement_test_lock()
+            .lock()
+            .expect("resource retirement test lock poisoned");
+        clear_content_callbacks_for_tests();
+        clear_native_textures_for_tests();
+
+        let node_key = NodeKey::new(905);
+        let texture_token = BackendTextureToken(egui::TextureId::Managed(77));
+        CompositorAdapter::register_content_callback(
+            node_key,
+            "test.retire_node",
+            "test.retire_node_mode",
+            std::sync::Arc::new(|_, _| {}),
+        );
+        compositor_native_texture_registry()
+            .lock()
+            .expect("compositor native texture registry mutex poisoned")
+            .insert(node_key, texture_token);
+
+        let mut backend = RecordingBackend::default();
+        CompositorAdapter::retire_node_content_resources(&mut backend, node_key);
+
+        assert!(
+            content_callback_registry()
+                .lock()
+                .expect("compositor content callback registry mutex poisoned")
+                .get(&node_key)
+                .is_none(),
+            "callback should be removed when retiring node resources"
+        );
+        assert!(
+            compositor_native_texture_registry()
+                .lock()
+                .expect("compositor native texture registry mutex poisoned")
+                .get(&node_key)
+                .is_none(),
+            "native texture should be removed when retiring node resources"
+        );
+        assert_eq!(backend.freed_textures, vec![texture_token]);
+    }
+
+    #[test]
+    fn retire_stale_content_resources_only_prunes_unretained_nodes() {
+        let _guard = resource_retirement_test_lock()
+            .lock()
+            .expect("resource retirement test lock poisoned");
+        clear_content_callbacks_for_tests();
+        clear_native_textures_for_tests();
+
+        let retained_node = NodeKey::new(906);
+        let stale_callback_node = NodeKey::new(907);
+        let stale_texture_node = NodeKey::new(908);
+        let stale_both_node = NodeKey::new(909);
+
+        for node_key in [retained_node, stale_callback_node, stale_both_node] {
+            CompositorAdapter::register_content_callback(
+                node_key,
+                "test.retire_stale",
+                "test.retire_stale_mode",
+                std::sync::Arc::new(|_, _| {}),
+            );
+        }
+
+        let retained_texture = BackendTextureToken(egui::TextureId::Managed(101));
+        let stale_texture = BackendTextureToken(egui::TextureId::Managed(102));
+        let stale_both_texture = BackendTextureToken(egui::TextureId::Managed(103));
+        compositor_native_texture_registry()
+            .lock()
+            .expect("compositor native texture registry mutex poisoned")
+            .extend([
+                (retained_node, retained_texture),
+                (stale_texture_node, stale_texture),
+                (stale_both_node, stale_both_texture),
+            ]);
+
+        let mut backend = RecordingBackend::default();
+        CompositorAdapter::retire_stale_content_resources(
+            &mut backend,
+            &HashSet::from([retained_node]),
+        );
+
+        let callbacks = content_callback_registry()
+            .lock()
+            .expect("compositor content callback registry mutex poisoned");
+        assert!(callbacks.contains_key(&retained_node));
+        assert!(!callbacks.contains_key(&stale_callback_node));
+        assert!(!callbacks.contains_key(&stale_both_node));
+        drop(callbacks);
+
+        let native_textures = compositor_native_texture_registry()
+            .lock()
+            .expect("compositor native texture registry mutex poisoned");
+        assert_eq!(native_textures.get(&retained_node), Some(&retained_texture));
+        assert!(!native_textures.contains_key(&stale_texture_node));
+        assert!(!native_textures.contains_key(&stale_both_node));
+        drop(native_textures);
+
+        assert_eq!(
+            backend.freed_textures.iter().copied().collect::<HashSet<_>>(),
+            HashSet::from([stale_texture, stale_both_texture]),
+            "only stale native textures should be freed"
+        );
+    }
+
+    #[test]
     fn selected_bridge_metadata_flows_through_registration_into_diagnostics() {
         let _guard = backend_bridge_test_env_lock()
             .lock()
             .expect("env lock poisoned");
         clear_backend_bridge_env_for_tests();
         clear_content_callbacks_for_tests();
+        clear_native_textures_for_tests();
         clear_replay_samples_for_tests();
         set_backend_bridge_mode_env_for_tests("wgpu_preferred");
         set_backend_bridge_readiness_gate_for_tests(true);
@@ -1546,15 +1848,15 @@ mod tests {
 
         assert_eq!(
             supported_payload["measurement_contract"]["latest"]["bridge_mode"].as_str(),
-            Some("wgpu_preferred_fallback_glow_callback")
+            Some("wgpu_preferred_fallback_gl_callback")
         );
         assert_eq!(
             supported_payload["measurement_contract"]["latest"]["bridge_path"].as_str(),
-            Some("wgpu.preferred.fallback_glow.render_to_parent_callback")
+            Some("wgpu.preferred.fallback_gl.render_to_parent_callback")
         );
         assert_eq!(
             unsupported_payload["measurement_contract"]["latest"]["bridge_mode"].as_str(),
-            Some("glow_callback")
+            Some("gl_callback")
         );
         assert_eq!(
             unsupported_payload["measurement_contract"]["latest"]["bridge_path"].as_str(),

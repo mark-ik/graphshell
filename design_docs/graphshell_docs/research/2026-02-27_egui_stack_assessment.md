@@ -17,13 +17,13 @@ Use `implementation_strategy/aspect_render/2026-02-27_egui_wgpu_custom_canvas_mi
 
 ## 1. Executive Summary
 
-The current egui stack is still viable for Graphshell, but only if Graphshell treats it as a set of backends rather than as product architecture.
+The evaluated egui stack was viable for Graphshell, but only if Graphshell treated it as a set of backends rather than as product architecture.
 
 **Historical decision snapshot:** this document was written when the working assumption was that Graphshell would retain `egui` and `egui_tiles`, and eventually migrate away from both `egui_graphs` and `egui_glow`.
 
-That framing is now partially narrowed:
+That framing is now historical in one important respect:
 
-- `egui_glow` -> `egui_wgpu` remains the active backend migration target
+- the `egui_glow` -> `egui_wgpu` UI-backend cut has landed
 - `egui_graphs` replacement is now conditional rather than automatic
 
 The present problems are mostly not "egui is wrong"; they are boundary problems:
@@ -48,11 +48,11 @@ Rule of thumb:
 
 ---
 
-## 2. Current Stack and What It Really Gives Us
+## 2. Historical Stack and What It Gave Us
 
-### Current crates in use
+### Crates in use at the time of writing
 
-From `Cargo.toml`:
+From `Cargo.toml` at the time of writing:
 
 | Crate | Version | What Graphshell uses it for |
 | --- | --- | --- |
@@ -77,11 +77,11 @@ That means Graphshell does not need a panic rewrite. It needs stricter ownership
 
 ### What the current code makes difficult
 
-The largest migration blocker is not `egui_tiles`; it is the current renderer/compositor coupling:
+The largest migration blocker identified in this research was not `egui_tiles`; it was the renderer/compositor coupling present at the time:
 
-- [shell/desktop/ui/gui.rs](../../../shell/desktop/ui/gui.rs) is currently built around `egui_glow::EguiGlow`.
-- [shell/desktop/workbench/compositor_adapter.rs](../../../shell/desktop/workbench/compositor_adapter.rs) is explicitly OpenGL-bound and uses `egui_glow::CallbackFn` plus GL state guardrails.
-- Current composited runtime viewer content is therefore not just "egui-rendered"; it is wired into a GL callback path with concrete OpenGL invariants.
+- [shell/desktop/ui/gui.rs](../../../shell/desktop/ui/gui.rs) was built around `egui_glow::EguiGlow`.
+- [shell/desktop/workbench/compositor_adapter.rs](../../../shell/desktop/workbench/compositor_adapter.rs) was explicitly OpenGL-bound and used `egui_glow::CallbackFn` plus GL state guardrails.
+- Composited runtime viewer content was therefore not just "egui-rendered"; it was wired into a GL callback path with concrete OpenGL invariants.
 
 That means the first serious technical question in any `egui_glow` -> `egui_wgpu` migration is:
 

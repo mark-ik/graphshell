@@ -250,7 +250,7 @@ If you can, **please contribute to [Servo](https://servo.org)**! Servo needs hig
 If you want to help improve graphshell's infrastructure and are intimidated (like me) by Servo's complexity...
 
 - raise issues in this repo if you actually use this hobby project of mine
-- you can also contribute to the crates I'm using, in particular egui: egui_glow, egui_graphs, egui_tiles, egui-winit, egui-file-dialog, egui-notify.
+- you can also contribute to the crates I'm using, in particular egui: egui-wgpu, egui_graphs, egui_tiles, egui-winit, egui-file-dialog, egui-notify.
 - I'm a real sucker for a helper, please tell me if I'm approaching this naively and you have a better recommendation!
 
 Lastly, I am not a rich man, and I would like to live alone and work on labors of love. If you find that you have a ducat or two left after tithing the big projects, here's [my ko-fi link](https://ko-fi.com/markik).

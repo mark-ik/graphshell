@@ -10,16 +10,11 @@
 use std::ops::Deref;
 use std::rc::Rc;
 
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-use servo::GamepadHapticEffectType;
 use servo::{
-    AuthenticationRequest, ConsoleLogLevel, CreateNewWebViewRequest, DeviceIntPoint, DeviceIntSize,
-    EmbedderControl, EmbedderControlId, GenericSender, InputEventId, InputEventResult, LoadStatus,
-    MediaSessionEvent, PermissionRequest, TraversalId, WebDriverLoadStatus, WebView,
-    WebViewDelegate,
+    AuthenticationRequest, BluetoothDeviceSelectionRequest, ConsoleLogLevel,
+    CreateNewWebViewRequest, DeviceIntPoint, DeviceIntSize, EmbedderControl,
+    EmbedderControlId, InputEventId, InputEventResult, LoadStatus, MediaSessionEvent,
+    PermissionRequest, TraversalId, WebDriverLoadStatus, WebView, WebViewDelegate,
 };
 use url::Url;
 
@@ -142,11 +137,10 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
     fn show_bluetooth_device_dialog(
         &self,
         webview: WebView,
-        devices: Vec<String>,
-        response_sender: GenericSender<Option<String>>,
+        request: BluetoothDeviceSelectionRequest,
     ) {
         self.window_for_webview_id(webview.id())
-            .show_bluetooth_device_dialog(webview.id(), devices, response_sender);
+            .show_bluetooth_device_dialog(webview.id(), request);
     }
 
     fn request_permission(&self, webview: WebView, permission_request: PermissionRequest) {
@@ -156,34 +150,6 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
 
     fn notify_new_frame_ready(&self, webview: WebView) {
         self.window_for_webview_id(webview.id()).set_needs_repaint();
-    }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    fn play_gamepad_haptic_effect(
-        &self,
-        _webview: WebView,
-        index: usize,
-        effect_type: GamepadHapticEffectType,
-        effect_complete_callback: Box<dyn FnOnce(bool)>,
-    ) {
-        self.gamepad
-            .play_haptic_effect(index, effect_type, effect_complete_callback);
-    }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    fn stop_gamepad_haptic_effect(
-        &self,
-        _webview: WebView,
-        index: usize,
-        haptic_stop_callback: Box<dyn FnOnce(bool)>,
-    ) {
-        self.gamepad.stop_haptic_effect(index, haptic_stop_callback);
     }
 
     fn show_embedder_control(&self, webview: WebView, embedder_control: EmbedderControl) {

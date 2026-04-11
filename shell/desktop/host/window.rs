@@ -19,11 +19,11 @@ use euclid::Scale;
 #[cfg(feature = "wry")]
 use raw_window_handle::RawWindowHandle;
 use servo::{
-    AuthenticationRequest, ConsoleLogLevel, Cursor, DeviceIndependentIntRect,
-    DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize, DevicePixel, EmbedderControl,
-    EmbedderControlId, GenericSender, InputEventId, InputEventResult, MediaSessionEvent,
-    PermissionRequest, RenderingContext, ScreenGeometry, Servo, UserContentManager, WebView,
-    WebViewBuilder, WebViewDelegate, WebViewId,
+    AuthenticationRequest, BluetoothDeviceSelectionRequest, ConsoleLogLevel, Cursor,
+    DeviceIndependentIntRect, DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize,
+    DevicePixel, EmbedderControl, EmbedderControlId, InputEventId, InputEventResult,
+    MediaSessionEvent, PermissionRequest, RenderingContext, ScreenGeometry, Servo,
+    UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
 };
 use url::Url;
 
@@ -602,14 +602,13 @@ impl EmbedderWindow {
     pub(crate) fn show_bluetooth_device_dialog(
         &self,
         webview_id: WebViewId,
-        devices: Vec<String>,
-        response_sender: GenericSender<Option<String>>,
+        request: BluetoothDeviceSelectionRequest,
     ) {
         self.set_dialog_owner(Some(
             self.projection_state.dialog_owner_for_webview(webview_id),
         ));
         self.platform_window
-            .show_bluetooth_device_dialog(webview_id, devices, response_sender);
+            .show_bluetooth_device_dialog(webview_id, request);
         self.set_needs_update();
         self.set_needs_repaint();
     }
@@ -727,8 +726,7 @@ pub(crate) trait PlatformWindowDialogs {
     fn show_bluetooth_device_dialog(
         &self,
         _: WebViewId,
-        _devices: Vec<String>,
-        _: GenericSender<Option<String>>,
+        _request: BluetoothDeviceSelectionRequest,
     ) {
     }
     fn show_permission_dialog(&self, _: WebViewId, _: PermissionRequest) {}

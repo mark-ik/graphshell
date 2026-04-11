@@ -14,6 +14,7 @@ pub(super) fn finalize_update_frame(
 pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPhaseArgs<'_>) {
     let SemanticAndPostRenderPhaseArgs {
         ctx,
+        ui_render_backend,
         graph_app,
         window,
         headed_window,
@@ -79,6 +80,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
     gui_frame::run_post_render_phase(
         gui_frame::PostRenderPhaseArgs {
             ctx,
+            ui_render_backend,
             graph_app,
             window,
             headed_window,
