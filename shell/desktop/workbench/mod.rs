@@ -3,6 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 pub(crate) mod compositor_adapter;
+pub(crate) mod graph_tree_adapter;
+pub(crate) mod graph_tree_sync;
 pub(crate) mod interaction_policy;
 pub(crate) mod pane_model;
 pub(crate) mod selection_range;

@@ -4650,6 +4650,7 @@ dependencies = [
  "futures-util",
  "gilrs",
  "glow 0.16.0",
+ "graph-tree",
  "headers 0.4.1",
  "hilog",
  "hitrace",

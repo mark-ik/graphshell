@@ -211,6 +211,13 @@ pub struct Gui {
 
     /// Async worker supervision and intent queue
     control_panel: ControlPanel,
+
+    /// Parallel graph-tree instance for incremental migration from egui_tiles.
+    ///
+    /// During Phase 4 this tree mirrors the `tiles_tree` state but doesn't
+    /// drive rendering yet. Once rendering and command routing are wired
+    /// through this tree, `tiles_tree` will be retired.
+    graph_tree: graph_tree::GraphTree<NodeKey>,
 }
 
 impl Drop for Gui {
@@ -412,8 +419,31 @@ impl Gui {
             frame_inbox,
             tokio_runtime,
             control_panel,
+            graph_tree: graph_tree::GraphTree::new(
+                graph_tree::LayoutMode::TreeStyleTabs,
+                graph_tree::ProjectionLens::Traversal,
+            ),
         };
         gui.apply_runtime_theme_visuals();
+
+        // Populate the parallel GraphTree from the initial tile tree state.
+        {
+            let graph_app = &gui.graph_app;
+            let tiles_tree = &gui.tiles_tree;
+            crate::shell::desktop::workbench::graph_tree_sync::rebuild_from_tiles(
+                &mut gui.graph_tree,
+                tiles_tree,
+                None, // No active node at startup; first frame will sync.
+                &|node_key| {
+                    graph_app
+                        .domain_graph()
+                        .get_node(node_key)
+                        .map(|n| n.lifecycle)
+                        .unwrap_or(crate::graph::NodeLifecycle::Cold)
+                },
+            );
+        }
+
         gui
     }
 
