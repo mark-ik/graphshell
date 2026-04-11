@@ -1235,6 +1235,36 @@ impl GraphStore {
         std::str::from_utf8(&decrypted).ok().map(|s| s.to_string())
     }
 
+    /// Persist serialized GraphTree JSON alongside the tile layout.
+    pub fn save_graph_tree_json(&mut self, json: &str) -> Result<(), GraphStoreError> {
+        let encrypted = self.encode_persisted_bytes(json.as_bytes())?;
+        let write_txn = self
+            .snapshot_db
+            .begin_write()
+            .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+        {
+            let mut table = write_txn
+                .open_table(TILE_LAYOUT_TABLE)
+                .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+            table
+                .insert("graph_tree_latest", encrypted.as_slice())
+                .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+        }
+        write_txn
+            .commit()
+            .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+        Ok(())
+    }
+
+    /// Load serialized GraphTree JSON if present.
+    pub fn load_graph_tree_json(&self) -> Option<String> {
+        let read_txn = self.snapshot_db.begin_read().ok()?;
+        let table = read_txn.open_table(TILE_LAYOUT_TABLE).ok()?;
+        let entry = table.get("graph_tree_latest").ok()??;
+        let decrypted = self.decode_persisted_bytes(entry.value()).ok()?;
+        std::str::from_utf8(&decrypted).ok().map(|s| s.to_string())
+    }
+
     /// Persist a named full-graph snapshot.
     pub fn save_named_graph_snapshot(
         &mut self,

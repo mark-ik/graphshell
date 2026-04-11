@@ -227,6 +227,11 @@ impl Drop for Gui {
         } else {
             warn!("Failed to serialize tile layout for persistence");
         }
+        if let Ok(graph_tree_json) = serde_json::to_string(&self.graph_tree) {
+            self.graph_app.save_graph_tree_json(&graph_tree_json);
+        } else {
+            warn!("Failed to serialize graph tree for persistence");
+        }
         self.graph_app.take_snapshot();
 
         // Gracefully shutdown async workers
@@ -426,7 +431,17 @@ impl Gui {
         };
         gui.apply_runtime_theme_visuals();
 
-        // Populate the parallel GraphTree from the initial tile tree state.
+        // Restore GraphTree from persistence if available, preserving topology
+        // and expansion state. Fall back to rebuilding from tile tree.
+        if let Some(json) = gui.graph_app.load_graph_tree_json() {
+            if let Ok(restored) = serde_json::from_str::<graph_tree::GraphTree<NodeKey>>(&json) {
+                log::debug!("gui: restored GraphTree from persistence ({} members)", restored.member_count());
+                gui.graph_tree = restored;
+            }
+        }
+
+        // Always sync with the tile tree to pick up any tiles that were
+        // added/removed since the last GraphTree save.
         {
             let graph_app = &gui.graph_app;
             let tiles_tree = &gui.tiles_tree;

@@ -138,6 +138,23 @@ impl GraphBrowserApp {
             .and_then(|store| store.load_tile_layout_json())
     }
 
+    /// Persist serialized GraphTree JSON.
+    pub fn save_graph_tree_json(&mut self, json: &str) {
+        if let Some(store) = &mut self.services.persistence
+            && let Err(e) = store.save_graph_tree_json(json)
+        {
+            log::warn!("Failed to save graph tree: {e}");
+        }
+    }
+
+    /// Load serialized GraphTree JSON from persistence.
+    pub fn load_graph_tree_json(&self) -> Option<String> {
+        self.services
+            .persistence
+            .as_ref()
+            .and_then(|store| store.load_graph_tree_json())
+    }
+
     /// Persist serialized tile layout JSON under a workspace name.
     pub fn save_workspace_layout_json(&mut self, name: &str, layout_json: &str) {
         if let Some(store) = &mut self.services.persistence
