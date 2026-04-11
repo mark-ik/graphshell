@@ -7,6 +7,7 @@
 **Related**:
 
 - [SUBSYSTEM_HISTORY.md](SUBSYSTEM_HISTORY.md)
+- [2026-04-11_browser_import_normalized_carrier_sketch.md](2026-04-11_browser_import_normalized_carrier_sketch.md)
 - [../graph/2026-03-11_graph_enrichment_plan.md](../graph/2026-03-11_graph_enrichment_plan.md)
 - [../graph/node_badge_and_tagging_spec.md](../graph/node_badge_and_tagging_spec.md)
 - [../system/register/action_registry_spec.md](../system/register/action_registry_spec.md)

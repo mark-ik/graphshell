@@ -7,6 +7,7 @@
 **Related**:
 
 - [SUBSYSTEM_HISTORY.md](SUBSYSTEM_HISTORY.md)
+- [2026-04-11_browser_import_normalized_carrier_sketch.md](2026-04-11_browser_import_normalized_carrier_sketch.md)
 - [history_timeline_and_temporal_navigation_spec.md](history_timeline_and_temporal_navigation_spec.md)
 - [2026-03-18_mixed_timeline_contract.md](2026-03-18_mixed_timeline_contract.md)
 - [../graph/2026-03-11_graph_enrichment_plan.md](../graph/2026-03-11_graph_enrichment_plan.md)

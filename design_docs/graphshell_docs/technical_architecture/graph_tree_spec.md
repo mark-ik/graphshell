@@ -8,8 +8,10 @@ Navigator/Workbench projection gap.
 
 **Related**:
 
+- `graph_canvas_spec.md` — sibling graph-view canvas subsystem
 - `graphlet_model.md` — canonical graphlet semantics
 - `unified_view_model.md` — five-domain model (Graph, Navigator, Workbench, Viewer, Shell)
+- `../implementation_strategy/workbench/2026-04-11_graph_tree_egui_tiles_decoupling_follow_on_plan.md` — authority migration after crate extraction
 - `../implementation_strategy/navigator/NAVIGATOR.md` — Navigator domain spec
 - `../implementation_strategy/navigator/navigator_interaction_contract.md` — click grammar
 - `../implementation_strategy/workbench/graphlet_projection_binding_spec.md` — graphlet binding

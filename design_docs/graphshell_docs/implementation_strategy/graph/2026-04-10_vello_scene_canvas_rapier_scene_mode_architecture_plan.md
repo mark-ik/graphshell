@@ -8,9 +8,11 @@
 **Scope**: Define the canonical scene-substrate architecture for projected graph rendering, authored scene composition, `Simulate`-mode physics, and capability-based scene scripting.
 **Related**:
 
+- `../../technical_architecture/graph_canvas_spec.md`
 - `2026-04-02_scene_mode_ux_plan.md`
 - `2026-04-02_parry2d_scene_enrichment_plan.md`
 - `2026-04-03_twod_twopointfive_isometric_plan.md`
+- `2026-04-11_graph_canvas_crate_plan.md`
 - `2026-02-24_physics_engine_extensibility_plan.md`
 - `view_dimension_spec.md`
 - `layout_behaviors_and_physics_spec.md`
@@ -27,6 +29,22 @@ Graphshell now has enough neighboring plans that the intended scene direction
 needs one explicit architectural anchor.
 
 This document defines that anchor.
+
+For naming clarity, this plan treats the future custom-canvas subsystem/crate
+as **`graph-canvas`**.
+
+`graph-canvas` is the product-owned canvas layer that should carry:
+
+- scene derivation,
+- camera/projection rules,
+- interaction and hit-testing contracts,
+- render-packet derivation,
+- backend selection,
+- and canvas diagnostics.
+
+It is intentionally broader than a hypothetical `graph-render` crate name,
+which would understate the interaction and projection responsibilities already
+called for by the custom-canvas research.
 
 The canonical direction is:
 
@@ -128,6 +146,9 @@ struct SceneViewState {
 
 This carrier is persisted with the owning graph view snapshot.
 
+`graph-canvas` should consume this persisted scene/view composition state rather
+than owning a second app model.
+
 ### 3.2 Runtime-owned state
 
 ```rust
@@ -142,6 +163,9 @@ struct SceneRuntimeState {
 
 This carrier is runtime-only unless a later snapshot policy explicitly scopes
 some subset of it.
+
+This runtime carrier is the natural core state for the future `graph-canvas`
+subsystem/crate.
 
 ### 3.3 Scene composition types
 
@@ -271,6 +295,10 @@ That packet is the seam that keeps:
 - and backend selection
 
 decoupled from any one rendering framework.
+
+In crate terms, this packet should be owned by `graph-canvas`, while Vello
+should appear either as an internal backend module or a later `graph-canvas-vello`
+backend crate if the separation becomes useful.
 
 ---
 
@@ -472,7 +500,28 @@ acceptance shape:
 
 ---
 
-## 11. Exit Condition
+## 11. Crate/Subsytem Direction
+
+The intended portable split now looks like:
+
+- `graph-tree`: graphlet-native tree/workbench/navigator structure
+- `graph-canvas`: graph-view scene derivation, camera/projection, interaction,
+  hit testing, render-packet derivation, backend seam, and diagnostics
+- Vello backend: inside `graph-canvas` initially, with a later split to
+  `graph-canvas-vello` only if the backend seam becomes independently valuable
+- scene/physics/script integrations: plugged into `graph-canvas` through scene
+  composition state and runtime contracts rather than replacing it
+
+`graph-canvas` must not become the owner of graph truth, tile-tree truth, or
+global application state.
+
+The technical crate API design now lives in
+`../../technical_architecture/graph_canvas_spec.md`, and the concrete extraction
+strategy now lives in `2026-04-11_graph_canvas_crate_plan.md`.
+
+---
+
+## 12. Exit Condition
 
 This architecture plan is in effect when the neighboring implementation plans
 for scene mode, Parry scene enrichment, and projected view dimensions all defer

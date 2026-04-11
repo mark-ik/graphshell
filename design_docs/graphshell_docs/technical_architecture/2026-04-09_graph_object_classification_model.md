@@ -15,6 +15,7 @@ observations, and transient session state.
 - [2026-04-09_identity_convergence_and_person_node_model.md](2026-04-09_identity_convergence_and_person_node_model.md)
 - [2026-04-09_graphshell_verse_uri_scheme.md](2026-04-09_graphshell_verse_uri_scheme.md)
 - [2026-04-09_browser_envelope_coop_and_degradation_policy.md](2026-04-09_browser_envelope_coop_and_degradation_policy.md)
+- [node_object_query_model.md](node_object_query_model.md)
 - [../implementation_strategy/system/coop_session_spec.md](../implementation_strategy/system/coop_session_spec.md)
 - [../implementation_strategy/social/comms/2026-04-09_irc_public_comms_lane_positioning.md](../implementation_strategy/social/comms/2026-04-09_irc_public_comms_lane_positioning.md)
 

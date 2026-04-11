@@ -54,6 +54,7 @@ defined in `implementation_strategy/system/system_architecture_spec.md`.
 | History subsystem policy and diagnostics expectations | `implementation_strategy/subsystem_history/SUBSYSTEM_HISTORY.md` |
 | Node lifecycle and runtime reconcile | `implementation_strategy/viewer/node_lifecycle_and_runtime_reconcile_spec.md` |
 | Viewer selection, presentation, fallback | `implementation_strategy/viewer/viewer_presentation_and_fallback_spec.md` |
+| Node examination / object-query surface | `technical_architecture/node_object_query_model.md` |
 | Workbench/frame/tile semantics | `implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md` |
 | Graph-first frame semantics | `implementation_strategy/workbench/graph_first_frame_semantics_spec.md` |
 | Input routing and modal ownership | `implementation_strategy/aspect_input/input_interaction_spec.md` |

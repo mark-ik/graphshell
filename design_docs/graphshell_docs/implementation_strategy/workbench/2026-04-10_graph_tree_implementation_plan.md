@@ -8,6 +8,7 @@ projection collapse, arrangement-edge consumption, and UxTree integration.
 **Related**:
 
 - `../../technical_architecture/graph_tree_spec.md` — GraphTree crate API design
+- `2026-04-11_graph_tree_egui_tiles_decoupling_follow_on_plan.md` — post-extraction authority migration, review findings, and `egui_tiles` decoupling sequence
 - `../../research/2026-04-10_ui_framework_alternatives_and_graph_tree_discovery.md` — research backing
 - `../../technical_architecture/graphlet_model.md` — graphlet semantics (consumed, not replaced)
 - `../navigator/NAVIGATOR.md` — Navigator domain spec (projection collapses into GraphTree)
@@ -28,6 +29,17 @@ projection collapse, arrangement-edge consumption, and UxTree integration.
 The egui stack assessment (Feb 2026) said: replace egui_tiles when "adapter code
 becomes larger than the value the widget provides" or "core UX keeps being
 distorted to fit widget assumptions."
+
+2026-04-11 note:
+
+- the `graph-tree` crate extraction has now landed,
+- but the desktop shell still mirrors `egui_tiles` back into `GraphTree`
+  during the migration phase,
+- so the next stage is no longer "extract the crate" but "complete the
+  authority migration and decouple semantic truth from `egui_tiles`."
+
+Treat the 2026-04-11 follow-on plan as the active execution note for that
+post-extraction stage.
 
 Current state:
 

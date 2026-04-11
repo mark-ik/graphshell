@@ -29,6 +29,8 @@ engine that serves it, and describe how it fits into each host envelope.
 - [`../../verso_docs/research/2026-03-28_smolnet_follow_on_audit.md`](../../verso_docs/research/2026-03-28_smolnet_follow_on_audit.md)
   — smallnet protocol audit including §10 Lagrange precedent: document model
   pipeline, Gopher conversion strategy, security posture, and protocol priority order
+- [`../research/2026-04-11_linked_data_over_middlenet_relevance_note.md`](../research/2026-04-11_linked_data_over_middlenet_relevance_note.md)
+  — RDF / JSON-LD / Gemini linked-data bridge relevance and non-goals
 - [`../research/2026-03-01_webrender_wgpu_renderer_research.md`](../research/2026-03-01_webrender_wgpu_renderer_research.md)
   — WebRender/wgpu rendering research
 

@@ -16,9 +16,11 @@
 - `2026-03-11_graph_enrichment_plan.md` — automated and user-initiated graph enrichment
 - `2026-04-01_swatch_spec_extraction_plan.md` — reusable compact graph projection contract for embedded swatch surfaces
 - `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md` — canonical scene-substrate plan for Vello world rendering, projected view modes, Parry query/editing, and Rapier `Simulate` behavior
+- `2026-04-11_graph_canvas_crate_plan.md` — phased extraction of the Graphshell-owned `graph-canvas` crate
 - `workbench_frame_tile_interaction_spec.md`
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`
+- `../../technical_architecture/graph_canvas_spec.md` — technical API design for the future `graph-canvas` crate
 - `../../technical_architecture/unified_view_model.md` — unified view model; Graph is the truth + analysis + management domain and canvas is its primary surface
 - `../shell/SHELL.md` — Shell domain (command interpretation and system control)
 - `../navigator/NAVIGATOR.md` — Navigator domain (relationship projection and navigation)
@@ -297,38 +299,42 @@ it belongs primarily to the **Graph** domain at the **canvas** surface.
 
 ---
 
-## 9. Deferred Spec: `canvas_render_pipeline_spec.md`
+## 9. Canvas Spec: `graph_canvas_spec.md`
 
-**Status**: Deferred — not yet written. Blocked on custom canvas paint callback stabilization.
+**Status**: Active architecture design; implementation remains pending.
 
-A `canvas_render_pipeline_spec.md` should be created once the canvas rendering
-architecture stabilizes past the `egui_graphs` custom canvas migration (see
-`../aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`).
+The technical canvas subsystem spec now exists at
+`../../technical_architecture/graph_canvas_spec.md`.
 
-### Prerequisite
+The implementation/extraction strategy now exists at
+`2026-04-11_graph_canvas_crate_plan.md`.
 
-This spec is blocked on the custom canvas paint callback being established as the
-stable draw entry point. Until that migration is complete, the canvas render
-pipeline is partially owned by `egui_graphs` and cannot be fully specified.
+**Naming direction (2026-04-11)**:
 
-### What the deferred spec must cover
+The intended subsystem/crate name for this future product-owned custom canvas is
+`graph-canvas`.
 
-When written, `canvas_render_pipeline_spec.md` must define the normative contract for:
+That name is preferred over `graph-render` because the subsystem is expected to
+own not only drawing, but also:
 
-- draw architecture: what primitives the canvas draws per frame and in what order,
-- LOD (level of detail) tier thresholds: when nodes collapse to badges/thumbnails/icons
-  based on camera zoom level — **must inherit and not redefine the canonical LOD tiers
-  from `graph_node_edge_interaction_spec.md §4.8`** (Point / Compact / Expanded with
-  `camera.scale` thresholds and hysteresis rules),
-- batching policy: how draw calls for edges, node fills, badges, and labels are
-  batched to minimize GPU command overhead,
-- culling strategy: frustum and spatial-index culling rules for off-screen nodes/edges,
-- frame-pass structure within the canvas render callback: what happens inside the
-  canvas tile's composition pass (pre-pass, geometry pass, overlay pass),
-- GPU resource lifecycle: buffer allocation, atlas management, texture upload policy
-  for node thumbnails and badges,
-- canvas-specific diagnostics channels for draw call counts, cull rates, and
-  per-frame geometry budget.
+- scene derivation,
+- camera and projection rules,
+- interaction and hit testing,
+- backend selection,
+- and canvas diagnostics.
+
+The active architectural anchor for that direction is
+`2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md`.
+
+### What the active spec and plan now cover
+
+- product-owned canvas subsystem boundaries
+- `graph-canvas` crate identity and API shape
+- `ProjectedScene` packet seam
+- camera/projection ownership for `TwoD`, `TwoPointFive`, and `Isometric`
+- interaction and hit-testing contracts
+- backend selection and Vello alignment
+- phased extraction from the current `render/canvas_*` path
 
 Note: Node glyph resolution — how the system selects and composes a node's visual
 form — is now specified separately in `2026-04-03_node_glyph_spec.md`. The future
