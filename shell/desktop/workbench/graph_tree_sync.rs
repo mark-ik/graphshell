@@ -188,18 +188,34 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
     result
 }
 
-/// Parity check: verify the GraphTree contains the same node panes as the tile tree.
+/// Incremental sync: reconcile GraphTree membership with the tile tree
+/// WITHOUT destroying topology.
 ///
-/// Returns a list of discrepancies (empty if in sync). Intended for diagnostics
-/// builds and debug assertions.
-#[cfg(any(feature = "diagnostics", debug_assertions))]
-pub(crate) fn parity_check(
-    graph_tree: &GraphTree<NodeKey>,
+/// Unlike `rebuild_from_tiles` (which flattens all traversal-derived
+/// parent/child structure by re-attaching everything as `Provenance::Restored`),
+/// this function:
+///
+/// - Attaches newly appeared tile nodes using `provenance_fn` to infer the
+///   correct traversal parent/child structure from the domain graph
+/// - Detaches members that vanished from the tile tree
+/// - Syncs lifecycle state for members present in both
+/// - Syncs active member
+///
+/// Existing parent/child relationships, provenance, and expansion state
+/// are preserved. This is the Phase B replacement for the per-frame
+/// `rebuild_from_tiles` call.
+///
+/// `provenance_fn` is called only for nodes NOT yet in GraphTree. It should
+/// query the domain graph to determine the correct `Provenance` — typically
+/// `Traversal { source }` if a traversal edge exists, or `Anchor` otherwise.
+pub(crate) fn incremental_sync_from_tiles(
+    graph_tree: &mut GraphTree<NodeKey>,
     tiles_tree: &Tree<TileKind>,
-) -> Vec<ParityDiscrepancy> {
-    let mut discrepancies = Vec::new();
-
-    // Collect node keys from tile tree.
+    active_node: Option<NodeKey>,
+    lifecycle_fn: &dyn Fn(NodeKey) -> NodeLifecycle,
+    provenance_fn: &dyn Fn(NodeKey) -> Provenance<NodeKey>,
+) {
+    // Collect all node keys currently in the tile tree.
     let mut tile_nodes: Vec<NodeKey> = Vec::new();
     for (_tile_id, tile) in tiles_tree.tiles.iter() {
         if let Tile::Pane(kind) = tile {
@@ -209,21 +225,134 @@ pub(crate) fn parity_check(
         }
     }
 
-    // Check: every tile node should be in graph_tree.
-    for &node_key in &tile_nodes {
-        if !graph_tree.contains(&node_key) {
-            discrepancies.push(ParityDiscrepancy::MissingInGraphTree(node_key));
+    let tile_set: std::collections::HashSet<NodeKey> = tile_nodes.iter().copied().collect();
+
+    // 1. Detach members that disappeared from the tile tree.
+    //    Only detach non-Cold members — Cold members are expected to exist
+    //    only in GraphTree (they have no tile representation).
+    let current_members: Vec<(NodeKey, graph_tree::Lifecycle)> = graph_tree
+        .members()
+        .map(|(k, e)| (*k, e.lifecycle))
+        .collect();
+    for (member, lifecycle) in &current_members {
+        if !tile_set.contains(member) && *lifecycle != graph_tree::Lifecycle::Cold {
+            graph_tree.apply(NavAction::Detach {
+                member: *member,
+                recursive: false,
+            });
         }
     }
 
-    // Check: every graph_tree member should be in the tile tree.
-    for (member, _) in graph_tree.members() {
-        if !tile_nodes.contains(member) {
-            discrepancies.push(ParityDiscrepancy::MissingInTileTree(*member));
+    // 2. Attach tile nodes not yet in GraphTree.
+    //    Use provenance_fn to infer the correct attachment provenance from the
+    //    domain graph (traversal edge → Traversal parent/child; no edge → Anchor).
+    for &node_key in &tile_nodes {
+        if !graph_tree.contains(&node_key) {
+            graph_tree.apply(NavAction::Attach {
+                member: node_key,
+                provenance: provenance_fn(node_key),
+            });
+        }
+    }
+
+    // 3. Sync lifecycle for members present in both.
+    for &node_key in &tile_nodes {
+        if graph_tree.contains(&node_key) {
+            let lc = lifecycle_fn(node_key);
+            graph_tree.apply(NavAction::SetLifecycle(
+                node_key,
+                to_graph_tree_lifecycle(lc),
+            ));
+        }
+    }
+
+    // 4. Sync active member.
+    if let Some(active) = active_node {
+        if graph_tree.contains(&active) {
+            graph_tree.apply(NavAction::Activate(active));
+        }
+    }
+}
+
+/// Parity check: verify the GraphTree contains the same node panes as the tile tree.
+///
+/// Returns a list of discrepancies (empty if in sync). Intended for diagnostics
+/// builds and debug assertions.
+///
+/// **Phase B upgrade**: now checks membership, topology, active member, and
+/// visibility — not just membership sets. Cold members in GraphTree that are
+/// absent from the tile tree are expected and not flagged.
+#[cfg(any(feature = "diagnostics", debug_assertions))]
+pub(crate) fn parity_check(
+    graph_tree: &GraphTree<NodeKey>,
+    tiles_tree: &Tree<TileKind>,
+) -> Vec<ParityDiscrepancy> {
+    let snapshot = build_external_snapshot(tiles_tree);
+    let report = graph_tree::parity::compare(graph_tree, &snapshot);
+
+    // Convert structural parity report to legacy discrepancy list for
+    // backward compat with the existing debug_assert call site.
+    let mut discrepancies = Vec::new();
+    for divergence in &report.divergences {
+        match divergence {
+            graph_tree::parity::ParityDivergence::MissingFromExternal(nk) => {
+                discrepancies.push(ParityDiscrepancy::MissingInTileTree(*nk));
+            }
+            graph_tree::parity::ParityDivergence::MissingFromGraphTree(nk) => {
+                discrepancies.push(ParityDiscrepancy::MissingInGraphTree(*nk));
+            }
+            graph_tree::parity::ParityDivergence::TopologyMismatch { member, .. } => {
+                discrepancies.push(ParityDiscrepancy::TopologyMismatch(*member));
+            }
+            graph_tree::parity::ParityDivergence::ActiveMismatch { .. } => {
+                discrepancies.push(ParityDiscrepancy::ActiveMismatch);
+            }
+            graph_tree::parity::ParityDivergence::VisibilityMismatch { member, .. } => {
+                discrepancies.push(ParityDiscrepancy::VisibilityMismatch(*member));
+            }
         }
     }
 
     discrepancies
+}
+
+/// Build an `ExternalTreeSnapshot` from the tile tree for structural parity comparison.
+#[cfg(any(feature = "diagnostics", debug_assertions))]
+fn build_external_snapshot(
+    tiles_tree: &Tree<TileKind>,
+) -> graph_tree::parity::ExternalTreeSnapshot<NodeKey> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut members = HashSet::new();
+    let mut visible = HashSet::new();
+    let children: HashMap<NodeKey, Vec<NodeKey>> = HashMap::new();
+
+    for (_tile_id, tile) in tiles_tree.tiles.iter() {
+        if let Tile::Pane(kind) = tile {
+            if let Some(state) = kind.node_state() {
+                members.insert(state.node);
+                // All tile panes are visible by definition (tiles = open panes).
+                visible.insert(state.node);
+            }
+        }
+    }
+
+    // The tile tree doesn't have node-level parent/child relationships
+    // (it has container/pane structure, not semantic parent/child), so
+    // we leave `children` empty. Topology mismatches between GraphTree's
+    // rich parent/child structure and tiles' flat pane list are expected
+    // during the transition phase.
+    //
+    // TODO(Phase D): When GraphTree becomes authority, topology comparison
+    // becomes meaningful and this should be populated.
+    let active = None; // Tile tree doesn't expose "active node" directly.
+
+    graph_tree::parity::ExternalTreeSnapshot {
+        members,
+        children,
+        active,
+        visible,
+    }
 }
 
 #[cfg(any(feature = "diagnostics", debug_assertions))]
@@ -231,6 +360,12 @@ pub(crate) fn parity_check(
 pub(crate) enum ParityDiscrepancy {
     /// Node exists in tile tree but not in GraphTree.
     MissingInGraphTree(NodeKey),
-    /// Node exists in GraphTree but not in tile tree.
+    /// Node exists in GraphTree but not in tile tree (and is not Cold).
     MissingInTileTree(NodeKey),
+    /// Parent/child topology differs between GraphTree and tile tree.
+    TopologyMismatch(NodeKey),
+    /// Active member disagrees.
+    ActiveMismatch,
+    /// Visibility differs (visible in one but not the other).
+    VisibilityMismatch(NodeKey),
 }

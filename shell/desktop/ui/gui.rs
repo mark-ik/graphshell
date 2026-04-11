@@ -27,8 +27,9 @@ use super::graph_search_flow;
 use super::gui_frame;
 use super::gui_orchestration;
 use super::gui_state::{
-    GuiRuntimeState, LocalFocusTarget, PaneRegionHint, RuntimeFocusAuthorityState,
-    RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState, ToolbarDraft, ToolbarState,
+    BookmarkImportDialogState, GuiRuntimeState, LocalFocusTarget, PaneRegionHint,
+    RuntimeFocusAuthorityState, RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState,
+    ToolbarDraft, ToolbarState,
 };
 use super::toolbar_routing::{self, ToolbarNavAction};
 use super::persistence_ops;
@@ -196,6 +197,9 @@ pub struct Gui {
 
     /// Runtime UI state used by the frame coordinator and toolbar/search flows.
     runtime_state: GuiRuntimeState,
+
+    /// Graphshell-owned bookmark import file dialog state.
+    bookmark_import_dialog: Option<BookmarkImportDialogState>,
 
     #[cfg(feature = "diagnostics")]
     diagnostics_state: diagnostics::DiagnosticsState,
@@ -418,6 +422,7 @@ impl Gui {
                 pending_webview_context_surface_requests: Vec::new(),
                 deferred_open_child_webviews: Vec::new(),
             },
+            bookmark_import_dialog: None,
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
             registry_runtime,
@@ -440,12 +445,15 @@ impl Gui {
             }
         }
 
-        // Always sync with the tile tree to pick up any tiles that were
-        // added/removed since the last GraphTree save.
+        // One-shot startup sync: reconcile GraphTree with tile tree to pick up
+        // any tiles added/removed since the last GraphTree save. Uses
+        // incremental sync to preserve any topology restored from persistence.
         {
+            let existing_members: Vec<NodeKey> =
+                gui.graph_tree.members().map(|(k, _)| *k).collect();
             let graph_app = &gui.graph_app;
             let tiles_tree = &gui.tiles_tree;
-            crate::shell::desktop::workbench::graph_tree_sync::rebuild_from_tiles(
+            crate::shell::desktop::workbench::graph_tree_sync::incremental_sync_from_tiles(
                 &mut gui.graph_tree,
                 tiles_tree,
                 None, // No active node at startup; first frame will sync.
@@ -455,6 +463,23 @@ impl Gui {
                         .get_node(node_key)
                         .map(|n| n.lifecycle)
                         .unwrap_or(crate::graph::NodeLifecycle::Cold)
+                },
+                &|node_key| {
+                    let graph = graph_app.domain_graph();
+                    for &src in &existing_members {
+                        if let Some(edge_key) = graph.find_edge_key(src, node_key) {
+                            if graph
+                                .get_edge(edge_key)
+                                .is_some_and(|p| p.has_edge_kind(crate::graph::EdgeType::History))
+                            {
+                                return graph_tree::Provenance::Traversal {
+                                    source: src,
+                                    edge_kind: None,
+                                };
+                            }
+                        }
+                    }
+                    graph_tree::Provenance::Anchor
                 },
             );
         }
@@ -862,10 +887,12 @@ impl Gui {
             pending_webview_a11y_updates,
             state: app_state,
             runtime_state,
+            bookmark_import_dialog,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             registry_runtime,
             control_panel,
+            graph_tree,
             ..
         } = self;
         let GuiRuntimeState {
@@ -903,6 +930,7 @@ impl Gui {
                 graph_app,
                 pending_webview_a11y_updates,
                 tiles_tree,
+                graph_tree,
                 toolbar_height,
                 toolbar_state,
                 toasts,
@@ -930,6 +958,7 @@ impl Gui {
                 command_palette_toggle_requested,
                 pending_webview_context_surface_requests,
                 deferred_open_child_webviews,
+                bookmark_import_dialog,
                 rendering_context,
                 window_rendering_context,
                 registry_runtime,
@@ -939,11 +968,18 @@ impl Gui {
             });
         });
 
-        // Per-frame sync: mirror tile tree state into the parallel GraphTree.
+        // Per-frame incremental sync: reconcile GraphTree membership with tile
+        // tree WITHOUT destroying topology. Phase B replacement for the previous
+        // full rebuild_from_tiles call — preserves traversal-derived parent/child
+        // structure, provenance, and expansion state. For newly-seen tile nodes,
+        // infer provenance from domain graph traversal edges so they land as
+        // children of their navigation source rather than as unrooted anchors.
         {
             let focused = self.focused_node_key();
+            let existing_members: Vec<NodeKey> =
+                self.graph_tree.members().map(|(k, _)| *k).collect();
             let graph_app = &self.graph_app;
-            crate::shell::desktop::workbench::graph_tree_sync::rebuild_from_tiles(
+            crate::shell::desktop::workbench::graph_tree_sync::incremental_sync_from_tiles(
                 &mut self.graph_tree,
                 &self.tiles_tree,
                 focused,
@@ -953,6 +989,23 @@ impl Gui {
                         .get_node(node_key)
                         .map(|n| n.lifecycle)
                         .unwrap_or(crate::graph::NodeLifecycle::Cold)
+                },
+                &|node_key| {
+                    let graph = graph_app.domain_graph();
+                    for &src in &existing_members {
+                        if let Some(edge_key) = graph.find_edge_key(src, node_key) {
+                            if graph
+                                .get_edge(edge_key)
+                                .is_some_and(|p| p.has_edge_kind(crate::graph::EdgeType::History))
+                            {
+                                return graph_tree::Provenance::Traversal {
+                                    source: src,
+                                    edge_kind: None,
+                                };
+                            }
+                        }
+                    }
+                    graph_tree::Provenance::Anchor
                 },
             );
 

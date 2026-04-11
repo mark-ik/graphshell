@@ -1131,6 +1131,7 @@ fn app_command_queue_handles_non_snapshot_requests() {
     app.request_open_clip_by_id("clip-queue");
     app.request_prune_empty_workspaces();
     app.request_keep_latest_named_workspaces(3);
+    app.request_import_bookmarks_from_file();
     app.request_switch_data_dir("C:/graphshell-data");
 
     assert_eq!(app.take_pending_open_note_request(), Some(note_id));
@@ -1140,6 +1141,7 @@ fn app_command_queue_handles_non_snapshot_requests() {
     );
     assert!(app.take_pending_prune_empty_workspaces());
     assert_eq!(app.take_pending_keep_latest_named_workspaces(), Some(3));
+    assert!(app.take_pending_import_bookmarks_from_file());
     assert_eq!(
         app.take_pending_switch_data_dir(),
         Some(PathBuf::from("C:/graphshell-data"))
@@ -3529,6 +3531,294 @@ fn test_promote_import_record_to_user_group_intent_creates_bidirectional_edges_f
     assert!(app.has_relation(other_peer, anchor, grouped));
     assert!(!app.has_relation(peer, other_peer, grouped));
     assert!(!app.has_relation(other_peer, peer, grouped));
+}
+
+fn sample_browser_import_run() -> crate::services::import::BrowserImportRun {
+    crate::services::import::BrowserImportRun {
+        import_id: "import-run:browser".to_string(),
+        source: crate::services::import::BrowserImportSource {
+            browser_family: crate::services::import::BrowserFamily::Chrome,
+            profile_hint: Some("Default".to_string()),
+            source_kind: crate::services::import::BrowserImportSourceKind::BookmarkFile,
+            stable_source_id: Some("chrome:default-bookmarks".to_string()),
+        },
+        mode: crate::services::import::BrowserImportMode::OneShotFile,
+        observed_at_unix_secs: 1_776_000_000,
+        user_visible_label: "Chrome bookmarks".to_string(),
+    }
+}
+
+fn sample_imported_page(url: &str, title: &str) -> crate::services::import::ImportedPageSeed {
+    crate::services::import::ImportedPageSeed {
+        canonical_url: url.to_string(),
+        normalized_title: Some(title.to_string()),
+        raw_url: Some(url.to_string()),
+        raw_title: Some(title.to_string()),
+        favicon_url: None,
+    }
+}
+
+#[test]
+fn apply_browser_import_batch_creates_bookmark_folder_edges_and_import_record() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let batch = crate::services::import::BrowserImportBatch {
+        run: sample_browser_import_run(),
+        items: vec![crate::services::import::BrowserImportPayload::Bookmark(
+            crate::services::import::ImportedBookmarkItem {
+                page: sample_imported_page("https://docs.rs/", "Docs"),
+                bookmark_id: Some("bookmark-1".to_string()),
+                folder_path: vec![crate::services::import::ImportedFolderSegment {
+                    stable_id: Some("folder-rust".to_string()),
+                    label: "Rust".to_string(),
+                    position: 0,
+                }],
+                location: crate::services::import::BookmarkLocation::Toolbar,
+                created_at_unix_secs: Some(1_776_000_000),
+                modified_at_unix_secs: None,
+                tags: Vec::new(),
+            },
+        )],
+    };
+
+    app.apply_browser_import_batch(&batch, None);
+
+    let (page_key, page_node) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://docs.rs/")
+        .expect("imported bookmark page node");
+    assert_eq!(page_node.title, "Docs");
+    assert!(page_node.tags.contains(GraphBrowserApp::TAG_STARRED));
+
+    let (folder_key, folder_node) = app
+        .workspace
+        .domain
+        .graph
+        .nodes()
+        .find(|(_, node)| {
+            node.url().starts_with("verso://import/bookmark-folder/") && node.title == "Rust"
+        })
+        .expect("bookmark folder node");
+    assert_eq!(folder_node.title, "Rust");
+    assert!(app.has_relation(
+        folder_key,
+        page_key,
+        crate::graph::RelationSelector::Imported(crate::graph::ImportedSubKind::BookmarkFolder),
+    ));
+
+    let record = app
+        .workspace
+        .domain
+        .graph
+        .import_records()
+        .iter()
+        .find(|record| record.record_id == "import-run:browser")
+        .expect("bookmark import record");
+    assert_eq!(record.source_id, "chrome:default-bookmarks");
+    assert_eq!(record.source_label, "Chrome bookmarks");
+    assert_eq!(record.imported_at_secs, 1_776_000_000);
+    assert_eq!(record.memberships.len(), 2);
+    assert!(record
+        .memberships
+        .iter()
+        .any(|membership| membership.node_id == page_node.id.to_string()));
+    assert!(record
+        .memberships
+        .iter()
+        .any(|membership| membership.node_id == folder_node.id.to_string()));
+
+    assert_eq!(
+        app.workspace
+            .domain
+            .graph
+            .node_import_provenance(page_key)
+            .expect("bookmark provenance"),
+        &[crate::graph::NodeImportProvenance {
+            source_id: "chrome:default-bookmarks".to_string(),
+            source_label: "Chrome bookmarks".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn apply_browser_import_batch_creates_history_and_session_import_structure() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let batch = crate::services::import::BrowserImportBatch {
+        run: crate::services::import::BrowserImportRun {
+            import_id: "import-run:mixed".to_string(),
+            source: crate::services::import::BrowserImportSource {
+                browser_family: crate::services::import::BrowserFamily::Firefox,
+                profile_hint: Some("Default".to_string()),
+                source_kind: crate::services::import::BrowserImportSourceKind::NativeProfileReader,
+                stable_source_id: Some("firefox:default-profile".to_string()),
+            },
+            mode: crate::services::import::BrowserImportMode::OneShotProfileRead,
+            observed_at_unix_secs: 1_776_000_123,
+            user_visible_label: "Firefox profile import".to_string(),
+        },
+        items: vec![
+            crate::services::import::BrowserImportPayload::HistoryVisit(
+                crate::services::import::ImportedHistoryVisitItem {
+                    page: sample_imported_page(
+                        "https://history.example/article",
+                        "History Article",
+                    ),
+                    visit_id: Some("visit-1".to_string()),
+                    visited_at_unix_secs: 1_776_000_100,
+                    visit_count_hint: Some(7),
+                    transition: Some(crate::services::import::HistoryTransitionKind::Typed),
+                    referring_url: None,
+                    session_context: None,
+                },
+            ),
+            crate::services::import::BrowserImportPayload::SessionSnapshot(
+                crate::services::import::ImportedBrowserSessionItem {
+                    snapshot_id: "snapshot-1".to_string(),
+                    observed_at_unix_secs: 1_776_000_123,
+                    windows: vec![crate::services::import::ImportedBrowserWindow {
+                        external_window_id: Some("window-1".to_string()),
+                        ordinal: 0,
+                        tabs: vec![crate::services::import::ImportedBrowserTab {
+                            page: sample_imported_page(
+                                "https://session.example/tab",
+                                "Session Tab",
+                            ),
+                            external_tab_id: Some("tab-1".to_string()),
+                            ordinal: 0,
+                            active: true,
+                            pinned: false,
+                            audible: false,
+                            opener_url: None,
+                            navigation: Vec::new(),
+                            active_navigation_index: None,
+                        }],
+                        focused: true,
+                    }],
+                },
+            ),
+        ],
+    };
+
+    app.apply_browser_import_batch(&batch, None);
+
+    let (history_page_key, _) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://history.example/article")
+        .expect("history page node");
+    let (history_root_key, _) = app
+        .workspace
+        .domain
+        .graph
+        .nodes()
+        .find(|(_, node)| node.title == "Imported History: Firefox profile import")
+        .expect("history import root node");
+    assert!(app.has_relation(
+        history_root_key,
+        history_page_key,
+        crate::graph::RelationSelector::Imported(crate::graph::ImportedSubKind::HistoryImport),
+    ));
+
+    let (session_page_key, session_page) = app
+        .workspace
+        .domain
+        .graph
+        .get_node_by_url("https://session.example/tab")
+        .expect("session page node");
+    let (session_root_key, _) = app
+        .workspace
+        .domain
+        .graph
+        .nodes()
+        .find(|(_, node)| {
+            node.title == "Imported Session Snapshot: Firefox profile import (snapshot-1)"
+        })
+        .expect("session import root node");
+    assert!(app.has_relation(
+        session_root_key,
+        session_page_key,
+        crate::graph::RelationSelector::Imported(crate::graph::ImportedSubKind::SessionImport),
+    ));
+
+    let record = app
+        .workspace
+        .domain
+        .graph
+        .import_records()
+        .iter()
+        .find(|record| record.record_id == "import-run:mixed")
+        .expect("mixed import record");
+    assert_eq!(record.source_id, "firefox:default-profile");
+    assert_eq!(record.source_label, "Firefox profile import");
+    assert_eq!(record.imported_at_secs, 1_776_000_123);
+    assert_eq!(record.memberships.len(), 4);
+
+    assert_eq!(
+        app.workspace
+            .domain
+            .graph
+            .node_import_provenance(session_page_key)
+            .expect("session provenance"),
+        &[crate::graph::NodeImportProvenance {
+            source_id: "firefox:default-profile".to_string(),
+            source_label: "Firefox profile import".to_string(),
+        }]
+    );
+    assert!(!session_page.tags.contains(GraphBrowserApp::TAG_STARRED));
+}
+
+#[test]
+fn apply_browser_import_batch_is_stable_when_reimporting_same_batch() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let batch = crate::services::import::BrowserImportBatch {
+        run: sample_browser_import_run(),
+        items: vec![crate::services::import::BrowserImportPayload::Bookmark(
+            crate::services::import::ImportedBookmarkItem {
+                page: sample_imported_page("https://docs.rs/serde", "Serde"),
+                bookmark_id: Some("bookmark-repeat".to_string()),
+                folder_path: vec![crate::services::import::ImportedFolderSegment {
+                    stable_id: Some("folder-rust".to_string()),
+                    label: "Rust".to_string(),
+                    position: 0,
+                }],
+                location: crate::services::import::BookmarkLocation::Toolbar,
+                created_at_unix_secs: Some(1_776_000_000),
+                modified_at_unix_secs: None,
+                tags: Vec::new(),
+            },
+        )],
+    };
+
+    app.apply_browser_import_batch(&batch, None);
+    app.apply_browser_import_batch(&batch, None);
+
+    let matching_pages = app
+        .workspace
+        .domain
+        .graph
+        .nodes()
+        .filter(|(_, node)| node.url() == "https://docs.rs/serde")
+        .count();
+    assert_eq!(matching_pages, 1);
+
+    let matching_folders = app
+        .workspace
+        .domain
+        .graph
+        .nodes()
+        .filter(|(_, node)| {
+            node.url().starts_with("verso://import/bookmark-folder/") && node.title == "Rust"
+        })
+        .count();
+    assert_eq!(matching_folders, 1);
+
+    let import_records = app.workspace.domain.graph.import_records();
+    assert_eq!(import_records.len(), 1);
+    let record = import_records.first().expect("repeat import record");
+    assert_eq!(record.record_id, "import-run:browser");
+    assert_eq!(record.memberships.len(), 2);
 }
 
 #[test]

@@ -95,12 +95,24 @@ fn assert_tree_invariants(tree: &GraphTree<u64>) {
     // 1. Topology invariants (parent/child consistency, no cycles, no duplicates)
     tree.topology().assert_invariants();
 
-    // 2. Every member in the members map that has a topology entry is consistent
+    // 2. Every member in the members map MUST be in the topology (no orphans)
     for (id, _) in tree.members() {
-        // If member is in topology, depth should not panic
-        if tree.topology().contains(id) {
-            let _ = tree.depth_of(id);
-        }
+        assert!(
+            tree.topology().contains(id),
+            "member {:?} exists in members map but not in topology — orphaned",
+            id
+        );
+        // depth should not panic for any topology member
+        let _ = tree.depth_of(id);
+    }
+
+    // 2b. Every topology node must have a members entry
+    for root in tree.topology().roots() {
+        assert!(
+            tree.contains(root),
+            "topology root {:?} has no members entry",
+            root
+        );
     }
 
     // 3. Active member (if any) must exist in members

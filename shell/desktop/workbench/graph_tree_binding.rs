@@ -82,8 +82,8 @@ pub(crate) fn register_linked_graphlet(
         binding: GraphletBinding::Linked {
             spec: TreeGraphletSpec {
                 kind: tree_kind.clone(),
-                anchors: anchors.iter().map(|k| format!("{:?}", k)).collect(),
-                primary_anchor: anchors.first().map(|k| format!("{:?}", k)),
+                anchors: anchors.iter().map(|k| k.index().to_string()).collect(),
+                primary_anchor: anchors.first().map(|k| k.index().to_string()),
                 selectors: Vec::new(),
             },
         },

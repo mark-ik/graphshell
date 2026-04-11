@@ -231,6 +231,7 @@ pub enum ActionId {
     PersistSaveGraph,
     PersistRestoreLatestGraph,
     PersistOpenHub,
+    PersistImportBookmarks,
     WorkbenchOpenSettingsPane,
     WorkbenchOpenSettingsOverlay,
     PersistOpenHistoryManager,
@@ -340,6 +341,7 @@ impl ActionId {
             Self::PersistSaveGraph => "persistence:save_graph",
             Self::PersistRestoreLatestGraph => "persistence:restore_latest_graph",
             Self::PersistOpenHub => "persistence:open_hub",
+            Self::PersistImportBookmarks => "import:bookmarks_from_file",
             Self::WorkbenchOpenSettingsPane => "workbench:settings_pane",
             Self::WorkbenchOpenSettingsOverlay => "workbench:settings_overlay",
             Self::PersistOpenHistoryManager => "workbench:open_history_manager",
@@ -413,6 +415,7 @@ impl ActionId {
             Self::PersistSaveGraph => "Save G",
             Self::PersistRestoreLatestGraph => "Latest G",
             Self::PersistOpenHub => "Persist Ovl",
+            Self::PersistImportBookmarks => "Import Bm",
             Self::WorkbenchOpenSettingsPane => "Set Pane",
             Self::WorkbenchOpenSettingsOverlay => "Set Ovl",
             Self::PersistOpenHistoryManager => "History",
@@ -486,6 +489,7 @@ impl ActionId {
             Self::PersistSaveGraph => "Save Graph Snapshot",
             Self::PersistRestoreLatestGraph => "Restore Latest Graph",
             Self::PersistOpenHub => "Open Persistence Overlay",
+            Self::PersistImportBookmarks => "Import Browser Bookmarks...",
             Self::WorkbenchOpenSettingsPane => "Open Settings Pane",
             Self::WorkbenchOpenSettingsOverlay => "Open Settings Overlay",
             Self::PersistOpenHistoryManager => "Open History Manager",
@@ -559,6 +563,7 @@ impl ActionId {
             | Self::PersistSaveGraph
             | Self::PersistRestoreLatestGraph
             | Self::PersistOpenHub
+            | Self::PersistImportBookmarks
             | Self::WorkbenchOpenSettingsPane
             | Self::WorkbenchOpenSettingsOverlay
             | Self::PersistOpenHistoryManager
@@ -651,6 +656,7 @@ fn all_action_ids() -> &'static [ActionId] {
         PersistSaveGraph,
         PersistRestoreLatestGraph,
         PersistOpenHub,
+        PersistImportBookmarks,
         WorkbenchOpenSettingsPane,
         WorkbenchOpenSettingsOverlay,
         PersistOpenHistoryManager,
@@ -827,6 +833,7 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (PersistSaveGraph, true),
         (PersistRestoreLatestGraph, true),
         (PersistOpenHub, true),
+        (PersistImportBookmarks, true),
         (WorkbenchOpenSettingsPane, true),
         (WorkbenchOpenSettingsOverlay, true),
         (PersistOpenHistoryManager, true),
@@ -1349,6 +1356,7 @@ mod tests {
         let entries = list_actions_for_context(&ctx);
 
         for action_id in [
+            ActionId::PersistImportBookmarks,
             ActionId::WorkbenchOpenSettingsPane,
             ActionId::WorkbenchOpenSettingsOverlay,
             ActionId::PersistOpenHistoryManager,
@@ -1410,6 +1418,10 @@ mod tests {
             (
                 ActionId::PersistRestoreLatestGraph,
                 ["Restore", "Graph"].as_slice(),
+            ),
+            (
+                ActionId::PersistImportBookmarks,
+                ["Import", "Bookmarks"].as_slice(),
             ),
             (
                 ActionId::PersistOpenHistoryManager,

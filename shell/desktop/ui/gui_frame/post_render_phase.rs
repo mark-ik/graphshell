@@ -145,6 +145,7 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) ui_render_backend: &'a mut UiRenderBackendHandle,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
+    pub(crate) bookmark_import_dialog: &'a mut Option<BookmarkImportDialogState>,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) headed_window: &'a HeadedWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
@@ -188,6 +189,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         ctx,
         ui_render_backend,
         graph_app,
+        bookmark_import_dialog,
         window,
         headed_window,
         tiles_tree,
@@ -230,6 +232,28 @@ pub(crate) fn run_post_render_phase<FActive>(
     }
 
     let preview_mode_active = history_preview_mode_active(graph_app);
+
+    let mut bookmark_import_requested = false;
+    while graph_app.take_pending_import_bookmarks_from_file() {
+        bookmark_import_requested = true;
+    }
+    if bookmark_import_requested && bookmark_import_dialog.is_none() {
+        *bookmark_import_dialog = Some(BookmarkImportDialogState::new());
+    }
+
+    match bookmark_import_dialog
+        .as_mut()
+        .map(|dialog| dialog.update(ctx))
+    {
+        Some(BookmarkImportDialogEvent::Continue) | None => {}
+        Some(BookmarkImportDialogEvent::Cancelled) => {
+            *bookmark_import_dialog = None;
+        }
+        Some(BookmarkImportDialogEvent::Picked(path)) => {
+            *bookmark_import_dialog = None;
+            import_bookmarks_from_path(graph_app, toasts, &path);
+        }
+    }
 
     *toolbar_height = Length::new(ctx.available_rect().min.y);
     if !preview_mode_active {
@@ -689,6 +713,89 @@ pub(crate) fn run_post_render_phase<FActive>(
 
     while let Some((key, url)) = graph_app.take_pending_protocol_probe() {
         control_panel.handle_protocol_probe_request(key, url);
+    }
+}
+
+fn import_bookmarks_from_path(
+    graph_app: &mut GraphBrowserApp,
+    toasts: &mut egui_notify::Toasts,
+    path: &std::path::Path,
+) {
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) => {
+            toasts.error(format!(
+                "Failed to read bookmark file {}: {error}",
+                path.display()
+            ));
+            return;
+        }
+    };
+
+    let run = bookmark_import_run_for_path(path);
+    let batch = match crate::services::import::parse_bookmark_file_to_batch(&contents, run) {
+        Ok(batch) => batch,
+        Err(error) => {
+            toasts.error(format!(
+                "Failed to import bookmark file {}: {error}",
+                path.display()
+            ));
+            return;
+        }
+    };
+    let imported_count = batch.items.len();
+    let label = batch.run.user_visible_label.clone();
+    graph_app.apply_browser_import_batch(&batch, None);
+    toasts.success(format!("Imported {imported_count} bookmark item(s) from {label}"));
+}
+
+fn bookmark_import_run_for_path(path: &std::path::Path) -> crate::services::import::BrowserImportRun {
+    let observed_at_unix_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("bookmark-file");
+    let stable_token = sanitize_bookmark_import_token(file_name);
+
+    crate::services::import::BrowserImportRun {
+        import_id: format!(
+            "import-run:bookmark-file:{stable_token}:{observed_at_unix_secs}"
+        ),
+        source: crate::services::import::BrowserImportSource {
+            browser_family: crate::services::import::BrowserFamily::Other(
+                "bookmark-file".to_string(),
+            ),
+            profile_hint: None,
+            source_kind: crate::services::import::BrowserImportSourceKind::BookmarkFile,
+            stable_source_id: Some(format!("bookmark-file:{stable_token}")),
+        },
+        mode: crate::services::import::BrowserImportMode::OneShotFile,
+        observed_at_unix_secs,
+        user_visible_label: file_name.to_string(),
+    }
+}
+
+fn sanitize_bookmark_import_token(value: &str) -> String {
+    let token = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let token = token.trim_matches('-');
+    if token.is_empty() {
+        "bookmark-file".to_string()
+    } else {
+        token.to_string()
     }
 }
 

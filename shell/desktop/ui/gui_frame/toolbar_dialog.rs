@@ -34,6 +34,7 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) control_panel: &'a mut ControlPanel,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
+    pub(crate) graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
     pub(crate) graph_surface_focused: bool,
     pub(crate) focus_authority: &'a RuntimeFocusAuthorityState,
     pub(crate) local_widget_focus: &'a mut Option<LocalFocusTarget>,
@@ -70,6 +71,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         control_panel,
         window,
         tiles_tree,
+        graph_tree,
         graph_surface_focused,
         focus_authority,
         local_widget_focus,
@@ -111,6 +113,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
             ctx,
             graph_app,
             tiles_tree,
+            graph_tree,
             command_bar_focus_target,
             show_clear_data_confirm,
         )
@@ -148,6 +151,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         ctx,
         graph_app,
         tiles_tree,
+        graph_tree,
         &workbench_projection,
         show_clear_data_confirm,
     );

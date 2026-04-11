@@ -17,7 +17,9 @@
 use graph_tree::{GraphTree, Lifecycle, ProjectionLens};
 
 use crate::graph::NodeKey;
-use crate::shell::desktop::ui::workbench_host::WorkbenchNavigatorSection;
+use crate::shell::desktop::ui::workbench_host::{
+    WorkbenchNavigatorGroup, WorkbenchNavigatorMember, WorkbenchNavigatorSection,
+};
 
 /// Map a `ProjectionLens` to the navigator sections it drives.
 ///
@@ -99,4 +101,113 @@ pub(crate) struct NavigatorMemberEntry {
     pub(crate) depth: usize,
     pub(crate) is_expanded: bool,
     pub(crate) has_children: bool,
+}
+
+/// Build `WorkbenchNavigatorGroup`s directly from the GraphTree.
+///
+/// This is the Phase C replacement for the graph_app-sourced `navigator_groups()`
+/// function in `workbench_host.rs`. It produces the same output type but derives
+/// all semantic grouping from the GraphTree's visible_rows and topology, without
+/// consulting graph_app's arrangement/containment/recent projections.
+///
+/// During migration, the existing `navigator_groups()` path remains the default.
+/// This function can be called as an enrichment or replacement when a `GraphTree`
+/// reference is available.
+pub(crate) fn navigator_groups_from_graph_tree(
+    graph_tree: &GraphTree<NodeKey>,
+    label_fn: &dyn Fn(NodeKey) -> String,
+) -> Vec<WorkbenchNavigatorGroup> {
+    let active = graph_tree.active().cloned();
+    let rows = graph_tree.visible_rows();
+
+    if rows.is_empty() {
+        return Vec::new();
+    }
+
+    // Group visible rows by their root ancestor. Each root produces one
+    // navigator group — this mirrors the arrangement-based grouping but
+    // derives structure from GraphTree topology.
+    let mut groups: Vec<WorkbenchNavigatorGroup> = Vec::new();
+    let mut current_root: Option<NodeKey> = None;
+    let mut current_members: Vec<WorkbenchNavigatorMember> = Vec::new();
+
+    for row in &rows {
+        let is_root = row.depth == 0;
+
+        if is_root {
+            // Flush the previous group if any.
+            if let Some(root_key) = current_root.take() {
+                if !current_members.is_empty() {
+                    let title = label_fn(root_key);
+                    groups.push(WorkbenchNavigatorGroup {
+                        section: WorkbenchNavigatorSection::Workbench,
+                        title,
+                        is_highlighted: active.as_ref() == Some(&root_key),
+                        members: std::mem::take(&mut current_members),
+                    });
+                }
+            }
+            current_root = Some(row.member.clone());
+        }
+
+        let lifecycle = graph_tree
+            .get(&row.member)
+            .map(|e| e.lifecycle)
+            .unwrap_or(Lifecycle::Cold);
+
+        current_members.push(WorkbenchNavigatorMember {
+            node_key: row.member.clone(),
+            title: label_fn(row.member.clone()),
+            is_selected: active.as_ref() == Some(&row.member),
+            row_key: None,
+            is_cold: lifecycle == Lifecycle::Cold,
+            depth: row.depth,
+            is_expanded: row.is_expanded,
+            has_children: row.has_children,
+        });
+    }
+
+    // Flush the last group.
+    if let Some(root_key) = current_root {
+        if !current_members.is_empty() {
+            let title = label_fn(root_key);
+            groups.push(WorkbenchNavigatorGroup {
+                section: WorkbenchNavigatorSection::Workbench,
+                title,
+                is_highlighted: active.as_ref() == Some(&root_key),
+                members: std::mem::take(&mut current_members),
+            });
+        }
+    }
+
+    groups
+}
+
+/// Enrich a `WorkbenchChromeProjection`'s navigator groups with GraphTree-sourced
+/// depth, expansion, and children data.
+///
+/// This is a lighter-touch alternative to fully replacing `navigator_groups()`.
+/// It walks the existing groups and, for each member that exists in the GraphTree,
+/// populates the tree-style fields (depth, is_expanded, has_children) from the
+/// GraphTree's topology. Members not in the GraphTree are left unchanged.
+pub(crate) fn enrich_navigator_members_from_graph_tree(
+    groups: &mut [WorkbenchNavigatorGroup],
+    graph_tree: &GraphTree<NodeKey>,
+) {
+    let rows = graph_tree.visible_rows();
+    // Build a lookup from NodeKey → tree-style fields.
+    let row_map: std::collections::HashMap<NodeKey, (usize, bool, bool)> = rows
+        .iter()
+        .map(|row| (row.member.clone(), (row.depth, row.is_expanded, row.has_children)))
+        .collect();
+
+    for group in groups.iter_mut() {
+        for member in &mut group.members {
+            if let Some(&(depth, is_expanded, has_children)) = row_map.get(&member.node_key) {
+                member.depth = depth;
+                member.is_expanded = is_expanded;
+                member.has_children = has_children;
+            }
+        }
+    }
 }

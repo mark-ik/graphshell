@@ -189,6 +189,7 @@ pub enum AppCommand {
         key: NodeKey,
         url: Option<String>,
     },
+    ImportBookmarksFromFile,
     SwitchDataDir {
         path: PathBuf,
     },

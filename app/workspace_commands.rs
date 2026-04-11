@@ -643,6 +643,15 @@ impl GraphBrowserApp {
         });
     }
 
+    pub fn request_import_bookmarks_from_file(&mut self) {
+        self.enqueue_app_command(AppCommand::ImportBookmarksFromFile);
+    }
+
+    pub fn take_pending_import_bookmarks_from_file(&mut self) -> bool {
+        self.take_pending_app_command(|command| matches!(command, AppCommand::ImportBookmarksFromFile))
+            .is_some()
+    }
+
     pub fn take_pending_switch_data_dir(&mut self) -> Option<PathBuf> {
         match self.take_pending_app_command(|command| {
             matches!(command, AppCommand::SwitchDataDir { .. })

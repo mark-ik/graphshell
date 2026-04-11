@@ -1644,6 +1644,9 @@ impl GraphStore {
                                     types::ArchivedPersistedImportedSubKind::HistoryImport => {
                                         crate::graph::ImportedSubKind::HistoryImport
                                     }
+                                    types::ArchivedPersistedImportedSubKind::SessionImport => {
+                                        crate::graph::ImportedSubKind::SessionImport
+                                    }
                                     types::ArchivedPersistedImportedSubKind::RssMembership => {
                                         crate::graph::ImportedSubKind::RssMembership
                                     }
@@ -1812,6 +1815,9 @@ impl GraphStore {
                                 }
                                 types::ArchivedPersistedImportedSubKind::HistoryImport => {
                                     crate::graph::ImportedSubKind::HistoryImport
+                                }
+                                types::ArchivedPersistedImportedSubKind::SessionImport => {
+                                    crate::graph::ImportedSubKind::SessionImport
                                 }
                                 types::ArchivedPersistedImportedSubKind::RssMembership => {
                                     crate::graph::ImportedSubKind::RssMembership

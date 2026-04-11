@@ -1308,6 +1308,22 @@ pub(crate) fn execute_action_with_layout_target(
             });
             intents.extend(runtime_intents);
         }
+        ActionId::PersistImportBookmarks => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_IMPORT_BOOKMARKS_FROM_FILE,
+                runtime_action::ActionPayload::ImportBookmarksFromFile,
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute '{}': {}",
+                    runtime_action::ACTION_IMPORT_BOOKMARKS_FROM_FILE,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
         ActionId::WorkbenchActivateWorkflowDefault => {
             let runtime_intents = registries::phase3_execute_registry_action(
                 app,

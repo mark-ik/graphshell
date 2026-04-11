@@ -15,6 +15,7 @@ mod lens;
 mod member;
 pub mod memory_policy;
 mod nav;
+pub mod parity;
 mod query;
 mod topology;
 mod tree;

@@ -3,8 +3,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
 use crate::graph::NodeKey;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
@@ -27,6 +29,49 @@ pub(super) struct ToolbarDraft {
     pub(super) location: String,
     pub(super) location_dirty: bool,
     pub(super) location_submitted: bool,
+}
+
+pub(super) enum BookmarkImportDialogEvent {
+    Continue,
+    Picked(PathBuf),
+    Cancelled,
+}
+
+pub(super) struct BookmarkImportDialogState {
+    dialog: EguiFileDialog,
+}
+
+impl BookmarkImportDialogState {
+    pub(super) fn new() -> Self {
+        let bookmark_file_filter = Filter::new(|path: &std::path::Path| {
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "html" | "htm" | "json"))
+        });
+
+        let dialog = EguiFileDialog::new()
+            .add_file_filter("Bookmark Files", bookmark_file_filter)
+            .default_file_filter("Bookmark Files");
+
+        Self { dialog }
+    }
+
+    pub(super) fn update(&mut self, ctx: &egui::Context) -> BookmarkImportDialogEvent {
+        if *self.dialog.state() == DialogState::Closed {
+            self.dialog.pick_file();
+        }
+
+        match self.dialog.update(ctx).state() {
+            DialogState::Open => BookmarkImportDialogEvent::Continue,
+            DialogState::Picked(path) => BookmarkImportDialogEvent::Picked(path.clone()),
+            DialogState::PickedMultiple(paths) => paths
+                .first()
+                .cloned()
+                .map(BookmarkImportDialogEvent::Picked)
+                .unwrap_or(BookmarkImportDialogEvent::Cancelled),
+            DialogState::Cancelled | DialogState::Closed => BookmarkImportDialogEvent::Cancelled,
+        }
+    }
 }
 
 impl ToolbarDraft {

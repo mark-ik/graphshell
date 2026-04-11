@@ -275,6 +275,7 @@ pub enum PersistedArrangementSubKind {
 pub enum PersistedImportedSubKind {
     BookmarkFolder,
     HistoryImport,
+    SessionImport,
     RssMembership,
     FileSystemImport,
     ArchiveMembership,

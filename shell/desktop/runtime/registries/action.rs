@@ -70,6 +70,7 @@ pub(crate) const ACTION_WORKBENCH_SAVE_GRAPH: &str = "workbench:save_graph";
 pub(crate) const ACTION_WORKBENCH_RESTORE_GRAPH: &str = "workbench:restore_graph";
 pub(crate) const ACTION_WORKBENCH_OPEN_PERSISTENCE_HUB: &str = "workbench:open_persistence_hub";
 pub(crate) const ACTION_WORKBENCH_OPEN_HISTORY_MANAGER: &str = "workbench:open_history_manager";
+pub(crate) const ACTION_IMPORT_BOOKMARKS_FROM_FILE: &str = "import:bookmarks_from_file";
 pub(crate) const ACTION_WORKBENCH_ACTIVATE_WORKFLOW: &str = "workbench:activate_workflow";
 
 // Verse sync actions (Step 5.3)
@@ -153,6 +154,7 @@ pub(crate) enum ActionPayload {
     },
     WorkbenchOpenPersistenceHub,
     WorkbenchOpenHistoryManager,
+    ImportBookmarksFromFile,
     WorkbenchActivateWorkflow {
         workflow_id: String,
     },
@@ -668,6 +670,11 @@ impl Default for ActionRegistry {
             ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
             ActionCapability::AlwaysAvailable,
             execute_workbench_open_history_manager_action,
+        );
+        registry.register(
+            ACTION_IMPORT_BOOKMARKS_FROM_FILE,
+            ActionCapability::RequiresWritableWorkspace,
+            execute_import_bookmarks_from_file_action,
         );
         registry.register(
             ACTION_WORKBENCH_ACTIVATE_WORKFLOW,
@@ -1771,6 +1778,23 @@ fn execute_workbench_open_history_manager_action(
     ))
 }
 
+fn execute_import_bookmarks_from_file_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::ImportBookmarksFromFile = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "import:bookmarks_from_file requires ImportBookmarksFromFile payload"
+                .to_string(),
+        });
+    };
+
+    ActionOutcome::Dispatch(ActionDispatch::app_commands(vec![
+        AppCommand::ImportBookmarksFromFile,
+    ]))
+}
+
 fn execute_workbench_activate_workflow_action(
     _app: &GraphBrowserApp,
     payload: &ActionPayload,
@@ -2654,6 +2678,16 @@ mod tests {
             })
         ));
 
+        let import_bookmarks = registry.execute(
+            ACTION_IMPORT_BOOKMARKS_FROM_FILE,
+            &app,
+            ActionPayload::ImportBookmarksFromFile,
+        );
+        assert!(matches!(
+            import_bookmarks.into_app_commands().first(),
+            Some(AppCommand::ImportBookmarksFromFile)
+        ));
+
         let activate_workflow = registry.execute(
             ACTION_WORKBENCH_ACTIVATE_WORKFLOW,
             &app,
@@ -2779,6 +2813,9 @@ mod tests {
         ));
         assert!(is_namespaced_action_id(
             ACTION_WORKBENCH_OPEN_HISTORY_MANAGER
+        ));
+        assert!(is_namespaced_action_id(
+            ACTION_IMPORT_BOOKMARKS_FROM_FILE
         ));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_ACTIVATE_WORKFLOW));
         assert!(is_namespaced_action_id(ACTION_VERSE_PAIR_DEVICE));

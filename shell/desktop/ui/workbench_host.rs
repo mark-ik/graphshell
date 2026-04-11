@@ -958,6 +958,7 @@ pub(crate) fn render_fallback_graph_scope_toolbar_host(
     ctx: &egui::Context,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     projection: &WorkbenchChromeProjection,
     show_clear_data_confirm: &mut bool,
 ) {
@@ -984,7 +985,7 @@ pub(crate) fn render_fallback_graph_scope_toolbar_host(
         });
 
     for action in post_host_actions {
-        apply_workbench_host_action(action, graph_app, tiles_tree);
+        apply_workbench_host_action(action, graph_app, tiles_tree, graph_tree);
     }
 }
 
@@ -1168,6 +1169,13 @@ pub(crate) struct WorkbenchNavigatorMember {
     /// True when the node's lifecycle is `Cold` — has graph edges but no live tile.
     /// Rendered with a ○ badge in the Navigator; double-click activates.
     pub(crate) is_cold: bool,
+    /// Nesting depth in the GraphTree topology (0 = root). Used for indented
+    /// tree-style rendering when the navigator is driven by GraphTree projections.
+    pub(crate) depth: usize,
+    /// Whether this member's children are expanded in the tree view.
+    pub(crate) is_expanded: bool,
+    /// Whether this member has children in the GraphTree topology.
+    pub(crate) has_children: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1754,6 +1762,9 @@ fn navigator_member_for_node(
         is_selected: graph_app.focused_selection().contains(&node_key),
         row_key: navigator_row_key_for_node(graph_app, node_key),
         is_cold,
+        depth: 0,
+        is_expanded: false,
+        has_children: false,
     })
 }
 
@@ -2321,11 +2332,18 @@ pub(crate) fn render_workbench_host(
     ctx: &egui::Context,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     command_bar_focus_target: CommandBarFocusTarget,
     show_clear_data_confirm: &mut bool,
 ) -> WorkbenchChromeProjection {
-    let projection =
+    let mut projection =
         WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, command_bar_focus_target.active_pane());
+
+    // Enrich navigator members with GraphTree depth/expansion/children data.
+    crate::shell::desktop::workbench::graph_tree_projection::enrich_navigator_members_from_graph_tree(
+        &mut projection.navigator_groups,
+        graph_tree,
+    );
     if !projection.visible() {
         graph_app
             .workspace
@@ -3095,26 +3113,41 @@ pub(crate) fn render_workbench_host(
                         ));
                         header.show(ui, |ui| {
                             for member in &group.members {
-                                let label = if member.is_cold {
-                                    format!("○ {}", member.title)
-                                } else {
-                                    member.title.clone()
-                                };
-                                let response = ui.selectable_label(
-                                    member.is_selected,
-                                    RichText::new(label).small(),
-                                );
-                                if response.double_clicked() {
-                                    post_host_actions.push(WorkbenchHostAction::ActivateNode {
-                                        node_key: member.node_key,
-                                        row_key: member.row_key.clone(),
-                                    });
-                                } else if response.clicked() {
-                                    post_host_actions.push(WorkbenchHostAction::SelectNode {
-                                        node_key: member.node_key,
-                                        row_key: member.row_key.clone(),
-                                    });
-                                }
+                                let indent_px = member.depth as f32 * 12.0;
+                                let lifecycle_prefix = if member.is_cold { "○ " } else { "" };
+                                let label = format!("{}{}", lifecycle_prefix, member.title);
+                                ui.horizontal(|ui| {
+                                    if indent_px > 0.0 {
+                                        ui.add_space(indent_px);
+                                    }
+                                    // Expand/collapse toggle button for nodes with children.
+                                    if member.has_children {
+                                        let arrow = if member.is_expanded { "▾" } else { "▸" };
+                                        if ui.small_button(arrow).clicked() {
+                                            post_host_actions.push(
+                                                WorkbenchHostAction::ToggleExpandNode(member.node_key),
+                                            );
+                                        }
+                                    } else if member.depth > 0 {
+                                        // Leaf indent spacer to align with siblings.
+                                        ui.add_space(ui.spacing().button_padding.x * 2.0 + 8.0);
+                                    }
+                                    let response = ui.selectable_label(
+                                        member.is_selected,
+                                        RichText::new(label).small(),
+                                    );
+                                    if response.double_clicked() {
+                                        post_host_actions.push(WorkbenchHostAction::ActivateNode {
+                                            node_key: member.node_key,
+                                            row_key: member.row_key.clone(),
+                                        });
+                                    } else if response.clicked() {
+                                        post_host_actions.push(WorkbenchHostAction::SelectNode {
+                                            node_key: member.node_key,
+                                            row_key: member.row_key.clone(),
+                                        });
+                                    }
+                                });
                             }
                         });
                     }
@@ -3258,7 +3291,7 @@ pub(crate) fn render_workbench_host(
     update_workbench_navigation_geometry(graph_app, ctx.available_rect(), overlay_occlusions);
 
     for action in post_host_actions {
-        apply_workbench_host_action(action, graph_app, tiles_tree);
+        apply_workbench_host_action(action, graph_app, tiles_tree, graph_tree);
     }
 
     projection
@@ -3547,6 +3580,9 @@ enum WorkbenchHostAction {
         host: SurfaceHostId,
         kind: Option<GraphletKind>,
     },
+    /// Toggle expand/collapse of a node's children in the navigator tree view.
+    /// Dispatched to `graph_tree_commands::toggle_expand` when GraphTree is available.
+    ToggleExpandNode(NodeKey),
     /// Sync the stored size_fraction with the actual panel extent after a
     /// drag-resize interaction.
     SyncHostPanelSize {
@@ -3612,6 +3648,7 @@ fn workbench_host_action_diagnostic_code(action: &WorkbenchHostAction) -> usize 
         WorkbenchHostAction::ReheatPhysics => 47,
         WorkbenchHostAction::SetNavigatorSpecialtyView { .. } => 48,
         WorkbenchHostAction::SyncHostPanelSize { .. } => 49,
+        WorkbenchHostAction::ToggleExpandNode(_) => 50,
     }
 }
 
@@ -4204,6 +4241,7 @@ fn apply_workbench_host_action(
     action: WorkbenchHostAction,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
 ) {
     let diagnostic_code = workbench_host_action_diagnostic_code(&action);
     emit_workbench_host_action_started(diagnostic_code);
@@ -4589,6 +4627,12 @@ fn apply_workbench_host_action(
             }
             WorkbenchHostActionDispatchOutcome::Consumed
         }
+        WorkbenchHostAction::ToggleExpandNode(node_key) => {
+            crate::shell::desktop::workbench::graph_tree_commands::toggle_expand(
+                graph_tree, node_key,
+            );
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
     };
     emit_workbench_host_action_outcome(diagnostic_code, outcome);
 }
@@ -4686,6 +4730,21 @@ mod tests {
     use egui_tiles::Tiles;
     use tempfile::TempDir;
     use uuid::Uuid;
+
+    /// Test-only dispatch wrapper that creates a throwaway GraphTree.
+    /// Production code passes the real GraphTree; tests that don't exercise
+    /// ToggleExpandNode can use this convenience helper.
+    fn apply_workbench_host_action_test(
+        action: WorkbenchHostAction,
+        graph_app: &mut GraphBrowserApp,
+        tiles_tree: &mut Tree<TileKind>,
+    ) {
+        let mut gt = graph_tree::GraphTree::new(
+            graph_tree::LayoutMode::TreeStyleTabs,
+            graph_tree::ProjectionLens::Traversal,
+        );
+        apply_workbench_host_action(action, graph_app, tiles_tree, &mut gt);
+    }
 
     #[cfg(feature = "diagnostics")]
     fn channel_count(snapshot: &serde_json::Value, channel: &str) -> u64 {
@@ -4869,7 +4928,7 @@ mod tests {
             other => panic!("expected node pane tile, got {other:?}"),
         };
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetPanePresentationMode {
                 pane: pane_id,
                 mode: PanePresentationMode::Docked,
@@ -4885,7 +4944,7 @@ mod tests {
         };
         assert_eq!(docked_mode, PanePresentationMode::Docked);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetPanePresentationMode {
                 pane: pane_id,
                 mode: PanePresentationMode::Tiled,
@@ -4920,7 +4979,7 @@ mod tests {
             other => panic!("expected node pane tile, got {other:?}"),
         };
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SwapViewerBackend {
                 pane: pane_id,
                 node,
@@ -4937,7 +4996,7 @@ mod tests {
         };
         assert_eq!(override_after_swap, Some(ViewerId::new("viewer:wry")));
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SwapViewerBackend {
                 pane: pane_id,
                 node,
@@ -4966,7 +5025,7 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![graph]);
         let mut tree = Tree::new("workbench_host_set_view_lens", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetViewLensId {
                 view_id: graph_view,
                 lens_id: crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY.to_string(),
@@ -4998,7 +5057,7 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![graph]);
         let mut tree = Tree::new("workbench_host_set_physics_profile", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetPhysicsProfile {
                 profile_id: crate::registries::atomic::lens::PHYSICS_ID_SETTLE.to_string(),
             },
@@ -5023,7 +5082,7 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![graph]);
         let mut tree = Tree::new("workbench_host_toggle_semantic_depth", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::ToggleSemanticDepthView { view_id: graph_view },
             &mut app,
             &mut tree,
@@ -5049,7 +5108,7 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![graph]);
         let mut tree = Tree::new("workbench_host_set_view_dimension", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetViewDimension {
                 view_id: graph_view,
                 dimension: crate::app::default_view_dimension_for_mode(
@@ -5089,7 +5148,7 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![graph]);
         let mut tree = Tree::new("workbench_host_move_graph_view_slot", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::MoveGraphViewSlot {
                 view_id: left,
                 row: 0,
@@ -5129,7 +5188,7 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![graph]);
         let mut tree = Tree::new("workbench_host_clear_graph_view_filter", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::ClearGraphViewFilter { view_id: graph_view },
             &mut app,
             &mut tree,
@@ -5609,7 +5668,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_session_only_follow_up", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetFirstUsePolicy(SurfaceFirstUsePolicy {
                 surface_host: host.clone(),
                 prompt_shown: true,
@@ -5618,7 +5677,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SuppressFirstUsePromptForSession(host.clone()),
             &mut app,
             &mut tree,
@@ -5655,7 +5714,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
         let mut tree = Tree::new("workbench_host_reconfigure_across_axis", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetLayoutConstraintDraft {
                 surface_host: host.clone(),
                 constraint: WorkbenchLayoutConstraint::AnchoredSplit {
@@ -5690,7 +5749,7 @@ mod tests {
             NavigatorHostScope::GraphOnly
         );
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::CommitLayoutConstraintDraft(host.clone()),
             &mut app,
             &mut tree,
@@ -5801,7 +5860,7 @@ mod tests {
         let mut tree = Tree::new("first_use_prompt_shown", root, tiles);
         let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetFirstUsePolicy(SurfaceFirstUsePolicy {
                 surface_host: host.clone(),
                 prompt_shown: true,
@@ -5810,7 +5869,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetFirstUsePolicy(SurfaceFirstUsePolicy {
                 surface_host: host,
                 prompt_shown: true,
@@ -5842,7 +5901,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_dispatch_consumed", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetWorkbenchPinned(true),
             &mut app,
             &mut tree,
@@ -5864,7 +5923,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_dispatch_warning", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetFrameSplitOfferSuppressed {
                 frame_name: "missing-frame".to_string(),
                 suppressed: true,
@@ -5891,17 +5950,17 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(source)));
         let mut tree = Tree::new("workbench_host_surface_navigation_intents", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::FocusGraphView(source),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::OpenGraphView(destination),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::TransferSelectedNodesToGraphView {
                 source_view: source,
                 destination_view: destination,
@@ -5909,7 +5968,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::ToggleOverviewPlane,
             &mut app,
             &mut tree,
@@ -5957,12 +6016,12 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_layout_policy_intents", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetWorkbenchPinned(true),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetLayoutConstraintDraft {
                 surface_host: host.clone(),
                 constraint: constraint.clone(),
@@ -5970,17 +6029,17 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::CommitLayoutConstraintDraft(host.clone()),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::DiscardLayoutConstraintDraft(host.clone()),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetNavigatorHostScope {
                 surface_host: host.clone(),
                 scope: NavigatorHostScope::GraphOnly,
@@ -5988,17 +6047,17 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetFirstUsePolicy(policy.clone()),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SuppressFirstUsePromptForSession(host.clone()),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::DismissFrameSplitOfferForSession(
                 "workspace-session-dismiss".to_string(),
             ),
@@ -6047,7 +6106,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_frame_request_intents", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::RenameFrame {
                 from: "workspace-old".to_string(),
                 to: "workspace-new".to_string(),
@@ -6055,27 +6114,27 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::DeleteFrame("workspace-delete".to_string()),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SaveFrameSnapshotNamed("workspace-save".to_string()),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SaveCurrentFrame,
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::PruneEmptyFrames,
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::RestoreFrame("workspace-restore".to_string()),
             &mut app,
             &mut tree,
@@ -6117,7 +6176,7 @@ mod tests {
         let frame_key =
             frame_key_for_name(&app, "workspace-frame-intents").expect("frame anchor should exist");
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::OpenFrameAsSplit {
                 node_key: node,
                 frame_name: "workspace-frame-intents".to_string(),
@@ -6125,7 +6184,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetFrameSplitOfferSuppressed {
                 frame_name: "workspace-frame-intents".to_string(),
                 suppressed: true,
@@ -6133,7 +6192,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::MoveFrameLayoutHint {
                 frame_name: "workspace-frame-intents".to_string(),
                 from_index: 2,
@@ -6142,7 +6201,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::RemoveFrameLayoutHint {
                 frame_name: "workspace-frame-intents".to_string(),
                 hint_index: 3,
@@ -6150,7 +6209,7 @@ mod tests {
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetNavigatorSpecialtyView {
                 host: host.clone(),
                 kind,
@@ -6200,22 +6259,22 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_frame_request_apply", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SaveCurrentFrame,
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SaveFrameSnapshotNamed("workspace-explicit-save".to_string()),
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::PruneEmptyFrames,
             &mut app,
             &mut tree,
         );
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::RestoreFrame("workspace-restore".to_string()),
             &mut app,
             &mut tree,
@@ -6655,7 +6714,7 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![node_tile]);
         let mut tree = Tree::new("workbench_host_open_frame_as_split", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::OpenFrameAsSplit {
                 node_key: node,
                 frame_name: "workspace-beta".to_string(),
@@ -6694,7 +6753,7 @@ mod tests {
 
         app.sync_named_workbench_frame_graph_representation("workspace-action-toggle", &tree);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetFrameSplitOfferSuppressed {
                 frame_name: "workspace-action-toggle".to_string(),
                 suppressed: true,
@@ -6710,7 +6769,7 @@ mod tests {
             Some(true)
         );
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetFrameSplitOfferSuppressed {
                 frame_name: "workspace-action-toggle".to_string(),
                 suppressed: false,
@@ -6746,7 +6805,7 @@ mod tests {
             let frame_key = frame_key_for_name(&app, "workspace-restart-toggle")
                 .expect("frame anchor should exist");
 
-            apply_workbench_host_action(
+            apply_workbench_host_action_test(
                 WorkbenchHostAction::SetFrameSplitOfferSuppressed {
                     frame_name: "workspace-restart-toggle".to_string(),
                     suppressed: true,
@@ -6788,7 +6847,7 @@ mod tests {
         let frame_key = frame_key_for_name(&app, "workspace-session-dismiss")
             .expect("frame anchor should exist");
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::DismissFrameSplitOfferForSession(
                 "workspace-session-dismiss".to_string(),
             ),
@@ -6908,7 +6967,7 @@ mod tests {
             },
         ]);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::MoveFrameLayoutHint {
                 frame_name: "workspace-move-hints".to_string(),
                 from_index: 1,
@@ -6971,7 +7030,7 @@ mod tests {
             },
         }]);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::RemoveFrameLayoutHint {
                 frame_name: "workspace-remove-hint".to_string(),
                 hint_index: 0,
@@ -7003,7 +7062,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_navigator_specialty", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetNavigatorSpecialtyView {
                 host: host.clone(),
                 kind: Some(GraphletKind::Component),
@@ -7042,7 +7101,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(target_view)));
         let mut tree = Tree::new("workbench_host_select_node_in_graph_view", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SelectNodeInGraphView {
                 view_id: target_view,
                 node_key: node,
@@ -7074,7 +7133,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(target_view)));
         let mut tree = Tree::new("workbench_host_open_graphlet_specialty", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::OpenNavigatorSpecialtyFromNode {
                 host: host.clone(),
                 view_id: target_view,
@@ -7122,7 +7181,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_navigator_specialty_corridor", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetNavigatorSpecialtyView {
                 host: host.clone(),
                 kind: Some(GraphletKind::Corridor),
@@ -7179,7 +7238,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let mut tree = Tree::new("workbench_host_navigator_specialty_clear", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetNavigatorSpecialtyView {
                 host: host.clone(),
                 kind: Some(GraphletKind::Component),
@@ -7197,7 +7256,7 @@ mod tests {
             .map(|view| view.view_id)
             .expect("specialty view should be active before clearing");
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SetNavigatorSpecialtyView {
                 host: host.clone(),
                 kind: None,
@@ -7248,7 +7307,7 @@ mod tests {
         .expect("save frame bundle");
         app.workspace.graph_runtime.selected_frame_name = Some("workspace-rename-old".to_string());
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::RenameFrame {
                 from: "workspace-rename-old".to_string(),
                 to: "workspace-rename-new".to_string(),
@@ -7300,7 +7359,7 @@ mod tests {
         app.workspace.graph_runtime.selected_frame_name = Some("workspace-delete-me".to_string());
         app.set_pending_frame_context_target(Some("workspace-delete-me".to_string()));
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::DeleteFrame("workspace-delete-me".to_string()),
             &mut app,
             &mut tree,
@@ -7398,7 +7457,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
         let mut tree = Tree::new("workbench_host_select_offscreen", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SelectNode {
                 node_key,
                 row_key: Some("node:test".to_string()),
@@ -7433,7 +7492,7 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
         let mut tree = Tree::new("workbench_host_select_onscreen", root, tiles);
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SelectNode {
                 node_key,
                 row_key: Some("node:test".to_string()),
@@ -7464,7 +7523,7 @@ mod tests {
         let mut tree = Tree::new("workbench_host_activate_live", root, tiles);
         let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::ActivateNode {
                 node_key: live_node,
                 row_key: Some("node:live".to_string()),
@@ -7514,7 +7573,7 @@ mod tests {
         let mut tree = Tree::new("workbench_host_activate_cold", root, tiles);
         let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_))));
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::SelectNode {
                 node_key: cold_node,
                 row_key: Some("node:cold".to_string()),
@@ -7530,7 +7589,7 @@ mod tests {
 
         app.clear_pending_camera_command();
 
-        apply_workbench_host_action(
+        apply_workbench_host_action_test(
             WorkbenchHostAction::ActivateNode {
                 node_key: cold_node,
                 row_key: Some("node:cold".to_string()),

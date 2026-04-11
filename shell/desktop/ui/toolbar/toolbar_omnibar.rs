@@ -482,6 +482,7 @@ fn imported_sub_kind_label(sub_kind: crate::graph::ImportedSubKind) -> &'static 
     match sub_kind {
         crate::graph::ImportedSubKind::BookmarkFolder => "bookmark_folder",
         crate::graph::ImportedSubKind::HistoryImport => "history_import",
+        crate::graph::ImportedSubKind::SessionImport => "session_import",
         crate::graph::ImportedSubKind::RssMembership => "rss_membership",
         crate::graph::ImportedSubKind::FileSystemImport => "filesystem_import",
         crate::graph::ImportedSubKind::ArchiveMembership => "archive_membership",
@@ -1219,6 +1220,14 @@ mod tests {
             Some((SearchProviderKind::DuckDuckGo, "rust"))
         );
         assert!(parse_provider_search_query("n rust").is_none());
+    }
+
+    #[test]
+    fn imported_session_sub_kind_uses_session_import_label() {
+        assert_eq!(
+            imported_sub_kind_label(crate::graph::ImportedSubKind::SessionImport),
+            "session_import"
+        );
     }
 
     #[test]

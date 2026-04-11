@@ -334,6 +334,9 @@ fn persisted_assertion_from_graph_assertion(
                 crate::graph::ImportedSubKind::HistoryImport => {
                     PersistedImportedSubKind::HistoryImport
                 }
+                crate::graph::ImportedSubKind::SessionImport => {
+                    PersistedImportedSubKind::SessionImport
+                }
                 crate::graph::ImportedSubKind::RssMembership => {
                     PersistedImportedSubKind::RssMembership
                 }
@@ -476,6 +479,9 @@ fn persisted_selector_from_graph_selector(
                 crate::graph::ImportedSubKind::HistoryImport => {
                     PersistedImportedSubKind::HistoryImport
                 }
+                crate::graph::ImportedSubKind::SessionImport => {
+                    PersistedImportedSubKind::SessionImport
+                }
                 crate::graph::ImportedSubKind::RssMembership => {
                     PersistedImportedSubKind::RssMembership
                 }
@@ -554,6 +560,122 @@ pub struct NoteRecord {
     pub body: String,
     pub created_at: std::time::SystemTime,
     pub updated_at: std::time::SystemTime,
+}
+
+fn browser_family_key(family: &crate::services::import::BrowserFamily) -> String {
+    match family {
+        crate::services::import::BrowserFamily::Chrome => "chrome".to_string(),
+        crate::services::import::BrowserFamily::Chromium => "chromium".to_string(),
+        crate::services::import::BrowserFamily::Edge => "edge".to_string(),
+        crate::services::import::BrowserFamily::Brave => "brave".to_string(),
+        crate::services::import::BrowserFamily::Arc => "arc".to_string(),
+        crate::services::import::BrowserFamily::Firefox => "firefox".to_string(),
+        crate::services::import::BrowserFamily::Safari => "safari".to_string(),
+        crate::services::import::BrowserFamily::Other(value) => value.trim().to_ascii_lowercase(),
+    }
+}
+
+fn browser_import_source_kind_key(
+    kind: &crate::services::import::BrowserImportSourceKind,
+) -> &'static str {
+    match kind {
+        crate::services::import::BrowserImportSourceKind::BookmarkFile => "bookmark-file",
+        crate::services::import::BrowserImportSourceKind::HistoryDatabase => "history-db",
+        crate::services::import::BrowserImportSourceKind::SessionFile => "session-file",
+        crate::services::import::BrowserImportSourceKind::NativeProfileReader => {
+            "native-profile-reader"
+        }
+        crate::services::import::BrowserImportSourceKind::ExtensionBridge => "extension-bridge",
+        crate::services::import::BrowserImportSourceKind::NativeMessagingBridge => {
+            "native-messaging-bridge"
+        }
+    }
+}
+
+fn browser_import_source_id(run: &crate::services::import::BrowserImportRun) -> String {
+    if let Some(stable_source_id) = &run.source.stable_source_id {
+        let trimmed = stable_source_id.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    let mut source_id = format!(
+        "browser-import:{}:{}",
+        browser_family_key(&run.source.browser_family),
+        browser_import_source_kind_key(&run.source.source_kind)
+    );
+    if let Some(profile_hint) = &run.source.profile_hint {
+        let trimmed = profile_hint.trim();
+        if !trimmed.is_empty() {
+            source_id.push(':');
+            source_id.push_str(trimmed);
+        }
+    }
+    source_id
+}
+
+fn browser_import_source_label(run: &crate::services::import::BrowserImportRun) -> String {
+    let trimmed = run.user_visible_label.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+
+    let family = browser_family_key(&run.source.browser_family);
+    format!("{} {}", family, browser_import_source_kind_key(&run.source.source_kind))
+}
+
+fn browser_import_record_id(
+    run: &crate::services::import::BrowserImportRun,
+    source_id: &str,
+) -> String {
+    let trimmed = run.import_id.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    format!("import-record:{source_id}:{}", run.observed_at_unix_secs.max(0))
+}
+
+fn browser_import_timestamp_secs(run: &crate::services::import::BrowserImportRun) -> u64 {
+    run.observed_at_unix_secs.max(0) as u64
+}
+
+fn browser_import_node_url(kind: &str, seed: &str) -> String {
+    crate::util::VersoAddress::Other {
+        category: "import".to_string(),
+        segments: vec![
+            kind.to_string(),
+            uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, seed.as_bytes()).to_string(),
+        ],
+    }
+    .to_string()
+}
+
+fn bookmark_folder_seed(
+    source_id: &str,
+    folder_path: &[crate::services::import::ImportedFolderSegment],
+) -> String {
+    let mut segments = Vec::with_capacity(folder_path.len());
+    for segment in folder_path {
+        segments.push(
+            segment
+                .stable_id
+                .clone()
+                .unwrap_or_else(|| segment.label.clone()),
+        );
+    }
+    format!("bookmark-folder\n{source_id}\n{}", segments.join("/"))
+}
+
+fn imported_history_root_title(source_label: &str) -> String {
+    format!("Imported History: {source_label}")
+}
+
+fn imported_session_root_title(
+    source_label: &str,
+    snapshot: &crate::services::import::ImportedBrowserSessionItem,
+) -> String {
+    format!("Imported Session Snapshot: {} ({})", source_label, snapshot.snapshot_id)
 }
 
 impl GraphBrowserApp {
@@ -867,6 +989,166 @@ impl GraphBrowserApp {
 
         self.select_node(subject_node, false);
         Ok(subject_node)
+    }
+
+    pub(crate) fn apply_browser_import_batch(
+        &mut self,
+        batch: &crate::services::import::BrowserImportBatch,
+        anchor: Option<NodeKey>,
+    ) {
+        if batch.items.is_empty() {
+            return;
+        }
+
+        let source_id = browser_import_source_id(&batch.run);
+        let source_label = browser_import_source_label(&batch.run);
+        let record_id = browser_import_record_id(&batch.run, &source_id);
+        let imported_at_secs = browser_import_timestamp_secs(&batch.run);
+        let mut imported_node_ids = std::collections::BTreeSet::<String>::new();
+
+        let history_root = if batch.items.iter().any(|item| {
+            matches!(
+                item,
+                crate::services::import::BrowserImportPayload::HistoryVisit(_)
+            )
+        }) {
+            let url = browser_import_node_url(
+                "history",
+                &format!("history-root\n{source_id}\n{record_id}"),
+            );
+            let key = self.ensure_browser_import_structure_node(
+                url,
+                imported_history_root_title(&source_label),
+                anchor,
+            );
+            self.collect_browser_import_node_id(key, &mut imported_node_ids);
+            Some(key)
+        } else {
+            None
+        };
+
+        for item in &batch.items {
+            match item {
+                crate::services::import::BrowserImportPayload::Bookmark(bookmark) => {
+                    let page_key = self.ensure_browser_import_page_node(&bookmark.page, anchor);
+                    self.apply_node_tags(page_key, &[GraphBrowserApp::TAG_STARRED]);
+                    self.collect_browser_import_node_id(page_key, &mut imported_node_ids);
+
+                    let mut parent_key = None;
+                    for depth in 0..bookmark.folder_path.len() {
+                        let folder_path = &bookmark.folder_path[..=depth];
+                        let folder = folder_path.last().expect("folder path segment");
+                        let folder_key = self.ensure_browser_import_structure_node(
+                            browser_import_node_url(
+                                "bookmark-folder",
+                                &bookmark_folder_seed(&source_id, folder_path),
+                            ),
+                            folder.label.clone(),
+                            anchor,
+                        );
+                        self.collect_browser_import_node_id(folder_key, &mut imported_node_ids);
+                        if let Some(parent) = parent_key {
+                            let _ = self.assert_relation_and_sync(
+                                parent,
+                                folder_key,
+                                crate::graph::EdgeAssertion::Imported {
+                                    sub_kind: crate::graph::ImportedSubKind::BookmarkFolder,
+                                },
+                            );
+                        }
+                        parent_key = Some(folder_key);
+                    }
+
+                    if let Some(parent) = parent_key {
+                        let _ = self.assert_relation_and_sync(
+                            parent,
+                            page_key,
+                            crate::graph::EdgeAssertion::Imported {
+                                sub_kind: crate::graph::ImportedSubKind::BookmarkFolder,
+                            },
+                        );
+                    }
+                }
+                crate::services::import::BrowserImportPayload::HistoryVisit(visit) => {
+                    let page_key = self.ensure_browser_import_page_node(&visit.page, anchor);
+                    self.collect_browser_import_node_id(page_key, &mut imported_node_ids);
+                    if let Some(root_key) = history_root {
+                        let _ = self.assert_relation_and_sync(
+                            root_key,
+                            page_key,
+                            crate::graph::EdgeAssertion::Imported {
+                                sub_kind: crate::graph::ImportedSubKind::HistoryImport,
+                            },
+                        );
+                    }
+                }
+                crate::services::import::BrowserImportPayload::SessionSnapshot(snapshot) => {
+                    let root_key = self.ensure_browser_import_structure_node(
+                        browser_import_node_url(
+                            "session",
+                            &format!("session-root\n{source_id}\n{}", snapshot.snapshot_id),
+                        ),
+                        imported_session_root_title(&source_label, snapshot),
+                        anchor,
+                    );
+                    self.collect_browser_import_node_id(root_key, &mut imported_node_ids);
+                    for window in &snapshot.windows {
+                        for tab in &window.tabs {
+                            let page_key = self.ensure_browser_import_page_node(&tab.page, anchor);
+                            self.collect_browser_import_node_id(page_key, &mut imported_node_ids);
+                            let _ = self.assert_relation_and_sync(
+                                root_key,
+                                page_key,
+                                crate::graph::EdgeAssertion::Imported {
+                                    sub_kind: crate::graph::ImportedSubKind::SessionImport,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut import_records = self.workspace.domain.graph.import_records().to_vec();
+        let mut updated = false;
+        if !imported_node_ids.is_empty() {
+            let memberships = imported_node_ids
+                .into_iter()
+                .map(|node_id| crate::graph::ImportRecordMembership {
+                    node_id,
+                    suppressed: false,
+                })
+                .collect::<Vec<_>>();
+
+            if let Some(existing) = import_records
+                .iter_mut()
+                .find(|record| record.record_id == record_id)
+            {
+                if existing.source_id.is_empty() {
+                    existing.source_id = source_id.clone();
+                }
+                if existing.source_label.is_empty() {
+                    existing.source_label = source_label.clone();
+                }
+                if existing.imported_at_secs == 0 {
+                    existing.imported_at_secs = imported_at_secs;
+                }
+                existing.memberships.extend(memberships);
+            } else {
+                import_records.push(crate::graph::ImportRecord {
+                    record_id,
+                    source_id,
+                    source_label,
+                    imported_at_secs,
+                    memberships,
+                });
+            }
+            updated = self.workspace.domain.graph.set_import_records(import_records);
+        }
+
+        if updated {
+            self.workspace.graph_runtime.egui_state_dirty = true;
+        }
     }
 
     pub(crate) fn fetch_and_import_webfinger_into_graph(
@@ -2655,6 +2937,55 @@ impl GraphBrowserApp {
         self.set_node_title_if_empty_or_url_and_log(key, title);
         self.apply_node_tags(key, tags);
         key
+    }
+
+    fn ensure_browser_import_structure_node(
+        &mut self,
+        url: String,
+        title: String,
+        anchor: Option<NodeKey>,
+    ) -> NodeKey {
+        let position = self.suggested_new_node_position(anchor);
+        let key = if let Some((key, _)) = self.domain_graph().get_node_by_url(&url) {
+            key
+        } else {
+            self.add_node_and_sync(url, position)
+        };
+        self.set_node_title_if_empty_or_url_and_log(key, title);
+        key
+    }
+
+    fn ensure_browser_import_page_node(
+        &mut self,
+        page: &crate::services::import::ImportedPageSeed,
+        anchor: Option<NodeKey>,
+    ) -> NodeKey {
+        let position = self.suggested_new_node_position(anchor);
+        let key = if let Some((key, _)) = self.domain_graph().get_node_by_url(&page.canonical_url) {
+            key
+        } else {
+            self.add_node_and_sync(page.canonical_url.clone(), position)
+        };
+        if let Some(title) = page
+            .normalized_title
+            .as_ref()
+            .or(page.raw_title.as_ref())
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            self.set_node_title_if_empty_or_url_and_log(key, title.to_string());
+        }
+        key
+    }
+
+    fn collect_browser_import_node_id(
+        &self,
+        key: NodeKey,
+        ids: &mut std::collections::BTreeSet<String>,
+    ) {
+        if let Some(node) = self.workspace.domain.graph.get_node(key) {
+            ids.insert(node.id.to_string());
+        }
     }
 
     fn find_person_node_for_identity_profile(

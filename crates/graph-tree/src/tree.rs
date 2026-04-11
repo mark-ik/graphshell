@@ -474,33 +474,41 @@ impl<N: MemberId> GraphTree<N> {
             return NavResult::empty();
         }
 
-        // Determine placement from provenance
-        match &provenance {
+        // Determine placement from provenance.
+        // If the requested parent/sibling doesn't exist in the topology,
+        // the topology method returns false and we fall back to root placement.
+        let placed = match &provenance {
             Provenance::Traversal { source, .. } => {
-                self.topology.attach_child(member.clone(), source);
+                self.topology.attach_child(member.clone(), source)
             }
             Provenance::Manual {
                 source: Some(source),
                 ..
             } => {
-                self.topology.attach_sibling(member.clone(), source);
+                self.topology.attach_sibling(member.clone(), source)
             }
             Provenance::Derived {
                 connection: Some(conn),
                 ..
             } => {
-                self.topology.attach_sibling(member.clone(), conn);
+                self.topology.attach_sibling(member.clone(), conn)
             }
             Provenance::AgentDerived {
                 source: Some(source),
                 ..
             } => {
-                self.topology.attach_sibling(member.clone(), source);
+                self.topology.attach_sibling(member.clone(), source)
             }
             _ => {
                 // Anchor, Restored, Manual without source, Derived without connection
-                self.topology.attach_root(member.clone());
+                self.topology.attach_root(member.clone())
             }
+        };
+
+        // If provenance-guided placement failed (e.g. source not in topology),
+        // fall back to root placement so the member is always reachable.
+        if !placed {
+            self.topology.attach_root(member.clone());
         }
 
         let entry = MemberEntry::new(Lifecycle::Cold, provenance);
@@ -524,21 +532,29 @@ impl<N: MemberId> GraphTree<N> {
                 intents.push(TreeIntent::MemberDetached(node.clone()));
             }
         } else {
-            // Reparent children to the detached member's parent
+            // Non-recursive: remove only this member, reparenting its children
+            // to its parent (or promoting them to roots).
             let children: Vec<N> = self.topology.children_of(&member).to_vec();
             let parent = self.topology.parent_of(&member).cloned();
 
-            // Detach the member itself
-            self.topology.detach(&member);
+            // Remove only this single node from the topology. We can't use
+            // topology.detach() here because it removes the entire subtree,
+            // which would orphan grandchildren still in the members map.
+            self.topology.detach_single(&member);
             self.members.remove(&member);
             self.expanded.remove(&member);
 
-            // Re-attach orphaned children
+            // Re-attach children (with their full subtrees intact) to the
+            // detached member's parent, or promote them to roots.
+            // After detach_single, the children have no parent pointer and
+            // aren't in insertion_order as children — we need to re-link them.
             for child in children {
                 if let Some(ref p) = parent {
-                    self.topology.attach_child(child, p);
+                    // Re-establish parent/child link directly.
+                    self.topology.reattach_child(child, p);
                 } else {
-                    self.topology.attach_root(child);
+                    // Promote to root.
+                    self.topology.promote_to_root(&child);
                 }
             }
 
@@ -1242,5 +1258,101 @@ mod tests {
         tree.apply(NavAction::ToggleExpand(1));
         let result = tree.compute_layout(Rect::new(0.0, 0.0, 800.0, 600.0));
         assert_eq!(result.tree_rows.len(), 1); // just root
+    }
+
+    // --- Orphan prevention tests (Phase A correctness hardening) ---
+
+    #[test]
+    fn traversal_attach_with_missing_source_falls_back_to_root() {
+        let mut tree = GraphTree::new(LayoutMode::TreeStyleTabs, ProjectionLens::Traversal);
+
+        // Attach member 2 with traversal from source 99 which doesn't exist
+        tree.apply(NavAction::Attach {
+            member: 2u64,
+            provenance: Provenance::Traversal {
+                source: 99,
+                edge_kind: None,
+            },
+        });
+
+        // Member should still be attached — as a root, not orphaned
+        assert!(tree.contains(&2));
+        assert!(tree.topology().roots().contains(&2));
+        assert!(tree.topology().parent_of(&2).is_none());
+        tree.topology().assert_invariants();
+    }
+
+    #[test]
+    fn manual_attach_with_missing_source_falls_back_to_root() {
+        let mut tree = GraphTree::new(LayoutMode::TreeStyleTabs, ProjectionLens::Traversal);
+
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Manual {
+                source: Some(99), // doesn't exist
+                context: None,
+            },
+        });
+
+        assert!(tree.contains(&1));
+        assert!(tree.topology().roots().contains(&1));
+        tree.topology().assert_invariants();
+    }
+
+    #[test]
+    fn derived_attach_with_missing_connection_falls_back_to_root() {
+        let mut tree = GraphTree::new(LayoutMode::TreeStyleTabs, ProjectionLens::Traversal);
+
+        tree.apply(NavAction::Attach {
+            member: 5u64,
+            provenance: Provenance::Derived {
+                connection: Some(42), // doesn't exist
+                derivation: "test".to_string(),
+            },
+        });
+
+        assert!(tree.contains(&5));
+        assert!(tree.topology().roots().contains(&5));
+        tree.topology().assert_invariants();
+    }
+
+    #[test]
+    fn all_members_reachable_after_mixed_attaches() {
+        let mut tree = GraphTree::new(LayoutMode::TreeStyleTabs, ProjectionLens::Traversal);
+
+        // Valid chain
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
+        tree.apply(NavAction::Attach {
+            member: 2,
+            provenance: Provenance::Traversal {
+                source: 1,
+                edge_kind: None,
+            },
+        });
+
+        // Attach with missing source — should become root
+        tree.apply(NavAction::Attach {
+            member: 3,
+            provenance: Provenance::Traversal {
+                source: 99,
+                edge_kind: None,
+            },
+        });
+
+        // Every member must appear in visible_rows when all are expanded
+        tree.apply(NavAction::ToggleExpand(1));
+        tree.apply(NavAction::ToggleExpand(2));
+        tree.apply(NavAction::ToggleExpand(3));
+
+        let rows = tree.visible_rows();
+        let row_ids: Vec<u64> = rows.iter().map(|r| r.member).collect();
+        assert!(row_ids.contains(&1));
+        assert!(row_ids.contains(&2));
+        assert!(row_ids.contains(&3));
+
+        tree.topology().assert_invariants();
     }
 }

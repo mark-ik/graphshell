@@ -46,9 +46,10 @@ impl<N: MemberId> TreeTopology<N> {
     }
 
     /// Attach a member as a child of the given parent.
-    /// Returns `false` (no-op) if child == parent or child is already placed.
+    /// Returns `false` (no-op) if child == parent, child is already placed,
+    /// or **parent does not exist in the topology**.
     pub fn attach_child(&mut self, child: N, parent: &N) -> bool {
-        if child == *parent || self.contains(&child) {
+        if child == *parent || self.contains(&child) || !self.contains(parent) {
             return false;
         }
         self.parent.insert(child.clone(), parent.clone());
@@ -64,12 +65,16 @@ impl<N: MemberId> TreeTopology<N> {
 
     /// Attach a member as a sibling of the given node (same parent).
     /// If `sibling_of` is a root, the new member becomes a root too.
-    pub fn attach_sibling(&mut self, member: N, sibling_of: &N) {
+    /// Returns `false` (no-op) if `sibling_of` does not exist in the topology.
+    pub fn attach_sibling(&mut self, member: N, sibling_of: &N) -> bool {
+        if !self.contains(sibling_of) {
+            return false;
+        }
         if let Some(parent) = self.parent.get(sibling_of).cloned() {
-            self.attach_child(member, &parent);
+            self.attach_child(member, &parent)
         } else {
             // sibling_of is a root — new member also becomes a root
-            self.attach_root(member);
+            self.attach_root(member)
         }
     }
 
@@ -85,9 +90,13 @@ impl<N: MemberId> TreeTopology<N> {
 
     /// Move a member to be a child of a new parent.
     /// Returns `false` (no-op) if the move would create a cycle
-    /// (new_parent is a descendant of member) or if member == new_parent.
+    /// (new_parent is a descendant of member), member == new_parent,
+    /// or either node does not exist in the topology.
     pub fn reparent(&mut self, member: &N, new_parent: &N) -> bool {
         if member == new_parent {
+            return false;
+        }
+        if !self.contains(member) || !self.contains(new_parent) {
             return false;
         }
         // Cycle check: new_parent must not be a descendant of member.
@@ -116,6 +125,63 @@ impl<N: MemberId> TreeTopology<N> {
         }
 
         subtree
+    }
+
+    /// Re-attach an existing topology member as a child of a new parent.
+    /// Unlike `attach_child`, this does not require the child to be absent
+    /// from the topology — it's used after `detach_single` to reconnect
+    /// orphaned children to a new parent. The child's subtree is preserved.
+    pub fn reattach_child(&mut self, child: N, parent: &N) {
+        // Set parent pointer.
+        self.parent.insert(child.clone(), parent.clone());
+        // Add to parent's children list.
+        self.children
+            .entry(parent.clone())
+            .or_default()
+            .push(child.clone());
+        // Ensure the child is in insertion_order (it should already be).
+        if !self.insertion_order.contains(&child) {
+            self.insertion_order.push(child);
+        }
+    }
+
+    /// Detach a single node from the topology WITHOUT removing its subtree.
+    /// Children of the detached node become disconnected from their parent
+    /// but remain in the topology's children/parent maps — the caller is
+    /// responsible for reparenting or promoting them.
+    pub fn detach_single(&mut self, member: &N) {
+        // Remove parent pointer and unlink from parent's children list.
+        self.detach_from_parent(member);
+        // Remove from insertion_order.
+        self.insertion_order.retain(|n| n != member);
+        // Clear this node's children list (children keep their parent pointers
+        // which now point to a removed node — caller must fix them).
+        if let Some(children) = self.children.remove(member) {
+            // Clear the dangling parent pointers on the children.
+            for child in &children {
+                self.parent.remove(child);
+            }
+        }
+    }
+
+    /// Promote a member to root status. Used after `detach_single` removes
+    /// a parent — the orphaned child needs to become a root.
+    ///
+    /// No-op if the member is already a root or doesn't exist in the topology.
+    pub fn promote_to_root(&mut self, member: &N) {
+        if !self.insertion_order.contains(member) {
+            return;
+        }
+        // Remove existing parent pointer if any.
+        if let Some(parent) = self.parent.remove(member) {
+            if let Some(siblings) = self.children.get_mut(&parent) {
+                siblings.retain(|n| n != member);
+            }
+        }
+        // Add to roots if not already there.
+        if !self.roots.contains(member) {
+            self.roots.push(member.clone());
+        }
     }
 
     /// Reorder children of a parent node.
@@ -366,6 +432,45 @@ impl<N: MemberId> TreeTopology<N> {
         // 6. No duplicate roots
         let unique_roots: HashSet<&N> = self.roots.iter().collect();
         assert_eq!(unique_roots.len(), self.roots.len(), "duplicate roots");
+
+        // 7. Every node in insertion_order is reachable from a root
+        let reachable = self.all_reachable_from_roots();
+        for node in &self.insertion_order {
+            assert!(
+                reachable.contains(node),
+                "node {:?} is in insertion_order but not reachable from any root",
+                node
+            );
+        }
+
+        // 8. Every reachable node is in insertion_order
+        for node in &reachable {
+            assert!(
+                self.insertion_order.contains(node),
+                "node {:?} is reachable from roots but missing from insertion_order",
+                node
+            );
+        }
+    }
+
+    /// Collect all nodes reachable from roots via depth-first traversal.
+    fn all_reachable_from_roots(&self) -> HashSet<N> {
+        let mut reachable = HashSet::new();
+        for root in &self.roots {
+            self.collect_reachable(root, &mut reachable);
+        }
+        reachable
+    }
+
+    fn collect_reachable(&self, node: &N, reachable: &mut HashSet<N>) {
+        if !reachable.insert(node.clone()) {
+            return; // already visited
+        }
+        if let Some(children) = self.children.get(node) {
+            for child in children {
+                self.collect_reachable(child, reachable);
+            }
+        }
     }
 }
 
@@ -647,6 +752,45 @@ mod tests {
         assert!(topo.attach_root(1));
         assert!(!topo.attach_root(1));
         assert_eq!(topo.roots(), &[1]);
+        topo.assert_invariants();
+    }
+
+    #[test]
+    fn attach_child_rejects_missing_parent() {
+        let mut topo = TreeTopology::<u64>::new();
+        topo.attach_root(1);
+        // Parent 99 doesn't exist — should reject
+        assert!(!topo.attach_child(2, &99));
+        assert!(!topo.contains(&2));
+        topo.assert_invariants();
+    }
+
+    #[test]
+    fn attach_sibling_rejects_missing_reference() {
+        let mut topo = TreeTopology::<u64>::new();
+        topo.attach_root(1);
+        // sibling_of 99 doesn't exist — should reject
+        assert!(!topo.attach_sibling(2, &99));
+        assert!(!topo.contains(&2));
+        topo.assert_invariants();
+    }
+
+    #[test]
+    fn reparent_rejects_missing_parent() {
+        let mut topo = TreeTopology::<u64>::new();
+        topo.attach_root(1);
+        // new_parent 99 doesn't exist
+        assert!(!topo.reparent(&1, &99));
+        assert_eq!(topo.roots(), &[1]);
+        topo.assert_invariants();
+    }
+
+    #[test]
+    fn reparent_rejects_missing_member() {
+        let mut topo = TreeTopology::<u64>::new();
+        topo.attach_root(1);
+        // member 99 doesn't exist
+        assert!(!topo.reparent(&99, &1));
         topo.assert_invariants();
     }
 

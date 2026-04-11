@@ -1050,6 +1050,7 @@ impl ContainmentSubKind {
 pub enum ImportedSubKind {
     BookmarkFolder,
     HistoryImport,
+    SessionImport,
     RssMembership,
     FileSystemImport,
     ArchiveMembership,
@@ -3690,6 +3691,9 @@ impl Graph {
                                     ImportedSubKind::HistoryImport => {
                                         PersistedImportedSubKind::HistoryImport
                                     }
+                                    ImportedSubKind::SessionImport => {
+                                        PersistedImportedSubKind::SessionImport
+                                    }
                                     ImportedSubKind::RssMembership => {
                                         PersistedImportedSubKind::RssMembership
                                     }
@@ -3931,6 +3935,9 @@ impl Graph {
                             },
                             PersistedImportedSubKind::HistoryImport => EdgeAssertion::Imported {
                                 sub_kind: ImportedSubKind::HistoryImport,
+                            },
+                            PersistedImportedSubKind::SessionImport => EdgeAssertion::Imported {
+                                sub_kind: ImportedSubKind::SessionImport,
                             },
                             PersistedImportedSubKind::RssMembership => EdgeAssertion::Imported {
                                 sub_kind: ImportedSubKind::RssMembership,

@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 pub(crate) mod facts;
+pub(crate) mod import;
 pub(crate) mod persistence;
 pub(crate) mod query;
 pub(crate) mod search;
