@@ -148,3 +148,89 @@ pub(crate) fn rebuild_from_tiles(
         }
     }
 }
+
+/// Produce `(PaneId, NodeKey, egui::Rect)` tuples from GraphTree layout, matching
+/// the format of `tile_compositor::active_node_pane_rects()`.
+///
+/// During the migration, PaneId is still looked up from the tile tree since
+/// the GraphTree doesn't carry pane identity. Once GraphTree becomes the
+/// layout authority, PaneId will be stored as member metadata.
+pub(crate) fn active_node_pane_rects_from_graph_tree(
+    graph_tree: &GraphTree<NodeKey>,
+    tiles_tree: &Tree<TileKind>,
+    available: graph_tree::Rect,
+) -> Vec<(super::pane_model::PaneId, NodeKey, egui::Rect)> {
+    let layout = graph_tree.compute_layout(available);
+    let mut result = Vec::new();
+
+    for (member, rect) in &layout.pane_rects {
+        // Look up PaneId from the tile tree (migration bridge).
+        let pane_id = tiles_tree.tiles.iter().find_map(|(_, tile)| {
+            if let Tile::Pane(kind) = tile {
+                if let Some(state) = kind.node_state() {
+                    if state.node == *member {
+                        return Some(state.pane_id);
+                    }
+                }
+            }
+            None
+        });
+
+        if let Some(pane_id) = pane_id {
+            let egui_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.x, rect.y),
+                egui::vec2(rect.w, rect.h),
+            );
+            result.push((pane_id, *member, egui_rect));
+        }
+    }
+
+    result
+}
+
+/// Parity check: verify the GraphTree contains the same node panes as the tile tree.
+///
+/// Returns a list of discrepancies (empty if in sync). Intended for diagnostics
+/// builds and debug assertions.
+#[cfg(any(feature = "diagnostics", debug_assertions))]
+pub(crate) fn parity_check(
+    graph_tree: &GraphTree<NodeKey>,
+    tiles_tree: &Tree<TileKind>,
+) -> Vec<ParityDiscrepancy> {
+    let mut discrepancies = Vec::new();
+
+    // Collect node keys from tile tree.
+    let mut tile_nodes: Vec<NodeKey> = Vec::new();
+    for (_tile_id, tile) in tiles_tree.tiles.iter() {
+        if let Tile::Pane(kind) = tile {
+            if let Some(state) = kind.node_state() {
+                tile_nodes.push(state.node);
+            }
+        }
+    }
+
+    // Check: every tile node should be in graph_tree.
+    for &node_key in &tile_nodes {
+        if !graph_tree.contains(&node_key) {
+            discrepancies.push(ParityDiscrepancy::MissingInGraphTree(node_key));
+        }
+    }
+
+    // Check: every graph_tree member should be in the tile tree.
+    for (member, _) in graph_tree.members() {
+        if !tile_nodes.contains(member) {
+            discrepancies.push(ParityDiscrepancy::MissingInTileTree(*member));
+        }
+    }
+
+    discrepancies
+}
+
+#[cfg(any(feature = "diagnostics", debug_assertions))]
+#[derive(Debug, Clone)]
+pub(crate) enum ParityDiscrepancy {
+    /// Node exists in tile tree but not in GraphTree.
+    MissingInGraphTree(NodeKey),
+    /// Node exists in GraphTree but not in tile tree.
+    MissingInTileTree(NodeKey),
+}

@@ -924,6 +924,38 @@ impl Gui {
             });
         });
 
+        // Per-frame sync: mirror tile tree state into the parallel GraphTree.
+        {
+            let focused = self.focused_node_key();
+            let graph_app = &self.graph_app;
+            crate::shell::desktop::workbench::graph_tree_sync::rebuild_from_tiles(
+                &mut self.graph_tree,
+                &self.tiles_tree,
+                focused,
+                &|node_key| {
+                    graph_app
+                        .domain_graph()
+                        .get_node(node_key)
+                        .map(|n| n.lifecycle)
+                        .unwrap_or(crate::graph::NodeLifecycle::Cold)
+                },
+            );
+
+            #[cfg(debug_assertions)]
+            {
+                let discrepancies =
+                    crate::shell::desktop::workbench::graph_tree_sync::parity_check(
+                        &self.graph_tree,
+                        &self.tiles_tree,
+                    );
+                debug_assert!(
+                    discrepancies.is_empty(),
+                    "GraphTree/tiles_tree parity violation: {:?}",
+                    discrepancies
+                );
+            }
+        }
+
         self.persist_active_toolbar_draft();
 
         GuiUpdateOutput
