@@ -1235,8 +1235,23 @@ impl GraphStore {
         std::str::from_utf8(&decrypted).ok().map(|s| s.to_string())
     }
 
+    /// Maximum serialized size for GraphTree JSON (50 MiB).
+    ///
+    /// This is a circuit breaker, not a capacity limit. If the tree
+    /// serializes larger than this, something is pathological — skip the
+    /// write and log a diagnostic rather than OOMing or stalling the DB.
+    const GRAPH_TREE_JSON_MAX_BYTES: usize = 50 * 1024 * 1024;
+
     /// Persist serialized GraphTree JSON alongside the tile layout.
     pub fn save_graph_tree_json(&mut self, json: &str) -> Result<(), GraphStoreError> {
+        if json.len() > Self::GRAPH_TREE_JSON_MAX_BYTES {
+            return Err(GraphStoreError::Io(format!(
+                "GraphTree JSON exceeds size limit ({} bytes > {} byte limit) — \
+                 skipping persistence to avoid resource exhaustion",
+                json.len(),
+                Self::GRAPH_TREE_JSON_MAX_BYTES,
+            )));
+        }
         let encrypted = self.encode_persisted_bytes(json.as_bytes())?;
         let write_txn = self
             .snapshot_db

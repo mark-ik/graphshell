@@ -12,58 +12,64 @@ use proptest::prelude::*;
 const MAX_MEMBER_ID: u64 = 20;
 
 /// Generate a random NavAction over small member IDs.
+///
+/// Weights are chosen so that shrink actions (Dismiss, Detach) fire
+/// roughly as often as growth actions (Attach variants). This models
+/// realistic usage — people close tabs, not just open them — and
+/// prevents monotonic tree growth that produces pathological
+/// serialization sizes.
 fn arb_nav_action() -> impl Strategy<Value = NavAction<u64>> {
     prop_oneof![
-        // Attach with various provenances
-        (1..=MAX_MEMBER_ID).prop_map(|m| NavAction::Attach {
+        // Attach with various provenances (total weight: 3)
+        1 => (1..=MAX_MEMBER_ID).prop_map(|m| NavAction::Attach {
             member: m,
             provenance: Provenance::Anchor,
         }),
-        (1..=MAX_MEMBER_ID, 1..=MAX_MEMBER_ID).prop_map(|(m, s)| NavAction::Attach {
+        1 => (1..=MAX_MEMBER_ID, 1..=MAX_MEMBER_ID).prop_map(|(m, s)| NavAction::Attach {
             member: m,
             provenance: Provenance::Traversal {
                 source: s,
                 edge_kind: None,
             },
         }),
-        (1..=MAX_MEMBER_ID, 1..=MAX_MEMBER_ID).prop_map(|(m, s)| NavAction::Attach {
+        1 => (1..=MAX_MEMBER_ID, 1..=MAX_MEMBER_ID).prop_map(|(m, s)| NavAction::Attach {
             member: m,
             provenance: Provenance::Manual {
                 source: Some(s),
                 context: None,
             },
         }),
-        // Select / Activate / Dismiss
-        (1..=MAX_MEMBER_ID).prop_map(NavAction::Select),
-        (1..=MAX_MEMBER_ID).prop_map(NavAction::Activate),
-        (1..=MAX_MEMBER_ID).prop_map(NavAction::Dismiss),
-        // Expand / Reveal
-        (1..=MAX_MEMBER_ID).prop_map(NavAction::ToggleExpand),
-        (1..=MAX_MEMBER_ID).prop_map(NavAction::Reveal),
-        // Detach
-        (1..=MAX_MEMBER_ID, any::<bool>()).prop_map(|(m, r)| NavAction::Detach {
+        // Shrink actions — weighted to balance growth (total weight: 3)
+        2 => (1..=MAX_MEMBER_ID).prop_map(NavAction::Dismiss),
+        1 => (1..=MAX_MEMBER_ID, any::<bool>()).prop_map(|(m, r)| NavAction::Detach {
             member: m,
             recursive: r,
         }),
-        // Reparent
-        (1..=MAX_MEMBER_ID, 1..=MAX_MEMBER_ID).prop_map(|(m, p)| NavAction::Reparent {
+        // Select / Activate (total weight: 2)
+        1 => (1..=MAX_MEMBER_ID).prop_map(NavAction::Select),
+        1 => (1..=MAX_MEMBER_ID).prop_map(NavAction::Activate),
+        // Expand / Reveal (total weight: 2)
+        1 => (1..=MAX_MEMBER_ID).prop_map(NavAction::ToggleExpand),
+        1 => (1..=MAX_MEMBER_ID).prop_map(NavAction::Reveal),
+        // Reparent (weight: 1)
+        1 => (1..=MAX_MEMBER_ID, 1..=MAX_MEMBER_ID).prop_map(|(m, p)| NavAction::Reparent {
             member: m,
             new_parent: p,
         }),
-        // Lifecycle
-        (1..=MAX_MEMBER_ID, prop_oneof![
+        // Lifecycle (weight: 1)
+        1 => (1..=MAX_MEMBER_ID, prop_oneof![
             Just(Lifecycle::Active),
             Just(Lifecycle::Warm),
             Just(Lifecycle::Cold),
         ]).prop_map(|(m, l)| NavAction::SetLifecycle(m, l)),
-        // Layout mode
-        prop_oneof![
+        // Layout mode (weight: 1)
+        1 => prop_oneof![
             Just(LayoutMode::TreeStyleTabs),
             Just(LayoutMode::FlatTabs),
             Just(LayoutMode::SplitPanes),
         ].prop_map(NavAction::SetLayoutMode),
-        // Lens
-        prop_oneof![
+        // Lens (weight: 1)
+        1 => prop_oneof![
             Just(ProjectionLens::Traversal),
             Just(ProjectionLens::Arrangement),
             Just(ProjectionLens::Containment),
@@ -71,12 +77,12 @@ fn arb_nav_action() -> impl Strategy<Value = NavAction<u64>> {
             Just(ProjectionLens::Recency),
             Just(ProjectionLens::All),
         ].prop_map(NavAction::SetLens),
-        // Focus cycling
-        prop_oneof![
+        // Focus cycling (weight: 1)
+        1 => prop_oneof![
             Just(FocusDirection::Next),
             Just(FocusDirection::Previous),
         ].prop_map(NavAction::CycleFocus),
-        prop_oneof![
+        1 => prop_oneof![
             Just(FocusCycleRegion::Roots),
             Just(FocusCycleRegion::Branches),
             Just(FocusCycleRegion::Leaves),
@@ -144,7 +150,7 @@ proptest! {
 
     #[test]
     fn serialization_survives_random_state(
-        actions in proptest::collection::vec(arb_nav_action(), 1..20)
+        actions in proptest::collection::vec(arb_nav_action(), 1..40)
     ) {
         let mut tree = GraphTree::new(LayoutMode::TreeStyleTabs, ProjectionLens::Traversal);
 
@@ -152,12 +158,7 @@ proptest! {
             tree.apply(action);
         }
 
-        // Guard against pathological cases that produce enormous JSON.
         let json = serde_json::to_string(&tree).unwrap();
-        if json.len() > 10_000_000 {
-            // Skip pathological cases rather than OOM.
-            return Ok(());
-        }
         let restored: GraphTree<u64> = serde_json::from_str(&json).unwrap();
 
         assert_eq!(restored.member_count(), tree.member_count());
