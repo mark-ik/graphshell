@@ -5,6 +5,7 @@
 pub(crate) mod compositor_adapter;
 pub(crate) mod graph_tree_adapter;
 pub(crate) mod graph_tree_commands;
+pub(crate) mod graph_tree_projection;
 pub(crate) mod graph_tree_sync;
 pub(crate) mod interaction_policy;
 pub(crate) mod pane_model;
