@@ -13,6 +13,7 @@ mod graphlet;
 mod layout;
 mod lens;
 mod member;
+pub mod memory_policy;
 mod nav;
 mod query;
 mod topology;
