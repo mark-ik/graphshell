@@ -172,6 +172,18 @@ with prerequisite fixups.
 | 3: Address enum | ✅ Done | `Address { Http, File, Data, Clip, Directory, Custom }` landed 2026-03-26 |
 | 4 prereq: GraphSemanticEvent rename | ❌ Not done | Must rename before extraction (Phase 0 below) |
 
+## Extraction Phases Status
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 0: Rename GraphSemanticEvent | ⏭️ Skipped | Not blocking — extracted types don't reference it |
+| 1: Scaffold the crate | ✅ Done | `crates/graphshell-core/` created, in workspace |
+| 2: Move leaf types + persistence snapshot | ✅ Done | `types.rs`, `persistence.rs` in core; host re-exports via `pub use` |
+| 3: Move Address to core | ✅ Done | `address.rs` in core with all helpers |
+| 4: Move Graph, Node, NodeKey, EdgePayload | ✅ Done | `graph/mod.rs`, `graph/apply.rs`, `graph/filter.rs`, `graph/facet_projection.rs` in core |
+| 5: Wire host, fix visibility | ✅ Done | 2242 host tests pass (12 pre-existing failures, unrelated) |
+| 6: Cleanup and WASM gate hardening | ✅ Done | `cargo check -p graphshell-core --target wasm32-unknown-unknown` passes; `Uuid::new_v4()` and `test_stub` gated behind `cfg(not(wasm32))` |
+
 ---
 
 ## What Moves to Core
@@ -316,12 +328,14 @@ code compiles unchanged, but some `pub(crate)` items need visibility adjustments
 - `cargo check -p graphshell-core --target wasm32-unknown-unknown`
 - `cargo test` (full test suite)
 
-### Phase 6: Cleanup and WASM gate hardening
+### Phase 6: Cleanup and WASM gate hardening ✅
 
-- Verify no `Uuid::new_v4()` calls in core (test code uses `#[cfg(test)]`)
-- Verify no `std::time::Instant` in core (panics on WASM — use `SystemTime`)
-- Remove dead re-export shims
-- Add a note to the canonical extraction plan marking Step 4 as complete
+- `Graph::add_node()` and `Node::test_stub()` gated with `#[cfg(not(target_arch = "wasm32"))]`
+- `GraphDelta::AddNode { id: None }` panics on WASM (hosts must supply IDs)
+- `uuid` `v4` feature is target-gated: only enabled on non-WASM via `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`
+- No `std::time::Instant` in core (verified)
+- `cargo check -p graphshell-core --target wasm32-unknown-unknown` passes with 0 errors
+- 97 core tests pass, 2242 host tests pass
 
 ---
 

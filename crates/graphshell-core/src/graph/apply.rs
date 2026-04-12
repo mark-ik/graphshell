@@ -140,10 +140,12 @@ pub enum GraphDeltaResult {
 pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResult {
     match delta {
         GraphDelta::AddNode { id, url, position } => {
-            let key = if let Some(id) = id {
-                graph.add_node_with_id(id, url, position)
-            } else {
-                graph.add_node(url, position)
+            let key = match id {
+                Some(id) => graph.add_node_with_id(id, url, position),
+                #[cfg(not(target_arch = "wasm32"))]
+                None => graph.add_node(url, position),
+                #[cfg(target_arch = "wasm32")]
+                None => panic!("AddNode without an explicit id is not supported on WASM"),
             };
             GraphDeltaResult::NodeAdded(key)
         }

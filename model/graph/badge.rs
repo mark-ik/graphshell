@@ -36,41 +36,8 @@ pub(crate) enum Badge {
     Tag { label: String, icon: BadgeIcon },
 }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[rkyv(derive(Debug, PartialEq, Eq))]
-pub enum BadgeIcon {
-    Emoji(String),
-    Lucide(String),
-    None,
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Default,
-    PartialEq,
-    Eq,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[rkyv(derive(Debug, PartialEq, Eq))]
-pub struct NodeTagPresentationState {
-    pub ordered_tags: Vec<String>,
-    pub icon_overrides: std::collections::HashMap<String, BadgeIcon>,
-}
+// Canonical definitions live in `graphshell_core::types`.
+pub use graphshell_core::types::{BadgeIcon, NodeTagPresentationState};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct BadgeVisual {

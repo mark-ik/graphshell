@@ -237,6 +237,44 @@ fn render_pane_chrome_impl(
 }
 
 // ---------------------------------------------------------------------------
+// Render pass integration
+// ---------------------------------------------------------------------------
+
+/// Run the GraphTree renderer for the current layout mode and return collected
+/// NavActions. This bypasses the `GraphTreeRenderer` trait (which requires
+/// `'static` Ctx) and calls the impl functions directly with the real lifetimes.
+pub(crate) fn render_graph_tree_chrome(
+    graph_tree: &graph_tree::GraphTree<NodeKey>,
+    tree_rows: &[graph_tree::OwnedTreeRow<NodeKey>],
+    tab_order: &[graph_tree::TabEntry<NodeKey>],
+    raw_pane_rects: &HashMap<NodeKey, graph_tree::Rect>,
+    ctx: &mut EguiTreeCtx<'_>,
+) -> Vec<graph_tree::NavAction<NodeKey>> {
+    let mut all_actions = Vec::new();
+    let mode = graph_tree.layout_mode();
+
+    match mode {
+        graph_tree::LayoutMode::TreeStyleTabs => {
+            let out = render_tree_tabs_impl(graph_tree, tree_rows, ctx);
+            all_actions.extend(out.actions);
+        }
+        graph_tree::LayoutMode::FlatTabs => {
+            let out = render_flat_tabs_impl(graph_tree, tab_order, ctx);
+            all_actions.extend(out.actions);
+        }
+        graph_tree::LayoutMode::SplitPanes => {
+            // In split mode, render both the pane chrome and the tree sidebar.
+            let chrome_out = render_pane_chrome_impl(graph_tree, raw_pane_rects, ctx);
+            all_actions.extend(chrome_out.actions);
+            let tree_out = render_tree_tabs_impl(graph_tree, tree_rows, ctx);
+            all_actions.extend(tree_out.actions);
+        }
+    }
+
+    all_actions
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

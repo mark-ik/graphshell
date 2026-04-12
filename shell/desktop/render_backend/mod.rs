@@ -14,6 +14,9 @@ use winit::window::Window;
 
 pub(crate) use gl_backend::{
     BackendFramebufferHandle, BackendGraphicsContext, BackendParentRenderCallback,
+};
+#[cfg(feature = "gl_compat")]
+pub(crate) use gl_backend::{
     backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
     backend_chaos_framebuffer_handle, backend_framebuffer_binding,
     backend_framebuffer_from_binding, backend_is_blend_enabled, backend_is_scissor_enabled,
@@ -403,6 +406,7 @@ mod tests {
             BackendContentBridgePolicy::ExperimentalEnvRequestedMode,
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: true,
+                supports_wgpu_shared_texture: false,
             },
         );
 
@@ -427,6 +431,7 @@ mod tests {
             callback,
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: true,
+                supports_wgpu_shared_texture: false,
             },
         );
 
@@ -449,6 +454,7 @@ mod tests {
             BackendContentBridgePolicy::ExperimentalEnvRequestedMode,
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: false,
+                supports_wgpu_shared_texture: false,
             },
         );
 
@@ -471,6 +477,7 @@ mod tests {
             callback,
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: true,
+                supports_wgpu_shared_texture: false,
             },
         );
 

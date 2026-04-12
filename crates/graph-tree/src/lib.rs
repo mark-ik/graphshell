@@ -17,6 +17,7 @@ pub mod memory_policy;
 mod nav;
 pub mod parity;
 mod query;
+pub mod reconciliation;
 mod topology;
 mod tree;
 mod ux;

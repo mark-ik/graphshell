@@ -201,9 +201,9 @@ mod tests {
     use euclid::default::Point2D;
 
     use super::*;
-    use crate::model::graph::Graph;
-    use crate::model::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
-    use crate::model::graph::filter::facet_keys;
+    use crate::graph::Graph;
+    use crate::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
+    use crate::graph::filter::facet_keys;
 
     fn build_node(graph: &mut Graph, url: &str) -> NodeKey {
         let GraphDeltaResult::NodeAdded(key) = apply_graph_delta(
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn projection_udc_classes_includes_classification_values() {
-        use crate::model::graph::{
+        use crate::graph::{
             ClassificationProvenance, ClassificationScheme, ClassificationStatus,
             NodeClassification,
         };
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn projection_udc_classes_merges_tags_and_classifications() {
-        use crate::model::graph::{
+        use crate::graph::{
             ClassificationProvenance, ClassificationScheme, ClassificationStatus,
             NodeClassification,
         };

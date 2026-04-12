@@ -4651,6 +4651,7 @@ dependencies = [
  "gilrs",
  "glow 0.16.0",
  "graph-tree",
+ "graphshell-core",
  "headers 0.4.1",
  "hilog",
  "hitrace",
@@ -4738,6 +4739,23 @@ dependencies = [
  "wry",
  "xcomponent-sys",
  "zstd",
+]
+
+[[package]]
+name = "graphshell-core"
+version = "0.0.1"
+dependencies = [
+ "euclid",
+ "infer",
+ "mime_guess",
+ "petgraph 0.8.3",
+ "rkyv",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "url",
+ "uuid",
 ]
 
 [[package]]

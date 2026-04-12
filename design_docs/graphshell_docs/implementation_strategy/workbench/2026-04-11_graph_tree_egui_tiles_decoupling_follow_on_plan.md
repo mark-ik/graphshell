@@ -1,7 +1,7 @@
 # GraphTree / egui_tiles Decoupling Follow-On Plan
 
 **Date**: 2026-04-11
-**Status**: Active follow-on strategy
+**Status**: ✅ Complete (2026-04-11)
 **Scope**: Define the next migration stage after `graph-tree` crate extraction:
 move from a parallel mirrored `GraphTree` to a genuinely authoritative
 Workbench/Navigator tree model, retire per-frame `egui_tiles` mirroring, and

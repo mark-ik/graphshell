@@ -24,6 +24,7 @@ use graph_tree::{GraphTree, NavResult};
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 
+use super::graph_tree_binding;
 use super::graph_tree_commands;
 use super::tile_kind::TileKind;
 use super::tile_view_ops::{self, TileOpenMode};
@@ -68,6 +69,17 @@ pub(crate) fn close_pane(
     let closed = tile_view_ops::close_pane(tiles_tree, pane_id);
     if closed {
         if let Some(nk) = node_key {
+            // Fork detection: if the dismissed member belongs to a linked
+            // graphlet, this manual dismissal diverges from the spec.
+            if let Some((gid, reason)) =
+                graph_tree_binding::check_fork_on_manual_mutation(graph_tree, &nk, "dismiss")
+            {
+                log::info!(
+                    "dual_write: manual dismiss of {:?} forks linked graphlet {} — {}",
+                    nk, gid, reason,
+                );
+                graph_tree_binding::apply_fork(graph_tree, gid, reason);
+            }
             graph_tree_commands::dismiss_node(graph_tree, nk);
         }
     }

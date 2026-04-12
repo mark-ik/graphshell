@@ -316,6 +316,7 @@ fn reconcile_graphlet_merges_tiles_from_different_tab_containers() {
         registries::dispatch_workbench_surface_intent(
             &mut harness.app,
             &mut harness.tiles_tree,
+            None,
             intent,
         );
     }

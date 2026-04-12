@@ -12,6 +12,7 @@ pub(crate) type BackendParentRenderCallback = Arc<
     dyn Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync,
 >;
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {
     let mut scissor_box = [0_i32; 4];
 
@@ -22,6 +23,7 @@ pub(crate) fn backend_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {
     scissor_box
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_set_scissor_box(gl: &BackendGraphicsContext, scissor_box: [i32; 4]) {
     unsafe {
         glow::HasContext::scissor(
@@ -34,10 +36,12 @@ pub(crate) fn backend_set_scissor_box(gl: &BackendGraphicsContext, scissor_box: 
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_is_scissor_enabled(gl: &BackendGraphicsContext) -> bool {
     unsafe { glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST) }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_set_scissor_enabled(gl: &BackendGraphicsContext, enabled: bool) {
     unsafe {
         if enabled {
@@ -48,6 +52,7 @@ pub(crate) fn backend_set_scissor_enabled(gl: &BackendGraphicsContext, enabled: 
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_viewport(gl: &BackendGraphicsContext) -> [i32; 4] {
     let mut viewport = [0_i32; 4];
 
@@ -58,16 +63,19 @@ pub(crate) fn backend_viewport(gl: &BackendGraphicsContext) -> [i32; 4] {
     viewport
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_set_viewport(gl: &BackendGraphicsContext, viewport: [i32; 4]) {
     unsafe {
         glow::HasContext::viewport(gl, viewport[0], viewport[1], viewport[2], viewport[3]);
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_is_blend_enabled(gl: &BackendGraphicsContext) -> bool {
     unsafe { glow::HasContext::is_enabled(gl, glow::BLEND) }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_set_blend_enabled(gl: &BackendGraphicsContext, enabled: bool) {
     unsafe {
         if enabled {
@@ -78,20 +86,24 @@ pub(crate) fn backend_set_blend_enabled(gl: &BackendGraphicsContext, enabled: bo
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_active_texture(gl: &BackendGraphicsContext) -> i32 {
     unsafe { glow::HasContext::get_parameter_i32(gl, glow::ACTIVE_TEXTURE) }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_set_active_texture(gl: &BackendGraphicsContext, texture: u32) {
     unsafe {
         glow::HasContext::active_texture(gl, texture);
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_framebuffer_binding(gl: &BackendGraphicsContext) -> i32 {
     unsafe { glow::HasContext::get_parameter_i32(gl, glow::FRAMEBUFFER_BINDING) }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_bind_framebuffer(
     gl: &BackendGraphicsContext,
     framebuffer: Option<BackendFramebufferHandle>,
@@ -101,6 +113,7 @@ pub(crate) fn backend_bind_framebuffer(
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_framebuffer_from_binding(binding: i32) -> Option<BackendFramebufferHandle> {
     if binding <= 0 {
         None
@@ -109,14 +122,17 @@ pub(crate) fn backend_framebuffer_from_binding(binding: i32) -> Option<BackendFr
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_chaos_framebuffer_handle() -> BackendFramebufferHandle {
     glow::NativeFramebuffer(std::num::NonZeroU32::new(9).expect("non-zero"))
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_primary_texture_unit() -> u32 {
     glow::TEXTURE0
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_chaos_alternate_texture_unit() -> u32 {
     glow::TEXTURE3
 }

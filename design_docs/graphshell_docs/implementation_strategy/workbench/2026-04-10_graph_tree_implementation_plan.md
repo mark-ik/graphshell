@@ -1,7 +1,7 @@
 # GraphTree Implementation Plan
 
 **Date**: 2026-04-10
-**Status**: Strategy — pre-implementation
+**Status**: Active — Phases 0–6 complete, Phase 7 remaining (strategy planned)
 **Scope**: Phased migration from egui_tiles to GraphTree, including Navigator
 projection collapse, arrangement-edge consumption, and UxTree integration.
 

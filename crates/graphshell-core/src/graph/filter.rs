@@ -182,9 +182,9 @@ pub type FacetProjection = HashMap<String, FacetValue>;
 #[derive(Debug, Clone)]
 pub struct FilterResult {
     /// Node keys satisfying the `FacetExpr`.
-    pub matched_nodes: Vec<crate::model::graph::NodeKey>,
+    pub matched_nodes: Vec<super::NodeKey>,
     /// Node keys excluded by current filters.
-    pub filtered_out_nodes: Vec<crate::model::graph::NodeKey>,
+    pub filtered_out_nodes: Vec<super::NodeKey>,
     /// Per-facet bucket counts for visible scope.
     pub facet_counts: HashMap<String, usize>,
 }

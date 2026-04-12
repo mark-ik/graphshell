@@ -170,7 +170,14 @@ pub struct Gui {
     graph_app: GraphBrowserApp,
 
     /// Per-node offscreen rendering contexts for composited node-viewer tiles.
+    /// **Transitional**: being replaced by `viewer_surfaces`. During migration
+    /// both maps are kept in sync; new code should prefer `viewer_surfaces`.
     tile_rendering_contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+
+    /// Phase D: Unified viewer surface registry keyed by NodeKey.
+    /// Bundles the content surface handle (wgpu texture or GL callback) with
+    /// the GL compat context and content generation counter.
+    viewer_surfaces: crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
 
     /// Per-node favicon textures for egui_tiles tab rendering.
     tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)>,
@@ -405,6 +412,7 @@ impl Gui {
             renderer_favicon_textures: Default::default(),
             graph_app,
             tile_rendering_contexts: HashMap::new(),
+            viewer_surfaces: crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
             tile_favicon_textures: HashMap::new(),
             thumbnail_capture_tx,
             thumbnail_capture_rx,

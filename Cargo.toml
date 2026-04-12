@@ -10,7 +10,7 @@ publish = false
 rust-version = "1.92.0"
 
 [workspace]
-members = ["crates/graph-tree"]
+members = ["crates/graph-tree", "crates/graphshell-core"]
 
 [lib]
 name = "graphshell"
@@ -43,13 +43,14 @@ OriginalFilename = "graphshell.exe"
 ProductName = "GraphShell Browser"
 
 [features]
-default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry", "ux-probes", "ux-bridge"]
+default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry", "ux-probes", "ux-bridge", "gl_compat"]
 diagnostics = []
+gl_compat = []
 diagnostics_tests = []
 ux-semantics = []
 ux-probes = ["ux-semantics"]
 ux-bridge = ["ux-semantics"]
-test-utils = ["ux-probes", "ux-bridge"]
+test-utils = ["ux-probes", "ux-bridge", "graphshell-core/test-utils"]
 crown = ["servo/crown"]
 debugmozjs = ["servo/debugmozjs"]
 gamepad = ["servo/gamepad"]
@@ -155,6 +156,7 @@ egui-wgpu = { version = "0.34.1", features = ["winit", "wayland"] }
 egui_graphs = { version = "0.30.0", features = ["events"] }
 egui_tiles = { version = "0.15.0", features = ["serde"] }
 graph-tree = { path = "crates/graph-tree" }
+graphshell-core = { path = "crates/graphshell-core" }
 egui-notify = "0.22.0"
 arboard = "3"
 nucleo = "0.5.0"

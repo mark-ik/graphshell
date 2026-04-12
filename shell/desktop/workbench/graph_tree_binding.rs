@@ -115,3 +115,62 @@ pub(crate) fn clear_graphlets(graph_tree: &mut GraphTree<NodeKey>) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Reconciliation bridge
+// ---------------------------------------------------------------------------
+
+/// Reconcile a linked graphlet against graph-truth membership.
+///
+/// Returns a reconciliation proposal if the tree has drifted from graph truth,
+/// or `None` if the graphlet is already synchronized.
+///
+/// The host should present the proposal to the user (or auto-apply via policy)
+/// and then call `apply_reconciliation_choice` with the chosen outcome.
+pub(crate) fn reconcile_linked_graphlet(
+    graph_tree: &GraphTree<NodeKey>,
+    graphlet_id: GraphletId,
+    graph_truth_members: &[NodeKey],
+) -> Option<graph_tree::ReconciliationProposal<NodeKey>> {
+    graph_tree::reconciliation::propose_reconciliation(
+        graph_tree,
+        graphlet_id,
+        graph_truth_members,
+        "graph truth changed",
+    )
+}
+
+/// Apply a reconciliation choice to the tree.
+///
+/// Returns tree intents for the host to act on (activation/dismissal requests).
+pub(crate) fn apply_reconciliation_choice(
+    graph_tree: &mut GraphTree<NodeKey>,
+    proposal: &graph_tree::ReconciliationProposal<NodeKey>,
+    choice: graph_tree::ReconciliationChoice,
+) -> Vec<graph_tree::TreeIntent<NodeKey>> {
+    graph_tree::reconciliation::apply_reconciliation(graph_tree, proposal, choice)
+}
+
+/// Check if a manual mutation on a member should trigger a fork of its
+/// linked graphlet. Returns the graphlet ID and reason if so.
+///
+/// Called by dual-write paths before applying dismiss/detach on a member
+/// that might belong to a linked graphlet.
+pub(crate) fn check_fork_on_manual_mutation(
+    graph_tree: &GraphTree<NodeKey>,
+    member: &NodeKey,
+    operation: &str,
+) -> Option<(GraphletId, String)> {
+    graph_tree::reconciliation::detect_fork_on_manual_override(graph_tree, member, operation)
+}
+
+/// Apply a fork transition on a linked graphlet.
+///
+/// Converts the graphlet from `Linked` to `Forked`, preserving the parent spec.
+pub(crate) fn apply_fork(
+    graph_tree: &mut GraphTree<NodeKey>,
+    graphlet_id: GraphletId,
+    reason: String,
+) {
+    graph_tree::reconciliation::apply_fork(graph_tree, graphlet_id, reason);
+}

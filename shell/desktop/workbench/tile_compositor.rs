@@ -162,6 +162,22 @@ fn active_presentation_profile(app: &GraphBrowserApp) -> PresentationProfile {
     phase3_resolve_active_presentation_profile(app.default_registry_theme_id()).profile
 }
 
+// ---------------------------------------------------------------------------
+// Phase C: 3-axis invalidation
+// ---------------------------------------------------------------------------
+//
+// The composited content signature is split into three independent axes:
+//
+// | Axis      | What changes                              | Action                        |
+// |-----------|-------------------------------------------|-------------------------------|
+// | Content   | Servo produces a new frame                | Re-import wgpu::Texture       |
+// | Placement | Tile rect changes (resize, layout)        | Update blit position only     |
+// | Semantic  | `semantic_generation` changes              | Re-render overlay/affordance  |
+//
+// Placement-only changes don't need WebRender re-render — just reposition the blit.
+// The monolithic `CompositedContentSignature` is preserved for backwards compat
+// but `DifferentialObservation` now exposes per-axis change flags.
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CompositedContentSignature {
     webview_id: servo::WebViewId,
@@ -172,6 +188,13 @@ struct CompositedContentSignature {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DifferentialComposeReason {
     NoPriorSignature,
+    /// Content axis: webview identity or content generation changed.
+    ContentChanged,
+    /// Placement axis only: rect moved/resized but content is the same.
+    PlacementOnly,
+    /// Semantic axis: overlay/affordance generation changed.
+    SemanticOnly,
+    /// Multiple axes changed.
     SignatureChanged,
 }
 
@@ -192,6 +215,10 @@ enum DifferentialDecisionKind {
 struct DifferentialObservation {
     decision: DifferentialContentDecision,
     semantic_generation_changed: bool,
+    /// Phase C: true when only the rect changed (no content re-import needed).
+    placement_only: bool,
+    /// Phase C: true when content (webview frame) changed.
+    content_changed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -454,18 +481,39 @@ fn differential_content_decision(
                 DifferentialComposeReason::NoPriorSignature,
             ),
             semantic_generation_changed: false,
+            placement_only: false,
+            content_changed: true,
         },
-        Some(previous) if previous != signature => DifferentialObservation {
-            decision: DifferentialContentDecision::Compose(
-                DifferentialComposeReason::SignatureChanged,
-            ),
-            semantic_generation_changed: previous.semantic_generation
-                != signature.semantic_generation,
-        },
-        Some(_) => DifferentialObservation {
+        Some(previous) if previous == signature => DifferentialObservation {
             decision: DifferentialContentDecision::SkipUnchanged,
             semantic_generation_changed: false,
+            placement_only: false,
+            content_changed: false,
         },
+        Some(previous) => {
+            // Phase C: decompose the change into independent axes.
+            let content_changed = previous.webview_id != signature.webview_id;
+            let placement_changed = previous.rect_px != signature.rect_px;
+            let semantic_changed =
+                previous.semantic_generation != signature.semantic_generation;
+
+            let reason = if content_changed {
+                DifferentialComposeReason::ContentChanged
+            } else if placement_changed && !semantic_changed {
+                DifferentialComposeReason::PlacementOnly
+            } else if semantic_changed && !placement_changed {
+                DifferentialComposeReason::SemanticOnly
+            } else {
+                DifferentialComposeReason::SignatureChanged
+            };
+
+            DifferentialObservation {
+                decision: DifferentialContentDecision::Compose(reason),
+                semantic_generation_changed: semantic_changed,
+                placement_only: placement_changed && !content_changed && !semantic_changed,
+                content_changed,
+            }
+        }
     }
 }
 
@@ -481,7 +529,10 @@ fn differential_fallback_channel(reason: DifferentialComposeReason) -> &'static 
         DifferentialComposeReason::NoPriorSignature => {
             CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE
         }
-        DifferentialComposeReason::SignatureChanged => {
+        DifferentialComposeReason::ContentChanged
+        | DifferentialComposeReason::PlacementOnly
+        | DifferentialComposeReason::SemanticOnly
+        | DifferentialComposeReason::SignatureChanged => {
             CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED
         }
     }
@@ -826,6 +877,14 @@ pub(crate) fn active_node_pane_rects(
 pub(crate) struct GraphTreeLayoutOutput {
     pub pane_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
     pub split_boundaries: Vec<graph_tree::SplitBoundary<NodeKey>>,
+    /// Tree rows for sidebar rendering (always populated).
+    pub tree_rows: Vec<graph_tree::OwnedTreeRow<NodeKey>>,
+    /// Tab ordering for flat tab bar rendering.
+    pub tab_order: Vec<graph_tree::TabEntry<NodeKey>>,
+    /// Currently active member.
+    pub active: Option<NodeKey>,
+    /// Raw graph-tree pane rects (before PaneId lookup), for pane chrome rendering.
+    pub raw_pane_rects: std::collections::HashMap<NodeKey, graph_tree::Rect>,
 }
 
 /// Phase G: GraphTree-keyed compositor input with GraphTree layout authority.
@@ -864,6 +923,10 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
     GraphTreeLayoutOutput {
         pane_rects,
         split_boundaries: layout.split_boundaries,
+        tree_rows: layout.tree_rows,
+        tab_order: layout.tab_order,
+        active: layout.active,
+        raw_pane_rects: layout.pane_rects,
     }
 }
 
@@ -2480,12 +2543,15 @@ mod tests {
         );
 
         let _ = differential_content_decision(node, original);
+        // Phase C: rect-only change is now decomposed as PlacementOnly.
         assert!(matches!(
             differential_content_decision(node, changed),
             DifferentialObservation {
                 decision: DifferentialContentDecision::Compose(
-                    DifferentialComposeReason::SignatureChanged
+                    DifferentialComposeReason::PlacementOnly
                 ),
+                placement_only: true,
+                content_changed: false,
                 ..
             }
         ));

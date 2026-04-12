@@ -80,3 +80,89 @@ pub enum GraphletKind {
     Bridge,
     WorkbenchCorrespondence,
 }
+
+// ---------------------------------------------------------------------------
+// Edge projection spec (consumed from graphlet_projection_binding_spec.md §3)
+// ---------------------------------------------------------------------------
+
+/// Where the active edge projection originates.
+///
+/// See `graphlet_projection_binding_spec.md §3.1` for the canonical shape.
+/// The `graph_view_id` and `graph_id` fields are carried as opaque strings
+/// because the graph-tree crate has no dependency on Graphshell's ID types.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProjectionSource {
+    /// Graph-level default projection.
+    GraphDefault { graph_id: String },
+    /// Override scoped to a single graph view.
+    GraphViewOverride { graph_view_id: String },
+    /// Override scoped to a specific selection within a view.
+    SelectionOverride {
+        graph_view_id: String,
+        seed_nodes: Vec<String>,
+    },
+}
+
+/// Which edges contribute to graphlet derivation.
+///
+/// This is the tree-side carrier for the binding spec's `EdgeProjectionSpec`.
+/// Selectors are opaque strings because the tree crate doesn't own the
+/// relation-selector vocabulary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdgeProjectionSpec {
+    pub selectors: Vec<String>,
+    pub source: ProjectionSource,
+}
+
+// ---------------------------------------------------------------------------
+// Reconciliation types (graphlet_projection_binding_spec.md §7 + §11)
+// ---------------------------------------------------------------------------
+
+/// Difference between a linked graphlet's expected member set and the tree's
+/// current member set for that graphlet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphletMemberDelta<N: MemberId> {
+    /// Members present in graph truth but absent from the tree.
+    pub added: Vec<N>,
+    /// Members present in the tree but absent from graph truth.
+    pub removed: Vec<N>,
+    /// Seed nodes that were rebased (still present but re-anchored).
+    pub rebased_seeds: Vec<N>,
+}
+
+impl<N: MemberId> GraphletMemberDelta<N> {
+    pub fn empty() -> Self {
+        Self {
+            added: Vec::new(),
+            removed: Vec::new(),
+            rebased_seeds: Vec::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.removed.is_empty() && self.rebased_seeds.is_empty()
+    }
+}
+
+/// Proposal produced by reconciliation for the host to present to the user.
+///
+/// See `graphlet_projection_binding_spec.md §7.1` for the four choices.
+#[derive(Clone, Debug)]
+pub struct ReconciliationProposal<N: MemberId> {
+    pub graphlet_id: GraphletId,
+    pub delta: GraphletMemberDelta<N>,
+    pub reason: String,
+}
+
+/// Outcome chosen by the user or auto-applied by policy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReconciliationChoice {
+    /// Commit the delta and keep the binding linked.
+    ApplyKeepLinked,
+    /// Preserve the current tree roster; convert to unlinked session.
+    KeepAsUnlinkedSession,
+    /// Fork a new graphlet from the parent.
+    SaveAsNewFork { reason: String },
+    /// Discard the pending change; restore the last synced roster.
+    Cancel,
+}

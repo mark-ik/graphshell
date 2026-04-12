@@ -13,21 +13,26 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{
-    BackendContentBridge, BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext,
+    BackendContentBridge, BackendCustomPass, BackendGraphicsContext,
     BackendParentRenderCallback, BackendParentRenderRegionInPixels, BackendTextureToken,
     BackendViewportInPixels,
-    backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
-    backend_chaos_framebuffer_handle, backend_content_bridge_mode_label,
-    backend_content_bridge_path, backend_framebuffer_binding, backend_framebuffer_from_binding,
-    backend_is_blend_enabled, backend_is_scissor_enabled, backend_primary_texture_unit,
-    backend_scissor_box, backend_set_active_texture, backend_set_blend_enabled,
-    backend_set_scissor_box, backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
+    backend_content_bridge_mode_label,
+    backend_content_bridge_path,
     custom_pass_from_backend_viewport, register_custom_paint_callback,
     select_content_bridge_from_render_context, texture_id_from_token, UiRenderBackendContract,
     UiRenderBackendHandle,
 };
+#[cfg(feature = "gl_compat")]
+use crate::shell::desktop::render_backend::{
+    BackendFramebufferHandle,
+    backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
+    backend_chaos_framebuffer_handle, backend_framebuffer_binding, backend_framebuffer_from_binding,
+    backend_is_blend_enabled, backend_is_scissor_enabled, backend_primary_texture_unit,
+    backend_scissor_box, backend_set_active_texture, backend_set_blend_enabled,
+    backend_set_scissor_box, backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
+};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+    CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED,
     CHANNEL_COMPOSITOR_INVALID_TILE_RECT, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED,
@@ -37,7 +42,12 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
+};
+#[cfg(feature = "gl_compat")]
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
@@ -51,6 +61,7 @@ const CHANNEL_CONTENT_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_CONTENT_PASS_RE
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED;
 const CHANNEL_PASS_ORDER_VIOLATION: &str = CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION;
 const CHANNEL_INVALID_TILE_RECT: &str = CHANNEL_COMPOSITOR_INVALID_TILE_RECT;
+#[cfg(feature = "gl_compat")]
 const COMPOSITOR_CHAOS_ENV_VAR: &str = "GRAPHSHELL_DIAGNOSTICS_COMPOSITOR_CHAOS";
 const COMPOSITOR_REPLAY_RING_CAPACITY: usize = 64;
 static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -60,7 +71,7 @@ static COMPOSITOR_CONTENT_CALLBACKS: OnceLock<Mutex<HashMap<NodeKey, RegisteredC
     OnceLock::new();
 static COMPOSITOR_NATIVE_TEXTURES: OnceLock<Mutex<HashMap<NodeKey, BackendTextureToken>>> =
     OnceLock::new();
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "diagnostics", feature = "gl_compat"))]
 static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
 
 /// Named abstraction for what the compositor currently holds for a given node.
@@ -103,6 +114,168 @@ impl ContentSurfaceHandle {
 
     pub(crate) fn is_wgpu(&self) -> bool {
         matches!(self, Self::ImportedWgpu(_))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase D: ViewerSurfaceRegistry — unified surface lifecycle keyed by NodeKey
+// ---------------------------------------------------------------------------
+
+/// Per-node viewer surface state.
+///
+/// Bundles the compositor-facing texture handle with the GL compat context
+/// (which remains as a side-channel for GL fallback builds). Surface
+/// lifecycle follows GraphTree node membership: attach → allocate,
+/// detach → drop.
+pub(crate) struct ViewerSurface {
+    /// What the compositor should display for this node.
+    pub(crate) handle: ContentSurfaceHandle,
+    /// Monotonic generation counter from Servo's frame output.
+    /// Incremented each time Servo produces a new frame for this webview.
+    pub(crate) content_generation: u64,
+    /// GL offscreen context — compat fallback only. On the WgpuShared path
+    /// this is still needed for `paint_offscreen_content_pass` but the
+    /// surface handle is `ImportedWgpu`, not `CallbackFallback`.
+    pub(crate) gl_ctx: Option<std::rc::Rc<OffscreenRenderingContext>>,
+}
+
+impl ViewerSurface {
+    pub(crate) fn new_placeholder() -> Self {
+        Self {
+            handle: ContentSurfaceHandle::Placeholder,
+            content_generation: 0,
+            gl_ctx: None,
+        }
+    }
+
+    pub(crate) fn with_gl_ctx(gl_ctx: std::rc::Rc<OffscreenRenderingContext>) -> Self {
+        Self {
+            handle: ContentSurfaceHandle::Placeholder,
+            content_generation: 0,
+            gl_ctx: Some(gl_ctx),
+        }
+    }
+}
+
+/// Unified registry of viewer surfaces keyed by `NodeKey`.
+///
+/// This replaces the separate `tile_rendering_contexts` GL-context map and
+/// the static `COMPOSITOR_NATIVE_TEXTURES` wgpu-token map with a single
+/// authority. `NodeKey` is the owner; `WebViewId` and `PaneId` are lookup
+/// keys within, not owners.
+///
+/// During migration, callers that still need `&Rc<OffscreenRenderingContext>`
+/// can use `gl_context()` / `gl_context_mut()`. New code should use
+/// `surface()` and `handle()`.
+pub(crate) struct ViewerSurfaceRegistry {
+    surfaces: HashMap<NodeKey, ViewerSurface>,
+}
+
+impl ViewerSurfaceRegistry {
+    pub(crate) fn new() -> Self {
+        Self {
+            surfaces: HashMap::new(),
+        }
+    }
+
+    /// Get the surface for a node, if any.
+    pub(crate) fn surface(&self, key: &NodeKey) -> Option<&ViewerSurface> {
+        self.surfaces.get(key)
+    }
+
+    /// Get the mutable surface for a node, if any.
+    pub(crate) fn surface_mut(&mut self, key: &NodeKey) -> Option<&mut ViewerSurface> {
+        self.surfaces.get_mut(key)
+    }
+
+    /// Get the content surface handle for a node.
+    pub(crate) fn handle(&self, key: &NodeKey) -> ContentSurfaceHandle {
+        self.surfaces
+            .get(key)
+            .map(|s| s.handle)
+            .unwrap_or(ContentSurfaceHandle::Placeholder)
+    }
+
+    /// Get the GL context for a node (compat path).
+    pub(crate) fn gl_context(&self, key: &NodeKey) -> Option<&std::rc::Rc<OffscreenRenderingContext>> {
+        self.surfaces.get(key).and_then(|s| s.gl_ctx.as_ref())
+    }
+
+    /// Check if a GL context exists for a node.
+    pub(crate) fn contains_gl_context(&self, key: &NodeKey) -> bool {
+        self.surfaces
+            .get(key)
+            .map(|s| s.gl_ctx.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Insert or update the GL context for a node, creating a surface entry
+    /// if one doesn't exist.
+    pub(crate) fn insert_gl_context(
+        &mut self,
+        key: NodeKey,
+        ctx: std::rc::Rc<OffscreenRenderingContext>,
+    ) {
+        match self.surfaces.get_mut(&key) {
+            Some(surface) => {
+                surface.gl_ctx = Some(ctx);
+            }
+            None => {
+                self.surfaces.insert(key, ViewerSurface::with_gl_ctx(ctx));
+            }
+        }
+    }
+
+    /// Update the surface handle for a node.
+    pub(crate) fn set_handle(&mut self, key: NodeKey, handle: ContentSurfaceHandle) {
+        match self.surfaces.get_mut(&key) {
+            Some(surface) => {
+                surface.handle = handle;
+            }
+            None => {
+                self.surfaces.insert(
+                    key,
+                    ViewerSurface {
+                        handle,
+                        content_generation: 0,
+                        gl_ctx: None,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Bump the content generation for a node (called when Servo produces
+    /// a new frame).
+    pub(crate) fn bump_content_generation(&mut self, key: &NodeKey) {
+        if let Some(surface) = self.surfaces.get_mut(key) {
+            surface.content_generation = surface.content_generation.wrapping_add(1);
+        }
+    }
+
+    /// Remove a node's surface entirely (on detach/lifecycle Cold).
+    pub(crate) fn remove(&mut self, key: &NodeKey) -> Option<ViewerSurface> {
+        self.surfaces.remove(key)
+    }
+
+    /// Iterate over all node keys with surfaces.
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &NodeKey> {
+        self.surfaces.keys()
+    }
+
+    /// Iterate over all surfaces.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&NodeKey, &ViewerSurface)> {
+        self.surfaces.iter()
+    }
+
+    /// Number of registered surfaces.
+    pub(crate) fn len(&self) -> usize {
+        self.surfaces.len()
+    }
+
+    /// Whether the registry is empty.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.surfaces.is_empty()
     }
 }
 
@@ -258,10 +431,12 @@ pub(crate) struct GlStateSnapshot {
     pub(crate) framebuffer_binding: i32,
 }
 
+#[cfg(feature = "gl_compat")]
 fn gl_state_violated(before: GlStateSnapshot, after: GlStateSnapshot) -> bool {
     before != after
 }
 
+#[cfg(feature = "gl_compat")]
 fn gl_state_change_flags(
     before: GlStateSnapshot,
     after: GlStateSnapshot,
@@ -275,6 +450,7 @@ fn gl_state_change_flags(
     )
 }
 
+#[cfg(feature = "gl_compat")]
 fn chaos_mode_enabled_from_raw(raw: Option<&str>) -> bool {
     raw.map(str::trim)
         .map(str::to_ascii_lowercase)
@@ -282,6 +458,7 @@ fn chaos_mode_enabled_from_raw(raw: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(feature = "gl_compat")]
 fn compositor_chaos_mode_enabled() -> bool {
     #[cfg(feature = "diagnostics")]
     {
@@ -297,6 +474,7 @@ fn compositor_chaos_mode_enabled() -> bool {
     }
 }
 
+#[cfg(feature = "gl_compat")]
 fn chaos_probe_passed(chaos_enabled: bool, violated: bool, restore_verified: bool) -> bool {
     if !chaos_enabled {
         return true;
@@ -304,6 +482,7 @@ fn chaos_probe_passed(chaos_enabled: bool, violated: bool, restore_verified: boo
     violated && restore_verified
 }
 
+#[cfg(feature = "gl_compat")]
 fn emit_chaos_probe_outcome(chaos_enabled: bool, passed: bool) {
     if !chaos_enabled {
         return;
@@ -333,6 +512,7 @@ fn emit_chaos_probe_outcome(chaos_enabled: bool, passed: bool) {
     }
 }
 
+#[cfg(feature = "gl_compat")]
 fn capture_gl_state(gl: &BackendGraphicsContext) -> GlStateSnapshot {
     GlStateSnapshot {
         viewport: backend_viewport(gl),
@@ -343,14 +523,17 @@ fn capture_gl_state(gl: &BackendGraphicsContext) -> GlStateSnapshot {
     }
 }
 
+#[cfg(feature = "gl_compat")]
 fn capture_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {
     backend_scissor_box(gl)
 }
 
+#[cfg(feature = "gl_compat")]
 fn restore_scissor_box(gl: &BackendGraphicsContext, scissor_box: [i32; 4]) {
     backend_set_scissor_box(gl, scissor_box);
 }
 
+#[cfg(feature = "gl_compat")]
 fn run_render_with_scissor_isolation<F>(gl: &BackendGraphicsContext, render: F)
 where
     F: FnOnce(),
@@ -370,6 +553,7 @@ where
     }
 }
 
+#[cfg(feature = "gl_compat")]
 fn restore_gl_state(gl: &BackendGraphicsContext, snapshot: GlStateSnapshot) {
     backend_set_viewport(gl, snapshot.viewport);
     backend_set_scissor_enabled(gl, snapshot.scissor_enabled);
@@ -378,6 +562,7 @@ fn restore_gl_state(gl: &BackendGraphicsContext, snapshot: GlStateSnapshot) {
     backend_bind_framebuffer(gl, framebuffer_binding_target(snapshot.framebuffer_binding));
 }
 
+#[cfg(feature = "gl_compat")]
 fn inject_chaos_gl_perturbation(gl: &BackendGraphicsContext, seed: u64) {
     let mutation_count = (seed % 3 + 1) as usize;
     let start = (seed as usize) % 5;
@@ -422,10 +607,12 @@ fn inject_chaos_gl_perturbation(gl: &BackendGraphicsContext, seed: u64) {
     }
 }
 
+#[cfg(feature = "gl_compat")]
 fn framebuffer_binding_target(binding: i32) -> Option<BackendFramebufferHandle> {
     backend_framebuffer_from_binding(binding)
 }
 
+#[cfg(feature = "gl_compat")]
 fn run_guarded_callback<Capture, Render, Restore>(
     capture: Capture,
     render: Render,
@@ -440,6 +627,7 @@ where
     violated
 }
 
+#[cfg(feature = "gl_compat")]
 fn run_guarded_callback_with_snapshots_and_perturbation<Capture, Render, Perturb, Restore>(
     mut capture: Capture,
     render: Render,
@@ -464,6 +652,7 @@ where
     (false, before, after, true)
 }
 
+#[cfg(feature = "gl_compat")]
 fn run_guarded_callback_with_snapshots<Capture, Render, Restore>(
     mut capture: Capture,
     render: Render,
@@ -941,6 +1130,9 @@ impl CompositorAdapter {
         ))
     }
 
+    /// GL compat path: full guardrail machinery with GL state capture/restore,
+    /// scissor isolation, chaos perturbation, and violation detection.
+    #[cfg(feature = "gl_compat")]
     pub(crate) fn run_content_callback_with_guardrails<F>(
         _node_key: NodeKey,
         gl: &BackendGraphicsContext,
@@ -1070,6 +1262,92 @@ impl CompositorAdapter {
         #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_span_duration(
             "tile_compositor::content_pass_guarded_callback",
+            elapsed,
+        );
+    }
+
+    /// Non-GL path: call the render closure directly, record a clean replay
+    /// sample, and emit diagnostics. No GL state capture or guardrails.
+    #[cfg(not(feature = "gl_compat"))]
+    pub(crate) fn run_content_callback_with_guardrails<F>(
+        _node_key: NodeKey,
+        _gl: &BackendGraphicsContext,
+        probe_context: BridgeProbeContext,
+        render: F,
+    ) where
+        F: FnOnce(),
+    {
+        let started = std::time::Instant::now();
+
+        render();
+
+        let clean_snapshot = GlStateSnapshot {
+            viewport: [0, 0, 0, 0],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 0,
+        };
+
+        let elapsed = started.elapsed().as_micros() as u64;
+        let sequence = COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        push_replay_sample(CompositorReplaySample {
+            sequence,
+            node_key: _node_key,
+            duration_us: elapsed,
+            callback_us: elapsed,
+            presentation_us: elapsed,
+            violation: false,
+            bridge_path: probe_context.bridge_path,
+            bridge_mode: probe_context.bridge_mode,
+            tile_rect_px: probe_context.tile_rect_px,
+            render_size_px: probe_context.render_size_px,
+            chaos_enabled: false,
+            restore_verified: true,
+            viewport_changed: false,
+            scissor_changed: false,
+            blend_changed: false,
+            active_texture_changed: false,
+            framebuffer_binding_changed: false,
+            before: clean_snapshot,
+            after: clean_snapshot,
+        });
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
+                byte_len: std::mem::size_of::<CompositorReplaySample>(),
+            },
+        );
+
+        #[cfg(feature = "diagnostics")]
+        {
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
+                    byte_len: std::mem::size_of::<NodeKey>(),
+                },
+            );
+
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+                    byte_len: elapsed as usize,
+                },
+            );
+
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+                    byte_len: elapsed as usize,
+                },
+            );
+        }
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+            "tile_compositor::content_pass_callback_direct",
             elapsed,
         );
     }
@@ -1369,6 +1647,9 @@ mod tests {
         CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
+    };
+    #[cfg(feature = "gl_compat")]
+    use crate::shell::desktop::runtime::registries::{
         CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
     };
@@ -1379,12 +1660,17 @@ mod tests {
         CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION,
         COMPOSITOR_REPLAY_RING_CAPACITY, CompositedContentPassOutcome, CompositorAdapter,
         CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
-        chaos_mode_enabled_from_raw, chaos_probe_passed, clear_content_callbacks_for_tests,
+        clear_content_callbacks_for_tests,
         clear_native_textures_for_tests, clear_replay_samples_for_tests,
         compositor_native_texture_registry, content_callback_registry,
-        emit_chaos_probe_outcome, framebuffer_binding_target,
-        gl_state_change_flags, gl_state_violated, push_replay_sample, replay_samples_snapshot,
+        push_replay_sample, replay_samples_snapshot,
         record_registered_content_bridge_receipt_for_tests,
+    };
+    #[cfg(feature = "gl_compat")]
+    use super::{
+        chaos_mode_enabled_from_raw, chaos_probe_passed,
+        emit_chaos_probe_outcome, framebuffer_binding_target,
+        gl_state_change_flags, gl_state_violated,
         run_guarded_callback, run_guarded_callback_with_snapshots,
         run_guarded_callback_with_snapshots_and_perturbation,
     };
@@ -1858,6 +2144,7 @@ mod tests {
             callback.clone(),
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: true,
+                supports_wgpu_shared_texture: false,
             },
         );
         let supported_node = NodeKey::new(903);
@@ -1874,6 +2161,7 @@ mod tests {
             callback,
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: false,
+                supports_wgpu_shared_texture: false,
             },
         );
         let unsupported_node = NodeKey::new(904);
@@ -1971,6 +2259,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn gl_state_violation_detects_differences() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -1991,12 +2280,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn framebuffer_binding_target_returns_none_for_default_framebuffer() {
         assert_eq!(framebuffer_binding_target(0), None);
         assert_eq!(framebuffer_binding_target(-1), None);
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn framebuffer_binding_target_returns_handle_for_non_default_framebuffer() {
         let target = framebuffer_binding_target(12)
             .expect("non-default framebuffer binding should produce native handle");
@@ -2004,6 +2295,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_callback_restores_state_when_callback_leaks() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2040,6 +2332,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_callback_skips_restore_when_state_is_unchanged() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2066,6 +2359,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_callback_with_snapshots_returns_before_and_after_states() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2099,6 +2393,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_callback_perturbation_detects_viewport_invariant() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2128,6 +2423,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_callback_perturbation_detects_scissor_invariant() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2157,6 +2453,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_callback_perturbation_detects_blend_invariant() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2186,6 +2483,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_callback_perturbation_detects_active_texture_invariant() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2215,6 +2513,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_callback_perturbation_detects_framebuffer_binding_invariant() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2244,6 +2543,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn guarded_mock_callback_detects_all_gl_state_invariants() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -2294,6 +2594,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn compositor_chaos_env_parser_accepts_truthy_values() {
         assert!(chaos_mode_enabled_from_raw(Some("1")));
         assert!(chaos_mode_enabled_from_raw(Some("true")));
@@ -2304,6 +2605,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn chaos_probe_pass_and_fail_decision_is_explicit() {
         assert!(chaos_probe_passed(false, false, false));
         assert!(chaos_probe_passed(true, true, true));
@@ -2312,6 +2614,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gl_compat")]
     fn chaos_probe_outcome_emits_channels() {
         let mut diagnostics = DiagnosticsState::new();
 

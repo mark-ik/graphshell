@@ -2012,6 +2012,7 @@ fn frame_loop_drains_workbench_intents_before_reducer_apply() {
     super::apply_semantic_intents_and_pending_open(
         &mut app,
         &mut tree,
+        None,
         false,
         &mut focus_authority,
         &mut open_node_tile_after_intents,
@@ -2054,6 +2055,7 @@ fn frame_loop_panics_when_workbench_intent_leaks_past_interception() {
     super::apply_semantic_intents_and_pending_open(
         &mut app,
         &mut tree,
+        None,
         false,
         &mut focus_authority,
         &mut open_node_tile_after_intents,

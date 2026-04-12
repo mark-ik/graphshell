@@ -11,6 +11,7 @@ use egui_tiles::TileId;
 use egui_tiles::{Container, Tile, Tree};
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
+use super::graph_tree_adapter::EguiTreeCtx;
 use super::graph_tree_dual_write as dual_write;
 use super::tile_behavior::PendingOpenMode;
 use super::tile_compositor;
@@ -699,6 +700,41 @@ pub(crate) fn run_tile_render_pass_in_ui(
     // Phase G: Render split handles at boundaries between sibling panes.
     // Each handle is a draggable strip; dragging updates split_ratio via NavAction.
     render_split_handles(ui, graph_tree, &layout_output.split_boundaries, &mut post_render_intents);
+
+    // Phase 4a: Render GraphTree chrome (tabs, tree sidebar, pane borders).
+    // The renderer runs alongside egui_tiles during the parallel introduction phase.
+    {
+        let label_fn = |key: NodeKey| -> String {
+            graph_app
+                .domain_graph()
+                .get_node(key)
+                .map(|node| {
+                    let title = node.title.trim();
+                    if !title.is_empty() {
+                        title.to_string()
+                    } else if !node.url().trim().is_empty() {
+                        node.url().to_string()
+                    } else {
+                        format!("Node {}", key.index())
+                    }
+                })
+                .unwrap_or_else(|| format!("Node {}", key.index()))
+        };
+        let mut tree_ctx = EguiTreeCtx {
+            ui,
+            label_fn: &label_fn,
+        };
+        let nav_actions = super::graph_tree_adapter::render_graph_tree_chrome(
+            graph_tree,
+            &layout_output.tree_rows,
+            &layout_output.tab_order,
+            &layout_output.raw_pane_rects,
+            &mut tree_ctx,
+        );
+        for action in nav_actions {
+            graph_tree.apply(action);
+        }
+    }
 
     #[cfg(feature = "diagnostics")]
     diagnostics_state.record_span_duration(
