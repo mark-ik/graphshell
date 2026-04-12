@@ -112,6 +112,7 @@ impl<'a> FocusRealizer<'a> {
                     dispatch_workbench_authority_intent(
                         self.graph_app,
                         self.tiles_tree,
+                        None,
                         intent.clone(),
                     )
                 }
@@ -128,7 +129,12 @@ impl<'a> FocusRealizer<'a> {
                 None
             }
             _ => {
-                dispatch_workbench_authority_intent(self.graph_app, self.tiles_tree, intent.clone())
+                dispatch_workbench_authority_intent(
+                    self.graph_app,
+                    self.tiles_tree,
+                    None,
+                    intent.clone(),
+                )
             }
         }
     }
@@ -259,6 +265,7 @@ impl<'a> FocusRealizer<'a> {
         dispatch_workbench_authority_intent(
             self.graph_app,
             self.tiles_tree,
+            None,
             WorkbenchIntent::OpenToolPane { kind: kind.clone() },
         )
         .is_none()
@@ -279,6 +286,7 @@ impl<'a> FocusRealizer<'a> {
         dispatch_workbench_authority_intent(
             self.graph_app,
             self.tiles_tree,
+            None,
             WorkbenchIntent::CloseToolPane {
                 kind: kind.clone(),
                 restore_previous_focus,

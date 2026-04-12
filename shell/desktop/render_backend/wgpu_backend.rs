@@ -26,6 +26,11 @@ struct PendingFrame {
     pixels_per_point: f32,
 }
 
+/// GL-shaped stub: creates a no-op custom pass on the wgpu backend.
+///
+/// This is the `ParentRenderCallback` fallback path shape. It does not wire
+/// into the wgpu pre-render texture handoff model (`SharedWgpuTexture`).
+/// Retained for GL compat fallback builds; retire with Phase F.
 pub(crate) fn custom_pass_from_backend_viewport<F>(_render: F) -> BackendCustomPass
 where
     F: Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync + 'static,
@@ -33,6 +38,11 @@ where
     BackendCustomPass
 }
 
+/// GL-shaped stub: no-op paint callback registration on the wgpu backend.
+///
+/// This is the `ParentRenderCallback` fallback path shape. The wgpu primary
+/// path (`SharedWgpuTexture`) composes via pre-render texture import, not
+/// egui paint callbacks. Retained for GL compat fallback builds; retire with Phase F.
 pub(crate) fn register_custom_paint_callback(
     _ctx: &Context,
     _layer: LayerId,

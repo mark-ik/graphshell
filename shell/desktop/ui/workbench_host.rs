@@ -2339,11 +2339,21 @@ pub(crate) fn render_workbench_host(
     let mut projection =
         WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, command_bar_focus_target.active_pane());
 
-    // Enrich navigator members with GraphTree depth/expansion/children data.
-    crate::shell::desktop::workbench::graph_tree_projection::enrich_navigator_members_from_graph_tree(
-        &mut projection.navigator_groups,
-        graph_tree,
-    );
+    // Phase C: Replace workbench section with GraphTree-sourced groups.
+    {
+        let label_fn = |node_key: NodeKey| {
+            graph_app
+                .domain_graph()
+                .get_node(node_key)
+                .map(|n| node_primary_label(n))
+                .unwrap_or_else(|| format!("Node {}", node_key.index()))
+        };
+        crate::shell::desktop::workbench::graph_tree_projection::replace_workbench_navigator_groups(
+            &mut projection.navigator_groups,
+            graph_tree,
+            &label_fn,
+        );
+    }
     if !projection.visible() {
         graph_app
             .workspace
@@ -4762,7 +4772,7 @@ mod tests {
     ) {
         for intent in app.take_pending_workbench_intents() {
             assert!(crate::shell::desktop::runtime::registries::dispatch_workbench_surface_intent(
-                app, tree, intent,
+                app, tree, None, intent,
             )
             .is_none());
         }

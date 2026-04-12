@@ -45,7 +45,7 @@ use crate::shell::desktop::host::headed_window;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 #[cfg(test)]
-use crate::shell::desktop::host::window::GraphSemanticEvent;
+use crate::shell::desktop::host::window::WebViewLifecycleEvent;
 #[cfg(test)]
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
@@ -222,6 +222,13 @@ pub struct Gui {
     /// drive rendering yet. Once rendering and command routing are wired
     /// through this tree, `tiles_tree` will be retired.
     graph_tree: graph_tree::GraphTree<NodeKey>,
+
+    /// Stable UUID that identifies this workbench's `GraphTree` slot in persistence.
+    ///
+    /// Phase F: persistence is keyed `"graph_tree_{workbench_view_id}"` so that
+    /// multiple graph views can coexist without overwriting each other's blobs.
+    /// Loaded (or freshly generated) from the store at startup.
+    workbench_view_id: crate::app::GraphViewId,
 }
 
 impl Drop for Gui {
@@ -232,7 +239,8 @@ impl Drop for Gui {
             warn!("Failed to serialize tile layout for persistence");
         }
         if let Ok(graph_tree_json) = serde_json::to_string(&self.graph_tree) {
-            self.graph_app.save_graph_tree_json(&graph_tree_json);
+            self.graph_app
+                .save_graph_tree_json(self.workbench_view_id, &graph_tree_json);
         } else {
             warn!("Failed to serialize graph tree for persistence");
         }
@@ -433,12 +441,22 @@ impl Gui {
                 graph_tree::LayoutMode::TreeStyleTabs,
                 graph_tree::ProjectionLens::Traversal,
             ),
+            // Placeholder; overwritten immediately below once persistence is consulted.
+            workbench_view_id: crate::app::GraphViewId::new(),
         };
         gui.apply_runtime_theme_visuals();
 
+        // Phase F: load or generate the stable workbench view UUID. This must
+        // happen before loading the GraphTree blob so we have the right key.
+        if let Some(view_id) = gui.graph_app.load_or_ensure_workbench_view_id() {
+            gui.workbench_view_id = view_id;
+        }
+        // (If persistence is unavailable, workbench_view_id stays as the
+        //  ephemeral placeholder — no blob will be saved anyway.)
+
         // Restore GraphTree from persistence if available, preserving topology
         // and expansion state. Fall back to rebuilding from tile tree.
-        if let Some(json) = gui.graph_app.load_graph_tree_json() {
+        if let Some(json) = gui.graph_app.load_graph_tree_json(gui.workbench_view_id) {
             if let Ok(restored) = serde_json::from_str::<graph_tree::GraphTree<NodeKey>>(&json) {
                 log::debug!("gui: restored GraphTree from persistence ({} members)", restored.member_count());
                 gui.graph_tree = restored;
@@ -1015,6 +1033,7 @@ impl Gui {
                     crate::shell::desktop::workbench::graph_tree_sync::parity_check(
                         &self.graph_tree,
                         &self.tiles_tree,
+                        self.focused_node_key(),
                     );
                 debug_assert!(
                     discrepancies.is_empty(),
@@ -1223,13 +1242,13 @@ fn ui_overlay_active_from_flags(
 mod gui_tests;
 
 #[cfg(test)]
-fn graph_intents_from_semantic_events(events: Vec<GraphSemanticEvent>) -> Vec<GraphIntent> {
+fn graph_intents_from_semantic_events(events: Vec<WebViewLifecycleEvent>) -> Vec<GraphIntent> {
     intent_translation::graph_intents_from_semantic_events(events)
 }
 
 #[cfg(test)]
 fn graph_intents_and_responsive_from_events(
-    events: Vec<GraphSemanticEvent>,
+    events: Vec<WebViewLifecycleEvent>,
 ) -> (Vec<GraphIntent>, HashSet<WebViewId>) {
     intent_translation::graph_intents_and_responsive_from_events(events)
 }

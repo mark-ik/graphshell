@@ -1038,10 +1038,13 @@ pub(crate) fn handle_tool_pane_intents(
     tiles_tree: &mut Tree<TileKind>,
     workbench_intents: &mut Vec<WorkbenchIntent>,
 ) {
-    workbench_intent_interceptor::handle_tool_pane_intents(
+    workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         graph_app,
         tiles_tree,
+        None,
         workbench_intents,
+        modal_surface_active(graph_app),
+        None,
     );
 }
 
@@ -1051,11 +1054,13 @@ pub(crate) fn handle_tool_pane_intents_with_modal_state(
     workbench_intents: &mut Vec<WorkbenchIntent>,
     modal_surface_active: bool,
 ) {
-    workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state(
+    workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         graph_app,
         tiles_tree,
+        None,
         workbench_intents,
         modal_surface_active,
+        None,
     );
 }
 
@@ -1069,6 +1074,7 @@ fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
     workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         graph_app,
         tiles_tree,
+        None,
         workbench_intents,
         modal_surface_active,
         focus_authority,
@@ -1671,10 +1677,11 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
 fn dispatch_workbench_authority_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     intent: WorkbenchIntent,
 ) -> Option<WorkbenchIntent> {
     crate::shell::desktop::runtime::registries::dispatch_workbench_surface_intent(
-        graph_app, tiles_tree, intent,
+        graph_app, tiles_tree, graph_tree, intent,
     )
 }
 
@@ -1682,6 +1689,7 @@ fn dispatch_workbench_authority_intent(
 pub(crate) fn run_semantic_lifecycle_phase(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     modal_surface_active: bool,
     focus_authority: &mut RuntimeFocusAuthorityState,
     window: &EmbedderWindow,
@@ -1699,6 +1707,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
     apply_semantic_intents_and_pending_open(
         graph_app,
         tiles_tree,
+        Some(graph_tree),
         modal_surface_active,
         focus_authority,
         open_node_tile_after_intents,
@@ -1724,6 +1733,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
 fn apply_semantic_intents_and_pending_open(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     modal_surface_active: bool,
     focus_authority: &mut RuntimeFocusAuthorityState,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
@@ -1732,6 +1742,7 @@ fn apply_semantic_intents_and_pending_open(
     workbench_intent_interceptor::apply_semantic_intents_and_pending_open(
         graph_app,
         tiles_tree,
+        graph_tree,
         modal_surface_active,
         focus_authority,
         open_node_tile_after_intents,

@@ -67,13 +67,13 @@ impl From<u64> for EmbedderWindowId {
 
 /// Graph-relevant semantic events emitted from Servo delegate callbacks.
 #[derive(Clone, Debug)]
-pub(crate) struct GraphSemanticEvent {
+pub(crate) struct WebViewLifecycleEvent {
     pub(crate) seq: u64,
-    pub(crate) kind: GraphSemanticEventKind,
+    pub(crate) kind: WebViewLifecycleEventKind,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum GraphSemanticEventKind {
+pub(crate) enum WebViewLifecycleEventKind {
     UrlChanged {
         webview_id: RendererId,
         new_url: String,
@@ -420,7 +420,7 @@ impl EmbedderWindow {
     }
 
     pub(crate) fn notify_url_changed(&self, webview: WebView, new_url: Url) {
-        let kind = GraphSemanticEventKind::UrlChanged {
+        let kind = WebViewLifecycleEventKind::UrlChanged {
             webview_id: webview.id(),
             new_url: new_url.to_string(),
         };
@@ -450,7 +450,7 @@ impl EmbedderWindow {
         entries: Vec<Url>,
         current: usize,
     ) {
-        let kind = GraphSemanticEventKind::HistoryChanged {
+        let kind = WebViewLifecycleEventKind::HistoryChanged {
             webview_id: webview.id(),
             entries: entries.into_iter().map(|u| u.to_string()).collect(),
             current,
@@ -476,7 +476,7 @@ impl EmbedderWindow {
     }
 
     pub(crate) fn notify_page_title_changed(&self, webview: WebView, title: Option<String>) {
-        let kind = GraphSemanticEventKind::PageTitleChanged {
+        let kind = WebViewLifecycleEventKind::PageTitleChanged {
             webview_id: webview.id(),
             title,
         };
@@ -507,7 +507,7 @@ impl EmbedderWindow {
         parent_webview_id: Option<RendererId>,
         pending_create_token: Option<PendingCreateToken>,
     ) {
-        let kind = GraphSemanticEventKind::HostOpenRequest {
+        let kind = WebViewLifecycleEventKind::HostOpenRequest {
             request: HostOpenRequest {
                 url,
                 source,
@@ -521,7 +521,7 @@ impl EmbedderWindow {
 
     pub(crate) fn notify_webdriver_workbench_intent_request(&self, intent: WorkbenchIntent) {
         self.graph_events
-            .enqueue(GraphSemanticEventKind::WebDriverWorkbenchIntentRequested { intent });
+            .enqueue(WebViewLifecycleEventKind::WebDriverWorkbenchIntentRequested { intent });
         self.set_needs_update();
     }
 
@@ -531,7 +531,7 @@ impl EmbedderWindow {
         reason: String,
         backtrace: Option<String>,
     ) {
-        let kind = GraphSemanticEventKind::WebViewCrashed {
+        let kind = WebViewLifecycleEventKind::WebViewCrashed {
             webview_id: webview.id(),
             reason,
             has_backtrace: backtrace.as_deref().is_some_and(|b| !b.is_empty()),
@@ -576,12 +576,12 @@ impl EmbedderWindow {
     }
 
     /// Return all pending graph semantic events.
-    pub(crate) fn take_pending_graph_events(&self) -> Vec<GraphSemanticEvent> {
+    pub(crate) fn take_pending_graph_events(&self) -> Vec<WebViewLifecycleEvent> {
         self.graph_events.take_pending()
     }
 
     #[cfg(test)]
-    pub(crate) fn enqueue_test_graph_event_kind(&self, kind: GraphSemanticEventKind) {
+    pub(crate) fn enqueue_test_graph_event_kind(&self, kind: WebViewLifecycleEventKind) {
         self.graph_events.enqueue_for_test(kind);
     }
 
@@ -785,7 +785,7 @@ mod tests {
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use servo::WebViewId;
 
-    use super::{EmbedderWindow, GraphSemanticEventKind, InputTarget};
+    use super::{EmbedderWindow, WebViewLifecycleEventKind, InputTarget};
     use crate::prefs::AppPreferences;
     use crate::shell::desktop::host::headless_window::HeadlessWindow;
 
@@ -815,15 +815,15 @@ mod tests {
         let window_a = EmbedderWindow::new(HeadlessWindow::new(&prefs), shared_seq.clone());
         let window_b = EmbedderWindow::new(HeadlessWindow::new(&prefs), shared_seq);
 
-        window_a.enqueue_test_graph_event_kind(GraphSemanticEventKind::UrlChanged {
+        window_a.enqueue_test_graph_event_kind(WebViewLifecycleEventKind::UrlChanged {
             webview_id: test_webview_id(),
             new_url: "https://a.example".into(),
         });
-        window_b.enqueue_test_graph_event_kind(GraphSemanticEventKind::PageTitleChanged {
+        window_b.enqueue_test_graph_event_kind(WebViewLifecycleEventKind::PageTitleChanged {
             webview_id: test_webview_id(),
             title: Some("B".into()),
         });
-        window_a.enqueue_test_graph_event_kind(GraphSemanticEventKind::WebViewCrashed {
+        window_a.enqueue_test_graph_event_kind(WebViewLifecycleEventKind::WebViewCrashed {
             webview_id: test_webview_id(),
             reason: "boom".into(),
             has_backtrace: false,

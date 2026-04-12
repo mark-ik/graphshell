@@ -63,6 +63,49 @@ static COMPOSITOR_NATIVE_TEXTURES: OnceLock<Mutex<HashMap<NodeKey, BackendTextur
 #[cfg(feature = "diagnostics")]
 static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
 
+/// Named abstraction for what the compositor currently holds for a given node.
+///
+/// This is the Phase A concept from the GL→wgpu redesign plan. The primary
+/// path is `ImportedWgpu`: the Servo GL framebuffer has been imported into a
+/// shared wgpu texture and registered with egui for zero-copy blitting.
+/// `CallbackFallback` is the named GL compat path. `Placeholder` means no
+/// usable surface exists yet (node loading, runtime not ready, etc.).
+///
+/// Future: when WgpuShared is the only path, `CallbackFallback` is removed
+/// and `tile_rendering_contexts` (the GL context pool) retires with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContentSurfaceHandle {
+    /// GL frame was imported into a shared wgpu texture registered with egui.
+    ImportedWgpu(BackendTextureToken),
+    /// A GL paint callback is registered for this pass (named compat path).
+    CallbackFallback,
+    /// No surface available (loading, runtime not ready, or lifecycle Cold).
+    Placeholder,
+}
+
+impl ContentSurfaceHandle {
+    /// Query the compositor's current surface handle for a node.
+    ///
+    /// Returns `ImportedWgpu` when the wgpu import path succeeded last frame,
+    /// `Placeholder` otherwise. The `CallbackFallback` case is not yet tracked
+    /// per-node (it is implicit in the absence of a wgpu token).
+    pub(crate) fn for_node(node_key: NodeKey) -> Self {
+        let token = compositor_native_texture_registry()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&node_key)
+            .copied();
+        match token {
+            Some(t) => Self::ImportedWgpu(t),
+            None => Self::Placeholder,
+        }
+    }
+
+    pub(crate) fn is_wgpu(&self) -> bool {
+        matches!(self, Self::ImportedWgpu(_))
+    }
+}
+
 type CompositorContentCallback =
     std::sync::Arc<dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync>;
 
@@ -843,7 +886,11 @@ impl CompositorAdapter {
         let bridge_path = backend_content_bridge_path(bridge.mode);
         let bridge_mode = backend_content_bridge_mode_label(bridge.mode);
 
-        let BackendContentBridge::ParentRenderCallback(callback) = bridge.bridge;
+        let BackendContentBridge::ParentRenderCallback(callback) = bridge.bridge else {
+            // SharedWgpuTexture bridges are registered via upsert_native_content_texture,
+            // not via the GL paint callback path.
+            return false;
+        };
 
         Self::register_content_callback(
             node_key,

@@ -48,6 +48,7 @@ fn emit_focus_restore_route_fallback(
 pub(super) fn handle_cycle_focus_region_intent(
     graph_app: &GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    _graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     focus_cycle: crate::registries::domain::layout::workbench_surface::FocusCycle,
 ) -> bool {
     let before =

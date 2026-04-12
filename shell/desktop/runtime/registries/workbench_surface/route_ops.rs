@@ -1,4 +1,5 @@
 use super::*;
+use crate::shell::desktop::workbench::graph_tree_dual_write as dual_write;
 
 pub(super) fn handle_requested_settings_route(
     graph_app: &mut GraphBrowserApp,
@@ -56,6 +57,7 @@ pub(super) fn handle_open_settings_url_intent(
 pub(super) fn handle_open_frame_url_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    _graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     url: String,
     focus_node: Option<NodeKey>,
 ) -> Option<WorkbenchIntent> {
@@ -239,6 +241,7 @@ pub(super) fn handle_open_note_url_intent(
 pub(super) fn handle_open_node_url_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     url: String,
 ) -> Option<WorkbenchIntent> {
     let Some(node_id) = GraphBrowserApp::resolve_node_route(&url) else {
@@ -257,7 +260,11 @@ pub(super) fn handle_open_node_url_intent(
         return Some(WorkbenchIntent::OpenNodeUrl { url });
     };
 
-    tile_view_ops::open_node_with_graphlet_routing(tiles_tree, graph_app, node_key);
+    if let Some(gt) = graph_tree {
+        dual_write::open_or_focus_node(tiles_tree, gt, graph_app, node_key, None);
+    } else {
+        tile_view_ops::open_node_with_graphlet_routing(tiles_tree, graph_app, node_key);
+    }
     emit_event(DiagnosticEvent::MessageReceived {
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
@@ -269,6 +276,7 @@ pub(super) fn handle_open_node_url_intent(
 pub(super) fn handle_open_clip_url_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    _graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     url: String,
 ) -> Option<WorkbenchIntent> {
     let Some(clip_id) = GraphBrowserApp::resolve_clip_route(&url) else {

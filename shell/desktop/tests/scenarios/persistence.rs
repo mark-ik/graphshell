@@ -519,6 +519,7 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
     registry.dispatch_intent(
         &mut app,
         &mut tree,
+        None,
         WorkbenchIntent::UpdateTileSelection {
             tile_id: graph_tile,
             mode: SelectionUpdateMode::Replace,
@@ -527,6 +528,7 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
     registry.dispatch_intent(
         &mut app,
         &mut tree,
+        None,
         WorkbenchIntent::UpdateTileSelection {
             tile_id: left_tile,
             mode: SelectionUpdateMode::Add,
@@ -535,12 +537,13 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
     registry.dispatch_intent(
         &mut app,
         &mut tree,
+        None,
         WorkbenchIntent::UpdateTileSelection {
             tile_id: right_tile,
             mode: SelectionUpdateMode::Add,
         },
     );
-    registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::GroupSelectedTiles);
+    registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::GroupSelectedTiles);
 
     let frame_name = "workspace-grouped-roundtrip";
     save_named_workspace_bundle(&mut app, frame_name, &tree)

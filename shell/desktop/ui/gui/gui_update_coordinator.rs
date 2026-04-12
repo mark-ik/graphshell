@@ -166,6 +166,7 @@ impl Gui {
             window,
             headed_window,
             tiles_tree,
+            graph_tree,
             modal_surface_active,
             toolbar_height,
             tile_rendering_contexts,

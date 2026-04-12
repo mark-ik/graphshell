@@ -279,15 +279,19 @@ pub(crate) fn incremental_sync_from_tiles(
 /// Returns a list of discrepancies (empty if in sync). Intended for diagnostics
 /// builds and debug assertions.
 ///
-/// **Phase B upgrade**: now checks membership, topology, active member, and
-/// visibility — not just membership sets. Cold members in GraphTree that are
+/// Checks membership, topology (when available), active member, visibility,
+/// expansion state, and visible ordering. Cold members in GraphTree that are
 /// absent from the tile tree are expected and not flagged.
+///
+/// `active_node` is the currently focused node key from the host; passed into
+/// the external snapshot so the active-member comparison is meaningful.
 #[cfg(any(feature = "diagnostics", debug_assertions))]
 pub(crate) fn parity_check(
     graph_tree: &GraphTree<NodeKey>,
     tiles_tree: &Tree<TileKind>,
+    active_node: Option<NodeKey>,
 ) -> Vec<ParityDiscrepancy> {
-    let snapshot = build_external_snapshot(tiles_tree);
+    let snapshot = build_external_snapshot(tiles_tree, active_node);
     let report = graph_tree::parity::compare(graph_tree, &snapshot);
 
     // Convert structural parity report to legacy discrepancy list for
@@ -310,6 +314,12 @@ pub(crate) fn parity_check(
             graph_tree::parity::ParityDivergence::VisibilityMismatch { member, .. } => {
                 discrepancies.push(ParityDiscrepancy::VisibilityMismatch(*member));
             }
+            graph_tree::parity::ParityDivergence::ExpansionMismatch { member, .. } => {
+                discrepancies.push(ParityDiscrepancy::ExpansionMismatch(*member));
+            }
+            graph_tree::parity::ParityDivergence::VisibleOrderMismatch { .. } => {
+                discrepancies.push(ParityDiscrepancy::VisibleOrderMismatch);
+            }
         }
     }
 
@@ -317,9 +327,13 @@ pub(crate) fn parity_check(
 }
 
 /// Build an `ExternalTreeSnapshot` from the tile tree for structural parity comparison.
+///
+/// `active_node` is the currently focused NodeKey from the host; included so the
+/// active-member comparison is meaningful. Pass `None` if focus is unknown.
 #[cfg(any(feature = "diagnostics", debug_assertions))]
 fn build_external_snapshot(
     tiles_tree: &Tree<TileKind>,
+    active_node: Option<NodeKey>,
 ) -> graph_tree::parity::ExternalTreeSnapshot<NodeKey> {
     use std::collections::{HashMap, HashSet};
 
@@ -345,13 +359,18 @@ fn build_external_snapshot(
     //
     // TODO(Phase D): When GraphTree becomes authority, topology comparison
     // becomes meaningful and this should be populated.
-    let active = None; // Tile tree doesn't expose "active node" directly.
+    //
+    // `expanded` and `visible_order` are also left empty — the tile tree has
+    // no equivalent concept. The parity::compare function skips those axes
+    // when the external snapshot provides empty collections.
 
     graph_tree::parity::ExternalTreeSnapshot {
         members,
         children,
-        active,
+        active: active_node,
         visible,
+        expanded: HashSet::new(),
+        visible_order: Vec::new(),
     }
 }
 
@@ -368,4 +387,8 @@ pub(crate) enum ParityDiscrepancy {
     ActiveMismatch,
     /// Visibility differs (visible in one but not the other).
     VisibilityMismatch(NodeKey),
+    /// Expansion state differs.
+    ExpansionMismatch(NodeKey),
+    /// Visible member ordering differs.
+    VisibleOrderMismatch,
 }

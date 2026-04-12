@@ -183,6 +183,32 @@ pub(crate) fn navigator_groups_from_graph_tree(
     groups
 }
 
+/// Phase C: Replace the Workbench section groups with GraphTree-sourced groups.
+///
+/// Removes all `WorkbenchNavigatorSection::Workbench` groups from `groups`
+/// (previously derived from `arrangement_projection_groups()`) and prepends
+/// groups built from `GraphTree::visible_rows()`. Non-Workbench sections
+/// (Folders, Domain, Recent, Imported) are kept unchanged.
+///
+/// This establishes GraphTree as the semantic authority for the workbench/
+/// arrangement section of the navigator, satisfying the Phase C done gate:
+/// the workbench section runs from GraphTree without consulting egui_tiles.
+pub(crate) fn replace_workbench_navigator_groups(
+    groups: &mut Vec<WorkbenchNavigatorGroup>,
+    graph_tree: &GraphTree<NodeKey>,
+    label_fn: &dyn Fn(NodeKey) -> String,
+) {
+    let tree_groups = navigator_groups_from_graph_tree(graph_tree, label_fn);
+
+    // Remove arrangement-derived Workbench groups; keep other sections.
+    groups.retain(|g| g.section != WorkbenchNavigatorSection::Workbench);
+
+    // Prepend GraphTree-sourced Workbench groups (they come first in the navigator).
+    let mut new_groups = tree_groups;
+    new_groups.append(groups);
+    *groups = new_groups;
+}
+
 /// Enrich a `WorkbenchChromeProjection`'s navigator groups with GraphTree-sourced
 /// depth, expansion, and children data.
 ///
@@ -190,6 +216,9 @@ pub(crate) fn navigator_groups_from_graph_tree(
 /// It walks the existing groups and, for each member that exists in the GraphTree,
 /// populates the tree-style fields (depth, is_expanded, has_children) from the
 /// GraphTree's topology. Members not in the GraphTree are left unchanged.
+///
+/// Kept for compatibility and test paths that do not have `GraphTree` available.
+/// Production code uses `replace_workbench_navigator_groups` (Phase C).
 pub(crate) fn enrich_navigator_members_from_graph_tree(
     groups: &mut [WorkbenchNavigatorGroup],
     graph_tree: &GraphTree<NodeKey>,

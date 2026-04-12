@@ -138,21 +138,36 @@ impl GraphBrowserApp {
             .and_then(|store| store.load_tile_layout_json())
     }
 
-    /// Persist serialized GraphTree JSON.
-    pub fn save_graph_tree_json(&mut self, json: &str) {
+    /// Load or generate the stable workbench view UUID from persistence.
+    ///
+    /// Phase F: called once at startup; the returned UUID keys all subsequent
+    /// `save_graph_tree_json` / `load_graph_tree_json` calls.
+    pub fn load_or_ensure_workbench_view_id(&mut self) -> Option<GraphViewId> {
+        let store = self.services.persistence.as_mut()?;
+        match store.load_or_ensure_workbench_view_id() {
+            Ok(uuid) => Some(GraphViewId::from_uuid(uuid)),
+            Err(e) => {
+                log::warn!("Failed to load/generate workbench view id: {e}");
+                None
+            }
+        }
+    }
+
+    /// Persist serialized GraphTree JSON, keyed by the workbench view UUID.
+    pub fn save_graph_tree_json(&mut self, view_id: GraphViewId, json: &str) {
         if let Some(store) = &mut self.services.persistence
-            && let Err(e) = store.save_graph_tree_json(json)
+            && let Err(e) = store.save_graph_tree_json(view_id.as_uuid(), json)
         {
             log::warn!("Failed to save graph tree: {e}");
         }
     }
 
-    /// Load serialized GraphTree JSON from persistence.
-    pub fn load_graph_tree_json(&self) -> Option<String> {
+    /// Load serialized GraphTree JSON for the given workbench view UUID.
+    pub fn load_graph_tree_json(&self, view_id: GraphViewId) -> Option<String> {
         self.services
             .persistence
             .as_ref()
-            .and_then(|store| store.load_graph_tree_json())
+            .and_then(|store| store.load_graph_tree_json(view_id.as_uuid()))
     }
 
     /// Persist serialized tile layout JSON under a workspace name.

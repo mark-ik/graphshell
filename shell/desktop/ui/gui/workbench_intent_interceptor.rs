@@ -1,37 +1,9 @@
 use super::*;
 
-pub(super) fn handle_tool_pane_intents(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    workbench_intents: &mut Vec<WorkbenchIntent>,
-) {
-    handle_tool_pane_intents_with_modal_state_and_focus_authority(
-        graph_app,
-        tiles_tree,
-        workbench_intents,
-        modal_surface_active(graph_app),
-        None,
-    );
-}
-
-pub(super) fn handle_tool_pane_intents_with_modal_state(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    workbench_intents: &mut Vec<WorkbenchIntent>,
-    modal_surface_active: bool,
-) {
-    handle_tool_pane_intents_with_modal_state_and_focus_authority(
-        graph_app,
-        tiles_tree,
-        workbench_intents,
-        modal_surface_active,
-        None,
-    );
-}
-
 pub(super) fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    mut graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     workbench_intents: &mut Vec<WorkbenchIntent>,
     modal_surface_active: bool,
     mut focus_authority: Option<&mut RuntimeFocusAuthorityState>,
@@ -93,11 +65,20 @@ pub(super) fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
             byte_len: UxDispatchPhase::Target as usize,
         });
 
+        // Phase D: graph_tree is threaded to the authority intent dispatch so that
+        // open/activate/dismiss commands update both egui_tiles and GraphTree.
+        // FocusRealizer receives None — it handles UI-focus intents, not graph-node
+        // topology changes, and will be updated in a follow-on pass.
         let authority_result = if let Some(authority) = focus_authority.as_deref_mut() {
             let mut realizer = FocusRealizer::new(graph_app, tiles_tree);
             realizer.realize_workbench_intent(authority, &intent)
         } else {
-            dispatch_workbench_authority_intent(graph_app, tiles_tree, intent.clone())
+            dispatch_workbench_authority_intent(
+                graph_app,
+                tiles_tree,
+                graph_tree.as_deref_mut(),
+                intent.clone(),
+            )
         };
         let authority_handled = authority_result.is_none();
 
@@ -152,6 +133,7 @@ pub(super) fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
 pub(super) fn apply_semantic_intents_and_pending_open(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     modal_surface_active: bool,
     focus_authority: &mut RuntimeFocusAuthorityState,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
@@ -161,6 +143,7 @@ pub(super) fn apply_semantic_intents_and_pending_open(
     handle_tool_pane_intents_with_modal_state_and_focus_authority(
         graph_app,
         tiles_tree,
+        graph_tree,
         &mut workbench_intents,
         modal_surface_active,
         Some(focus_authority),

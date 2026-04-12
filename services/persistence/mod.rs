@@ -1235,6 +1235,53 @@ impl GraphStore {
         std::str::from_utf8(&decrypted).ok().map(|s| s.to_string())
     }
 
+    /// Key under which the stable workbench view UUID is persisted.
+    const WORKBENCH_VIEW_ID_KEY: &'static str = "workbench_view_id";
+    /// Legacy key used before per-view keying (Phase F migration source).
+    const GRAPH_TREE_LEGACY_KEY: &'static str = "graph_tree_latest";
+
+    /// Load the stable workbench `GraphViewId` UUID from persistence, or
+    /// generate and persist a fresh one. This UUID is the stable key under
+    /// which the `GraphTree` JSON blob is stored (Phase F).
+    pub fn load_or_ensure_workbench_view_id(&mut self) -> Result<Uuid, GraphStoreError> {
+        // Try to load an existing UUID.
+        {
+            let read_txn = self
+                .snapshot_db
+                .begin_read()
+                .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+            if let Ok(table) = read_txn.open_table(TILE_LAYOUT_TABLE) {
+                if let Ok(Some(entry)) = table.get(Self::WORKBENCH_VIEW_ID_KEY) {
+                    let decrypted = self.decode_persisted_bytes(entry.value())?;
+                    if let Ok(s) = std::str::from_utf8(&decrypted) {
+                        if let Ok(id) = Uuid::parse_str(s.trim()) {
+                            return Ok(id);
+                        }
+                    }
+                }
+            }
+        }
+        // Generate a fresh UUID and persist it.
+        let id = Uuid::new_v4();
+        let encrypted = self.encode_persisted_bytes(id.to_string().as_bytes())?;
+        let write_txn = self
+            .snapshot_db
+            .begin_write()
+            .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+        {
+            let mut table = write_txn
+                .open_table(TILE_LAYOUT_TABLE)
+                .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+            table
+                .insert(Self::WORKBENCH_VIEW_ID_KEY, encrypted.as_slice())
+                .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+        }
+        write_txn
+            .commit()
+            .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
+        Ok(id)
+    }
+
     /// Maximum serialized size for GraphTree JSON (50 MiB).
     ///
     /// This is a circuit breaker, not a capacity limit. If the tree
@@ -1242,8 +1289,14 @@ impl GraphStore {
     /// write and log a diagnostic rather than OOMing or stalling the DB.
     const GRAPH_TREE_JSON_MAX_BYTES: usize = 50 * 1024 * 1024;
 
-    /// Persist serialized GraphTree JSON alongside the tile layout.
-    pub fn save_graph_tree_json(&mut self, json: &str) -> Result<(), GraphStoreError> {
+    /// Persist serialized GraphTree JSON keyed by the stable workbench view UUID.
+    ///
+    /// Phase F: each view persists independently under `"graph_tree_{view_id}"`.
+    pub fn save_graph_tree_json(
+        &mut self,
+        view_id: Uuid,
+        json: &str,
+    ) -> Result<(), GraphStoreError> {
         if json.len() > Self::GRAPH_TREE_JSON_MAX_BYTES {
             return Err(GraphStoreError::Io(format!(
                 "GraphTree JSON exceeds size limit ({} bytes > {} byte limit) — \
@@ -1252,6 +1305,7 @@ impl GraphStore {
                 Self::GRAPH_TREE_JSON_MAX_BYTES,
             )));
         }
+        let key = format!("graph_tree_{view_id}");
         let encrypted = self.encode_persisted_bytes(json.as_bytes())?;
         let write_txn = self
             .snapshot_db
@@ -1262,7 +1316,7 @@ impl GraphStore {
                 .open_table(TILE_LAYOUT_TABLE)
                 .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
             table
-                .insert("graph_tree_latest", encrypted.as_slice())
+                .insert(key.as_str(), encrypted.as_slice())
                 .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
         }
         write_txn
@@ -1271,11 +1325,20 @@ impl GraphStore {
         Ok(())
     }
 
-    /// Load serialized GraphTree JSON if present.
-    pub fn load_graph_tree_json(&self) -> Option<String> {
+    /// Load serialized GraphTree JSON for the given workbench view UUID.
+    ///
+    /// Phase F migration: tries the per-view key first; falls back to the
+    /// legacy `"graph_tree_latest"` key for stores written before Phase F.
+    pub fn load_graph_tree_json(&self, view_id: Uuid) -> Option<String> {
         let read_txn = self.snapshot_db.begin_read().ok()?;
         let table = read_txn.open_table(TILE_LAYOUT_TABLE).ok()?;
-        let entry = table.get("graph_tree_latest").ok()??;
+        let key = format!("graph_tree_{view_id}");
+        // Prefer the per-view key; fall back to legacy key for migration.
+        let entry = table
+            .get(key.as_str())
+            .ok()
+            .flatten()
+            .or_else(|| table.get(Self::GRAPH_TREE_LEGACY_KEY).ok().flatten())?;
         let decrypted = self.decode_persisted_bytes(entry.value()).ok()?;
         std::str::from_utf8(&decrypted).ok().map(|s| s.to_string())
     }

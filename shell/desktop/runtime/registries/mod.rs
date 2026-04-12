@@ -1834,12 +1834,13 @@ impl RegistryRuntime {
         &self,
         graph_app: &mut GraphBrowserApp,
         tiles_tree: &mut egui_tiles::Tree<crate::shell::desktop::workbench::tile_kind::TileKind>,
+        graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
         intent: WorkbenchIntent,
     ) -> Option<WorkbenchIntent> {
         self.workbench_surface
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .dispatch_intent(graph_app, tiles_tree, intent)
+            .dispatch_intent(graph_app, tiles_tree, graph_tree, intent)
     }
 
     fn accept_renderer_attachment(
@@ -3433,9 +3434,10 @@ pub(crate) fn phase3_shared_runtime() -> Arc<RegistryRuntime> {
 pub(crate) fn dispatch_workbench_surface_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut egui_tiles::Tree<crate::shell::desktop::workbench::tile_kind::TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     intent: WorkbenchIntent,
 ) -> Option<WorkbenchIntent> {
-    runtime().dispatch_workbench_surface_intent(graph_app, tiles_tree, intent)
+    runtime().dispatch_workbench_surface_intent(graph_app, tiles_tree, graph_tree, intent)
 }
 
 // ---------------------------------------------------------------------------

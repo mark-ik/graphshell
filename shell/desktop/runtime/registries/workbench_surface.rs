@@ -24,6 +24,7 @@ use crate::shell::desktop::workbench::pane_model::{
     PaneId, PanePresentationMode, PaneViewState, SplitDirection, ToolPaneState, ViewerId,
     ViewerSwitchReason,
 };
+use crate::shell::desktop::workbench::graph_tree_dual_write as dual_write;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
@@ -296,6 +297,7 @@ impl WorkbenchSurfaceRegistry {
         &self,
         graph_app: &mut GraphBrowserApp,
         tiles_tree: &mut Tree<TileKind>,
+        mut graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
         intent: WorkbenchIntent,
     ) -> Option<WorkbenchIntent> {
         if !Self::can_mutate(self.active_lock(), &intent) {
@@ -355,6 +357,7 @@ impl WorkbenchSurfaceRegistry {
                 if handle_cycle_focus_region_intent(
                     graph_app,
                     tiles_tree,
+                    graph_tree.as_deref_mut(),
                     interaction_policy.keyboard_focus_cycle,
                 ) {
                     emit_event(DiagnosticEvent::MessageReceived {
@@ -476,6 +479,7 @@ impl WorkbenchSurfaceRegistry {
                 handle_close_pane_intent(
                     graph_app,
                     tiles_tree,
+                    graph_tree.as_deref_mut(),
                     pane,
                     restore_previous_focus,
                     &focus_handoff_policy,
@@ -499,7 +503,13 @@ impl WorkbenchSurfaceRegistry {
                 handle_open_settings_url_intent(graph_app, tiles_tree, url)
             }
             WorkbenchIntent::OpenFrameUrl { url, focus_node } => {
-                handle_open_frame_url_intent(graph_app, tiles_tree, url, focus_node)
+                handle_open_frame_url_intent(
+                    graph_app,
+                    tiles_tree,
+                    graph_tree.as_deref_mut(),
+                    url,
+                    focus_node,
+                )
             }
             WorkbenchIntent::OpenToolUrl { url } => {
                 handle_open_tool_url_intent(graph_app, tiles_tree, url)
@@ -573,19 +583,26 @@ impl WorkbenchSurfaceRegistry {
             }
             WorkbenchIntent::OpenNoteUrl { url } => handle_open_note_url_intent(graph_app, url),
             WorkbenchIntent::OpenNodeUrl { url } => {
-                handle_open_node_url_intent(graph_app, tiles_tree, url)
+                handle_open_node_url_intent(graph_app, tiles_tree, graph_tree.as_deref_mut(), url)
             }
             WorkbenchIntent::OpenClipUrl { url } => {
-                handle_open_clip_url_intent(graph_app, tiles_tree, url)
+                handle_open_clip_url_intent(graph_app, tiles_tree, graph_tree.as_deref_mut(), url)
             }
             WorkbenchIntent::OpenNodeInPane { node, pane } => {
-                handle_open_node_in_pane_intent(graph_app, tiles_tree, node, pane);
+                handle_open_node_in_pane_intent(
+                    graph_app,
+                    tiles_tree,
+                    graph_tree.as_deref_mut(),
+                    node,
+                    pane,
+                );
                 None
             }
             WorkbenchIntent::SelectNavigatorNode { node_key, row_key } => {
                 pane_ops::handle_select_navigator_node_intent(
                     graph_app,
                     tiles_tree,
+                    graph_tree.as_deref_mut(),
                     node_key,
                     row_key,
                 );
@@ -595,6 +612,7 @@ impl WorkbenchSurfaceRegistry {
                 pane_ops::handle_activate_navigator_node_intent(
                     graph_app,
                     tiles_tree,
+                    graph_tree.as_deref_mut(),
                     node_key,
                     row_key,
                 );
@@ -604,6 +622,7 @@ impl WorkbenchSurfaceRegistry {
                 pane_ops::handle_dismiss_navigator_node_intent(
                     graph_app,
                     tiles_tree,
+                    graph_tree.as_deref_mut(),
                     node_key,
                     row_key,
                 );
@@ -613,6 +632,7 @@ impl WorkbenchSurfaceRegistry {
                 pane_ops::handle_switch_navigator_node_surface_intent(
                     graph_app,
                     tiles_tree,
+                    graph_tree.as_deref_mut(),
                     node_key,
                     row_key,
                 );
@@ -702,26 +722,48 @@ impl WorkbenchSurfaceRegistry {
                 None
             }
             WorkbenchIntent::DetachNodeToSplit { key } => {
-                handle_detach_node_to_split_intent(graph_app, tiles_tree, key);
+                handle_detach_node_to_split_intent(
+                    graph_app,
+                    tiles_tree,
+                    graph_tree.as_deref_mut(),
+                    key,
+                );
                 None
             }
             WorkbenchIntent::DismissTile { pane } => {
-                pane_ops::handle_dismiss_tile_intent(graph_app, tiles_tree, pane);
+                pane_ops::handle_dismiss_tile_intent(
+                    graph_app,
+                    tiles_tree,
+                    graph_tree.as_deref_mut(),
+                    pane,
+                );
                 None
             }
             WorkbenchIntent::ReconcileGraphletTiles { node } => {
-                pane_ops::handle_reconcile_graphlet_tiles_intent(graph_app, tiles_tree, node);
+                pane_ops::handle_reconcile_graphlet_tiles_intent(
+                    graph_app,
+                    tiles_tree,
+                    graph_tree.as_deref_mut(),
+                    node,
+                );
                 None
             }
             WorkbenchIntent::RestorePaneToSemanticTabGroup { pane, group_id } => {
                 pane_ops::handle_restore_pane_to_semantic_tab_group_intent(
-                    graph_app, tiles_tree, pane, group_id,
+                    graph_app,
+                    tiles_tree,
+                    graph_tree.as_deref_mut(),
+                    pane,
+                    group_id,
                 );
                 None
             }
             WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { group_id } => {
                 pane_ops::handle_collapse_semantic_tab_group_to_pane_rest_intent(
-                    graph_app, tiles_tree, group_id,
+                    graph_app,
+                    tiles_tree,
+                    graph_tree.as_deref_mut(),
+                    group_id,
                 );
                 None
             }
@@ -768,9 +810,10 @@ fn apply_delete_frame_intent(graph_app: &mut GraphBrowserApp, frame_name: String
 fn handle_cycle_focus_region_intent(
     graph_app: &GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     focus_cycle: crate::registries::domain::layout::workbench_surface::FocusCycle,
 ) -> bool {
-    focus_routing::handle_cycle_focus_region_intent(graph_app, tiles_tree, focus_cycle)
+    focus_routing::handle_cycle_focus_region_intent(graph_app, tiles_tree, graph_tree, focus_cycle)
 }
 
 fn handle_update_tile_selection_intent(
@@ -792,9 +835,10 @@ fn handle_group_selected_tiles_intent(
 fn handle_detach_node_to_split_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     key: NodeKey,
 ) {
-    selection_ops::handle_detach_node_to_split_intent(graph_app, tiles_tree, key);
+    selection_ops::handle_detach_node_to_split_intent(graph_app, tiles_tree, graph_tree, key);
 }
 
 pub(crate) fn active_tool_surface_return_target(
@@ -991,6 +1035,7 @@ fn handle_close_tool_pane_intent(
 fn handle_close_pane_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     pane: PaneId,
     restore_previous_focus: bool,
     focus_handoff: &FocusHandoffPolicy,
@@ -998,6 +1043,7 @@ fn handle_close_pane_intent(
     pane_ops::handle_close_pane_intent(
         graph_app,
         tiles_tree,
+        graph_tree,
         pane,
         restore_previous_focus,
         focus_handoff,
@@ -1054,10 +1100,11 @@ pub(crate) fn settings_url_targets_overlay(
 fn handle_open_frame_url_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     url: String,
     focus_node: Option<crate::graph::NodeKey>,
 ) -> Option<WorkbenchIntent> {
-    route_ops::handle_open_frame_url_intent(graph_app, tiles_tree, url, focus_node)
+    route_ops::handle_open_frame_url_intent(graph_app, tiles_tree, graph_tree, url, focus_node)
 }
 
 fn handle_open_tool_url_intent(
@@ -1093,17 +1140,19 @@ fn handle_open_note_url_intent(
 fn handle_open_node_url_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    route_ops::handle_open_node_url_intent(graph_app, tiles_tree, url)
+    route_ops::handle_open_node_url_intent(graph_app, tiles_tree, graph_tree, url)
 }
 
 fn handle_open_clip_url_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     url: String,
 ) -> Option<WorkbenchIntent> {
-    route_ops::handle_open_clip_url_intent(graph_app, tiles_tree, url)
+    route_ops::handle_open_clip_url_intent(graph_app, tiles_tree, graph_tree, url)
 }
 
 fn handle_open_graph_view_pane_intent(
@@ -1157,6 +1206,7 @@ fn open_or_focus_tool_pane_if_available(_tiles_tree: &mut Tree<TileKind>, _kind:
 fn handle_open_node_in_pane_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     node: NodeKey,
     pane: PaneId,
 ) {
@@ -1164,7 +1214,7 @@ fn handle_open_node_in_pane_intent(
         "workbench intent OpenNodeInPane ignored pane target {}; opening node pane directly",
         pane
     );
-    pane_ops::handle_open_node_in_pane_intent(graph_app, tiles_tree, node, pane);
+    pane_ops::handle_open_node_in_pane_intent(graph_app, tiles_tree, graph_tree, node, pane);
 }
 
 fn handle_set_pane_view_intent(
@@ -1325,6 +1375,7 @@ mod tests {
         let result = registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::SplitPane {
                 source_pane,
                 direction: SplitDirection::Horizontal,
@@ -1356,7 +1407,7 @@ mod tests {
         let mut tree = Tree::new("focus_tabs", root, tiles);
 
         let result =
-            registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::CycleFocusRegion);
+            registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::CycleFocusRegion);
 
         assert!(result.is_none());
         assert!(
@@ -1382,7 +1433,7 @@ mod tests {
         let mut tree = Tree::new("compare_panes", root, tiles);
 
         let result =
-            registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::CycleFocusRegion);
+            registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::CycleFocusRegion);
 
         assert!(result.is_none());
         assert!(
@@ -1408,6 +1459,7 @@ mod tests {
         registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::UpdateTileSelection {
                 tile_id: graph,
                 mode: SelectionUpdateMode::Replace,
@@ -1416,6 +1468,7 @@ mod tests {
         registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::UpdateTileSelection {
                 tile_id: node,
                 mode: SelectionUpdateMode::Add,
@@ -1450,7 +1503,7 @@ mod tests {
         app.select_workbench_tile(graph);
         app.update_workbench_tile_selection(node, SelectionUpdateMode::Add);
 
-        registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::GroupSelectedTiles);
+        registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::GroupSelectedTiles);
 
         let selected = &app.workbench_tile_selection().selected_tile_ids;
         assert_eq!(selected.len(), 2);
@@ -1487,7 +1540,7 @@ mod tests {
         app.select_workbench_tile(left_tile);
         app.update_workbench_tile_selection(right_tile, SelectionUpdateMode::Add);
 
-        registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::GroupSelectedTiles);
+        registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::GroupSelectedTiles);
 
         let tile_group_nodes: Vec<_> = app
             .domain_graph()
@@ -1533,7 +1586,7 @@ mod tests {
         app.select_workbench_tile(graph_tile);
         app.update_workbench_tile_selection(node_tile, SelectionUpdateMode::Add);
 
-        registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::GroupSelectedTiles);
+        registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::GroupSelectedTiles);
 
         let view_url = VersoAddress::view(view_id.as_uuid().to_string()).to_string();
         let (view_member_key, view_member_node) = app
@@ -1581,6 +1634,7 @@ mod tests {
         registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::SelectNavigatorNode {
                 node_key,
                 row_key: Some("node:test".to_string()),
@@ -1620,6 +1674,7 @@ mod tests {
         registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::ActivateNavigatorNode {
                 node_key,
                 row_key: Some("node:live".to_string()),
@@ -1655,6 +1710,7 @@ mod tests {
         registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::DismissNavigatorNode {
                 node_key,
                 row_key: Some("node:dismiss".to_string()),
@@ -1692,6 +1748,7 @@ mod tests {
         registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::SwitchNavigatorNodeSurface {
                 node_key,
                 row_key: Some("node:switch".to_string()),
@@ -1729,6 +1786,7 @@ mod tests {
         registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::SetSurfaceConfigMode {
                 surface_host: host.clone(),
                 mode: UxConfigMode::Configuring {
@@ -1739,6 +1797,7 @@ mod tests {
         registry.dispatch_intent(
             &mut app,
             &mut tree,
+            None,
             WorkbenchIntent::SetSurfaceConfigMode {
                 surface_host: host,
                 mode: UxConfigMode::Locked,

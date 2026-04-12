@@ -72,6 +72,7 @@ pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
 pub(super) struct SemanticLifecyclePhaseArgs<'a> {
     pub(super) graph_app: &'a mut GraphBrowserApp,
     pub(super) tiles_tree: &'a mut Tree<TileKind>,
+    pub(super) graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
     pub(super) modal_surface_active: bool,
     pub(super) focus_authority: &'a mut RuntimeFocusAuthorityState,
     pub(super) window: &'a EmbedderWindow,
@@ -97,6 +98,7 @@ pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     pub(super) window: &'a EmbedderWindow,
     pub(super) headed_window: &'a headed_window::HeadedWindow,
     pub(super) tiles_tree: &'a mut Tree<TileKind>,
+    pub(super) graph_tree: &'a mut graph_tree::GraphTree<crate::graph::NodeKey>,
     pub(super) modal_surface_active: bool,
     pub(super) toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
     pub(super) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,

@@ -1,4 +1,6 @@
 use super::*;
+use crate::shell::desktop::workbench::graph_tree_dual_write as dual_write;
+use crate::shell::desktop::workbench::graph_tree_commands;
 use crate::util::CoordBridge;
 
 pub(super) fn handle_open_tool_pane_intent(
@@ -82,6 +84,7 @@ pub(super) fn handle_close_tool_pane_intent(
 pub(super) fn handle_close_pane_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    mut graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     pane: PaneId,
     restore_previous_focus: bool,
     focus_handoff: &FocusHandoffPolicy,
@@ -89,7 +92,13 @@ pub(super) fn handle_close_pane_intent(
     let focus_before = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
         graph_app, tiles_tree, None, None, false,
     );
-    let closed = tile_view_ops::close_pane(tiles_tree, pane);
+    // Resolve node key before closing so we can sync GraphTree.
+    let node_key = pane_id_for_node_reverse(tiles_tree, pane);
+    let closed = if let Some(gt) = graph_tree.as_deref_mut() {
+        dual_write::close_pane(tiles_tree, gt, pane, node_key)
+    } else {
+        tile_view_ops::close_pane(tiles_tree, pane)
+    };
 
     if closed && restore_previous_focus {
         let restored =
@@ -106,7 +115,11 @@ pub(super) fn handle_close_pane_intent(
         }
     } else if closed {
         graph_app.set_pending_tool_surface_return_target(None);
-        let ensured = tile_view_ops::ensure_active_tile(tiles_tree);
+        let ensured = if let Some(gt) = graph_tree.as_deref_mut() {
+            dual_write::ensure_active_tile(tiles_tree, gt)
+        } else {
+            tile_view_ops::ensure_active_tile(tiles_tree)
+        };
         let focus_after = crate::shell::desktop::ui::gui::workbench_runtime_focus_state(
             graph_app, tiles_tree, None, None, false,
         );
@@ -124,6 +137,14 @@ pub(super) fn handle_close_pane_intent(
     }
 }
 
+/// Reverse-lookup: find the NodeKey for a given PaneId (for pre-close sync).
+fn pane_id_for_node_reverse(tiles_tree: &Tree<TileKind>, pane: PaneId) -> Option<NodeKey> {
+    tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+        Tile::Pane(kind) if kind.pane_id() == pane => kind.node_state().map(|s| s.node),
+        _ => None,
+    })
+}
+
 /// Dismiss a tile: close it from the tree and demote its node to `Cold`.
 ///
 /// Unlike `ClosePane`, this does **not** remove any graph edges.  The node
@@ -134,22 +155,28 @@ pub(super) fn handle_close_pane_intent(
 pub(super) fn handle_dismiss_tile_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    mut graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     pane: PaneId,
 ) {
     // Resolve the node key before closing the pane so we can still find the
     // tile in the tree.
-    let node_key = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
-        Tile::Pane(kind) if kind.pane_id() == pane => kind.node_state().map(|s| s.node),
-        _ => None,
-    });
+    let node_key = pane_id_for_node_reverse(tiles_tree, pane);
 
-    let closed = tile_view_ops::close_pane(tiles_tree, pane);
+    let closed = if let Some(gt) = graph_tree.as_deref_mut() {
+        dual_write::close_pane(tiles_tree, gt, pane, node_key)
+    } else {
+        tile_view_ops::close_pane(tiles_tree, pane)
+    };
 
     if closed {
         if let Some(key) = node_key {
             graph_app.demote_node_to_cold_with_cause(key, LifecycleCause::ExplicitClose);
         }
-        tile_view_ops::ensure_active_tile(tiles_tree);
+        if let Some(gt) = graph_tree.as_deref_mut() {
+            dual_write::ensure_active_tile(tiles_tree, gt);
+        } else {
+            tile_view_ops::ensure_active_tile(tiles_tree);
+        }
     }
 }
 
@@ -244,6 +271,7 @@ fn set_navigator_row_selection(graph_app: &mut GraphBrowserApp, row_key: Option<
 pub(super) fn handle_select_navigator_node_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    _graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     node_key: NodeKey,
     row_key: Option<String>,
 ) {
@@ -263,6 +291,7 @@ pub(super) fn handle_select_navigator_node_intent(
 pub(super) fn handle_activate_navigator_node_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    mut graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     node_key: NodeKey,
     row_key: Option<String>,
 ) {
@@ -275,7 +304,12 @@ pub(super) fn handle_activate_navigator_node_intent(
     }
 
     if node_has_workbench_presentation(tiles_tree, node_key) {
-        let _ = focus_node_presentation(tiles_tree, node_key);
+        let activated = focus_node_presentation(tiles_tree, node_key);
+        if activated {
+            if let Some(gt) = graph_tree.as_deref_mut() {
+                graph_tree_commands::activate_node(gt, node_key);
+            }
+        }
         return;
     }
 
@@ -284,7 +318,11 @@ pub(super) fn handle_activate_navigator_node_intent(
         .get_node(node_key)
         .map(|node| node.lifecycle);
     if lifecycle == Some(crate::graph::NodeLifecycle::Cold) {
-        tile_view_ops::open_node_with_graphlet_routing(tiles_tree, graph_app, node_key);
+        if let Some(gt) = graph_tree.as_deref_mut() {
+            dual_write::open_or_focus_node(tiles_tree, gt, graph_app, node_key, None);
+        } else {
+            tile_view_ops::open_node_with_graphlet_routing(tiles_tree, graph_app, node_key);
+        }
         return;
     }
 
@@ -300,12 +338,13 @@ pub(super) fn handle_activate_navigator_node_intent(
 pub(super) fn handle_dismiss_navigator_node_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     node_key: NodeKey,
     row_key: Option<String>,
 ) {
     set_navigator_row_selection(graph_app, row_key);
     if let Some(pane) = pane_id_for_node(tiles_tree, node_key) {
-        handle_dismiss_tile_intent(graph_app, tiles_tree, pane);
+        handle_dismiss_tile_intent(graph_app, tiles_tree, graph_tree, pane);
         return;
     }
 
@@ -321,6 +360,7 @@ pub(super) fn handle_dismiss_navigator_node_intent(
 pub(super) fn handle_switch_navigator_node_surface_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    mut graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     node_key: NodeKey,
     row_key: Option<String>,
 ) {
@@ -333,7 +373,7 @@ pub(super) fn handle_switch_navigator_node_surface_intent(
     }
 
     if matches!(active_visible_graph_view_id(tiles_tree), Some(_)) {
-        handle_activate_navigator_node_intent(graph_app, tiles_tree, node_key, None);
+        handle_activate_navigator_node_intent(graph_app, tiles_tree, graph_tree, node_key, None);
         return;
     }
 
@@ -344,7 +384,7 @@ pub(super) fn handle_switch_navigator_node_surface_intent(
             crate::app::CameraCommand::FitSelection,
         );
     } else {
-        handle_activate_navigator_node_intent(graph_app, tiles_tree, node_key, None);
+        handle_activate_navigator_node_intent(graph_app, tiles_tree, graph_tree.as_deref_mut(), node_key, None);
     }
 }
 
@@ -359,6 +399,7 @@ pub(super) fn handle_switch_navigator_node_surface_intent(
 pub(super) fn handle_open_node_in_pane_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    mut graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     node: NodeKey,
     pane: PaneId,
 ) {
@@ -406,7 +447,11 @@ pub(super) fn handle_open_node_in_pane_intent(
     }
 
     // 4. Fallback: standard open.
-    tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node);
+    if let Some(gt) = graph_tree {
+        dual_write::open_or_focus_node(tiles_tree, gt, graph_app, node, None);
+    } else {
+        tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node);
+    }
 }
 
 /// Return the tab container `TileId` and a representative anchor `NodeKey`
@@ -564,6 +609,7 @@ pub(super) fn handle_swap_viewer_backend_intent(
 pub(super) fn handle_reconcile_graphlet_tiles_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    _graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     seed: NodeKey,
 ) {
     use std::collections::HashSet;
@@ -692,6 +738,7 @@ pub(super) fn handle_split_pane_intent(
 pub(super) fn handle_restore_pane_to_semantic_tab_group_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    _graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     pane: PaneId,
     group_id: uuid::Uuid,
 ) {
@@ -706,6 +753,7 @@ pub(super) fn handle_restore_pane_to_semantic_tab_group_intent(
 pub(super) fn handle_collapse_semantic_tab_group_to_pane_rest_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    _graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     group_id: uuid::Uuid,
 ) {
     if !tile_view_ops::collapse_semantic_tab_group_to_pane_rest(tiles_tree, graph_app, group_id) {

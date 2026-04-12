@@ -49,6 +49,7 @@ pub(super) fn handle_group_selected_tiles_intent(
 pub(super) fn handle_detach_node_to_split_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    _graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     key: NodeKey,
 ) {
     record_workspace_undo_boundary_from_tiles_tree(

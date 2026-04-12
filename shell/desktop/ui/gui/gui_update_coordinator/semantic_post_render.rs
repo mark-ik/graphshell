@@ -20,6 +20,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         window,
         headed_window,
         tiles_tree,
+        graph_tree,
         modal_surface_active,
         toolbar_height,
         tile_rendering_contexts,
@@ -53,6 +54,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
     run_semantic_lifecycle_phase(SemanticLifecyclePhaseArgs {
         graph_app,
         tiles_tree,
+        graph_tree,
         modal_surface_active,
         focus_authority,
         window,
@@ -87,6 +89,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
             window,
             headed_window,
             tiles_tree,
+            graph_tree,
             tile_rendering_contexts,
             tile_favicon_textures,
             favicon_textures,
@@ -125,6 +128,7 @@ pub(super) fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>)
     let SemanticLifecyclePhaseArgs {
         graph_app,
         tiles_tree,
+        graph_tree,
         modal_surface_active,
         focus_authority,
         window,
@@ -143,6 +147,7 @@ pub(super) fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>)
     gui_orchestration::run_semantic_lifecycle_phase(
         graph_app,
         tiles_tree,
+        graph_tree,
         modal_surface_active,
         focus_authority,
         window,

@@ -121,6 +121,7 @@ fn dismiss_tile_demotes_lifecycle_and_preserves_edges() {
     registries::dispatch_workbench_surface_intent(
         &mut harness.app,
         &mut harness.tiles_tree,
+        None,
         WorkbenchIntent::DismissTile { pane: pane_id },
     );
 
@@ -175,6 +176,7 @@ fn dismissed_node_remains_in_durable_graphlet() {
     registries::dispatch_workbench_surface_intent(
         &mut harness.app,
         &mut harness.tiles_tree,
+        None,
         WorkbenchIntent::DismissTile { pane: pane_id },
     );
 
@@ -240,6 +242,7 @@ fn cold_node_reactivated_joins_existing_tab_group() {
     registries::dispatch_workbench_surface_intent(
         &mut harness.app,
         &mut harness.tiles_tree,
+        None,
         WorkbenchIntent::DismissTile { pane: pane_b },
     );
     assert!(
