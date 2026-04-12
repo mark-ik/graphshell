@@ -5,7 +5,7 @@
 use crate::graphlet::GraphletId;
 use crate::layout::LayoutMode;
 use crate::lens::ProjectionLens;
-use crate::member::{Lifecycle, Provenance};
+use crate::member::{LayoutOverride, Lifecycle, Provenance};
 use crate::MemberId;
 
 /// Navigation actions — the verbs of tree interaction.
@@ -63,6 +63,9 @@ pub enum NavAction<N: MemberId> {
 
     /// Cycle focus within a specific region.
     CycleFocusRegion(FocusCycleRegion),
+
+    /// Update a member's layout override (split ratio, flex, direction).
+    SetLayoutOverride(N, LayoutOverride),
 }
 
 /// Direction for focus cycling.

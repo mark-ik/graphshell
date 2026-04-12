@@ -117,6 +117,10 @@ pub struct LayoutOverride {
     pub flex_grow: Option<f32>,
     pub flex_shrink: Option<f32>,
     pub preferred_split: Option<SplitDirection>,
+    /// User-set split proportion (0.0–1.0). When present, overrides flex_grow
+    /// for taffy sizing by setting `flex_basis: Percent(ratio * 100)`.
+    /// Produced by split-handle drag interactions.
+    pub split_ratio: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

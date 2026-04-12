@@ -34,6 +34,14 @@ pub struct ExternalTreeSnapshot<N: MemberId> {
 
     /// Members that are visually displayed (open panes / visible tabs).
     pub visible: HashSet<N>,
+
+    /// Members whose children are currently expanded/visible in the tree.
+    /// Leave empty if the external tree has no expansion concept.
+    pub expanded: HashSet<N>,
+
+    /// Ordered sequence of visible member IDs as the external tree renders them.
+    /// Leave empty if the external tree has no canonical ordering.
+    pub visible_order: Vec<N>,
 }
 
 /// Individual divergence found during parity comparison.
@@ -60,6 +68,19 @@ pub enum ParityDivergence<N: MemberId> {
         in_graph_tree: bool,
         in_external: bool,
     },
+    /// Expansion state differs (expanded in one but not the other).
+    ExpansionMismatch {
+        member: N,
+        in_graph_tree: bool,
+        in_external: bool,
+    },
+    /// Visible member ordering differs.
+    VisibleOrderMismatch {
+        /// GraphTree's rendering order for visible members.
+        graph_tree_order: Vec<N>,
+        /// External tree's rendering order for visible members.
+        external_order: Vec<N>,
+    },
 }
 
 /// Full parity comparison result.
@@ -73,7 +94,9 @@ pub struct ParityReport<N: MemberId> {
     pub external_only: usize,
     pub topology_mismatches: usize,
     pub visibility_mismatches: usize,
+    pub expansion_mismatches: usize,
     pub active_matches: bool,
+    pub visible_order_matches: bool,
 }
 
 impl<N: MemberId> ParityReport<N> {
@@ -90,6 +113,15 @@ impl<N: MemberId> ParityReport<N> {
     /// True when membership AND topology both match.
     pub fn structural_match(&self) -> bool {
         self.membership_matches() && self.topology_mismatches == 0
+    }
+
+    /// True when all axes match (full structural + behavioral parity).
+    pub fn full_match(&self) -> bool {
+        self.structural_match()
+            && self.active_matches
+            && self.visibility_mismatches == 0
+            && self.expansion_mismatches == 0
+            && self.visible_order_matches
     }
 }
 
@@ -110,6 +142,7 @@ pub fn compare<N: MemberId>(
     let mut external_only = 0usize;
     let mut topology_mismatches = 0usize;
     let mut visibility_mismatches = 0usize;
+    let mut expansion_mismatches = 0usize;
 
     let gt_members: HashSet<N> = tree.members().map(|(id, _)| id.clone()).collect();
 
@@ -134,34 +167,35 @@ pub fn compare<N: MemberId>(
         }
     }
 
-    // --- Topology (only for members in both) ---
+    // --- Topology (only for members in both, only when external has topology data) ---
 
     let shared: HashSet<&N> = gt_members.intersection(&external.members).collect();
 
-    for id in &shared {
-        let gt_parent = tree.topology().parent_of(id).cloned();
+    if !external.children.is_empty() {
+        for id in &shared {
+            let gt_parent = tree.topology().parent_of(id).cloned();
 
-        // Derive external parent by scanning children map
-        let ext_parent = external
-            .children
-            .iter()
-            .find(|(_, children)| children.contains(id))
-            .map(|(parent, _)| parent.clone());
+            // Derive external parent by scanning children map
+            let ext_parent = external
+                .children
+                .iter()
+                .find(|(_, children)| children.contains(id))
+                .map(|(parent, _)| parent.clone());
 
-        // Only compare if both parents are in the shared set (or both are None/root)
-        if gt_parent != ext_parent {
-            divergences.push(ParityDivergence::TopologyMismatch {
-                member: (*id).clone(),
-                graph_tree_parent: gt_parent,
-                external_parent: ext_parent,
-            });
-            topology_mismatches += 1;
+            if gt_parent != ext_parent {
+                divergences.push(ParityDivergence::TopologyMismatch {
+                    member: (*id).clone(),
+                    graph_tree_parent: gt_parent,
+                    external_parent: ext_parent,
+                });
+                topology_mismatches += 1;
+            }
         }
     }
 
-    // --- Active member ---
+    // --- Active member (only when external reports an active member) ---
 
-    let active_matches = tree.active().cloned() == external.active;
+    let active_matches = external.active.is_none() || tree.active().cloned() == external.active;
     if !active_matches {
         divergences.push(ParityDivergence::ActiveMismatch {
             graph_tree: tree.active().cloned(),
@@ -197,13 +231,62 @@ pub fn compare<N: MemberId>(
         }
     }
 
+    // --- Expansion state (only when external has expansion data) ---
+
+    if !external.expanded.is_empty() {
+        let gt_expanded: HashSet<N> = tree.expanded_members().cloned().collect();
+
+        for id in gt_expanded.difference(&external.expanded) {
+            if external.members.contains(id) {
+                divergences.push(ParityDivergence::ExpansionMismatch {
+                    member: id.clone(),
+                    in_graph_tree: true,
+                    in_external: false,
+                });
+                expansion_mismatches += 1;
+            }
+        }
+        for id in external.expanded.difference(&gt_expanded) {
+            if gt_members.contains(id) {
+                divergences.push(ParityDivergence::ExpansionMismatch {
+                    member: id.clone(),
+                    in_graph_tree: false,
+                    in_external: true,
+                });
+                expansion_mismatches += 1;
+            }
+        }
+    }
+
+    // --- Visible order (only when external provides an ordering) ---
+
+    let visible_order_matches = if external.visible_order.is_empty() {
+        true // external doesn't have ordering data — skip comparison
+    } else {
+        let gt_order: Vec<N> = tree
+            .visible_rows()
+            .into_iter()
+            .map(|row| row.member.clone())
+            .collect();
+        let matches = gt_order == external.visible_order;
+        if !matches {
+            divergences.push(ParityDivergence::VisibleOrderMismatch {
+                graph_tree_order: gt_order,
+                external_order: external.visible_order.clone(),
+            });
+        }
+        matches
+    };
+
     ParityReport {
         divergences,
         graph_tree_only,
         external_only,
         topology_mismatches,
         visibility_mismatches,
+        expansion_mismatches,
         active_matches,
+        visible_order_matches,
     }
 }
 
@@ -249,6 +332,8 @@ mod tests {
             children,
             active: Some(1),
             visible: HashSet::from([1, 2]),
+            expanded: HashSet::new(), // leave empty → expansion check skipped
+            visible_order: Vec::new(), // leave empty → order check skipped
         }
     }
 
@@ -261,6 +346,8 @@ mod tests {
         assert!(report.membership_matches());
         assert!(report.structural_match());
         assert!(report.active_matches);
+        assert!(report.visible_order_matches);
+        assert_eq!(report.expansion_mismatches, 0);
     }
 
     #[test]
@@ -317,5 +404,61 @@ mod tests {
 
         let report = compare(&tree, &snapshot);
         assert_eq!(report.visibility_mismatches, 1);
+    }
+
+    #[test]
+    fn active_none_in_external_not_flagged() {
+        // When external.active = None, the active comparison is skipped
+        // (transition phase: tile tree doesn't always report active).
+        let tree = build_tree(); // GraphTree has active = Some(1)
+        let mut snapshot = matching_snapshot();
+        snapshot.active = None;
+
+        let report = compare(&tree, &snapshot);
+        assert!(report.active_matches, "None external active should not flag mismatch");
+    }
+
+    #[test]
+    fn expansion_mismatch_detected() {
+        let mut tree = build_tree();
+        // Expand node 1 in GraphTree.
+        tree.apply(NavAction::ToggleExpand(1));
+
+        let mut snapshot = matching_snapshot();
+        // External says node 1 is NOT expanded.
+        snapshot.expanded = HashSet::from([99u64]); // non-empty so check runs; 99 not in GT
+
+        let report = compare(&tree, &snapshot);
+        // GT has 1 expanded, external has only 99 → mismatch for 1
+        assert!(report.expansion_mismatches > 0);
+    }
+
+    #[test]
+    fn expansion_check_skipped_when_external_expanded_empty() {
+        let mut tree = build_tree();
+        tree.apply(NavAction::ToggleExpand(1));
+
+        let snapshot = matching_snapshot(); // expanded is empty → skip check
+        let report = compare(&tree, &snapshot);
+        assert_eq!(report.expansion_mismatches, 0);
+    }
+
+    #[test]
+    fn visible_order_mismatch_detected() {
+        let tree = build_tree(); // visible order: [1, 2] (1 active+expanded→children shown)
+        let mut snapshot = matching_snapshot();
+        // External gives order [2, 1] — reversed.
+        snapshot.visible_order = vec![2, 1];
+
+        let report = compare(&tree, &snapshot);
+        assert!(!report.visible_order_matches);
+    }
+
+    #[test]
+    fn visible_order_check_skipped_when_external_order_empty() {
+        let tree = build_tree();
+        let snapshot = matching_snapshot(); // visible_order is empty → skip
+        let report = compare(&tree, &snapshot);
+        assert!(report.visible_order_matches);
     }
 }

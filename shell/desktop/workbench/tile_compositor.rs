@@ -18,6 +18,7 @@ use std::time::Instant;
 
 use egui::{Color32, Stroke, TextureHandle, TextureId};
 use egui_tiles::{Tile, TileId, Tree};
+use graph_tree::GraphTree;
 use image::load_from_memory;
 use servo::OffscreenRenderingContext;
 
@@ -819,6 +820,40 @@ pub(crate) fn active_node_pane_rects(
         }
     }
     tile_rects
+}
+
+/// Phase G: GraphTree-keyed compositor input with GraphTree layout authority.
+///
+/// GraphTree is both the membership authority (which nodes are visible) and the
+/// layout authority (pane rects via taffy-backed `compute_layout()`).
+/// PaneId lookup still comes from egui_tiles during migration — once PaneId is
+/// replaced by a GraphTree-native identifier, the tiles_tree parameter can be removed.
+pub(crate) fn active_node_pane_rects_from_graph_tree(
+    graph_tree: &GraphTree<NodeKey>,
+    tiles_tree: &Tree<TileKind>,
+    available: egui::Rect,
+) -> Vec<(PaneId, NodeKey, egui::Rect)> {
+    let gt_rect = graph_tree::Rect::new(
+        available.left(), available.top(), available.width(), available.height(),
+    );
+    let layout = graph_tree.compute_layout(gt_rect);
+
+    layout.pane_rects.iter().filter_map(|(node_key, rect)| {
+        // PaneId lookup from tiles_tree during migration.
+        let pane_id = tiles_tree.tiles.iter().find_map(|(_, tile)| {
+            if let Tile::Pane(TileKind::Node(state)) = tile {
+                if state.node == *node_key {
+                    return Some(state.pane_id);
+                }
+            }
+            None
+        })?;
+        let egui_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.x, rect.y),
+            egui::vec2(rect.w, rect.h),
+        );
+        Some((pane_id, *node_key, egui_rect))
+    }).collect()
 }
 
 pub(crate) fn focused_node_key_for_node_panes(

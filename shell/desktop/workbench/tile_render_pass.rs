@@ -11,6 +11,7 @@ use egui_tiles::TileId;
 use egui_tiles::{Container, Tile, Tree};
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
+use super::graph_tree_dual_write as dual_write;
 use super::tile_behavior::PendingOpenMode;
 use super::tile_compositor;
 use super::tile_invariants;
@@ -45,6 +46,10 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub graph_app: &'a mut GraphBrowserApp,
     pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a mut Tree<TileKind>,
+    /// Phase E+B: GraphTree is the membership authority for compositor input
+    /// (Phase E) and the dual-write target for tile mutations (Phase B).
+    /// Rects still come from egui_tiles during migration.
+    pub graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
     pub tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     pub tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub graph_search_matches: &'a HashSet<NodeKey>,
@@ -221,6 +226,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         graph_app,
         window,
         tiles_tree,
+        graph_tree,
         tile_rendering_contexts,
         tile_favicon_textures,
         graph_search_matches,
@@ -249,6 +255,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
     #[cfg(feature = "diagnostics")]
     let focused_node_hint_before = *focused_node_hint;
 
+    let available_rect = ui.max_rect();
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
     webview_backpressure::publish_node_pane_attach_attempt_metadata(
         webview_creation_backpressure,
@@ -287,10 +294,13 @@ pub(crate) fn run_tile_render_pass_in_ui(
     }
 
     for open in pending_open_nodes {
-        tile_view_ops::open_or_focus_node_pane_with_mode(
+        // Phase B dual-write: mutate both tiles_tree and graph_tree together.
+        dual_write::open_or_focus_node_with_mode(
             tiles_tree,
+            graph_tree,
             graph_app,
             open.key,
+            None, // source unknown from this call site; provenance_fn in sync handles it
             open_mode_from_pending(open.mode),
         );
     }
@@ -302,7 +312,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
             });
         }
         Some(FloatingOverlayAction::Dismiss) => {
-            tile_view_ops::dismiss_floating_panes(tiles_tree);
+            dual_write::dismiss_floating_panes(tiles_tree, graph_tree);
         }
         None => {}
     }
@@ -313,10 +323,12 @@ pub(crate) fn run_tile_render_pass_in_ui(
             "tile_render_pass: diagnostics requested pending focus for node {:?}",
             node_key
         );
-        tile_view_ops::open_or_focus_node_pane_with_mode(
+        dual_write::open_or_focus_node_with_mode(
             tiles_tree,
+            graph_tree,
             graph_app,
             node_key,
+            None,
             TileOpenMode::Tab,
         );
         post_render_intents.push(GraphIntent::SelectNode {
@@ -381,7 +393,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         }
     }
 
-    let repaired_active_tile = tile_view_ops::ensure_active_tile(tiles_tree);
+    let repaired_active_tile = dual_write::ensure_active_tile(tiles_tree, graph_tree);
     if repaired_active_tile {
         log::debug!("tile_render_pass: repaired empty active tile selection");
     }
@@ -393,9 +405,13 @@ pub(crate) fn run_tile_render_pass_in_ui(
 
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
 
-    let active_tile_rects = tile_compositor::active_node_pane_rects(tiles_tree);
+    // Phase G: GraphTree is both the membership and layout authority.
+    // Pane rects come from GraphTree's taffy-backed compute_layout().
+    // PaneId lookup still comes from egui_tiles during migration.
+    let active_tile_rects =
+        tile_compositor::active_node_pane_rects_from_graph_tree(graph_tree, tiles_tree, available_rect);
     log::debug!(
-        "tile_render_pass: {} active tile rects",
+        "tile_render_pass: {} active tile rects (graph_tree keyed)",
         active_tile_rects.len()
     );
     for (_, key, rect) in active_tile_rects.iter() {

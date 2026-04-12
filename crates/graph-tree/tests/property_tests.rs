@@ -87,6 +87,16 @@ fn arb_nav_action() -> impl Strategy<Value = NavAction<u64>> {
             Just(FocusCycleRegion::Branches),
             Just(FocusCycleRegion::Leaves),
         ].prop_map(NavAction::CycleFocusRegion),
+        // Layout override (weight: 1)
+        1 => (1..=MAX_MEMBER_ID, proptest::option::of(0.0f32..=1.0))
+            .prop_map(|(m, ratio)| NavAction::SetLayoutOverride(m, graph_tree::LayoutOverride {
+                min_width: None,
+                min_height: None,
+                flex_grow: None,
+                flex_shrink: None,
+                preferred_split: None,
+                split_ratio: ratio,
+            })),
     ]
 }
 
