@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::graphlet::{GraphletId, GraphletRef};
-use crate::layout::{LayoutMode, LayoutResult, OwnedTreeRow, TabEntry};
+use crate::layout::{LayoutMode, LayoutResult, OwnedTreeRow, SplitBoundary, TabEntry};
 use crate::lens::ProjectionLens;
 use crate::member::{LayoutOverride, Lifecycle, MemberEntry, Provenance, SplitDirection};
 use crate::nav::{
@@ -227,12 +227,14 @@ impl<N: MemberId> GraphTree<N> {
     ///   flexbox. The topology's parent-child structure maps to nested flex
     ///   containers with alternating H/V direction.
     pub fn compute_layout(&self, available: Rect) -> LayoutResult<N> {
+        use crate::layout::SplitBoundary;
+
         let tree_rows = self.visible_rows();
         let tab_order = self.build_tab_order();
 
-        let pane_rects = match self.layout_mode {
+        let (pane_rects, split_boundaries) = match self.layout_mode {
             LayoutMode::TreeStyleTabs | LayoutMode::FlatTabs => {
-                self.layout_single_pane(&available)
+                (self.layout_single_pane(&available), Vec::new())
             }
             LayoutMode::SplitPanes => {
                 self.layout_split_panes(&available)
@@ -241,6 +243,7 @@ impl<N: MemberId> GraphTree<N> {
 
         LayoutResult {
             pane_rects,
+            split_boundaries,
             tab_order,
             tree_rows,
             active: self.active.clone(),
@@ -284,30 +287,33 @@ impl<N: MemberId> GraphTree<N> {
     /// a flex container whose first child is the member's own leaf (it retains
     /// its pane rect), followed by recursive subtrees for each visible child.
     /// Direction alternates H→V→H by default; `preferred_split` overrides.
-    fn layout_split_panes(&self, available: &Rect) -> HashMap<N, Rect> {
+    fn layout_split_panes(&self, available: &Rect) -> (HashMap<N, Rect>, Vec<SplitBoundary<N>>) {
+        use crate::layout::SplitBoundary;
+
         let visible_roots: Vec<N> = self.topology.roots().iter()
             .filter(|id| self.is_visible_in_pane(id))
             .cloned()
             .collect();
 
         if visible_roots.is_empty() {
-            return HashMap::new();
+            return (HashMap::new(), Vec::new());
         }
 
         // Single visible member across the entire tree → full rect, no taffy.
         if visible_roots.len() == 1 && self.visible_children_of(&visible_roots[0]).is_empty() {
             let mut rects = HashMap::new();
             rects.insert(visible_roots[0].clone(), *available);
-            return rects;
+            return (rects, Vec::new());
         }
 
         let mut taffy = taffy::TaffyTree::<()>::new();
         let mut taffy_to_member: HashMap<taffy::NodeId, N> = HashMap::new();
+        let mut container_directions: HashMap<taffy::NodeId, SplitDirection> = HashMap::new();
 
         let root_direction = SplitDirection::Horizontal;
 
         let root_children: Vec<taffy::NodeId> = visible_roots.iter()
-            .map(|id| self.build_subtree(id, root_direction, &mut taffy, &mut taffy_to_member))
+            .map(|id| self.build_subtree(id, root_direction, &mut taffy, &mut taffy_to_member, &mut container_directions))
             .collect();
 
         let root = taffy.new_with_children(
@@ -321,6 +327,7 @@ impl<N: MemberId> GraphTree<N> {
             },
             &root_children,
         ).expect("taffy root");
+        container_directions.insert(root, root_direction);
 
         taffy.compute_layout(
             root,
@@ -330,10 +337,15 @@ impl<N: MemberId> GraphTree<N> {
             },
         ).expect("taffy compute");
 
-        // Walk the taffy tree to extract absolute rects for each leaf.
+        // Walk the taffy tree to extract absolute rects and split boundaries.
         let mut rects = HashMap::new();
-        self.extract_leaf_rects(&taffy, root, available.x, available.y, &taffy_to_member, &mut rects);
-        rects
+        let mut boundaries = Vec::new();
+        self.extract_layout_results(
+            &taffy, root, available.x, available.y,
+            &taffy_to_member, &container_directions,
+            &mut rects, &mut boundaries,
+        );
+        (rects, boundaries)
     }
 
     /// Recursively build a taffy subtree for a member.
@@ -346,6 +358,7 @@ impl<N: MemberId> GraphTree<N> {
         parent_direction: SplitDirection,
         taffy: &mut taffy::TaffyTree<()>,
         taffy_to_member: &mut HashMap<taffy::NodeId, N>,
+        container_directions: &mut HashMap<taffy::NodeId, SplitDirection>,
     ) -> taffy::NodeId {
         let visible_children = self.visible_children_of(member);
 
@@ -368,10 +381,10 @@ impl<N: MemberId> GraphTree<N> {
 
         let mut children = vec![self_leaf];
         for child_id in &visible_children {
-            children.push(self.build_subtree(child_id, child_direction, taffy, taffy_to_member));
+            children.push(self.build_subtree(child_id, child_direction, taffy, taffy_to_member, container_directions));
         }
 
-        taffy.new_with_children(
+        let container = taffy.new_with_children(
             taffy::Style {
                 flex_direction: Self::taffy_direction(child_direction),
                 flex_grow: 1.0,
@@ -379,7 +392,9 @@ impl<N: MemberId> GraphTree<N> {
                 ..Default::default()
             },
             &children,
-        ).expect("taffy container")
+        ).expect("taffy container");
+        container_directions.insert(container, child_direction);
+        container
     }
 
     /// Build the taffy leaf style for a member, respecting layout overrides.
@@ -414,16 +429,20 @@ impl<N: MemberId> GraphTree<N> {
         }
     }
 
-    /// Walk the taffy tree and collect absolute rects for leaf nodes.
-    fn extract_leaf_rects(
+    /// Walk the taffy tree, collecting leaf rects and split boundaries.
+    fn extract_layout_results(
         &self,
         taffy: &taffy::TaffyTree<()>,
         node: taffy::NodeId,
         parent_x: f32,
         parent_y: f32,
         taffy_to_member: &HashMap<taffy::NodeId, N>,
+        container_directions: &HashMap<taffy::NodeId, SplitDirection>,
         rects: &mut HashMap<N, Rect>,
+        boundaries: &mut Vec<SplitBoundary<N>>,
     ) {
+        use crate::layout::SplitBoundary;
+
         let layout = taffy.layout(node).expect("taffy layout");
         let abs_x = parent_x + layout.location.x;
         let abs_y = parent_y + layout.location.y;
@@ -438,11 +457,82 @@ impl<N: MemberId> GraphTree<N> {
             });
         }
 
-        // Recurse into children (containers won't be in taffy_to_member).
         let children = taffy.children(node).unwrap_or_default();
-        for child in children {
-            self.extract_leaf_rects(taffy, child, abs_x, abs_y, taffy_to_member, rects);
+
+        // Recurse into children first to populate rects.
+        for child in &children {
+            self.extract_layout_results(
+                taffy, *child, abs_x, abs_y,
+                taffy_to_member, container_directions,
+                rects, boundaries,
+            );
         }
+
+        // Derive split boundaries between consecutive leaf-bearing children.
+        if let Some(&direction) = container_directions.get(&node) {
+            let container_extent = match direction {
+                SplitDirection::Horizontal => layout.size.width,
+                SplitDirection::Vertical => layout.size.height,
+            };
+
+            for pair in children.windows(2) {
+                let before_node = pair[0];
+                let after_node = pair[1];
+
+                // Resolve each child to its "representative" leaf member.
+                // For a leaf, that's the member itself. For a container,
+                // it's the last leaf in the before subtree or first leaf
+                // in the after subtree — but for boundary identity we want
+                // the direct child's representative member.
+                let Some(before_member) = self.first_leaf_member(taffy, before_node, taffy_to_member) else { continue };
+                let Some(after_member) = self.first_leaf_member(taffy, after_node, taffy_to_member) else { continue };
+
+                let before_rect = rects.get(&before_member);
+                let after_rect = rects.get(&after_member);
+                let (Some(br), Some(ar)) = (before_rect, after_rect) else { continue };
+
+                let (axis_position, cross_start, cross_end) = match direction {
+                    SplitDirection::Horizontal => {
+                        // Boundary is a vertical line between before's right edge and after's left edge.
+                        let x = (br.x + br.w + ar.x) / 2.0;
+                        (x, abs_y, abs_y + layout.size.height)
+                    }
+                    SplitDirection::Vertical => {
+                        // Boundary is a horizontal line between before's bottom and after's top.
+                        let y = (br.y + br.h + ar.y) / 2.0;
+                        (y, abs_x, abs_x + layout.size.width)
+                    }
+                };
+
+                boundaries.push(SplitBoundary {
+                    before: before_member,
+                    after: after_member,
+                    direction,
+                    axis_position,
+                    cross_start,
+                    cross_end,
+                    container_extent,
+                });
+            }
+        }
+    }
+
+    /// Find the first leaf member in a taffy subtree (depth-first).
+    fn first_leaf_member(
+        &self,
+        taffy: &taffy::TaffyTree<()>,
+        node: taffy::NodeId,
+        taffy_to_member: &HashMap<taffy::NodeId, N>,
+    ) -> Option<N> {
+        if let Some(member) = taffy_to_member.get(&node) {
+            return Some(member.clone());
+        }
+        for child in taffy.children(node).unwrap_or_default() {
+            if let Some(m) = self.first_leaf_member(taffy, child, taffy_to_member) {
+                return Some(m);
+            }
+        }
+        None
     }
 
     fn taffy_direction(dir: SplitDirection) -> taffy::FlexDirection {
@@ -1678,5 +1768,69 @@ mod tests {
         assert!((r2.h - 600.0).abs() < 1.0, "r2 full height, got {}", r2.h);
         assert!((r1.w + r2.w - 800.0).abs() < 1.0,
             "widths should sum to 800, got {}", r1.w + r2.w);
+    }
+
+    #[test]
+    fn split_boundaries_between_roots() {
+        // Two roots → one horizontal split boundary between them.
+        let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
+        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach { member: 2, provenance: Provenance::Anchor });
+        tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
+        tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
+
+        let result = tree.compute_layout(Rect::new(0.0, 0.0, 800.0, 600.0));
+        assert_eq!(result.split_boundaries.len(), 1);
+
+        let boundary = &result.split_boundaries[0];
+        assert_eq!(boundary.direction, SplitDirection::Horizontal);
+        // Boundary should be at ~400 (midpoint between the two panes).
+        assert!((boundary.axis_position - 400.0).abs() < 2.0,
+            "expected boundary at ~400, got {}", boundary.axis_position);
+        // Cross-axis spans full height.
+        assert!((boundary.cross_start - 0.0).abs() < 1.0);
+        assert!((boundary.cross_end - 600.0).abs() < 1.0);
+        assert!((boundary.container_extent - 800.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn split_boundaries_nested() {
+        // Root with two children → boundaries at both levels.
+        // root(H) → subtree(V) → [leaf(1), leaf(2), leaf(3)]
+        let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
+        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 2,
+            provenance: Provenance::Traversal { source: 1, edge_kind: None },
+        });
+        tree.apply(NavAction::Attach {
+            member: 3,
+            provenance: Provenance::Traversal { source: 1, edge_kind: None },
+        });
+        tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
+        tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
+        tree.apply(NavAction::SetLifecycle(3, Lifecycle::Active));
+
+        let result = tree.compute_layout(Rect::new(0.0, 0.0, 900.0, 600.0));
+        // Subtree container(V) has 3 children [leaf(1), leaf(2), leaf(3)].
+        // That gives 2 boundaries between consecutive pairs.
+        assert_eq!(result.split_boundaries.len(), 2,
+            "expected 2 boundaries, got {}: {:?}",
+            result.split_boundaries.len(), result.split_boundaries);
+
+        for boundary in &result.split_boundaries {
+            assert_eq!(boundary.direction, SplitDirection::Vertical,
+                "nested container should split vertically");
+        }
+    }
+
+    #[test]
+    fn single_pane_no_boundaries() {
+        let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
+        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
+        tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
+
+        let result = tree.compute_layout(Rect::new(0.0, 0.0, 800.0, 600.0));
+        assert!(result.split_boundaries.is_empty());
     }
 }

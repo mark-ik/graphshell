@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::graphlet::GraphletId;
-use crate::member::Lifecycle;
+use crate::member::{Lifecycle, SplitDirection};
 use crate::topology::TreeRow;
 use crate::MemberId;
 use crate::Rect;
@@ -34,12 +34,39 @@ impl Default for LayoutMode {
 pub struct LayoutResult<N: MemberId> {
     /// Pane rectangles (SplitPanes mode only).
     pub pane_rects: HashMap<N, Rect>,
+    /// Draggable split boundaries between adjacent sibling panes.
+    pub split_boundaries: Vec<SplitBoundary<N>>,
     /// Tab ordering (FlatTabs mode; also populated in other modes).
     pub tab_order: Vec<TabEntry<N>>,
     /// Tree rows (always populated — powers the sidebar in every mode).
     pub tree_rows: Vec<OwnedTreeRow<N>>,
     /// Currently active member.
     pub active: Option<N>,
+}
+
+/// A draggable boundary between two adjacent sibling panes.
+///
+/// Produced by `compute_layout()` in SplitPanes mode. The host renders a
+/// drag handle at `axis_position` and converts mouse deltas into updated
+/// `split_ratio` values via `NavAction::SetLayoutOverride`.
+#[derive(Clone, Debug)]
+pub struct SplitBoundary<N: MemberId> {
+    /// The member on the "before" side (left or top).
+    pub before: N,
+    /// The member on the "after" side (right or bottom).
+    pub after: N,
+    /// Split direction of the parent container.
+    pub direction: SplitDirection,
+    /// Position along the split axis where the boundary falls (px).
+    /// For Horizontal splits: x coordinate. For Vertical: y coordinate.
+    pub axis_position: f32,
+    /// Start of the boundary line on the cross-axis (px).
+    pub cross_start: f32,
+    /// End of the boundary line on the cross-axis (px).
+    pub cross_end: f32,
+    /// Total extent of the parent container along the split axis (px).
+    /// Used to convert drag deltas into split_ratio changes.
+    pub container_extent: f32,
 }
 
 /// Tab bar entry.

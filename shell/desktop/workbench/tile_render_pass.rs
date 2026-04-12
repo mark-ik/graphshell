@@ -408,8 +408,9 @@ pub(crate) fn run_tile_render_pass_in_ui(
     // Phase G: GraphTree is both the membership and layout authority.
     // Pane rects come from GraphTree's taffy-backed compute_layout().
     // PaneId lookup still comes from egui_tiles during migration.
-    let active_tile_rects =
+    let layout_output =
         tile_compositor::active_node_pane_rects_from_graph_tree(graph_tree, tiles_tree, available_rect);
+    let active_tile_rects = &layout_output.pane_rects;
     log::debug!(
         "tile_render_pass: {} active tile rects (graph_tree keyed)",
         active_tile_rects.len()
@@ -694,6 +695,11 @@ pub(crate) fn run_tile_render_pass_in_ui(
         focus_delta,
         focus_ring_alpha,
     );
+
+    // Phase G: Render split handles at boundaries between sibling panes.
+    // Each handle is a draggable strip; dragging updates split_ratio via NavAction.
+    render_split_handles(ui, graph_tree, &layout_output.split_boundaries, &mut post_render_intents);
+
     #[cfg(feature = "diagnostics")]
     diagnostics_state.record_span_duration(
         "tile_compositor::composite_active_node_pane_webviews",
@@ -1184,6 +1190,118 @@ fn tile_hierarchy_lines(
         push_lines(tiles_tree, graph_app, root, 0, &active, &mut out);
     }
     out
+}
+
+/// Render draggable split handles at boundaries between sibling panes.
+///
+/// Each boundary produces a thin interactive strip. Dragging the strip adjusts
+/// the `split_ratio` of the two adjacent members via `NavAction::SetLayoutOverride`.
+fn render_split_handles(
+    ui: &mut egui::Ui,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
+    boundaries: &[graph_tree::SplitBoundary<NodeKey>],
+    _post_render_intents: &mut Vec<GraphIntent>,
+) {
+    const HANDLE_THICKNESS: f32 = 6.0;
+    const HANDLE_COLOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 80, 100, 180);
+    const HANDLE_HOVER_COLOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(120, 120, 160, 220);
+    const HANDLE_DRAG_COLOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(140, 140, 200, 255);
+
+    for (i, boundary) in boundaries.iter().enumerate() {
+        let half = HANDLE_THICKNESS / 2.0;
+        let handle_rect = match boundary.direction {
+            graph_tree::SplitDirection::Horizontal => {
+                // Vertical line between left/right panes.
+                egui::Rect::from_min_max(
+                    egui::pos2(boundary.axis_position - half, boundary.cross_start),
+                    egui::pos2(boundary.axis_position + half, boundary.cross_end),
+                )
+            }
+            graph_tree::SplitDirection::Vertical => {
+                // Horizontal line between top/bottom panes.
+                egui::Rect::from_min_max(
+                    egui::pos2(boundary.cross_start, boundary.axis_position - half),
+                    egui::pos2(boundary.cross_end, boundary.axis_position + half),
+                )
+            }
+        };
+
+        let id = ui.id().with("split_handle").with(i);
+        let sense = egui::Sense::drag();
+        let response = ui.interact(handle_rect, id, sense);
+
+        // Set cursor to resize indicator on hover/drag.
+        if response.hovered() || response.dragged() {
+            match boundary.direction {
+                graph_tree::SplitDirection::Horizontal => {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                }
+                graph_tree::SplitDirection::Vertical => {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+            }
+        }
+
+        let color = if response.dragged() {
+            HANDLE_DRAG_COLOR
+        } else if response.hovered() {
+            HANDLE_HOVER_COLOR
+        } else {
+            HANDLE_COLOR
+        };
+
+        ui.painter().rect_filled(handle_rect, 0.0, color);
+
+        // On drag, compute new split ratios for the two adjacent members.
+        if response.dragged() {
+            let delta = match boundary.direction {
+                graph_tree::SplitDirection::Horizontal => response.drag_delta().x,
+                graph_tree::SplitDirection::Vertical => response.drag_delta().y,
+            };
+
+            if delta.abs() > 0.5 && boundary.container_extent > 1.0 {
+                let ratio_delta = delta / boundary.container_extent;
+                let default_ratio = 0.5;
+
+                // Extract current overrides before mutating.
+                let before_lo = graph_tree.get(&boundary.before)
+                    .and_then(|e| e.layout_override.clone());
+                let after_lo = graph_tree.get(&boundary.after)
+                    .and_then(|e| e.layout_override.clone());
+
+                let before_ratio = before_lo.as_ref()
+                    .and_then(|lo| lo.split_ratio)
+                    .unwrap_or(default_ratio);
+                let after_ratio = after_lo.as_ref()
+                    .and_then(|lo| lo.split_ratio)
+                    .unwrap_or(default_ratio);
+
+                let new_before = (before_ratio + ratio_delta).clamp(0.05, 0.95);
+                let new_after = (after_ratio - ratio_delta).clamp(0.05, 0.95);
+
+                let default_lo = graph_tree::LayoutOverride {
+                    min_width: None, min_height: None,
+                    flex_grow: None, flex_shrink: None,
+                    preferred_split: None, split_ratio: None,
+                };
+
+                graph_tree.apply(graph_tree::NavAction::SetLayoutOverride(
+                    boundary.before,
+                    graph_tree::LayoutOverride {
+                        split_ratio: Some(new_before),
+                        ..before_lo.unwrap_or_else(|| default_lo.clone())
+                    },
+                ));
+                graph_tree.apply(graph_tree::NavAction::SetLayoutOverride(
+                    boundary.after,
+                    graph_tree::LayoutOverride {
+                        split_ratio: Some(new_after),
+                        ..after_lo.unwrap_or(default_lo)
+                    },
+                ));
+            }
+        }
+    }
 }
 
 pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphIntent> {

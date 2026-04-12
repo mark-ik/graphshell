@@ -822,6 +822,12 @@ pub(crate) fn active_node_pane_rects(
     tile_rects
 }
 
+/// Full layout output from GraphTree for the compositor.
+pub(crate) struct GraphTreeLayoutOutput {
+    pub pane_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
+    pub split_boundaries: Vec<graph_tree::SplitBoundary<NodeKey>>,
+}
+
 /// Phase G: GraphTree-keyed compositor input with GraphTree layout authority.
 ///
 /// GraphTree is both the membership authority (which nodes are visible) and the
@@ -832,13 +838,13 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
     graph_tree: &GraphTree<NodeKey>,
     tiles_tree: &Tree<TileKind>,
     available: egui::Rect,
-) -> Vec<(PaneId, NodeKey, egui::Rect)> {
+) -> GraphTreeLayoutOutput {
     let gt_rect = graph_tree::Rect::new(
         available.left(), available.top(), available.width(), available.height(),
     );
     let layout = graph_tree.compute_layout(gt_rect);
 
-    layout.pane_rects.iter().filter_map(|(node_key, rect)| {
+    let pane_rects = layout.pane_rects.iter().filter_map(|(node_key, rect)| {
         // PaneId lookup from tiles_tree during migration.
         let pane_id = tiles_tree.tiles.iter().find_map(|(_, tile)| {
             if let Tile::Pane(TileKind::Node(state)) = tile {
@@ -853,7 +859,12 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
             egui::vec2(rect.w, rect.h),
         );
         Some((pane_id, *node_key, egui_rect))
-    }).collect()
+    }).collect();
+
+    GraphTreeLayoutOutput {
+        pane_rects,
+        split_boundaries: layout.split_boundaries,
+    }
 }
 
 pub(crate) fn focused_node_key_for_node_panes(
@@ -985,7 +996,7 @@ pub(crate) fn composite_active_node_pane_webviews(
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    active_tile_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
+    active_tile_rects: &[(PaneId, NodeKey, egui::Rect)],
     focused_node_key: Option<NodeKey>,
     focus_delta: FocusDelta,
     focus_ring_alpha: f32,
@@ -996,7 +1007,7 @@ pub(crate) fn composite_active_node_pane_webviews(
         "composite_active_node_pane_runtime_viewers: {} tiles",
         active_tile_rects.len()
     );
-    let retained_node_keys = retained_node_keys_for_active_tile_rects(&active_tile_rects);
+    let retained_node_keys = retained_node_keys_for_active_tile_rects(active_tile_rects);
     CompositorAdapter::retire_stale_content_resources(ui_render_backend, &retained_node_keys);
     let presentation = active_presentation_profile(graph_app);
     let mut pass_tracker = CompositorPassTracker::new();
@@ -1014,7 +1025,8 @@ pub(crate) fn composite_active_node_pane_webviews(
         }
     }
     let semantic_inputs: Vec<_> = active_tile_rects
-        .into_iter()
+        .iter()
+        .copied()
         .map(|(pane_id, node_key, tile_rect)| {
             resolve_tile_semantic_input(
                 tiles_tree,
