@@ -16,10 +16,10 @@ use std::time::Instant;
 use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent};
 use log::debug;
 
-use super::{GraphSemanticEvent, GraphSemanticEventKind};
+use super::{WebViewLifecycleEvent, WebViewLifecycleEventKind};
 
 pub(super) struct WindowGraphEventQueue {
-    pub(super) pending_events: RefCell<Vec<GraphSemanticEvent>>,
+    pub(super) pending_events: RefCell<Vec<WebViewLifecycleEvent>>,
     pub(super) sequence: Arc<AtomicU64>,
     pub(super) trace_enabled: bool,
     pub(super) trace_started_at: Instant,
@@ -37,13 +37,13 @@ impl WindowGraphEventQueue {
         }
     }
 
-    pub(super) fn enqueue(&self, kind: GraphSemanticEventKind) {
+    pub(super) fn enqueue(&self, kind: WebViewLifecycleEventKind) {
         let event = self.new_event(kind);
         self.trace_event(&event);
         self.pending_events.borrow_mut().push(event);
     }
 
-    pub(super) fn take_pending(&self) -> Vec<GraphSemanticEvent> {
+    pub(super) fn take_pending(&self) -> Vec<WebViewLifecycleEvent> {
         #[cfg(all(
             feature = "diagnostics",
             not(any(target_os = "android", target_env = "ohos"))
@@ -91,23 +91,23 @@ impl WindowGraphEventQueue {
     }
 
     #[cfg(test)]
-    pub(super) fn enqueue_for_test(&self, kind: GraphSemanticEventKind) {
+    pub(super) fn enqueue_for_test(&self, kind: WebViewLifecycleEventKind) {
         self.enqueue(kind);
     }
 
-    fn new_event(&self, kind: GraphSemanticEventKind) -> GraphSemanticEvent {
+    fn new_event(&self, kind: WebViewLifecycleEventKind) -> WebViewLifecycleEvent {
         let seq = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
-        GraphSemanticEvent { seq, kind }
+        WebViewLifecycleEvent { seq, kind }
     }
 
-    fn trace_event(&self, event: &GraphSemanticEvent) {
+    fn trace_event(&self, event: &WebViewLifecycleEvent) {
         if !self.trace_enabled {
             return;
         }
 
         let elapsed_ms = self.trace_started_at.elapsed().as_millis();
         match &event.kind {
-            GraphSemanticEventKind::UrlChanged {
+            WebViewLifecycleEventKind::UrlChanged {
                 webview_id,
                 new_url,
             } => {
@@ -116,7 +116,7 @@ impl WindowGraphEventQueue {
                     event.seq, elapsed_ms, webview_id, new_url
                 );
             }
-            GraphSemanticEventKind::HistoryChanged {
+            WebViewLifecycleEventKind::HistoryChanged {
                 webview_id,
                 entries,
                 current,
@@ -130,7 +130,7 @@ impl WindowGraphEventQueue {
                     current
                 );
             }
-            GraphSemanticEventKind::PageTitleChanged { webview_id, title } => {
+            WebViewLifecycleEventKind::PageTitleChanged { webview_id, title } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=title_changed webview={:?} title_present={}",
                     event.seq,
@@ -139,19 +139,19 @@ impl WindowGraphEventQueue {
                     title.as_deref().is_some_and(|value| !value.is_empty())
                 );
             }
-            GraphSemanticEventKind::HostOpenRequest { request } => {
+            WebViewLifecycleEventKind::HostOpenRequest { request } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=host_open_request url={} source={:?} parent={:?}",
                     event.seq, elapsed_ms, request.url, request.source, request.parent_webview_id
                 );
             }
-            GraphSemanticEventKind::WebDriverWorkbenchIntentRequested { intent } => {
+            WebViewLifecycleEventKind::WebDriverWorkbenchIntentRequested { intent } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=webdriver_workbench_intent intent={intent:?}",
                     event.seq, elapsed_ms
                 );
             }
-            GraphSemanticEventKind::WebViewCrashed {
+            WebViewLifecycleEventKind::WebViewCrashed {
                 webview_id,
                 reason,
                 has_backtrace,

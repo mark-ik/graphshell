@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicU64;
 
 use servo::Servo;
 
-use crate::shell::desktop::host::window::{EmbedderWindow, EmbedderWindowId, GraphSemanticEvent};
+use crate::shell::desktop::host::window::{EmbedderWindow, EmbedderWindowId, WebViewLifecycleEvent};
 
 /// Incremental extraction target for embedder-owned runtime state.
 ///
@@ -96,7 +96,7 @@ impl EmbedderCore {
         });
     }
 
-    pub(crate) fn drain_window_graph_events(&self) -> Vec<GraphSemanticEvent> {
+    pub(crate) fn drain_window_graph_events(&self) -> Vec<WebViewLifecycleEvent> {
         let windows: Vec<_> = self.windows.borrow().values().cloned().collect();
         let mut pending_events = Vec::new();
         for window in windows {
@@ -106,7 +106,7 @@ impl EmbedderCore {
         pending_events
     }
 
-    fn sort_graph_events(events: &mut [GraphSemanticEvent]) {
+    fn sort_graph_events(events: &mut [WebViewLifecycleEvent]) {
         events.sort_by_key(|event| event.seq);
     }
 }
@@ -116,7 +116,7 @@ mod tests {
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use servo::WebViewId;
 
-    use crate::shell::desktop::host::window::{GraphSemanticEvent, GraphSemanticEventKind};
+    use crate::shell::desktop::host::window::{WebViewLifecycleEvent, WebViewLifecycleEventKind};
 
     fn test_webview_id() -> WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -130,25 +130,25 @@ mod tests {
     #[test]
     fn test_sort_graph_events_orders_by_sequence() {
         let mut events = vec![
-            GraphSemanticEvent {
+            WebViewLifecycleEvent {
                 seq: 9,
-                kind: GraphSemanticEventKind::WebViewCrashed {
+                kind: WebViewLifecycleEventKind::WebViewCrashed {
                     webview_id: test_webview_id(),
                     reason: "x".into(),
                     has_backtrace: false,
                 },
             },
-            GraphSemanticEvent {
+            WebViewLifecycleEvent {
                 seq: 2,
-                kind: GraphSemanticEventKind::WebViewCrashed {
+                kind: WebViewLifecycleEventKind::WebViewCrashed {
                     webview_id: test_webview_id(),
                     reason: "y".into(),
                     has_backtrace: false,
                 },
             },
-            GraphSemanticEvent {
+            WebViewLifecycleEvent {
                 seq: 5,
-                kind: GraphSemanticEventKind::WebViewCrashed {
+                kind: WebViewLifecycleEventKind::WebViewCrashed {
                     webview_id: test_webview_id(),
                     reason: "z".into(),
                     has_backtrace: false,

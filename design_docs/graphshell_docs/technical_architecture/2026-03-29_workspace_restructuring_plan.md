@@ -15,7 +15,7 @@ protocol/capability lives in that layout.
 - [`2026-03-08_graphshell_core_extraction_plan.md`](2026-03-08_graphshell_core_extraction_plan.md)
   — identity/authority/mutation kernel extraction plan; defines `graphshell-core`
 - [`2026-03-29_middlenet_engine_spec.md`](2026-03-29_middlenet_engine_spec.md)
-  — portable MiddleNet engine spec; defines `graphshell-web-core`
+  — portable MiddleNet engine spec; defines `middlenet-engine`
 - [`2026-03-29_portable_web_core_host_envelopes.md`](2026-03-29_portable_web_core_host_envelopes.md)
   — host envelope model; capability portability survey (§12)
 - [`2026-03-30_protocol_modularity_and_host_capability_model.md`](2026-03-30_protocol_modularity_and_host_capability_model.md)
@@ -42,7 +42,7 @@ graphshell/                         ← workspace root (no lib/bin of its own)
     graphshell-core/                ← identity, authority, mutation kernel
     graphshell-core-wasm/           ← wasm-bindgen wrapper re-exporting core
     graphshell-core-uniffi/         ← UniFFI wrapper for iOS/Android
-    graphshell-web-core/            ← portable MiddleNet rendering engine
+    middlenet-engine/               ← portable MiddleNet rendering engine
     graphshell-comms/               ← portable comms protocol logic
   hosts/
     graphshell-desktop/             ← current `graphshell` binary (egui, Servo, wry)
@@ -85,7 +85,7 @@ Thin binding wrappers around `graphshell-core`. No logic of their own.
 - `graphshell-core-uniffi`: UniFFI `cdylib` annotations; target for iOS and
   Android hosts.
 
-### 3.3 `graphshell-web-core`
+### 3.3 `middlenet-engine`
 
 The portable MiddleNet rendering engine. Compiles to `wasm32-unknown-unknown`
 (browser, via WebGPU) and `wasm32-wasip2` (portable runtime/service hosts, via
@@ -133,9 +133,9 @@ keypair storage, server listeners (those are runtime-host concerns; they may
 live in the native desktop host or a future `graphshell-server` crate built
 around `wasm32-wasip2`).
 
-**Relationship to `graphshell-web-core`**: `graphshell-comms` provides
-parsers that `graphshell-web-core` can call to convert protocol responses
-into the intermediate document model. `graphshell-web-core` depends on
+**Relationship to `middlenet-engine`**: `graphshell-comms` provides
+parsers that `middlenet-engine` can call to convert protocol responses
+into the intermediate document model. `middlenet-engine` depends on
 `graphshell-comms`; not the other way around.
 
 **Relationship to `graphshell-core`**: Nostr event types (parsing, signing,
@@ -148,7 +148,7 @@ subscription), but the event model itself is in `graphshell-core`.
 
 The current `graphshell` crate, rehoused. Owns everything that requires a
 native platform: egui, winit, Servo, wry, fjall, redb, keyring, iroh,
-gilrs, mdns-sd, surfman. Depends on `graphshell-core`, `graphshell-web-core`,
+gilrs, mdns-sd, surfman. Depends on `graphshell-core`, `middlenet-engine`,
 and `graphshell-comms`. Adds: TCP/TLS transport, server listeners (Gemini,
 Gopher, Finger inbox), OS keychain integration, filesystem paths, native
 GPU surface, window management.
@@ -169,7 +169,7 @@ modularity model.
 Packaging rule:
 
 - `graphshell-core` never owns protocol transport realization.
-- `graphshell-web-core` owns portable rendering/document semantics.
+- `middlenet-engine` owns portable rendering/document semantics.
 - `graphshell-comms` owns portable protocol parsing/composition and client-side
   protocol logic.
 - hosts and native feature mods own raw sockets, TLS sessions, browser APIs,
@@ -218,7 +218,7 @@ graphshell-core          (no deps on other gs crates)
        ↑
 graphshell-comms         (depends on graphshell-core for Nostr types, Address)
        ↑
-graphshell-web-core      (depends on graphshell-comms for protocol parsers)
+middlenet-engine         (depends on graphshell-comms for protocol parsers)
        ↑
 hosts/*                  (depend on all three portable crates + platform deps)
 
@@ -239,7 +239,7 @@ compose the portable crates and add platform I/O.
 | `graphshell-core-wasm` | ✅ (binding layer only) | — | — |
 | `graphshell-core-uniffi` | — | — | ✅ (`cdylib`) |
 | `graphshell-comms` | ✅ (browser/extension fetch + WS paths) | ✅ (runtime/service sockets paths) | ✅ |
-| `graphshell-web-core` | ✅ (browser WebGPU path) | ✅ (runtime/service embedding path) | ✅ |
+| `middlenet-engine` | ✅ (browser WebGPU path) | ✅ (runtime/service embedding path) | ✅ |
 | `hosts/graphshell-desktop` | — | — | ✅ |
 | `hosts/graphshell-{firefox,chrome}` | ✅ | — | — |
 | `hosts/graphshell-{ios,android}` | — | — | ✅ (`cdylib`) |
@@ -272,11 +272,11 @@ TCP transport stays in the desktop crate (behind `tokio`). The server
 listeners stay in the desktop crate. `graphshell-comms` depends on
 `graphshell-core` for `Address` and Nostr types.
 
-### Step 4 — Extract `graphshell-web-core`
+### Step 4 — Extract `middlenet-engine`
 
-Move or create the MiddleNet rendering engine in `crates/graphshell-web-core/`.
+Move or create the MiddleNet rendering engine in `crates/middlenet-engine/`.
 This is greenfield for the most part (Stylo, Taffy, WebRender-wgpu assembly).
-`graphshell-web-core` depends on `graphshell-comms` for the protocol parsers.
+`middlenet-engine` depends on `graphshell-comms` for the protocol parsers.
 Registered as `viewer:middlenet` in the desktop viewer registry.
 
 ### Step 5 — Rename desktop crate

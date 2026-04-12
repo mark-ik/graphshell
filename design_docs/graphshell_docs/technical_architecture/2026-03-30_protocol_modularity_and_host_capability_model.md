@@ -112,9 +112,9 @@ This rule prevents the architecture from treating every protocol as a
 
 It does **not** own protocol transport realization.
 
-### 4.2 `graphshell-web-core`
+### 4.2 `middlenet-engine`
 
-`graphshell-web-core` owns:
+`middlenet-engine` owns:
 
 - shared document-model adapters,
 - parsing-to-document-model integration,
@@ -451,7 +451,7 @@ This model is acceptable when:
 - the docs clearly separate engine protocols from non-engine network/social/
   storage systems,
 - a later engineer can place a candidate protocol into `graphshell-core`,
-  `graphshell-web-core`, `graphshell-comms`, a host crate, or a non-engine
+  `middlenet-engine`, `graphshell-comms`, a host crate, or a non-engine
   subsystem without making new architecture decisions.
 
 ---

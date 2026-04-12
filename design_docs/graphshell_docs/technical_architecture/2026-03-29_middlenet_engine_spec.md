@@ -75,7 +75,7 @@ Current implementation reality:
   surfaces for mutation and messaging.
 - WebFinger, NIP-05, Matrix, and ActivityPub actor resolution already feed a
   person-node model with cached provenance, freshness TTLs, and refresh UI.
-- The extracted `graphshell-web-core` / `graphshell-comms` split, browser/PWA
+- The extracted `middlenet-engine` / `graphshell-comms` split, browser/PWA
   envelopes, Boa/WIT integration, Wizer snapshotting, and reader-mode HTTP are
   still future phases rather than present repository facts.
 
@@ -99,9 +99,9 @@ This means the doc should be read as a **phased delivery target**:
 ## 2. The Portable MiddleNet Engine
 
 The **portable MiddleNet engine** names the target WASM-compilable rendering
-crate intended to serve MiddleNet content across all host envelopes. It is the
-concrete realisation of the "portable web core" described in the host envelopes
-doc, named here for its scope.
+crate intended to serve MiddleNet content across all host envelopes. The
+canonical crate name should be `middlenet-engine`. "Portable web core" remains
+useful architecture prose for the shared boundary, but not the package name.
 
 ### 2.1 Core properties
 
@@ -278,7 +278,7 @@ informational indicator — not an alarm. Warn on encryption *failures*
 The MiddleNet engine owns shared document-model adapters and rendering
 semantics. It does **not** own transport realization.
 
-- `graphshell-web-core` owns document/render adapters and the intermediate
+- `middlenet-engine` owns document/render adapters and the intermediate
   document model.
 - `graphshell-comms` or equivalent portable protocol logic owns protocol byte
   parsing/composition.
@@ -477,9 +477,10 @@ type. In extension/PWA/mobile envelopes, only the MiddleNet engine is available.
 
 ## 8. Open Questions
 
-1. **Final crate name** — `graphshell-web-core`, `middlenet-engine`, or a name
-   under the `graphshell-core` umbrella (per the core extraction plan). The
-   architecture is the same regardless.
+1. **Crate naming** — use `middlenet-engine` for the portable
+  document/render crate. Keep `graphshell-core` for the identity/authority
+  kernel, and keep "portable web core" as descriptive architecture language
+  rather than the Cargo package name.
 2. **WebRender wgpu backend readiness** — the render pass wiring (alpha/opaque/
    composite dispatch) and WASM surface integration are the critical path.
    Until complete, Blitz or a simpler wgpu paint layer can fill the gap for

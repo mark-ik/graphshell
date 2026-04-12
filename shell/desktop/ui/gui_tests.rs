@@ -10,7 +10,7 @@ mod tests {
     use crate::app::GraphBrowserApp;
     use crate::prefs::AppPreferences;
     use crate::shell::desktop::host::headless_window::HeadlessWindow;
-    use crate::shell::desktop::host::window::{EmbedderWindow, GraphSemanticEventKind};
+    use crate::shell::desktop::host::window::{EmbedderWindow, WebViewLifecycleEventKind};
     #[cfg(feature = "diagnostics")]
     use crate::shell::desktop::runtime::registries::CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM;
     use crate::shell::desktop::ui::gui_state::{GuiRuntimeState, RuntimeFocusAuthorityState};
@@ -61,7 +61,7 @@ mod tests {
         let webview_id = test_webview_id();
         app.map_webview_to_node(webview_id, node_key);
 
-        window.enqueue_test_graph_event_kind(GraphSemanticEventKind::UrlChanged {
+        window.enqueue_test_graph_event_kind(WebViewLifecycleEventKind::UrlChanged {
             webview_id,
             new_url: "https://after.example".to_string(),
         });

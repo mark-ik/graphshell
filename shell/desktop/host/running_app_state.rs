@@ -48,7 +48,7 @@ use crate::shell::desktop::host::gamepad::GamepadUiCommand;
 use crate::shell::desktop::host::gamepad_runtime::GamepadRuntime;
 use crate::shell::desktop::host::webdriver_runtime::WebDriverRuntime;
 use crate::shell::desktop::host::window::{
-    EmbedderWindow, EmbedderWindowId, GraphSemanticEvent, PlatformWindow, WebViewCreationContext,
+    EmbedderWindow, EmbedderWindowId, WebViewLifecycleEvent, PlatformWindow, WebViewCreationContext,
 };
 #[cfg(all(
     feature = "diagnostics",
@@ -314,7 +314,7 @@ mod tests {
             );
             assert!(
                 !source.contains(concat!("GraphSemantic", "Event")),
-                "Platform adapters must not construct or name GraphSemanticEvent directly"
+                "Platform adapters must not construct or name WebViewLifecycleEvent directly"
             );
             assert!(
                 !source.contains(concat!("graph_events", ".enqueue")),
@@ -554,7 +554,7 @@ impl RunningAppState {
             .close_empty_windows(self.exit_scheduled.get());
     }
 
-    pub(crate) fn take_pending_graph_events(&self) -> Vec<GraphSemanticEvent> {
+    pub(crate) fn take_pending_graph_events(&self) -> Vec<WebViewLifecycleEvent> {
         #[cfg(all(
             feature = "diagnostics",
             not(any(target_os = "android", target_env = "ohos"))

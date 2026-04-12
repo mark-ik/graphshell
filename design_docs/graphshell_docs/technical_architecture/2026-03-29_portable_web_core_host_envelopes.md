@@ -40,7 +40,8 @@ This note records the conclusion of the 2026-03-29 architecture discussion:
   document-style protocols, while degrading cleanly when a host cannot provide richer
   capabilities.
 
-This is a product-architecture position, not a final crate-name decision.
+This is a product-architecture position with one naming clarification:
+the canonical portable engine crate name should be `middlenet-engine`.
 
 Important clarification:
 
@@ -64,17 +65,17 @@ This note describes a second architectural concern: the **portable web/document 
 all hosts.
 
 To avoid accidental conflict with the existing `graphshell-core` plan, this document uses the term
-**portable web core**. Final crate naming is deferred.
+**portable web core** as architecture prose.
 
-Two acceptable end states remain open:
+The naming split should now be treated as settled:
 
-1. The portable web core is a major subsystem inside the already-planned `graphshell-core`
-   umbrella.
-2. The portable web core becomes a sibling crate such as `graphshell-web-core`, while the
-   identity/mutation kernel keeps the existing `graphshell-core` name.
+1. `graphshell-core` remains the identity, authority, and mutation kernel.
+2. `middlenet-engine` is the sibling portable document/render engine.
+3. "portable web core" remains acceptable descriptive language for the shared
+  engine boundary, but not the Cargo package name.
 
-The architecture decision in this note is about **singularity and reuse**, not the literal final
-crate name.
+The architecture decision in this note is still about **singularity and
+reuse**, but the crate name is no longer deferred.
 
 ---
 
@@ -84,7 +85,8 @@ Graphshell should have **one singular portable web/document core** reused by all
 
 Recommended top-level product shape:
 
-- `graphshell-core` or equivalent portable engine package
+- `middlenet-engine`
+- `graphshell-core`
 - `graphshell-firefox`
 - `graphshell-chrome`
 - `graphshell-ios`
@@ -339,7 +341,7 @@ The preferred repo and product presentation is:
 Conceptually:
 
 ```text
-graphshell-core/            # or graphshell-web-core/, name TBD
+middlenet-engine/
   src/
     document/
     parsing/

@@ -6,7 +6,7 @@ use super::*;
 
 #[cfg(test)]
 pub(super) fn graph_intents_from_semantic_events(
-    events: Vec<GraphSemanticEvent>,
+    events: Vec<WebViewLifecycleEvent>,
 ) -> Vec<GraphIntent> {
     let (runtime_events, workbench_intents) =
         semantic_event_pipeline::runtime_events_from_semantic_events(events);
@@ -19,7 +19,7 @@ pub(super) fn graph_intents_from_semantic_events(
 
 #[cfg(test)]
 pub(super) fn graph_intents_and_responsive_from_events(
-    events: Vec<GraphSemanticEvent>,
+    events: Vec<WebViewLifecycleEvent>,
 ) -> (Vec<GraphIntent>, HashSet<WebViewId>) {
     let (runtime_events, workbench_intents, responsive_webviews) =
         semantic_event_pipeline::runtime_events_and_responsive_from_events(events);
