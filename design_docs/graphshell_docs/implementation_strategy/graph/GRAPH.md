@@ -17,6 +17,7 @@
 - `2026-04-01_swatch_spec_extraction_plan.md` — reusable compact graph projection contract for embedded swatch surfaces
 - `2026-04-10_vello_scene_canvas_rapier_scene_mode_architecture_plan.md` — canonical scene-substrate plan for Vello world rendering, projected view modes, Parry query/editing, and Rapier `Simulate` behavior
 - `2026-04-11_graph_canvas_crate_plan.md` — phased extraction of the Graphshell-owned `graph-canvas` crate
+- `../aspect_render/2026-04-12_rendering_pipeline_status_quo_plan.md` — code-verified rendering-pipeline status; clarifies that the current graph renderer remains the active `egui_graphs` path while `graph-canvas` is still an extraction target
 - `workbench_frame_tile_interaction_spec.md`
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`
@@ -126,6 +127,11 @@ scene rendering is defined in
 Treat that document as the canonical execution anchor for Vello-backed
 world rendering, Parry-owned scene queries/editor geometry, and Rapier-backed
 `Simulate` behavior.
+
+Current implementation note: the shipped graph renderer remains the `egui_graphs`
+plus retained `EguiGraphState` path. See
+`../aspect_render/2026-04-12_rendering_pipeline_status_quo_plan.md` for the
+code-verified renderer status and execution order.
 
 ---
 

@@ -107,10 +107,16 @@ not owners.
 
 **Files**: `compositor_adapter.rs` (new registry type), `tile_compositor.rs` (consumption)
 
-### Phase E — GraphTree layout authority (link to decoupling plan)
+### Phase E — GraphTree layout authority (link to decoupling plan) ✅
+
 The compositor adapter must target `NodeKey → ContentSurfaceHandle` throughout.
 No `TileId` bridging at the adapter layer. This is the Phase E from the
 decoupling plan; the wgpu redesign reinforces the same constraint.
+
+**Done**: `TileId` fully removed from both `tile_compositor.rs` and
+`compositor_adapter.rs`. Selection state resolution internalizes the
+`PaneId → TileId` lookup inside `tile_selection_state_for_pane`, keeping
+the compositor's interface TileId-free.
 
 ### Phase F — GL guardrail retirement
 After Phase A-D are stable on WgpuShared:

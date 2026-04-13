@@ -17,7 +17,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use egui::{Color32, Stroke, TextureHandle, TextureId};
-use egui_tiles::{Tile, TileId, Tree};
+use egui_tiles::{Tile, Tree};
 use graph_tree::GraphTree;
 use image::load_from_memory;
 use servo::OffscreenRenderingContext;
@@ -323,10 +323,19 @@ fn node_lifecycle_for_tile(graph_app: &GraphBrowserApp, node_key: NodeKey) -> No
         .unwrap_or(NodeLifecycle::Cold)
 }
 
-fn tile_selection_state_for_tile(
+fn tile_selection_state_for_pane(
     graph_app: &GraphBrowserApp,
-    tile_id: Option<TileId>,
+    tiles_tree: &Tree<TileKind>,
+    pane_id: PaneId,
 ) -> TileSelectionState {
+    let tile_id = tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(tid, tile)| match tile {
+            Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(*tid),
+            _ => None,
+        });
+
     let Some(tile_id) = tile_id else {
         return TileSelectionState::NotSelected;
     };
@@ -342,17 +351,6 @@ fn tile_selection_state_for_tile(
     } else {
         TileSelectionState::NotSelected
     }
-}
-
-fn tile_id_for_pane(tiles_tree: &Tree<TileKind>, pane_id: PaneId) -> Option<TileId> {
-    tiles_tree
-        .tiles
-        .iter()
-        .find_map(|(tile_id, tile)| match tile {
-            Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(tile_id),
-            _ => None,
-        })
-        .copied()
 }
 
 fn hash_render_mode(render_mode: TileRenderMode) -> u8 {
@@ -444,7 +442,7 @@ fn resolve_tile_semantic_input(
     let has_unread_traversal_activity =
         graph_app.node_has_canonical_tag(node_key, GraphBrowserApp::TAG_UNREAD);
     let selection_state =
-        tile_selection_state_for_tile(graph_app, tile_id_for_pane(tiles_tree, pane_id));
+        tile_selection_state_for_pane(graph_app, tiles_tree, pane_id);
     let lens_preset = resolved_lens_preset_for_tile(tiles_tree, graph_app, node_key);
     let mut semantic = TileSemanticOverlayInput {
         node_key,

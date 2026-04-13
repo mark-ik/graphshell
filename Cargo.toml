@@ -88,7 +88,7 @@ image = { version = "0.25", default-features = false, features = ["avif", "rayon
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 libc = "0.2"
-servo = { path = "../servo/components/servo", features = ["background_hang_monitor", "bluetooth", "testbinding"], default-features = false }
+servo = { path = "../servo/components/servo", features = ["background_hang_monitor", "bluetooth", "testbinding", "wgpu_backend"], default-features = false }
 log = "0.4.29"
 mime_guess = "2.0.5"
 raw-window-handle = "0.6"

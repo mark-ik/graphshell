@@ -6,6 +6,7 @@
 
 **Related**:
 
+- `2026-04-12_rendering_pipeline_status_quo_plan.md` - current execution anchor for the rendering pipeline as it actually exists in code
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../viewer/2026-02-26_composited_viewer_pass_contract.md`
 - `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`

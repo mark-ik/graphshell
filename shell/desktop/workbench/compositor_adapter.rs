@@ -1635,7 +1635,7 @@ mod tests {
         BackendParentRenderRegionInPixels, backend_bridge_test_env_lock,
         backend_content_bridge_mode_label, backend_content_bridge_path,
         clear_backend_bridge_env_for_tests, select_backend_content_bridge_with_capabilities,
-        set_backend_bridge_mode_env_for_tests, set_backend_bridge_readiness_gate_for_tests,
+        set_backend_bridge_mode_env_for_tests,
     };
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::{
@@ -2134,9 +2134,6 @@ mod tests {
         clear_content_callbacks_for_tests();
         clear_native_textures_for_tests();
         clear_replay_samples_for_tests();
-        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
-        set_backend_bridge_readiness_gate_for_tests(true);
-
         let callback: BackendParentRenderCallback =
             std::sync::Arc::new(|_: &_, _: BackendParentRenderRegionInPixels| {});
 
@@ -2144,7 +2141,7 @@ mod tests {
             callback.clone(),
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: true,
-                supports_wgpu_shared_texture: false,
+                supports_wgpu_shared_texture: true,
             },
         );
         let supported_node = NodeKey::new(903);
@@ -2161,7 +2158,7 @@ mod tests {
             callback,
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: false,
-                supports_wgpu_shared_texture: false,
+                supports_wgpu_shared_texture: true,
             },
         );
         let unsupported_node = NodeKey::new(904);

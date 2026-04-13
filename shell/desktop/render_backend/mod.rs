@@ -83,10 +83,9 @@ impl Default for UiWgpuHostBootstrap {
     }
 }
 
+/// Override the default content bridge mode for debugging.
+/// Values: "wgpu_shared", "wgpu_preferred", "gl_callback".
 const BACKEND_BRIDGE_MODE_ENV_VAR: &str = "GRAPHSHELL_BACKEND_BRIDGE_MODE";
-const BACKEND_BRIDGE_READINESS_GATE_ENV_VAR: &str =
-    "GRAPHSHELL_ENABLE_WGPU_BRIDGE_READINESS_GATE";
-const SERVO_WGPU_BACKEND_ENV_VAR: &str = "SERVO_WGPU_BACKEND";
 const BACKEND_BRIDGE_PATH_WGPU_SHARED: &str = "wgpu.shared_texture";
 const BACKEND_BRIDGE_PATH_GL_CALLBACK: &str = "gl.render_to_parent_callback";
 const BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GL: &str =
@@ -98,12 +97,6 @@ pub(crate) enum BackendContentBridgeMode {
     WgpuShared,
     GlCallback,
     WgpuPreferredFallbackGlCallback,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BackendContentBridgePolicy {
-    GlBaseline,
-    ExperimentalEnvRequestedMode,
 }
 
 #[derive(Clone)]
@@ -146,73 +139,47 @@ impl Default for BackendContentBridgeCapabilities {
     }
 }
 
-fn env_flag_enabled(key: &str) -> bool {
-    std::env::var(key)
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
-}
-
-fn servo_wgpu_backend_requested() -> bool {
-    env_flag_enabled(SERVO_WGPU_BACKEND_ENV_VAR)
-}
-
-fn requested_backend_content_bridge_mode() -> BackendContentBridgeMode {
-    std::env::var(BACKEND_BRIDGE_MODE_ENV_VAR)
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .map(|value| match value.as_str() {
-            "wgpu_shared" => BackendContentBridgeMode::WgpuShared,
-            "wgpu_preferred" => BackendContentBridgeMode::WgpuPreferredFallbackGlCallback,
-            _ => BackendContentBridgeMode::GlCallback,
-        })
-        .unwrap_or(BackendContentBridgeMode::GlCallback)
-}
-
-fn active_backend_content_bridge_policy() -> BackendContentBridgePolicy {
-    if env_flag_enabled(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR) {
-        BackendContentBridgePolicy::ExperimentalEnvRequestedMode
-    } else {
-        BackendContentBridgePolicy::GlBaseline
-    }
-}
-
 fn content_bridge_capabilities_from_observed_context(
     has_parent_render_callback: bool,
-    servo_wgpu_backend_enabled: bool,
 ) -> BackendContentBridgeCapabilities {
     BackendContentBridgeCapabilities {
-        supports_wgpu_parent_render_bridge: has_parent_render_callback && servo_wgpu_backend_enabled,
-        supports_wgpu_shared_texture: servo_wgpu_backend_enabled,
+        supports_wgpu_parent_render_bridge: has_parent_render_callback,
+        supports_wgpu_shared_texture: true,
     }
 }
 
+/// Resolve the content bridge mode.
+///
+/// Default: `WgpuPreferredFallbackGlCallback` — uses the wgpu shared texture
+/// path when the capability is present, falls back to GL callback otherwise.
+/// Set `GRAPHSHELL_BACKEND_BRIDGE_MODE` to override for debugging:
+///   - `wgpu_shared` — wgpu only, no fallback (degrades to GL if unavailable)
+///   - `gl_callback` — force GL callback path
+///   - `wgpu_preferred` — explicit default (wgpu with GL fallback)
 fn resolve_backend_content_bridge_mode(
-    policy: BackendContentBridgePolicy,
     capabilities: BackendContentBridgeCapabilities,
 ) -> BackendContentBridgeMode {
-    match policy {
-        BackendContentBridgePolicy::GlBaseline => BackendContentBridgeMode::GlCallback,
-        BackendContentBridgePolicy::ExperimentalEnvRequestedMode => {
-            let requested = requested_backend_content_bridge_mode();
-            match requested {
-                BackendContentBridgeMode::WgpuShared
-                    if !capabilities.supports_wgpu_shared_texture =>
-                {
-                    BackendContentBridgeMode::GlCallback
-                }
-                BackendContentBridgeMode::WgpuPreferredFallbackGlCallback
-                    if !capabilities.supports_wgpu_parent_render_bridge =>
-                {
-                    BackendContentBridgeMode::GlCallback
-                }
-                mode => mode,
-            }
+    let requested = std::env::var(BACKEND_BRIDGE_MODE_ENV_VAR)
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .and_then(|value| match value.as_str() {
+            "wgpu_shared" => Some(BackendContentBridgeMode::WgpuShared),
+            "wgpu_preferred" => Some(BackendContentBridgeMode::WgpuPreferredFallbackGlCallback),
+            "gl_callback" => Some(BackendContentBridgeMode::GlCallback),
+            _ => None,
+        })
+        .unwrap_or(BackendContentBridgeMode::WgpuPreferredFallbackGlCallback);
+
+    match requested {
+        BackendContentBridgeMode::WgpuShared if !capabilities.supports_wgpu_shared_texture => {
+            BackendContentBridgeMode::GlCallback
         }
+        BackendContentBridgeMode::WgpuPreferredFallbackGlCallback
+            if !capabilities.supports_wgpu_parent_render_bridge =>
+        {
+            BackendContentBridgeMode::GlCallback
+        }
+        mode => mode,
     }
 }
 
@@ -220,21 +187,7 @@ pub(crate) fn select_backend_content_bridge_with_capabilities(
     callback: BackendParentRenderCallback,
     capabilities: BackendContentBridgeCapabilities,
 ) -> BackendContentBridgeSelection {
-    let mode =
-        resolve_backend_content_bridge_mode(active_backend_content_bridge_policy(), capabilities);
-
-    BackendContentBridgeSelection {
-        mode,
-        bridge: BackendContentBridge::ParentRenderCallback(callback),
-    }
-}
-
-fn select_backend_content_bridge_with_policy_for_tests(
-    callback: BackendParentRenderCallback,
-    policy: BackendContentBridgePolicy,
-    capabilities: BackendContentBridgeCapabilities,
-) -> BackendContentBridgeSelection {
-    let mode = resolve_backend_content_bridge_mode(policy, capabilities);
+    let mode = resolve_backend_content_bridge_mode(capabilities);
 
     BackendContentBridgeSelection {
         mode,
@@ -256,7 +209,6 @@ fn content_bridge_capabilities_for_render_context(
 ) -> BackendContentBridgeCapabilities {
     content_bridge_capabilities_from_observed_context(
         render_context.render_to_parent_callback().is_some(),
-        servo_wgpu_backend_requested(),
     )
 }
 
@@ -272,8 +224,6 @@ pub(crate) fn backend_bridge_test_env_lock() -> &'static std::sync::Mutex<()> {
 pub(crate) fn clear_backend_bridge_env_for_tests() {
     unsafe {
         std::env::remove_var(BACKEND_BRIDGE_MODE_ENV_VAR);
-        std::env::remove_var(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR);
-        std::env::remove_var(SERVO_WGPU_BACKEND_ENV_VAR);
     }
 }
 
@@ -281,17 +231,6 @@ pub(crate) fn clear_backend_bridge_env_for_tests() {
 pub(crate) fn set_backend_bridge_mode_env_for_tests(value: &str) {
     unsafe {
         std::env::set_var(BACKEND_BRIDGE_MODE_ENV_VAR, value);
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn set_backend_bridge_readiness_gate_for_tests(enabled: bool) {
-    unsafe {
-        if enabled {
-            std::env::set_var(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR, "1");
-        } else {
-            std::env::remove_var(BACKEND_BRIDGE_READINESS_GATE_ENV_VAR);
-        }
     }
 }
 
@@ -320,10 +259,6 @@ pub(crate) fn select_content_bridge_from_render_context(
 /// This is the primary wgpu content bridge factory. The returned selection uses
 /// `BackendContentBridgeMode::WgpuShared` and the import closure forwards to
 /// `OffscreenRenderingContext::import_to_shared_wgpu_texture` at call time.
-///
-/// Use when `servo_wgpu_backend_requested()` is true and a render context
-/// is available. The GL callback path (`select_content_bridge_from_render_context`)
-/// remains the production default until the readiness gate is enabled.
 pub(crate) fn select_content_bridge_wgpu_from_render_context(
     render_context: std::rc::Rc<OffscreenRenderingContext>,
 ) -> BackendContentBridgeSelection {
@@ -380,33 +315,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bridge_mode_defaults_to_gl_callback() {
+    fn bridge_mode_defaults_to_wgpu_preferred_with_gl_fallback() {
         let _guard = backend_bridge_test_env_lock()
             .lock()
             .expect("env lock poisoned");
         clear_backend_bridge_env_for_tests();
 
         let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
-        let selected = select_backend_content_bridge(callback);
-
-        assert_eq!(selected.mode, BackendContentBridgeMode::GlCallback);
-    }
-
-    #[test]
-    fn bridge_mode_selects_wgpu_preferred_fallback_when_requested() {
-        let _guard = backend_bridge_test_env_lock()
-            .lock()
-            .expect("env lock poisoned");
-        clear_backend_bridge_env_for_tests();
-        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
-
-        let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
-        let selected = select_backend_content_bridge_with_policy_for_tests(
+        let selected = select_backend_content_bridge_with_capabilities(
             callback,
-            BackendContentBridgePolicy::ExperimentalEnvRequestedMode,
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: true,
-                supports_wgpu_shared_texture: false,
+                supports_wgpu_shared_texture: true,
             },
         );
 
@@ -414,47 +334,41 @@ mod tests {
             selected.mode,
             BackendContentBridgeMode::WgpuPreferredFallbackGlCallback
         );
-
-        clear_backend_bridge_env_for_tests();
     }
 
     #[test]
-    fn active_policy_uses_gl_even_when_env_requests_wgpu_preferred() {
+    fn bridge_mode_falls_back_to_gl_without_parent_render_callback() {
         let _guard = backend_bridge_test_env_lock()
             .lock()
             .expect("env lock poisoned");
         clear_backend_bridge_env_for_tests();
-        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
 
         let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
         let selected = select_backend_content_bridge_with_capabilities(
             callback,
-            BackendContentBridgeCapabilities {
-                supports_wgpu_parent_render_bridge: true,
-                supports_wgpu_shared_texture: false,
-            },
-        );
-
-        assert_eq!(selected.mode, BackendContentBridgeMode::GlCallback);
-
-        clear_backend_bridge_env_for_tests();
-    }
-
-    #[test]
-    fn bridge_mode_falls_back_to_gl_when_wgpu_capability_is_unavailable() {
-        let _guard = backend_bridge_test_env_lock()
-            .lock()
-            .expect("env lock poisoned");
-        clear_backend_bridge_env_for_tests();
-        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
-
-        let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
-        let selected = select_backend_content_bridge_with_policy_for_tests(
-            callback,
-            BackendContentBridgePolicy::ExperimentalEnvRequestedMode,
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: false,
-                supports_wgpu_shared_texture: false,
+                supports_wgpu_shared_texture: true,
+            },
+        );
+
+        assert_eq!(selected.mode, BackendContentBridgeMode::GlCallback);
+    }
+
+    #[test]
+    fn env_override_forces_gl_callback() {
+        let _guard = backend_bridge_test_env_lock()
+            .lock()
+            .expect("env lock poisoned");
+        clear_backend_bridge_env_for_tests();
+        set_backend_bridge_mode_env_for_tests("gl_callback");
+
+        let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
+        let selected = select_backend_content_bridge_with_capabilities(
+            callback,
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: true,
+                supports_wgpu_shared_texture: true,
             },
         );
 
@@ -464,13 +378,34 @@ mod tests {
     }
 
     #[test]
-    fn active_policy_honors_requested_mode_when_readiness_gate_is_enabled() {
+    fn env_override_forces_wgpu_shared() {
         let _guard = backend_bridge_test_env_lock()
             .lock()
             .expect("env lock poisoned");
         clear_backend_bridge_env_for_tests();
-        set_backend_bridge_mode_env_for_tests("wgpu_preferred");
-        set_backend_bridge_readiness_gate_for_tests(true);
+        set_backend_bridge_mode_env_for_tests("wgpu_shared");
+
+        let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
+        let selected = select_backend_content_bridge_with_capabilities(
+            callback,
+            BackendContentBridgeCapabilities {
+                supports_wgpu_parent_render_bridge: true,
+                supports_wgpu_shared_texture: true,
+            },
+        );
+
+        assert_eq!(selected.mode, BackendContentBridgeMode::WgpuShared);
+
+        clear_backend_bridge_env_for_tests();
+    }
+
+    #[test]
+    fn wgpu_shared_override_degrades_without_capability() {
+        let _guard = backend_bridge_test_env_lock()
+            .lock()
+            .expect("env lock poisoned");
+        clear_backend_bridge_env_for_tests();
+        set_backend_bridge_mode_env_for_tests("wgpu_shared");
 
         let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
         let selected = select_backend_content_bridge_with_capabilities(
@@ -481,32 +416,22 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            selected.mode,
-            BackendContentBridgeMode::WgpuPreferredFallbackGlCallback
-        );
+        assert_eq!(selected.mode, BackendContentBridgeMode::GlCallback);
 
         clear_backend_bridge_env_for_tests();
     }
 
     #[test]
-    fn capability_probe_requires_servo_wgpu_backend_and_parent_render_callback() {
+    fn capability_probe_with_parent_callback() {
         assert_eq!(
-            content_bridge_capabilities_from_observed_context(true, true),
+            content_bridge_capabilities_from_observed_context(true),
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: true,
                 supports_wgpu_shared_texture: true,
             }
         );
         assert_eq!(
-            content_bridge_capabilities_from_observed_context(true, false),
-            BackendContentBridgeCapabilities {
-                supports_wgpu_parent_render_bridge: false,
-                supports_wgpu_shared_texture: false,
-            }
-        );
-        assert_eq!(
-            content_bridge_capabilities_from_observed_context(false, true),
+            content_bridge_capabilities_from_observed_context(false),
             BackendContentBridgeCapabilities {
                 supports_wgpu_parent_render_bridge: false,
                 supports_wgpu_shared_texture: true,

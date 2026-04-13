@@ -75,6 +75,49 @@ There is no "storage bank server." The bank is the emergent state of:
 Each peer reconstructs the bank's state from these signed messages. Consistency
 comes from the epoch finalization model already specified in the PoA ledger.
 
+### 2.3 Credit Eligibility Boundary
+
+The storage bank is for **shared service** and **community durability**, not for
+minting credit from private redundancy.
+
+By default, the following do **not** generate storage-bank credit:
+
+- self-hosting your own data on your own device
+- backing up your own devices with your own trusted device pool
+- bilateral private exchange where `ReceiptPolicy` is `Disabled` or
+  `OptionalReputationOnly`
+- purely private applet/runtime state that is never placed into a shared
+  community storage pool or replication queue
+
+Credit-eligible storage begins only when all of the following are true:
+
+- the data is placed into a community replication queue or a shared-service
+  storage pool
+- the blob or fragment is being hosted for parties beyond the same operator's
+  personal device set
+- the community's receipt policy allows availability and retrieval receipts
+
+This keeps the distinction clear: **private resilience is a user benefit,
+public durability is a community service**.
+
+### 2.4 Shared-Service Objects
+
+The storage bank is payload-agnostic. It does not care whether it is hosting a
+file archive, a room state bundle, or an applet package. It stores durable,
+addressed bytes and accounts for their availability.
+
+Typical shared-service objects include:
+
+- Matrix room state/history snapshots
+- shared workspaces and graph projections
+- Gemini/Gopher capsule content and feed bundles
+- applet packages and applet state checkpoints
+- files, media bundles, FLora checkpoints, and governance artifacts
+
+These service objects enter the bank as `VerseBlob`s or fragment manifests.
+The storage bank hosts their durability layer; the owning applet or protocol
+continues to own their semantics.
+
 ---
 
 ## 3. Credit Mechanics
@@ -382,7 +425,29 @@ split into `m` fragments where any `k` suffice to reconstruct. This gives
 `m`-provider redundancy at `m/k` storage overhead instead of `m×` overhead.
 For example, 4-of-8 coding gives 8-provider redundancy at 2× storage cost.
 
-### 7.3 Health Reporting
+### 7.3 Opaque Hosting and Encryption
+
+The default safety model for third-party hosting is **opaque durability**:
+providers should be able to store and serve data without automatically gaining
+permission to read it.
+
+- Public artifacts may be stored in plaintext if the owner explicitly publishes
+  them that way.
+- Community-scoped or private artifacts should be encrypted before entering the
+  replication queue.
+- Providers verify integrity using the CID/hash of the stored ciphertext or
+  fragment, not by inspecting plaintext content.
+- Hosting a fragment does not grant decryption rights. Read access is governed
+  separately by the owner or the community's membership/capability rules.
+- Future Reed-Solomon fragmentation should operate over encrypted payloads or
+  encrypted chunk streams so that no single provider needs plaintext access in
+  order to participate.
+
+In practice this means a provider can help host a Matrix room archive, a Gemini
+capsule bundle, a shared workspace snapshot, or an applet package **as opaque
+encrypted material** unless that service is intentionally public.
+
+### 7.4 Health Reporting
 
 Providers periodically publish signed heartbeats:
 
@@ -402,7 +467,7 @@ struct StorageHeartbeat {
 The community aggregates heartbeats into a health view (see §8). Heartbeat
 frequency is community policy; recommended: once per epoch.
 
-### 7.4 Repair Protocol
+### 7.5 Repair Protocol
 
 When health reporting shows a blob with `actual_k < k_target`:
 
@@ -417,7 +482,7 @@ Repair is pull-based (providers self-select) rather than push-based (no
 coordinator assigns repair work). The replication queue and credit incentive
 drive repair organically.
 
-### 7.5 Eviction and Withdrawal
+### 7.6 Eviction and Withdrawal
 
 When a provider wants to stop hosting a blob:
 
@@ -517,20 +582,21 @@ struct CommunityStoragePool {
 }
 
 struct ServiceAllocation {
-    service_ref: String,              // e.g., "room:abc123", "workspace:def456"
+  service_ref: String,              // e.g., "room:abc123", "workspace:def456", "capsule:news", "applet:kanban"
     allocated_units: u64,
     priority: AllocationPriority,
 }
 
 enum AllocationPriority {
     Critical,    // FLora checkpoints, governance records
-    Standard,    // shared workspaces, rooms
+  Standard,    // shared workspaces, rooms, hosted applets, capsule content
     BestEffort,  // cached content, optional archives
 }
 ```
 
-Services that need persistent storage (Matrix rooms, shared workspaces, FLora
-checkpoints) draw from the community pool. When the pool runs low:
+Services that need persistent storage (Matrix rooms, shared workspaces, Gemini
+capsules, hosted applets, FLora checkpoints) draw from the community pool.
+When the pool runs low:
 
 1. Under-replicated blobs are flagged in the health dashboard.
 2. Community governance decides: recruit more contributors, reduce retention
