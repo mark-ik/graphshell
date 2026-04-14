@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-13
 **Status**: Research / synthesis
-**Scope**: Compares Syncthing, Tahoe-LAFS, Storj, and Filecoin against Verse's decentralized storage-bank direction. Clarifies which ideas Verse should adopt for bilateral/private storage, opaque encrypted third-party hosting, community durability, and optional incentive layers.
+**Scope**: Compares Syncthing, Tahoe-LAFS, Storj, and Filecoin against Verse's decentralized storage-bank direction. Clarifies which ideas Verse should adopt for bilateral/private storage, opaque encrypted third-party hosting, community durability, optional incentive layers, and the fit of specific mechanism and crate choices for a Rust implementation.
 
 **Related docs**:
 
@@ -345,3 +345,190 @@ That framing fits the rest of the architecture:
 - Verse remains the community-scale durability, discovery, and optional incentive layer.
 
 The result is simpler and more realistic than a one-size-fits-all storage economy, while still leaving room for a stronger market model if the project ever truly needs it.
+
+---
+
+## 13. Critique of the "DSN Blueprint" Framing
+
+A useful refinement is to describe Verse as a **three-zone storage architecture** rather than a single decentralized storage network turning disk into one commodity class.
+
+The proposed blueprint gets several things right:
+
+- encrypted, opaque fragments are the correct model for community storage
+- signed receipts and audit trails are more realistic than immediate on-chain settlement
+- a lighter-weight accountability model than Filecoin is a better fit for Verse
+
+But four corrections matter.
+
+### 13.1 It is not one storage market
+
+Calling the whole system a market or commodity layer makes the private and bilateral tier look more economic than it should be.
+
+Verse needs three different postures:
+
+- personal / bilateral replication
+- shared-service durability
+- optional open public hosting
+
+Only the middle and later the third tier need a genuine storage-bank or market vocabulary.
+
+### 13.2 "Proof-of-Retrievability" is too strong for v1
+
+Full PoR / PoRep language implies stronger cryptographic guarantees than the current Verse design actually requires.
+
+The more accurate first-implementation model is:
+
+- content-addressed integrity
+- challenge-based availability verification
+- real retrieval receipts
+- signed append-only accounting
+
+Merkle commitments can help organize proofs of blob/chunk layout, but by themselves they do not prove that a provider is still storing the data over time.
+
+### 13.3 Bilateral trust should stay on `iroh`
+
+The current architecture already has the correct transport split:
+
+- `iroh` for bilateral named-peer trust and device sync
+- `libp2p` for community-scale discovery and swarm behavior
+
+Using libp2p as the default private/bilateral layer would blur a boundary that is currently clean in [VERSO_AS_PEER.md](../../verso_docs/technical_architecture/VERSO_AS_PEER.md).
+
+### 13.4 JWT is the wrong shape for receipts
+
+Receipts are not web bearer tokens. They are signed evidence records.
+
+The better conceptual split is:
+
+- signed domain receipts for accounting and audit
+- UCAN for delegation and capability transfer
+- optional VC-like attestations for portable provenance
+
+JWT would import unnecessary web-auth assumptions into a system that already has a cleaner cryptographic boundary.
+
+---
+
+## 14. Refined Verse Blueprint
+
+The improved blueprint is:
+
+### 14.1 Personal / bilateral zone
+
+Use `iroh` plus explicit trust store semantics.
+
+- own devices and trusted peers
+- tracked, inspectable, challengeable
+- no public credit by default
+- strong fit with the existing Verso layer
+
+### 14.2 Shared-service zone
+
+Use encrypted content-addressed blobs or fragments to back durable objects.
+
+- room state/history
+- workspaces and graph projections
+- capsule bundles and feed snapshots
+- shared files and attachments
+- applet state checkpoints where applicable
+
+This is the real storage-bank layer:
+
+- availability challenges
+- retrieval receipts
+- repair incentives
+- service-class policy
+- allocation and retention controls
+
+### 14.3 Open public hosting zone
+
+Only later, if needed:
+
+- anonymous or pseudonymous providers
+- stronger collateral and slash conditions
+- more formal proof machinery
+- DHT-heavy placement and provider discovery
+
+This is where Filecoin-like lessons become more relevant, but it should not be the first operational target.
+
+---
+
+## 15. Mechanism and Crate Fit for Rust
+
+The right Rust stack should follow the architectural boundaries already present in Verse and Verso rather than flattening them.
+
+### 15.1 Networking
+
+Recommended fit:
+
+- **`iroh`** for bilateral/private transport and direct trusted-peer replication
+- **`rust-libp2p`** for community-scale provider discovery, pubsub, and swarm participation when the community layer is actually activated
+
+This preserves the current split described in [VERSO_AS_PEER.md](../../verso_docs/technical_architecture/VERSO_AS_PEER.md) and related Verse docs.
+
+### 15.2 Encryption and capability-oriented access
+
+Recommended fit:
+
+- **`aes-gcm`** or **`chacha20poly1305`** for opaque encrypted payloads or chunks
+- **`rs-ucan`** for delegation/capability expression
+- **`crypto_box`**-style key wrapping for encrypted object/key handoff, matching patterns already used in the session capsule plan
+
+This aligns better with Verse's existing capability language than JWT-style bearer tokens.
+
+### 15.3 Content identity and local state
+
+Recommended fit:
+
+- **`cid`** plus multihash-compatible content addressing for durable object identity
+- **`redb`** or **`fjall`** for local durable state, matching existing documentation posture more closely than a pivot to `sled`
+
+### 15.4 Erasure coding
+
+The primitive is right; the crate should be chosen only after a focused dependency audit.
+
+Recommended posture:
+
+- design Verse around a `FragmentManifest` and a `CodingScheme` abstraction first
+- start with full-copy replication as already documented
+- leave room for Reed-Solomon / Zfec-compatible erasure coding later
+- avoid prematurely hard-coding the architecture around one crate name before validating maintenance posture, portability, and WASM implications
+
+### 15.5 Verifiability and receipts
+
+Recommended fit:
+
+- Merkle or manifest commitment structures are useful for chunk layout and integrity proofs
+- challenge-response availability checks are still required
+- signed retrieval receipts remain the strongest practical signal of actual usefulness and service value
+
+In other words, **Merkle proofs help; they do not replace availability and retrieval evidence**.
+
+---
+
+## 16. Recommended Rust Blueprint Table
+
+| Concern | Recommended fit | Why |
+| --- | --- | --- |
+| Bilateral/private transport | `iroh` | Matches Verso's existing trust and sync boundary |
+| Community transport | `rust-libp2p` | Useful for Kad/GossipSub once community swarms matter |
+| Opaque payload encryption | `aes-gcm` or `chacha20poly1305` | Good AEAD choices for encrypted blobs/fragments |
+| Capability delegation | `rs-ucan` | Better semantic fit than JWT for access rights |
+| Key wrapping / object sharing | `crypto_box`-style flow | Already aligned with existing capsule-sharing patterns |
+| Local durable storage | `redb` or `fjall` | Closer to existing Graphshell/Verse documentation |
+| Content identity | `cid` | Fits VerseBlob and content-addressed storage |
+| Erasure coding | abstract behind `CodingScheme` | Keeps architecture flexible while v1 stays full-copy |
+| Accounting | signed domain receipts | Receipts are evidence, not auth tokens |
+
+---
+
+## 17. Final Guidance
+
+The right implementation posture is:
+
+- do not market the whole thing as one storage commodity system
+- do not overclaim PoR/PoRep properties before the protocol actually has them
+- do not replace `iroh` with libp2p in the bilateral tier
+- do not use JWT as the core receipt primitive
+- do use encrypted opaque fragments, capability-oriented access, signed receipts, and content-addressed durable objects
+
+That refined blueprint is both more realistic and more compatible with the Verse architecture already described in the active docs.

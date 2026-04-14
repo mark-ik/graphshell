@@ -166,7 +166,7 @@ current extracted state of the Graphshell repository.
 | Stylo | servo/servo (style crate) | ✅ with rayon disabled |
 | Taffy | crates.io | ✅ pure Rust |
 | Parley | linebender/parley | ✅ pure Rust |
-| WebRender | mark-ik/webrender `wgpu-backend-0.68-minimal` | ✅ wgpu backend (in progress); all 63 shaders translated to WGSL |
+| WebRender | mark-ik/webrender `wgpu-backend-0.68-minimal` | ✅ wgpu backend (complete); all 63 shaders translated to WGSL |
 | wgpu | crates.io | ✅ WebGPU backend in WASM |
 | Boa | crates.io (boa-dev/boa) | ✅ ships `boa_wasm` package (94% Test262) |
 | wasmtime | bytecodealliance | ✅ for running page-level WASM content |
