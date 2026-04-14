@@ -44,6 +44,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use uuid::Uuid;
 
+pub(crate) mod canvas_bridge;
 mod canvas_camera;
 mod canvas_input;
 mod canvas_overlays;

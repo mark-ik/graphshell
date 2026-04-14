@@ -1903,7 +1903,7 @@ struct ResolutionChipMetadata {
 fn latest_identity_resolution_audits(
     app: &GraphBrowserApp,
     selected_key: NodeKey,
-) -> HashMap<String, crate::middlenet::identity::IdentityResolutionAuditRecord> {
+) -> HashMap<String, middlenet_engine::identity::IdentityResolutionAuditRecord> {
     let Some(node) = app.domain_graph().get_node(selected_key) else {
         return HashMap::new();
     };
@@ -1915,7 +1915,7 @@ fn latest_identity_resolution_audits(
                     crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
                         action,
                         detail,
-                    } => crate::middlenet::identity::parse_identity_resolution_audit_event(
+                    } => middlenet_engine::identity::parse_identity_resolution_audit_event(
                         &action,
                         &detail,
                     ),
@@ -1934,15 +1934,15 @@ fn latest_identity_resolution_audits(
 fn parse_resolution_chip_metadata(
     scheme: &crate::model::graph::ClassificationScheme,
     value: &str,
-    audit: Option<&crate::middlenet::identity::IdentityResolutionAuditRecord>,
+    audit: Option<&middlenet_engine::identity::IdentityResolutionAuditRecord>,
 ) -> Option<ResolutionChipMetadata> {
     let protocol = match scheme {
         crate::model::graph::ClassificationScheme::Custom(custom) => custom
             .strip_prefix("resolution:")
-            .and_then(crate::middlenet::capabilities::MiddlenetProtocol::from_key)?,
+            .and_then(middlenet_engine::capabilities::MiddlenetProtocol::from_key)?,
         _ => return None,
     };
-    let descriptor = crate::middlenet::capabilities::descriptor(protocol);
+    let descriptor = middlenet_engine::capabilities::descriptor(protocol);
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -1961,8 +1961,8 @@ fn parse_resolution_chip_metadata(
         (
             audit.freshness.label().to_string(),
             match audit.cache_state {
-                crate::middlenet::identity::IdentityResolutionCacheState::Hit => "Cache hit",
-                crate::middlenet::identity::IdentityResolutionCacheState::Miss => "Cache miss",
+                middlenet_engine::identity::IdentityResolutionCacheState::Hit => "Cache hit",
+                middlenet_engine::identity::IdentityResolutionCacheState::Miss => "Cache miss",
             }
             .to_string(),
             age_label,
