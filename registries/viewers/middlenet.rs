@@ -5,19 +5,26 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use crate::middlenet::document::{SimpleBlock, SimpleDocument};
-use crate::middlenet::engine::{MiddleNetEngine, MiddleNetLoadResult};
-use crate::middlenet::misfin::{
+use middlenet_engine::document::{SimpleBlock, SimpleDocument};
+use middlenet_engine::engine::{MiddleNetEngine, MiddleNetLoadResult};
+use middlenet_engine::misfin::{
     self, MisfinAddress, MisfinIdentitySpec, MisfinSendOutcome,
 };
-use crate::middlenet::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
-use crate::middlenet::transport::{TitanUploadOutcome, titan_upload};
+use middlenet_engine::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
+use middlenet_engine::transport::{TitanUploadOutcome, titan_upload};
 use crate::registries::atomic::viewer::{
     EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput,
 };
 use crate::services::persistence::types::NodeAuditEventKind;
 
 pub(crate) struct MiddleNetEmbeddedViewer;
+
+impl middlenet_engine::viewer::HostViewerAdapter for MiddleNetEmbeddedViewer {
+    fn render_document(&mut self, document: &middlenet_engine::dom::Document) -> middlenet_engine::viewer::RenderResult {
+        middlenet_engine::viewer::generate_display_list(document)
+    }
+}
+
 
 #[derive(Debug, Clone, Default)]
 struct MiddleNetViewerState {
@@ -290,21 +297,22 @@ fn render_misfin_view(
     ui.small("The preview below can stay multiline. Send uses only the distilled wire line above.");
 
     let preview = compose_misfin_gemmail_preview(&recipient, state);
-    let preview_document = misfin::parse_gemmail(&preview).body_document();
+    let preview_body = misfin::parse_gemmail(&preview).body.clone();
+    let preview_content = MiddleNetContent::from_gemini(
+        MiddleNetSource {
+            canonical_uri: Some(ctx.node_url.to_string()),
+            title_hint: trim_optional(&state.misfin_subject),
+            content_kind: MiddleNetContentKind::GeminiText,
+        },
+        &preview_body,
+    );
     egui::CollapsingHeader::new("Gemmail preview")
         .default_open(true)
         .show(ui, |ui| {
             render_document(
                 ui,
                 ctx.node_key,
-                &MiddleNetContent {
-                    source: MiddleNetSource {
-                        canonical_uri: Some(ctx.node_url.to_string()),
-                        title_hint: trim_optional(&state.misfin_subject),
-                        content_kind: MiddleNetContentKind::GeminiText,
-                    },
-                    document: preview_document,
-                },
+                &preview_content,
                 intents,
             );
             ui.add_space(6.0);
@@ -831,24 +839,30 @@ fn render_document(
         ui.add_space(6.0);
     }
 
-    let SimpleDocument::Blocks(blocks) = &content.document;
-    for block in blocks {
-        match block {
-            SimpleBlock::Heading { level, text } => {
+    let result = middlenet_engine::viewer::generate_display_list(&content.document);
+    for action in result.display_list {
+        match action {
+            middlenet_engine::viewer::DisplayAction::Heading { level, text } => {
                 let size = match level {
                     1 => 24.0,
                     2 => 20.0,
                     _ => 17.0,
                 };
-                ui.label(egui::RichText::new(text).strong().size(size));
+                ui.label(egui::RichText::new(&text).strong().size(size));
             }
-            SimpleBlock::Paragraph(text) => {
-                ui.label(text);
+            middlenet_engine::viewer::DisplayAction::Paragraph(text) => {
+                ui.label(&text);
             }
-            SimpleBlock::Link { text, href } => {
+            middlenet_engine::viewer::DisplayAction::ListItem(text) => {
+                ui.horizontal(|ui| {
+                    ui.label("•");
+                    ui.label(&text);
+                });
+            }
+            middlenet_engine::viewer::DisplayAction::Link { text, href } => {
                 let response = ui.add(
                     egui::Label::new(
-                        egui::RichText::new(text).color(egui::Color32::from_rgb(100, 149, 237)),
+                        egui::RichText::new(&text).color(egui::Color32::from_rgb(100, 149, 237)),
                     )
                     .sense(egui::Sense::click()),
                 );
@@ -860,37 +874,37 @@ fn render_document(
                 }
                 response.on_hover_text(href);
             }
-            SimpleBlock::Quote(text) => {
-                ui.colored_label(egui::Color32::from_gray(170), format!("> {text}"));
+            middlenet_engine::viewer::DisplayAction::Quote(text) => {
+                ui.colored_label(egui::Color32::from_gray(170), format!("> {}", text));
             }
-            SimpleBlock::CodeFence { lang, text } => {
-                if let Some(lang) = lang {
-                    ui.small(format!("Code: {lang}"));
+            middlenet_engine::viewer::DisplayAction::CodeFence { text, .. } => {
+                let mut display_text = text.clone();
+                if display_text.ends_with('\n') {
+                    display_text.pop();
                 }
-                let mut display = text.clone();
+                if display_text.starts_with('\n') {
+                    display_text.remove(0);
+                }
                 ui.add(
-                    egui::TextEdit::multiline(&mut display)
+                    egui::TextEdit::multiline(&mut display_text)
                         .font(egui::TextStyle::Monospace)
                         .desired_width(f32::INFINITY)
                         .interactive(false),
                 );
             }
-            SimpleBlock::List { ordered, items } => {
-                for (index, item) in items.iter().enumerate() {
-                    if *ordered {
-                        ui.label(format!("{}. {item}", index + 1));
-                    } else {
-                        ui.label(format!("* {item}"));
-                    }
-                }
-            }
-            SimpleBlock::Rule => {
+            middlenet_engine::viewer::DisplayAction::Separator => {
                 ui.separator();
             }
+            middlenet_engine::viewer::DisplayAction::Text(text) => {
+                ui.label(text);
+            }
+            middlenet_engine::viewer::DisplayAction::Spacer(size) => {
+                ui.add_space(size);
+            }
         }
-        ui.add_space(4.0);
     }
 }
+
 
 #[cfg(test)]
 mod tests {

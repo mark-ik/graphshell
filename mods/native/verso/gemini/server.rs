@@ -33,7 +33,7 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use uuid::Uuid;
 
-use crate::middlenet::document::{SimpleBlock, SimpleDocument};
+use middlenet_engine::document::{SimpleBlock, SimpleDocument};
 use crate::model::archive::ArchivePrivacyClass;
 
 // ---------------------------------------------------------------------------

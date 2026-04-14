@@ -930,11 +930,11 @@ fn render_node_audit_panel(
                     ),
                     NodeAuditEventKind::ActionRecorded { action, detail } => (
                         "✦",
-                        if let Some(record) = crate::middlenet::identity::parse_identity_resolution_audit_event(action, detail) {
-                            let descriptor = crate::middlenet::capabilities::descriptor(record.protocol);
+                        if let Some(record) = middlenet_engine::identity::parse_identity_resolution_audit_event(action, detail) {
+                            let descriptor = middlenet_engine::capabilities::descriptor(record.protocol);
                             let cache = match record.cache_state {
-                                crate::middlenet::identity::IdentityResolutionCacheState::Hit => "cache hit",
-                                crate::middlenet::identity::IdentityResolutionCacheState::Miss => "cache miss",
+                                middlenet_engine::identity::IdentityResolutionCacheState::Hit => "cache hit",
+                                middlenet_engine::identity::IdentityResolutionCacheState::Miss => "cache miss",
                             };
                             let changed = record
                                 .changed
@@ -943,8 +943,8 @@ fn render_node_audit_panel(
                             format!(
                                 "{} {} ({}, {}{})",
                                 match record.action_kind {
-                                    crate::middlenet::identity::IdentityResolutionActionKind::Resolve => "Resolved",
-                                    crate::middlenet::identity::IdentityResolutionActionKind::Refresh => "Refreshed",
+                                    middlenet_engine::identity::IdentityResolutionActionKind::Resolve => "Resolved",
+                                    middlenet_engine::identity::IdentityResolutionActionKind::Refresh => "Refreshed",
                                 },
                                 descriptor.display_name,
                                 record.freshness.label().to_ascii_lowercase(),
