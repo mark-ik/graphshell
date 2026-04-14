@@ -212,3 +212,4 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
             .notify_accessibility_tree_update(webview, tree_update);
     }
 }
+

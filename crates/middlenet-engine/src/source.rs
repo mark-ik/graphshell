@@ -182,3 +182,4 @@ mod tests {
         assert_eq!(json_feed.content_kind, MiddleNetContentKind::JsonFeed);
     }
 }
+

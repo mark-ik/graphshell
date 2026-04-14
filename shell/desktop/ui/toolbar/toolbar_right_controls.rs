@@ -35,3 +35,4 @@ pub(super) fn render_toolbar_right_controls(
         );
     });
 }
+

@@ -75,6 +75,7 @@ audio = ["dep:symphonia", "dep:rodio"]
 
 [dependencies]
 middlenet-engine = { path = "crates/middlenet-engine" }
+graphshell-comms = { path = "crates/graphshell-comms" }
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.23", features = ["derive"] }
 backon = "1"
@@ -245,4 +246,6 @@ wr_malloc_size_of = { path = "../webrender/wr_malloc_size_of" }
 name = "scenarios"
 path = "tests/scenarios/main.rs"
 required-features = ["test-utils"]
+
+
 

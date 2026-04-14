@@ -135,3 +135,4 @@ pub(crate) fn render_graph_search_window<F>(
             ));
         });
 }
+

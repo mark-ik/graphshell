@@ -397,3 +397,4 @@ mod tests {
         assert!(logs_contain("emitted_intents="));
     }
 }
+

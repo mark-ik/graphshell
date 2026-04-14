@@ -2105,3 +2105,4 @@ mod tests {
         assert!(open_mode.is_none());
     }
 }
+

@@ -151,3 +151,4 @@ impl servo::webxr::GlWindow for XRWindow {
             .expect("Every window should have a display handle")
     }
 }
+

@@ -146,3 +146,4 @@ fn phase5_conflict_channels_registered_in_diagnostics() {
         "all phase5 channels must have a positive schema version"
     );
 }
+

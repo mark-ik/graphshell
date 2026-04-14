@@ -689,3 +689,4 @@ mod tests {
         assert!(matches!(restored.address, PersistedAddress::File(_)));
     }
 }
+

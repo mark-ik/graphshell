@@ -70,3 +70,4 @@ pub(crate) fn raise_signal_or_exit_with_error(signal: i32) {
         libc::raise(signal);
     }
 }
+

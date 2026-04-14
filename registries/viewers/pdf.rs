@@ -139,3 +139,4 @@ fn draw_pdf_page(ui: &mut egui::Ui, texture: &egui::TextureHandle, page_count: u
         ));
     });
 }
+

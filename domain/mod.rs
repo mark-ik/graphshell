@@ -13,3 +13,4 @@ pub struct DomainState {
     /// Durable note documents keyed by note identity.
     pub(super) notes: HashMap<NoteId, NoteRecord>,
 }
+

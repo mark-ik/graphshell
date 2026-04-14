@@ -297,3 +297,4 @@ fn to_egui_rect(r: &graph_tree::Rect) -> egui::Rect {
 pub(crate) fn from_egui_rect(r: egui::Rect) -> graph_tree::Rect {
     graph_tree::Rect::new(r.min.x, r.min.y, r.width(), r.height())
 }
+

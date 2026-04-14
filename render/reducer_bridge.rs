@@ -26,3 +26,4 @@ where
 {
     app.apply_reducer_intents(intents);
 }
+

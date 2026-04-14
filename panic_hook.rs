@@ -51,3 +51,4 @@ pub(crate) fn panic_hook(info: &PanicHookInfo) {
 
     error!("{}", msg);
 }
+

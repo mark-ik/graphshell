@@ -12,3 +12,4 @@ pub(crate) mod server;
 pub(crate) use server::{
     CapsuleRegistry, GeminiCapsuleServer, GeminiServerConfig, GeminiServerHandle, ServedNode,
 };
+

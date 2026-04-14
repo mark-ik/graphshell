@@ -92,3 +92,4 @@ impl std::fmt::Debug for ProtocolResult {
         }
     }
 }
+

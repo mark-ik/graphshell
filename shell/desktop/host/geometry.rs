@@ -13,3 +13,4 @@ pub fn winit_size_to_euclid_size<T>(size: PhysicalSize<T>) -> Size2D<T, DevicePi
 pub fn winit_position_to_euclid_point<T>(position: PhysicalPosition<T>) -> Point2D<T, DevicePixel> {
     Point2D::new(position.x, position.y)
 }
+

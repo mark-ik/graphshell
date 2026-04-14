@@ -122,3 +122,4 @@ fn render_directory(
 
     Ok(())
 }
+

@@ -119,3 +119,4 @@ fn render_image(ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> Result<()
     });
     Ok(())
 }
+

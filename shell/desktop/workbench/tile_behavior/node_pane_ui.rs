@@ -930,11 +930,11 @@ fn render_node_audit_panel(
                     ),
                     NodeAuditEventKind::ActionRecorded { action, detail } => (
                         "✦",
-                        if let Some(record) = middlenet_engine::identity::parse_identity_resolution_audit_event(action, detail) {
-                            let descriptor = middlenet_engine::capabilities::descriptor(record.protocol);
+                        if let Some(record) = graphshell_comms::identity::parse_identity_resolution_audit_event(action, detail) {
+                            let descriptor = graphshell_comms::capabilities::descriptor(record.protocol);
                             let cache = match record.cache_state {
-                                middlenet_engine::identity::IdentityResolutionCacheState::Hit => "cache hit",
-                                middlenet_engine::identity::IdentityResolutionCacheState::Miss => "cache miss",
+                                graphshell_comms::identity::IdentityResolutionCacheState::Hit => "cache hit",
+                                graphshell_comms::identity::IdentityResolutionCacheState::Miss => "cache miss",
                             };
                             let changed = record
                                 .changed
@@ -943,8 +943,8 @@ fn render_node_audit_panel(
                             format!(
                                 "{} {} ({}, {}{})",
                                 match record.action_kind {
-                                    middlenet_engine::identity::IdentityResolutionActionKind::Resolve => "Resolved",
-                                    middlenet_engine::identity::IdentityResolutionActionKind::Refresh => "Refreshed",
+                                    graphshell_comms::identity::IdentityResolutionActionKind::Resolve => "Resolved",
+                                    graphshell_comms::identity::IdentityResolutionActionKind::Refresh => "Refreshed",
                                 },
                                 descriptor.display_name,
                                 record.freshness.label().to_ascii_lowercase(),
@@ -1039,3 +1039,4 @@ mod tests {
         );
     }
 }
+

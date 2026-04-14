@@ -474,3 +474,4 @@ fn degraded_viewer_composited_render_mode_is_not_degraded_in_uxtree() {
         "node pane in CompositedTexture mode must NOT be flagged as degraded in UxTree"
     );
 }
+

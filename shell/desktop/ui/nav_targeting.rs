@@ -221,3 +221,4 @@ mod tests {
         assert_eq!(detached.map(|attachment| attachment.pane_id), Some(pane_id));
     }
 }
+

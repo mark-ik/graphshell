@@ -159,3 +159,4 @@ mod tests {
         assert_eq!(resolution.theme.background_rgb, (244, 246, 249));
     }
 }
+

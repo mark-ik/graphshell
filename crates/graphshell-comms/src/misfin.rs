@@ -20,7 +20,7 @@ use rustls::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::document::SimpleDocument;
+use middlenet_engine::document::SimpleDocument;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1191,3 +1191,6 @@ mod tests {
             .expect("server config should build")
     }
 }
+
+
+

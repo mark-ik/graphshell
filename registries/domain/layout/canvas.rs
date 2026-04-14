@@ -460,3 +460,4 @@ mod tests {
         assert!(resolution.profile.should_capture_wheel_zoom(true));
     }
 }
+

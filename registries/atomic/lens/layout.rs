@@ -85,3 +85,4 @@ mod tests {
         assert!(matches!(resolution.layout, LayoutMode::Free));
     }
 }
+

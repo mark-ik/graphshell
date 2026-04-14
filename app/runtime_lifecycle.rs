@@ -869,3 +869,4 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.memory_total_mib = total_mib;
     }
 }
+

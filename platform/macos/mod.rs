@@ -43,3 +43,4 @@ pub static INFO_PLIST: [u8; 619] = *include_bytes!("Info.plist");
 unsafe extern "C" {
     fn macos_count_running_threads() -> i32;
 }
+

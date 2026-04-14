@@ -626,3 +626,4 @@ pub(super) fn render_graph_search_origin_badge(
     ui.label(egui::RichText::new("●").small().color(color));
     ui.small(label);
 }
+

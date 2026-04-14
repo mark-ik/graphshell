@@ -131,3 +131,4 @@ pub(super) fn show_http_authentication_dialog(
 pub(super) fn dismiss_embedder_controls_for_webview(window: &HeadedWindow, webview_id: WebViewId) {
     window.dialogs.borrow_mut().remove(&webview_id);
 }
+

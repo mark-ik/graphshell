@@ -15,3 +15,4 @@ pub(crate) use directory::DirectoryEmbeddedViewer;
 pub(crate) use pdf::PdfEmbeddedViewer;
 #[cfg(feature = "audio")]
 pub(crate) use audio::AudioEmbeddedViewer;
+

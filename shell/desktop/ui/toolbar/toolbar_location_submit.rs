@@ -225,3 +225,4 @@ pub(super) fn handle_location_submit(
 
     retain_omnibar_focus
 }
+

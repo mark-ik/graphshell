@@ -76,3 +76,4 @@ fn persist_autosave_session_workspace_layout_if_available(
 fn is_unsaved_workspace_prompt_pending(graph_app: &GraphBrowserApp) -> bool {
     graph_app.unsaved_workspace_prompt_request().is_some()
 }
+

@@ -362,3 +362,4 @@ mod tests {
         assert_eq!(metrics.misses, 1);
     }
 }
+

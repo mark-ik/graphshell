@@ -83,3 +83,4 @@ impl GamepadRuntime {
 pub(crate) fn resolve_content_webview_id(window: &EmbedderWindow) -> Option<WebViewId> {
     window.targeted_input_webview_id()
 }
+

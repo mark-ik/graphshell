@@ -814,12 +814,12 @@ pub(crate) fn execute_action(
 fn execute_identity_import_action<Execute>(
     app: &mut GraphBrowserApp,
     key: NodeKey,
-    protocol: middlenet_engine::capabilities::MiddlenetProtocol,
+    protocol: graphshell_comms::capabilities::MiddlenetProtocol,
     execute: Execute,
 ) where
     Execute: FnOnce(&mut GraphBrowserApp, &str, Option<NodeKey>) -> Result<NodeKey, String>,
 {
-    let descriptor = middlenet_engine::capabilities::descriptor(protocol);
+    let descriptor = graphshell_comms::capabilities::descriptor(protocol);
     let action_name = descriptor
         .action_name
         .unwrap_or(descriptor.display_name);
@@ -842,7 +842,7 @@ fn execute_identity_import_action<Execute>(
         return;
     }
 
-    let resource = match middlenet_engine::capabilities::normalize_identity_action_resource(
+    let resource = match graphshell_comms::capabilities::normalize_identity_action_resource(
         protocol,
         &raw_resource,
     ) {
@@ -1415,7 +1415,7 @@ pub(crate) fn execute_action_with_layout_target(
                 execute_identity_import_action(
                     app,
                     key,
-                    middlenet_engine::capabilities::MiddlenetProtocol::WebFinger,
+                    graphshell_comms::capabilities::MiddlenetProtocol::WebFinger,
                     |app, resource, anchor| {
                         app.fetch_and_import_person_identity_from_webfinger(resource, anchor)
                     },
@@ -1427,7 +1427,7 @@ pub(crate) fn execute_action_with_layout_target(
                 execute_identity_import_action(
                     app,
                     key,
-                    middlenet_engine::capabilities::MiddlenetProtocol::Nip05,
+                    graphshell_comms::capabilities::MiddlenetProtocol::Nip05,
                     |app, resource, anchor| {
                         app.resolve_and_import_person_identity_from_nip05(resource, anchor)
                     },
@@ -1439,7 +1439,7 @@ pub(crate) fn execute_action_with_layout_target(
                 execute_identity_import_action(
                     app,
                     key,
-                    middlenet_engine::capabilities::MiddlenetProtocol::Matrix,
+                    graphshell_comms::capabilities::MiddlenetProtocol::Matrix,
                     |app, resource, anchor| {
                         app.resolve_and_import_person_identity_from_matrix(resource, anchor)
                     },
@@ -1451,7 +1451,7 @@ pub(crate) fn execute_action_with_layout_target(
                 execute_identity_import_action(
                     app,
                     key,
-                    middlenet_engine::capabilities::MiddlenetProtocol::ActivityPub,
+                    graphshell_comms::capabilities::MiddlenetProtocol::ActivityPub,
                     |app, resource, anchor| {
                         app.resolve_and_import_person_identity_from_activitypub(resource, anchor)
                     },
@@ -2340,7 +2340,7 @@ mod tests {
 
     #[test]
     fn execute_action_webfinger_import_imports_graph_and_queues_success_notice() {
-        middlenet_engine::identity::with_test_identity_resolution_cache_scope(|| {
+        graphshell_comms::identity::with_test_identity_resolution_cache_scope(|| {
             let mut app = GraphBrowserApp::new_for_testing();
             let resource = "https://social.example/users/mark";
             let node = app.add_node_and_sync(
@@ -2348,7 +2348,7 @@ mod tests {
                 euclid::default::Point2D::new(0.0, 0.0),
             );
             let mut intents = Vec::new();
-            let import = middlenet_engine::webfinger::WebFingerImport {
+            let import = graphshell_comms::webfinger::WebFingerImport {
                 subject: "acct:mark@social.example".to_string(),
                 aliases: Vec::new(),
                 profile_pages: vec!["https://social.example/profile".to_string()],
@@ -2360,7 +2360,7 @@ mod tests {
                 other_endpoints: Vec::new(),
             };
 
-            middlenet_engine::webfinger::with_test_fetch_import_override(
+            graphshell_comms::webfinger::with_test_fetch_import_override(
                 resource,
                 Ok(import),
                 || {
@@ -2436,21 +2436,21 @@ mod tests {
 
     #[test]
     fn execute_action_resolve_nip05_imports_person_and_queues_success_notice() {
-        middlenet_engine::identity::with_test_identity_resolution_cache_scope(|| {
+        graphshell_comms::identity::with_test_identity_resolution_cache_scope(|| {
             let mut app = GraphBrowserApp::new_for_testing();
             let node = app.add_node_and_sync(
                 "nip05:mark@example.net".to_string(),
                 euclid::default::Point2D::new(0.0, 0.0),
             );
             let mut intents = Vec::new();
-            let profile = middlenet_engine::identity::PersonIdentityProfile {
+            let profile = graphshell_comms::identity::PersonIdentityProfile {
                 human_handle: Some("mark@example.net".to_string()),
                 nip05_identifier: Some("mark@example.net".to_string()),
                 nostr_identities: vec!["nostr:npub1example".to_string()],
                 ..Default::default()
             };
 
-            middlenet_engine::identity::with_test_resolve_nip05_override(
+            graphshell_comms::identity::with_test_resolve_nip05_override(
                 "mark@example.net",
                 Ok(profile),
                 || {
@@ -2495,14 +2495,14 @@ mod tests {
 
     #[test]
     fn execute_action_resolve_matrix_imports_person_and_queues_success_notice() {
-        middlenet_engine::identity::with_test_identity_resolution_cache_scope(|| {
+        graphshell_comms::identity::with_test_identity_resolution_cache_scope(|| {
             let mut app = GraphBrowserApp::new_for_testing();
             let node = app.add_node_and_sync(
                 "mxid:@mark:matrix.example".to_string(),
                 euclid::default::Point2D::new(0.0, 0.0),
             );
             let mut intents = Vec::new();
-            let mut profile = middlenet_engine::identity::PersonIdentityProfile {
+            let mut profile = graphshell_comms::identity::PersonIdentityProfile {
                 human_handle: Some("mark@matrix.example".to_string()),
                 ..Default::default()
             };
@@ -2510,7 +2510,7 @@ mod tests {
                 .push_matrix_mxid("@mark:matrix.example")
                 .expect("matrix mxid should normalize");
 
-            middlenet_engine::identity::with_test_resolve_matrix_override(
+            graphshell_comms::identity::with_test_resolve_matrix_override(
                 "@mark:matrix.example",
                 Ok(profile),
                 || {
@@ -2547,7 +2547,7 @@ mod tests {
 
     #[test]
     fn execute_action_import_activitypub_imports_person_and_queues_success_notice() {
-        middlenet_engine::identity::with_test_identity_resolution_cache_scope(|| {
+        graphshell_comms::identity::with_test_identity_resolution_cache_scope(|| {
             let mut app = GraphBrowserApp::new_for_testing();
             let resource = "https://social.example/users/mark";
             let node = app.add_node_and_sync(
@@ -2555,7 +2555,7 @@ mod tests {
                 euclid::default::Point2D::new(0.0, 0.0),
             );
             let mut intents = Vec::new();
-            let mut profile = middlenet_engine::identity::PersonIdentityProfile {
+            let mut profile = graphshell_comms::identity::PersonIdentityProfile {
                 human_handle: Some("mark@social.example".to_string()),
                 ..Default::default()
             };
@@ -2566,7 +2566,7 @@ mod tests {
                 .push_profile_page("https://social.example/@mark")
                 .expect("profile page should normalize");
 
-            middlenet_engine::identity::with_test_resolve_activitypub_override(
+            graphshell_comms::identity::with_test_resolve_activitypub_override(
                 resource,
                 Ok(profile),
                 || {
@@ -2599,9 +2599,9 @@ mod tests {
 
     #[test]
     fn execute_action_refresh_person_identity_queues_refresh_notice() {
-        middlenet_engine::identity::with_test_identity_resolution_cache_scope(|| {
+        graphshell_comms::identity::with_test_identity_resolution_cache_scope(|| {
             let mut app = GraphBrowserApp::new_for_testing();
-            let mut profile = middlenet_engine::identity::PersonIdentityProfile {
+            let mut profile = graphshell_comms::identity::PersonIdentityProfile {
                 human_handle: Some("mark@example.net".to_string()),
                 nip05_identifier: Some("mark@example.net".to_string()),
                 ..Default::default()
@@ -2609,7 +2609,7 @@ mod tests {
             profile
                 .push_gemini_capsule("gemini://capsule.example/~mark")
                 .expect("capsule should normalize");
-            let person = middlenet_engine::identity::with_test_resolve_nip05_override(
+            let person = graphshell_comms::identity::with_test_resolve_nip05_override(
                 "mark@example.net",
                 Ok(profile.clone()),
                 || {
@@ -2623,7 +2623,7 @@ mod tests {
                 .expect("profile page should normalize");
             let mut intents = Vec::new();
 
-            middlenet_engine::identity::with_test_resolve_nip05_override(
+            graphshell_comms::identity::with_test_resolve_nip05_override(
                 "mark@example.net",
                 Ok(enriched),
                 || {
@@ -2689,3 +2689,4 @@ mod tests {
         assert_eq!(load_pinned_categories(&ctx), vec![ActionCategory::Node]);
     }
 }
+

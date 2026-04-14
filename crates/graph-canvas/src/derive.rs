@@ -896,3 +896,4 @@ mod tests {
         assert_eq!(circles.len(), 4); // 3 nodes + 1 scene object
     }
 }
+

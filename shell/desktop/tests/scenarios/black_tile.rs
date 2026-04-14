@@ -58,3 +58,4 @@ fn engine_snapshot_exposes_servo_runtime_channels() {
     );
     assert!(channels.get("servo.event_loop.spin").copied().unwrap_or(0) > 0);
 }
+

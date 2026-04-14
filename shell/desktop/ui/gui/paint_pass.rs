@@ -21,3 +21,4 @@ fn begin_paint_pass(gui: &Gui) {
 fn end_paint_pass(gui: &Gui) {
     end_ui_render_backend_paint(gui.rendering_context.as_ref());
 }
+

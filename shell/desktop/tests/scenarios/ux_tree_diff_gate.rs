@@ -372,3 +372,4 @@ fn command_surface_toggle_command_palette_snapshot_stays_structurally_stable() {
 
     clear_command_surface_semantic_snapshot();
 }
+

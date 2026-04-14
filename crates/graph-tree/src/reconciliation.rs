@@ -498,3 +498,4 @@ mod tests {
         assert_eq!(topology[1].1, vec![5]); // children
     }
 }
+

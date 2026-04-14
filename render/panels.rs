@@ -4674,3 +4674,4 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
         );
     }
 }
+

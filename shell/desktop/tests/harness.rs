@@ -259,3 +259,4 @@ fn test_webview_id() -> servo::WebViewId {
     });
     servo::WebViewId::new(PainterId::next())
 }
+

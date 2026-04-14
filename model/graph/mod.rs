@@ -33,3 +33,4 @@ pub use graphshell_core::address::{
 pub mod badge;
 pub mod edge_style_registry;
 pub mod egui_adapter;
+

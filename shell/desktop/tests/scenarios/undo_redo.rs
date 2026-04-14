@@ -232,3 +232,4 @@ fn test_undo_returns_false_when_stack_empty() {
     assert_eq!(harness.app.undo_stack_len(), before_undo);
     assert_eq!(harness.app.redo_stack_len(), before_redo);
 }
+

@@ -180,3 +180,4 @@ mod tests {
         assert_eq!(hist, vec![1, 2]); // 1 root, 2 at depth 1
     }
 }
+

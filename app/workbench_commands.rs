@@ -759,3 +759,4 @@ mod tests {
         assert!(fullscreen_intents.is_empty());
     }
 }
+

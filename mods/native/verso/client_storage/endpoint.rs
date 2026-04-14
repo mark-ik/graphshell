@@ -11,3 +11,4 @@ pub(crate) trait StorageEndpointClient: Send + Sync {
 }
 
 pub(crate) type StorageEndpointClientHandle = Arc<dyn StorageEndpointClient>;
+

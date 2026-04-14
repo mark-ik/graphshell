@@ -2826,3 +2826,4 @@ mod tests {
         assert!(!is_namespaced_action_id("too:many:segments"));
     }
 }
+

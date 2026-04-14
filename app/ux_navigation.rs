@@ -408,3 +408,4 @@ mod tests {
         assert!(!app.workbench_overlay_visible());
     }
 }
+

@@ -174,3 +174,4 @@ pub(super) fn restore_focus_target_or_ensure_active_tile(
     );
     resolved && focus_before != focus_after
 }
+

@@ -103,3 +103,4 @@ pub(crate) fn lifecycle_summary(
         graph_tree.cold_count(),
     )
 }
+

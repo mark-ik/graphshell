@@ -133,3 +133,4 @@ pub(super) fn initialize_startup_graph_and_tiles(
 
     (graph_app, tiles_tree, initial_search_filter_mode)
 }
+

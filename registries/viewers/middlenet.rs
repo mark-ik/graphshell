@@ -7,11 +7,11 @@ use std::sync::{Mutex, OnceLock};
 
 use middlenet_engine::document::{SimpleBlock, SimpleDocument};
 use middlenet_engine::engine::{MiddleNetEngine, MiddleNetLoadResult};
-use middlenet_engine::misfin::{
+use graphshell_comms::misfin::{
     self, MisfinAddress, MisfinIdentitySpec, MisfinSendOutcome,
 };
 use middlenet_engine::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
-use middlenet_engine::transport::{TitanUploadOutcome, titan_upload};
+use graphshell_comms::transport::{TitanUploadOutcome, titan_upload};
 use crate::registries::atomic::viewer::{
     EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput,
 };
@@ -179,7 +179,7 @@ fn load_for_viewer(
     }
 
     if !ctx.node_url.starts_with("file://") {
-        return MiddleNetEngine::load_remote(source);
+        return do_load_remote(source);
     }
 
     let path = match crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
@@ -1025,3 +1025,28 @@ mod tests {
         ));
     }
 }
+fn do_load_remote(source: MiddleNetSource) -> MiddleNetLoadResult {
+    match graphshell_comms::transport::fetch_remote_text(&source) {
+        Ok(fetch) => {
+            let mut parsed_source = source;
+            if let Some(content_kind) = fetch.content_kind_override {
+                parsed_source.content_kind = content_kind;
+            }
+            MiddleNetEngine::parse_text(parsed_source, &fetch.body)
+        }
+        Err(error) => {
+            if matches!(
+                source.canonical_uri.as_deref().and_then(|uri| uri.split_once(':').map(|(s, _)| s)),
+                Some("misfin")
+            ) {
+                return MiddleNetLoadResult::TransportPending {
+                    source,
+                    note: error,
+                };
+            }
+
+            MiddleNetLoadResult::TransportError { source, error }
+        }
+    }
+}
+

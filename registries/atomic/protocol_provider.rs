@@ -50,3 +50,4 @@ impl Default for ProtocolHandlerProviders {
         Self::new()
     }
 }
+

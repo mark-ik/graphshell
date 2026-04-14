@@ -1345,3 +1345,4 @@ mod tests {
         assert!(!input_routing::is_graph_control_shortcut(KeyCode::KeyQ));
     }
 }
+

@@ -48,3 +48,4 @@ pub(super) fn graph_at_point(
                 .is_some_and(|rect| rect.contains(cursor))
     })
 }
+

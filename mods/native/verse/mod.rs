@@ -1429,3 +1429,4 @@ fn emit_p2p_key_loaded() {
         byte_len: 32, // Ed25519 public key size
     });
 }
+

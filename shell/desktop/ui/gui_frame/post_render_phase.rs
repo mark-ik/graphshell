@@ -958,3 +958,4 @@ mod tests {
         assert!((rect.center().y - available_rect.center().y).abs() <= 1.0);
     }
 }
+

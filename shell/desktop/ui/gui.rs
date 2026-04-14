@@ -1284,3 +1284,4 @@ fn graph_intent_for_thumbnail_result(
 #[cfg(all(test, feature = "diagnostics"))]
 #[path = "gui/diagnostics_tests.rs"]
 mod diagnostics_tests;
+

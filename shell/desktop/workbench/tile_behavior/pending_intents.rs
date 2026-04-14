@@ -18,3 +18,4 @@ pub(super) fn extend_post_render_intents<I, T>(
         .pending_post_render_intents
         .extend(intents.into_iter().map(Into::into));
 }
+

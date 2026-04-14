@@ -651,3 +651,4 @@ mod tests {
         assert_eq!(visible, HashSet::from([alpha]));
     }
 }
+

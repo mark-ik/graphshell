@@ -114,3 +114,4 @@ pub(super) fn maybe_toggle_diagnostics_tool_pane(
     _tiles_tree: &mut Tree<TileKind>,
 ) {
 }
+

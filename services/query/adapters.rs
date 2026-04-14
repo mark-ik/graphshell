@@ -235,3 +235,4 @@ mod tests {
         assert!(matches!(event.kind, HistoryEventKind::Traversal { .. }));
     }
 }
+

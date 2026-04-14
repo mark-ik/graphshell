@@ -488,3 +488,4 @@ impl GraphBrowserApp {
         }
     }
 }
+

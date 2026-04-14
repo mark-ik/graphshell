@@ -662,3 +662,4 @@ mod tests {
             .expect("high contrast edge tokens should satisfy contract");
     }
 }
+

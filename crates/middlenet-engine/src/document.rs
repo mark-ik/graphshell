@@ -495,3 +495,4 @@ mod tests {
         assert!(text.contains("My Site (https://example.com)\n"));
     }
 }
+

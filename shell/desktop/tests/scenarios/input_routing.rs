@@ -147,3 +147,4 @@ fn settings_and_split_shortcut_paths_produce_identical_lock_state_transition() {
 }
 
 use crate::app::GraphBrowserApp;
+

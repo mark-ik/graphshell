@@ -688,3 +688,4 @@ mod tests {
         assert!(matches!(mailbox.poll_frame(), HostRequestPoll::Interrupted));
     }
 }
+

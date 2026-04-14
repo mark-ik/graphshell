@@ -4854,6 +4854,7 @@ dependencies = [
  "glow 0.16.0",
  "graph-canvas",
  "graph-tree",
+ "graphshell-comms",
  "graphshell-core",
  "headers 0.4.1",
  "hilog",
@@ -4943,6 +4944,24 @@ dependencies = [
  "wry",
  "xcomponent-sys",
  "zstd",
+]
+
+[[package]]
+name = "graphshell-comms"
+version = "0.0.1"
+dependencies = [
+ "dirs 5.0.1",
+ "log",
+ "middlenet-engine",
+ "nostr",
+ "rcgen",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "url",
 ]
 
 [[package]]
@@ -7740,12 +7759,8 @@ dependencies = [
  "dirs 5.0.1",
  "html5ever 0.27.0",
  "log",
- "nostr",
  "parley",
- "rcgen",
- "reqwest",
  "roxmltree 0.21.1",
- "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",

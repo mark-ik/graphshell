@@ -214,3 +214,4 @@ pub(super) const UPDATE_FRAME_STAGE_SEQUENCE: [UpdateFrameStage; 6] = [
     UpdateFrameStage::SemanticAndPostRender,
     UpdateFrameStage::Finalize,
 ];
+

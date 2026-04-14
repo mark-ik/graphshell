@@ -176,3 +176,4 @@ pub(crate) fn set_lens(
 ) -> NavResult<NodeKey> {
     graph_tree.apply(NavAction::SetLens(lens))
 }
+

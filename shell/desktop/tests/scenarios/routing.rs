@@ -517,3 +517,4 @@ fn open_tool_url_is_not_reducer_owned() {
     );
     assert!(harness.app.take_pending_open_node_request().is_none());
 }
+

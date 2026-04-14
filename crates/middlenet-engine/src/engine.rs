@@ -4,7 +4,6 @@
 
 use crate::adapters::{parse_feed, parse_gophermap, parse_markdown, parse_plain_text};
 use crate::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
-use crate::transport::fetch_remote_text;
 
 #[derive(Debug, Clone)]
 pub enum MiddleNetLoadResult {
@@ -67,43 +66,6 @@ impl MiddleNetEngine {
 
         MiddleNetLoadResult::Parsed(MiddleNetContent::new(parsed_source, document))
     }
-
-    pub fn load_remote(source: MiddleNetSource) -> MiddleNetLoadResult {
-        match fetch_remote_text(&source) {
-            Ok(fetch) => {
-                let mut parsed_source = source;
-                if let Some(content_kind) = fetch.content_kind_override {
-                    parsed_source.content_kind = content_kind;
-                }
-                Self::parse_text(parsed_source, &fetch.body)
-            }
-            Err(error) => {
-                if matches!(
-                    source.canonical_uri.as_deref().and_then(uri_scheme),
-                    Some("misfin")
-                ) {
-                    return MiddleNetLoadResult::TransportPending {
-                        source,
-                        note: error,
-                    };
-                }
-
-                MiddleNetLoadResult::TransportError { source, error }
-            }
-        }
-    }
-
-    pub fn transport_pending(source: MiddleNetSource) -> MiddleNetLoadResult {
-        MiddleNetLoadResult::TransportPending {
-            source,
-            note: "Protocol recognition and viewer routing are in place, but transport fetching is not wired into the MiddleNet engine yet."
-                .to_string(),
-        }
-    }
-}
-
-fn uri_scheme(uri: &str) -> Option<&str> {
-    uri.split_once(':').map(|(scheme, _)| scheme)
 }
 
 #[cfg(test)]
@@ -119,14 +81,6 @@ mod tests {
 
         assert!(matches!(result, MiddleNetLoadResult::Parsed(_)));
     }
-
-    #[test]
-    fn remote_misfin_stays_pending_until_transport_exists() {
-        let source = MiddleNetSource::new(MiddleNetContentKind::GeminiText)
-            .with_uri("misfin://example.com/");
-
-        let result = MiddleNetEngine::load_remote(source);
-
-        assert!(matches!(result, MiddleNetLoadResult::TransportPending { .. }));
-    }
 }
+
+

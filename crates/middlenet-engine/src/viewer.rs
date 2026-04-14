@@ -108,3 +108,4 @@ fn collect_text(document: &Document, id: usize, text: &mut String) {
         collect_text(document, child, text);
     }
 }
+

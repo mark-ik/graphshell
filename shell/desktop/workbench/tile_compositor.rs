@@ -2966,3 +2966,4 @@ mod tests {
         assert_eq!(estimated_tile_content_bytes(rect, 2.0), 200 * 100 * 4);
     }
 }
+

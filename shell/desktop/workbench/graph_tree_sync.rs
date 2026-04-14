@@ -392,3 +392,4 @@ pub(crate) enum ParityDiscrepancy {
     /// Visible member ordering differs.
     VisibleOrderMismatch,
 }
+

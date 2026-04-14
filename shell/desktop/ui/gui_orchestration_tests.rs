@@ -3053,3 +3053,4 @@ fn command_palette_close_invalid_target_emits_command_surface_route_fallback() {
         "fallback restore should preserve the currently active node when palette return target is stale"
     );
 }
+

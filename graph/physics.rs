@@ -979,3 +979,4 @@ mod tests {
         assert!(constellation_avg < settle_avg);
     }
 }
+

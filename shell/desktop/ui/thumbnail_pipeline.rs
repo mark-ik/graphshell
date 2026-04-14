@@ -376,3 +376,4 @@ mod tests {
         assert_eq!(cached.png_bytes.as_deref(), Some(&[9, 9, 9][..]));
     }
 }
+

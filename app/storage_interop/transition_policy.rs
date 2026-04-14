@@ -16,3 +16,4 @@ pub(crate) struct BackendTransitionPlan {
     pub transition_class: StorageTransitionClass,
     pub continuity_warning: Option<String>,
 }
+

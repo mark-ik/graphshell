@@ -14,3 +14,4 @@ fn mod_capability_disable_verso_scenario() {
     assert!(capabilities.contains("ProtocolRegistry"));
     assert!(capabilities.contains("ViewerRegistry"));
 }
+

@@ -149,3 +149,4 @@ pub enum TreeIntent<N: MemberId> {
     /// A member was detached from the tree.
     MemberDetached(N),
 }
+

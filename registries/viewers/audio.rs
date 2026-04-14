@@ -214,3 +214,4 @@ fn probe_duration(path: &std::path::Path) -> Option<std::time::Duration> {
             + std::time::Duration::from_secs_f64(time.frac),
     )
 }
+

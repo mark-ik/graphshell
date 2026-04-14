@@ -425,3 +425,4 @@ impl Gui {
         semantic_post_render::run_semantic_lifecycle_phase(args);
     }
 }
+

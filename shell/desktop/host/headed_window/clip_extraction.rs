@@ -453,3 +453,4 @@ mod tests {
         assert!(stack.contains("figcaption,caption"));
     }
 }
+

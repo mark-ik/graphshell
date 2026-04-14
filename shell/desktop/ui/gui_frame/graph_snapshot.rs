@@ -274,3 +274,4 @@ pub(super) fn reset_graph_workspace_after_snapshot_restore(
     ));
     *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
 }
+

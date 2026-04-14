@@ -216,3 +216,4 @@ fn unresolved_settings_route_request_falls_back_to_open_settings_intent() {
     assert!(snapshot.contains("ux:open_decision_path"));
     assert!(snapshot.contains("ux:open_decision_reason"));
 }
+

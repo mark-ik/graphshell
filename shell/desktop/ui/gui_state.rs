@@ -348,3 +348,4 @@ pub(crate) struct RuntimeFocusInputs {
     pub(crate) command_surface_return_target: Option<ToolSurfaceReturnTarget>,
     pub(crate) transient_surface_return_target: Option<ToolSurfaceReturnTarget>,
 }
+

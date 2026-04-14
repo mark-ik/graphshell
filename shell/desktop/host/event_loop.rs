@@ -190,3 +190,4 @@ impl EventLoopWaker for HeadlessEventLoopWaker {
         Box::new(self.clone())
     }
 }
+

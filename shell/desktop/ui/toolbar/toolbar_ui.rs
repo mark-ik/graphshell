@@ -1180,3 +1180,4 @@ mod tests {
         assert!(command_bar_rect.max.y <= status_bar_rect.max.y);
     }
 }
+

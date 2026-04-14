@@ -985,3 +985,4 @@ mod tests {
         assert!(!c.primary, "inherited classification must not be primary");
     }
 }
+

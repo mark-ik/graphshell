@@ -770,3 +770,4 @@ impl ServoDelegate for GraphshellServoDelegate {
         log::log!(level.into(), "{message}");
     }
 }
+

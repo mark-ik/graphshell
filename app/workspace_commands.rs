@@ -876,3 +876,4 @@ mod tests {
         assert!(app.take_pending_repair_frame_tab_semantics().is_none());
     }
 }
+

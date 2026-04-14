@@ -284,3 +284,4 @@ fn verse_access_control_deny_does_not_mutate_graph_state() {
         "Graph state must not be mutated when sync access is denied"
     );
 }
+

@@ -584,3 +584,4 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
         "restored tree should include a grouped tabs container with selected members"
     );
 }
+

@@ -439,3 +439,4 @@ fn arrangement_tool_pane_segment(
         crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings => "settings",
     }
 }
+

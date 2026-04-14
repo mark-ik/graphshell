@@ -35,3 +35,4 @@ pub(super) fn resolve_active_webview_for_sync(
     app.embedded_content_focus_webview()
         .or(window_active_webview)
 }
+

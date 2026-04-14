@@ -462,3 +462,4 @@ mod tests {
         assert!(report.visible_order_matches);
     }
 }
+

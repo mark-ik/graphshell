@@ -17,7 +17,7 @@ use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, Signa
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::source::{MiddleNetContentKind, MiddleNetSource};
+use middlenet_engine::source::{MiddleNetContentKind, MiddleNetSource};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -824,7 +824,7 @@ fn nibble_to_hex(value: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::MiddleNetContentKind;
+    use middlenet_engine::source::MiddleNetContentKind;
     use rcgen::{CertificateParams, KeyPair};
     use rustls::{ServerConfig, ServerConnection};
     use tempfile::TempDir;
@@ -1149,3 +1149,6 @@ mod tests {
             .expect("server config should build")
     }
 }
+
+
+

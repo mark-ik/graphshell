@@ -373,3 +373,4 @@ pub(super) fn winit_phase_to_touch_event_type(phase: TouchPhase) -> TouchEventTy
         TouchPhase::Cancelled => TouchEventType::Cancel,
     }
 }
+

@@ -140,3 +140,4 @@ pub(crate) fn compute_navigator_context(graph_app: &GraphBrowserApp) -> Navigato
         extra_views,
     }
 }
+

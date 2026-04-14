@@ -527,3 +527,4 @@ impl super::GraphBrowserApp {
         self.take_pending_history_workspace_layout_json()
     }
 }
+

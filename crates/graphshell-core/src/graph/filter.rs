@@ -781,3 +781,4 @@ mod tests {
         assert!(expr.evaluate(&projection).unwrap());
     }
 }
+

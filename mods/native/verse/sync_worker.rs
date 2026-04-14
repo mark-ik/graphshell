@@ -539,3 +539,4 @@ const CHANNEL_SYNC_UNIT_RECEIVED: &str = "verse.sync.unit_received";
 const CHANNEL_INTENT_APPLIED: &str = "verse.sync.intent_applied";
 const CHANNEL_ACCESS_DENIED: &str = "verse.sync.access_denied";
 const CHANNEL_CONNECTION_REJECTED: &str = "verse.sync.connection_rejected";
+

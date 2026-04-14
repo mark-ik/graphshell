@@ -928,3 +928,4 @@ fn make_dialog_label(message: &str, ui: &mut egui::Ui, input_text: Option<&mut S
     }
     frame.end(ui);
 }
+

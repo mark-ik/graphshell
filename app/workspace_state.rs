@@ -688,3 +688,4 @@ pub struct ChromeUiState {
     /// Active filter for the mixed history timeline All tab.
     pub mixed_timeline_filter: crate::services::persistence::types::HistoryTimelineFilter,
 }
+

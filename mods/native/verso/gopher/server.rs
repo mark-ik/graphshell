@@ -249,3 +249,4 @@ fn serve_root_menu(registry: &GopherRegistry, hostname: &str, port: u16) -> Stri
     out.push_str(".\r\n");
     out
 }
+

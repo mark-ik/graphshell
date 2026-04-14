@@ -709,3 +709,4 @@ mod connected_open_tests {
         assert_eq!(candidates, vec![(neighbor, 1)]);
     }
 }
+

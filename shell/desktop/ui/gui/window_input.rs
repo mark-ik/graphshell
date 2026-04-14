@@ -35,3 +35,4 @@ fn should_consume_when_no_active_node(event: &WindowEvent) -> bool {
             | WindowEvent::PinchGesture { .. }
     )
 }
+

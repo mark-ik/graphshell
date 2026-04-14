@@ -5924,7 +5924,7 @@ fn suggest_node_tags_intent_stores_display_only_suggestions_and_prunes_on_tag_co
 #[test]
 fn import_webfinger_into_graph_creates_identity_cluster() {
     let mut app = GraphBrowserApp::new_for_testing();
-    let import = middlenet_engine::webfinger::WebFingerImport {
+    let import = graphshell_comms::webfinger::WebFingerImport {
         subject: "acct:mark@example.net".to_string(),
         aliases: vec!["https://example.net/~mark".to_string()],
         profile_pages: vec!["https://example.net/profile".to_string()],
@@ -5933,7 +5933,7 @@ fn import_webfinger_into_graph_creates_identity_cluster() {
         misfin_mailboxes: vec!["misfin://mark@example.net".to_string()],
         nostr_identities: vec!["nostr:npub1example".to_string()],
         activitypub_actors: vec!["https://example.net/users/mark".to_string()],
-        other_endpoints: vec![middlenet_engine::webfinger::WebFingerEndpoint {
+        other_endpoints: vec![graphshell_comms::webfinger::WebFingerEndpoint {
             rel: "avatar".to_string(),
             media_type: Some("image/png".to_string()),
             href: "https://example.net/avatar.png".to_string(),
@@ -6055,7 +6055,7 @@ fn import_webfinger_into_graph_reuses_existing_nodes_without_clobbering_titles()
         node.title = "Mark profile card".to_string();
     }
 
-    let import = middlenet_engine::webfinger::WebFingerImport {
+    let import = graphshell_comms::webfinger::WebFingerImport {
         subject: "acct:mark@example.net".to_string(),
         aliases: Vec::new(),
         profile_pages: vec!["https://example.net/profile".to_string()],
@@ -6103,7 +6103,7 @@ fn import_webfinger_into_graph_reuses_existing_nodes_without_clobbering_titles()
 #[test]
 fn import_person_identity_into_graph_binds_supported_identities_to_person_node() {
     let mut app = GraphBrowserApp::new_for_testing();
-    let mut profile = middlenet_engine::identity::PersonIdentityProfile {
+    let mut profile = graphshell_comms::identity::PersonIdentityProfile {
         human_handle: Some("mark@example.net".to_string()),
         webfinger_resource: Some("acct:mark@example.net".to_string()),
         ..Default::default()
@@ -6256,7 +6256,7 @@ fn import_person_identity_into_graph_binds_supported_identities_to_person_node()
 #[test]
 fn create_person_artifact_node_links_generated_content_back_to_person() {
     let mut app = GraphBrowserApp::new_for_testing();
-    let profile = middlenet_engine::identity::PersonIdentityProfile {
+    let profile = graphshell_comms::identity::PersonIdentityProfile {
         human_handle: Some("mark@example.net".to_string()),
         webfinger_resource: Some("acct:mark@example.net".to_string()),
         ..Default::default()
@@ -6268,7 +6268,7 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
     let post_key = app
         .create_person_artifact_node(
             person_key,
-            middlenet_engine::identity::PersonArtifactKind::Post,
+            graphshell_comms::identity::PersonArtifactKind::Post,
             Some("Launch Notes".to_string()),
             None,
             None,
@@ -6277,7 +6277,7 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
     let shared_data_key = app
         .create_person_artifact_node(
             person_key,
-            middlenet_engine::identity::PersonArtifactKind::SharedData,
+            graphshell_comms::identity::PersonArtifactKind::SharedData,
             None,
             None,
             None,
@@ -6286,7 +6286,7 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
     let message_key = app
         .create_person_artifact_node(
             person_key,
-            middlenet_engine::identity::PersonArtifactKind::MessageNotification,
+            graphshell_comms::identity::PersonArtifactKind::MessageNotification,
             None,
             None,
             None,
@@ -6350,7 +6350,7 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
 #[test]
 fn import_person_identity_into_graph_reuses_existing_person_for_resolved_identity_matches() {
     let mut app = GraphBrowserApp::new_for_testing();
-    let mut activitypub_profile = middlenet_engine::identity::PersonIdentityProfile::default();
+    let mut activitypub_profile = graphshell_comms::identity::PersonIdentityProfile::default();
     activitypub_profile
         .push_activitypub_actor("https://social.example/users/mark")
         .expect("activitypub actor should normalize");
@@ -6358,7 +6358,7 @@ fn import_person_identity_into_graph_reuses_existing_person_for_resolved_identit
         .import_person_identity_into_graph(&activitypub_profile, None)
         .expect("initial person import should succeed");
 
-    let mut enriched_profile = middlenet_engine::identity::PersonIdentityProfile {
+    let mut enriched_profile = graphshell_comms::identity::PersonIdentityProfile {
         human_handle: Some("mark@example.net".to_string()),
         ..Default::default()
     };
@@ -6387,16 +6387,16 @@ fn import_person_identity_into_graph_reuses_existing_person_for_resolved_identit
 
 #[test]
 fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hits() {
-    middlenet_engine::identity::with_test_identity_resolution_cache_scope(|| {
+    graphshell_comms::identity::with_test_identity_resolution_cache_scope(|| {
         let dir = TempDir::new().expect("temp dir should be created");
         let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
-        let profile = middlenet_engine::identity::PersonIdentityProfile {
+        let profile = graphshell_comms::identity::PersonIdentityProfile {
             human_handle: Some("mark@example.net".to_string()),
             nip05_identifier: Some("mark@example.net".to_string()),
             ..Default::default()
         };
 
-        let first_person = middlenet_engine::identity::with_test_resolve_nip05_override(
+        let first_person = graphshell_comms::identity::with_test_resolve_nip05_override(
             "mark@example.net",
             Ok(profile),
             || {
@@ -6436,7 +6436,7 @@ fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hi
                             action,
                             detail,
                         } if action == "Identity resolution" => {
-                            middlenet_engine::identity::parse_identity_resolution_audit_event(
+                            graphshell_comms::identity::parse_identity_resolution_audit_event(
                                 &action,
                                 &detail,
                             )
@@ -6448,20 +6448,20 @@ fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hi
             })
             .collect::<Vec<_>>();
         assert!(resolution_records.iter().any(|record| {
-            record.protocol == middlenet_engine::capabilities::MiddlenetProtocol::Nip05
+            record.protocol == graphshell_comms::capabilities::MiddlenetProtocol::Nip05
                 && record.query_resource == "mark@example.net"
                 && record.cache_state
-                    == middlenet_engine::identity::IdentityResolutionCacheState::Miss
+                    == graphshell_comms::identity::IdentityResolutionCacheState::Miss
                 && record.action_kind
-                    == middlenet_engine::identity::IdentityResolutionActionKind::Resolve
+                    == graphshell_comms::identity::IdentityResolutionActionKind::Resolve
         }));
         assert!(resolution_records.iter().any(|record| {
-            record.protocol == middlenet_engine::capabilities::MiddlenetProtocol::Nip05
+            record.protocol == graphshell_comms::capabilities::MiddlenetProtocol::Nip05
                 && record.query_resource == "mark@example.net"
                 && record.cache_state
-                    == middlenet_engine::identity::IdentityResolutionCacheState::Hit
+                    == graphshell_comms::identity::IdentityResolutionCacheState::Hit
                 && record.action_kind
-                    == middlenet_engine::identity::IdentityResolutionActionKind::Resolve
+                    == graphshell_comms::identity::IdentityResolutionActionKind::Resolve
         }));
     });
 }
@@ -6469,15 +6469,15 @@ fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hi
 #[test]
 fn deliver_person_message_notification_via_misfin_requires_bound_mailbox() {
     let mut app = GraphBrowserApp::new_for_testing();
-    let profile = middlenet_engine::identity::PersonIdentityProfile {
+    let profile = graphshell_comms::identity::PersonIdentityProfile {
         human_handle: Some("mark@example.net".to_string()),
         ..Default::default()
     };
     let person_key = app
         .import_person_identity_into_graph(&profile, None)
         .expect("person identity import should succeed");
-    let sender = middlenet_engine::misfin::MisfinIdentitySpec {
-        address: middlenet_engine::misfin::MisfinAddress::parse("sender@example.net")
+    let sender = graphshell_comms::misfin::MisfinIdentitySpec {
+        address: graphshell_comms::misfin::MisfinAddress::parse("sender@example.net")
             .expect("sender address should parse"),
         blurb: None,
     };
@@ -6492,7 +6492,7 @@ fn deliver_person_message_notification_via_misfin_requires_bound_mailbox() {
 #[test]
 fn publish_person_artifact_via_titan_requires_target_or_bound_gemini_endpoint() {
     let mut app = GraphBrowserApp::new_for_testing();
-    let profile = middlenet_engine::identity::PersonIdentityProfile {
+    let profile = graphshell_comms::identity::PersonIdentityProfile {
         human_handle: Some("mark@example.net".to_string()),
         ..Default::default()
     };
@@ -6503,7 +6503,7 @@ fn publish_person_artifact_via_titan_requires_target_or_bound_gemini_endpoint() 
     let error = app
         .publish_person_artifact_via_titan(
             person_key,
-            middlenet_engine::identity::PersonArtifactKind::Post,
+            graphshell_comms::identity::PersonArtifactKind::Post,
             None,
             b"hello",
             Some("text/plain"),
@@ -6542,7 +6542,7 @@ fn deliver_person_message_notification_via_misfin_for_tests_creates_artifact_and
     });
 
     let mut app = GraphBrowserApp::new_for_testing();
-    let mut profile = middlenet_engine::identity::PersonIdentityProfile {
+    let mut profile = graphshell_comms::identity::PersonIdentityProfile {
         human_handle: Some("queen@localhost".to_string()),
         ..Default::default()
     };
@@ -6552,8 +6552,8 @@ fn deliver_person_message_notification_via_misfin_for_tests_creates_artifact_and
     let person_key = app
         .import_person_identity_into_graph(&profile, None)
         .expect("person import should succeed");
-    let sender = middlenet_engine::misfin::MisfinIdentitySpec {
-        address: middlenet_engine::misfin::MisfinAddress::parse("worker@hive.local")
+    let sender = graphshell_comms::misfin::MisfinIdentitySpec {
+        address: graphshell_comms::misfin::MisfinAddress::parse("worker@hive.local")
             .expect("sender address should parse"),
         blurb: Some("Worker Bee".to_string()),
     };
@@ -6616,7 +6616,7 @@ fn publish_person_artifact_via_titan_for_tests_uploads_and_creates_artifact() {
     });
 
     let mut app = GraphBrowserApp::new_for_testing();
-    let mut profile = middlenet_engine::identity::PersonIdentityProfile {
+    let mut profile = graphshell_comms::identity::PersonIdentityProfile {
         human_handle: Some("mark@example.net".to_string()),
         ..Default::default()
     };
@@ -6630,7 +6630,7 @@ fn publish_person_artifact_via_titan_for_tests_uploads_and_creates_artifact() {
     let (artifact_key, outcome) = app
         .publish_person_artifact_via_titan_for_tests(
             person_key,
-            middlenet_engine::identity::PersonArtifactKind::SharedData,
+            graphshell_comms::identity::PersonArtifactKind::SharedData,
             None,
             b"hello titan",
             Some("text/plain"),
@@ -8876,3 +8876,4 @@ fn clear_navigator_specialty_view_removes_entry_and_mask() {
         "graphlet_node_mask should be cleared from the view"
     );
 }
+

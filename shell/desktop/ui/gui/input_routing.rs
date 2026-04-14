@@ -21,3 +21,4 @@ pub(super) fn collect_webview_update_flags(gui: &mut Gui, window: &EmbedderWindo
         window,
     ) | gui.update_location_in_toolbar(window, focused_node_key)
 }
+

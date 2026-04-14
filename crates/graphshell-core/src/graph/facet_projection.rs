@@ -335,3 +335,4 @@ mod tests {
         assert!(items.contains(&FacetScalar::Text("udc:519.6".to_string())));
     }
 }
+

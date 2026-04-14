@@ -685,3 +685,4 @@ fn diagnostics_channel_config_update_emits_config_changed_channel() {
         "diagnostics config update should emit config changed channel"
     );
 }
+

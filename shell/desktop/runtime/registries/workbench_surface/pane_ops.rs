@@ -763,3 +763,4 @@ pub(super) fn handle_collapse_semantic_tab_group_to_pane_rest_intent(
         });
     }
 }
+

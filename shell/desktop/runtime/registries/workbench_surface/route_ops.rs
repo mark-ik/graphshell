@@ -336,3 +336,4 @@ fn settings_route_targets_overlay(
                 | crate::shell::desktop::ui::workbench_host::WorkbenchLayerState::GraphOverlayActive
         )
 }
+

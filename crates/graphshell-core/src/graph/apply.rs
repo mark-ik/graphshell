@@ -267,3 +267,4 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
         }
     }
 }
+

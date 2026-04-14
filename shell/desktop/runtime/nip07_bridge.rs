@@ -172,3 +172,4 @@ mod tests {
         assert_eq!(response.result, Some(json!({"ok": "yes"})));
     }
 }
+

@@ -131,3 +131,4 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
 
     clear_command_surface_semantic_snapshot();
 }
+

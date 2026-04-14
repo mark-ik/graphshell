@@ -67,3 +67,4 @@ mod tests {
         assert_eq!(state.rect.x, 5.0);
     }
 }
+

@@ -534,3 +534,4 @@ fn new_tile_as_tab_creates_durable_graphlet_edge() {
         "new node should be a durable graphlet peer of a"
     );
 }
+

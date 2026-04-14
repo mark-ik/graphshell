@@ -11,13 +11,8 @@
 
 pub mod document;
 pub mod adapters;
-pub mod capabilities;
 pub mod engine;
-pub mod identity;
-pub mod misfin;
 pub mod source;
-pub mod transport;
-pub mod webfinger;
 
 // Phase 2: Engine Stack Scaffolding
 pub mod dom;
@@ -28,3 +23,5 @@ pub mod script;
 
 
 pub mod viewer;
+
+

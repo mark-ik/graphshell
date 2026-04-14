@@ -281,3 +281,4 @@ mod tests {
         assert!(shell_layout.slot_rects.workbench_area.is_none());
     }
 }
+

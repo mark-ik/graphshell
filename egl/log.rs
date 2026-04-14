@@ -102,3 +102,4 @@ pub(crate) fn redirect_stdout_and_stderr() -> Result<(), LogRedirectError> {
     });
     Ok(())
 }
+

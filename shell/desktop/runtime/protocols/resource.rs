@@ -123,3 +123,4 @@ impl ProtocolHandler for ResourceProtocolHandler {
         Self::response_for_path(request, done_chan, context, url.path())
     }
 }
+

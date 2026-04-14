@@ -177,3 +177,4 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     input::dispatch_runtime_requests_from_actions(&keyboard_actions);
     graph_app.extend_workbench_intents(input::workbench_intents_from_actions(&keyboard_actions));
 }
+

@@ -1831,3 +1831,4 @@ impl Default for GraphBrowserApp {
 #[cfg(test)]
 #[path = "graph_app_tests.rs"]
 mod tests;
+

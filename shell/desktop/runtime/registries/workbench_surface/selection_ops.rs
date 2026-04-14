@@ -59,3 +59,4 @@ pub(super) fn handle_detach_node_to_split_intent(
     );
     tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, key);
 }
+

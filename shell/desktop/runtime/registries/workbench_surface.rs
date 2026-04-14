@@ -1809,3 +1809,4 @@ mod tests {
         assert_eq!(channel_count(&snapshot, CHANNEL_UX_CONFIG_MODE_ENTERED), 1);
     }
 }
+

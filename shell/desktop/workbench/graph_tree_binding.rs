@@ -174,3 +174,4 @@ pub(crate) fn apply_fork(
 ) {
     graph_tree::reconciliation::apply_fork(graph_tree, graphlet_id, reason);
 }
+

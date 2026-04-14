@@ -53,7 +53,7 @@ pub(crate) struct PersonIdentityRefreshOutcome {
     pub(crate) changed: bool,
 }
 
-fn person_title(profile: &middlenet_engine::identity::PersonIdentityProfile) -> String {
+fn person_title(profile: &graphshell_comms::identity::PersonIdentityProfile) -> String {
     format!("Person: {}", webfinger_display_target(profile.preferred_label()))
 }
 
@@ -62,7 +62,7 @@ fn person_identity_node_title(prefix: &str, target: &str) -> String {
 }
 
 fn person_node_url(
-    profile: &middlenet_engine::identity::PersonIdentityProfile,
+    profile: &graphshell_comms::identity::PersonIdentityProfile,
 ) -> Result<String, String> {
     let canonical_seed = profile
         .canonical_seed()
@@ -77,7 +77,7 @@ fn person_node_url(
     )
 }
 
-fn person_artifact_url(person_url: &str, kind: middlenet_engine::identity::PersonArtifactKind) -> String {
+fn person_artifact_url(person_url: &str, kind: graphshell_comms::identity::PersonArtifactKind) -> String {
     let person_id = crate::util::VersoAddress::parse(person_url)
         .and_then(|address| match address {
             crate::util::VersoAddress::Other { category, segments }
@@ -101,7 +101,7 @@ fn person_identity_scheme(kind: &str) -> crate::model::graph::ClassificationSche
 }
 
 fn person_resolution_scheme(
-    protocol: middlenet_engine::capabilities::MiddlenetProtocol,
+    protocol: graphshell_comms::capabilities::MiddlenetProtocol,
 ) -> crate::model::graph::ClassificationScheme {
     crate::model::graph::ClassificationScheme::Custom(format!(
         "resolution:{}",
@@ -111,17 +111,17 @@ fn person_resolution_scheme(
 
 fn parse_person_resolution_scheme(
     scheme: &crate::model::graph::ClassificationScheme,
-) -> Option<middlenet_engine::capabilities::MiddlenetProtocol> {
+) -> Option<graphshell_comms::capabilities::MiddlenetProtocol> {
     match scheme {
         crate::model::graph::ClassificationScheme::Custom(value) => value
             .strip_prefix("resolution:")
-            .and_then(middlenet_engine::capabilities::MiddlenetProtocol::from_key),
+            .and_then(graphshell_comms::capabilities::MiddlenetProtocol::from_key),
         _ => None,
     }
 }
 
 fn person_identity_classification_candidates(
-    profile: &middlenet_engine::identity::PersonIdentityProfile,
+    profile: &graphshell_comms::identity::PersonIdentityProfile,
 ) -> Vec<(crate::model::graph::ClassificationScheme, String)> {
     let mut candidates = Vec::new();
 
@@ -165,7 +165,7 @@ fn webfinger_prefixed_title(prefix: &str, target: &str) -> String {
     format!("{prefix}: {}", webfinger_display_target(target))
 }
 
-fn webfinger_endpoint_title(endpoint: &middlenet_engine::webfinger::WebFingerEndpoint) -> String {
+fn webfinger_endpoint_title(endpoint: &graphshell_comms::webfinger::WebFingerEndpoint) -> String {
     let rel = endpoint.rel.trim();
     if rel.is_empty() {
         webfinger_prefixed_title("Endpoint", &endpoint.href)
@@ -803,11 +803,11 @@ impl GraphBrowserApp {
     pub(crate) fn import_webfinger_into_graph(
         &mut self,
         resource: &str,
-        import: &middlenet_engine::webfinger::WebFingerImport,
+        import: &graphshell_comms::webfinger::WebFingerImport,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let normalized_resource = middlenet_engine::webfinger::normalize_resource(resource)?;
-        let subject_url = middlenet_engine::webfinger::normalize_resource(&import.subject)
+        let normalized_resource = graphshell_comms::webfinger::normalize_resource(resource)?;
+        let subject_url = graphshell_comms::webfinger::normalize_resource(&import.subject)
             .unwrap_or_else(|_| normalized_resource.clone());
         let subject_position = self.suggested_new_node_position(anchor);
         let subject_node = self.ensure_webfinger_import_node(
@@ -1156,13 +1156,13 @@ impl GraphBrowserApp {
         resource: &str,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let import = middlenet_engine::webfinger::fetch_import(resource)?;
+        let import = graphshell_comms::webfinger::fetch_import(resource)?;
         self.import_webfinger_into_graph(resource, &import, anchor)
     }
 
     pub(crate) fn import_person_identity_into_graph(
         &mut self,
-        profile: &middlenet_engine::identity::PersonIdentityProfile,
+        profile: &graphshell_comms::identity::PersonIdentityProfile,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
         let person_position = self.suggested_new_node_position(anchor);
@@ -1357,10 +1357,10 @@ impl GraphBrowserApp {
     pub(crate) fn import_person_identity_from_webfinger(
         &mut self,
         resource: &str,
-        import: &middlenet_engine::webfinger::WebFingerImport,
+        import: &graphshell_comms::webfinger::WebFingerImport,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let profile = middlenet_engine::identity::PersonIdentityProfile::from_webfinger_import(
+        let profile = graphshell_comms::identity::PersonIdentityProfile::from_webfinger_import(
             resource,
             import,
         )?;
@@ -1373,7 +1373,7 @@ impl GraphBrowserApp {
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
         self.resolve_and_import_person_identity(
-            middlenet_engine::capabilities::MiddlenetProtocol::WebFinger,
+            graphshell_comms::capabilities::MiddlenetProtocol::WebFinger,
             resource,
             anchor,
         )
@@ -1385,7 +1385,7 @@ impl GraphBrowserApp {
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
         self.resolve_and_import_person_identity(
-            middlenet_engine::capabilities::MiddlenetProtocol::Nip05,
+            graphshell_comms::capabilities::MiddlenetProtocol::Nip05,
             identifier,
             anchor,
         )
@@ -1397,7 +1397,7 @@ impl GraphBrowserApp {
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
         self.resolve_and_import_person_identity(
-            middlenet_engine::capabilities::MiddlenetProtocol::Matrix,
+            graphshell_comms::capabilities::MiddlenetProtocol::Matrix,
             mxid,
             anchor,
         )
@@ -1409,7 +1409,7 @@ impl GraphBrowserApp {
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
         self.resolve_and_import_person_identity(
-            middlenet_engine::capabilities::MiddlenetProtocol::ActivityPub,
+            graphshell_comms::capabilities::MiddlenetProtocol::ActivityPub,
             actor_url,
             anchor,
         )
@@ -1430,12 +1430,12 @@ impl GraphBrowserApp {
         let before = self.person_identity_refresh_fingerprint(person_key);
         let mut current_person = person_key;
         for (protocol, query) in &queries {
-            let resolved = middlenet_engine::identity::refresh_person_identity_profile(*protocol, query)?;
+            let resolved = graphshell_comms::identity::refresh_person_identity_profile(*protocol, query)?;
             current_person = self.import_person_identity_into_graph(&resolved.profile, Some(current_person))?;
             self.record_identity_resolution_provenance(
                 current_person,
                 &resolved,
-                middlenet_engine::identity::IdentityResolutionActionKind::Refresh,
+                graphshell_comms::identity::IdentityResolutionActionKind::Refresh,
                 None,
             );
         }
@@ -1463,39 +1463,39 @@ impl GraphBrowserApp {
     pub(crate) fn deliver_person_message_notification_via_misfin(
         &mut self,
         person_key: NodeKey,
-        sender: &middlenet_engine::misfin::MisfinIdentitySpec,
+        sender: &graphshell_comms::misfin::MisfinIdentitySpec,
         message: &str,
         anchor: Option<NodeKey>,
     ) -> Result<(
         NodeKey,
-        middlenet_engine::misfin::MisfinSendOutcome,
+        graphshell_comms::misfin::MisfinSendOutcome,
     ), String> {
-        let protocol = middlenet_engine::capabilities::primary_protocol_for_capability(
-            middlenet_engine::capabilities::ProtocolCapability::DeliverMessage,
+        let protocol = graphshell_comms::capabilities::primary_protocol_for_capability(
+            graphshell_comms::capabilities::ProtocolCapability::DeliverMessage,
         )
         .ok_or_else(|| "No Middlenet delivery protocol is configured.".to_string())?;
         let mailbox = self
             .person_identity_value_for_capability(
                 person_key,
-                middlenet_engine::capabilities::ProtocolCapability::DeliverMessage,
+                graphshell_comms::capabilities::ProtocolCapability::DeliverMessage,
             )
             .map(|(_, value)| value)
             .ok_or_else(|| {
-                let label = middlenet_engine::capabilities::descriptor(protocol)
+                let label = graphshell_comms::capabilities::descriptor(protocol)
                     .identity_requirement_label
                     .unwrap_or("delivery identity");
                 format!("Person node is missing a {label}.")
             })?;
         let mailbox_url = url::Url::parse(&mailbox)
             .map_err(|error| format!("Invalid Misfin mailbox '{mailbox}': {error}"))?;
-        let outcome = middlenet_engine::misfin::send_message(&mailbox_url, sender, message)?;
-        let artifact_url = middlenet_engine::misfin::url_string_for_address(
+        let outcome = graphshell_comms::misfin::send_message(&mailbox_url, sender, message)?;
+        let artifact_url = graphshell_comms::misfin::url_string_for_address(
             &outcome.final_recipient,
             None,
         );
         let artifact_key = self.create_person_artifact_node(
             person_key,
-            middlenet_engine::identity::PersonArtifactKind::MessageNotification,
+            graphshell_comms::identity::PersonArtifactKind::MessageNotification,
             None,
             Some(artifact_url),
             anchor,
@@ -1506,7 +1506,7 @@ impl GraphBrowserApp {
     pub(crate) fn publish_person_artifact_via_titan(
         &mut self,
         person_key: NodeKey,
-        kind: middlenet_engine::identity::PersonArtifactKind,
+        kind: graphshell_comms::identity::PersonArtifactKind,
         target_url: Option<&str>,
         content: &[u8],
         mime: Option<&str>,
@@ -1515,22 +1515,22 @@ impl GraphBrowserApp {
         anchor: Option<NodeKey>,
     ) -> Result<(
         NodeKey,
-        middlenet_engine::transport::TitanUploadOutcome,
+        graphshell_comms::transport::TitanUploadOutcome,
     ), String> {
         let resolved_target = if let Some(target_url) = target_url.map(str::trim).filter(|value| !value.is_empty()) {
             target_url.to_string()
         } else {
-            let protocol = middlenet_engine::capabilities::primary_protocol_for_capability(
-                middlenet_engine::capabilities::ProtocolCapability::PublishArtifact,
+            let protocol = graphshell_comms::capabilities::primary_protocol_for_capability(
+                graphshell_comms::capabilities::ProtocolCapability::PublishArtifact,
             )
             .ok_or_else(|| "No Middlenet publication protocol is configured.".to_string())?;
             self.person_identity_value_for_capability(
                 person_key,
-                middlenet_engine::capabilities::ProtocolCapability::PublishArtifact,
+                graphshell_comms::capabilities::ProtocolCapability::PublishArtifact,
             )
             .map(|(_, value)| value)
             .ok_or_else(|| {
-                let label = middlenet_engine::capabilities::descriptor(protocol)
+                let label = graphshell_comms::capabilities::descriptor(protocol)
                     .identity_requirement_label
                     .unwrap_or("publication endpoint");
                 format!("Person node is missing a {label}.")
@@ -1538,7 +1538,7 @@ impl GraphBrowserApp {
         };
         let parsed_target = url::Url::parse(&resolved_target)
             .map_err(|error| format!("Invalid Titan target URL '{resolved_target}': {error}"))?;
-        let outcome = middlenet_engine::transport::titan_upload(
+        let outcome = graphshell_comms::transport::titan_upload(
             &parsed_target,
             content,
             mime,
@@ -1558,47 +1558,47 @@ impl GraphBrowserApp {
     pub(crate) fn deliver_person_message_notification_via_misfin_for_tests(
         &mut self,
         person_key: NodeKey,
-        sender: &middlenet_engine::misfin::MisfinIdentitySpec,
+        sender: &graphshell_comms::misfin::MisfinIdentitySpec,
         message: &str,
         anchor: Option<NodeKey>,
         known_hosts_path: &std::path::Path,
         identity_root: &std::path::Path,
     ) -> Result<(
         NodeKey,
-        middlenet_engine::misfin::MisfinSendOutcome,
+        graphshell_comms::misfin::MisfinSendOutcome,
     ), String> {
-        let protocol = middlenet_engine::capabilities::primary_protocol_for_capability(
-            middlenet_engine::capabilities::ProtocolCapability::DeliverMessage,
+        let protocol = graphshell_comms::capabilities::primary_protocol_for_capability(
+            graphshell_comms::capabilities::ProtocolCapability::DeliverMessage,
         )
         .ok_or_else(|| "No Middlenet delivery protocol is configured.".to_string())?;
         let mailbox = self
             .person_identity_value_for_capability(
                 person_key,
-                middlenet_engine::capabilities::ProtocolCapability::DeliverMessage,
+                graphshell_comms::capabilities::ProtocolCapability::DeliverMessage,
             )
             .map(|(_, value)| value)
             .ok_or_else(|| {
-                let label = middlenet_engine::capabilities::descriptor(protocol)
+                let label = graphshell_comms::capabilities::descriptor(protocol)
                     .identity_requirement_label
                     .unwrap_or("delivery identity");
                 format!("Person node is missing a {label}.")
             })?;
         let mailbox_url = url::Url::parse(&mailbox)
             .map_err(|error| format!("Invalid Misfin mailbox '{mailbox}': {error}"))?;
-        let outcome = middlenet_engine::misfin::send_message_for_tests(
+        let outcome = graphshell_comms::misfin::send_message_for_tests(
             &mailbox_url,
             sender,
             message,
             known_hosts_path,
             identity_root,
         )?;
-        let artifact_url = middlenet_engine::misfin::url_string_for_address(
+        let artifact_url = graphshell_comms::misfin::url_string_for_address(
             &outcome.final_recipient,
             None,
         );
         let artifact_key = self.create_person_artifact_node(
             person_key,
-            middlenet_engine::identity::PersonArtifactKind::MessageNotification,
+            graphshell_comms::identity::PersonArtifactKind::MessageNotification,
             None,
             Some(artifact_url),
             anchor,
@@ -1610,7 +1610,7 @@ impl GraphBrowserApp {
     pub(crate) fn publish_person_artifact_via_titan_for_tests(
         &mut self,
         person_key: NodeKey,
-        kind: middlenet_engine::identity::PersonArtifactKind,
+        kind: graphshell_comms::identity::PersonArtifactKind,
         target_url: Option<&str>,
         content: &[u8],
         mime: Option<&str>,
@@ -1620,22 +1620,22 @@ impl GraphBrowserApp {
         known_hosts_path: &std::path::Path,
     ) -> Result<(
         NodeKey,
-        middlenet_engine::transport::TitanUploadOutcome,
+        graphshell_comms::transport::TitanUploadOutcome,
     ), String> {
         let resolved_target = if let Some(target_url) = target_url.map(str::trim).filter(|value| !value.is_empty()) {
             target_url.to_string()
         } else {
-            let protocol = middlenet_engine::capabilities::primary_protocol_for_capability(
-                middlenet_engine::capabilities::ProtocolCapability::PublishArtifact,
+            let protocol = graphshell_comms::capabilities::primary_protocol_for_capability(
+                graphshell_comms::capabilities::ProtocolCapability::PublishArtifact,
             )
             .ok_or_else(|| "No Middlenet publication protocol is configured.".to_string())?;
             self.person_identity_value_for_capability(
                 person_key,
-                middlenet_engine::capabilities::ProtocolCapability::PublishArtifact,
+                graphshell_comms::capabilities::ProtocolCapability::PublishArtifact,
             )
             .map(|(_, value)| value)
             .ok_or_else(|| {
-                let label = middlenet_engine::capabilities::descriptor(protocol)
+                let label = graphshell_comms::capabilities::descriptor(protocol)
                     .identity_requirement_label
                     .unwrap_or("publication endpoint");
                 format!("Person node is missing a {label}.")
@@ -1643,7 +1643,7 @@ impl GraphBrowserApp {
         };
         let parsed_target = url::Url::parse(&resolved_target)
             .map_err(|error| format!("Invalid Titan target URL '{resolved_target}': {error}"))?;
-        let outcome = middlenet_engine::transport::titan_upload_for_tests(
+        let outcome = graphshell_comms::transport::titan_upload_for_tests(
             &parsed_target,
             content,
             mime,
@@ -1663,7 +1663,7 @@ impl GraphBrowserApp {
     pub(crate) fn create_person_artifact_node(
         &mut self,
         person_key: NodeKey,
-        kind: middlenet_engine::identity::PersonArtifactKind,
+        kind: graphshell_comms::identity::PersonArtifactKind,
         title: Option<String>,
         url: Option<String>,
         anchor: Option<NodeKey>,
@@ -1693,9 +1693,9 @@ impl GraphBrowserApp {
         self.set_node_title_if_empty_or_url_and_log(artifact_key, resolved_title);
         let mut tags = vec![TAG_PERSON_ARTIFACT, TAG_IDENTITY];
         match kind {
-            middlenet_engine::identity::PersonArtifactKind::Post => tags.push(TAG_POST),
-            middlenet_engine::identity::PersonArtifactKind::SharedData => tags.push(TAG_SHARED_DATA),
-            middlenet_engine::identity::PersonArtifactKind::MessageNotification => {
+            graphshell_comms::identity::PersonArtifactKind::Post => tags.push(TAG_POST),
+            graphshell_comms::identity::PersonArtifactKind::SharedData => tags.push(TAG_SHARED_DATA),
+            graphshell_comms::identity::PersonArtifactKind::MessageNotification => {
                 tags.push(TAG_MESSAGE_NOTIFICATION)
             }
         }
@@ -2990,7 +2990,7 @@ impl GraphBrowserApp {
 
     fn find_person_node_for_identity_profile(
         &self,
-        profile: &middlenet_engine::identity::PersonIdentityProfile,
+        profile: &graphshell_comms::identity::PersonIdentityProfile,
     ) -> Option<NodeKey> {
         let identity_candidates = person_identity_classification_candidates(profile);
         self.domain_graph().nodes().find_map(|(key, _)| {
@@ -3022,16 +3022,16 @@ impl GraphBrowserApp {
 
     fn resolve_and_import_person_identity(
         &mut self,
-        protocol: middlenet_engine::capabilities::MiddlenetProtocol,
+        protocol: graphshell_comms::capabilities::MiddlenetProtocol,
         resource: &str,
         anchor: Option<NodeKey>,
     ) -> Result<NodeKey, String> {
-        let resolved = middlenet_engine::identity::resolve_person_identity_profile(protocol, resource)?;
+        let resolved = graphshell_comms::identity::resolve_person_identity_profile(protocol, resource)?;
         let person_key = self.import_person_identity_into_graph(&resolved.profile, anchor)?;
         self.record_identity_resolution_provenance(
             person_key,
             &resolved,
-            middlenet_engine::identity::IdentityResolutionActionKind::Resolve,
+            graphshell_comms::identity::IdentityResolutionActionKind::Resolve,
             None,
         );
         Ok(person_key)
@@ -3040,11 +3040,11 @@ impl GraphBrowserApp {
     fn record_identity_resolution_provenance(
         &mut self,
         person_key: NodeKey,
-        resolved: &middlenet_engine::identity::ResolvedPersonIdentityProfile,
-        action_kind: middlenet_engine::identity::IdentityResolutionActionKind,
+        resolved: &graphshell_comms::identity::ResolvedPersonIdentityProfile,
+        action_kind: graphshell_comms::identity::IdentityResolutionActionKind,
         changed: Option<bool>,
     ) {
-        let descriptor = middlenet_engine::capabilities::descriptor(resolved.provenance.protocol);
+        let descriptor = graphshell_comms::capabilities::descriptor(resolved.provenance.protocol);
         self.ensure_identity_classification(
             person_key,
             person_resolution_scheme(resolved.provenance.protocol),
@@ -3055,8 +3055,8 @@ impl GraphBrowserApp {
             person_key,
             crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
                 action: action_kind.action_label().to_string(),
-                detail: middlenet_engine::identity::format_identity_resolution_audit_detail(
-                    &middlenet_engine::identity::IdentityResolutionAuditRecord {
+                detail: graphshell_comms::identity::format_identity_resolution_audit_detail(
+                    &graphshell_comms::identity::IdentityResolutionAuditRecord {
                         action_kind,
                         protocol: resolved.provenance.protocol,
                         query_resource: resolved.provenance.query_resource.clone(),
@@ -3074,7 +3074,7 @@ impl GraphBrowserApp {
     fn person_resolution_queries(
         &self,
         key: NodeKey,
-    ) -> Vec<(middlenet_engine::capabilities::MiddlenetProtocol, String)> {
+    ) -> Vec<(graphshell_comms::capabilities::MiddlenetProtocol, String)> {
         self.domain_graph()
             .node_classifications(key)
             .map(|classifications| {
@@ -3115,11 +3115,11 @@ impl GraphBrowserApp {
     fn person_identity_value_for_capability(
         &self,
         key: NodeKey,
-        capability: middlenet_engine::capabilities::ProtocolCapability,
-    ) -> Option<(middlenet_engine::capabilities::MiddlenetProtocol, String)> {
-        middlenet_engine::capabilities::protocols_with_capability(capability).find_map(
+        capability: graphshell_comms::capabilities::ProtocolCapability,
+    ) -> Option<(graphshell_comms::capabilities::MiddlenetProtocol, String)> {
+        graphshell_comms::capabilities::protocols_with_capability(capability).find_map(
             |protocol| {
-                let kind = middlenet_engine::capabilities::descriptor(protocol)
+                let kind = graphshell_comms::capabilities::descriptor(protocol)
                     .identity_classification_kind?;
                 self.person_identity_values(key, kind)
                     .into_iter()
@@ -3132,7 +3132,7 @@ impl GraphBrowserApp {
     fn ensure_person_identity_classifications(
         &mut self,
         key: NodeKey,
-        profile: &middlenet_engine::identity::PersonIdentityProfile,
+        profile: &graphshell_comms::identity::PersonIdentityProfile,
     ) {
         if let Some(handle) = &profile.human_handle {
             self.ensure_identity_classification(
@@ -3318,3 +3318,4 @@ impl GraphBrowserApp {
         }
     }
 }
+
