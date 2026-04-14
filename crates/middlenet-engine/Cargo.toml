@@ -23,7 +23,7 @@ taffy = "0.3"
 tiny-skia = "0.11"
 webrender = { path = "../../../webrender/webrender" }
 
-parley = "0.1"
+parley = "0.8"
 
 [lib]
 path = "src/lib.rs"
