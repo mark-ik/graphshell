@@ -20,7 +20,7 @@ use rustls::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::middlenet::document::SimpleDocument;
+use crate::document::SimpleDocument;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -29,67 +29,67 @@ const MISFIN_MAX_REDIRECTS: usize = 5;
 const MISFIN_USER_ID_OID: [u64; 7] = [0, 9, 2342, 19200300, 100, 1, 1];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinAddress {
-    pub(crate) mailbox: String,
-    pub(crate) host: String,
+pub struct MisfinAddress {
+    pub mailbox: String,
+    pub host: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinSender {
-    pub(crate) address: MisfinAddress,
-    pub(crate) blurb: Option<String>,
+pub struct MisfinSender {
+    pub address: MisfinAddress,
+    pub blurb: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinIdentitySpec {
-    pub(crate) address: MisfinAddress,
-    pub(crate) blurb: Option<String>,
+pub struct MisfinIdentitySpec {
+    pub address: MisfinAddress,
+    pub blurb: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinGemmail {
-    pub(crate) sender: Option<MisfinSender>,
-    pub(crate) recipients: Vec<MisfinAddress>,
-    pub(crate) timestamp: Option<String>,
-    pub(crate) subject: Option<String>,
-    pub(crate) body: String,
+pub struct MisfinGemmail {
+    pub sender: Option<MisfinSender>,
+    pub recipients: Vec<MisfinAddress>,
+    pub timestamp: Option<String>,
+    pub subject: Option<String>,
+    pub body: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinRequest {
-    pub(crate) recipient: MisfinAddress,
-    pub(crate) message: String,
+pub struct MisfinRequest {
+    pub recipient: MisfinAddress,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinResponse {
-    pub(crate) status: u16,
-    pub(crate) meta: String,
+pub struct MisfinResponse {
+    pub status: u16,
+    pub meta: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinSendOutcome {
-    pub(crate) final_recipient: MisfinAddress,
-    pub(crate) status: u16,
-    pub(crate) meta: String,
-    pub(crate) recipient_fingerprint: Option<String>,
-    pub(crate) permanent_redirect: Option<MisfinAddress>,
+pub struct MisfinSendOutcome {
+    pub final_recipient: MisfinAddress,
+    pub status: u16,
+    pub meta: String,
+    pub recipient_fingerprint: Option<String>,
+    pub permanent_redirect: Option<MisfinAddress>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinIdentityStatus {
-    pub(crate) address: String,
-    pub(crate) path: Option<PathBuf>,
-    pub(crate) exists: bool,
-    pub(crate) blurb: Option<String>,
-    pub(crate) certificate_fingerprint: Option<String>,
+pub struct MisfinIdentityStatus {
+    pub address: String,
+    pub path: Option<PathBuf>,
+    pub exists: bool,
+    pub blurb: Option<String>,
+    pub certificate_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MisfinTrustStatus {
-    pub(crate) authority: String,
-    pub(crate) path: Option<PathBuf>,
-    pub(crate) fingerprint_sha256: Option<String>,
+pub struct MisfinTrustStatus {
+    pub authority: String,
+    pub path: Option<PathBuf>,
+    pub fingerprint_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -126,7 +126,7 @@ struct MisfinTofuVerifier {
 }
 
 impl MisfinAddress {
-    pub(crate) fn parse(input: &str) -> Result<Self, String> {
+    pub fn parse(input: &str) -> Result<Self, String> {
         let trimmed = input.trim();
         let (mailbox, host) = trimmed
             .split_once('@')
@@ -140,7 +140,7 @@ impl MisfinAddress {
         })
     }
 
-    pub(crate) fn from_url(url: &url::Url) -> Result<Self, String> {
+    pub fn from_url(url: &url::Url) -> Result<Self, String> {
         let mailbox = url.username().trim();
         if mailbox.is_empty() {
             return Err("Misfin URL is missing the recipient mailbox in the username position.".to_string());
@@ -151,19 +151,19 @@ impl MisfinAddress {
         Self::parse(&format!("{mailbox}@{host}"))
     }
 
-    pub(crate) fn as_addr_spec(&self) -> String {
+    pub fn as_addr_spec(&self) -> String {
         format!("{}@{}", self.mailbox, self.host)
     }
 }
 
 impl MisfinGemmail {
-    pub(crate) fn body_document(&self) -> SimpleDocument {
+    pub fn body_document(&self) -> SimpleDocument {
         SimpleDocument::from_gemini(&self.body)
     }
 }
 
 impl MisfinRequest {
-    pub(crate) fn encode(&self) -> Result<String, String> {
+    pub fn encode(&self) -> Result<String, String> {
         if self.message.contains(['\r', '\n']) {
             return Err(
                 "Misfin request messages must fit on a single wire line; multiline gemmail belongs in stored/forwarded message bodies, not the transaction request."
@@ -306,7 +306,7 @@ impl ServerCertVerifier for MisfinTofuVerifier {
     }
 }
 
-pub(crate) fn send_message(
+pub fn send_message(
     url: &url::Url,
     sender: &MisfinIdentitySpec,
     message: &str,
@@ -317,7 +317,7 @@ pub(crate) fn send_message(
 }
 
 #[cfg(test)]
-pub(crate) fn send_message_for_tests(
+pub fn send_message_for_tests(
     url: &url::Url,
     sender: &MisfinIdentitySpec,
     message: &str,
@@ -335,31 +335,31 @@ pub(crate) fn send_message_for_tests(
     )
 }
 
-pub(crate) fn identity_status(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
+pub fn identity_status(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
     identity_status_with_root(spec, misfin_identity_root().as_deref())
 }
 
-pub(crate) fn ensure_identity(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
+pub fn ensure_identity(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
     ensure_identity_with_root(spec, misfin_identity_root().as_deref())
 }
 
-pub(crate) fn rotate_identity(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
+pub fn rotate_identity(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
     rotate_identity_with_root(spec, misfin_identity_root().as_deref())
 }
 
-pub(crate) fn forget_identity(spec: &MisfinIdentitySpec) -> Result<bool, String> {
+pub fn forget_identity(spec: &MisfinIdentitySpec) -> Result<bool, String> {
     forget_identity_with_root(spec, misfin_identity_root().as_deref())
 }
 
-pub(crate) fn trust_status(url: &url::Url) -> Result<MisfinTrustStatus, String> {
+pub fn trust_status(url: &url::Url) -> Result<MisfinTrustStatus, String> {
     trust_status_with_path(url, misfin_known_hosts_path().as_deref())
 }
 
-pub(crate) fn forget_known_host(url: &url::Url) -> Result<bool, String> {
+pub fn forget_known_host(url: &url::Url) -> Result<bool, String> {
     forget_known_host_with_path(url, misfin_known_hosts_path().as_deref())
 }
 
-pub(crate) fn url_string_for_address(address: &MisfinAddress, explicit_port: Option<u16>) -> String {
+pub fn url_string_for_address(address: &MisfinAddress, explicit_port: Option<u16>) -> String {
     if let Some(port) = explicit_port {
         format!("misfin://{}@{}:{port}", address.mailbox, address.host)
     } else {
@@ -367,7 +367,7 @@ pub(crate) fn url_string_for_address(address: &MisfinAddress, explicit_port: Opt
     }
 }
 
-pub(crate) fn parse_misfin_response(line: &str) -> Result<MisfinResponse, String> {
+pub fn parse_misfin_response(line: &str) -> Result<MisfinResponse, String> {
     let trimmed = line.trim_end_matches(['\r', '\n']);
     if trimmed.len() < 2 {
         return Err("Misfin response was shorter than the required two-digit status code.".to_string());
@@ -379,7 +379,7 @@ pub(crate) fn parse_misfin_response(line: &str) -> Result<MisfinResponse, String
     Ok(MisfinResponse { status, meta })
 }
 
-pub(crate) fn parse_gemmail(text: &str) -> MisfinGemmail {
+pub fn parse_gemmail(text: &str) -> MisfinGemmail {
     let mut sender = None;
     let mut recipients = None;
     let mut timestamp = None;

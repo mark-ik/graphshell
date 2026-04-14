@@ -32,44 +32,44 @@ fn test_fetch_import_override_run_lock() -> &'static Mutex<()> {
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub(crate) struct WebFingerDocument {
-    pub(crate) subject: String,
+pub struct WebFingerDocument {
+    pub subject: String,
     #[serde(default)]
-    pub(crate) aliases: Vec<String>,
+    pub aliases: Vec<String>,
     #[serde(default)]
-    pub(crate) links: Vec<WebFingerLink>,
+    pub links: Vec<WebFingerLink>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub(crate) struct WebFingerLink {
-    pub(crate) rel: String,
+pub struct WebFingerLink {
+    pub rel: String,
     #[serde(rename = "type")]
-    pub(crate) media_type: Option<String>,
-    pub(crate) href: Option<String>,
+    pub media_type: Option<String>,
+    pub href: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WebFingerEndpoint {
-    pub(crate) rel: String,
-    pub(crate) media_type: Option<String>,
-    pub(crate) href: String,
+pub struct WebFingerEndpoint {
+    pub rel: String,
+    pub media_type: Option<String>,
+    pub href: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct WebFingerImport {
-    pub(crate) subject: String,
-    pub(crate) aliases: Vec<String>,
-    pub(crate) profile_pages: Vec<String>,
-    pub(crate) gemini_capsules: Vec<String>,
-    pub(crate) gopher_resources: Vec<String>,
-    pub(crate) misfin_mailboxes: Vec<String>,
-    pub(crate) nostr_identities: Vec<String>,
-    pub(crate) activitypub_actors: Vec<String>,
-    pub(crate) other_endpoints: Vec<WebFingerEndpoint>,
+pub struct WebFingerImport {
+    pub subject: String,
+    pub aliases: Vec<String>,
+    pub profile_pages: Vec<String>,
+    pub gemini_capsules: Vec<String>,
+    pub gopher_resources: Vec<String>,
+    pub misfin_mailboxes: Vec<String>,
+    pub nostr_identities: Vec<String>,
+    pub activitypub_actors: Vec<String>,
+    pub other_endpoints: Vec<WebFingerEndpoint>,
 }
 
 impl WebFingerImport {
-    pub(crate) fn from_document(document: &WebFingerDocument) -> Self {
+    pub fn from_document(document: &WebFingerDocument) -> Self {
         let mut import = Self {
             subject: document.subject.clone(),
             aliases: document.aliases.clone(),
@@ -118,7 +118,7 @@ impl WebFingerImport {
     }
 }
 
-pub(crate) fn normalize_resource(input: &str) -> Result<String, String> {
+pub fn normalize_resource(input: &str) -> Result<String, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err("WebFinger resource cannot be empty.".to_string());
@@ -151,13 +151,13 @@ pub(crate) fn normalize_resource(input: &str) -> Result<String, String> {
     ))
 }
 
-pub(crate) fn endpoint_url(resource: &str) -> Result<url::Url, String> {
+pub fn endpoint_url(resource: &str) -> Result<url::Url, String> {
     let normalized = normalize_resource(resource)?;
     let origin = origin_for_resource(&normalized)?;
     endpoint_url_with_origin(&origin, &normalized)
 }
 
-pub(crate) fn parse_document(body: &str) -> Result<WebFingerDocument, String> {
+pub fn parse_document(body: &str) -> Result<WebFingerDocument, String> {
     let document: WebFingerDocument = serde_json::from_str(body)
         .map_err(|error| format!("WebFinger JRD parse failed: {error}"))?;
     if document.subject.trim().is_empty() {
@@ -166,12 +166,12 @@ pub(crate) fn parse_document(body: &str) -> Result<WebFingerDocument, String> {
     Ok(document)
 }
 
-pub(crate) fn fetch_document(resource: &str) -> Result<WebFingerDocument, String> {
+pub fn fetch_document(resource: &str) -> Result<WebFingerDocument, String> {
     let endpoint = endpoint_url(resource)?;
     fetch_document_from_endpoint(&endpoint)
 }
 
-pub(crate) fn fetch_import(resource: &str) -> Result<WebFingerImport, String> {
+pub fn fetch_import(resource: &str) -> Result<WebFingerImport, String> {
     #[cfg(test)]
     {
         if let Some(override_state) = test_fetch_import_override()
@@ -190,7 +190,7 @@ pub(crate) fn fetch_import(resource: &str) -> Result<WebFingerImport, String> {
 }
 
 #[cfg(test)]
-pub(crate) fn with_test_fetch_import_override<T>(
+pub fn with_test_fetch_import_override<T>(
     resource: &str,
     result: Result<WebFingerImport, String>,
     run: impl FnOnce() -> T,

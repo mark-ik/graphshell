@@ -1,0 +1,30 @@
+[package]
+name = "middlenet-engine"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+dirs = "5.0"
+log = "0.4"
+serde_json = "1.0"
+roxmltree = "0.21"
+url = "2.5"
+rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "aws-lc-rs"] }
+rcgen = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+sha2 = "0.10"
+nostr = { version = "0.44.2", features = ["nip44"] }
+tempfile = "3"
+
+# Phase 2: Portable Engine Stack
+html5ever = "0.27"
+taffy = "0.3"
+tiny-skia = "0.11"
+webrender = { path = "../../../webrender/webrender" }
+
+parley = "0.1"
+
+[lib]
+path = "src/lib.rs"
+

@@ -17,23 +17,23 @@ use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, Signa
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::middlenet::source::{MiddleNetContentKind, MiddleNetSource};
+use crate::source::{MiddleNetContentKind, MiddleNetSource};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 const SPARTAN_MAX_REDIRECTS: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RemoteFetch {
-    pub(crate) body: String,
-    pub(crate) content_kind_override: Option<MiddleNetContentKind>,
+pub struct RemoteFetch {
+    pub body: String,
+    pub content_kind_override: Option<MiddleNetContentKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TitanUploadOutcome {
-    pub(crate) status: u16,
-    pub(crate) meta: String,
-    pub(crate) body: String,
+pub struct TitanUploadOutcome {
+    pub status: u16,
+    pub meta: String,
+    pub body: String,
 }
 
 impl RemoteFetch {
@@ -194,7 +194,7 @@ impl ServerCertVerifier for GeminiTofuVerifier {
     }
 }
 
-pub(crate) fn fetch_remote_text(source: &MiddleNetSource) -> Result<RemoteFetch, String> {
+pub fn fetch_remote_text(source: &MiddleNetSource) -> Result<RemoteFetch, String> {
     let canonical_uri = source
         .canonical_uri
         .as_deref()
@@ -282,7 +282,7 @@ fn fetch_finger_text(url: &url::Url) -> Result<RemoteFetch, String> {
     Ok(RemoteFetch::new(body))
 }
 
-pub(crate) fn titan_upload(
+pub fn titan_upload(
     url: &url::Url,
     content: &[u8],
     mime: Option<&str>,
@@ -293,7 +293,7 @@ pub(crate) fn titan_upload(
 }
 
 #[cfg(test)]
-pub(crate) fn titan_upload_for_tests(
+pub fn titan_upload_for_tests(
     url: &url::Url,
     content: &[u8],
     mime: Option<&str>,
@@ -824,7 +824,7 @@ fn nibble_to_hex(value: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::middlenet::source::MiddleNetContentKind;
+    use crate::source::MiddleNetContentKind;
     use rcgen::{CertificateParams, KeyPair};
     use rustls::{ServerConfig, ServerConnection};
     use tempfile::TempDir;

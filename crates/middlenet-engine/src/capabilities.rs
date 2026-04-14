@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ProtocolCapability {
+pub enum ProtocolCapability {
     DiscoverIdentity,
     ResolveIdentity,
     PublishArtifact,
@@ -15,7 +15,7 @@ pub(crate) enum ProtocolCapability {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum MiddlenetProtocol {
+pub enum MiddlenetProtocol {
     WebFinger,
     Nip05,
     Matrix,
@@ -26,7 +26,7 @@ pub(crate) enum MiddlenetProtocol {
 }
 
 impl MiddlenetProtocol {
-    pub(crate) fn key(self) -> &'static str {
+    pub fn key(self) -> &'static str {
         match self {
             Self::WebFinger => "webfinger",
             Self::Nip05 => "nip05",
@@ -38,7 +38,7 @@ impl MiddlenetProtocol {
         }
     }
 
-    pub(crate) fn from_key(key: &str) -> Option<Self> {
+    pub fn from_key(key: &str) -> Option<Self> {
         match key {
             "webfinger" => Some(Self::WebFinger),
             "nip05" => Some(Self::Nip05),
@@ -53,14 +53,14 @@ impl MiddlenetProtocol {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProtocolFreshness {
+pub enum ProtocolFreshness {
     Fresh,
     Stale,
     NoPolicy,
 }
 
 impl ProtocolFreshness {
-    pub(crate) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Fresh => "Fresh",
             Self::Stale => "Stale",
@@ -70,15 +70,15 @@ impl ProtocolFreshness {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ProtocolDescriptor {
-    pub(crate) protocol: MiddlenetProtocol,
-    pub(crate) display_name: &'static str,
-    pub(crate) identity_classification_kind: Option<&'static str>,
-    pub(crate) identity_requirement_label: Option<&'static str>,
-    pub(crate) action_name: Option<&'static str>,
-    pub(crate) success_prefix: Option<&'static str>,
-    pub(crate) freshness_ttl: Option<Duration>,
-    pub(crate) capabilities: &'static [ProtocolCapability],
+pub struct ProtocolDescriptor {
+    pub protocol: MiddlenetProtocol,
+    pub display_name: &'static str,
+    pub identity_classification_kind: Option<&'static str>,
+    pub identity_requirement_label: Option<&'static str>,
+    pub action_name: Option<&'static str>,
+    pub success_prefix: Option<&'static str>,
+    pub freshness_ttl: Option<Duration>,
+    pub capabilities: &'static [ProtocolCapability],
 }
 
 const WEBFINGER_FRESHNESS_TTL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -96,7 +96,7 @@ const ALL_PROTOCOLS: [MiddlenetProtocol; 7] = [
     MiddlenetProtocol::Misfin,
 ];
 
-pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
+pub fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
     match protocol {
         MiddlenetProtocol::WebFinger => ProtocolDescriptor {
             protocol,
@@ -189,7 +189,7 @@ pub(crate) fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
     }
 }
 
-pub(crate) fn protocol_for_identity_classification_kind(
+pub fn protocol_for_identity_classification_kind(
     kind: &str,
 ) -> Option<MiddlenetProtocol> {
     ALL_PROTOCOLS.into_iter().find(|protocol| {
@@ -199,11 +199,11 @@ pub(crate) fn protocol_for_identity_classification_kind(
     })
 }
 
-pub(crate) fn supports(protocol: MiddlenetProtocol, capability: ProtocolCapability) -> bool {
+pub fn supports(protocol: MiddlenetProtocol, capability: ProtocolCapability) -> bool {
     descriptor(protocol).capabilities.contains(&capability)
 }
 
-pub(crate) fn protocols_with_capability(
+pub fn protocols_with_capability(
     capability: ProtocolCapability,
 ) -> impl Iterator<Item = MiddlenetProtocol> {
     ALL_PROTOCOLS
@@ -211,13 +211,13 @@ pub(crate) fn protocols_with_capability(
         .filter(move |protocol| supports(*protocol, capability))
 }
 
-pub(crate) fn primary_protocol_for_capability(
+pub fn primary_protocol_for_capability(
     capability: ProtocolCapability,
 ) -> Option<MiddlenetProtocol> {
     protocols_with_capability(capability).next()
 }
 
-pub(crate) fn freshness_state(
+pub fn freshness_state(
     protocol: MiddlenetProtocol,
     resolved_at_ms: u64,
     now_ms: u64,
@@ -233,18 +233,18 @@ pub(crate) fn freshness_state(
     }
 }
 
-pub(crate) fn normalize_identity_action_resource(
+pub fn normalize_identity_action_resource(
     protocol: MiddlenetProtocol,
     resource: &str,
 ) -> Result<String, String> {
     match protocol {
-        MiddlenetProtocol::WebFinger => crate::middlenet::webfinger::normalize_resource(resource),
-        MiddlenetProtocol::Nip05 => crate::middlenet::identity::normalize_nip05_identifier(resource),
-        MiddlenetProtocol::Matrix => crate::middlenet::identity::normalize_matrix_mxid(
+        MiddlenetProtocol::WebFinger => crate::webfinger::normalize_resource(resource),
+        MiddlenetProtocol::Nip05 => crate::identity::normalize_nip05_identifier(resource),
+        MiddlenetProtocol::Matrix => crate::identity::normalize_matrix_mxid(
             resource.trim_start_matches("mxid:"),
         ),
         MiddlenetProtocol::ActivityPub => {
-            crate::middlenet::identity::normalize_activitypub_actor_url(resource)
+            crate::identity::normalize_activitypub_actor_url(resource)
         }
         MiddlenetProtocol::Gemini
         | MiddlenetProtocol::Titan

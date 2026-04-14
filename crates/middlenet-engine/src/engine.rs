@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use crate::middlenet::adapters::{parse_feed, parse_gophermap, parse_markdown, parse_plain_text};
-use crate::middlenet::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
-use crate::middlenet::transport::fetch_remote_text;
+use crate::adapters::{parse_feed, parse_gophermap, parse_markdown, parse_plain_text};
+use crate::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
+use crate::transport::fetch_remote_text;
 
 #[derive(Debug, Clone)]
-pub(crate) enum MiddleNetLoadResult {
+pub enum MiddleNetLoadResult {
     Parsed(MiddleNetContent),
     TransportPending {
         source: MiddleNetSource,
@@ -27,13 +27,13 @@ pub(crate) enum MiddleNetLoadResult {
     },
 }
 
-pub(crate) struct MiddleNetEngine;
+pub struct MiddleNetEngine;
 
 impl MiddleNetEngine {
-    pub(crate) fn parse_text(source: MiddleNetSource, body: &str) -> MiddleNetLoadResult {
+    pub fn parse_text(source: MiddleNetSource, body: &str) -> MiddleNetLoadResult {
         let (document, title_hint) = match source.content_kind {
             MiddleNetContentKind::GeminiText => (
-                crate::middlenet::document::SimpleDocument::from_gemini(body),
+                crate::dom::Document::parse(&crate::document::SimpleDocument::from_gemini(body).to_html()),
                 None,
             ),
             MiddleNetContentKind::GopherMap => (parse_gophermap(body), None),
@@ -68,7 +68,7 @@ impl MiddleNetEngine {
         MiddleNetLoadResult::Parsed(MiddleNetContent::new(parsed_source, document))
     }
 
-    pub(crate) fn load_remote(source: MiddleNetSource) -> MiddleNetLoadResult {
+    pub fn load_remote(source: MiddleNetSource) -> MiddleNetLoadResult {
         match fetch_remote_text(&source) {
             Ok(fetch) => {
                 let mut parsed_source = source;
@@ -93,7 +93,7 @@ impl MiddleNetEngine {
         }
     }
 
-    pub(crate) fn transport_pending(source: MiddleNetSource) -> MiddleNetLoadResult {
+    pub fn transport_pending(source: MiddleNetSource) -> MiddleNetLoadResult {
         MiddleNetLoadResult::TransportPending {
             source,
             note: "Protocol recognition and viewer routing are in place, but transport fetching is not wired into the MiddleNet engine yet."

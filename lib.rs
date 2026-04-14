@@ -18,7 +18,7 @@ mod app;
 mod domain;
 mod graph;
 mod input;
-mod middlenet;
+pub use middlenet_engine as middlenet;
 mod model;
 mod render;
 mod services;
@@ -252,3 +252,4 @@ cfg_if! {
         }
     }
 }
+

@@ -9,12 +9,22 @@
 //! by the Gemini/Gopher/Finger paths, plus source metadata that future protocol
 //! adapters can share without depending on Servo or host-native viewers.
 
-pub(crate) mod document;
-pub(crate) mod adapters;
-pub(crate) mod capabilities;
-pub(crate) mod engine;
-pub(crate) mod identity;
-pub(crate) mod misfin;
-pub(crate) mod source;
-pub(crate) mod transport;
-pub(crate) mod webfinger;
+pub mod document;
+pub mod adapters;
+pub mod capabilities;
+pub mod engine;
+pub mod identity;
+pub mod misfin;
+pub mod source;
+pub mod transport;
+pub mod webfinger;
+
+// Phase 2: Engine Stack Scaffolding
+pub mod dom;
+pub mod style;
+pub mod layout;
+pub mod compositor;
+pub mod script;
+
+
+pub mod viewer;

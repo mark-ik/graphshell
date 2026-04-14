@@ -27,6 +27,49 @@ pub enum SimpleBlock {
 }
 
 impl SimpleDocument {
+    /// Serializes the document into a standard HTML5 string.
+    /// This string can then be parsed by the html5ever DOM engine.
+    pub fn to_html(&self) -> String {
+        let mut html = String::new();
+        let SimpleDocument::Blocks(blocks) = self;
+        
+        for block in blocks {
+            match block {
+                SimpleBlock::Heading { level, text } => {
+                    html.push_str(&format!("<h{}>{}</h{}>\n", level, text, level));
+                }
+                SimpleBlock::Paragraph(text) => {
+                    html.push_str(&format!("<p>{}</p>\n", text));
+                }
+                SimpleBlock::Link { text, href } => {
+                    // Primitive escape
+                    let href = href.replace("\"", "&quot;");
+                    html.push_str(&format!("<p><a href=\"{}\">{}</a></p>\n", href, text));
+                }
+                SimpleBlock::Quote(text) => {
+                    html.push_str(&format!("<blockquote>{}</blockquote>\n", text));
+                }
+                SimpleBlock::CodeFence { lang, text } => {
+                    let class = lang.as_deref().map(|l| format!(" class=\"language-{}\"", l)).unwrap_or_default();
+                    html.push_str(&format!("<pre><code{}>{}</code></pre>\n", class, text));
+                }
+                SimpleBlock::List { ordered, items } => {
+                    let tag = if *ordered { "ol" } else { "ul" };
+                    html.push_str(&format!("<{}>\n", tag));
+                    for item in items {
+                        html.push_str(&format!("  <li>{}</li>\n", item));
+                    }
+                    html.push_str(&format!("</{}>\n", tag));
+                }
+                SimpleBlock::Rule => {
+                    html.push_str("<hr>\n");
+                }
+            }
+        }
+        
+        html
+    }
+
     /// Serialize this document to Gopher menu format (RFC 1436).
     pub fn to_gophermap(&self, hostname: &str, port: u16) -> String {
         let SimpleDocument::Blocks(blocks) = self;
