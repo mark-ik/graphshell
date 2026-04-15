@@ -188,8 +188,18 @@ impl<N: MemberId> TreeTopology<N> {
     pub fn reorder_children(&mut self, parent: &N, new_order: Vec<N>) {
         if let Some(children) = self.children.get_mut(parent) {
             // Only keep children that are actually children of this parent
-            let valid: HashSet<&N> = children.iter().collect();
-            let reordered: Vec<N> = new_order.into_iter().filter(|n| valid.contains(n)).collect();
+            let valid: std::collections::HashSet<&N> = children.iter().collect();
+            let mut reordered: Vec<N> = new_order.into_iter().filter(|n| valid.contains(n)).collect();
+            
+            // Re-add any active children that were omitted from `new_order`
+            // to ensure we never orphan members from the topology.
+            let explicit: std::collections::HashSet<N> = reordered.iter().cloned().collect();
+            for child in children.iter() {
+                if !explicit.contains(child) {
+                    reordered.push(child.clone());
+                }
+            }
+            
             *children = reordered;
         }
     }
