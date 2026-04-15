@@ -464,3 +464,182 @@ That gives Graphshell a state model that matches what the system is already beco
 - derived caches,
 - runtime authority/control-plane state.
 
+---
+
+## Implementation Steps: GraphWorkspace Struct Split
+
+*Concrete implementation plan captured from session. Follows directly from the decomposition
+principles above.*
+
+### Step 1: Split GraphWorkspace into Typed Sub-States
+
+**Target struct layout** (`graph_app.rs` ~line 985):
+
+```rust
+pub struct GraphWorkspace {
+    pub domain: DomainState,                 // unchanged
+    pub graph_runtime: GraphViewRuntimeState,
+    pub workbench_session: WorkbenchSessionState,
+    pub chrome_ui: ChromeUiState,
+}
+```
+
+**New file: `app/workspace_state.rs`** — defines three sub-states:
+
+**`GraphViewRuntimeState`** — physics, selection, views, search, history, egui, memory, semantic:
+`physics`, `physics_running_before_interaction`, `webview_to_node`, `node_to_webview`,
+`embedded_content_focus_webview`, `runtime_block_state`, `runtime_caches`,
+`active_webview_nodes`, `active_lru`, `active_webview_limit`, `warm_cache_lru`,
+`warm_cache_limit`, `is_interacting`, `drag_release_frames_remaining`, `views`,
+`graph_view_layout_manager`, `graph_view_frames`, `focused_view`, `egui_state`,
+`egui_state_dirty`, `last_culled_node_keys`, `undo_stack`, `redo_stack`,
+`hop_distance_cache`, `selection_by_scope`, `camera`, `graph_reader_state`,
+`hovered_graph_node`, `highlighted_graph_edge`, `navigator_projection_state`
+(**renamed from** `file_tree_projection_state` — this is navigator projection runtime state,
+not a file-tree concern), `selected_tab_nodes`, `tab_selection_anchor`,
+`search_display_mode`, `active_graph_search_*`, `graph_search_history`,
+`pinned_graph_search`, `tag_panel_state`, `clip_inspector_state`,
+`pending_clip_inspector_highlight_clear`, `history_*` fields, `memory_pressure_level`,
+`memory_available_mib`, `memory_total_mib`, `semantic_index`, `semantic_index_dirty`,
+`semantic_depth_restore_dimensions`, `suggested_semantic_tags`.
+
+*Note: `pending_app_commands` and `pending_host_create_tokens` stay in
+`GraphViewRuntimeState` — they are broad app-command and lifecycle orchestration queues,
+not workbench-session-specific.*
+
+**`WorkbenchSessionState`** — frame lifecycle, autosave, arrangement sync caches:
+`last_session_workspace_layout_hash`, `last_session_workspace_layout_json`,
+`workspace_autosave_interval`, `workspace_autosave_retention`, `last_workspace_autosave_at`,
+`workspace_activation_seq`, `node_last_active_workspace`, `node_workspace_membership`,
+`current_workspace_is_synthesized`, `workspace_has_unsaved_changes`,
+`unsaved_workspace_prompt_warned`, `pending_workbench_intents: Vec<WorkbenchIntent>`.
+
+**`ChromeUiState`** — overlay toggles, shortcuts, UI preferences:
+`show_settings_overlay`, `show_help_panel`, `show_command_palette`,
+`show_context_palette`, `command_palette_contextual_mode`, `context_palette_anchor`,
+`show_radial_menu`, `show_clip_inspector`, `history_manager_tab`, `settings_tool_page`,
+`toast_anchor_preference`, `command_palette_shortcut`, `help_panel_shortcut`,
+`radial_menu_shortcut`, `context_command_surface_preference`, `keyboard_pan_step`,
+`keyboard_pan_input_mode`, `camera_pan_inertia_enabled`, `camera_pan_inertia_damping`,
+`lasso_binding_preference`, `omnibar_preferred_scope`, `omnibar_non_at_order`,
+`wry_enabled`, `form_draft_capture_enabled`, `default_registry_lens_id`,
+`default_registry_physics_id`, `default_registry_theme_id`.
+
+**Migration approach**: Create `app/workspace_state.rs`, declare as `mod workspace_state;`,
+re-export three types from `graph_app.rs`, replace all `GraphWorkspace` fields with four
+sub-state fields, update both constructors (`new_from_dir`, `new_for_testing`), update all
+field accesses across ~35 files: `workspace.<field>` → `workspace.<sub>.<field>`.
+
+**Verification gate**: `cargo check` + `cargo test` pass.
+
+### Step 2: Arrangement Reconciler Entrypoint
+
+**Problem**: `workbench_commands.rs` writes directly to `GraphBrowserApp` graph state from
+workbench tile layout changes — an implicit workbench→graph sync with no contract.
+
+**Target**: New file `app/arrangement_graph_bridge.rs`:
+
+```rust
+/// Apply an arrangement snapshot to graph truth.
+/// This is the single authorised path from workbench arrangement state
+/// into graph structure mutations.
+pub(crate) fn apply_arrangement_snapshot(
+    &mut self,
+    snapshot: &ArrangementSnapshot,
+) -> ArrangementGraphDelta
+```
+
+- `ArrangementSnapshot` — plain data struct carrying tile tree shape (frame name, member
+  node keys, tile group members). Built by callers from the tile tree before calling.
+- `ArrangementGraphDelta` — return value: what nodes were created, what edges changed.
+- Existing helpers (`ensure_internal_surface_node`,
+  `replace_internal_surface_membership_edges`, etc.) move into this module as **private**
+  helpers called only by `apply_arrangement_snapshot`.
+- Call sites in `workbench_commands.rs` updated to: (1) build `ArrangementSnapshot` from
+  tile tree, (2) call `self.apply_arrangement_snapshot(&snapshot)`.
+
+**Verification gate**: `cargo check` + `cargo test` pass. Grep confirms no direct calls to
+`ensure_internal_surface_node` or `replace_internal_surface_membership_edges` outside
+`arrangement_graph_bridge.rs`.
+
+### Step 3: Phase the Intent Handler
+
+**Problem**: `apply_reducer_intent_internal` (`graph_app.rs:2501`) is a ~300-arm match.
+
+**Constraint**: Current function does **not** receive a `view_id: GraphViewId` parameter.
+Step 3 must use the **current function signature unchanged** and resolve focused view
+internally.
+
+**Target**: Four phase-handler functions in `app/intent_phases.rs`, all `&mut self` only:
+
+```rust
+fn handle_workspace_view_intent(&mut self, intent: &GraphIntent) -> bool;
+fn handle_chrome_ui_intent(&mut self, intent: &GraphIntent) -> bool;
+fn handle_workbench_bridge_intent(&mut self, intent: &GraphIntent) -> bool;
+fn handle_domain_graph_intent(&mut self, intent: GraphIntent);
+```
+
+`apply_reducer_intent_internal` becomes a dispatch chain:
+
+```rust
+fn apply_reducer_intent_internal(&mut self, intent: GraphIntent) {
+    if self.handle_workspace_view_intent(&intent) { return; }
+    if self.handle_chrome_ui_intent(&intent) { return; }
+    if self.handle_workbench_bridge_intent(&intent) { return; }
+    self.handle_domain_graph_intent(intent);
+}
+```
+
+Intent arms move verbatim — no logic changes.
+
+**Verification gate**: `cargo check` + `cargo test` pass. Behavior is identical.
+
+### Step 4: Consolidate Node-Deletion Cache Cleanup
+
+**Fields involved**: `workbench_session.node_last_active_workspace`,
+`workbench_session.node_workspace_membership`.
+
+**Problem**: Two separate cleanup calls on node deletion — `graph_mutations.rs` and
+`workbench_commands.rs` both clear the same fields directly (duplicate path).
+
+**Target**: Add a method to `WorkbenchSessionState`:
+
+```rust
+impl WorkbenchSessionState {
+    pub(crate) fn on_node_deleted(&mut self, uuid: Uuid) {
+        self.node_last_active_workspace.remove(&uuid);
+        self.node_workspace_membership.remove(&uuid);
+    }
+}
+```
+
+Replace both cleanup sites with a single call:
+`self.workspace.workbench_session.on_node_deleted(node_uuid);`
+
+This is a small ownership boundary change, not just cleanup: node deletion now notifies
+`WorkbenchSessionState` via its own method rather than having callers reach in and scrub
+fields directly.
+
+**Verification gate**: `cargo check` + `cargo test` pass. Grep confirms no direct field
+access to `node_last_active_workspace` or `node_workspace_membership` outside
+`workspace_state.rs` and `persistence_ops.rs` (the rebuild path).
+
+### Files to Create
+
+- `app/workspace_state.rs` — three sub-state struct definitions + `WorkbenchSessionState::on_node_deleted`
+- `app/arrangement_graph_bridge.rs` — `ArrangementSnapshot`, `ArrangementGraphDelta`, `apply_arrangement_snapshot`, private helpers
+- `app/intent_phases.rs` — four phase handler functions
+
+### Files to Modify Significantly
+
+- `graph_app.rs` — struct reshape, both constructors, `apply_reducer_intent_internal` dispatch
+- `app/workbench_commands.rs` — callers updated to build `ArrangementSnapshot` + call bridge; graph-writing helpers removed
+- `app/graph_mutations.rs` — field path updates; node-deletion cleanup replaced with `on_node_deleted`
+- All other `app/*.rs` impl files — field path updates (~35 files total)
+
+### Execution Order
+
+1. **Step 1** — struct split + field rename; largest change, compiler-driven completeness
+2. **Step 2** — arrangement reconciler; isolated to bridge module + two call sites
+3. **Step 3** — intent handler phasing; restructuring only, no logic changes
+4. **Step 4** — cache cleanup consolidation; small but explicit ownership change

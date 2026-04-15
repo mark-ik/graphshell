@@ -345,3 +345,195 @@ Any new feature slice touching rendering or composition must comply with:
 6. Fallback activations are never silent.
 7. Glow path retirement requires all five conditions in §9 with linked evidence.
 8. Feature guardrails in §10 are enforced for all new render-adjacent slices.
+
+---
+
+## 12. Servo Rendering Backend: RenderingBackendBinding Cleanup Plan
+
+*Upstream work that feeds into the graphshell rendering backend contract.*
+
+The wgpu rendering pipeline already works end-to-end (Painter branches on
+`SERVO_WGPU_BACKEND` env var, `RenderingContext` trait has `wgpu_device()` /
+`wgpu_queue()` / `wgpu_hal_device_factory()`, GL ops gated behind `!use_wgpu`).
+The following work adds architectural cleanup and a zero-copy render path.
+
+### 12.1 RenderingBackendBinding Enum
+
+Replace env-var detection and separate `wgpu_device()`/`wgpu_queue()` methods
+with an explicit sum type in `components/shared/paint/rendering_context.rs`:
+
+```rust
+pub struct GlBinding {
+    pub gleam_gl: Rc<dyn gleam::gl::Gl>,
+    pub glow_gl: Arc<glow::Context>,
+}
+
+#[cfg(feature = "wgpu_backend")]
+pub struct WgpuBinding {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+}
+
+pub enum RenderingBackendBinding {
+    Gl(GlBinding),
+    #[cfg(feature = "wgpu_backend")]
+    Wgpu(WgpuBinding),
+}
+```
+
+Add `fn backend_binding(&self) -> RenderingBackendBinding` to the trait. Painter
+switches from `use_wgpu` bool to matching on this enum. Remove `SERVO_WGPU_BACKEND`
+env var detection. Existing `wgpu_device()` / `wgpu_queue()` can be deprecated once
+all consumers use the enum.
+
+### 12.2 Promote WgpuRenderingContext to Shared Crate
+
+Move `WgpuRenderingContext` from `examples/wgpu-embedder/` into
+`components/shared/paint/wgpu_rendering_context.rs` (gated behind `wgpu_backend`).
+Extend it to own the surface and support frame acquisition:
+
+```rust
+pub struct WgpuRenderingContext {
+    instance: wgpu::Instance,
+    adapter: wgpu::Adapter,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    surface: wgpu::Surface<'static>,
+    surface_config: RefCell<wgpu::SurfaceConfiguration>,
+    size: Cell<PhysicalSize<u32>>,
+    current_frame: RefCell<Option<wgpu::SurfaceTexture>>,
+}
+```
+
+Implements `RenderingContext`:
+
+- `backend_binding()` → `Wgpu(WgpuBinding { device.clone(), queue.clone() })`
+- `acquire_wgpu_frame_target()` → gets surface texture, stores it, returns TextureView
+- `present()` → presents the stored SurfaceTexture
+- `resize()` → reconfigures surface
+- `read_to_image()` → GPU→CPU readback via staging buffer
+
+### 12.3 Zero-Copy Render via render_to_view()
+
+The current pipeline uses `composite_output()` + host blit (extra GPU copy). Switch to
+`render_to_view()` for zero-copy in `components/paint/painter.rs`:
+
+```rust
+// wgpu path: acquire frame target from context, render directly into it
+if let Some(frame_view) = self.rendering_context.acquire_wgpu_frame_target() {
+    if let Some(renderer) = self.webrender_renderer.as_mut() {
+        let size = self.rendering_context.size2d().to_i32();
+        renderer.render_to_view(frame_view, size, self.frame_id);
+    }
+    self.rendering_context.present();
+}
+```
+
+Eliminates the blit pipeline, blit shader, and intermediate texture sample.
+
+### 12.4 WebGL External Image Stubs
+
+On wgpu path, `webrender_external_images.rs` returns stub/no-op for WebGL external
+images. Temporary — wgpu-gui-bridge provides real GL→wgpu interop (see §13).
+
+### 12.5 Clean Up Painter wgpu Gating
+
+Replace `if !self.use_wgpu { ... }` throughout with match on backend binding. Remove
+the `use_wgpu: bool` field.
+
+### 12.6 Key Files
+
+| File | Change |
+|------|--------|
+| `components/shared/paint/rendering_context.rs` | `RenderingBackendBinding` enum, `acquire_wgpu_frame_target()` |
+| `components/shared/paint/wgpu_rendering_context.rs` | NEW — promoted from example, surface-owning |
+| `components/paint/painter.rs` | Match on enum, `render_to_view()`, remove `use_wgpu` bool |
+| `components/paint/webrender_external_images.rs` | Stub for wgpu path |
+| `examples/wgpu-embedder/src/main.rs` | Simplify to use shared `WgpuRenderingContext` |
+
+---
+
+## 13. WebRender wgpu-hal Backend Extension: WgpuHal Variant
+
+### 13.1 Architecture Decision: Extension, Not a Separate Backend
+
+`WgpuHal` should be an extension of `WgpuShared`, not a separate rendering backend.
+
+The WebRender wgpu rendering pipeline (shaders, pipelines, GPU cache, texture cache) is
+**100% identical** for all wgpu paths. From `renderer/init.rs:407–430`, both `Wgpu` and
+`WgpuShared` route to the same `create_webrender_instance_wgpu()` function via `WgpuInit`
+variants. Rendering diverges only at device/queue creation, surface management, and output
+access. A separate backend would duplicate ~3000 lines for zero gain.
+
+The escalatory wrapper model:
+
+```
+RendererBackend::Gl          → GL path (unchanged)
+RendererBackend::Wgpu        → wgpu path, WebRender owns device
+RendererBackend::WgpuShared  → wgpu path, host owns device (wgpu::Device)
+RendererBackend::WgpuHal     → wgpu path, host owns raw hal device
+                                ↑ wraps hal→wgpu internally, routes to WgpuDevice
+```
+
+### 13.2 What wgpu-hal Enables (beyond WgpuShared)
+
+| Capability | wgpu-hal method | Use case |
+|---|---|---|
+| Wrap raw hal device | `Adapter::create_device_from_hal(hal_device)` | Share device with host without two separate stacks |
+| Get raw texture handle | `Texture::as_hal::<A>()` → VkImage / MTLTexture | Zero-copy embed in native render pass |
+| Inject Vulkan semaphores | `Queue::as_hal::<Vulkan>()` → `add_signal_semaphore()` | Sync WebRender completion with native Vulkan queue |
+| Wrap raw texture in wgpu | `Device::create_texture_from_hal()` | Host pre-allocates render target |
+
+### 13.3 WgpuHal as Factory-Based Variant (Preferred)
+
+```rust
+#[cfg(feature = "wgpu_backend")]
+WgpuHal {
+    device_factory: Box<dyn FnOnce() -> (wgpu::Device, wgpu::Queue) + Send>,
+}
+```
+
+In `create_webrender_instance_with_backend()`:
+
+```rust
+if let RendererBackend::WgpuHal { device_factory } = backend {
+    let (device, queue) = device_factory();
+    return create_webrender_instance_wgpu(
+        notifier, options,
+        WgpuInit::SharedDevice { device, queue }
+    );
+}
+```
+
+The host provides a closure calling `adapter.create_device_from_hal(hal_device, &desc)`
+internally. WebRender never needs to be generic over `A: HalApi`.
+
+### 13.4 Raw Output Texture Access
+
+Add to `Renderer` in `webrender/src/renderer/mod.rs`:
+
+```rust
+pub unsafe fn composite_output_hal<A: wgpu::wgc::hal_api::HalApi>(
+    &self
+) -> Option<impl std::ops::Deref<Target = A::Texture>> {
+    self.composite_output()?.texture.as_hal::<A>()
+}
+```
+
+### 13.5 Files to Modify
+
+| File | Change |
+|---|---|
+| `webrender/src/renderer/init.rs` | Add `WgpuHal` variant; route through `WgpuInit::SharedDevice` |
+| `webrender/src/renderer/mod.rs` | Add `composite_output_hal<A>()` generic accessor |
+| `webrender/examples/wgpu_hal_device.rs` | New demo: hal device → WgpuHal → render → verify |
+
+**Files NOT changed**: All wgpu rendering code (`wgpu_device.rs`, pipelines, shaders) —
+unchanged. The entire rendering path is reused.
+
+### 13.6 Scope Boundary
+
+**In scope**: `WgpuHal` variant with factory closure, `composite_output_hal<A>()`, demo.
+
+**Deferred**: Semaphore injection (Vulkan-only), `Device::create_texture_from_hal()`
+integration, Servo-side `RenderingContext` extension to expose hal device factory.

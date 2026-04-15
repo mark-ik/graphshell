@@ -4,6 +4,7 @@
 **Status**: Design / planning
 **Primary hotspot**: `render/mod.rs`
 **Related**:
+
 - `2026-03-27_physics_spike_metrics.md`
 - `2026-03-08_render_mod_decomposition_plan.md`
 - `frame_assembly_and_compositor_spec.md`
@@ -449,3 +450,48 @@ cargo test
 # Phase A: selection change preserves FR velocity without rebuild
 # Phase D: gather release-mode diagnostics for rebuild rate and physics-step timing
 ```
+
+---
+
+## 10. Cross-Stack Integration Requirements
+
+*These integrations are explicit done gates, not incidental cleanup.*
+
+### Workbench Integration
+
+- Retained egui runtime state must follow `GraphViewId`, so moving/splitting/reordering a
+  graph pane in Workbench does not reset its layout state.
+- Viewport culling and subgraph invalidation must respect **visible navigation geometry**
+  from Workbench layout policy, not a single global canvas rect.
+- Hidden or fully occluded graph panes may coalesce physics/visual updates until visible
+  again, but their dirty flags and per-view runtime state must be preserved.
+
+### Shell Integration
+
+- Diagnostics for rebuilds, subgraph invalidations, and velocity resets should surface in
+  both the Diagnostics Inspector and Shell overview attention surfaces.
+- Pure shell chrome mutations (search pinning, overview visibility, command-surface
+  toggles) must not reuse graph rebuild flags.
+- Any new diagnostic event should carry enough context for Shell to present an actionable
+  summary: `GraphViewId`, reason, and whether the view is graph-first or pane-hosted.
+
+### Focus / Accessibility Integration
+
+- `focused_view` transitions should dirty only the affected views' selection projection,
+  not force a workspace-global rebuild.
+- UxTree / Graph Reader / accessibility projection must observe the same selected/focused
+  graph target in the same frame the visual projection updates.
+- The optimized path must not reintroduce "focus repair click" behavior for pane-hosted
+  graph views.
+
+---
+
+## 11. Ownership Receipts (Spike Stage 2, 2026-03-27)
+
+| Question | Answer |
+| -------- | ------ |
+| Who owns node positions between frames? | `egui_graphs::Graph` (egui persistent storage, keyed by widget ID). Canonical `Node::projected_position()` is authoritative only at rebuild (`EguiGraphState::from_graph()`) and at drag-end (`GraphAction::DragEnd` → `ViewAction::SetNodePosition`, `render/mod.rs:926–928`). |
+| Who owns physics state between frames? | Dual ownership. App: `app.workspace.graph_runtime.physics` (`app/workspace_state.rs:226`). egui_graphs: FR state in egui memory via `set_layout_state` (`render/mod.rs:561–568`). Each frame: clone app → lens-modify → write into egui; after widget step, read back via `get_layout_state` (`render/mod.rs:659–661`) and overwrite app copy. |
+| When do extension forces apply? | After the FR step, same frame — `apply_graph_physics_extensions` at `render/mod.rs:670`. Writes into `EguiGraph` node positions directly. |
+| When does physics pause? | On `GraphIntent::SetInteracting{true}` (`GraphAction::DragStart`, `render/mod.rs:923–924`), handled in `graph_app.rs:1514–1519`. Also when `dynamic_layout` is false (`render/mod.rs:550–551`). |
+| When do positions flow back to `Node::position`? | Only at drag-end: `GraphAction::DragEnd` → `ViewAction::SetNodePosition` (`render/mod.rs:926–928`). Not continuously. |

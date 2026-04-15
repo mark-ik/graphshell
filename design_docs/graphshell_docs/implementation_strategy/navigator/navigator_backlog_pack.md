@@ -94,3 +94,91 @@ full milestone closure receipt (`NV25`).
 - `NVS02` `DI02` Corridor transition parity. Depends: `NV08`, `NV18`, `NV24`. Done gate: anchor selection -> corridor graphlet -> graph/path emphasis flow is coherent and evidenced against the canonical scenario.
 - `NVS03` `DI05` Shell overview graphlet reorientation handoff. Depends: `NV17`, `NV21`, `NV23`. Done gate: a Shell overview handoff back into Navigator graphlet context is explicit, routed, and diagnosable.
 - `NVS04` Graph Overview swatch-to-plane handoff parity. Depends: `NV24A`, `NV24B`, `NV24C`. Done gate: compact Navigator overview surfaces orient and route successfully without pretending to be the full graph-view editor, and the handoff into Overview Plane is explicit and testable.
+
+---
+
+## Navigator Chrome Drift Analysis — Spec vs Live Code
+
+*Captured from implementation session. These are concrete code-level drift points where
+the live code does not match the chrome scope split spec.*
+
+### Drift Point 1 — `render_navigation_buttons` in workbench_host.rs (CRITICAL)
+
+**Spec says** (`subsystem_ux_semantics/2026-03-13_chrome_scope_split_plan.md` §5.1):
+"Disallowed here as primary command ownership: Back / Forward / Reload / StopLoad, Find in
+page, Content zoom controls, Compat / backend toggle."
+
+**Code does**: `workbench_host.rs:2281-2288` calls `render_navigation_buttons()` which
+renders Back/Forward/Reload/StopLoad/ZoomIn/ZoomOut/ZoomReset buttons, all dispatched via
+`toolbar_routing::run_nav_action()`.
+
+**Fix**: Delete `render_navigation_buttons()` (lines 3528-3629) and its call site (lines
+2281-2288).
+
+### Drift Point 2 — `focused_content_status` parameter
+
+**Spec says**: Navigator host projects read-only status badges only, not actionable viewer
+state.
+
+**Code does**: `render_workbench_host()` takes `focused_content_status: &FocusedContentStatus`
+(line 1802) and `location_dirty: &mut bool` (line 1803). Both are ONLY consumed by
+`render_navigation_buttons()`. No other code in the function reads them.
+
+**Fix**: Remove both parameters from `render_workbench_host()` signature and from the call
+site in `toolbar_dialog.rs`.
+
+### Drift Point 3 — Dead imports after removal
+
+**Code has**: `use toolbar_routing::{self, ToolbarNavAction}` (line 30) and
+`use gui_state::FocusedContentStatus` (line 28). Both become unused after removing
+`render_navigation_buttons`.
+
+**Fix**: Remove both import lines.
+
+### Drift Point 4 — `WorkbenchChromeProjection` spec `nav` field
+
+**Spec says** (`chrome_scope_split_plan.md` §6, line 422): the struct still lists
+`pub nav: PaneNavState`.
+
+**Code does**: The real `WorkbenchChromeProjection` (`workbench_host.rs:262-278`) does NOT
+have a `nav` field — it was never implemented. The spec-only field contradicts the updated
+§5.1 disallowed-controls list.
+
+**Fix**: Remove `pub nav: PaneNavState` from the spec struct. The
+`focused_pane_status: Vec<PaneStatusBadge>` field (lines 423-425) already covers read-only
+badges and is the correct replacement.
+
+### Drift Point 5 — §12 acceptance criterion (line 750)
+
+**Spec says**: "Back/Forward/Reload live in the workbench-scoped host, not in the
+graph-scoped host" — this is the OLD model.
+
+**Should say**: "Back/Forward/Reload live in tile chrome, not in any Navigator host."
+
+**Fix**: Update line 750 to match the tile-chrome-only model.
+
+### Drift Point 6 — `WorkbenchPaneEntry` missing `presentation_mode`
+
+**Spec says** (`pane_chrome_and_promotion_spec.md` §2): pane tree should reflect
+presentation mode (Floating/Docked/Tiled) with graduated row actions.
+
+**Code does**: `WorkbenchPaneEntry` (`workbench_host.rs:229-239`) has no
+`presentation_mode` field. All pane rows render identically.
+
+**Fix**: Add `pub(crate) presentation_mode: PanePresentationMode` to `WorkbenchPaneEntry`.
+Populate from `NodePaneState.presentation_mode` during `pane_entry_for_tile()`. Default to
+`PanePresentationMode::Tiled` for graph and tool panes.
+
+### Implementation Steps
+
+1. Delete `render_navigation_buttons()` (`workbench_host.rs:3528-3629`) and call site
+   (`lines 2281-2288`). The `render_frame_pin_controls` call at line 2289 remains.
+2. Remove `focused_content_status` and `location_dirty` from `render_workbench_host()`
+   signature; remove corresponding args from `gui_frame/toolbar_dialog.rs` call site.
+3. Remove dead imports (`FocusedContentStatus`, `toolbar_routing`/`ToolbarNavAction`).
+4. Add `pub(crate) presentation_mode: PanePresentationMode` to `WorkbenchPaneEntry`; populate
+   in `pane_entry_for_tile()`.
+5. Spec fixes in `chrome_scope_split_plan.md`: remove `pub nav: PaneNavState`; update §12
+   line 750; add `presentation_mode` to `WorkbenchTreeRow`.
+
+**Verification**: `cargo check` + `cargo test --lib -- --quiet` clean.

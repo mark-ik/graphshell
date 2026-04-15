@@ -14,6 +14,7 @@ intent and app-level control.
 
 - [shell_backlog_pack.md](shell_backlog_pack.md) — dependency-ordered execution pack and practical worklist for Shell host adoption
 - [2026-04-03_shell_command_bar_execution_plan.md](2026-04-03_shell_command_bar_execution_plan.md) — active Workstream A closure lane for command-bar authority, omnibar session/mailbox state, focused-target routing, and legacy bypass cleanup
+- [2026-04-14_iced_host_migration_execution_plan.md](2026-04-14_iced_host_migration_execution_plan.md) — recommended future host-migration path: make `graph-tree` and `graph-canvas` authoritative first, decouple compositor/runtime ownership, then bring up iced as a second host and port chrome last
 - [../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md) — shared closure lane for command-surface provenance diagnostics, semantic projection, and AT validation consumed by Shell Workstream A
 - [shell_composition_model_spec.md](shell_composition_model_spec.md) — concrete composition model: ShellLayout named slots, egui_tiles scoping, graph canvas hosting contexts, NavigatorContextProjection / omnibar seam
 - [../aspect_control/ASPECT_CONTROL.md](../aspect_control/ASPECT_CONTROL.md) — Control aspect (settings, history, diagnostics surfaces); Shell is the domain that hosts and exposes these

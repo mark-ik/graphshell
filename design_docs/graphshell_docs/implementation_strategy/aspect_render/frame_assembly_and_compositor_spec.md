@@ -14,6 +14,7 @@
 - `../../TERMINOLOGY.md` — `CompositorAdapter`, `TileRenderMode`, `Composition Pass`, `Surface Composition Contract`
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7)):
+
 - **OpenTelemetry Semantic Conventions** — diagnostics channels (GL state violation, chaos mode, frame timing) follow OTel naming and severity conventions
 - **OSGi R8** — `TileRenderMode` resolution and `CompositorAdapter` capability dispatch follow OSGi capability vocabulary
 
@@ -113,6 +114,7 @@ logical navigation region versus visible navigation geometry.
 ### 4.1 GL State Isolation Invariant
 
 Every `CompositorAdapter` callback must:
+
 1. Save GL state before invoking the content callback.
 2. Restore GL state after the callback returns, regardless of whether the callback succeeded or panicked.
 3. The egui render path must observe consistent GL state before and after a compositor callback.
@@ -187,3 +189,113 @@ The egui frame loop coordinates three phases:
 | `EmbedderCore` emits no direct graph mutations | Architecture invariant: no `graph_app.*` calls from `EmbedderCore` module |
 | `GraphSemanticEvent` is the only crossing point | Architecture invariant: all embedder→app communication passes through `GraphSemanticEvent` |
 | Compositor callback is unregistered on viewer detach | Test: detach viewer → callback list is empty; tile falls back to `Placeholder` |
+
+---
+
+## 8. C4 — Render Pass Sharing: Design
+
+*The following section records the design analysis for eliminating redundant render pass
+open/close cycles per frame (C4 in the compositor optimization sequence).*
+
+### Context
+
+C3 batched command encoding — all draw calls now share a single `CommandEncoder` per frame
+via `pending_encoder`. But each `draw_instanced()` call still creates its own
+`begin_render_pass()` / drop cycle. A typical frame has 50-200 draw calls across ~10-20
+unique render targets, meaning 50-200 render pass cycles where ~10-20 would suffice.
+Render pass creation is expensive: the GPU driver must resolve load/store ops, flush tile
+memory (on tiled GPUs), and validate attachments. Sharing one render pass per target
+eliminates this overhead.
+
+### Lifetime Analysis: Why a Guard Struct Doesn't Work
+
+`RenderPass<'a>` borrows the `CommandEncoder` mutably. If we stored both the encoder and
+the pass on `WgpuDevice`, we'd have a self-referential borrow. Rust forbids this.
+
+A scoped closure approach also fails: while the render pass borrows the encoder, we also
+need to call methods on `wgpu_dev` (get_pipeline, create_bind_groups, etc.) — and those
+require `&mut self`. If the encoder is still on `wgpu_dev`, we can't take `&mut self`.
+
+A draw-command-recording approach (collect `Vec<DrawCmd>` per target, replay in one pass)
+avoids lifetimes but adds per-frame allocation and borrow complexity from
+`TextureBindings<'_>`.
+
+### Final Design: Take/Put-Back Encoder
+
+The take/put-back encoder is the most pragmatic solution:
+
+1. Encoder is an `Option<CommandEncoder>` field on `WgpuDevice`.
+2. Renderer calls `wgpu_dev.take_encoder()` — takes encoder out, making `wgpu_dev` freely
+   usable for `&self` and `&mut self` methods.
+3. Renderer creates render pass locally from the taken encoder, issues N draws.
+4. Render pass is dropped (closing the pass on the GPU).
+5. Renderer calls `wgpu_dev.return_encoder(encoder)` — puts encoder back.
+
+The key insight: while the encoder is taken out, `wgpu_dev` is fully accessible for
+pipeline lookups, buffer creation, bind group creation. The render pass is a local
+variable in the renderer — clean lifetime.
+
+```rust
+// renderer code:
+let mut encoder = wgpu_dev.take_encoder();
+let target_uniforms = wgpu_dev.create_target_uniforms(target_w, target_h);
+{
+    let mut pass = encoder.begin_render_pass(&desc);
+    for batch in batches {
+        let pipeline = wgpu_dev.ensure_pipeline(variant, blend, depth, fmt);
+        let (bg0, bg1) = wgpu_dev.create_bind_groups(..., &target_uniforms);
+        let ibuf = wgpu_dev.create_instance_buffer(data);
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bg0, &[]);
+        pass.set_bind_group(1, &bg1, &[]);
+        pass.set_vertex_buffer(0, wgpu_dev.unit_quad_vb.slice(..));
+        pass.set_vertex_buffer(1, ibuf.slice(..));
+        pass.set_index_buffer(wgpu_dev.unit_quad_ib.slice(..), Uint16);
+        pass.draw_indexed(0..6, 0, 0..count);
+    }
+} // pass dropped here
+wgpu_dev.return_encoder(encoder);
+```
+
+### New WgpuDevice Methods
+
+```rust
+impl WgpuDevice {
+    pub fn take_encoder(&mut self) -> wgpu::CommandEncoder { ... }
+    pub fn return_encoder(&mut self, encoder: wgpu::CommandEncoder) { ... }
+    pub fn create_target_uniforms(&self, width: u32, height: u32)
+        -> (wgpu::Buffer, wgpu::Buffer) { ... }
+    pub fn ensure_pipeline(&mut self, variant: WgpuShaderVariant,
+        blend_mode: WgpuBlendMode, depth_state: WgpuDepthState,
+        target_format: wgpu::TextureFormat) -> Option<&wgpu::RenderPipeline> { ... }
+    pub fn record_draw<'a>(&mut self, pass: &mut wgpu::RenderPass<'a>, ...) { ... }
+}
+```
+
+### Renderer Changes
+
+- `draw_passes_wgpu()` picture cache loop: take encoder → `create_target_uniforms` →
+  create render pass → loop batches (prepare bind groups + instance buffer + record draw)
+  → drop pass → return encoder.
+- `draw_cache_target_tasks_wgpu()`, `draw_clip_batch_list_wgpu()`,
+  `draw_quad_batches_wgpu()`: same take/put-back pattern per target.
+- Texture cache targets: the per-target loop in `draw_passes_wgpu` creates ONE pass and
+  passes it to each helper function.
+- Scissor reset: when switching from a scissored draw to non-scissored within the same
+  pass, explicitly `set_scissor_rect(0, 0, w, h)` to reset.
+
+### Implementation Order
+
+1. Add `take_encoder()`, `return_encoder()`, `create_target_uniforms()`,
+   `ensure_pipeline()` to `WgpuDevice`. Keep existing `draw_instanced()` working.
+2. Migrate picture cache rendering in `draw_passes_wgpu()`.
+3. Migrate texture cache target rendering (one pass per target across all helpers).
+4. Optionally unify composite path (`render_composite_instances_to_view()`).
+5. Remove old `draw_instanced()` if all callers migrated.
+
+### Risk Notes
+
+- **Medium**: Render pass must be created with correct depth attachment upfront — `has_opaque`
+  is computed before the batch loop, so this info is available.
+- **Medium**: Scissor rect state persists within a pass; must explicitly reset.
+- **Low**: Pipeline/bind group changes within a pass are standard wgpu operations.

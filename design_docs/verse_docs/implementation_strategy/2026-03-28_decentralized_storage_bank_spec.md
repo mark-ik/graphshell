@@ -6,6 +6,7 @@
 how storage is contributed, allocated, used, health-monitored, and accounted
 for. Sits between the PoA ledger (accounting) and VerseBlob (addressing).
 **Related**:
+
 - `design_docs/verse_docs/implementation_strategy/proof_of_access_ledger_spec.md`
 - `design_docs/verse_docs/implementation_strategy/verseblob_content_addressing_spec.md`
 - `design_docs/verse_docs/implementation_strategy/self_hosted_verse_node_spec.md`
@@ -15,6 +16,7 @@ for. Sits between the PoA ledger (accounting) and VerseBlob (addressing).
 - `design_docs/verso_docs/technical_architecture/VERSO_AS_PEER.md`
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../graphshell_docs/research/2026-03-04_standards_alignment_report.md)):
+
 - **W3C DID Core 1.0** — all identity fields use `did:key`
 - **IPFS CIDv1** — blob and fragment addressing
 - **RFC 4122 UUID v7** — receipt and announcement IDs (time-ordered)
@@ -67,6 +69,7 @@ maintaining their local ledger view.
 ### 2.2 The Bank Is a View, Not an Entity
 
 There is no "storage bank server." The bank is the emergent state of:
+
 - Signed `StorageAnnouncement`s (who hosts what)
 - Signed `StorageHeartbeat`s (periodic health reports)
 - Signed `AccessReceipt`s (credit events)
@@ -169,9 +172,11 @@ before serving it, the more the retrieval is worth.
   measured from the provider's first `StorageAnnouncement` for that blob to
   the retrieval timestamp.
 - **Bonus formula**:
+
   ```
   usage_bonus = bytes_served × base_rate × min(hold_epochs, cap) × bonus_multiplier
   ```
+
   where `cap` and `bonus_multiplier` are community-configurable.
 - **Anti-gaming**: Only receipts with a valid `requester` signature count.
   Self-retrieval (provider == requester) is excluded from bonus calculation.
@@ -292,6 +297,7 @@ struct PeerStorageReport {
 ```
 
 Each peer sees:
+
 - How much of their data the other peer is holding
 - How much of the other peer's data they are holding
 - The imbalance (if any)
@@ -605,6 +611,7 @@ When the pool runs low:
 ### 9.3 Cross-Track Isolation
 
 Pledging does **not** create cross-track fungibility:
+
 - Storage credits cannot be converted to sats or FIL
 - Storage credits cannot be converted to reputation
 - Pledging does not grant governance weight
@@ -634,6 +641,7 @@ spec. It governs the supply side: how much of my resources I'm willing to
 contribute to the storage bank.
 
 **Defaults**:
+
 - `max_contributed_bytes`: 0 (no contribution until explicitly configured)
 - `max_bandwidth_bytes_per_epoch`: 0
 - `service_hours`: None
@@ -648,11 +656,13 @@ Contributing to the storage bank is always opt-in.
 ### 11.1 PoA Ledger Extensions
 
 Add to `AccessWorkType`:
+
 - `BlobAvailabilityEpochHeld` — base credit for passing availability challenge
 - `BlobRetrievalServed` — usage bonus with hold-duration weighting
 - `BlobRepairCompleted` — repair credit for re-hosting under-replicated blobs
 
 Add to `AccessReceipt`:
+
 - `hold_duration_epochs: Option<u64>` — epochs held before serving
 
 ### 11.2 Economic Model Extensions
@@ -709,3 +719,137 @@ Add to `AccessReceipt`:
 - Pledge-to-pool: enabled but no automatic pledging
 - `StorageContributionBudget`: all zeros (opt-in)
 - FIL payout: off by default (reputation-only accounting)
+
+---
+
+## 14. Design Rationale and Critical Analysis
+
+*The following records the design reasoning that produced this spec — the problems
+considered, alternatives rejected, and why the chosen model resolves them.*
+
+### 14.1 "Usage Validates Storage Time" — The Retroactive Credit Model
+
+**The idea**: Credit unlocks when someone retrieves data you've been holding. Long storage +
+successful retrieval = more credit than short storage + retrieval.
+
+**What's good**: Genuinely novel against the existing specs and anti-gaming by construction.
+You can't earn credit by claiming to store data nobody ever checks.
+
+**The problem — long-tail death**: This is BitTorrent's exact failure mode. Popular torrents
+get seeded because seeders get ratio credit from leechers. Unpopular torrents die because
+nobody downloads them. If Verse only credits on retrieval, obscure knowledge — the *most*
+valuable thing for a knowledge graph — has no storage incentive.
+
+**Resolution: two-layer credit.**
+
+- **Base layer**: Small, steady credit for passing periodic retrieval challenges
+  (lightweight: "serve me byte range X–Y of blob Z"). Keeps providers honest even for cold
+  data. Maps to the existing `StorageBond` epoch-payout model.
+- **Bonus layer**: Additional credit when a real user retrieves data you've held. Bonus
+  scales with hold duration — serving a blob held for 6 months earns more than one cached
+  5 minutes ago.
+
+The ratio between base and bonus is community policy.
+
+### 14.2 "Seeding Storage" vs. Seeding Specific Blobs
+
+**The idea**: Seed *storage capacity* — a pool of disk space the network can use — rather
+than seeding specific files (BitTorrent model).
+
+**The problem — assignment**: "Seed storage" decouples content and capacity. The network
+must decide *what goes where*. That's a placement problem — the hardest part of distributed
+storage systems (Ceph, Filecoin, Storj all have complex placement engines). The current
+specs have no blob placement protocol.
+
+**Resolution: placement as community policy, not protocol.**
+
+- **Bilateral level (Verso)**: Peers explicitly agree to host each other's data. No
+  matchmaking needed.
+- **Community level (Verse)**: Community governance sets a replication target (e.g., k=3).
+  Providers with active `StorageBond`s pull blobs from a "needs-replication" queue.
+  Providers self-select which blobs to host (like BT peers choosing torrents), but the
+  community can prioritize (e.g., "checkpoints before raw submissions").
+
+Avoids a complex placement engine; leans on provider self-selection + community signaling.
+
+### 14.3 Retrieval and Reliability Guarantees
+
+You can't *guarantee* retrieval in a voluntary decentralized system — only make loss
+*unlikely* in proportion to network health. Even Filecoin, with real money at stake, has
+availability gaps.
+
+**What actually works:**
+
+- **Redundancy targeting** (k-of-n, where k is community policy). As long as k providers
+  hold a blob, it survives.
+- **Erasure coding** (better than naive duplication). Split a blob into m fragments where
+  any k-of-m suffice to reconstruct. Reed-Solomon or fountain codes. 4-of-8 coding gives
+  8-provider redundancy at 2× storage cost instead of 8× cost with naive replication.
+  *This is the missing piece in the specs at time of writing.*
+- **Health reporting**: Providers periodically announce what they hold; the community
+  aggregates a health view.
+- **Repair protocol**: When health reporting shows under-replication, a re-encode/re-host
+  is triggered by the blob's requester, a community "repair worker" role, or automated
+  community policy.
+
+### 14.4 Storage Credit Backing Services
+
+**The tension**: The existing economic model deliberately separates tracks (sats for
+compute, FIL for storage, reputation for governance) and makes them non-fungible to prevent
+plutocracy. Unifying "storage credit" as a universal service currency re-couples what was
+intentionally decoupled.
+
+**Resolution: storage budget, not storage currency.** A community's collective storage
+capacity (sum of contributed capacity) is its "storage bank balance." Services draw from
+this collective capacity. If the bank runs low, under-replicated blobs are flagged.
+
+Storage is a resource constraint, not a currency. The difference matters: a currency
+implies transferability and exchange rates; a resource constraint means "we have X bytes,
+what do we use them for?"
+
+### 14.5 Data Management: Sharding and Duplication Gaps
+
+The existing specs have k-replica sharding for *index segments* but not a general data
+durability model. What's needed:
+
+| Layer | Mechanism | Status at spec time |
+|---|---|---|
+| Addressing | CIDv1 content-addressing | Done |
+| Placement | Provider self-selection + community replication queue | Missing |
+| Redundancy | Erasure coding (k-of-m fragments) | Missing |
+| Health | Provider announcements + community health aggregation | Missing |
+| Repair | Under-replication trigger → re-encode/re-host | Missing |
+| Eviction | Retention class expiry + community pruning policy | Partial |
+
+### 14.6 The Fallback Hierarchy
+
+Graceful degradation model:
+
+```
+Community storage bank (credit-based, k-of-n redundancy)
+    ↓ if community is thin or user opts out
+Bilateral peer hosting (trust-based, direct reciprocity)
+    ↓ if no willing peers
+Self-hosting (always works, full control, no redundancy)
+```
+
+The existing specs describe these levels independently (node modes: `CommunityHost` →
+`TrustedPeersOnly` → `LocalOnly`) but don't describe:
+
+- How data migrates between levels (promote self-hosted blob to peer-hosted to
+  community-hosted as network grows).
+- How data demotes (community storage shrinks → under-replicated blob → falls back to
+  peer or self-hosting).
+- How the user sees this (storage health indicator per blob or per workspace?).
+
+The bilateral microcosm (two friends: "I'll hold 2 GB of yours if you hold 2 GB of mine")
+is the right starting point. It needs: storage budget agreement, health reporting, retrieval
+verification, and credit accounting. This is the community-scale storage bank at n=2, with
+trust substituting for reputation/bonds.
+
+### 14.7 Payment Is Lazy
+
+The existing specs already have this right. The rollout sequence in the economic model is:
+reputation-only → sats compute → FIL treasury → storage staking → contributor staking →
+bootstrap staking. Payment is literally the last thing to happen. No change needed — this
+principle should be reinforced throughout the storage bank design.
