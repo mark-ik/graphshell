@@ -13,6 +13,7 @@ mod tags;
 mod undo_redo;
 mod ux_tree;
 mod ux_tree_diff_gate;
+mod ux_replay_golden;
 mod verse;
 mod verse_delta_sync_basic;
 

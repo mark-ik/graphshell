@@ -89,66 +89,6 @@ pub(crate) fn sync_active(graph_tree: &mut GraphTree<NodeKey>, node_key: NodeKey
     graph_tree.apply(NavAction::Activate(node_key));
 }
 
-/// Rebuild the GraphTree from the current egui_tiles tree state.
-///
-/// Used for initial population and for periodic consistency checks.
-/// This is a full rebuild — it clears the GraphTree and re-attaches
-/// all node panes found in the tile tree.
-pub(crate) fn rebuild_from_tiles(
-    graph_tree: &mut GraphTree<NodeKey>,
-    tiles_tree: &Tree<TileKind>,
-    active_node: Option<NodeKey>,
-    lifecycle_fn: &dyn Fn(NodeKey) -> NodeLifecycle,
-) {
-    // Collect all node keys from the tile tree.
-    let mut node_keys: Vec<NodeKey> = Vec::new();
-    for (_tile_id, tile) in tiles_tree.tiles.iter() {
-        if let Tile::Pane(kind) = tile {
-            if let Some(state) = kind.node_state() {
-                node_keys.push(state.node);
-            }
-        }
-    }
-
-    // Detach any members in graph_tree not in the tile tree.
-    let current_members: Vec<NodeKey> = graph_tree
-        .members()
-        .map(|(k, _)| k.clone())
-        .collect();
-    for member in &current_members {
-        if !node_keys.contains(member) {
-            graph_tree.apply(NavAction::Detach {
-                member: *member,
-                recursive: false,
-            });
-        }
-    }
-
-    // Attach any tile-tree nodes not yet in graph_tree.
-    for &node_key in &node_keys {
-        if !graph_tree.contains(&node_key) {
-            graph_tree.apply(NavAction::Attach {
-                member: node_key,
-                provenance: Provenance::Restored,
-            });
-        }
-
-        // Sync lifecycle.
-        let lc = lifecycle_fn(node_key);
-        graph_tree.apply(NavAction::SetLifecycle(
-            node_key,
-            to_graph_tree_lifecycle(lc),
-        ));
-    }
-
-    // Sync active.
-    if let Some(active) = active_node {
-        if graph_tree.contains(&active) {
-            graph_tree.apply(NavAction::Activate(active));
-        }
-    }
-}
-
 /// Produce `(PaneId, NodeKey, egui::Rect)` tuples from GraphTree layout, matching
 /// the format of `tile_compositor::active_node_pane_rects()`.
 ///
@@ -189,11 +129,7 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
 }
 
 /// Incremental sync: reconcile GraphTree membership with the tile tree
-/// WITHOUT destroying topology.
-///
-/// Unlike `rebuild_from_tiles` (which flattens all traversal-derived
-/// parent/child structure by re-attaching everything as `Provenance::Restored`),
-/// this function:
+/// without destroying topology.
 ///
 /// - Attaches newly appeared tile nodes using `provenance_fn` to infer the
 ///   correct traversal parent/child structure from the domain graph
@@ -202,8 +138,7 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
 /// - Syncs active member
 ///
 /// Existing parent/child relationships, provenance, and expansion state
-/// are preserved. This is the Phase B replacement for the per-frame
-/// `rebuild_from_tiles` call.
+/// are preserved.
 ///
 /// `provenance_fn` is called only for nodes NOT yet in GraphTree. It should
 /// query the domain graph to determine the correct `Provenance` — typically
@@ -331,6 +266,77 @@ pub(crate) fn parity_check(
 /// `active_node` is the currently focused NodeKey from the host; included so the
 /// active-member comparison is meaningful. Pass `None` if focus is unknown.
 #[cfg(any(feature = "diagnostics", debug_assertions))]
+fn traverse_tile_tree(
+    tiles: &egui_tiles::Tiles<TileKind>,
+    tile_id: egui_tiles::TileId,
+    visible_set: &mut std::collections::HashSet<NodeKey>,
+    expanded_set: &mut std::collections::HashSet<NodeKey>,
+    visible_order: &mut Vec<NodeKey>,
+    is_visible: bool,
+) {
+    // If a parent is not visible, its children are typically not visible on screen,
+    // though they exist. We consider a pane 'visible' if it actually draws.
+    let tile = match tiles.get(tile_id) {
+        Some(t) => t,
+        None => return,
+    };
+
+    match tile {
+        Tile::Pane(kind) => {
+            if let Some(state) = kind.node_state() {
+                if is_visible {
+                    visible_set.insert(state.node);
+                    visible_order.push(state.node);
+                }
+            }
+        }
+        Tile::Container(container) => match container {
+            egui_tiles::Container::Tabs(tabs) => {
+                // In Tabs, only the active tab is visible content-wise.
+                // The others only show headers.
+                for &child in &tabs.children {
+                    let child_is_visible = is_visible && Some(child) == tabs.active;
+                    traverse_tile_tree(
+                        tiles,
+                        child,
+                        visible_set,
+                        expanded_set,
+                        visible_order,
+                        child_is_visible,
+                    );
+                }
+            }
+            egui_tiles::Container::Linear(linear) => {
+                for &child in &linear.children {
+                    traverse_tile_tree(
+                        tiles,
+                        child,
+                        visible_set,
+                        expanded_set,
+                        visible_order,
+                        is_visible,
+                    );
+                }
+            }
+            egui_tiles::Container::Grid(grid) => {
+                // In a grid, children are ordered visually by their position.
+                // For simplicity, we just walk the children iterator.
+                for &child in grid.children() {
+                    traverse_tile_tree(
+                        tiles,
+                        child,
+                        visible_set,
+                        expanded_set,
+                        visible_order,
+                        is_visible,
+                    );
+                }
+            }
+        },
+    }
+}
+
+#[cfg(any(feature = "diagnostics", debug_assertions))]
 fn build_external_snapshot(
     tiles_tree: &Tree<TileKind>,
     active_node: Option<NodeKey>,
@@ -339,16 +345,29 @@ fn build_external_snapshot(
 
     let mut members = HashSet::new();
     let mut visible = HashSet::new();
+    let mut visible_order = Vec::new();
+    let mut expanded = HashSet::new();
     let children: HashMap<NodeKey, Vec<NodeKey>> = HashMap::new();
 
+    // 1. Members can be gathered just by iterating all panes.
     for (_tile_id, tile) in tiles_tree.tiles.iter() {
         if let Tile::Pane(kind) = tile {
             if let Some(state) = kind.node_state() {
                 members.insert(state.node);
-                // All tile panes are visible by definition (tiles = open panes).
-                visible.insert(state.node);
             }
         }
+    }
+
+    // 2. Visible and visible_order require traversal from root.
+    if let Some(root_id) = tiles_tree.root() {
+        traverse_tile_tree(
+            &tiles_tree.tiles, 
+            root_id, 
+            &mut visible, 
+            &mut expanded, 
+            &mut visible_order, 
+            true
+        );
     }
 
     // The tile tree doesn't have node-level parent/child relationships
@@ -359,18 +378,14 @@ fn build_external_snapshot(
     //
     // TODO(Phase D): When GraphTree becomes authority, topology comparison
     // becomes meaningful and this should be populated.
-    //
-    // `expanded` and `visible_order` are also left empty — the tile tree has
-    // no equivalent concept. The parity::compare function skips those axes
-    // when the external snapshot provides empty collections.
 
     graph_tree::parity::ExternalTreeSnapshot {
         members,
         children,
         active: active_node,
         visible,
-        expanded: HashSet::new(),
-        visible_order: Vec::new(),
+        expanded,
+        visible_order,
     }
 }
 

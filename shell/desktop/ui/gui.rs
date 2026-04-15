@@ -995,11 +995,11 @@ impl Gui {
         });
 
         // Per-frame incremental sync: reconcile GraphTree membership with tile
-        // tree WITHOUT destroying topology. Phase B replacement for the previous
-        // full rebuild_from_tiles call — preserves traversal-derived parent/child
-        // structure, provenance, and expansion state. For newly-seen tile nodes,
-        // infer provenance from domain graph traversal edges so they land as
-        // children of their navigation source rather than as unrooted anchors.
+        // tree without destroying topology. Preserves traversal-derived
+        // parent/child structure, provenance, and expansion state. For newly-seen
+        // tile nodes, infer provenance from domain graph traversal edges so they
+        // land as children of their navigation source rather than as unrooted
+        // anchors.
         {
             let focused = self.focused_node_key();
             let existing_members: Vec<NodeKey> =
