@@ -5,7 +5,7 @@
 # Sector C — Identity & Verse Registry Development Plan
 
 **Doc role:** Implementation plan for the identity and verse registry sector
-**Status:** Active / planning
+**Status:** ✅ Complete / Implemented — all runtime authorities landed. Follow-on: browser-signer UX polish (not blocking).
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `IdentityRegistry`, `NostrCoreRegistry`

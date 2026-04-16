@@ -1,7 +1,7 @@
 # `graph_app.rs` Decomposition Plan
 
 **Date**: 2026-03-08  
-**Status**: Active; Stages 1-4 landed and wired  
+**Status**: ✅ Complete (2026-03-08 initial, Stage 5 cleanup through 2026-04 sessions) — all 4 extraction stages + 8 Stage 5 cleanup slices landed. `active_selection` mirror eliminated; canonical scope-based selection store is the sole authority.  
 **Primary hotspot**: `graph_app.rs`  
 **Related**:
 - `../../../archive_docs/checkpoint_2026-03-27/graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md`

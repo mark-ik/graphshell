@@ -5,7 +5,7 @@
 # Sector E — Workbench Surface Registry Development Plan
 
 **Doc role:** Implementation plan for the workbench surface registry sector
-**Status:** Active / implemented with follow-on notes
+**Status:** ✅ Complete / Implemented — WorkbenchSurfaceRegistry + WorkflowRegistry live with 3 built-in workflows. Follow-on: explicit transaction/rollback carrier semantics (not blocking).
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `WorkbenchSurfaceRegistry`, `WorkflowRegistry`

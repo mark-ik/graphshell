@@ -5,7 +5,7 @@
 # Sector G — Mod, Agent & Theme Registry Development Plan
 
 **Doc role:** Implementation plan for the mod, agent, and theme registry sector
-**Status:** Implemented at runtime level / residual follow-on
+**Status:** ✅ Complete / Implemented at runtime level — ModRegistry, AgentRegistry, ThemeRegistry all struct-complete. Follow-ons: WASM mod host, mod-provided agent extensions, OS-theme startup detection.
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `ModRegistry`, `AgentRegistry`, `ThemeRegistry`
