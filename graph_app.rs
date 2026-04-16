@@ -420,6 +420,9 @@ impl GraphBrowserApp {
                     graph_view_frames: HashMap::new(),
                     graph_view_canvas_rects: HashMap::new(),
                     scene_runtimes: HashMap::new(),
+                    #[cfg(not(target_arch = "wasm32"))]
+                    canvas_interaction_engines: HashMap::new(),
+                    canvas_cameras: HashMap::new(),
                     simulate_release_impulses: HashMap::new(),
                     hovered_scene_region: None,
                     selected_scene_regions: HashMap::new(),
@@ -593,6 +596,9 @@ impl GraphBrowserApp {
                     graph_view_frames: HashMap::new(),
                     graph_view_canvas_rects: HashMap::new(),
                     scene_runtimes: HashMap::new(),
+                    #[cfg(not(target_arch = "wasm32"))]
+                    canvas_interaction_engines: HashMap::new(),
+                    canvas_cameras: HashMap::new(),
                     simulate_release_impulses: HashMap::new(),
                     hovered_scene_region: None,
                     selected_scene_regions: HashMap::new(),

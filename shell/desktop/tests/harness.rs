@@ -23,6 +23,7 @@ pub(crate) struct TestRegistry {
     pub(crate) app: GraphBrowserApp,
     pub(crate) diagnostics: DiagnosticsState,
     pub(crate) tiles_tree: Tree<TileKind>,
+    pub(crate) graph_tree: graph_tree::GraphTree<NodeKey>,
     frame_sequence: u64,
 }
 
@@ -37,6 +38,7 @@ impl TestRegistry {
             app: GraphBrowserApp::new_for_testing(),
             diagnostics: DiagnosticsState::new(),
             tiles_tree,
+            graph_tree: graph_tree::GraphTree::new(),
             frame_sequence: 1,
         }
     }
@@ -240,7 +242,7 @@ impl TestRegistry {
 
         match command {
             ux_bridge::UxBridgeCommand::InvokeUxAction { .. } => {
-                ux_bridge::handle_runtime_command(&mut self.app, &mut self.tiles_tree, command)
+                ux_bridge::handle_runtime_command(&mut self.app, &mut self.tiles_tree, &mut self.graph_tree, command)
             }
             _ => {
                 let snapshot = ux_tree::build_snapshot(&self.tiles_tree, &self.app, 0);

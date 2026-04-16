@@ -40,11 +40,12 @@ impl UiHostRenderBootstrap {
     pub(crate) fn new(
         rendering_context: Rc<OffscreenRenderingContext>,
         window_rendering_context: Rc<WindowRenderingContext>,
+        event_loop: &winit::event_loop::ActiveEventLoop,
     ) -> Self {
         Self {
             rendering_context,
             window_rendering_context,
-            wgpu: UiWgpuHostBootstrap::default(),
+            wgpu: UiWgpuHostBootstrap::from_event_loop(event_loop),
         }
     }
 
@@ -73,6 +74,16 @@ pub(crate) struct UiRenderBackendInit<'a> {
 #[derive(Clone)]
 pub(crate) struct UiWgpuHostBootstrap {
     pub(crate) configuration: egui_wgpu::WgpuConfiguration,
+}
+
+impl UiWgpuHostBootstrap {
+    fn from_event_loop(event_loop: &winit::event_loop::ActiveEventLoop) -> Self {
+        let owned_handle = event_loop.owned_display_handle();
+        let mut configuration = egui_wgpu::WgpuConfiguration::default();
+        configuration.wgpu_setup =
+            egui_wgpu::WgpuSetup::from_display_handle(owned_handle);
+        Self { configuration }
+    }
 }
 
 impl Default for UiWgpuHostBootstrap {

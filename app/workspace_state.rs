@@ -247,6 +247,21 @@ pub struct GraphViewRuntimeState {
     /// Runtime-only per-view scene enrichment state.
     pub scene_runtimes: HashMap<GraphViewId, GraphViewSceneRuntime>,
 
+    /// Per-view graph-canvas interaction engine state (transient, not persisted).
+    ///
+    /// Created lazily when a view first renders through the graph-canvas path.
+    /// Replaces `egui_graphs`' internal hover/selection/drag tracking with
+    /// the portable `InteractionEngine` from the `graph-canvas` crate.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub canvas_interaction_engines:
+        HashMap<GraphViewId, graph_canvas::engine::InteractionEngine<NodeKey>>,
+
+    /// Per-view graph-canvas camera state (transient, not persisted).
+    ///
+    /// Parallel to the egui_graphs metadata camera. Once the graph-canvas path
+    /// is authoritative, this replaces the MetadataFrame camera round-trip.
+    pub canvas_cameras: HashMap<GraphViewId, graph_canvas::camera::CanvasCamera>,
+
     /// Short-lived per-view release impulses used by `Simulate` mode so dragged
     /// node-objects can coast and settle briefly after pointer release.
     pub simulate_release_impulses: HashMap<GraphViewId, HashMap<NodeKey, egui::Vec2>>,

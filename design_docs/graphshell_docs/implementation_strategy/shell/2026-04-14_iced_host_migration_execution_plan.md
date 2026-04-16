@@ -175,22 +175,38 @@ Checklist:
 - [x] Land structure-aware parity diagnostics
 - [x] Land dual-write adapters that pair tile mutations with
   `graph_tree_commands`
-- [ ] Remove the remaining per-frame `incremental_sync_from_tiles(...)`
+- [x] Remove the remaining per-frame `incremental_sync_from_tiles(...)`
   follower path from `Gui` — this is the milestone-defining authority shift
-- [ ] Keep only startup import from tile state plus explicit repair tooling
-- [ ] Route open/activate/dismiss/reveal/toggle-expand through
+  — removed 2026-04-15; parity check retained as `log::warn!` to catch any
+  remaining dual-write gaps
+- [x] Keep only startup import from tile state plus explicit repair tooling
+  — startup `incremental_sync_from_tiles` at `gui.rs:482` is the sole
+  remaining caller; per-frame follower path is gone
+- [x] Route open/activate/dismiss/reveal/toggle-expand through
   `graph_tree_commands` first, closing the remaining direct tile-mutation paths
-  — dual-write infrastructure is in place (`graph_tree_dual_write.rs`), but
-  some direct `tile_view_ops` calls still bypass it (e.g. `gui.rs`)
-- [ ] Make navigator/sidebar/tree-tab/focus-cycle reads resolve from
-  `GraphTree` alone — Workbench section is already sourced from GraphTree
-  (Phase C, via `graph_tree_projection.rs`); tree-style and flat-tab rendering
-  read from GraphTree via `graph_tree_adapter.rs`; remaining sections (Folders,
-  Domain, Recent, Imported) still come from `graph_app`
+  — 2026-04-15: routed 11 bypass mutation call sites through dual-write
+  (`ux_bridge.rs` 8 calls, `tile_render_pass.rs` 2 calls, `gui.rs` 1 call);
+  only read-only queries and graph-view-pane opens (not GraphTree members)
+  remain as direct `tile_view_ops` calls
+- [x] Make navigator/sidebar/tree-tab/focus-cycle reads resolve from
+  `GraphTree` or graph truth, not `egui_tiles` — Workbench section sourced
+  from GraphTree (Phase C, via `graph_tree_projection.rs`); tree-style and
+  flat-tab rendering read from GraphTree via `graph_tree_adapter.rs`.
+  Remaining sections (Folders, Domain, Recent, Imported) correctly read from
+  `graph_app.domain_graph()` (graph truth) — **not** from `egui_tiles`. These
+  are full-graph-domain projections (URL containment, domain grouping, import
+  provenance, recency) that must see all nodes, not just workbench members.
+  Moving them to GraphTree would lose non-workbench nodes. No tile dependency
+  to remove.
 - [x] Re-key GraphTree persistence per `GraphViewId`
   — `gui.rs` Drop impl serializes GraphTree keyed by `workbench_view_id`
-- [ ] Shrink `egui_tiles` to a rendering/presentation adapter rather than a peer
+- [x] Shrink `egui_tiles` to a rendering/presentation adapter rather than a peer
   semantic owner
+  — 2026-04-15: all semantic mutations route through dual-write; `on_tab_close`
+  Behavior callback now notifies GraphTree via post-render dismiss; tile
+  drag-drop is presentation-only (reorder, not add/remove); per-frame follower
+  sync removed. Remaining `egui_tiles` role: startup restore (one-time import)
+  and presentation rendering. `egui_tiles` is no longer a semantic peer.
 - [x] Remove the now-dead `rebuild_from_tiles(...)` helper
   — removed 2026-04-14; `incremental_sync_from_tiles` is the only remaining
   sync path
@@ -375,11 +391,12 @@ This is the recommended first task stack, in order.
   incremental sync
 - [x] Land topology-safe attach/reparent behavior with root fallback
 - [x] Upgrade `GraphTree` parity diagnostics to structure-aware checks
-- [ ] Remove per-frame `incremental_sync_from_tiles(...)` from `Gui`
-- [ ] Route remaining semantic workbench commands through
+- [x] Remove per-frame `incremental_sync_from_tiles(...)` from `Gui`
+- [x] Route remaining semantic workbench commands through
   `graph_tree_commands` (close direct `tile_view_ops` bypasses)
-- [ ] Move navigator/tree-tab projections to `GraphTree`-only reads
-  (Workbench section done; remaining sections still from `graph_app`)
+- [x] Move navigator/tree-tab projections to `GraphTree`-only reads
+  (Workbench section from GraphTree; Folders/Domain/Recent/Imported
+  correctly read from graph truth, not tiles — no tile dependency to remove)
 - [x] Finish per-view `GraphTree` persistence migration
 - [x] Remove the dead `rebuild_from_tiles(...)` helper
 - [ ] Replace live graph packet derivation with `graph-canvas`
@@ -517,8 +534,37 @@ This migration path is successful when Graphshell can truthfully say:
   `workbench_view_id`)
 - M1: `rebuild_from_tiles` removed
 
-**Next**: cut per-frame `incremental_sync_from_tiles` follower path — the
-milestone-defining authority shift.
+### 2026-04-15 — M1 authority shift landed
+
+**Dual-write bypass closure**:
+
+- Routed 11 direct `tile_view_ops` mutation call sites through
+  `graph_tree_dual_write`: `ux_bridge.rs` (8 calls covering open/focus/close/
+  dismiss/tool pane operations), `tile_render_pass.rs` (2 calls for graph
+  interaction–driven node opens), `gui.rs` (1 call for clip node creation).
+- Only read-only queries (`active_graph_view_id`) and graph-view-pane opens
+  (not GraphTree members) remain as direct `tile_view_ops` calls.
+- Added `graph_tree` parameter threading through `ux_bridge::handle_runtime_command`,
+  `apply_workbench_intent`, `tile_render_pass::render_specialty_graph_in_ui`,
+  `tile_render_pass::render_primary_graph_in_ui`, and `TestRegistry`.
+
+**Per-frame follower sync removed**:
+
+- Removed the per-frame `incremental_sync_from_tiles(...)` call from `Gui`.
+  GraphTree no longer follows tiles — it is updated only through dual-write
+  mutation paths and the one-time startup import.
+- Retained the parity check as `log::warn!` in debug builds to catch any
+  remaining bypass gaps.
+- `incremental_sync_from_tiles` has exactly one remaining caller: the startup
+  import at `gui.rs:482`, which reconciles GraphTree with tiles restored from
+  persistence.
+
+**Also landed**: `WorkflowSavepoint` — registry-level transaction savepoint
+for workflow activation, with early `implemented` check and rollback on failure
+(`workflow.rs`, `registries/mod.rs`).
+
+**Next**: move navigator/tree-tab projections to GraphTree-only reads
+(M1 remaining item), then begin M2 (graph-canvas as live surface).
 
 ---
 

@@ -154,6 +154,10 @@ pub(crate) struct CanvasSurfaceProfile {
     pub(crate) interaction: CanvasInteractionPolicy,
     pub(crate) style: CanvasStylePolicy,
     pub(crate) performance: CanvasPerformancePolicy,
+    /// When true, the primary graph pane renders via the portable `graph-canvas`
+    /// pipeline instead of `egui_graphs`. M2 migration toggle.
+    #[serde(default)]
+    pub(crate) use_graph_canvas_renderer: bool,
     /// Folded subsystem conformance declarations for this canvas surface.
     #[serde(flatten)]
     pub(crate) subsystems: SurfaceSubsystemCapabilities,
@@ -251,6 +255,7 @@ impl Default for CanvasRegistry {
                     label_culling_enabled: false,
                     edge_lod: EdgeLodPolicy::Full,
                 },
+                use_graph_canvas_renderer: false,
                 subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
@@ -452,6 +457,7 @@ mod tests {
                     label_culling_enabled: false,
                     edge_lod: EdgeLodPolicy::Full,
                 },
+                use_graph_canvas_renderer: false,
                 subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );

@@ -46,6 +46,7 @@ use uuid::Uuid;
 
 pub(crate) mod canvas_bridge;
 mod canvas_camera;
+pub(crate) mod canvas_egui_painter;
 mod canvas_input;
 mod canvas_overlays;
 mod canvas_visuals;
@@ -470,6 +471,167 @@ fn graph_view_metadata_id(custom_id: Option<String>) -> egui::Id {
     // egui_graphs persists metadata as Id::new(frame.get_id()), so callers must
     // use the double-hashed key to target the same persisted frame.
     egui::Id::new(MetadataFrame::new(custom_id).get_id())
+}
+
+/// Render graph content via the portable `graph-canvas` pipeline.
+///
+/// This is the M2 replacement for `render_graph_in_ui_collect_actions`. It
+/// uses `graph-canvas` for scene derivation, hit testing, and interaction
+/// instead of `egui_graphs`. The egui host only handles painting (via
+/// `canvas_egui_painter`) and input translation (via `canvas_bridge`).
+///
+/// Returns `GraphAction`s in the same vocabulary as the egui_graphs path
+/// so callers can be swapped without changes upstream.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn render_graph_canvas_in_ui(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    search_matches: &HashSet<NodeKey>,
+    _active_search_match: Option<NodeKey>,
+    _search_display_mode: SearchDisplayMode,
+    _search_query_active: bool,
+) -> Vec<GraphAction> {
+    use graph_canvas::camera::CanvasViewport;
+    use graph_canvas::derive::{derive_scene, DeriveConfig, NodeVisualOverride};
+    use graph_canvas::engine::InteractionEngine;
+    use graph_canvas::interaction::CanvasAction;
+    use graph_canvas::packet::Color;
+
+    app.ensure_graph_view_registered(view_id);
+
+    let graph = app.render_graph();
+    let view_selection = app.selection_for_view(view_id).clone();
+    let dimension = graph_canvas::projection::ViewDimension::default();
+    let scene_mode_app = app
+        .workspace
+        .graph_runtime
+        .views
+        .get(&view_id)
+        .map(|v| v.scene_mode)
+        .unwrap_or_default();
+
+    // Build the portable scene input from graph domain truth.
+    let scene_input = canvas_bridge::build_scene_input(graph, view_id, scene_mode_app, &dimension);
+
+    // Take the camera out of app state so we can borrow app freely later.
+    let mut camera = app
+        .workspace
+        .graph_runtime
+        .canvas_cameras
+        .remove(&view_id)
+        .or_else(|| {
+            app.workspace
+                .graph_runtime
+                .graph_view_frames
+                .get(&view_id)
+                .map(|f| canvas_bridge::camera_from_view_frame(f.clone()))
+        })
+        .unwrap_or_default();
+
+    let graph_rect = ui.max_rect();
+    let scale_factor = ui.ctx().pixels_per_point();
+    let viewport = canvas_bridge::viewport_from_egui_rect(graph_rect, scale_factor);
+
+    // Derive the projected scene.
+    let selected_primary = view_selection.primary();
+    let config = DeriveConfig::default();
+    let scene = derive_scene(
+        &scene_input,
+        &camera,
+        &viewport,
+        &|_node| 0.0, // flat 2D for now
+        &|_idx, node_id| {
+            let is_selected = view_selection.contains(node_id);
+            let is_primary = selected_primary == Some(*node_id);
+            let is_in_search = search_matches.contains(node_id);
+            if is_primary {
+                NodeVisualOverride {
+                    fill: Some(Color::new(0.3, 0.7, 1.0, 1.0)),
+                    stroke: Some(graph_canvas::packet::Stroke {
+                        color: Color::new(1.0, 1.0, 1.0, 1.0),
+                        width: 2.5,
+                    }),
+                    label_color: Some(Color::WHITE),
+                }
+            } else if is_selected {
+                NodeVisualOverride {
+                    fill: Some(Color::new(0.3, 0.6, 0.9, 0.9)),
+                    stroke: Some(graph_canvas::packet::Stroke {
+                        color: Color::new(0.8, 0.9, 1.0, 0.8),
+                        width: 1.5,
+                    }),
+                    label_color: None,
+                }
+            } else if is_in_search {
+                NodeVisualOverride {
+                    fill: Some(Color::new(0.9, 0.8, 0.2, 1.0)),
+                    stroke: None,
+                    label_color: None,
+                }
+            } else {
+                NodeVisualOverride::default()
+            }
+        },
+        &config,
+    );
+
+    // Paint the scene via egui.
+    canvas_egui_painter::paint_projected_scene(ui, &scene);
+
+    // Collect and process input events.
+    let events = canvas_bridge::collect_canvas_events(ui);
+    let mut engine = app
+        .workspace
+        .graph_runtime
+        .canvas_interaction_engines
+        .remove(&view_id)
+        .unwrap_or_else(|| InteractionEngine::new(Default::default()));
+    let mut graph_actions = Vec::new();
+
+    for event in &events {
+        let actions = engine.process_event(event, &scene.hit_proxies, &camera, &viewport);
+        for action in actions {
+            match &action {
+                CanvasAction::PanCamera(delta) => {
+                    canvas_bridge::apply_pan(&mut camera, *delta);
+                }
+                CanvasAction::ZoomCamera { factor, focus } => {
+                    canvas_bridge::apply_zoom(&mut camera, *factor, *focus, &viewport);
+                }
+                CanvasAction::DragNode { node, delta } => {
+                    if let Some(ga) =
+                        canvas_bridge::apply_drag_node_delta(app.domain_graph_mut(), *node, *delta)
+                    {
+                        graph_actions.push(ga);
+                    }
+                }
+                CanvasAction::HoverNode(maybe_key) => {
+                    app.workspace.graph_runtime.hovered_graph_node = *maybe_key;
+                }
+                _ => {
+                    graph_actions.extend(canvas_bridge::canvas_action_to_graph_actions(action));
+                }
+            }
+        }
+    }
+
+    // Put camera and engine back.
+    let frame = canvas_bridge::camera_to_view_frame(&camera);
+    app.workspace
+        .graph_runtime
+        .graph_view_frames
+        .insert(view_id, frame);
+    app.workspace
+        .graph_runtime
+        .canvas_cameras
+        .insert(view_id, camera);
+    app.workspace
+        .graph_runtime
+        .canvas_interaction_engines
+        .insert(view_id, engine);
+
+    graph_actions
 }
 
 /// Render graph content and return resolved interaction actions.

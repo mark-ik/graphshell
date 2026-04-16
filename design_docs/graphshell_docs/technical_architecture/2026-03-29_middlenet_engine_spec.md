@@ -14,6 +14,9 @@ engine that serves it, and describe how it fits into each host envelope.
 - [`2026-03-29_portable_web_core_host_envelopes.md`](2026-03-29_portable_web_core_host_envelopes.md)
   — host envelope model, portability strategy, and naming context for the
   portable web core
+- [`2026-04-16_middlenet_lane_architecture_spec.md`](2026-04-16_middlenet_lane_architecture_spec.md)
+  — lane-oriented crate split and selection model: direct document renderer,
+  optional Blitz HTML/CSS lane, Servo fallback, and shared host plumbing
 - [`2026-03-29_workspace_restructuring_plan.md`](2026-03-29_workspace_restructuring_plan.md)
   — Cargo workspace layout: crate responsibilities, dependency graph, migration steps
 - [`2026-03-30_protocol_modularity_and_host_capability_model.md`](2026-03-30_protocol_modularity_and_host_capability_model.md)

@@ -398,6 +398,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                     ui,
                     graph_app,
                     tiles_tree,
+                    graph_tree,
                     &search_matches,
                     active_search_match,
                     graph_search_filter_mode,

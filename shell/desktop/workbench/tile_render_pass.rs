@@ -98,6 +98,7 @@ pub(crate) fn render_specialty_graph_in_ui(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     view_id: crate::app::GraphViewId,
 ) -> Vec<GraphIntent> {
     let empty_matches: HashSet<NodeKey> = HashSet::new();
@@ -144,8 +145,11 @@ pub(crate) fn render_specialty_graph_in_ui(
     }
 
     post_render_intents.extend(render::intents_from_graph_actions(passthrough_actions));
+    let source = graph_app.focused_selection().primary();
     for (node_key, mode) in pending_open_nodes {
-        tile_view_ops::open_or_focus_node_pane_with_mode(tiles_tree, graph_app, node_key, mode);
+        super::graph_tree_dual_write::open_or_focus_node_with_mode(
+            tiles_tree, graph_tree, graph_app, node_key, source, mode,
+        );
     }
     render::sync_graph_positions_from_layout(graph_app);
     render::render_graph_info_in_ui(ui, graph_app, view_id);
@@ -156,12 +160,40 @@ pub(crate) fn render_primary_graph_in_ui(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     graph_search_matches: &HashSet<NodeKey>,
     active_search_match: Option<NodeKey>,
     graph_search_filter_mode: bool,
     search_query_active: bool,
 ) -> Vec<GraphIntent> {
     let view_id = primary_graph_view_id(graph_app, tiles_tree);
+
+    // M2 graph-canvas path: when enabled, use the portable graph-canvas
+    // pipeline instead of egui_graphs for scene derivation, painting, and
+    // interaction. Toggle via `use_graph_canvas_renderer` on the canvas profile.
+    #[cfg(not(target_arch = "wasm32"))]
+    let use_graph_canvas = crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
+        .profile
+        .use_graph_canvas_renderer;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    if use_graph_canvas {
+        let actions = render::render_graph_canvas_in_ui(
+            ui,
+            graph_app,
+            view_id,
+            graph_search_matches,
+            active_search_match,
+            if graph_search_filter_mode {
+                SearchDisplayMode::Filter
+            } else {
+                SearchDisplayMode::Highlight
+            },
+            search_query_active,
+        );
+        return render::intents_from_graph_actions(actions);
+    }
+
     let actions = render::render_graph_in_ui_collect_actions(
         ui,
         graph_app,
@@ -209,8 +241,11 @@ pub(crate) fn render_primary_graph_in_ui(
     }
 
     post_render_intents.extend(render::intents_from_graph_actions(passthrough_actions));
+    let source = graph_app.focused_selection().primary();
     for (node_key, mode) in pending_open_nodes {
-        tile_view_ops::open_or_focus_node_pane_with_mode(tiles_tree, graph_app, node_key, mode);
+        super::graph_tree_dual_write::open_or_focus_node_with_mode(
+            tiles_tree, graph_tree, graph_app, node_key, source, mode,
+        );
     }
     render::sync_graph_positions_from_layout(graph_app);
     render::render_graph_info_in_ui(ui, graph_app, view_id);
@@ -352,6 +387,11 @@ pub(crate) fn run_tile_render_pass_in_ui(
     }
     if !suppress_runtime_side_effects {
         for node_key in pending_closed_nodes {
+            // Notify GraphTree that this node was closed via egui_tiles Behavior
+            // callback (on_tab_close). The tile is already gone; this keeps
+            // GraphTree consistent without the removed per-frame sync.
+            super::graph_tree_commands::dismiss_node(graph_tree, node_key);
+
             if *focused_node_hint == Some(node_key) {
                 log::debug!(
                     "tile_render_pass: clearing focused_node_hint for closed node {:?}",

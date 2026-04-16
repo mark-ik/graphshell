@@ -47,7 +47,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: April 14, 2026
+Last updated: April 16, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -95,6 +95,8 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/technical_architecture/2026-02-18_universal_node_content_model.md](graphshell_docs/technical_architecture/2026-02-18_universal_node_content_model.md) - Universal node content model vision.
 - [graphshell_docs/technical_architecture/2026-02-27_presentation_provider_and_ai_orchestration.md](graphshell_docs/technical_architecture/2026-02-27_presentation_provider_and_ai_orchestration.md) - Provider capability contract, node facet taxonomy, and tiered AI orchestration (tiny local model + retrieval + optional large-model escalation).
 - [graphshell_docs/technical_architecture/2026-03-01_dependency_inventory.md](graphshell_docs/technical_architecture/2026-03-01_dependency_inventory.md) - Full direct-dependency inventory: active, transitional (wgpu migration drops), pre-staged (15 unused reserved deps), build-only, and platform-specific. Includes pre-staged→planned-feature mapping and wgpu migration group summary.
+- [graphshell_docs/technical_architecture/2026-03-29_middlenet_engine_spec.md](graphshell_docs/technical_architecture/2026-03-29_middlenet_engine_spec.md) - Middlenet protocol/content-space definition, portable Middlenet engine framing, phased delivery baseline, and single-intermediate-document-model direction.
+- [graphshell_docs/technical_architecture/2026-04-16_middlenet_lane_architecture_spec.md](graphshell_docs/technical_architecture/2026-04-16_middlenet_lane_architecture_spec.md) - Lane-oriented Middlenet architecture: canonical semantic-document core, direct portable renderer, optional Blitz HTML/CSS lane, Servo fallback lane, shared host plumbing, and deterministic lane selection.
 
 ### Graphshell Implementation Strategy
 

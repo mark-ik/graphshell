@@ -200,6 +200,7 @@ impl HeadedWindow {
         let render_host = UiHostRenderBootstrap::new(
             rendering_context.clone(),
             window_rendering_context.clone(),
+            event_loop,
         );
         let gui = RefCell::new(Gui::new(
             &winit_window,

@@ -3255,7 +3255,7 @@ pub(crate) fn render_workbench_host(
                     ui.set_min_size(canvas_rect.size());
                     ui.set_max_size(canvas_rect.size());
                     let intents = tile_render_pass::render_specialty_graph_in_ui(
-                        ui, graph_app, tiles_tree, view_id,
+                        ui, graph_app, tiles_tree, graph_tree, view_id,
                     );
                     graph_app.apply_reducer_intents(intents);
                 });

@@ -13,6 +13,7 @@ use super::ux_tree::{
     self, UxAction, UxDomainIdentity, UxNodeRole, UxSemanticNode, UxTreeSnapshot,
 };
 use crate::app::{GraphBrowserApp, LifecycleCause, PendingTileOpenMode, WorkbenchIntent};
+use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::workbench_surface;
 
 pub(crate) const WEBDRIVER_SCRIPT_PREFIX: &str = "graphshell:ux-bridge:";
@@ -166,6 +167,7 @@ pub(crate) fn handle_snapshot_command(
 pub(crate) fn handle_runtime_command(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     command: UxBridgeCommand,
 ) -> Result<UxBridgeResponse, UxBridgeError> {
     let snapshot = ux_tree::build_snapshot(tiles_tree, graph_app, 0);
@@ -175,7 +177,7 @@ pub(crate) fn handle_runtime_command(
         | UxBridgeCommand::GetFocusPath => Ok(handle_snapshot_command(&snapshot, command)),
         UxBridgeCommand::InvokeUxAction { selector, action } => {
             let (intent, target) = workbench_intent_for_action(&snapshot, &selector, action)?;
-            apply_workbench_intent(graph_app, tiles_tree, &intent);
+            apply_workbench_intent(graph_app, tiles_tree, graph_tree, &intent);
             ux_tree::publish_snapshot(&ux_tree::build_snapshot(tiles_tree, graph_app, 0));
             Ok(UxBridgeResponse::Action {
                 status: UxActionStatus::Applied,
@@ -369,8 +371,11 @@ fn workbench_intent_for_action<'a>(
 fn apply_workbench_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     intent: &WorkbenchIntent,
 ) {
+    use super::graph_tree_dual_write as dual_write;
+
     match intent {
         WorkbenchIntent::OpenCommandPalette => {
             if graph_app.pending_command_surface_return_target().is_none() {
@@ -391,11 +396,13 @@ fn apply_workbench_intent(
             );
         }
         WorkbenchIntent::OpenNodeInPane { node, pane } => {
-            if !tile_view_ops::focus_pane(tiles_tree, *pane) {
-                tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, *node);
+            if !dual_write::focus_pane(tiles_tree, graph_tree, *pane, Some(*node)) {
+                dual_write::open_or_focus_node(tiles_tree, graph_tree, graph_app, *node, None);
             }
         }
         WorkbenchIntent::OpenGraphViewPane { view_id, .. } => {
+            // Graph view panes are the canvas itself, not graph node members —
+            // outside GraphTree's scope.
             tile_view_ops::open_or_focus_graph_pane_with_mode(
                 tiles_tree,
                 *view_id,
@@ -403,21 +410,21 @@ fn apply_workbench_intent(
             );
         }
         WorkbenchIntent::DismissTile { pane } => {
-            dismiss_node_pane(graph_app, tiles_tree, *pane);
+            dismiss_node_pane(graph_app, tiles_tree, graph_tree, *pane);
         }
         WorkbenchIntent::OpenToolPane { kind } => {
             #[cfg(feature = "diagnostics")]
             {
-                tile_view_ops::open_or_focus_tool_pane(tiles_tree, kind.clone());
+                dual_write::open_or_focus_tool_pane(tiles_tree, graph_tree, kind.clone());
             }
             #[cfg(not(feature = "diagnostics"))]
             let _ = kind;
         }
         WorkbenchIntent::CloseToolPane { kind, .. } => {
-            close_tool_pane(tiles_tree, kind.clone());
+            close_tool_pane(tiles_tree, graph_tree, kind.clone());
         }
         WorkbenchIntent::ClosePane { pane, .. } => {
-            close_pane(tiles_tree, *pane);
+            close_pane(tiles_tree, graph_tree, *pane);
         }
         other => unreachable!("unexpected bridge workbench intent {other:?}"),
     }
@@ -426,8 +433,11 @@ fn apply_workbench_intent(
 fn dismiss_node_pane(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     pane: crate::shell::desktop::workbench::pane_model::PaneId,
 ) {
+    use super::graph_tree_dual_write as dual_write;
+
     let node_key = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
         egui_tiles::Tile::Pane(kind) if kind.pane_id() == pane => {
             kind.node_state().map(|state| state.node)
@@ -435,35 +445,41 @@ fn dismiss_node_pane(
         _ => None,
     });
 
-    if tile_view_ops::close_pane(tiles_tree, pane) {
+    if dual_write::close_pane(tiles_tree, graph_tree, pane, node_key) {
         if let Some(node_key) = node_key {
             graph_app.demote_node_to_cold_with_cause(node_key, LifecycleCause::ExplicitClose);
         }
-        let _ = tile_view_ops::ensure_active_tile(tiles_tree);
+        dual_write::ensure_active_tile(tiles_tree, graph_tree);
     }
 }
 
 fn close_pane(
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     pane: crate::shell::desktop::workbench::pane_model::PaneId,
 ) {
-    if tile_view_ops::close_pane(tiles_tree, pane) {
-        let _ = tile_view_ops::ensure_active_tile(tiles_tree);
+    use super::graph_tree_dual_write as dual_write;
+
+    if dual_write::close_pane(tiles_tree, graph_tree, pane, None) {
+        dual_write::ensure_active_tile(tiles_tree, graph_tree);
     }
 }
 
 fn close_tool_pane(
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
 ) {
+    use super::graph_tree_dual_write as dual_write;
+
     #[cfg(feature = "diagnostics")]
     {
-        if tile_view_ops::close_tool_pane(tiles_tree, kind) {
-            let _ = tile_view_ops::ensure_active_tile(tiles_tree);
+        if dual_write::close_tool_pane(tiles_tree, graph_tree, kind) {
+            dual_write::ensure_active_tile(tiles_tree, graph_tree);
         }
     }
     #[cfg(not(feature = "diagnostics"))]
-    let _ = (tiles_tree, kind);
+    let _ = (tiles_tree, graph_tree, kind);
 }
 
 fn focus_path(snapshot: &UxTreeSnapshot) -> Vec<String> {
@@ -716,6 +732,7 @@ mod tests {
         let open = handle_runtime_command(
             &mut harness.app,
             &mut harness.tiles_tree,
+            &mut harness.graph_tree,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ByRole(UxNodeRole::CommandBar),
                 action: UxAction::Open,
@@ -746,6 +763,7 @@ mod tests {
         let dismiss = handle_runtime_command(
             &mut harness.app,
             &mut harness.tiles_tree,
+            &mut harness.graph_tree,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ByRole(UxNodeRole::CommandPalette),
                 action: UxAction::Dismiss,
@@ -792,6 +810,7 @@ mod tests {
         let focus = handle_runtime_command(
             &mut harness.app,
             &mut harness.tiles_tree,
+            &mut harness.graph_tree,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(second_node.ux_node_id.clone()),
                 action: UxAction::Focus,
@@ -817,6 +836,7 @@ mod tests {
         let close = handle_runtime_command(
             &mut harness.app,
             &mut harness.tiles_tree,
+            &mut harness.graph_tree,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(second_node.ux_node_id.clone()),
                 action: UxAction::Close,
@@ -866,6 +886,7 @@ mod tests {
         let focus = handle_runtime_command(
             &mut harness.app,
             &mut harness.tiles_tree,
+            &mut harness.graph_tree,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(tool.ux_node_id.clone()),
                 action: UxAction::Focus,
@@ -884,6 +905,7 @@ mod tests {
         let close = handle_runtime_command(
             &mut harness.app,
             &mut harness.tiles_tree,
+            &mut harness.graph_tree,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(tool.ux_node_id.clone()),
                 action: UxAction::Close,
@@ -932,6 +954,7 @@ mod tests {
         let focus = handle_runtime_command(
             &mut harness.app,
             &mut harness.tiles_tree,
+            &mut harness.graph_tree,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(graph_surface.ux_node_id.clone()),
                 action: UxAction::Focus,
@@ -950,6 +973,7 @@ mod tests {
         let close = handle_runtime_command(
             &mut harness.app,
             &mut harness.tiles_tree,
+            &mut harness.graph_tree,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(graph_surface.ux_node_id.clone()),
                 action: UxAction::Close,

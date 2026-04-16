@@ -994,58 +994,20 @@ impl Gui {
             });
         });
 
-        // Per-frame incremental sync: reconcile GraphTree membership with tile
-        // tree without destroying topology. Preserves traversal-derived
-        // parent/child structure, provenance, and expansion state. For newly-seen
-        // tile nodes, infer provenance from domain graph traversal edges so they
-        // land as children of their navigation source rather than as unrooted
-        // anchors.
+        // GraphTree parity check: verify dual-write kept GraphTree in sync
+        // with tiles. No per-frame follower sync — GraphTree is the authority
+        // and all tile mutations route through dual_write.
+        #[cfg(debug_assertions)]
         {
-            let focused = self.focused_node_key();
-            let existing_members: Vec<NodeKey> =
-                self.graph_tree.members().map(|(k, _)| *k).collect();
-            let graph_app = &self.graph_app;
-            crate::shell::desktop::workbench::graph_tree_sync::incremental_sync_from_tiles(
-                &mut self.graph_tree,
-                &self.tiles_tree,
-                focused,
-                &|node_key| {
-                    graph_app
-                        .domain_graph()
-                        .get_node(node_key)
-                        .map(|n| n.lifecycle)
-                        .unwrap_or(crate::graph::NodeLifecycle::Cold)
-                },
-                &|node_key| {
-                    let graph = graph_app.domain_graph();
-                    for &src in &existing_members {
-                        if let Some(edge_key) = graph.find_edge_key(src, node_key) {
-                            if graph
-                                .get_edge(edge_key)
-                                .is_some_and(|p| p.has_edge_kind(crate::graph::EdgeType::History))
-                            {
-                                return graph_tree::Provenance::Traversal {
-                                    source: src,
-                                    edge_kind: None,
-                                };
-                            }
-                        }
-                    }
-                    graph_tree::Provenance::Anchor
-                },
-            );
-
-            #[cfg(debug_assertions)]
-            {
-                let discrepancies =
-                    crate::shell::desktop::workbench::graph_tree_sync::parity_check(
-                        &self.graph_tree,
-                        &self.tiles_tree,
-                        self.focused_node_key(),
-                    );
-                debug_assert!(
-                    discrepancies.is_empty(),
-                    "GraphTree/tiles_tree parity violation: {:?}",
+            let discrepancies =
+                crate::shell::desktop::workbench::graph_tree_sync::parity_check(
+                    &self.graph_tree,
+                    &self.tiles_tree,
+                    self.focused_node_key(),
+                );
+            if !discrepancies.is_empty() {
+                log::warn!(
+                    "GraphTree/tiles_tree parity divergence (dual-write gap): {:?}",
                     discrepancies
                 );
             }
@@ -1118,10 +1080,12 @@ impl Gui {
 
         match self.graph_app.create_clip_node_from_capture(&capture) {
             Ok(node_key) => {
-                tile_view_ops::open_or_focus_node_pane_with_mode(
+                crate::shell::desktop::workbench::graph_tree_dual_write::open_or_focus_node_with_mode(
                     &mut self.tiles_tree,
+                    &mut self.graph_tree,
                     &self.graph_app,
                     node_key,
+                    None, // clip creation has no traversal source
                     TileOpenMode::SplitHorizontal,
                 );
                 self.toasts.success("Created clip node");

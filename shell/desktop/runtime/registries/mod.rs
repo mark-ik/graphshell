@@ -106,7 +106,10 @@ use theme::{ThemeCapability, ThemeRegistry, ThemeResolution};
 use workbench_surface::{
     WorkbenchSurfaceDescription, WorkbenchSurfaceRegistry, WorkbenchSurfaceResolution,
 };
-use workflow::{WorkflowActivation, WorkflowActivationError, WorkflowCapability, WorkflowRegistry};
+use workflow::{
+    WorkflowActivation, WorkflowActivationError, WorkflowCapability, WorkflowRegistry,
+    WorkflowSavepoint,
+};
 
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_STARTED: &str = "registry.protocol.resolve_started";
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED: &str = "registry.protocol.resolve_succeeded";
@@ -1683,6 +1686,48 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .resolve_workflow(Some(workflow_id));
+
+        // Reject unimplemented workflows before any mutations.
+        if !resolution.descriptor.implemented {
+            return Err(WorkflowActivationError::NotImplemented {
+                workflow_id: resolution.resolved_id,
+            });
+        }
+
+        // Capture pre-mutation registry state so we can restore on failure.
+        let savepoint = WorkflowSavepoint {
+            canvas_profile_id: self
+                .canvas
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .active_profile_id()
+                .to_string(),
+            physics_profile_id: self
+                .physics_profile
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .active_profile_id()
+                .to_string(),
+            workbench_profile_id: self
+                .workbench_surface
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .active_profile_id()
+                .to_string(),
+            workflow_active: self
+                .workflow
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .active_workflow_id()
+                .map(str::to_string),
+            app_lens_id: graph_app.default_registry_lens_id().map(str::to_string),
+            app_physics_id: graph_app
+                .default_registry_physics_id()
+                .map(str::to_string),
+            app_theme_id: graph_app.default_registry_theme_id().map(str::to_string),
+        };
+
+        // Apply multi-registry mutations.
         self.set_active_canvas_profile(&resolution.descriptor.canvas_profile);
         self.set_active_physics_profile(&resolution.descriptor.physics_profile);
         let workbench_profile = self
@@ -1690,11 +1735,20 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .set_active_profile(&resolution.descriptor.workbench_profile);
-        let activation = self
+        let activation_result = self
             .workflow
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .activate(graph_app, workbench_profile.resolved_id.clone(), resolution)?;
+            .activate(graph_app, workbench_profile.resolved_id.clone(), resolution);
+
+        // Restore registry state on failure.
+        let activation = match activation_result {
+            Ok(a) => a,
+            Err(e) => {
+                self.restore_workflow_savepoint(graph_app, &savepoint);
+                return Err(e);
+            }
+        };
 
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_WORKFLOW_ACTIVATED,
@@ -1715,6 +1769,29 @@ impl RegistryRuntime {
             None,
         ));
         Ok(activation)
+    }
+
+    fn restore_workflow_savepoint(
+        &self,
+        graph_app: &mut GraphBrowserApp,
+        savepoint: &WorkflowSavepoint,
+    ) {
+        self.set_active_canvas_profile(&savepoint.canvas_profile_id);
+        self.set_active_physics_profile(&savepoint.physics_profile_id);
+        self.workbench_surface
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .set_active_profile(&savepoint.workbench_profile_id);
+        graph_app
+            .set_default_registry_lens_id(savepoint.app_lens_id.as_deref());
+        graph_app
+            .set_default_registry_physics_id(savepoint.app_physics_id.as_deref());
+        graph_app
+            .set_default_registry_theme_id(savepoint.app_theme_id.as_deref());
+        self.workflow
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .set_active_workflow_id(savepoint.workflow_active.clone());
     }
 
     fn reconcile_semantics(&self, graph_app: &mut GraphBrowserApp) -> SemanticReconcileReport {

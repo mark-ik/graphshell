@@ -62,6 +62,24 @@ pub(crate) enum WorkflowActivationError {
     NotImplemented { workflow_id: String },
 }
 
+/// Pre-mutation snapshot of registry-level profile state.
+///
+/// Captured before workflow activation mutations begin so the caller can
+/// restore consistent state if any step in the multi-registry activation
+/// sequence fails. This covers registry-owned profile IDs and app-owned
+/// defaults — not workbench-authority tile tree state, which is host-specific
+/// and deferred to the post-iced-migration transaction boundary.
+#[derive(Debug, Clone)]
+pub(crate) struct WorkflowSavepoint {
+    pub(crate) canvas_profile_id: String,
+    pub(crate) physics_profile_id: String,
+    pub(crate) workbench_profile_id: String,
+    pub(crate) workflow_active: Option<String>,
+    pub(crate) app_lens_id: Option<String>,
+    pub(crate) app_physics_id: Option<String>,
+    pub(crate) app_theme_id: Option<String>,
+}
+
 pub(crate) struct WorkflowRegistry {
     workflows: HashMap<String, WorkflowDescriptor>,
     active: Option<String>,
@@ -90,6 +108,10 @@ impl WorkflowRegistry {
 
     pub(crate) fn active_workflow_id(&self) -> Option<&str> {
         self.active.as_deref()
+    }
+
+    pub(crate) fn set_active_workflow_id(&mut self, id: Option<String>) {
+        self.active = id;
     }
 
     pub(crate) fn resolve_workflow(&self, workflow_id: Option<&str>) -> WorkflowResolution {
