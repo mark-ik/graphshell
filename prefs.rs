@@ -1074,4 +1074,3 @@ fn test_user_stylesheets_accept_comma_separated_paths() {
         "body { color: blue; }"
     );
 }
-

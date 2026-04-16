@@ -35,10 +35,10 @@ mod toolbar_location_submit;
 mod toolbar_omnibar;
 #[path = "toolbar_right_controls.rs"]
 mod toolbar_right_controls;
-#[path = "toolbar_status_bar.rs"]
-mod toolbar_status_bar;
 #[path = "toolbar_settings_menu.rs"]
 mod toolbar_settings_menu;
+#[path = "toolbar_status_bar.rs"]
+mod toolbar_status_bar;
 use self::toolbar_location_panel::render_location_search_panel;
 use self::toolbar_omnibar::{
     apply_omnibar_match, dedupe_matches_in_order, default_search_provider_from_searchpage,
@@ -48,8 +48,8 @@ use self::toolbar_omnibar::{
     searchpage_template_for_provider, spawn_provider_suggestion_request,
 };
 use self::toolbar_right_controls::render_toolbar_right_controls;
-use self::toolbar_status_bar::render_shell_status_bar;
 use self::toolbar_settings_menu::render_settings_menu;
+use self::toolbar_status_bar::render_shell_status_bar;
 use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, GraphViewId, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingTileOpenMode, RadialMenuShortcut,
@@ -61,11 +61,9 @@ use crate::services::search::{fuzzy_match_items, fuzzy_match_node_keys};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED, CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
+    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED, CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
     input::action_id, phase2_binding_display_labels_for_action,
-    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
-    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
-    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
-    CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
 };
 use crate::shell::desktop::ui::navigator_context::NavigatorContextProjection;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -310,8 +308,9 @@ pub(crate) struct CommandSurfaceSemanticSnapshot {
     pub(crate) context_palette: Option<PaletteSurfaceSemanticMetadata>,
 }
 
-static LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT: OnceLock<Mutex<Option<CommandSurfaceSemanticSnapshot>>> =
-    OnceLock::new();
+static LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT: OnceLock<
+    Mutex<Option<CommandSurfaceSemanticSnapshot>>,
+> = OnceLock::new();
 static COMMAND_SURFACE_EVENT_SEQUENCES: OnceLock<Mutex<CommandSurfaceEventSequenceMetadata>> =
     OnceLock::new();
 
@@ -319,8 +318,7 @@ fn command_surface_snapshot_cache() -> &'static Mutex<Option<CommandSurfaceSeman
     LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT.get_or_init(|| Mutex::new(None))
 }
 
-fn command_surface_event_sequence_cache(
-) -> &'static Mutex<CommandSurfaceEventSequenceMetadata> {
+fn command_surface_event_sequence_cache() -> &'static Mutex<CommandSurfaceEventSequenceMetadata> {
     COMMAND_SURFACE_EVENT_SEQUENCES
         .get_or_init(|| Mutex::new(CommandSurfaceEventSequenceMetadata::default()))
 }
@@ -333,8 +331,8 @@ fn update_command_surface_event_sequences(
     }
 }
 
-pub(crate) fn latest_command_surface_event_sequence_metadata(
-) -> CommandSurfaceEventSequenceMetadata {
+pub(crate) fn latest_command_surface_event_sequence_metadata() -> CommandSurfaceEventSequenceMetadata
+{
     command_surface_event_sequence_cache()
         .lock()
         .map(|state| *state)
@@ -375,16 +373,13 @@ pub(crate) fn clear_command_surface_event_sequence_metadata() {
     }
 }
 
-pub(crate) fn publish_command_surface_semantic_snapshot(
-    snapshot: CommandSurfaceSemanticSnapshot,
-) {
+pub(crate) fn publish_command_surface_semantic_snapshot(snapshot: CommandSurfaceSemanticSnapshot) {
     if let Ok(mut slot) = command_surface_snapshot_cache().lock() {
         *slot = Some(snapshot);
     }
 }
 
-pub(crate) fn latest_command_surface_semantic_snapshot(
-) -> Option<CommandSurfaceSemanticSnapshot> {
+pub(crate) fn latest_command_surface_semantic_snapshot() -> Option<CommandSurfaceSemanticSnapshot> {
     command_surface_snapshot_cache()
         .lock()
         .ok()
@@ -596,11 +591,18 @@ fn command_surface_semantic_snapshot(
         .as_ref()
         .and_then(|session| provider_status_label(session.provider_mailbox.status));
     let palette_metadata = PaletteSurfaceSemanticMetadata {
-        contextual_mode: graph_app.workspace.chrome_ui.command_palette_contextual_mode,
+        contextual_mode: graph_app
+            .workspace
+            .chrome_ui
+            .command_palette_contextual_mode,
         return_target: graph_app.pending_command_surface_return_target(),
         pending_node_context_target: graph_app.pending_node_context_target(),
         pending_frame_context_target: graph_app.pending_frame_context_target().map(str::to_string),
-        context_anchor_present: graph_app.workspace.chrome_ui.context_palette_anchor.is_some(),
+        context_anchor_present: graph_app
+            .workspace
+            .chrome_ui
+            .context_palette_anchor
+            .is_some(),
     };
 
     CommandSurfaceSemanticSnapshot {
@@ -650,10 +652,8 @@ pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
 
 pub(super) fn emit_omnibar_provider_mailbox_applied() {
     update_command_surface_event_sequences(|state| {
-        state.omnibar_mailbox_events.applied = state
-            .omnibar_mailbox_events
-            .applied
-            .saturating_add(1);
+        state.omnibar_mailbox_events.applied =
+            state.omnibar_mailbox_events.applied.saturating_add(1);
     });
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
@@ -665,10 +665,7 @@ pub(super) fn emit_omnibar_provider_mailbox_applied() {
 
 pub(super) fn emit_omnibar_provider_mailbox_failed() {
     update_command_surface_event_sequences(|state| {
-        state.omnibar_mailbox_events.failed = state
-            .omnibar_mailbox_events
-            .failed
-            .saturating_add(1);
+        state.omnibar_mailbox_events.failed = state.omnibar_mailbox_events.failed.saturating_add(1);
     });
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
@@ -680,10 +677,7 @@ pub(super) fn emit_omnibar_provider_mailbox_failed() {
 
 pub(super) fn emit_omnibar_provider_mailbox_stale() {
     update_command_surface_event_sequences(|state| {
-        state.omnibar_mailbox_events.stale = state
-            .omnibar_mailbox_events
-            .stale
-            .saturating_add(1);
+        state.omnibar_mailbox_events.stale = state.omnibar_mailbox_events.stale.saturating_add(1);
     });
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
@@ -808,10 +802,7 @@ fn render_command_bar_shell_actions(ui: &mut egui::Ui, graph_app: &mut GraphBrow
 
 /// Renders the left column of the command bar. Contains only Shell-owned
 /// controls: the overview toggle and the command-palette trigger.
-fn render_command_bar_left_column(
-    ui: &mut egui::Ui,
-    graph_app: &mut GraphBrowserApp,
-) {
+fn render_command_bar_left_column(ui: &mut egui::Ui, graph_app: &mut GraphBrowserApp) {
     render_command_bar_shell_actions(ui, graph_app);
 }
 
@@ -902,10 +893,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         .show(ctx, |ui| {
             ui.columns(3, |columns| {
                 columns[0].horizontal_wrapped(|ui| {
-                    render_command_bar_left_column(
-                        ui,
-                        graph_app,
-                    );
+                    render_command_bar_left_column(ui, graph_app);
                 });
 
                 columns[1].with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -985,22 +973,18 @@ mod tests {
     use super::{
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
         CommandSurfaceSemanticSnapshot, OmnibarMailboxEventSequenceMetadata,
-        OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
-        clear_command_surface_semantic_snapshot,
-        enqueue_navigator_view_focus, enqueue_overview_plane_toggle,
-        emit_omnibar_provider_mailbox_applied, emit_omnibar_provider_mailbox_failed,
-        emit_omnibar_provider_mailbox_request_started, emit_omnibar_provider_mailbox_stale,
-        latest_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
-        render_shell_status_bar, TOOLBAR_HEIGHT,
+        OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata, TOOLBAR_HEIGHT,
+        clear_command_surface_semantic_snapshot, emit_omnibar_provider_mailbox_applied,
+        emit_omnibar_provider_mailbox_failed, emit_omnibar_provider_mailbox_request_started,
+        emit_omnibar_provider_mailbox_stale, enqueue_navigator_view_focus,
+        enqueue_overview_plane_toggle, latest_command_surface_semantic_snapshot,
+        publish_command_surface_semantic_snapshot, render_shell_status_bar,
     };
     use crate::app::{GraphBrowserApp, GraphViewId, WorkbenchIntent};
-    use crate::shell::desktop::runtime::diagnostics::{
-        DiagnosticEvent, install_global_sender,
-    };
+    use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
     use crate::shell::desktop::runtime::registries::{
         CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
-        CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
-        CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
+        CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED, CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
         CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
@@ -1180,4 +1164,3 @@ mod tests {
         assert!(command_bar_rect.max.y <= status_bar_rect.max.y);
     }
 }
-

@@ -114,4 +114,3 @@ pub(super) fn pointer_hover_position(gui: &Gui) -> Option<Point2D<f32, DeviceInd
 pub(super) fn ui_overlay_active(gui: &Gui) -> bool {
     runtime_focus_state(gui).overlay_active()
 }
-

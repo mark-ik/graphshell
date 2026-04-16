@@ -2,11 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use crate::MemberId;
+use crate::Rect;
 use crate::graphlet::GraphletId;
 use crate::member::{Lifecycle, SplitDirection};
 use crate::topology::TreeRow;
-use crate::MemberId;
-use crate::Rect;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -130,4 +130,3 @@ pub trait GraphTreeRenderer<N: MemberId> {
         ctx: &mut Self::Ctx,
     ) -> Self::Out;
 }
-

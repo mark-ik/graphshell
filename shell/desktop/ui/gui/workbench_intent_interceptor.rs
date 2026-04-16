@@ -169,4 +169,3 @@ pub(super) fn restore_pending_transient_surface_focus(
     let mut realizer = FocusRealizer::new(graph_app, tiles_tree);
     realizer.restore_pending_transient_surface_focus(focus_authority);
 }
-

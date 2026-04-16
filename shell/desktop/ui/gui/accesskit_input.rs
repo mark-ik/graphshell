@@ -83,4 +83,3 @@ fn forward_accesskit_action_request(
 ) {
     egui_winit.on_accesskit_action_request(req.clone());
 }
-

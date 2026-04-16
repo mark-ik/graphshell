@@ -239,9 +239,7 @@ pub fn navigator_surface_host_for_sidebar_side(
 ) -> SurfaceHostId {
     match side {
         NavigatorSidebarSidePreference::Left => SurfaceHostId::Navigator(NavigatorHostId::Left),
-        NavigatorSidebarSidePreference::Right => {
-            SurfaceHostId::Navigator(NavigatorHostId::Right)
-        }
+        NavigatorSidebarSidePreference::Right => SurfaceHostId::Navigator(NavigatorHostId::Right),
     }
 }
 
@@ -908,4 +906,3 @@ mod tests {
         );
     }
 }
-

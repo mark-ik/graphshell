@@ -497,7 +497,8 @@ pub(crate) fn candidate_viewer_ids_for_node_pane(
         }
     };
 
-    if let Some(effective_viewer_id) = TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
+    if let Some(effective_viewer_id) =
+        TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
     {
         push_candidate(&effective_viewer_id);
     }
@@ -519,7 +520,9 @@ pub(crate) fn candidate_viewer_ids_for_node_pane(
         }
     }
 
-    candidates.sort_by(|left, right| viewer_candidate_sort_key(left).cmp(&viewer_candidate_sort_key(right)));
+    candidates.sort_by(|left, right| {
+        viewer_candidate_sort_key(left).cmp(&viewer_candidate_sort_key(right))
+    });
     candidates
 }
 
@@ -539,7 +542,8 @@ pub(crate) fn fallback_reason_for_node_pane(
         return None;
     }
 
-    let Some(effective_viewer_id) = TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
+    let Some(effective_viewer_id) =
+        TileCoordinator::node_pane_effective_viewer_id(state, graph_app)
     else {
         return Some("No viewer could be resolved for this node.".to_string());
     };
@@ -1013,4 +1017,3 @@ mod tests {
         );
     }
 }
-

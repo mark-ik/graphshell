@@ -20,4 +20,3 @@ impl ClientStorageBridge {
 }
 
 pub(crate) type NoopClientStorageBridge = ClientStorageBridge;
-

@@ -32,7 +32,9 @@ impl MiddleNetEngine {
     pub fn parse_text(source: MiddleNetSource, body: &str) -> MiddleNetLoadResult {
         let (document, title_hint) = match source.content_kind {
             MiddleNetContentKind::GeminiText => (
-                crate::dom::Document::parse(&crate::document::SimpleDocument::from_gemini(body).to_html()),
+                crate::dom::Document::parse(
+                    &crate::document::SimpleDocument::from_gemini(body).to_html(),
+                ),
                 None,
             ),
             MiddleNetContentKind::GopherMap => (parse_gophermap(body), None),
@@ -42,14 +44,12 @@ impl MiddleNetEngine {
             MiddleNetContentKind::Markdown => (parse_markdown(body), None),
             MiddleNetContentKind::Rss
             | MiddleNetContentKind::Atom
-            | MiddleNetContentKind::JsonFeed => {
-                match parse_feed(source.content_kind, body) {
-                    Ok((document, title_hint)) => (document, title_hint),
-                    Err(error) => {
-                        return MiddleNetLoadResult::ParseError { source, error };
-                    }
+            | MiddleNetContentKind::JsonFeed => match parse_feed(source.content_kind, body) {
+                Ok((document, title_hint)) => (document, title_hint),
+                Err(error) => {
+                    return MiddleNetLoadResult::ParseError { source, error };
                 }
-            }
+            },
             MiddleNetContentKind::Html => {
                 return MiddleNetLoadResult::Unsupported {
                     source,
@@ -74,13 +74,11 @@ mod tests {
 
     #[test]
     fn markdown_source_parses_into_document() {
-        let source = MiddleNetSource::new(MiddleNetContentKind::Markdown)
-            .with_uri("file:///notes/topic.md");
+        let source =
+            MiddleNetSource::new(MiddleNetContentKind::Markdown).with_uri("file:///notes/topic.md");
 
         let result = MiddleNetEngine::parse_text(source, "# Topic\n- item\n");
 
         assert!(matches!(result, MiddleNetLoadResult::Parsed(_)));
     }
 }
-
-

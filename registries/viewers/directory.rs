@@ -1,4 +1,6 @@
-use crate::registries::atomic::viewer::{EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput};
+use crate::registries::atomic::viewer::{
+    EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -26,11 +28,7 @@ impl EmbeddedViewer for DirectoryEmbeddedViewer {
         "viewer:directory"
     }
 
-    fn render(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput {
+    fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput {
         let mut intents = Vec::new();
         match render_directory(ui, ctx, &mut intents) {
             Ok(()) => {}
@@ -50,16 +48,22 @@ fn render_directory(
     ctx: &EmbeddedViewerContext<'_>,
     intents: &mut Vec<crate::app::GraphIntent>,
 ) -> Result<(), String> {
-    let path =
-        crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(ctx.node_url, ctx.file_access_policy)?;
+    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
+        ctx.node_url,
+        ctx.file_access_policy,
+    )?;
 
     let entries: Vec<(String, PathBuf, bool)> = DIR_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(cached) = cache.get(&ctx.node_key) {
             if cached.url == ctx.node_url {
-                return Ok::<_, String>(cached.entries.iter().map(|e| {
-                    (e.display_name.clone(), e.path.clone(), e.is_dir)
-                }).collect());
+                return Ok::<_, String>(
+                    cached
+                        .entries
+                        .iter()
+                        .map(|e| (e.display_name.clone(), e.path.clone(), e.is_dir))
+                        .collect(),
+                );
             }
         }
 
@@ -72,20 +76,32 @@ fn render_directory(
                 let entry_path = entry.path();
                 let is_dir = entry_path.is_dir();
                 let display_name = entry.file_name().to_string_lossy().into_owned();
-                DirectoryEntry { display_name, path: entry_path, is_dir }
+                DirectoryEntry {
+                    display_name,
+                    path: entry_path,
+                    is_dir,
+                }
             })
             .collect();
 
-        dir_entries.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
-
-        let result: Vec<(String, PathBuf, bool)> = dir_entries.iter().map(|e| {
-            (e.display_name.clone(), e.path.clone(), e.is_dir)
-        }).collect();
-
-        cache.insert(ctx.node_key, CachedDirectoryListing {
-            url: ctx.node_url.to_string(),
-            entries: dir_entries,
+        dir_entries.sort_by(|a, b| {
+            a.display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase())
         });
+
+        let result: Vec<(String, PathBuf, bool)> = dir_entries
+            .iter()
+            .map(|e| (e.display_name.clone(), e.path.clone(), e.is_dir))
+            .collect();
+
+        cache.insert(
+            ctx.node_key,
+            CachedDirectoryListing {
+                url: ctx.node_url.to_string(),
+                entries: dir_entries,
+            },
+        );
 
         Ok(result)
     })?;
@@ -122,4 +138,3 @@ fn render_directory(
 
     Ok(())
 }
-

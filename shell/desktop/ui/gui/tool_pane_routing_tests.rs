@@ -100,4 +100,3 @@ fn diagnostics_shortcut_focuses_diagnostics_not_other_tool_pane() {
             .is_some_and(|tile| is_tool_tile(tile, ToolPaneState::HistoryManager))
     }));
 }
-

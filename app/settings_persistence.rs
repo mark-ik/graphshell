@@ -702,7 +702,12 @@ impl GraphBrowserApp {
     }
 
     pub fn set_workbench_overlay_visible(&mut self, visible: bool) {
-        if visible && matches!(self.workbench_display_mode(), WorkbenchDisplayMode::Dedicated) {
+        if visible
+            && matches!(
+                self.workbench_display_mode(),
+                WorkbenchDisplayMode::Dedicated
+            )
+        {
             return;
         }
         self.workspace.chrome_ui.show_workbench_overlay = visible;
@@ -1406,4 +1411,3 @@ mod tests {
         );
     }
 }
-

@@ -246,4 +246,3 @@ pub(crate) fn semantic_tab_toggle_intent_for_pane(
         }
     }
 }
-

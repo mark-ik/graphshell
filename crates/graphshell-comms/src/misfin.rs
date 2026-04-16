@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, WebPkiSupportedAlgorithms};
+use rustls::crypto::{WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{
     ClientConfig, ClientConnection, DigitallySignedStruct, Error, SignatureScheme, StreamOwned,
@@ -143,7 +143,9 @@ impl MisfinAddress {
     pub fn from_url(url: &url::Url) -> Result<Self, String> {
         let mailbox = url.username().trim();
         if mailbox.is_empty() {
-            return Err("Misfin URL is missing the recipient mailbox in the username position.".to_string());
+            return Err(
+                "Misfin URL is missing the recipient mailbox in the username position.".to_string(),
+            );
         }
         let host = url
             .host_str()
@@ -210,7 +212,10 @@ impl MisfinKnownHostsStore {
         certificate: &CertificateDer<'_>,
     ) -> Result<(), String> {
         let fingerprint = sha256_hex(certificate.as_ref());
-        let mut records = self.records.write().expect("misfin known-hosts lock poisoned");
+        let mut records = self
+            .records
+            .write()
+            .expect("misfin known-hosts lock poisoned");
 
         match records.get(authority) {
             Some(existing) if existing.fingerprint_sha256 == fingerprint => Ok(()),
@@ -258,8 +263,8 @@ impl MisfinKnownHostsStore {
 
 impl MisfinTofuVerifier {
     fn new(authority: String, known_hosts: MisfinKnownHostsStore) -> Self {
-        let supported_algs = rustls::crypto::aws_lc_rs::default_provider()
-            .signature_verification_algorithms;
+        let supported_algs =
+            rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms;
         Self {
             authority,
             known_hosts,
@@ -313,7 +318,14 @@ pub fn send_message(
 ) -> Result<MisfinSendOutcome, String> {
     let known_hosts = MisfinKnownHostsStore::load_default();
     let identity_root = misfin_identity_root();
-    send_message_with_paths(url, sender, message, &known_hosts, identity_root.as_deref(), 0)
+    send_message_with_paths(
+        url,
+        sender,
+        message,
+        &known_hosts,
+        identity_root.as_deref(),
+        0,
+    )
 }
 
 #[cfg(test)]
@@ -325,14 +337,7 @@ pub fn send_message_for_tests(
     identity_root: &Path,
 ) -> Result<MisfinSendOutcome, String> {
     let known_hosts = MisfinKnownHostsStore::new_for_tests(known_hosts_path.to_path_buf());
-    send_message_with_paths(
-        url,
-        sender,
-        message,
-        &known_hosts,
-        Some(identity_root),
-        0,
-    )
+    send_message_with_paths(url, sender, message, &known_hosts, Some(identity_root), 0)
 }
 
 pub fn identity_status(spec: &MisfinIdentitySpec) -> Result<MisfinIdentityStatus, String> {
@@ -370,7 +375,9 @@ pub fn url_string_for_address(address: &MisfinAddress, explicit_port: Option<u16
 pub fn parse_misfin_response(line: &str) -> Result<MisfinResponse, String> {
     let trimmed = line.trim_end_matches(['\r', '\n']);
     if trimmed.len() < 2 {
-        return Err("Misfin response was shorter than the required two-digit status code.".to_string());
+        return Err(
+            "Misfin response was shorter than the required two-digit status code.".to_string(),
+        );
     }
     let status = trimmed[..2]
         .parse::<u16>()
@@ -450,19 +457,18 @@ fn send_message_with_paths(
 
     let stream = connect(&recipient.host, port)?;
     let verifier = Arc::new(MisfinTofuVerifier::new(authority, known_hosts.clone()));
-    let client_config = ClientConfig::builder_with_provider(
-        rustls::crypto::aws_lc_rs::default_provider().into(),
-    )
-    .with_protocol_versions(rustls::DEFAULT_VERSIONS)
-    .expect("rustls default protocol versions should be valid for Misfin client")
-        .dangerous()
-        .with_custom_certificate_verifier(verifier)
-        .with_client_auth_cert(
-            identity.certificate_chain.clone(),
-            PrivateKeyDer::try_from(identity.private_key_der.clone())
-                .map_err(|error| format!("Misfin private key decode failed: {error}"))?,
-        )
-        .map_err(|error| format!("Misfin client certificate setup failed: {error}"))?;
+    let client_config =
+        ClientConfig::builder_with_provider(rustls::crypto::aws_lc_rs::default_provider().into())
+            .with_protocol_versions(rustls::DEFAULT_VERSIONS)
+            .expect("rustls default protocol versions should be valid for Misfin client")
+            .dangerous()
+            .with_custom_certificate_verifier(verifier)
+            .with_client_auth_cert(
+                identity.certificate_chain.clone(),
+                PrivateKeyDer::try_from(identity.private_key_der.clone())
+                    .map_err(|error| format!("Misfin private key decode failed: {error}"))?,
+            )
+            .map_err(|error| format!("Misfin client certificate setup failed: {error}"))?;
     let server_name = server_name_for_host(&recipient.host)?;
     let connection = ClientConnection::new(Arc::new(client_config), server_name)
         .map_err(|error| format!("Misfin TLS client setup failed: {error}"))?;
@@ -502,7 +508,8 @@ fn send_message_with_paths(
     Ok(MisfinSendOutcome {
         final_recipient: recipient,
         status: response.status,
-        recipient_fingerprint: (response.status == 20).then(|| normalize_fingerprint(&response.meta)),
+        recipient_fingerprint: (response.status == 20)
+            .then(|| normalize_fingerprint(&response.meta)),
         meta: response.meta,
         permanent_redirect: None,
     })
@@ -518,15 +525,29 @@ fn load_or_create_identity(
 
     fs::create_dir_all(identity_root)
         .map_err(|error| format!("Failed to create Misfin identity directory: {error}"))?;
-    let path = identity_root.join(format!("{}.json", sanitize_filename(&spec.address.as_addr_spec())));
+    let path = identity_root.join(format!(
+        "{}.json",
+        sanitize_filename(&spec.address.as_addr_spec())
+    ));
 
     if path.exists() {
-        let content = fs::read_to_string(&path)
-            .map_err(|error| format!("Failed to read Misfin identity '{}': {error}", path.display()))?;
-        let persisted: PersistedMisfinIdentity = serde_json::from_str(&content)
-            .map_err(|error| format!("Failed to parse Misfin identity '{}': {error}", path.display()))?;
+        let content = fs::read_to_string(&path).map_err(|error| {
+            format!(
+                "Failed to read Misfin identity '{}': {error}",
+                path.display()
+            )
+        })?;
+        let persisted: PersistedMisfinIdentity =
+            serde_json::from_str(&content).map_err(|error| {
+                format!(
+                    "Failed to parse Misfin identity '{}': {error}",
+                    path.display()
+                )
+            })?;
         return Ok(MisfinClientIdentity {
-            certificate_chain: vec![CertificateDer::from(decode_hex(&persisted.certificate_der_hex)?)],
+            certificate_chain: vec![CertificateDer::from(decode_hex(
+                &persisted.certificate_der_hex,
+            )?)],
             private_key_der: decode_hex(&persisted.private_key_der_hex)?,
         });
     }
@@ -538,10 +559,18 @@ fn load_or_create_identity(
         certificate_der_hex: encode_hex(identity.certificate_chain[0].as_ref()),
         private_key_der_hex: encode_hex(&identity.private_key_der),
     };
-    let content = serde_json::to_string_pretty(&persisted)
-        .map_err(|error| format!("Failed to serialize Misfin identity '{}': {error}", path.display()))?;
-    fs::write(&path, content)
-        .map_err(|error| format!("Failed to persist Misfin identity '{}': {error}", path.display()))?;
+    let content = serde_json::to_string_pretty(&persisted).map_err(|error| {
+        format!(
+            "Failed to serialize Misfin identity '{}': {error}",
+            path.display()
+        )
+    })?;
+    fs::write(&path, content).map_err(|error| {
+        format!(
+            "Failed to persist Misfin identity '{}': {error}",
+            path.display()
+        )
+    })?;
     Ok(identity)
 }
 
@@ -570,10 +599,18 @@ fn identity_status_with_root(
         });
     }
 
-    let content = fs::read_to_string(&path)
-        .map_err(|error| format!("Failed to read Misfin identity '{}': {error}", path.display()))?;
-    let persisted: PersistedMisfinIdentity = serde_json::from_str(&content)
-        .map_err(|error| format!("Failed to parse Misfin identity '{}': {error}", path.display()))?;
+    let content = fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "Failed to read Misfin identity '{}': {error}",
+            path.display()
+        )
+    })?;
+    let persisted: PersistedMisfinIdentity = serde_json::from_str(&content).map_err(|error| {
+        format!(
+            "Failed to parse Misfin identity '{}': {error}",
+            path.display()
+        )
+    })?;
     let certificate_der = decode_hex(&persisted.certificate_der_hex)?;
 
     Ok(MisfinIdentityStatus {
@@ -612,8 +649,12 @@ fn forget_identity_with_root(
     if !path.exists() {
         return Ok(false);
     }
-    fs::remove_file(&path)
-        .map_err(|error| format!("Failed to remove Misfin identity '{}': {error}", path.display()))?;
+    fs::remove_file(&path).map_err(|error| {
+        format!(
+            "Failed to remove Misfin identity '{}': {error}",
+            path.display()
+        )
+    })?;
     Ok(true)
 }
 
@@ -625,7 +666,12 @@ fn trust_status_with_path(
     let path = known_hosts_path.map(Path::to_path_buf);
     let fingerprint_sha256 = if let Some(path) = known_hosts_path {
         load_known_hosts_from_path(path)
-            .map_err(|error| format!("Failed to read Misfin known hosts '{}': {error}", path.display()))?
+            .map_err(|error| {
+                format!(
+                    "Failed to read Misfin known hosts '{}': {error}",
+                    path.display()
+                )
+            })?
             .get(&authority)
             .map(|record| record.fingerprint_sha256.clone())
     } else {
@@ -647,8 +693,12 @@ fn forget_known_host_with_path(
         return Ok(false);
     };
     let authority = authority_for_url(url)?;
-    let mut records = load_known_hosts_from_path(path)
-        .map_err(|error| format!("Failed to read Misfin known hosts '{}': {error}", path.display()))?;
+    let mut records = load_known_hosts_from_path(path).map_err(|error| {
+        format!(
+            "Failed to read Misfin known hosts '{}': {error}",
+            path.display()
+        )
+    })?;
     let removed = records.remove(&authority).is_some();
     if removed {
         persist_known_hosts_to_path(path, records.values().cloned().collect())?;
@@ -657,7 +707,8 @@ fn forget_known_host_with_path(
 }
 
 fn generate_identity(spec: &MisfinIdentitySpec) -> Result<MisfinClientIdentity, String> {
-    let key_pair = KeyPair::generate().map_err(|error| format!("Misfin key generation failed: {error}"))?;
+    let key_pair =
+        KeyPair::generate().map_err(|error| format!("Misfin key generation failed: {error}"))?;
     let mut params = CertificateParams::new(vec![spec.address.host.clone()])
         .map_err(|error| format!("Misfin certificate params failed: {error}"))?;
     let mut distinguished_name = DistinguishedName::new();
@@ -696,7 +747,9 @@ fn connect(host: &str, port: u16) -> Result<TcpStream, String> {
                     .map_err(|error| format!("Failed to configure Misfin read timeout: {error}"))?;
                 stream
                     .set_write_timeout(Some(IO_TIMEOUT))
-                    .map_err(|error| format!("Failed to configure Misfin write timeout: {error}"))?;
+                    .map_err(|error| {
+                        format!("Failed to configure Misfin write timeout: {error}")
+                    })?;
                 return Ok(stream);
             }
             Err(error) => last_error = Some(error),
@@ -731,7 +784,9 @@ fn server_name_for_host(host: &str) -> Result<ServerName<'static>, String> {
         .map_err(|error| format!("Invalid Misfin host '{host}': {error}"))
 }
 
-fn read_misfin_response<R: std::io::Read>(reader: &mut BufReader<R>) -> Result<MisfinResponse, String> {
+fn read_misfin_response<R: std::io::Read>(
+    reader: &mut BufReader<R>,
+) -> Result<MisfinResponse, String> {
     let mut line = String::new();
     match reader.read_line(&mut line) {
         Ok(_) => {}
@@ -747,8 +802,13 @@ fn read_misfin_response<R: std::io::Read>(reader: &mut BufReader<R>) -> Result<M
 }
 
 fn redirected_url(current_url: &url::Url, address: &MisfinAddress) -> Result<url::Url, String> {
-    let mut redirected = url::Url::parse(&url_string_for_address(address, None))
-        .map_err(|error| format!("Invalid redirected Misfin address '{}': {error}", address.as_addr_spec()))?;
+    let mut redirected =
+        url::Url::parse(&url_string_for_address(address, None)).map_err(|error| {
+            format!(
+                "Invalid redirected Misfin address '{}': {error}",
+                address.as_addr_spec()
+            )
+        })?;
     if let Some(port) = current_url.port() {
         redirected
             .set_port(Some(port))
@@ -759,7 +819,11 @@ fn redirected_url(current_url: &url::Url, address: &MisfinAddress) -> Result<url
 
 fn authority_for_url(url: &url::Url) -> Result<String, String> {
     let recipient = MisfinAddress::from_url(url)?;
-    Ok(format!("{}:{}", recipient.host, url.port().unwrap_or(MISFIN_DEFAULT_PORT)))
+    Ok(format!(
+        "{}:{}",
+        recipient.host,
+        url.port().unwrap_or(MISFIN_DEFAULT_PORT)
+    ))
 }
 
 fn parse_sender_line(line: &str) -> Option<MisfinSender> {
@@ -807,7 +871,10 @@ fn split_once_whitespace(input: &str) -> (&str, Option<&str>) {
 }
 
 fn identity_path_for_spec(spec: &MisfinIdentitySpec, identity_root: &Path) -> PathBuf {
-    identity_root.join(format!("{}.json", sanitize_filename(&spec.address.as_addr_spec())))
+    identity_root.join(format!(
+        "{}.json",
+        sanitize_filename(&spec.address.as_addr_spec())
+    ))
 }
 
 #[cfg(not(test))]
@@ -865,14 +932,26 @@ fn persist_known_hosts_to_path(
     mut records: Vec<MisfinKnownHostRecord>,
 ) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Failed to create Misfin known-hosts parent '{}': {error}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Failed to create Misfin known-hosts parent '{}': {error}",
+                parent.display()
+            )
+        })?;
     }
     records.sort_by(|left, right| left.authority.cmp(&right.authority));
-    let content = serde_json::to_string_pretty(&records)
-        .map_err(|error| format!("Failed to serialize Misfin known hosts '{}': {error}", path.display()))?;
-    fs::write(path, content)
-        .map_err(|error| format!("Failed to persist Misfin known hosts '{}': {error}", path.display()))
+    let content = serde_json::to_string_pretty(&records).map_err(|error| {
+        format!(
+            "Failed to serialize Misfin known hosts '{}': {error}",
+            path.display()
+        )
+    })?;
+    fs::write(path, content).map_err(|error| {
+        format!(
+            "Failed to persist Misfin known hosts '{}': {error}",
+            path.display()
+        )
+    })
 }
 
 fn normalize_fingerprint(input: &str) -> String {
@@ -975,8 +1054,7 @@ mod tests {
 
     #[test]
     fn misfin_response_parses_status_and_meta() {
-        let response = parse_misfin_response("20 abcd1234\r\n")
-            .expect("response should parse");
+        let response = parse_misfin_response("20 abcd1234\r\n").expect("response should parse");
 
         assert_eq!(response.status, 20);
         assert_eq!(response.meta, "abcd1234");
@@ -989,21 +1067,23 @@ mod tests {
         );
 
         assert_eq!(
-            gemmail.sender.as_ref().map(|sender| sender.address.as_addr_spec()),
+            gemmail
+                .sender
+                .as_ref()
+                .map(|sender| sender.address.as_addr_spec()),
             Some("friend@example.com".to_string())
         );
         assert_eq!(gemmail.recipients.len(), 2);
         assert_eq!(gemmail.timestamp.as_deref(), Some("2023-05-09T19:39:15Z"));
         assert_eq!(gemmail.subject.as_deref(), Some("A note on flowers"));
-        assert_eq!(
-            gemmail.body,
-            "# A note on flowers\n\nThe green ones bite."
-        );
+        assert_eq!(gemmail.body, "# A note on flowers\n\nThe green ones bite.");
     }
 
     #[test]
     fn gemmail_body_document_uses_gemtext_parser() {
-        let gemmail = parse_gemmail("< friend@example.com Friendly Person\n# Hello\n=> gemini://example.com/ Next\n");
+        let gemmail = parse_gemmail(
+            "< friend@example.com Friendly Person\n# Hello\n=> gemini://example.com/ Next\n",
+        );
         let body = gemmail.body_document().to_gemini();
 
         assert!(body.contains("# Hello"));
@@ -1013,9 +1093,8 @@ mod tests {
     #[test]
     fn misfin_send_message_writes_request_and_reads_success() {
         let tempdir = TempDir::new().expect("temp dir should be created");
-        let known_hosts = MisfinKnownHostsStore::new_for_tests(
-            tempdir.path().join("misfin_known_hosts.json"),
-        );
+        let known_hosts =
+            MisfinKnownHostsStore::new_for_tests(tempdir.path().join("misfin_known_hosts.json"));
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
         let port = listener.local_addr().expect("address").port();
 
@@ -1029,18 +1108,15 @@ mod tests {
             let mut reader = BufReader::new(tls);
             let mut request = String::new();
             std::io::BufRead::read_line(&mut reader, &mut request).expect("request line");
-            assert_eq!(
-                request,
-                "misfin://queen@localhost Hello bees\r\n"
-            );
+            assert_eq!(request, "misfin://queen@localhost Hello bees\r\n");
 
             tls = reader.into_inner();
             tls.write_all(b"20 abcdef1234\r\n").expect("response");
             tls.flush().expect("flush");
         });
 
-        let url = url::Url::parse(&format!("misfin://queen@localhost:{port}"))
-            .expect("url should parse");
+        let url =
+            url::Url::parse(&format!("misfin://queen@localhost:{port}")).expect("url should parse");
         let sender = MisfinIdentitySpec {
             address: MisfinAddress::parse("worker@hive.local").expect("sender should parse"),
             blurb: Some("Worker Bee".to_string()),
@@ -1058,19 +1134,15 @@ mod tests {
         assert_eq!(outcome.final_recipient.as_addr_spec(), "queen@localhost");
         assert_eq!(outcome.status, 20);
         assert_eq!(outcome.recipient_fingerprint.as_deref(), Some("abcdef1234"));
-        assert!(tempdir
-            .path()
-            .join("worker@hive.local.json")
-            .exists());
+        assert!(tempdir.path().join("worker@hive.local.json").exists());
         server.join().expect("server joins cleanly");
     }
 
     #[test]
     fn misfin_send_message_follows_redirects_on_explicit_port() {
         let tempdir = TempDir::new().expect("temp dir should be created");
-        let known_hosts = MisfinKnownHostsStore::new_for_tests(
-            tempdir.path().join("misfin_known_hosts.json"),
-        );
+        let known_hosts =
+            MisfinKnownHostsStore::new_for_tests(tempdir.path().join("misfin_known_hosts.json"));
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
         let port = listener.local_addr().expect("address").port();
 
@@ -1104,12 +1176,14 @@ mod tests {
                 .expect("second request line");
             assert_eq!(second_request, "misfin://queen2@localhost Hello bees\r\n");
             second_tls = second_reader.into_inner();
-            second_tls.write_all(b"20 fedcba\r\n").expect("success response");
+            second_tls
+                .write_all(b"20 fedcba\r\n")
+                .expect("success response");
             second_tls.flush().expect("flush");
         });
 
-        let url = url::Url::parse(&format!("misfin://queen@localhost:{port}"))
-            .expect("url should parse");
+        let url =
+            url::Url::parse(&format!("misfin://queen@localhost:{port}")).expect("url should parse");
         let sender = MisfinIdentitySpec {
             address: MisfinAddress::parse("worker@hive.local").expect("sender should parse"),
             blurb: Some("Worker Bee".to_string()),
@@ -1125,7 +1199,12 @@ mod tests {
         .expect("Misfin redirect should succeed");
 
         assert_eq!(outcome.final_recipient.as_addr_spec(), "queen2@localhost");
-        assert_eq!(outcome.permanent_redirect.map(|address| address.as_addr_spec()), Some("queen2@localhost".to_string()));
+        assert_eq!(
+            outcome
+                .permanent_redirect
+                .map(|address| address.as_addr_spec()),
+            Some("queen2@localhost".to_string())
+        );
         assert_eq!(outcome.recipient_fingerprint.as_deref(), Some("fedcba"));
         server.join().expect("server joins cleanly");
     }
@@ -1176,21 +1255,18 @@ mod tests {
         params.not_before = rcgen::date_time_ymd(2024, 1, 1);
         params.not_after = rcgen::date_time_ymd(2099, 12, 31);
 
-        let cert = params.self_signed(&key_pair).expect("self-signed cert should build");
+        let cert = params
+            .self_signed(&key_pair)
+            .expect("self-signed cert should build");
         let cert_der = CertificateDer::from(cert.der().to_vec());
         let key_der = rustls::pki_types::PrivateKeyDer::try_from(key_pair.serialize_der())
             .expect("key der should convert");
 
-        ServerConfig::builder_with_provider(
-            rustls::crypto::aws_lc_rs::default_provider().into(),
-        )
-        .with_protocol_versions(rustls::DEFAULT_VERSIONS)
-        .expect("rustls default protocol versions should be valid for Misfin test server")
+        ServerConfig::builder_with_provider(rustls::crypto::aws_lc_rs::default_provider().into())
+            .with_protocol_versions(rustls::DEFAULT_VERSIONS)
+            .expect("rustls default protocol versions should be valid for Misfin test server")
             .with_no_client_auth()
             .with_single_cert(vec![cert_der], key_der)
             .expect("server config should build")
     }
 }
-
-
-

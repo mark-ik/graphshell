@@ -124,4 +124,3 @@ mod tests {
         assert_eq!(layout.kind(), ActiveLayoutKind::BarnesHut);
     }
 }
-

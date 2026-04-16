@@ -21,8 +21,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
-use middlenet_engine::document::{SimpleBlock, SimpleDocument};
 use crate::model::archive::ArchivePrivacyClass;
+use middlenet_engine::document::{SimpleBlock, SimpleDocument};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -222,9 +222,7 @@ fn serve_root_menu(registry: &GopherRegistry, hostname: &str, port: u16) -> Stri
             level: 1,
             text: format!("{hostname} — Graphshell Gopherspace"),
         },
-        SimpleBlock::Paragraph(
-            "This gopherspace is served by Graphshell.".to_string(),
-        ),
+        SimpleBlock::Paragraph("This gopherspace is served by Graphshell.".to_string()),
     ]);
     let mut out = index_doc.to_gophermap(hostname, port);
     // Remove trailing ".\r\n" to append node entries, then re-add it
@@ -249,4 +247,3 @@ fn serve_root_menu(registry: &GopherRegistry, hostname: &str, port: u16) -> Stri
     out.push_str(".\r\n");
     out
 }
-

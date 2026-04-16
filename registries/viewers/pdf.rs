@@ -22,11 +22,7 @@ impl EmbeddedViewer for PdfEmbeddedViewer {
         "viewer:pdf"
     }
 
-    fn render(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput {
+    fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput {
         match render_pdf(ui, ctx) {
             Ok(()) => {}
             Err(err) => {
@@ -38,11 +34,10 @@ impl EmbeddedViewer for PdfEmbeddedViewer {
 }
 
 fn render_pdf(ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> Result<(), String> {
-    let path =
-        crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
-            ctx.node_url,
-            ctx.file_access_policy,
-        )?;
+    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
+        ctx.node_url,
+        ctx.file_access_policy,
+    )?;
     let path_str = path.to_string_lossy().to_string();
     let node_key = ctx.node_key;
 
@@ -139,4 +134,3 @@ fn draw_pdf_page(ui: &mut egui::Ui, texture: &egui::TextureHandle, page_count: u
         ));
     });
 }
-

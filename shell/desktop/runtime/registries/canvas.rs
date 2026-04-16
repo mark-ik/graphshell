@@ -114,4 +114,3 @@ mod tests {
         assert!(!disabled.profile.zones_enabled());
     }
 }
-

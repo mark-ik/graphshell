@@ -48,8 +48,8 @@ pub(super) fn resolve_browser_command_target(
         BrowserCommandTarget::ChromeProjection { fallback_node } => {
             if let Some(webview_id) = window.explicit_chrome_webview_id() {
                 BrowserCommandRouteOutcome::Resolved(webview_id)
-            } else if let Some(webview_id) = fallback_node
-                .and_then(|node_key| app.get_webview_for_node(node_key))
+            } else if let Some(webview_id) =
+                fallback_node.and_then(|node_key| app.get_webview_for_node(node_key))
             {
                 BrowserCommandRouteOutcome::Fallback(webview_id)
             } else {
@@ -63,7 +63,8 @@ pub(super) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: 
     while let Some((target, command)) = app.take_pending_browser_command() {
         let webview_id = match resolve_browser_command_target(app, window, target) {
             BrowserCommandRouteOutcome::Resolved(webview_id) => {
-                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_resolved();
+                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_resolved(
+                );
                 emit_message_received_with_payload(
                     CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
                     command.diagnostic_label().len() as u64,
@@ -72,7 +73,8 @@ pub(super) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: 
                 webview_id
             }
             BrowserCommandRouteOutcome::Fallback(webview_id) => {
-                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_fallback();
+                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_fallback(
+                );
                 emit_message_sent_with_payload(
                     CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
                     command.diagnostic_label().len(),
@@ -164,7 +166,9 @@ mod tests {
         install_global_sender(diag_tx);
 
         app.request_browser_command(
-            BrowserCommandTarget::ChromeProjection { fallback_node: None },
+            BrowserCommandTarget::ChromeProjection {
+                fallback_node: None,
+            },
             BrowserCommand::Close,
         );
 
@@ -190,4 +194,3 @@ mod tests {
         );
     }
 }
-

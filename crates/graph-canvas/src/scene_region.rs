@@ -18,13 +18,8 @@ pub struct SceneRegionId(pub u64);
 /// Spatial shape for a scene region.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SceneRegionShape {
-    Circle {
-        center: Point2D<f32>,
-        radius: f32,
-    },
-    Rect {
-        rect: Rect<f32>,
-    },
+    Circle { center: Point2D<f32>, radius: f32 },
+    Rect { rect: Rect<f32> },
 }
 
 impl SceneRegionShape {
@@ -310,8 +305,11 @@ mod tests {
             center: Point2D::new(100.0, 100.0),
             radius: 50.0,
         };
-        let resized =
-            resize_shape_to_pointer(shape, SceneRegionResizeHandle::CircleRadius, Point2D::new(200.0, 100.0));
+        let resized = resize_shape_to_pointer(
+            shape,
+            SceneRegionResizeHandle::CircleRadius,
+            Point2D::new(200.0, 100.0),
+        );
         match resized {
             SceneRegionShape::Circle { center, radius } => {
                 assert_eq!(center, Point2D::new(100.0, 100.0));
@@ -327,8 +325,11 @@ mod tests {
             center: Point2D::new(100.0, 100.0),
             radius: 50.0,
         };
-        let resized =
-            resize_shape_to_pointer(shape, SceneRegionResizeHandle::CircleRadius, Point2D::new(101.0, 100.0));
+        let resized = resize_shape_to_pointer(
+            shape,
+            SceneRegionResizeHandle::CircleRadius,
+            Point2D::new(101.0, 100.0),
+        );
         match resized {
             SceneRegionShape::Circle { radius, .. } => {
                 assert!(radius >= MIN_CIRCLE_RADIUS);
@@ -337,4 +338,3 @@ mod tests {
         }
     }
 }
-

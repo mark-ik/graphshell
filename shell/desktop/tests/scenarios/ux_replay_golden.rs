@@ -1,6 +1,6 @@
 use crate::shell::desktop::workbench::ux_replay::{
-    verify_replay_session, HostEvent, HostPlaybackDriver, ModifiersState, PointerButton,
-    UxReplaySession,
+    HostEvent, HostPlaybackDriver, ModifiersState, PointerButton, UxReplaySession,
+    verify_replay_session,
 };
 use crate::shell::desktop::workbench::ux_tree::UxTreeSnapshot;
 

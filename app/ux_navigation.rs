@@ -66,7 +66,10 @@ impl GraphBrowserApp {
 
     pub fn open_workbench_overlay(&mut self) {
         if self.workbench_overlay_visible()
-            || matches!(self.workbench_display_mode(), WorkbenchDisplayMode::Dedicated)
+            || matches!(
+                self.workbench_display_mode(),
+                WorkbenchDisplayMode::Dedicated
+            )
         {
             return;
         }
@@ -408,4 +411,3 @@ mod tests {
         assert!(!app.workbench_overlay_visible());
     }
 }
-

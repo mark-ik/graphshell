@@ -234,8 +234,16 @@ Checklist:
 - [ ] Move the live graph interaction grammar to portable `CanvasInputEvent`
   and `CanvasAction` flows
 - [ ] Keep Graphshell-owned camera semantics outside framework metadata/state
-- [ ] Add an egui host adapter that consumes `graph-canvas` packets and emits
+- [x] Add an egui host adapter that consumes `graph-canvas` packets and emits
   host-local paint/input glue only
+  - landed as `render::render_graph_canvas_in_ui` plus
+    `render/canvas_bridge.rs` and `render/canvas_egui_painter.rs`; primary and
+    specialty graph hosts can now route through the same profile-gated M2 path
+  - 2026-04-16 follow-on: extracted a host-neutral
+    `canvas_bridge::run_graph_canvas_frame(...)` seam so the egui adapter now
+    mainly does viewport translation, input translation, and packet painting;
+    the future iced adapter can consume the same frame runner instead of
+    re-owning scene derivation and interaction state
 - [ ] Prefer the existing `graph-canvas` Vello backend as the shared rendering
   convergence point where practical, so egui and iced can consume the same
   graph-render backend rather than each owning separate paint logic

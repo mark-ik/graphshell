@@ -157,4 +157,3 @@ pub(crate) fn fetch_text(url: &str) -> Result<String, OutboundFetchError> {
     }
     Err(OutboundFetchError::Network)
 }
-

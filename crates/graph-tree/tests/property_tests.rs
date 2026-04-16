@@ -187,4 +187,3 @@ proptest! {
         assert_tree_invariants(&restored);
     }
 }
-

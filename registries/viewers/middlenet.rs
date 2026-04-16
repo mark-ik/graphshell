@@ -5,26 +5,26 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use middlenet_engine::document::{SimpleBlock, SimpleDocument};
-use middlenet_engine::engine::{MiddleNetEngine, MiddleNetLoadResult};
-use graphshell_comms::misfin::{
-    self, MisfinAddress, MisfinIdentitySpec, MisfinSendOutcome,
-};
-use middlenet_engine::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
-use graphshell_comms::transport::{TitanUploadOutcome, titan_upload};
 use crate::registries::atomic::viewer::{
     EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput,
 };
 use crate::services::persistence::types::NodeAuditEventKind;
+use graphshell_comms::misfin::{self, MisfinAddress, MisfinIdentitySpec, MisfinSendOutcome};
+use graphshell_comms::transport::{TitanUploadOutcome, titan_upload};
+use middlenet_engine::document::{SimpleBlock, SimpleDocument};
+use middlenet_engine::engine::{MiddleNetEngine, MiddleNetLoadResult};
+use middlenet_engine::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
 
 pub(crate) struct MiddleNetEmbeddedViewer;
 
 impl middlenet_engine::viewer::HostViewerAdapter for MiddleNetEmbeddedViewer {
-    fn render_document(&mut self, document: &middlenet_engine::dom::Document) -> middlenet_engine::viewer::RenderResult {
+    fn render_document(
+        &mut self,
+        document: &middlenet_engine::dom::Document,
+    ) -> middlenet_engine::viewer::RenderResult {
         middlenet_engine::viewer::generate_display_list(document)
     }
 }
-
 
 #[derive(Debug, Clone, Default)]
 struct MiddleNetViewerState {
@@ -48,11 +48,7 @@ impl EmbeddedViewer for MiddleNetEmbeddedViewer {
         "viewer:middlenet"
     }
 
-    fn render(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput {
+    fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput {
         let mut intents = Vec::new();
         let mut app_commands = Vec::new();
         let mut state = load_viewer_state(ctx.node_key);
@@ -145,7 +141,8 @@ impl EmbeddedViewer for MiddleNetEmbeddedViewer {
 }
 
 fn viewer_state_store() -> &'static Mutex<HashMap<crate::graph::NodeKey, MiddleNetViewerState>> {
-    static STORE: OnceLock<Mutex<HashMap<crate::graph::NodeKey, MiddleNetViewerState>>> = OnceLock::new();
+    static STORE: OnceLock<Mutex<HashMap<crate::graph::NodeKey, MiddleNetViewerState>>> =
+        OnceLock::new();
     STORE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -182,18 +179,16 @@ fn load_for_viewer(
         return do_load_remote(source);
     }
 
-    let path = match crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
-        ctx.node_url,
-        ctx.file_access_policy,
-    ) {
-        Ok(path) => path,
-        Err(error) => {
-            return MiddleNetLoadResult::ParseError {
-                source,
-                error,
-            };
-        }
-    };
+    let path =
+        match crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
+            ctx.node_url,
+            ctx.file_access_policy,
+        ) {
+            Ok(path) => path,
+            Err(error) => {
+                return MiddleNetLoadResult::ParseError { source, error };
+            }
+        };
 
     let body = match std::fs::read_to_string(&path) {
         Ok(body) => body,
@@ -224,7 +219,10 @@ fn render_misfin_view(
     let recipient = match MisfinAddress::from_url(url) {
         Ok(recipient) => recipient,
         Err(error) => {
-            ui.colored_label(egui::Color32::from_rgb(220, 120, 120), "Misfin address error");
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 120, 120),
+                "Misfin address error",
+            );
             ui.small(error);
             return;
         }
@@ -285,7 +283,8 @@ fn render_misfin_view(
     );
 
     if state.misfin_wire_message.trim().is_empty() {
-        state.misfin_wire_message = derive_misfin_wire_message(&state.misfin_subject, &state.misfin_body);
+        state.misfin_wire_message =
+            derive_misfin_wire_message(&state.misfin_subject, &state.misfin_body);
     }
 
     ui.horizontal(|ui| {
@@ -309,12 +308,7 @@ fn render_misfin_view(
     egui::CollapsingHeader::new("Gemmail preview")
         .default_open(true)
         .show(ui, |ui| {
-            render_document(
-                ui,
-                ctx.node_key,
-                &preview_content,
-                intents,
-            );
+            render_document(ui, ctx.node_key, &preview_content, intents);
             ui.add_space(6.0);
             let mut preview_text = preview;
             ui.add(
@@ -379,7 +373,11 @@ fn render_misfin_view(
         }
     }
 
-    render_status(ui, state.misfin_status.as_deref(), state.misfin_status.is_some());
+    render_status(
+        ui,
+        state.misfin_status.as_deref(),
+        state.misfin_status.is_some(),
+    );
 }
 
 fn render_titan_editor(
@@ -420,7 +418,12 @@ fn render_titan_editor(
     if ui.button("Upload via Titan").clicked() {
         let mime = trim_optional(&state.titan_mime);
         let token = trim_optional(&state.titan_token);
-        match titan_upload(url, state.titan_draft.as_bytes(), mime.as_deref(), token.as_deref()) {
+        match titan_upload(
+            url,
+            state.titan_draft.as_bytes(),
+            mime.as_deref(),
+            token.as_deref(),
+        ) {
             Ok(outcome) => {
                 state.titan_status = Some(apply_titan_upload_outcome(
                     node_key,
@@ -444,7 +447,11 @@ fn render_titan_editor(
         }
     }
 
-    render_status(ui, state.titan_status.as_deref(), state.titan_status.is_some());
+    render_status(
+        ui,
+        state.titan_status.as_deref(),
+        state.titan_status.is_some(),
+    );
 }
 
 fn render_status(ui: &mut egui::Ui, status: Option<&str>, active: bool) {
@@ -503,7 +510,10 @@ fn render_misfin_management_controls(
                     ui.small("Identity file: unavailable on this host");
                 }
                 if let Some(fingerprint) = status.certificate_fingerprint.as_deref() {
-                    ui.small(format!("Certificate fingerprint: {}", short_fingerprint(fingerprint)));
+                    ui.small(format!(
+                        "Certificate fingerprint: {}",
+                        short_fingerprint(fingerprint)
+                    ));
                 } else if status.exists {
                     ui.small("Certificate fingerprint: unavailable");
                 } else {
@@ -570,7 +580,8 @@ fn render_misfin_management_controls(
                                 );
                             }
                             Ok(false) => {
-                                state.misfin_status = Some("No persisted Misfin identity to forget.".to_string());
+                                state.misfin_status =
+                                    Some("No persisted Misfin identity to forget.".to_string());
                             }
                             Err(error) => {
                                 state.misfin_status = Some(error.clone());
@@ -608,7 +619,10 @@ fn render_misfin_management_controls(
             }
             match status.fingerprint_sha256.as_deref() {
                 Some(fingerprint) => {
-                    ui.small(format!("Trusted fingerprint: {}", short_fingerprint(fingerprint)));
+                    ui.small(format!(
+                        "Trusted fingerprint: {}",
+                        short_fingerprint(fingerprint)
+                    ));
                 }
                 None => {
                     ui.small("Trusted fingerprint: not recorded yet");
@@ -630,7 +644,8 @@ fn render_misfin_management_controls(
                         );
                     }
                     Ok(false) => {
-                        state.misfin_status = Some("No persisted Misfin trust to forget.".to_string());
+                        state.misfin_status =
+                            Some("No persisted Misfin trust to forget.".to_string());
                     }
                     Err(error) => {
                         state.misfin_status = Some(error.clone());
@@ -668,7 +683,10 @@ fn derive_misfin_wire_message(subject: &str, body: &str) -> String {
     }
 }
 
-fn compose_misfin_gemmail_preview(recipient: &MisfinAddress, state: &MiddleNetViewerState) -> String {
+fn compose_misfin_gemmail_preview(
+    recipient: &MisfinAddress,
+    state: &MiddleNetViewerState,
+) -> String {
     let mut lines = Vec::new();
 
     let from_mailbox = state.misfin_from_mailbox.trim();
@@ -696,10 +714,7 @@ fn compose_misfin_gemmail_preview(recipient: &MisfinAddress, state: &MiddleNetVi
     lines.join("\n")
 }
 
-fn notice_level_for_status(
-    status: u16,
-    redirected: bool,
-) -> crate::app::UiNotificationLevel {
+fn notice_level_for_status(status: u16, redirected: bool) -> crate::app::UiNotificationLevel {
     if redirected || (30..=39).contains(&status) {
         crate::app::UiNotificationLevel::Warning
     } else if (20..=29).contains(&status) {
@@ -806,7 +821,11 @@ fn short_fingerprint(fingerprint: &str) -> String {
     if fingerprint.len() <= 16 {
         fingerprint.to_string()
     } else {
-        format!("{}..{}", &fingerprint[..8], &fingerprint[fingerprint.len() - 8..])
+        format!(
+            "{}..{}",
+            &fingerprint[..8],
+            &fingerprint[fingerprint.len() - 8..]
+        )
     }
 }
 
@@ -905,7 +924,6 @@ fn render_document(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -916,7 +934,10 @@ mod tests {
             derive_misfin_wire_message("Lane update", "first line\nsecond line"),
             "Lane update: first line"
         );
-        assert_eq!(derive_misfin_wire_message("", "first line\nsecond line"), "first line");
+        assert_eq!(
+            derive_misfin_wire_message("", "first line\nsecond line"),
+            "first line"
+        );
     }
 
     #[test]
@@ -972,7 +993,8 @@ mod tests {
         let node_key = crate::graph::NodeKey::new(9);
         let url = url::Url::parse("misfin://queen@localhost:1958").expect("url should parse");
         let outcome = MisfinSendOutcome {
-            final_recipient: MisfinAddress::parse("queen@localhost").expect("recipient should parse"),
+            final_recipient: MisfinAddress::parse("queen@localhost")
+                .expect("recipient should parse"),
             status: 20,
             meta: "abcdef".to_string(),
             recipient_fingerprint: Some("abcdef".to_string()),
@@ -999,11 +1021,14 @@ mod tests {
         let node_key = crate::graph::NodeKey::new(11);
         let url = url::Url::parse("misfin://queen@localhost:1960").expect("url should parse");
         let outcome = MisfinSendOutcome {
-            final_recipient: MisfinAddress::parse("queen2@localhost").expect("recipient should parse"),
+            final_recipient: MisfinAddress::parse("queen2@localhost")
+                .expect("recipient should parse"),
             status: 20,
             meta: "fedcba".to_string(),
             recipient_fingerprint: Some("fedcba".to_string()),
-            permanent_redirect: Some(MisfinAddress::parse("queen2@localhost").expect("redirect should parse")),
+            permanent_redirect: Some(
+                MisfinAddress::parse("queen2@localhost").expect("redirect should parse"),
+            ),
         };
         let mut intents = Vec::new();
         let mut app_commands = Vec::new();
@@ -1036,7 +1061,10 @@ fn do_load_remote(source: MiddleNetSource) -> MiddleNetLoadResult {
         }
         Err(error) => {
             if matches!(
-                source.canonical_uri.as_deref().and_then(|uri| uri.split_once(':').map(|(s, _)| s)),
+                source
+                    .canonical_uri
+                    .as_deref()
+                    .and_then(|uri| uri.split_once(':').map(|(s, _)| s)),
                 Some("misfin")
             ) {
                 return MiddleNetLoadResult::TransportPending {
@@ -1049,4 +1077,3 @@ fn do_load_remote(source: MiddleNetSource) -> MiddleNetLoadResult {
         }
     }
 }
-

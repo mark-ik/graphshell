@@ -236,4 +236,3 @@ mod from_winit {
         }
     }
 }
-

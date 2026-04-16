@@ -291,4 +291,3 @@ fn test_issue_35754() {
         "https://foo/bar",
     );
 }
-

@@ -543,7 +543,12 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
             mode: SelectionUpdateMode::Add,
         },
     );
-    registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::GroupSelectedTiles);
+    registry.dispatch_intent(
+        &mut app,
+        &mut tree,
+        None,
+        WorkbenchIntent::GroupSelectedTiles,
+    );
 
     let frame_name = "workspace-grouped-roundtrip";
     save_named_workspace_bundle(&mut app, frame_name, &tree)
@@ -584,4 +589,3 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
         "restored tree should include a grouped tabs container with selected members"
     );
 }
-

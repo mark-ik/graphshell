@@ -14,9 +14,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::MemberId;
 use crate::member::Lifecycle;
 use crate::tree::GraphTree;
-use crate::MemberId;
 
 /// A snapshot of external (e.g. egui_tiles) tree state, flattened
 /// into the fields that parity checks need. The host constructs this
@@ -415,7 +415,10 @@ mod tests {
         snapshot.active = None;
 
         let report = compare(&tree, &snapshot);
-        assert!(report.active_matches, "None external active should not flag mismatch");
+        assert!(
+            report.active_matches,
+            "None external active should not flag mismatch"
+        );
     }
 
     #[test]
@@ -462,4 +465,3 @@ mod tests {
         assert!(report.visible_order_matches);
     }
 }
-

@@ -8,9 +8,8 @@ use super::BackendParentRenderRegionInPixels;
 
 pub(crate) type BackendGraphicsContext = glow::Context;
 pub(crate) type BackendFramebufferHandle = glow::NativeFramebuffer;
-pub(crate) type BackendParentRenderCallback = Arc<
-    dyn Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync,
->;
+pub(crate) type BackendParentRenderCallback =
+    Arc<dyn Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync>;
 
 #[cfg(feature = "gl_compat")]
 pub(crate) fn backend_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {

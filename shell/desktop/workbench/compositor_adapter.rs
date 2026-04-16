@@ -13,27 +13,24 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{
-    BackendContentBridge, BackendCustomPass, BackendGraphicsContext,
-    BackendParentRenderCallback, BackendParentRenderRegionInPixels, BackendTextureToken,
-    BackendViewportInPixels,
-    backend_content_bridge_mode_label,
-    backend_content_bridge_path,
-    custom_pass_from_backend_viewport, register_custom_paint_callback,
-    select_content_bridge_from_render_context, texture_id_from_token, UiRenderBackendContract,
-    UiRenderBackendHandle,
+    BackendContentBridge, BackendCustomPass, BackendGraphicsContext, BackendParentRenderCallback,
+    BackendParentRenderRegionInPixels, BackendTextureToken, BackendViewportInPixels,
+    UiRenderBackendContract, UiRenderBackendHandle, backend_content_bridge_mode_label,
+    backend_content_bridge_path, custom_pass_from_backend_viewport, register_custom_paint_callback,
+    select_content_bridge_from_render_context, texture_id_from_token,
 };
 #[cfg(feature = "gl_compat")]
 use crate::shell::desktop::render_backend::{
-    BackendFramebufferHandle,
-    backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
-    backend_chaos_framebuffer_handle, backend_framebuffer_binding, backend_framebuffer_from_binding,
-    backend_is_blend_enabled, backend_is_scissor_enabled, backend_primary_texture_unit,
-    backend_scissor_box, backend_set_active_texture, backend_set_blend_enabled,
-    backend_set_scissor_box, backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
+    BackendFramebufferHandle, backend_active_texture, backend_bind_framebuffer,
+    backend_chaos_alternate_texture_unit, backend_chaos_framebuffer_handle,
+    backend_framebuffer_binding, backend_framebuffer_from_binding, backend_is_blend_enabled,
+    backend_is_scissor_enabled, backend_primary_texture_unit, backend_scissor_box,
+    backend_set_active_texture, backend_set_blend_enabled, backend_set_scissor_box,
+    backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
 };
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED,
-    CHANNEL_COMPOSITOR_INVALID_TILE_RECT, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+    CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED, CHANNEL_COMPOSITOR_INVALID_TILE_RECT,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
@@ -46,8 +43,7 @@ use crate::shell::desktop::runtime::registries::{
 };
 #[cfg(feature = "gl_compat")]
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
+    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
@@ -197,7 +193,10 @@ impl ViewerSurfaceRegistry {
     }
 
     /// Get the GL context for a node (compat path).
-    pub(crate) fn gl_context(&self, key: &NodeKey) -> Option<&std::rc::Rc<OffscreenRenderingContext>> {
+    pub(crate) fn gl_context(
+        &self,
+        key: &NodeKey,
+    ) -> Option<&std::rc::Rc<OffscreenRenderingContext>> {
         self.surfaces.get(key).and_then(|s| s.gl_ctx.as_ref())
     }
 
@@ -860,10 +859,8 @@ impl CompositorAdapter {
             .is_some()
     }
 
-    pub(crate) fn retire_node_content_resources<B>(
-        ui_render_backend: &mut B,
-        node_key: NodeKey,
-    ) where
+    pub(crate) fn retire_node_content_resources<B>(ui_render_backend: &mut B, node_key: NodeKey)
+    where
         B: UiRenderBackendContract,
     {
         Self::unregister_content_callback(node_key);
@@ -1624,18 +1621,17 @@ impl CompositorAdapter {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use std::cell::{Cell, RefCell};
+    use std::collections::HashSet;
     use std::sync::{Mutex, OnceLock};
 
     use crate::graph::NodeKey;
     use crate::shell::desktop::render_backend::{
-        BackendContentBridgeCapabilities, BackendParentRenderCallback, BackendTextureToken,
-        UiRenderBackendContract,
-        BackendParentRenderRegionInPixels, backend_bridge_test_env_lock,
-        backend_content_bridge_mode_label, backend_content_bridge_path,
-        clear_backend_bridge_env_for_tests, select_backend_content_bridge_with_capabilities,
-        set_backend_bridge_mode_env_for_tests,
+        BackendContentBridgeCapabilities, BackendParentRenderCallback,
+        BackendParentRenderRegionInPixels, BackendTextureToken, UiRenderBackendContract,
+        backend_bridge_test_env_lock, backend_content_bridge_mode_label,
+        backend_content_bridge_path, clear_backend_bridge_env_for_tests,
+        select_backend_content_bridge_with_capabilities, set_backend_bridge_mode_env_for_tests,
     };
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::{
@@ -1660,19 +1656,16 @@ mod tests {
         CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION,
         COMPOSITOR_REPLAY_RING_CAPACITY, CompositedContentPassOutcome, CompositorAdapter,
         CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
-        clear_content_callbacks_for_tests,
-        clear_native_textures_for_tests, clear_replay_samples_for_tests,
-        compositor_native_texture_registry, content_callback_registry,
-        push_replay_sample, replay_samples_snapshot,
-        record_registered_content_bridge_receipt_for_tests,
+        clear_content_callbacks_for_tests, clear_native_textures_for_tests,
+        clear_replay_samples_for_tests, compositor_native_texture_registry,
+        content_callback_registry, push_replay_sample,
+        record_registered_content_bridge_receipt_for_tests, replay_samples_snapshot,
     };
     #[cfg(feature = "gl_compat")]
     use super::{
-        chaos_mode_enabled_from_raw, chaos_probe_passed,
-        emit_chaos_probe_outcome, framebuffer_binding_target,
-        gl_state_change_flags, gl_state_violated,
-        run_guarded_callback, run_guarded_callback_with_snapshots,
-        run_guarded_callback_with_snapshots_and_perturbation,
+        chaos_mode_enabled_from_raw, chaos_probe_passed, emit_chaos_probe_outcome,
+        framebuffer_binding_target, gl_state_change_flags, gl_state_violated, run_guarded_callback,
+        run_guarded_callback_with_snapshots, run_guarded_callback_with_snapshots_and_perturbation,
     };
 
     struct RecordingBackend {
@@ -1728,10 +1721,7 @@ mod tests {
             panic!("ui frame execution should not be used in compositor retirement tests")
         }
 
-        fn register_texture_token(
-            &mut self,
-            texture_id: egui::TextureId,
-        ) -> BackendTextureToken {
+        fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken {
             BackendTextureToken(texture_id)
         }
 
@@ -2119,7 +2109,11 @@ mod tests {
         drop(native_textures);
 
         assert_eq!(
-            backend.freed_textures.iter().copied().collect::<HashSet<_>>(),
+            backend
+                .freed_textures
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>(),
             HashSet::from([stale_texture, stale_both_texture]),
             "only stale native textures should be freed"
         );
@@ -2168,10 +2162,9 @@ mod tests {
             backend_content_bridge_mode_label(unsupported.mode),
             std::sync::Arc::new(|_, _| {}),
         );
-        let unsupported_sample = record_registered_content_bridge_receipt_for_tests(
-            unsupported_node,
-        )
-        .expect("fallback bridge receipt should be recorded");
+        let unsupported_sample =
+            record_registered_content_bridge_receipt_for_tests(unsupported_node)
+                .expect("fallback bridge receipt should be recorded");
 
         let supported_payload =
             DiagnosticsState::bridge_spike_measurement_value_from_samples(&[supported_sample]);
@@ -2806,4 +2799,3 @@ mod tests {
         );
     }
 }
-

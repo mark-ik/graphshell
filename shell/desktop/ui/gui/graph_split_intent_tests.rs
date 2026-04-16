@@ -509,4 +509,3 @@ fn reconcile_workspace_graph_views_prunes_stale_state_and_preserves_active_focus
     assert!(app.take_pending_keyboard_zoom_request(stale_view).is_none());
     assert_eq!(app.pending_wheel_zoom_delta(stale_view), 0.0);
 }
-

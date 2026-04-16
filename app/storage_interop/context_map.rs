@@ -20,4 +20,3 @@ pub(crate) struct StorageContextBinding {
     pub node_debug_id: Option<u64>,
     pub pane_debug_id: Option<String>,
 }
-

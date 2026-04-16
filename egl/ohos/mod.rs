@@ -1215,4 +1215,3 @@ impl HostTrait for HostCallbacks {
         self.show_alert(reason);
     }
 }
-

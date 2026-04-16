@@ -32,8 +32,14 @@ pub(crate) enum Badge {
     Starred,
     Unread,
     /// Content-type badge derived from `mime_hint` (e.g. PDF, Image, Audio, Directory).
-    ContentType { label: String, icon: BadgeIcon },
-    Tag { label: String, icon: BadgeIcon },
+    ContentType {
+        label: String,
+        icon: BadgeIcon,
+    },
+    Tag {
+        label: String,
+        icon: BadgeIcon,
+    },
 }
 
 // Canonical definitions live in `graphshell_core::types`.
@@ -413,4 +419,3 @@ mod tests {
         );
     }
 }
-

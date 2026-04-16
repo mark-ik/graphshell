@@ -32,7 +32,7 @@ impl SimpleDocument {
     pub fn to_html(&self) -> String {
         let mut html = String::new();
         let SimpleDocument::Blocks(blocks) = self;
-        
+
         for block in blocks {
             match block {
                 SimpleBlock::Heading { level, text } => {
@@ -50,7 +50,10 @@ impl SimpleDocument {
                     html.push_str(&format!("<blockquote>{}</blockquote>\n", text));
                 }
                 SimpleBlock::CodeFence { lang, text } => {
-                    let class = lang.as_deref().map(|l| format!(" class=\"language-{}\"", l)).unwrap_or_default();
+                    let class = lang
+                        .as_deref()
+                        .map(|l| format!(" class=\"language-{}\"", l))
+                        .unwrap_or_default();
                     html.push_str(&format!("<pre><code{}>{}</code></pre>\n", class, text));
                 }
                 SimpleBlock::List { ordered, items } => {
@@ -66,7 +69,7 @@ impl SimpleDocument {
                 }
             }
         }
-        
+
         html
     }
 
@@ -290,7 +293,11 @@ impl SimpleBlock {
                 }
             }
             SimpleBlock::Link { text, href } => {
-                let item_type = if href.starts_with("gopher://") { '1' } else { '0' };
+                let item_type = if href.starts_with("gopher://") {
+                    '1'
+                } else {
+                    '0'
+                };
                 let safe_text = text.replace('\t', " ");
                 let safe_href = href.replace('\t', " ");
                 let selector = if href.starts_with("gemini://")
@@ -495,4 +502,3 @@ mod tests {
         assert!(text.contains("My Site (https://example.com)\n"));
     }
 }
-

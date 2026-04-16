@@ -89,4 +89,3 @@ impl resources::ResourceReaderMethods for ResourceReader {
         vec![]
     }
 }
-

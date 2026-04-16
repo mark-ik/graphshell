@@ -520,4 +520,3 @@ mod tests {
         assert!(disp.length() > 0.0);
     }
 }
-

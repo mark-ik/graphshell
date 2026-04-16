@@ -78,10 +78,8 @@ pub fn compute_node_separation<N: Clone + Eq + Hash>(
         return HashMap::new();
     }
 
-    let mut positions: HashMap<N, Point2D<f32>> = nodes
-        .iter()
-        .map(|n| (n.id.clone(), n.position))
-        .collect();
+    let mut positions: HashMap<N, Point2D<f32>> =
+        nodes.iter().map(|n| (n.id.clone(), n.position)).collect();
 
     for _ in 0..passes {
         let mut changed = false;
@@ -494,7 +492,10 @@ mod tests {
     #[test]
     fn node_inside_bounds_no_delta() {
         let nodes = vec![snap(0, 100.0, 100.0, 10.0)];
-        let bounds = Rect::new(Point2D::new(0.0, 0.0), euclid::default::Size2D::new(200.0, 200.0));
+        let bounds = Rect::new(
+            Point2D::new(0.0, 0.0),
+            euclid::default::Size2D::new(200.0, 200.0),
+        );
         let deltas = compute_viewport_containment(&nodes, bounds, 4.0, 1.0);
         assert!(deltas.is_empty());
     }
@@ -502,7 +503,10 @@ mod tests {
     #[test]
     fn node_outside_bounds_gets_pushed_in() {
         let nodes = vec![snap(0, 250.0, 100.0, 10.0)];
-        let bounds = Rect::new(Point2D::new(0.0, 0.0), euclid::default::Size2D::new(200.0, 200.0));
+        let bounds = Rect::new(
+            Point2D::new(0.0, 0.0),
+            euclid::default::Size2D::new(200.0, 200.0),
+        );
         let deltas = compute_viewport_containment(&nodes, bounds, 4.0, 1.0);
         assert!(deltas.contains_key(&0));
         // Should push left.
@@ -512,7 +516,10 @@ mod tests {
     #[test]
     fn pinned_node_not_contained() {
         let nodes = vec![snap_pinned(0, 250.0, 100.0, 10.0)];
-        let bounds = Rect::new(Point2D::new(0.0, 0.0), euclid::default::Size2D::new(200.0, 200.0));
+        let bounds = Rect::new(
+            Point2D::new(0.0, 0.0),
+            euclid::default::Size2D::new(200.0, 200.0),
+        );
         let deltas = compute_viewport_containment(&nodes, bounds, 4.0, 1.0);
         assert!(deltas.is_empty());
     }
@@ -697,4 +704,3 @@ mod tests {
         );
     }
 }
-

@@ -76,7 +76,9 @@ pub(crate) fn close_pane(
             {
                 log::info!(
                     "dual_write: manual dismiss of {:?} forks linked graphlet {} — {}",
-                    nk, gid, reason,
+                    nk,
+                    gid,
+                    reason,
                 );
                 graph_tree_binding::apply_fork(graph_tree, gid, reason);
             }
@@ -195,4 +197,3 @@ fn find_active_node_from_tiles(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
     }
     None
 }
-

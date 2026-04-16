@@ -23,9 +23,8 @@ use crate::app::BrowserCommand;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_MISSING_WEBVIEW,
-    CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED,
-    CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED, CHANNEL_HOST_WEBDRIVER_LOAD_URL_MISSING_WEBVIEW,
-    CHANNEL_HOST_WEBDRIVER_LOAD_URL_REQUESTED,
+    CHANNEL_HOST_WEBDRIVER_BROWSER_ACTION_REQUESTED, CHANNEL_HOST_WEBDRIVER_LOAD_STATUS_BLOCKED,
+    CHANNEL_HOST_WEBDRIVER_LOAD_URL_MISSING_WEBVIEW, CHANNEL_HOST_WEBDRIVER_LOAD_URL_REQUESTED,
 };
 #[cfg(feature = "ux-bridge")]
 use crate::shell::desktop::workbench::ux_bridge;
@@ -653,10 +652,12 @@ where
     match command {
         ux_bridge::UxBridgeCommand::GetUxSnapshot
         | ux_bridge::UxBridgeCommand::FindUxNode { .. }
-        | ux_bridge::UxBridgeCommand::GetFocusPath => match ux_bridge::handle_latest_snapshot_command(command) {
-            Ok(response) => ux_bridge::response_json(&response),
-            Err(error) => ux_bridge::error_json(&error),
-        },
+        | ux_bridge::UxBridgeCommand::GetFocusPath => {
+            match ux_bridge::handle_latest_snapshot_command(command) {
+                Ok(response) => ux_bridge::response_json(&response),
+                Err(error) => ux_bridge::error_json(&error),
+            }
+        }
         ux_bridge::UxBridgeCommand::InvokeUxAction { selector, action } => {
             let (intent, response) =
                 match ux_bridge::queued_workbench_intent_for_latest_snapshot(&selector, action) {
@@ -695,13 +696,13 @@ mod tests {
     use super::*;
     use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
     #[cfg(feature = "ux-bridge")]
+    use crate::shell::desktop::tests::harness::TestRegistry;
+    #[cfg(feature = "ux-bridge")]
     use crate::shell::desktop::ui::toolbar::toolbar_ui::{
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
         CommandSurfaceSemanticSnapshot, clear_command_surface_semantic_snapshot,
         lock_command_surface_snapshot_tests, publish_command_surface_semantic_snapshot,
     };
-    #[cfg(feature = "ux-bridge")]
-    use crate::shell::desktop::tests::harness::TestRegistry;
 
     #[test]
     fn webdriver_browser_action_helpers_emit_expected_diagnostics() {
@@ -887,4 +888,3 @@ mod tests {
         ));
     }
 }
-

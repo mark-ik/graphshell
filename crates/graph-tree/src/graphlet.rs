@@ -166,4 +166,3 @@ pub enum ReconciliationChoice {
     /// Discard the pending change; restore the last synced roster.
     Cancel,
 }
-

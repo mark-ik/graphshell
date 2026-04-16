@@ -2814,9 +2814,7 @@ mod tests {
         assert!(is_namespaced_action_id(
             ACTION_WORKBENCH_OPEN_HISTORY_MANAGER
         ));
-        assert!(is_namespaced_action_id(
-            ACTION_IMPORT_BOOKMARKS_FROM_FILE
-        ));
+        assert!(is_namespaced_action_id(ACTION_IMPORT_BOOKMARKS_FROM_FILE));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_ACTIVATE_WORKFLOW));
         assert!(is_namespaced_action_id(ACTION_VERSE_PAIR_DEVICE));
         assert!(!is_namespaced_action_id("action.invalid.dot"));
@@ -2826,4 +2824,3 @@ mod tests {
         assert!(!is_namespaced_action_id("too:many:segments"));
     }
 }
-

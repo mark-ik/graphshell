@@ -113,7 +113,8 @@ impl GraphBrowserApp {
             );
             members.retain(|node| visible_nodes.contains(node));
             members.sort_by(|left, right| {
-                arrangement_member_sort_key(self, *left).cmp(&arrangement_member_sort_key(self, *right))
+                arrangement_member_sort_key(self, *left)
+                    .cmp(&arrangement_member_sort_key(self, *right))
             });
             members.dedup();
 
@@ -122,7 +123,8 @@ impl GraphBrowserApp {
             }
 
             visited.extend(members.iter().copied());
-            let internal_edges = projected_internal_edges(self.domain_graph(), &members, &selectors);
+            let internal_edges =
+                projected_internal_edges(self.domain_graph(), &members, &selectors);
             partitions.push(ViewGraphletPartition {
                 anchor: seed,
                 members,
@@ -131,14 +133,10 @@ impl GraphBrowserApp {
         }
 
         partitions.sort_by(|left, right| {
-            right
-                .members
-                .len()
-                .cmp(&left.members.len())
-                .then_with(|| {
-                    arrangement_member_sort_key(self, left.anchor)
-                        .cmp(&arrangement_member_sort_key(self, right.anchor))
-                })
+            right.members.len().cmp(&left.members.len()).then_with(|| {
+                arrangement_member_sort_key(self, left.anchor)
+                    .cmp(&arrangement_member_sort_key(self, right.anchor))
+            })
         });
         partitions
     }
@@ -227,7 +225,8 @@ impl GraphBrowserApp {
         &self,
         view_state: &GraphViewState,
     ) -> HashSet<NodeKey> {
-        let mut visible: HashSet<NodeKey> = self.domain_graph().nodes().map(|(key, _)| key).collect();
+        let mut visible: HashSet<NodeKey> =
+            self.domain_graph().nodes().map(|(key, _)| key).collect();
 
         if let Some(expr) = view_state.effective_filter_expr() {
             let matched: HashSet<NodeKey> =
@@ -243,7 +242,9 @@ impl GraphBrowserApp {
             visible.retain(|node| {
                 self.domain_graph()
                     .get_node(*node)
-                    .is_some_and(|graph_node| graph_node.lifecycle != crate::graph::NodeLifecycle::Tombstone)
+                    .is_some_and(|graph_node| {
+                        graph_node.lifecycle != crate::graph::NodeLifecycle::Tombstone
+                    })
             });
         }
 
@@ -1339,7 +1340,10 @@ fn projected_internal_edges(
         if !member_set.contains(&from) || !member_set.contains(&to) {
             continue;
         }
-        if !selectors.iter().any(|selector| edge.weight().has_relation(*selector)) {
+        if !selectors
+            .iter()
+            .any(|selector| edge.weight().has_relation(*selector))
+        {
             continue;
         }
 
@@ -1524,11 +1528,26 @@ mod tests {
         let view_id = GraphViewId::new();
         app.ensure_graph_view_registered(view_id);
 
-        let a = app.add_node_and_sync("https://partition-a.test".to_string(), Point2D::new(0.0, 0.0));
-        let b = app.add_node_and_sync("https://partition-b.test".to_string(), Point2D::new(1.0, 0.0));
-        let c = app.add_node_and_sync("https://partition-c.test".to_string(), Point2D::new(2.0, 0.0));
-        let d = app.add_node_and_sync("https://partition-d.test".to_string(), Point2D::new(3.0, 0.0));
-        let hidden = app.add_node_and_sync("https://partition-hidden.test".to_string(), Point2D::new(4.0, 0.0));
+        let a = app.add_node_and_sync(
+            "https://partition-a.test".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let b = app.add_node_and_sync(
+            "https://partition-b.test".to_string(),
+            Point2D::new(1.0, 0.0),
+        );
+        let c = app.add_node_and_sync(
+            "https://partition-c.test".to_string(),
+            Point2D::new(2.0, 0.0),
+        );
+        let d = app.add_node_and_sync(
+            "https://partition-d.test".to_string(),
+            Point2D::new(3.0, 0.0),
+        );
+        let hidden = app.add_node_and_sync(
+            "https://partition-hidden.test".to_string(),
+            Point2D::new(4.0, 0.0),
+        );
 
         for (from, to) in [(a, b), (c, d), (b, hidden)] {
             app.apply_graph_delta_and_sync(crate::graph::apply::GraphDelta::AddEdge {
@@ -1547,12 +1566,26 @@ mod tests {
         assert_eq!(partitions.len(), 2);
         assert_eq!(partitions[0].members.len(), 2);
         assert_eq!(partitions[1].members.len(), 2);
-        assert!(partitions.iter().any(|partition| partition.members == vec![a, b]));
-        assert!(partitions.iter().any(|partition| partition.members == vec![c, d]));
-        assert!(partitions
-            .iter()
-            .all(|partition| !partition.members.contains(&hidden)));
-        assert!(partitions.iter().all(|partition| partition.internal_edges.len() == 1));
+        assert!(
+            partitions
+                .iter()
+                .any(|partition| partition.members == vec![a, b])
+        );
+        assert!(
+            partitions
+                .iter()
+                .any(|partition| partition.members == vec![c, d])
+        );
+        assert!(
+            partitions
+                .iter()
+                .all(|partition| !partition.members.contains(&hidden))
+        );
+        assert!(
+            partitions
+                .iter()
+                .all(|partition| partition.internal_edges.len() == 1)
+        );
     }
 
     #[test]
@@ -1628,7 +1661,9 @@ mod tests {
         app.ensure_graph_view_registered(view_a);
         app.ensure_graph_view_registered(view_b);
 
-        app.set_navigator_projection_seed_source(NavigatorProjectionSeedSource::SavedViewCollections);
+        app.set_navigator_projection_seed_source(
+            NavigatorProjectionSeedSource::SavedViewCollections,
+        );
 
         let projection = app.navigator_section_projection();
         let mut expected_views = vec![view_a, view_b];
@@ -1757,4 +1792,3 @@ mod tests {
         assert_eq!(projection.all_nodes[0], recent);
     }
 }
-

@@ -11,10 +11,7 @@ pub(super) fn graph_intents_from_semantic_events(
     let (runtime_events, workbench_intents) =
         semantic_event_pipeline::runtime_events_from_semantic_events(events);
     debug_assert!(workbench_intents.is_empty());
-    runtime_events
-        .into_iter()
-        .map(Into::into)
-        .collect()
+    runtime_events.into_iter().map(Into::into).collect()
 }
 
 #[cfg(test)]
@@ -29,4 +26,3 @@ pub(super) fn graph_intents_and_responsive_from_events(
         responsive_webviews,
     )
 }
-

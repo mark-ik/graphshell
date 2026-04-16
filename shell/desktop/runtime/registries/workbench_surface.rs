@@ -1,10 +1,9 @@
 use egui_tiles::{Container, Tile, TileId, Tree};
 
 use super::{
-    CHANNEL_UX_CONFIG_MODE_ENTERED, CHANNEL_UX_NAVIGATION_TRANSITION,
-    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_FIRST_USE_PROMPT_SHOWN,
     CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK, CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
-    CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_CONFIG_MODE_ENTERED, CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_FIRST_USE_PROMPT_SHOWN,
+    CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::app::{
@@ -20,11 +19,11 @@ use crate::registries::domain::layout::workbench_surface::{
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::ui::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
+use crate::shell::desktop::workbench::graph_tree_dual_write as dual_write;
 use crate::shell::desktop::workbench::pane_model::{
     PaneId, PanePresentationMode, PaneViewState, SplitDirection, ToolPaneState, ViewerId,
     ViewerSwitchReason,
 };
-use crate::shell::desktop::workbench::graph_tree_dual_write as dual_write;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
@@ -283,10 +282,10 @@ impl WorkbenchSurfaceRegistry {
                     | WorkbenchIntent::TransferSelectedNodesToGraphView { .. }
                     | WorkbenchIntent::ToggleOverviewPlane
                     | WorkbenchIntent::OpenNodeInPane { .. }
-                        | WorkbenchIntent::SelectNavigatorNode { .. }
-                        | WorkbenchIntent::ActivateNavigatorNode { .. }
-                        | WorkbenchIntent::DismissNavigatorNode { .. }
-                        | WorkbenchIntent::SwitchNavigatorNodeSurface { .. }
+                    | WorkbenchIntent::SelectNavigatorNode { .. }
+                    | WorkbenchIntent::ActivateNavigatorNode { .. }
+                    | WorkbenchIntent::DismissNavigatorNode { .. }
+                    | WorkbenchIntent::SwitchNavigatorNodeSurface { .. }
                     | WorkbenchIntent::RestorePaneToSemanticTabGroup { .. }
                     | WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { .. }
             ),
@@ -317,11 +316,7 @@ impl WorkbenchSurfaceRegistry {
                 None
             }
             WorkbenchIntent::CloseCommandPalette => {
-                handle_close_command_palette_intent(
-                    graph_app,
-                    tiles_tree,
-                    &focus_handoff_policy,
-                );
+                handle_close_command_palette_intent(graph_app, tiles_tree, &focus_handoff_policy);
                 None
             }
             WorkbenchIntent::ToggleCommandPalette => {
@@ -461,7 +456,8 @@ impl WorkbenchSurfaceRegistry {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                graph_app.request_save_frame_snapshot_named(format!("workspace:workbench-host-{now}"));
+                graph_app
+                    .request_save_frame_snapshot_named(format!("workspace:workbench-host-{now}"));
                 None
             }
             WorkbenchIntent::PruneEmptyFrames => {
@@ -502,15 +498,13 @@ impl WorkbenchSurfaceRegistry {
             WorkbenchIntent::OpenSettingsUrl { url } => {
                 handle_open_settings_url_intent(graph_app, tiles_tree, url)
             }
-            WorkbenchIntent::OpenFrameUrl { url, focus_node } => {
-                handle_open_frame_url_intent(
-                    graph_app,
-                    tiles_tree,
-                    graph_tree.as_deref_mut(),
-                    url,
-                    focus_node,
-                )
-            }
+            WorkbenchIntent::OpenFrameUrl { url, focus_node } => handle_open_frame_url_intent(
+                graph_app,
+                tiles_tree,
+                graph_tree.as_deref_mut(),
+                url,
+                focus_node,
+            ),
             WorkbenchIntent::OpenToolUrl { url } => {
                 handle_open_tool_url_intent(graph_app, tiles_tree, url)
             }
@@ -974,11 +968,8 @@ fn handle_set_workbench_overlay_visible_intent(
         graph_app.open_workbench_overlay();
     } else if graph_app.workbench_overlay_visible() {
         graph_app.close_workbench_overlay();
-        let _ = restore_tool_surface_focus_or_ensure_active_tile(
-            graph_app,
-            tiles_tree,
-            focus_handoff,
-        );
+        let _ =
+            restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree, focus_handoff);
     }
 }
 
@@ -1503,7 +1494,12 @@ mod tests {
         app.select_workbench_tile(graph);
         app.update_workbench_tile_selection(node, SelectionUpdateMode::Add);
 
-        registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::GroupSelectedTiles);
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            None,
+            WorkbenchIntent::GroupSelectedTiles,
+        );
 
         let selected = &app.workbench_tile_selection().selected_tile_ids;
         assert_eq!(selected.len(), 2);
@@ -1540,7 +1536,12 @@ mod tests {
         app.select_workbench_tile(left_tile);
         app.update_workbench_tile_selection(right_tile, SelectionUpdateMode::Add);
 
-        registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::GroupSelectedTiles);
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            None,
+            WorkbenchIntent::GroupSelectedTiles,
+        );
 
         let tile_group_nodes: Vec<_> = app
             .domain_graph()
@@ -1586,7 +1587,12 @@ mod tests {
         app.select_workbench_tile(graph_tile);
         app.update_workbench_tile_selection(node_tile, SelectionUpdateMode::Add);
 
-        registry.dispatch_intent(&mut app, &mut tree, None, WorkbenchIntent::GroupSelectedTiles);
+        registry.dispatch_intent(
+            &mut app,
+            &mut tree,
+            None,
+            WorkbenchIntent::GroupSelectedTiles,
+        );
 
         let view_url = VersoAddress::view(view_id.as_uuid().to_string()).to_string();
         let (view_member_key, view_member_node) = app
@@ -1642,10 +1648,11 @@ mod tests {
         );
 
         assert!(app.focused_selection().contains(&node_key));
-        assert!(app
-            .navigator_projection_state()
-            .selected_rows
-            .contains("node:test"));
+        assert!(
+            app.navigator_projection_state()
+                .selected_rows
+                .contains("node:test")
+        );
         assert_eq!(
             app.pending_camera_command(),
             Some(crate::app::CameraCommand::FitSelection)
@@ -1717,14 +1724,14 @@ mod tests {
             },
         );
 
-        assert!(tree
-            .tiles
-            .iter()
-            .all(|(_, tile)| !matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)));
-        assert!(app
-            .domain_graph()
-            .get_node(node_key)
-            .is_some_and(|node| node.lifecycle == crate::graph::NodeLifecycle::Cold));
+        assert!(tree.tiles.iter().all(
+            |(_, tile)| !matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
+        ));
+        assert!(
+            app.domain_graph()
+                .get_node(node_key)
+                .is_some_and(|node| node.lifecycle == crate::graph::NodeLifecycle::Cold)
+        );
     }
 
     #[test]
@@ -1809,4 +1816,3 @@ mod tests {
         assert_eq!(channel_count(&snapshot, CHANNEL_UX_CONFIG_MODE_ENTERED), 1);
     }
 }
-

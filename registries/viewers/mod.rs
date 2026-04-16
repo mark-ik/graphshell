@@ -1,18 +1,17 @@
-mod plaintext;
-mod middlenet;
-mod image_viewer;
-mod directory;
-#[cfg(feature = "pdf")]
-mod pdf;
 #[cfg(feature = "audio")]
 mod audio;
-
-pub(crate) use plaintext::PlaintextEmbeddedViewer;
-pub(crate) use middlenet::MiddleNetEmbeddedViewer;
-pub(crate) use image_viewer::ImageEmbeddedViewer;
-pub(crate) use directory::DirectoryEmbeddedViewer;
+mod directory;
+mod image_viewer;
+mod middlenet;
 #[cfg(feature = "pdf")]
-pub(crate) use pdf::PdfEmbeddedViewer;
+mod pdf;
+mod plaintext;
+
 #[cfg(feature = "audio")]
 pub(crate) use audio::AudioEmbeddedViewer;
-
+pub(crate) use directory::DirectoryEmbeddedViewer;
+pub(crate) use image_viewer::ImageEmbeddedViewer;
+pub(crate) use middlenet::MiddleNetEmbeddedViewer;
+#[cfg(feature = "pdf")]
+pub(crate) use pdf::PdfEmbeddedViewer;
+pub(crate) use plaintext::PlaintextEmbeddedViewer;

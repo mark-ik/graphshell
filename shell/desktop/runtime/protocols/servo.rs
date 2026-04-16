@@ -105,4 +105,3 @@ fn json_response(
     *response.body.lock() = ResponseBody::Done(body.into_bytes());
     Box::pin(std::future::ready(response))
 }
-

@@ -22,13 +22,12 @@ use crate::shell::desktop::runtime::diagnostics::{
 };
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_LAYOUT_GUTTER_DETECTED, CHANNEL_UX_LAYOUT_OVERLAP_DETECTED,
-    CHANNEL_UX_NAVIGATION_VIOLATION,
-    CHANNEL_UX_PRESENTATION_BOUNDS_MISSING, CHANNEL_UX_PROBE_DISABLED,
-    CHANNEL_UX_PROBE_REGISTERED, CHANNEL_UX_SNAPSHOT_WRITTEN, CHANNEL_UX_TREE_BUILD,
-    CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_PRESENTATION_BOUNDS_MISSING,
+    CHANNEL_UX_PROBE_DISABLED, CHANNEL_UX_PROBE_REGISTERED, CHANNEL_UX_SNAPSHOT_WRITTEN,
+    CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
 };
-use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::ui::persistence_ops;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
@@ -473,10 +472,9 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
                     CHANNEL_UX_PROBE_REGISTERED,
                     probe_id.len() + description.len(),
                 ),
-                ux_probes::UxProbeLifecycleEvent::Disabled { probe_id, reason } => (
-                    CHANNEL_UX_PROBE_DISABLED,
-                    probe_id.len() + reason.len(),
-                ),
+                ux_probes::UxProbeLifecycleEvent::Disabled { probe_id, reason } => {
+                    (CHANNEL_UX_PROBE_DISABLED, probe_id.len() + reason.len())
+                }
             };
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id,
@@ -485,19 +483,18 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         }
 
         let build_latency_us = uxtree_build_started.elapsed().as_micros() as u64;
-        let (uxtree_snapshot, build_error) =
-            match ux_tree::try_build_snapshot_with_rects(
-                tiles_tree,
-                graph_app,
-                build_latency_us,
-                &node_rect_map,
-            ) {
-                Ok(snapshot) => (snapshot, None),
-                Err(error) => (
-                    ux_tree::degraded_root_only_snapshot(build_latency_us),
-                    Some(error),
-                ),
-            };
+        let (uxtree_snapshot, build_error) = match ux_tree::try_build_snapshot_with_rects(
+            tiles_tree,
+            graph_app,
+            build_latency_us,
+            &node_rect_map,
+        ) {
+            Ok(snapshot) => (snapshot, None),
+            Err(error) => (
+                ux_tree::degraded_root_only_snapshot(build_latency_us),
+                Some(error),
+            ),
+        };
         ux_tree::publish_snapshot(&uxtree_snapshot);
         if let Some(lod_violation) =
             ux_tree::graph_lod_semantic_emission_violation(&uxtree_snapshot, graph_app)
@@ -513,7 +510,10 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
                     ),
                     structured_payload_field("expected_tier", lod_violation.expected_tier.as_str()),
                     structured_payload_field("actual_mode", lod_violation.actual_mode),
-                    structured_payload_field("graph_nodes", lod_violation.graph_node_count.to_string()),
+                    structured_payload_field(
+                        "graph_nodes",
+                        lod_violation.graph_node_count.to_string(),
+                    ),
                     structured_payload_field(
                         "status_indicator",
                         lod_violation.has_status_indicator.to_string(),
@@ -530,7 +530,8 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
             channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
             byte_len: uxtree_snapshot.semantic_nodes.len(),
         });
-        let probe_report = ux_probes::evaluate_registered_probes(&uxtree_snapshot, build_latency_us);
+        let probe_report =
+            ux_probes::evaluate_registered_probes(&uxtree_snapshot, build_latency_us);
         let snapshot_export = ux_tree::write_snapshot_if_configured(&uxtree_snapshot);
         if let Ok(Some((path, byte_len))) = &snapshot_export {
             emit_message_sent_with_payload(
@@ -554,10 +555,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
                 "registered_probes",
                 probe_report.registered_probe_count.to_string(),
             ),
-            structured_payload_field(
-                "active_probes",
-                probe_report.active_probe_count.to_string(),
-            ),
+            structured_payload_field("active_probes", probe_report.active_probe_count.to_string()),
             structured_payload_field(
                 "executed_probes",
                 probe_report.executed_probe_count.to_string(),
@@ -582,26 +580,17 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         }
         match snapshot_export {
             Ok(Some((path, _))) => {
-                tree_build_fields.push(structured_payload_field(
-                    "snapshot_export",
-                    "written",
-                ));
+                tree_build_fields.push(structured_payload_field("snapshot_export", "written"));
                 tree_build_fields.push(structured_payload_field(
                     "snapshot_path",
                     path.display().to_string(),
                 ));
             }
             Ok(None) => {
-                tree_build_fields.push(structured_payload_field(
-                    "snapshot_export",
-                    "disabled",
-                ));
+                tree_build_fields.push(structured_payload_field("snapshot_export", "disabled"));
             }
             Err(error) => {
-                tree_build_fields.push(structured_payload_field(
-                    "snapshot_export",
-                    "failed",
-                ));
+                tree_build_fields.push(structured_payload_field("snapshot_export", "failed"));
                 tree_build_fields.push(structured_payload_field("snapshot_error", error));
             }
         }
@@ -619,10 +608,9 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
                     CHANNEL_UX_PROBE_REGISTERED,
                     probe_id.len() + description.len(),
                 ),
-                ux_probes::UxProbeLifecycleEvent::Disabled { probe_id, reason } => (
-                    CHANNEL_UX_PROBE_DISABLED,
-                    probe_id.len() + reason.len(),
-                ),
+                ux_probes::UxProbeLifecycleEvent::Disabled { probe_id, reason } => {
+                    (CHANNEL_UX_PROBE_DISABLED, probe_id.len() + reason.len())
+                }
             };
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id,
@@ -1203,4 +1191,3 @@ mod tests {
         assert_eq!(app.current_frame_name(), Some("workspace-beta"));
     }
 }
-

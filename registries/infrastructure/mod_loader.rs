@@ -239,18 +239,16 @@ fn read_wasm_mod_from_path(path: &Path) -> Result<(ModManifest, WasmModSource), 
         .into_iter()
         .find(|candidate| candidate.exists())
         .ok_or_else(|| ModLoadPathError::MissingManifest(path.to_path_buf()))?;
-    let manifest_raw = std::fs::read_to_string(&manifest_path).map_err(|error| {
-        ModLoadPathError::Io {
+    let manifest_raw =
+        std::fs::read_to_string(&manifest_path).map_err(|error| ModLoadPathError::Io {
             path: manifest_path.clone(),
             reason: error.to_string(),
-        }
-    })?;
-    let disk_manifest: DiskModManifest = toml::from_str(&manifest_raw).map_err(|error| {
-        ModLoadPathError::InvalidManifest {
+        })?;
+    let disk_manifest: DiskModManifest =
+        toml::from_str(&manifest_raw).map_err(|error| ModLoadPathError::InvalidManifest {
             path: manifest_path.clone(),
             reason: error.to_string(),
-        }
-    })?;
+        })?;
 
     let capabilities = disk_manifest
         .capabilities
@@ -596,14 +594,16 @@ impl ModRegistry {
         mut rollback: R,
     ) -> Vec<String>
     where
-        F: FnMut(&ModManifest, Option<&WasmModSource>) -> Result<Vec<ModExtensionRecord>, ModActivationError>,
+        F: FnMut(
+            &ModManifest,
+            Option<&WasmModSource>,
+        ) -> Result<Vec<ModExtensionRecord>, ModActivationError>,
         R: FnMut(ModExtensionRecord) -> Result<(), String>,
     {
         use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
         use crate::shell::desktop::runtime::registries::{
             CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED,
-            CHANNEL_MOD_QUARANTINED, CHANNEL_MOD_ROLLBACK_FAILED,
-            CHANNEL_MOD_ROLLBACK_SUCCEEDED,
+            CHANNEL_MOD_QUARANTINED, CHANNEL_MOD_ROLLBACK_FAILED, CHANNEL_MOD_ROLLBACK_SUCCEEDED,
         };
 
         let mut loaded = Vec::new();
@@ -645,7 +645,8 @@ impl ModRegistry {
                         self.status.insert(mod_id.clone(), ModStatus::Failed);
                         reason
                     } else {
-                        match Self::rollback_extension_records(&mut applied_records, &mut rollback) {
+                        match Self::rollback_extension_records(&mut applied_records, &mut rollback)
+                        {
                             Ok(()) => {
                                 self.status.insert(mod_id.clone(), ModStatus::Failed);
                                 emit_event(DiagnosticEvent::MessageSent {
@@ -666,9 +667,7 @@ impl ModRegistry {
                                     channel_id: CHANNEL_MOD_QUARANTINED,
                                     byte_len: mod_id.len() + rollback_reason.len(),
                                 });
-                                format!(
-                                    "{reason}; rollback failed: {rollback_reason}"
-                                )
+                                format!("{reason}; rollback failed: {rollback_reason}")
                             }
                         }
                     };
@@ -970,8 +969,8 @@ mod tests {
 
     use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
     use crate::shell::desktop::runtime::registries::{
-        CHANNEL_MOD_QUARANTINED, CHANNEL_MOD_ROLLBACK_FAILED,
-        CHANNEL_MOD_ROLLBACK_SUCCEEDED, CHANNEL_MOD_UNLOAD_FAILED,
+        CHANNEL_MOD_QUARANTINED, CHANNEL_MOD_ROLLBACK_FAILED, CHANNEL_MOD_ROLLBACK_SUCCEEDED,
+        CHANNEL_MOD_UNLOAD_FAILED,
     };
 
     fn test_manifest(id: &str, provides: &[&str], requires: &[&str]) -> ModManifest {
@@ -1007,8 +1006,11 @@ mod tests {
     ) -> PathBuf {
         let module_path = temp_dir.path().join(format!("{module_name}.wasm"));
         let manifest_path = temp_dir.path().join(format!("{module_name}.wasm.toml"));
-        fs::write(&module_path, [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
-            .expect("fixture module should write");
+        fs::write(
+            &module_path,
+            [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+        )
+        .expect("fixture module should write");
         fs::write(&manifest_path, manifest_body).expect("fixture manifest should write");
         module_path
     }
@@ -1151,13 +1153,21 @@ mod tests {
             |_record| Ok(()),
         );
 
-        assert_eq!(loaded, vec!["mod:protocol".to_string(), "mod:test-wasm".to_string()]);
-        assert_eq!(registry.get_status("mod:test-wasm"), Some(ModStatus::Active));
+        assert_eq!(
+            loaded,
+            vec!["mod:protocol".to_string(), "mod:test-wasm".to_string()]
+        );
+        assert_eq!(
+            registry.get_status("mod:test-wasm"),
+            Some(ModStatus::Active)
+        );
         assert_eq!(
             registry.extension_records_for("mod:test-wasm"),
-            Some(&[ModExtensionRecord::Action {
-                action_id: "action:mod:test-wasm".to_string(),
-            }][..])
+            Some(
+                &[ModExtensionRecord::Action {
+                    action_id: "action:mod:test-wasm".to_string(),
+                }][..]
+            )
         );
     }
 
@@ -1272,7 +1282,9 @@ mod tests {
             &[],
         )]);
 
-        let mod_id = registry.load_mod(&wasm_path).expect("wasm admission should succeed");
+        let mod_id = registry
+            .load_mod(&wasm_path)
+            .expect("wasm admission should succeed");
 
         assert_eq!(mod_id, "mod:admitted");
         assert_eq!(
@@ -1394,9 +1406,11 @@ mod tests {
         );
         assert_eq!(
             registry.extension_records_for("mod:failing"),
-            Some(&[ModExtensionRecord::Action {
-                action_id: "action:mod:failing".to_string(),
-            }][..])
+            Some(
+                &[ModExtensionRecord::Action {
+                    action_id: "action:mod:failing".to_string(),
+                }][..]
+            )
         );
         let emitted = diag_rx.try_iter().collect::<Vec<_>>();
         assert!(emitted.iter().any(|event| matches!(
@@ -1435,9 +1449,7 @@ mod tests {
 
         let error = registry
             .unload_mod_with("mod:target", |record| match record {
-                ModExtensionRecord::Action { action_id }
-                    if action_id == "action:mod:target" =>
-                {
+                ModExtensionRecord::Action { action_id } if action_id == "action:mod:target" => {
                     Err("simulated removal failure".to_string())
                 }
                 _ => Ok(()),
@@ -1455,9 +1467,11 @@ mod tests {
         );
         assert_eq!(
             registry.extension_records_for("mod:target"),
-            Some(&[ModExtensionRecord::Action {
-                action_id: "action:mod:target".to_string(),
-            }][..])
+            Some(
+                &[ModExtensionRecord::Action {
+                    action_id: "action:mod:target".to_string(),
+                }][..]
+            )
         );
         let emitted = diag_rx.try_iter().collect::<Vec<_>>();
         assert!(emitted.iter().any(|event| matches!(
@@ -1472,4 +1486,3 @@ mod tests {
         )));
     }
 }
-

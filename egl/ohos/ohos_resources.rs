@@ -31,4 +31,3 @@ impl ResourceReaderMethods for ResourceReaderInstance {
         vec![]
     }
 }
-

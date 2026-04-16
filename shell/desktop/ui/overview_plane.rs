@@ -12,20 +12,20 @@ use crate::app::{
 use crate::graph::{GraphletKind, NodeKey};
 use crate::shell::desktop::runtime::registries::phase3_trusted_peers;
 use crate::shell::desktop::ui::swatch::{
-    render_graph_swatch_card, GraphSwatchInteraction, GraphSwatchSpec, SwatchDensityPolicy,
-    SwatchHostOptions, SwatchInteractionProfile, SwatchLayoutProfile, SwatchSizeClass,
-    SwatchSourceScope,
+    GraphSwatchInteraction, GraphSwatchSpec, SwatchDensityPolicy, SwatchHostOptions,
+    SwatchInteractionProfile, SwatchLayoutProfile, SwatchSizeClass, SwatchSourceScope,
+    render_graph_swatch_card,
 };
 use crate::shell::desktop::ui::workbench_host::{
-    GraphletRosterEntry, WorkbenchChromeProjection, WorkbenchNodeViewerSummary,
-    WorkbenchPaneEntry, WorkbenchPaneKind,
-};
-use crate::shell::desktop::workbench::semantic_tabs::SemanticTabAffordance;
-use crate::shell::desktop::workbench::pane_model::{
-    PaneId, TileRenderMode, ViewerId, ViewerSwitchReason,
+    GraphletRosterEntry, WorkbenchChromeProjection, WorkbenchNodeViewerSummary, WorkbenchPaneEntry,
+    WorkbenchPaneKind,
 };
 #[cfg(test)]
 use crate::shell::desktop::workbench::pane_model::PanePresentationMode;
+use crate::shell::desktop::workbench::pane_model::{
+    PaneId, TileRenderMode, ViewerId, ViewerSwitchReason,
+};
+use crate::shell::desktop::workbench::semantic_tabs::SemanticTabAffordance;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 const OVERVIEW_CELL_SIZE: Vec2 = Vec2::new(156.0, 92.0);
@@ -294,7 +294,11 @@ fn render_overview_active_context_strip(
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("Active Context").strong());
                 ui.separator();
-                ui.label(active_context_summary(app, chrome_projection, selected_slot));
+                ui.label(active_context_summary(
+                    app,
+                    chrome_projection,
+                    selected_slot,
+                ));
             });
         });
 }
@@ -375,9 +379,8 @@ fn render_overview_suggested_actions(
     pending_graph_intents: &mut Vec<GraphIntent>,
     pending_surface_actions: &mut Vec<OverviewSurfaceAction>,
 ) {
-    let transfer_enabled = selected_slot.is_some_and(|slot| {
-        overview_transfer_affordance(app, slot.view_id).enabled
-    });
+    let transfer_enabled =
+        selected_slot.is_some_and(|slot| overview_transfer_affordance(app, slot.view_id).enabled);
     let preview_mode_active = app.history_health_summary().preview_mode_active;
 
     egui::Frame::group(ui.style())
@@ -418,8 +421,7 @@ fn render_overview_suggested_actions(
                         "Transfer the current focused selection into the selected graph view",
                     )
                 } else {
-                    transfer_button
-                        .on_disabled_hover_text(transfer_affordance.disabled_reason)
+                    transfer_button.on_disabled_hover_text(transfer_affordance.disabled_reason)
                 };
                 if transfer_button.clicked()
                     && let Some(action) = overview_transfer_action(app, slot.view_id)
@@ -480,7 +482,10 @@ fn graph_context_lines(
     let mut lines = Vec::new();
     let selection = app.focused_selection();
     if let Some(primary) = selection.primary() {
-        lines.push(format!("Primary target: {}", node_summary_label(app, primary)));
+        lines.push(format!(
+            "Primary target: {}",
+            node_summary_label(app, primary)
+        ));
         let member_count = app.graphlet_peers_for_active_projection(primary).len() + 1;
         lines.push(format!("Projected graphlet: {member_count} node(s)"));
     } else {
@@ -493,7 +498,8 @@ fn graph_context_lines(
     {
         lines.push(summary);
     }
-    if let Some(frontier) = active_graphlet_frontier_summary(&chrome_projection.active_graphlet_roster)
+    if let Some(frontier) =
+        active_graphlet_frontier_summary(&chrome_projection.active_graphlet_roster)
     {
         lines.push(frontier);
     }
@@ -549,13 +555,12 @@ fn graph_context_actions(
         actions.push(OverviewQuickAction {
             label: "Open primary node".to_string(),
             owner: OverviewActionOwner::Workbench,
-            hover_text:
-                "Route the primary graph target into the Workbench node-pane open path."
-                    .to_string(),
-                dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenNodeInPane {
-                    node: primary,
-                    pane: PaneId::new(),
-                }),
+            hover_text: "Route the primary graph target into the Workbench node-pane open path."
+                .to_string(),
+            dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenNodeInPane {
+                node: primary,
+                pane: PaneId::new(),
+            }),
         });
     }
     actions
@@ -576,7 +581,10 @@ fn workbench_context_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec
             .as_deref()
             .unwrap_or("none")
     ));
-    lines.push(format!("Open panes: {}", chrome_projection.pane_entries.len()));
+    lines.push(format!(
+        "Open panes: {}",
+        chrome_projection.pane_entries.len()
+    ));
     lines.push(format!(
         "Saved frames: {}",
         chrome_projection.saved_frame_names.len()
@@ -671,7 +679,9 @@ fn viewer_content_lines(chrome_projection: &WorkbenchChromeProjection) -> Vec<St
     lines
 }
 
-fn viewer_content_actions(chrome_projection: &WorkbenchChromeProjection) -> Vec<OverviewQuickAction> {
+fn viewer_content_actions(
+    chrome_projection: &WorkbenchChromeProjection,
+) -> Vec<OverviewQuickAction> {
     let Some(active_entry) = active_overview_pane_entry(chrome_projection) else {
         return Vec::new();
     };
@@ -768,9 +778,8 @@ fn viewer_content_actions(chrome_projection: &WorkbenchChromeProjection) -> Vec<
         WorkbenchPaneKind::Tool { .. } => actions.push(OverviewQuickAction {
             label: "Tool settings".to_string(),
             owner: OverviewActionOwner::Viewer,
-            hover_text:
-                "Open the shared settings surface for the current tool-hosted content."
-                    .to_string(),
+            hover_text: "Open the shared settings surface for the current tool-hosted content."
+                .to_string(),
             dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl {
                 url: crate::util::VersoAddress::settings(
                     crate::util::GraphshellSettingsPath::General,
@@ -828,9 +837,8 @@ fn runtime_attention_actions(app: &GraphBrowserApp) -> Vec<OverviewQuickAction> 
     actions.push(OverviewQuickAction {
         label: history_label.to_string(),
         owner: OverviewActionOwner::Runtime,
-        hover_text:
-            "Route history/runtime state into the canonical settings/history surface."
-                .to_string(),
+        hover_text: "Route history/runtime state into the canonical settings/history surface."
+            .to_string(),
         dispatch: OverviewQuickActionDispatch::Workbench(WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
                 .to_string(),
@@ -874,7 +882,10 @@ fn viewer_backend_summary(entry: &WorkbenchPaneEntry) -> String {
         .effective_viewer_id
         .as_deref()
         .unwrap_or("unresolved viewer");
-    format!("{viewer} · {}", viewer_render_mode_label(summary.render_mode))
+    format!(
+        "{viewer} · {}",
+        viewer_render_mode_label(summary.render_mode)
+    )
 }
 
 fn viewer_render_mode_label(render_mode: TileRenderMode) -> &'static str {
@@ -900,7 +911,10 @@ fn viewer_summary_needs_diagnostics(summary: &WorkbenchNodeViewerSummary) -> boo
 
 fn viewer_degraded_chip(summary: &WorkbenchNodeViewerSummary) -> Option<String> {
     if let Some(reason) = summary.fallback_reason.as_deref() {
-        return Some(compact_overview_label(&format!("Viewer fallback: {reason}"), 32));
+        return Some(compact_overview_label(
+            &format!("Viewer fallback: {reason}"),
+            32,
+        ));
     }
     if summary.runtime_crashed {
         return Some("Viewer crash recorded".to_string());
@@ -977,7 +991,8 @@ fn active_workbench_binding_summary(
     chrome_projection: &WorkbenchChromeProjection,
 ) -> Option<String> {
     let active_entry = active_overview_pane_entry(chrome_projection)?;
-    if let Some(semantic_summary) = semantic_tab_affordance_summary(active_entry.semantic_tab_affordance)
+    if let Some(semantic_summary) =
+        semantic_tab_affordance_summary(active_entry.semantic_tab_affordance)
     {
         return Some(semantic_summary);
     }
@@ -990,16 +1005,14 @@ fn active_workbench_binding_summary(
     None
 }
 
-fn semantic_tab_affordance_summary(
-    affordance: Option<SemanticTabAffordance>,
-) -> Option<String> {
+fn semantic_tab_affordance_summary(affordance: Option<SemanticTabAffordance>) -> Option<String> {
     match affordance {
-        Some(SemanticTabAffordance::Collapse { member_count, .. }) => {
-            Some(format!("linked semantic tab group ({member_count} pane(s))"))
-        }
-        Some(SemanticTabAffordance::Restore { member_count, .. }) => {
-            Some(format!("detached from semantic tab group ({member_count} pane(s))"))
-        }
+        Some(SemanticTabAffordance::Collapse { member_count, .. }) => Some(format!(
+            "linked semantic tab group ({member_count} pane(s))"
+        )),
+        Some(SemanticTabAffordance::Restore { member_count, .. }) => Some(format!(
+            "detached from semantic tab group ({member_count} pane(s))"
+        )),
         None => None,
     }
 }
@@ -1295,7 +1308,10 @@ fn compact_overview_chips(
     )];
     chips.push(format!("Panes: {}", chrome_projection.pane_entries.len()));
     if !chrome_projection.saved_frame_names.is_empty() {
-        chips.push(format!("Saved: {}", chrome_projection.saved_frame_names.len()));
+        chips.push(format!(
+            "Saved: {}",
+            chrome_projection.saved_frame_names.len()
+        ));
     }
     if let Some(summary) = active_graphlet_roster_summary(&chrome_projection.active_graphlet_roster)
     {
@@ -1350,14 +1366,23 @@ fn render_navigator_graphlet_cards(
     }
 
     egui::ScrollArea::vertical()
-        .id_salt(("navigator_overview_graphlets", selected_slot.view_id.as_uuid()))
+        .id_salt((
+            "navigator_overview_graphlets",
+            selected_slot.view_id.as_uuid(),
+        ))
         .max_height(NAVIGATOR_GRAPHLET_SWATCH_MAX_HEIGHT)
         .show(ui, |ui| {
             ui.scope(|ui| {
                 ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
                 ui.horizontal_wrapped(|ui| {
                     for partition in &partitions {
-                        render_navigator_graphlet_card(ui, app, selected_slot.view_id, partition, actions);
+                        render_navigator_graphlet_card(
+                            ui,
+                            app,
+                            selected_slot.view_id,
+                            partition,
+                            actions,
+                        );
                     }
                 });
             });
@@ -1376,9 +1401,15 @@ fn render_navigator_graphlet_card(
         .focused_selection()
         .primary()
         .is_some_and(|primary| partition.members.contains(&primary));
-    let preview_nodes = partition.members.len().min(NAVIGATOR_GRAPHLET_PREVIEW_NODE_LIMIT);
+    let preview_nodes = partition
+        .members
+        .len()
+        .min(NAVIGATOR_GRAPHLET_PREVIEW_NODE_LIMIT);
     let footer = if partition.members.len() > preview_nodes {
-        format!("+{} more member(s)", partition.members.len() - preview_nodes)
+        format!(
+            "+{} more member(s)",
+            partition.members.len() - preview_nodes
+        )
     } else if partition.members.len() == 1 {
         "singleton graphlet".to_string()
     } else {
@@ -1407,7 +1438,9 @@ fn render_navigator_graphlet_card(
         badge: contains_primary.then_some("active"),
         footer,
         emphasized: contains_primary,
-        hover_text: Some("Click to select the anchor. Double-click to open a component specialty view."),
+        hover_text: Some(
+            "Click to select the anchor. Double-click to open a component specialty view.",
+        ),
     };
 
     match render_graph_swatch_card(ui, &swatch) {
@@ -2400,7 +2433,10 @@ mod tests {
 
     #[test]
     fn graph_search_origin_label_matches_surface_copy() {
-        assert_eq!(graph_search_origin_label(&GraphSearchOrigin::Manual), "manual scope");
+        assert_eq!(
+            graph_search_origin_label(&GraphSearchOrigin::Manual),
+            "manual scope"
+        );
         assert_eq!(
             graph_search_origin_label(&GraphSearchOrigin::SemanticTag),
             "semantic-tag scope"
@@ -2445,7 +2481,11 @@ mod tests {
 
         let projection = empty_projection();
         let lines = graph_context_lines(&app, &projection, None);
-        assert!(lines.iter().any(|line| line.contains("Search: anchor · 3 matches")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Search: anchor · 3 matches"))
+        );
         assert!(lines.iter().any(|line| line.contains("anchor-slice scope")));
     }
 
@@ -2675,11 +2715,27 @@ mod tests {
 
         let lines = viewer_content_lines(&projection);
 
-        assert!(lines.iter().any(|line| line == "Viewer backend: viewer:wry · placeholder"));
-        assert!(lines.iter().any(|line| line == "Override: viewer:wry · user override"));
-        assert!(lines.iter().any(|line| line == "Degraded: runtime crash recorded for this node"));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Viewer backend: viewer:wry · placeholder")
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Override: viewer:wry · user override")
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Degraded: runtime crash recorded for this node")
+        );
         assert!(lines.iter().any(|line| line == "Runtime blocked: startup or backpressure is holding this pane"));
-        assert!(lines.iter().any(|line| line.contains("Fallback: Wry backend is disabled")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Fallback: Wry backend is disabled"))
+        );
     }
 
     #[test]
@@ -2748,10 +2804,11 @@ mod tests {
         let view_id = GraphViewId::new();
         app.ensure_graph_view_registered(view_id);
         app.set_workspace_focused_view_with_transition(Some(view_id));
-        let node_key = app.workspace.domain.graph.add_node(
-            "https://di05.example".to_string(),
-            euclid::point2(0.0, 0.0),
-        );
+        let node_key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://di05.example".to_string(), euclid::point2(0.0, 0.0));
         app.select_in_focused_view(node_key, false);
 
         let pane_id = PaneId::new();
@@ -2825,14 +2882,46 @@ mod tests {
         let viewer_actions = viewer_content_actions(&projection);
         let chips = compact_overview_chips(&app, &projection, Some(&slot), 1);
 
-        assert!(graph_lines.iter().any(|line| line.contains("Active pane graphlet: 1 warm node(s) · 1 cold node(s)")));
-        assert!(graph_lines.iter().any(|line| line.contains("Search: focus · 2 matches")));
-        assert!(workbench_lines.iter().any(|line| line == "Workbench binding: linked semantic tab group (2 pane(s))"));
-        assert!(viewer_lines.iter().any(|line| line == "Viewer backend: viewer:wry · placeholder"));
-        assert!(viewer_lines.iter().any(|line| line.contains("Fallback: Wry backend is disabled")));
-        assert!(runtime_lines.iter().any(|line| line == "History preview active: live runtime side effects suppressed"));
-        assert!(graph_actions.iter().any(|action| action.owner == OverviewActionOwner::Graph));
-        assert!(workbench_actions.iter().any(|action| action.owner == OverviewActionOwner::Workbench));
+        assert!(
+            graph_lines
+                .iter()
+                .any(|line| line.contains("Active pane graphlet: 1 warm node(s) · 1 cold node(s)"))
+        );
+        assert!(
+            graph_lines
+                .iter()
+                .any(|line| line.contains("Search: focus · 2 matches"))
+        );
+        assert!(
+            workbench_lines
+                .iter()
+                .any(|line| line == "Workbench binding: linked semantic tab group (2 pane(s))")
+        );
+        assert!(
+            viewer_lines
+                .iter()
+                .any(|line| line == "Viewer backend: viewer:wry · placeholder")
+        );
+        assert!(
+            viewer_lines
+                .iter()
+                .any(|line| line.contains("Fallback: Wry backend is disabled"))
+        );
+        assert!(
+            runtime_lines
+                .iter()
+                .any(|line| line == "History preview active: live runtime side effects suppressed")
+        );
+        assert!(
+            graph_actions
+                .iter()
+                .any(|action| action.owner == OverviewActionOwner::Graph)
+        );
+        assert!(
+            workbench_actions
+                .iter()
+                .any(|action| action.owner == OverviewActionOwner::Workbench)
+        );
         assert!(viewer_actions.iter().any(|action| {
             action.owner == OverviewActionOwner::Viewer
                 && matches!(
@@ -2841,7 +2930,11 @@ mod tests {
                 )
         }));
         assert!(chips.iter().any(|chip| chip.contains("Viewer fallback")));
-        assert!(chips.iter().any(|chip| chip.contains("Tabs: linked semantic")));
+        assert!(
+            chips
+                .iter()
+                .any(|chip| chip.contains("Tabs: linked semantic"))
+        );
     }
 
     #[test]
@@ -2885,8 +2978,16 @@ mod tests {
 
         let lines = graph_context_lines(&app, &projection, None);
 
-        assert!(lines.iter().any(|line| line == "Active pane graphlet: 1 warm node(s) · 1 cold node(s)"));
-        assert!(lines.iter().any(|line| line.contains("Frontier ready to open: Cold peer that wi…")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Active pane graphlet: 1 warm node(s) · 1 cold node(s)")
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Frontier ready to open: Cold peer that wi…"))
+        );
     }
 
     #[test]
@@ -2927,7 +3028,12 @@ mod tests {
 
         let lines = workbench_context_lines(&projection);
 
-        assert!(lines.iter().any(|line| line == "Workbench binding: detached from semantic tab group (3 pane(s))"));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line
+                    == "Workbench binding: detached from semantic tab group (3 pane(s))")
+        );
     }
 
     #[test]
@@ -3019,8 +3125,16 @@ mod tests {
 
         assert!(chips.iter().any(|chip| chip.contains("View Focus")));
         assert!(chips.iter().any(|chip| chip == "Panes: 1"));
-        assert!(chips.iter().any(|chip| chip.contains("Active pane graphlet")));
-        assert!(chips.iter().any(|chip| chip.contains("Tabs: linked semantic")));
+        assert!(
+            chips
+                .iter()
+                .any(|chip| chip.contains("Active pane graphlet"))
+        );
+        assert!(
+            chips
+                .iter()
+                .any(|chip| chip.contains("Tabs: linked semantic"))
+        );
         assert!(chips.iter().any(|chip| chip.contains("Viewer fallback")));
         assert!(chips.iter().any(|chip| chip == "History preview"));
         assert!(chips.iter().any(|chip| chip == "Archived: 2"));
@@ -3087,6 +3201,4 @@ mod tests {
         assert_eq!(slots.first().map(|slot| slot.view_id), Some(active));
         assert_eq!(slots.last().map(|slot| slot.view_id), Some(archived));
     }
-
 }
-

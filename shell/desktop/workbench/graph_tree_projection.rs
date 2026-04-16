@@ -227,7 +227,12 @@ pub(crate) fn enrich_navigator_members_from_graph_tree(
     // Build a lookup from NodeKey → tree-style fields.
     let row_map: std::collections::HashMap<NodeKey, (usize, bool, bool)> = rows
         .iter()
-        .map(|row| (row.member.clone(), (row.depth, row.is_expanded, row.has_children)))
+        .map(|row| {
+            (
+                row.member.clone(),
+                (row.depth, row.is_expanded, row.has_children),
+            )
+        })
         .collect();
 
     for group in groups.iter_mut() {
@@ -240,4 +245,3 @@ pub(crate) fn enrich_navigator_members_from_graph_tree(
         }
     }
 }
-

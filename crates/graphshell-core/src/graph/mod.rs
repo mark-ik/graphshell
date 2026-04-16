@@ -954,7 +954,10 @@ impl EdgePayload {
 
     fn prune_family(&mut self, family: EdgeFamily) {
         let keep = match family {
-            EdgeFamily::Semantic => self.semantic.as_ref().is_some_and(|data| !data.sub_kinds.is_empty()),
+            EdgeFamily::Semantic => self
+                .semantic
+                .as_ref()
+                .is_some_and(|data| !data.sub_kinds.is_empty()),
             EdgeFamily::Traversal => self.kinds.contains(&EdgeKind::TraversalDerived),
             EdgeFamily::Containment => self.kinds.contains(&EdgeKind::ContainmentRelation),
             EdgeFamily::Arrangement => self.kinds.contains(&EdgeKind::ArrangementRelation),
@@ -1071,9 +1074,7 @@ impl EdgePayload {
     pub fn assert_relation(&mut self, assertion: EdgeAssertion) -> bool {
         match assertion {
             EdgeAssertion::Semantic {
-                sub_kind,
-                label,
-                ..
+                sub_kind, label, ..
             } => self.insert_semantic_relation(sub_kind, label),
             EdgeAssertion::Containment { sub_kind } => {
                 self.add_edge_kind(EdgeType::ContainmentRelation(sub_kind), None)
@@ -1316,8 +1317,8 @@ impl EdgePayload {
             .and_then(|data| data.label.as_deref())
             .or_else(|| {
                 self.user_grouped
-            .as_ref()
-            .and_then(|data| data.label.as_deref())
+                    .as_ref()
+                    .and_then(|data| data.label.as_deref())
             })
     }
 
@@ -1468,12 +1469,7 @@ impl Graph {
     }
 
     /// Add a node with a pre-existing UUID.
-    pub fn add_node_with_id(
-        &mut self,
-        id: Uuid,
-        url: String,
-        position: Point2D<f32>,
-    ) -> NodeKey {
+    pub fn add_node_with_id(&mut self, id: Uuid, url: String, position: Point2D<f32>) -> NodeKey {
         let now = std::time::SystemTime::now();
         let key = self.inner.add_node(Node {
             id,
@@ -1679,11 +1675,7 @@ impl Graph {
         true
     }
 
-    pub fn set_frame_split_offer_suppressed(
-        &mut self,
-        key: NodeKey,
-        suppressed: bool,
-    ) -> bool {
+    pub fn set_frame_split_offer_suppressed(&mut self, key: NodeKey, suppressed: bool) -> bool {
         let Some(node) = self.inner.node_weight_mut(key) else {
             return false;
         };
@@ -1840,10 +1832,7 @@ impl Graph {
         &self.import_records
     }
 
-    pub fn import_record_summaries_for_node(
-        &self,
-        key: NodeKey,
-    ) -> Vec<NodeImportRecordSummary> {
+    pub fn import_record_summaries_for_node(&self, key: NodeKey) -> Vec<NodeImportRecordSummary> {
         let Some(node) = self.get_node(key) else {
             return Vec::new();
         };
@@ -2085,11 +2074,7 @@ impl Graph {
         true
     }
 
-    pub fn set_node_projected_position(
-        &mut self,
-        key: NodeKey,
-        position: Point2D<f32>,
-    ) -> bool {
+    pub fn set_node_projected_position(&mut self, key: NodeKey, position: Point2D<f32>) -> bool {
         let Some(node) = self.inner.node_weight_mut(key) else {
             return false;
         };
@@ -2339,10 +2324,7 @@ impl Graph {
     }
 
     /// Collect traversals from all incident edges without mutating graph state.
-    pub fn collect_node_traversals(
-        &self,
-        key: NodeKey,
-    ) -> Option<Vec<DissolvedTraversalRecord>> {
+    pub fn collect_node_traversals(&self, key: NodeKey) -> Option<Vec<DissolvedTraversalRecord>> {
         let _ = self.get_node(key)?;
 
         let mut records = Vec::new();
@@ -2444,12 +2426,7 @@ impl Graph {
 
     /// Remove all directed edges from `from` to `to` with the given type.
     /// Returns how many edges were removed.
-    pub fn remove_edges(
-        &mut self,
-        from: NodeKey,
-        to: NodeKey,
-        edge_type: EdgeType,
-    ) -> usize {
+    pub fn remove_edges(&mut self, from: NodeKey, to: NodeKey, edge_type: EdgeType) -> usize {
         let edge_ids: Vec<EdgeKey> = self
             .inner
             .edge_references()
@@ -2528,12 +2505,7 @@ impl Graph {
     }
 
     /// Append a traversal event to an existing edge, or create an edge carrying the traversal.
-    pub fn push_traversal(
-        &mut self,
-        from: NodeKey,
-        to: NodeKey,
-        traversal: Traversal,
-    ) -> bool {
+    pub fn push_traversal(&mut self, from: NodeKey, to: NodeKey, traversal: Traversal) -> bool {
         if from == to || !self.inner.contains_node(from) || !self.inner.contains_node(to) {
             return false;
         }
@@ -3081,9 +3053,7 @@ impl Graph {
                                             PersistedSemanticSubKind::AgentDerived
                                         }
                                         SemanticSubKind::Cites => PersistedSemanticSubKind::Cites,
-                                        SemanticSubKind::Quotes => {
-                                            PersistedSemanticSubKind::Quotes
-                                        }
+                                        SemanticSubKind::Quotes => PersistedSemanticSubKind::Quotes,
                                         SemanticSubKind::Summarizes => {
                                             PersistedSemanticSubKind::Summarizes
                                         }
@@ -3122,9 +3092,7 @@ impl Graph {
                                     .collect()
                             })
                             .unwrap_or_default(),
-                        label: payload
-                            .semantic_data()
-                            .and_then(|data| data.label.clone()),
+                        label: payload.semantic_data().and_then(|data| data.label.clone()),
                         agent_decay_progress: payload
                             .has_edge_type(EdgeType::AgentDerived {
                                 decay_progress: 0.0,
@@ -3405,22 +3373,14 @@ impl Graph {
                                 }
                                 PersistedSemanticSubKind::Cites => SemanticSubKind::Cites,
                                 PersistedSemanticSubKind::Quotes => SemanticSubKind::Quotes,
-                                PersistedSemanticSubKind::Summarizes => {
-                                    SemanticSubKind::Summarizes
-                                }
-                                PersistedSemanticSubKind::Elaborates => {
-                                    SemanticSubKind::Elaborates
-                                }
-                                PersistedSemanticSubKind::ExampleOf => {
-                                    SemanticSubKind::ExampleOf
-                                }
+                                PersistedSemanticSubKind::Summarizes => SemanticSubKind::Summarizes,
+                                PersistedSemanticSubKind::Elaborates => SemanticSubKind::Elaborates,
+                                PersistedSemanticSubKind::ExampleOf => SemanticSubKind::ExampleOf,
                                 PersistedSemanticSubKind::Supports => SemanticSubKind::Supports,
                                 PersistedSemanticSubKind::Contradicts => {
                                     SemanticSubKind::Contradicts
                                 }
-                                PersistedSemanticSubKind::Questions => {
-                                    SemanticSubKind::Questions
-                                }
+                                PersistedSemanticSubKind::Questions => SemanticSubKind::Questions,
                                 PersistedSemanticSubKind::SameEntityAs => {
                                     SemanticSubKind::SameEntityAs
                                 }
@@ -3927,8 +3887,12 @@ mod tests {
             )
             .expect("semantic relation should be asserted");
 
-        let edge_key = graph.find_edge_key(a, b).expect("semantic edge should exist");
-        let payload = graph.get_edge(edge_key).expect("semantic payload should exist");
+        let edge_key = graph
+            .find_edge_key(a, b)
+            .expect("semantic edge should exist");
+        let payload = graph
+            .get_edge(edge_key)
+            .expect("semantic payload should exist");
         assert!(payload.has_relation(RelationSelector::Semantic(SemanticSubKind::SameEntityAs)));
         assert_eq!(payload.label(), Some("identity"));
 
@@ -4162,8 +4126,12 @@ mod tests {
 
         let snapshot = graph.to_snapshot();
         let restored = Graph::from_snapshot(&snapshot);
-        let edge_key = restored.find_edge_key(from, to).expect("semantic edge should restore");
-        let payload = restored.get_edge(edge_key).expect("semantic payload should restore");
+        let edge_key = restored
+            .find_edge_key(from, to)
+            .expect("semantic edge should restore");
+        let payload = restored
+            .get_edge(edge_key)
+            .expect("semantic payload should restore");
         assert!(payload.has_relation(RelationSelector::Semantic(
             SemanticSubKind::CanonicalMirrorOf,
         )));
@@ -4224,9 +4192,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_edge_with_missing_url_is_dropped() {
-        use crate::persistence::{
-            GraphSnapshot, PersistedAddress, PersistedEdge, PersistedNode,
-        };
+        use crate::persistence::{GraphSnapshot, PersistedAddress, PersistedEdge, PersistedNode};
 
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {
@@ -5069,4 +5035,3 @@ mod tests {
         assert!(!graph.move_frame_layout_hint(frame, 1, 1));
     }
 }
-

@@ -658,8 +658,7 @@ mod tests {
                 .expect("observer lock poisoned")
                 .iter()
                 .any(|route| {
-                    route
-                        == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
+                    route == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
                 })
         );
         assert!(crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
@@ -703,8 +702,7 @@ mod tests {
                 .expect("observer lock poisoned")
                 .iter()
                 .any(|route| {
-                    route
-                        == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
+                    route == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
                 })
         );
         assert!(crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
@@ -758,12 +756,10 @@ mod tests {
             toggle_workbench_overlay: true,
             ..Default::default()
         });
-        assert!(
-            intents.iter().any(|i| matches!(
-                i,
-                WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true }
-            ))
-        );
+        assert!(intents.iter().any(|i| matches!(
+            i,
+            WorkbenchIntent::SetWorkbenchOverlayVisible { visible: true }
+        )));
     }
 
     #[test]
@@ -772,12 +768,10 @@ mod tests {
             close_workbench_overlay: true,
             ..Default::default()
         });
-        assert!(
-            intents.iter().any(|i| matches!(
-                i,
-                WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false }
-            ))
-        );
+        assert!(intents.iter().any(|i| matches!(
+            i,
+            WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false }
+        )));
     }
 
     #[test]
@@ -1300,4 +1294,3 @@ mod tests {
         );
     }
 }
-

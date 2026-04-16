@@ -661,4 +661,3 @@ fn graph_reader_return_to_map_suppresses_room_projection_and_preserves_map_focus
             .any(|node| node.label.starts_with("Graph Reader Room:"))
     );
 }
-

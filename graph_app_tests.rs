@@ -1,5 +1,5 @@
-use super::*;
 use super::NavigatorSidebarSidePreference;
+use super::*;
 use crate::util::NoteAddress;
 use euclid::default::Point2D;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -3619,14 +3619,18 @@ fn apply_browser_import_batch_creates_bookmark_folder_edges_and_import_record() 
     assert_eq!(record.source_label, "Chrome bookmarks");
     assert_eq!(record.imported_at_secs, 1_776_000_000);
     assert_eq!(record.memberships.len(), 2);
-    assert!(record
-        .memberships
-        .iter()
-        .any(|membership| membership.node_id == page_node.id.to_string()));
-    assert!(record
-        .memberships
-        .iter()
-        .any(|membership| membership.node_id == folder_node.id.to_string()));
+    assert!(
+        record
+            .memberships
+            .iter()
+            .any(|membership| membership.node_id == page_node.id.to_string())
+    );
+    assert!(
+        record
+            .memberships
+            .iter()
+            .any(|membership| membership.node_id == folder_node.id.to_string())
+    );
 
     assert_eq!(
         app.workspace
@@ -4392,14 +4396,16 @@ fn test_file_tree_projection_rebuild_preserves_structural_expansion_rows() {
 
     app.apply_reducer_intents([GraphIntent::RebuildNavigatorProjection]);
 
-    assert!(app
-        .navigator_projection_state()
-        .expanded_rows
-        .contains("section:workbench"));
-    assert!(app
-        .navigator_projection_state()
-        .expanded_rows
-        .contains("section:unrelated"));
+    assert!(
+        app.navigator_projection_state()
+            .expanded_rows
+            .contains("section:workbench")
+    );
+    assert!(
+        app.navigator_projection_state()
+            .expanded_rows
+            .contains("section:unrelated")
+    );
 }
 
 #[test]
@@ -5807,7 +5813,10 @@ fn test_workbench_display_mode_persists_across_restart() {
     drop(app);
 
     let reopened = GraphBrowserApp::new_from_dir(path);
-    assert_eq!(reopened.workbench_display_mode(), WorkbenchDisplayMode::Dedicated);
+    assert_eq!(
+        reopened.workbench_display_mode(),
+        WorkbenchDisplayMode::Dedicated
+    );
 }
 
 #[test]
@@ -6020,7 +6029,10 @@ fn import_webfinger_into_graph_creates_identity_cluster() {
         .graph
         .get_node_by_url("https://example.net/avatar.png")
         .expect("other endpoint node should exist");
-    assert_eq!(endpoint_node.title, "Endpoint (avatar): https://example.net/avatar.png");
+    assert_eq!(
+        endpoint_node.title,
+        "Endpoint (avatar): https://example.net/avatar.png"
+    );
     assert!(app.node_has_canonical_tag(endpoint_key, "#endpoint"));
 
     let edge_key = app
@@ -6092,10 +6104,7 @@ fn import_webfinger_into_graph_reuses_existing_nodes_without_clobbering_titles()
         .expect("repeated import should succeed");
     assert_eq!(repeated_subject, subject);
     assert_eq!(
-        app.workspace
-            .domain
-            .graph
-            .find_edge_key(subject, profile),
+        app.workspace.domain.graph.find_edge_key(subject, profile),
         Some(profile_edge)
     );
 }
@@ -6213,9 +6222,11 @@ fn import_person_identity_into_graph_binds_supported_identities_to_person_node()
         .graph
         .get_edge(acct_identity_edge)
         .expect("same-entity payload should exist");
-    assert!(acct_identity_payload.has_relation(crate::graph::RelationSelector::Semantic(
-        crate::graph::SemanticSubKind::SameEntityAs,
-    )));
+    assert!(
+        acct_identity_payload.has_relation(crate::graph::RelationSelector::Semantic(
+            crate::graph::SemanticSubKind::SameEntityAs,
+        ))
+    );
 
     let (profile_key, _) = app
         .domain_graph()
@@ -6246,9 +6257,11 @@ fn import_person_identity_into_graph_binds_supported_identities_to_person_node()
         .graph
         .get_edge(profile_identity_edge)
         .expect("canonical mirror payload should exist");
-    assert!(profile_identity_payload.has_relation(crate::graph::RelationSelector::Semantic(
-        crate::graph::SemanticSubKind::CanonicalMirrorOf,
-    )));
+    assert!(
+        profile_identity_payload.has_relation(crate::graph::RelationSelector::Semantic(
+            crate::graph::SemanticSubKind::CanonicalMirrorOf,
+        ))
+    );
 
     assert_eq!(app.get_single_selected_node(), Some(person_key));
 }
@@ -6315,7 +6328,11 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
         .get_node(message_key)
         .expect("message node should exist");
     assert!(message_node.url().contains("/message-notification/"));
-    assert!(message_node.title.starts_with("Message Notification from Person:"));
+    assert!(
+        message_node
+            .title
+            .starts_with("Message Notification from Person:")
+    );
     assert!(app.node_has_canonical_tag(message_key, "#message-notification"));
 
     let generated_edge = app
@@ -6416,9 +6433,8 @@ fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hi
             .expect("resolved person should carry classifications");
         assert!(classifications.iter().any(|classification| {
             classification.scheme
-                == crate::model::graph::ClassificationScheme::Custom(
-                    "resolution:nip05".to_string(),
-                ) && classification.value == "mark@example.net"
+                == crate::model::graph::ClassificationScheme::Custom("resolution:nip05".to_string())
+                && classification.value == "mark@example.net"
         }));
 
         let node_id = app
@@ -6430,20 +6446,20 @@ fn resolve_person_identity_from_nip05_records_resolution_provenance_and_cache_hi
         let resolution_records = audit_history
             .into_iter()
             .filter_map(|entry| match entry {
-                crate::services::persistence::types::LogEntry::AppendNodeAuditEvent { event, .. } => {
-                    match event {
-                        crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                            action,
-                            detail,
-                        } if action == "Identity resolution" => {
-                            graphshell_comms::identity::parse_identity_resolution_audit_event(
-                                &action,
-                                &detail,
-                            )
-                        }
-                        _ => None,
+                crate::services::persistence::types::LogEntry::AppendNodeAuditEvent {
+                    event,
+                    ..
+                } => match event {
+                    crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                        action,
+                        detail,
+                    } if action == "Identity resolution" => {
+                        graphshell_comms::identity::parse_identity_resolution_audit_event(
+                            &action, &detail,
+                        )
                     }
-                }
+                    _ => None,
+                },
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -6527,8 +6543,7 @@ fn deliver_person_message_notification_via_misfin_for_tests_creates_artifact_and
         let config = build_identity_test_tls_config("localhost");
         let (stream, _) = listener.accept().expect("accept");
         let mut tls = rustls::StreamOwned::new(
-            rustls::ServerConnection::new(std::sync::Arc::new(config))
-                .expect("server connection"),
+            rustls::ServerConnection::new(std::sync::Arc::new(config)).expect("server connection"),
             stream,
         );
         let mut reader = std::io::BufReader::new(tls);
@@ -6576,7 +6591,11 @@ fn deliver_person_message_notification_via_misfin_for_tests_creates_artifact_and
         .get_node(artifact_key)
         .expect("message artifact should exist");
     assert_eq!(artifact.url(), "misfin://queen@localhost");
-    assert!(artifact.title.starts_with("Message Notification from Person:"));
+    assert!(
+        artifact
+            .title
+            .starts_with("Message Notification from Person:")
+    );
     assert!(app.node_has_canonical_tag(artifact_key, "#message-notification"));
     server.join().expect("server should finish");
 }
@@ -6592,8 +6611,7 @@ fn publish_person_artifact_via_titan_for_tests_uploads_and_creates_artifact() {
         let config = build_identity_test_tls_config("localhost");
         let (stream, _) = listener.accept().expect("accept");
         let mut tls = rustls::StreamOwned::new(
-            rustls::ServerConnection::new(std::sync::Arc::new(config))
-                .expect("server connection"),
+            rustls::ServerConnection::new(std::sync::Arc::new(config)).expect("server connection"),
             stream,
         );
         let mut reader = std::io::BufReader::new(tls);
@@ -6601,9 +6619,7 @@ fn publish_person_artifact_via_titan_for_tests_uploads_and_creates_artifact() {
         std::io::BufRead::read_line(&mut reader, &mut request).expect("request line");
         assert_eq!(
             request,
-            format!(
-                "titan://localhost:{port}/raw/upload;size=11;mime=text/plain;token=secret\r\n"
-            )
+            format!("titan://localhost:{port}/raw/upload;size=11;mime=text/plain;token=secret\r\n")
         );
         let mut body = [0_u8; 11];
         std::io::Read::read_exact(&mut reader, &mut body).expect("request body");
@@ -6647,7 +6663,10 @@ fn publish_person_artifact_via_titan_for_tests_uploads_and_creates_artifact() {
         .domain_graph()
         .get_node(artifact_key)
         .expect("shared-data artifact should exist");
-    assert_eq!(artifact.url(), &format!("gemini://localhost:{port}/raw/upload"));
+    assert_eq!(
+        artifact.url(),
+        &format!("gemini://localhost:{port}/raw/upload")
+    );
     assert_eq!(artifact.title, "Launch Notes");
     assert!(app.node_has_canonical_tag(artifact_key, "#shared-data"));
     server.join().expect("server should finish");
@@ -8876,4 +8895,3 @@ fn clear_navigator_specialty_view_removes_entry_and_mask() {
         "graphlet_node_mask should be cleared from the view"
     );
 }
-

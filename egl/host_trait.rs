@@ -39,4 +39,3 @@ pub trait HostTrait {
     /// Called when we get a panic message from constellation
     fn on_panic(&self, reason: String, backtrace: Option<String>);
 }
-

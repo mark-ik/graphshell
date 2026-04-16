@@ -339,7 +339,10 @@ mod file_access_guard_tests {
         };
         let home = dirs::home_dir().expect("home directory should exist for this test");
         let result = ensure_local_file_access_allowed(&home, &policy);
-        assert!(result.is_err(), "expected denial when home auto-allow is off and allowed_directories is empty");
+        assert!(
+            result.is_err(),
+            "expected denial when home auto-allow is off and allowed_directories is empty"
+        );
     }
 
     #[test]
@@ -350,7 +353,10 @@ mod file_access_guard_tests {
             home_directory_auto_allow: false,
         };
         let result = ensure_local_file_access_allowed(&home, &policy);
-        assert!(result.is_ok(), "expected allow when path is in allowed_directories");
+        assert!(
+            result.is_ok(),
+            "expected allow when path is in allowed_directories"
+        );
     }
 }
 
@@ -557,28 +563,28 @@ impl<'a> GraphshellTileBehavior<'a> {
                     ),
             })
         });
-            let command_surface_semantic_node_count = ux_tree::latest_snapshot()
-                .map(|snapshot| {
-                    snapshot
-                        .semantic_nodes
-                        .iter()
-                        .filter(|node| {
-                            matches!(
-                                node.role,
-                                ux_tree::UxNodeRole::CommandBar
-                                    | ux_tree::UxNodeRole::Omnibar
-                                    | ux_tree::UxNodeRole::CommandPalette
-                                    | ux_tree::UxNodeRole::ContextPalette
-                            )
-                        })
-                        .count()
-                })
-                .unwrap_or(0);
+        let command_surface_semantic_node_count = ux_tree::latest_snapshot()
+            .map(|snapshot| {
+                snapshot
+                    .semantic_nodes
+                    .iter()
+                    .filter(|node| {
+                        matches!(
+                            node.role,
+                            ux_tree::UxNodeRole::CommandBar
+                                | ux_tree::UxNodeRole::Omnibar
+                                | ux_tree::UxNodeRole::CommandPalette
+                                | ux_tree::UxNodeRole::ContextPalette
+                        )
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
 
         AccessibilityInspectorSnapshot {
             total_nodes,
             selected_node_count,
-                command_surface_semantic_node_count,
+            command_surface_semantic_node_count,
             selected_node,
         }
     }
@@ -1349,12 +1355,13 @@ mod tests {
     fn accessibility_inspector_snapshot_counts_command_surface_semantics() {
         use crate::shell::desktop::tests::harness::TestRegistry;
         use crate::shell::desktop::ui::toolbar::toolbar_ui::{
-            CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot,
-            OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
-            clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
+            CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
+            PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
+            publish_command_surface_semantic_snapshot,
         };
 
-        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        let _guard =
+            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
         clear_command_surface_semantic_snapshot();
         ux_tree::clear_snapshot();
 
@@ -1679,4 +1686,3 @@ mod tests {
         }
     }
 }
-

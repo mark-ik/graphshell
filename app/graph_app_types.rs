@@ -16,8 +16,8 @@ use uuid::Uuid;
 
 use crate::graph::NodeKey;
 
-use super::graph_views::GraphViewId;
 use super::graph_mutations::NoteId;
+use super::graph_views::GraphViewId;
 use super::selection::SelectionUpdateMode;
 use super::workbench_layout_policy::{
     NavigatorHostScope, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode,
@@ -640,4 +640,3 @@ pub struct ReducerDispatchContext {
     pub force_undo_boundary: bool,
     pub undo_boundary_reason: UndoBoundaryReason,
 }
-

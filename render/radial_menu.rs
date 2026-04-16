@@ -10,9 +10,7 @@
 //! which is shared with the command/context palette so both surfaces use a single
 //! execution path.
 
-use crate::app::{
-    GraphBrowserApp, SelectionUpdateMode, SurfaceHostId, UxConfigMode, ViewAction,
-};
+use crate::app::{GraphBrowserApp, SelectionUpdateMode, SurfaceHostId, UxConfigMode, ViewAction};
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, category_persisted_name,
@@ -2349,4 +2347,3 @@ mod tests {
         );
     }
 }
-

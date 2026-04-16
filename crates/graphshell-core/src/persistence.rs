@@ -561,4 +561,3 @@ pub struct GraphSnapshot {
     pub import_records: Vec<ImportRecord>,
     pub timestamp_secs: u64,
 }
-

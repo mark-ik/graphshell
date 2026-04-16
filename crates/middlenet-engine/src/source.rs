@@ -56,7 +56,11 @@ impl MiddleNetSource {
         let content_kind = normalized_mime
             .as_deref()
             .and_then(content_kind_from_mime)
-            .or_else(|| normalized_scheme.as_deref().and_then(content_kind_from_scheme))
+            .or_else(|| {
+                normalized_scheme
+                    .as_deref()
+                    .and_then(content_kind_from_scheme)
+            })
             .or_else(|| extract_extension(uri).and_then(content_kind_from_extension))?;
 
         Some(Self::new(content_kind).with_uri(uri))
@@ -78,7 +82,9 @@ impl MiddleNetContent {
         debug_assert_eq!(source.content_kind, MiddleNetContentKind::GeminiText);
         Self {
             source,
-            document: Document::parse(&crate::document::SimpleDocument::from_gemini(body).to_html()),
+            document: Document::parse(
+                &crate::document::SimpleDocument::from_gemini(body).to_html(),
+            ),
         }
     }
 }
@@ -162,8 +168,9 @@ mod tests {
 
     #[test]
     fn detects_gophermap_and_markdown_sources() {
-        let gopher = MiddleNetSource::detect("file:///capsule/gophermap", Some("application/gophermap"))
-            .expect("gopher source should resolve");
+        let gopher =
+            MiddleNetSource::detect("file:///capsule/gophermap", Some("application/gophermap"))
+                .expect("gopher source should resolve");
         assert_eq!(gopher.content_kind, MiddleNetContentKind::GopherMap);
 
         let markdown = MiddleNetSource::detect("file:///notes/topic.md", None)
@@ -182,4 +189,3 @@ mod tests {
         assert_eq!(json_feed.content_kind, MiddleNetContentKind::JsonFeed);
     }
 }
-

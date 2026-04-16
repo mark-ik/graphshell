@@ -3,8 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use servo::{
-    AuthenticationRequest, BluetoothDeviceSelectionRequest, EmbedderControl,
-    EmbedderControlId, PermissionRequest, WebViewId,
+    AuthenticationRequest, BluetoothDeviceSelectionRequest, EmbedderControl, EmbedderControlId,
+    PermissionRequest, WebViewId,
 };
 
 use super::HeadedWindow;
@@ -131,4 +131,3 @@ pub(super) fn show_http_authentication_dialog(
 pub(super) fn dismiss_embedder_controls_for_webview(window: &HeadedWindow, webview_id: WebViewId) {
     window.dialogs.borrow_mut().remove(&webview_id);
 }
-

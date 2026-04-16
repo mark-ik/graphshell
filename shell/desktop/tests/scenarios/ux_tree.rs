@@ -1,12 +1,12 @@
 use super::super::harness::TestRegistry;
 use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
-use crate::shell::desktop::workbench::ux_bridge::UxNodeSelector;
-use crate::shell::desktop::workbench::ux_tree;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
     PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
     lock_command_surface_snapshot_tests, publish_command_surface_semantic_snapshot,
 };
+use crate::shell::desktop::workbench::ux_bridge::UxNodeSelector;
+use crate::shell::desktop::workbench::ux_tree;
 
 #[test]
 fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
@@ -55,7 +55,10 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
     let bridge_focus_path = harness
         .ux_focus_path_via_driver()
         .expect("driver-backed focus path query should succeed");
-    assert_eq!(bridge_focus_path.first().map(String::as_str), Some(ux_tree::UX_TREE_WORKBENCH_ROOT_ID));
+    assert_eq!(
+        bridge_focus_path.first().map(String::as_str),
+        Some(ux_tree::UX_TREE_WORKBENCH_ROOT_ID)
+    );
     assert!(
         !bridge_focus_path.is_empty(),
         "bridge focus path should include at least the canonical workbench root"
@@ -127,8 +130,10 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
             "Command Bar".to_string(),
         ))
         .expect("driver-backed find-node query should succeed");
-    assert!(command_bar.is_some(), "bridge should resolve the command bar semantic node");
+    assert!(
+        command_bar.is_some(),
+        "bridge should resolve the command bar semantic node"
+    );
 
     clear_command_surface_semantic_snapshot();
 }
-

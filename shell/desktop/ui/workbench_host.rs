@@ -11,9 +11,8 @@ use uuid::Uuid;
 use crate::app::workbench_layout_policy::{AnchorEdge, FirstUseOutcome, NavigatorHostId};
 use crate::app::{
     CameraCommand, GraphBrowserApp, GraphIntent, GraphViewId, NavigatorHostScope,
-    PendingTileOpenMode, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode,
-    WorkbenchDisplayMode, WorkbenchIntent, WorkbenchLayoutConstraint,
-    WorkbenchNavigationGeometry,
+    PendingTileOpenMode, SurfaceFirstUsePolicy, SurfaceHostId, UxConfigMode, WorkbenchDisplayMode,
+    WorkbenchIntent, WorkbenchLayoutConstraint, WorkbenchNavigationGeometry,
     user_visible_node_title_from_data, user_visible_node_url_from_data,
 };
 use crate::graph::{
@@ -251,9 +250,11 @@ fn tree_has_hosted_workbench(tiles_tree: &Tree<TileKind>) -> bool {
         .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(_))))
         .count();
 
-    tiles_tree.tiles.iter().any(|(_, tile)| {
-        matches!(tile, Tile::Pane(kind) if !matches!(kind, TileKind::Graph(_)))
-    }) || graph_pane_count > 1
+    tiles_tree
+        .tiles
+        .iter()
+        .any(|(_, tile)| matches!(tile, Tile::Pane(kind) if !matches!(kind, TileKind::Graph(_))))
+        || graph_pane_count > 1
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -733,9 +734,7 @@ fn rendered_graph_scope_host_exists(projection: &WorkbenchChromeProjection) -> b
     projection.visible() && projection.host_layouts.iter().any(host_shows_graph_scope)
 }
 
-fn graph_scope_requires_fallback_toolbar_host(
-    projection: &WorkbenchChromeProjection,
-) -> bool {
+fn graph_scope_requires_fallback_toolbar_host(projection: &WorkbenchChromeProjection) -> bool {
     projection.active_graph_view.is_some() && !rendered_graph_scope_host_exists(projection)
 }
 
@@ -823,8 +822,8 @@ fn render_graph_scope_controls(
                         lens_input = crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string();
                         ui.close();
                     }
-                    let semantic_selected =
-                        summary.lens_id == crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY;
+                    let semantic_selected = summary.lens_id
+                        == crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY;
                     if ui
                         .selectable_label(semantic_selected, "Semantic Overlay")
                         .on_hover_text(crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY)
@@ -835,8 +834,8 @@ fn render_graph_scope_controls(
                             lens_id: crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY
                                 .to_string(),
                         });
-                        lens_input = crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY
-                            .to_string();
+                        lens_input =
+                            crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY.to_string();
                         ui.close();
                     }
                 });
@@ -903,7 +902,11 @@ fn render_graph_scope_controls(
                 compact_host_panel_text(summary.physics_profile_label.as_str())
             ),
             |ui| {
-                let toggle_label = if summary.physics_running { "Pause" } else { "Run" };
+                let toggle_label = if summary.physics_running {
+                    "Pause"
+                } else {
+                    "Run"
+                };
                 if ui
                     .button(toggle_label)
                     .on_hover_text("Toggle the shared force-directed simulation runtime")
@@ -1292,8 +1295,7 @@ impl WorkbenchChromeProjection {
         matches!(
             self.chrome_policy,
             ChromeExposurePolicy::GraphPlusWorkbenchOverlay
-                |
-            ChromeExposurePolicy::GraphPlusWorkbenchHost
+                | ChromeExposurePolicy::GraphPlusWorkbenchHost
                 | ChromeExposurePolicy::GraphPlusWorkbenchHostPinned
                 | ChromeExposurePolicy::WorkbenchOnly
         )
@@ -2336,8 +2338,11 @@ pub(crate) fn render_workbench_host(
     command_bar_focus_target: CommandBarFocusTarget,
     show_clear_data_confirm: &mut bool,
 ) -> WorkbenchChromeProjection {
-    let mut projection =
-        WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, command_bar_focus_target.active_pane());
+    let mut projection = WorkbenchChromeProjection::from_tree(
+        graph_app,
+        tiles_tree,
+        command_bar_focus_target.active_pane(),
+    );
 
     // Phase C: Replace workbench section with GraphTree-sourced groups.
     {
@@ -3277,9 +3282,7 @@ pub(crate) fn render_workbench_host(
         // Feed back resized panel dimensions to the layout constraint so the
         // stored size_fraction stays in sync with the actual panel extent.
         if let Some(extent) = actual_panel_extent {
-            if host_layout.resizable
-                && !is_host_configuring(graph_app, &host_layout.host)
-            {
+            if host_layout.resizable && !is_host_configuring(graph_app, &host_layout.host) {
                 let axis_extent = match host_layout.form_factor {
                     WorkbenchHostFormFactor::Sidebar => host_available_rect.width(),
                     WorkbenchHostFormFactor::Toolbar => host_available_rect.height(),
@@ -3710,7 +3713,11 @@ fn navigator_overview_action_to_host_actions(
     }
 }
 
-fn select_node_in_graph_view(graph_app: &mut GraphBrowserApp, view_id: GraphViewId, node_key: NodeKey) {
+fn select_node_in_graph_view(
+    graph_app: &mut GraphBrowserApp,
+    view_id: GraphViewId,
+    node_key: NodeKey,
+) {
     graph_app.apply_reducer_intents([
         GraphIntent::FocusGraphView { view_id },
         GraphIntent::SelectNode {
@@ -3821,7 +3828,9 @@ fn pane_presentation_mode_label(mode: PanePresentationMode) -> &'static str {
     }
 }
 
-fn pane_presentation_mode_toggle(mode: PanePresentationMode) -> Option<(PanePresentationMode, &'static str, &'static str)> {
+fn pane_presentation_mode_toggle(
+    mode: PanePresentationMode,
+) -> Option<(PanePresentationMode, &'static str, &'static str)> {
     match mode {
         PanePresentationMode::Tiled => Some((
             PanePresentationMode::Docked,
@@ -3880,10 +3889,7 @@ fn viewer_backend_display_name(viewer_id: &str) -> &str {
 
 fn viewer_runtime_badge(summary: &WorkbenchNodeViewerSummary) -> Option<(&'static str, String)> {
     if summary.runtime_crashed {
-        return Some((
-            "Crash",
-            "Viewer crash recorded for this node.".to_string(),
-        ));
+        return Some(("Crash", "Viewer crash recorded for this node.".to_string()));
     }
     if summary.runtime_blocked {
         return Some((
@@ -3903,7 +3909,9 @@ fn viewer_runtime_badge(summary: &WorkbenchNodeViewerSummary) -> Option<(&'stati
     None
 }
 
-fn viewer_override_badge(summary: &WorkbenchNodeViewerSummary) -> Option<(&'static str, &'static str)> {
+fn viewer_override_badge(
+    summary: &WorkbenchNodeViewerSummary,
+) -> Option<(&'static str, &'static str)> {
     summary.viewer_override.as_ref()?;
     match summary.viewer_switch_reason {
         ViewerSwitchReason::UserRequested => Some((
@@ -4354,10 +4362,8 @@ fn apply_workbench_host_action(
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetPanePresentationMode { pane, mode } => {
-            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetPanePresentationMode {
-                pane,
-                mode,
-            });
+            graph_app
+                .enqueue_workbench_intent(WorkbenchIntent::SetPanePresentationMode { pane, mode });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SwapViewerBackend {
@@ -4381,9 +4387,8 @@ fn apply_workbench_host_action(
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetWorkbenchOverlayVisible(visible) => {
-            graph_app.enqueue_workbench_intent(WorkbenchIntent::SetWorkbenchOverlayVisible {
-                visible,
-            });
+            graph_app
+                .enqueue_workbench_intent(WorkbenchIntent::SetWorkbenchOverlayVisible { visible });
             WorkbenchHostActionDispatchOutcome::Consumed
         }
         WorkbenchHostAction::SetWorkbenchPinned(pinned) => {
@@ -4700,8 +4705,9 @@ fn render_frame_pin_controls(
             if pane_is_pinned {
                 post_host_actions.push(WorkbenchHostAction::DeleteFrame(pane_pin_name.to_string()));
             } else {
-                post_host_actions
-                    .push(WorkbenchHostAction::SaveFrameSnapshotNamed(pane_pin_name.to_string()));
+                post_host_actions.push(WorkbenchHostAction::SaveFrameSnapshotNamed(
+                    pane_pin_name.to_string(),
+                ));
             }
         }
     }
@@ -4718,7 +4724,9 @@ fn render_frame_pin_controls(
             });
     if space_pin_button.clicked() {
         if space_is_pinned {
-            post_host_actions.push(WorkbenchHostAction::DeleteFrame(workspace_pin_name.to_string()));
+            post_host_actions.push(WorkbenchHostAction::DeleteFrame(
+                workspace_pin_name.to_string(),
+            ));
         } else {
             post_host_actions.push(WorkbenchHostAction::SaveFrameSnapshotNamed(
                 workspace_pin_name.to_string(),
@@ -4766,15 +4774,14 @@ mod tests {
             .unwrap_or(0)
     }
 
-    fn dispatch_pending_workbench_intents(
-        app: &mut GraphBrowserApp,
-        tree: &mut Tree<TileKind>,
-    ) {
+    fn dispatch_pending_workbench_intents(app: &mut GraphBrowserApp, tree: &mut Tree<TileKind>) {
         for intent in app.take_pending_workbench_intents() {
-            assert!(crate::shell::desktop::runtime::registries::dispatch_workbench_surface_intent(
-                app, tree, None, intent,
-            )
-            .is_none());
+            assert!(
+                crate::shell::desktop::runtime::registries::dispatch_workbench_surface_intent(
+                    app, tree, None, intent,
+                )
+                .is_none()
+            );
         }
     }
 
@@ -4797,7 +4804,10 @@ mod tests {
             WorkbenchHostFormFactor::Sidebar
         );
         assert_eq!(
-            projection.active_graph_view.as_ref().map(|(view_id, _)| *view_id),
+            projection
+                .active_graph_view
+                .as_ref()
+                .map(|(view_id, _)| *view_id),
             Some(graph_view)
         );
         assert!(projection.extra_graph_views.is_empty());
@@ -5093,7 +5103,9 @@ mod tests {
         let mut tree = Tree::new("workbench_host_toggle_semantic_depth", root, tiles);
 
         apply_workbench_host_action_test(
-            WorkbenchHostAction::ToggleSemanticDepthView { view_id: graph_view },
+            WorkbenchHostAction::ToggleSemanticDepthView {
+                view_id: graph_view,
+            },
             &mut app,
             &mut tree,
         );
@@ -5199,7 +5211,9 @@ mod tests {
         let mut tree = Tree::new("workbench_host_clear_graph_view_filter", root, tiles);
 
         apply_workbench_host_action_test(
-            WorkbenchHostAction::ClearGraphViewFilter { view_id: graph_view },
+            WorkbenchHostAction::ClearGraphViewFilter {
+                view_id: graph_view,
+            },
             &mut app,
             &mut tree,
         );
@@ -5224,8 +5238,7 @@ mod tests {
             expr: Some(crate::model::graph::filter::FacetExpr::And(vec![
                 crate::model::graph::filter::FacetExpr::Predicate(
                     crate::model::graph::filter::FacetPredicate {
-                        facet_key: crate::model::graph::filter::facet_keys::UDC_CLASSES
-                            .to_string(),
+                        facet_key: crate::model::graph::filter::facet_keys::UDC_CLASSES.to_string(),
                         operator: crate::model::graph::filter::FacetOperator::Eq,
                         operand: crate::model::graph::filter::FacetOperand::Scalar(
                             crate::model::graph::filter::FacetScalar::Text("udc:51".to_string()),
@@ -5325,8 +5338,14 @@ mod tests {
 
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
-        assert_eq!(projection.layer_state, WorkbenchLayerState::WorkbenchOverlayActive);
-        assert_eq!(projection.chrome_policy, ChromeExposurePolicy::GraphPlusWorkbenchOverlay);
+        assert_eq!(
+            projection.layer_state,
+            WorkbenchLayerState::WorkbenchOverlayActive
+        );
+        assert_eq!(
+            projection.chrome_policy,
+            ChromeExposurePolicy::GraphPlusWorkbenchOverlay
+        );
         assert!(projection.visible());
     }
 
@@ -5350,7 +5369,10 @@ mod tests {
         let projection = WorkbenchChromeProjection::from_tree(&app, &tree, None);
 
         assert_eq!(projection.layer_state, WorkbenchLayerState::WorkbenchOnly);
-        assert_eq!(projection.chrome_policy, ChromeExposurePolicy::WorkbenchOnly);
+        assert_eq!(
+            projection.chrome_policy,
+            ChromeExposurePolicy::WorkbenchOnly
+        );
         assert!(projection.visible());
     }
 
@@ -5360,7 +5382,9 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         app.ensure_graph_view_registered(graph_view);
         app.set_workbench_host_pinned(true);
-        app.set_navigator_sidebar_side_preference(crate::app::NavigatorSidebarSidePreference::Right);
+        app.set_navigator_sidebar_side_preference(
+            crate::app::NavigatorSidebarSidePreference::Right,
+        );
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
         let tree = Tree::new("workbench_host_prefers_right_sidebar", root, tiles);
@@ -5423,7 +5447,10 @@ mod tests {
         );
 
         assert_eq!(node_primary_label(&node), "Host Label Clip");
-        assert_eq!(node_pane_entry_subtitle(&node).as_deref(), Some("https://example.com/source"));
+        assert_eq!(
+            node_pane_entry_subtitle(&node).as_deref(),
+            Some("https://example.com/source")
+        );
     }
 
     #[test]
@@ -6292,9 +6319,10 @@ mod tests {
 
         dispatch_pending_workbench_intents(&mut app, &mut tree);
 
-        assert!(app
-            .take_pending_save_frame_snapshot_named()
-            .is_some_and(|name| name.starts_with("workspace:workbench-host-")));
+        assert!(
+            app.take_pending_save_frame_snapshot_named()
+                .is_some_and(|name| name.starts_with("workspace:workbench-host-"))
+        );
         assert_eq!(
             app.take_pending_save_frame_snapshot_named(),
             Some("workspace-explicit-save".to_string())
@@ -7917,4 +7945,3 @@ mod tests {
         );
     }
 }
-

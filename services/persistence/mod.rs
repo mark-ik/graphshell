@@ -2089,9 +2089,7 @@ impl GraphStore {
                             graph,
                             GraphDelta::SetNodeViewerOverride {
                                 key,
-                                viewer_override: viewer_override
-                                    .as_ref()
-                                    .map(|s| s.to_string()),
+                                viewer_override: viewer_override.as_ref().map(|s| s.to_string()),
                             },
                         );
                     }
@@ -3781,4 +3779,3 @@ mod tests {
         assert!(replay.get_node_key_by_id(later).is_none());
     }
 }
-

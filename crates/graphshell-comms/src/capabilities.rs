@@ -189,9 +189,7 @@ pub fn descriptor(protocol: MiddlenetProtocol) -> ProtocolDescriptor {
     }
 }
 
-pub fn protocol_for_identity_classification_kind(
-    kind: &str,
-) -> Option<MiddlenetProtocol> {
+pub fn protocol_for_identity_classification_kind(kind: &str) -> Option<MiddlenetProtocol> {
     ALL_PROTOCOLS.into_iter().find(|protocol| {
         descriptor(*protocol)
             .identity_classification_kind
@@ -240,18 +238,18 @@ pub fn normalize_identity_action_resource(
     match protocol {
         MiddlenetProtocol::WebFinger => crate::webfinger::normalize_resource(resource),
         MiddlenetProtocol::Nip05 => crate::identity::normalize_nip05_identifier(resource),
-        MiddlenetProtocol::Matrix => crate::identity::normalize_matrix_mxid(
-            resource.trim_start_matches("mxid:"),
-        ),
+        MiddlenetProtocol::Matrix => {
+            crate::identity::normalize_matrix_mxid(resource.trim_start_matches("mxid:"))
+        }
         MiddlenetProtocol::ActivityPub => {
             crate::identity::normalize_activitypub_actor_url(resource)
         }
-        MiddlenetProtocol::Gemini
-        | MiddlenetProtocol::Titan
-        | MiddlenetProtocol::Misfin => Err(format!(
-            "{} is not an identity import protocol.",
-            descriptor(protocol).display_name
-        )),
+        MiddlenetProtocol::Gemini | MiddlenetProtocol::Titan | MiddlenetProtocol::Misfin => {
+            Err(format!(
+                "{} is not an identity import protocol.",
+                descriptor(protocol).display_name
+            ))
+        }
     }
 }
 
@@ -288,7 +286,7 @@ mod tests {
                 MiddlenetProtocol::Matrix,
                 "mxid:@mark:matrix.example"
             )
-                .expect("matrix resource should normalize"),
+            .expect("matrix resource should normalize"),
             "@mark:matrix.example"
         );
         assert_eq!(
@@ -321,6 +319,3 @@ mod tests {
         );
     }
 }
-
-
-

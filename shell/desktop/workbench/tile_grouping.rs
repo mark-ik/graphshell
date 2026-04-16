@@ -164,4 +164,3 @@ mod tests {
         assert_eq!(ordered, vec![NodeKey::new(10), NodeKey::new(11)]);
     }
 }
-

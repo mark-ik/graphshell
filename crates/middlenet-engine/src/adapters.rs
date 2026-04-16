@@ -271,9 +271,7 @@ fn parse_markdown_link_line(line: &str) -> Option<(String, String)> {
     Some((text.to_string(), href.to_string()))
 }
 
-fn parse_rss_feed(
-    xml: &roxmltree::Document<'_>,
-) -> Result<(Document, Option<String>), String> {
+fn parse_rss_feed(xml: &roxmltree::Document<'_>) -> Result<(Document, Option<String>), String> {
     let channel = xml
         .descendants()
         .find(|node| node.is_element() && node.tag_name().name() == "channel")
@@ -284,7 +282,12 @@ fn parse_rss_feed(
     let link = child_text(channel, "link");
 
     let mut blocks = Vec::new();
-    append_feed_header(&mut blocks, title.as_deref(), description.as_deref(), link.as_deref());
+    append_feed_header(
+        &mut blocks,
+        title.as_deref(),
+        description.as_deref(),
+        link.as_deref(),
+    );
 
     let mut entry_count = 0;
     for item in channel
@@ -312,12 +315,13 @@ fn parse_rss_feed(
     }
 
     trim_trailing_rule(&mut blocks);
-    Ok((Document::parse(&SimpleDocument::Blocks(blocks).to_html()), title))
+    Ok((
+        Document::parse(&SimpleDocument::Blocks(blocks).to_html()),
+        title,
+    ))
 }
 
-fn parse_atom_feed(
-    xml: &roxmltree::Document<'_>,
-) -> Result<(Document, Option<String>), String> {
+fn parse_atom_feed(xml: &roxmltree::Document<'_>) -> Result<(Document, Option<String>), String> {
     let feed = xml.root_element();
     if feed.tag_name().name() != "feed" {
         return Err("Atom feed is missing a <feed> root element.".to_string());
@@ -328,7 +332,12 @@ fn parse_atom_feed(
     let link = atom_link_href(feed);
 
     let mut blocks = Vec::new();
-    append_feed_header(&mut blocks, title.as_deref(), subtitle.as_deref(), link.as_deref());
+    append_feed_header(
+        &mut blocks,
+        title.as_deref(),
+        subtitle.as_deref(),
+        link.as_deref(),
+    );
 
     let mut entry_count = 0;
     for entry in feed
@@ -356,7 +365,10 @@ fn parse_atom_feed(
     }
 
     trim_trailing_rule(&mut blocks);
-    Ok((Document::parse(&SimpleDocument::Blocks(blocks).to_html()), title))
+    Ok((
+        Document::parse(&SimpleDocument::Blocks(blocks).to_html()),
+        title,
+    ))
 }
 
 fn parse_json_feed(body: &str) -> Result<(Document, Option<String>), String> {
@@ -365,11 +377,8 @@ fn parse_json_feed(body: &str) -> Result<(Document, Option<String>), String> {
 
     let title = normalized_optional_feed_text(feed.title.as_deref());
     let description = normalized_optional_feed_text(feed.description.as_deref());
-    let link = normalized_optional_feed_text(
-        feed.home_page_url
-            .as_deref()
-            .or(feed.feed_url.as_deref()),
-    );
+    let link =
+        normalized_optional_feed_text(feed.home_page_url.as_deref().or(feed.feed_url.as_deref()));
 
     let mut blocks = Vec::new();
     append_feed_header(
@@ -420,7 +429,10 @@ fn parse_json_feed(body: &str) -> Result<(Document, Option<String>), String> {
     }
 
     trim_trailing_rule(&mut blocks);
-    Ok((Document::parse(&SimpleDocument::Blocks(blocks).to_html()), title))
+    Ok((
+        Document::parse(&SimpleDocument::Blocks(blocks).to_html()),
+        title,
+    ))
 }
 
 fn append_feed_header(
@@ -524,7 +536,8 @@ fn normalize_feed_text(text: &str) -> String {
 }
 
 fn normalized_optional_feed_text(text: Option<&str>) -> Option<String> {
-    text.map(normalize_feed_text).filter(|text| !text.is_empty())
+    text.map(normalize_feed_text)
+        .filter(|text| !text.is_empty())
 }
 
 fn strip_markup(text: &str) -> String {
@@ -559,21 +572,21 @@ mod tests {
 
     #[test]
     fn gophermap_links_become_document_links() {
-        let _document = parse_gophermap(
-            "iWelcome\tfake\tfake\t70\r\n1Docs\t/docs\texample.com\t70\r\n.\r\n",
-        );
+        let _document =
+            parse_gophermap("iWelcome\tfake\tfake\t70\r\n1Docs\t/docs\texample.com\t70\r\n.\r\n");
     }
 
     #[test]
     fn markdown_adapter_recognizes_headings_lists_and_links() {
-        let _document = parse_markdown("# Title\n- first\n- second\n[Next](gemini://example.com/next)\n");
+        let _document =
+            parse_markdown("# Title\n- first\n- second\n[Next](gemini://example.com/next)\n");
     }
 
-        #[test]
-        fn rss_adapter_parses_feed_title_and_entries() {
-                let (document, title) = parse_feed(
-                        MiddleNetContentKind::Rss,
-                        r#"<?xml version="1.0"?>
+    #[test]
+    fn rss_adapter_parses_feed_title_and_entries() {
+        let (document, title) = parse_feed(
+            MiddleNetContentKind::Rss,
+            r#"<?xml version="1.0"?>
                         <rss version="2.0">
                             <channel>
                                 <title>Example Feed</title>
@@ -587,20 +600,20 @@ mod tests {
                                 </item>
                             </channel>
                         </rss>"#,
-                )
-                .expect("rss should parse");
+        )
+        .expect("rss should parse");
 
-                assert_eq!(title.as_deref(), Some("Example Feed"));
-                // DOM matching tests disabled
-                // assert!(matches!(blocks.first(), Some(SimpleBlock::Heading { .. })));
-                // disabled link assert
-        }
+        assert_eq!(title.as_deref(), Some("Example Feed"));
+        // DOM matching tests disabled
+        // assert!(matches!(blocks.first(), Some(SimpleBlock::Heading { .. })));
+        // disabled link assert
+    }
 
-        #[test]
-        fn atom_adapter_parses_feed_title_and_entries() {
-                let (document, title) = parse_feed(
-                        MiddleNetContentKind::Atom,
-                        r#"<?xml version="1.0" encoding="utf-8"?>
+    #[test]
+    fn atom_adapter_parses_feed_title_and_entries() {
+        let (document, title) = parse_feed(
+            MiddleNetContentKind::Atom,
+            r#"<?xml version="1.0" encoding="utf-8"?>
                         <feed xmlns="http://www.w3.org/2005/Atom">
                             <title>Atom Example</title>
                             <subtitle>Recent notes</subtitle>
@@ -612,20 +625,20 @@ mod tests {
                                 <link href="https://example.com/entry-one" />
                             </entry>
                         </feed>"#,
-                )
-                .expect("atom should parse");
+        )
+        .expect("atom should parse");
 
-                assert_eq!(title.as_deref(), Some("Atom Example"));
-                // DOM matching tests disabled
-                // disabled quote assert
-                // disabled link assert
-        }
+        assert_eq!(title.as_deref(), Some("Atom Example"));
+        // DOM matching tests disabled
+        // disabled quote assert
+        // disabled link assert
+    }
 
-            #[test]
-            fn json_feed_adapter_parses_feed_title_and_entries() {
-                let (document, title) = parse_feed(
-                    MiddleNetContentKind::JsonFeed,
-                    r#"{
+    #[test]
+    fn json_feed_adapter_parses_feed_title_and_entries() {
+        let (document, title) = parse_feed(
+            MiddleNetContentKind::JsonFeed,
+            r#"{
                         "version": "https://jsonfeed.org/version/1.1",
                         "title": "Graphshell Notes",
                         "home_page_url": "https://example.com/",
@@ -640,15 +653,13 @@ mod tests {
                         }
                         ]
                     }"#,
-                )
-                .expect("json feed should parse");
+        )
+        .expect("json feed should parse");
 
-                assert_eq!(title.as_deref(), Some("Graphshell Notes"));
-                // DOM matching tests disabled
-                // disabled paragraph assert
-                // disabled quote assert
-                // disabled link assert
-            }
+        assert_eq!(title.as_deref(), Some("Graphshell Notes"));
+        // DOM matching tests disabled
+        // disabled paragraph assert
+        // disabled quote assert
+        // disabled link assert
+    }
 }
-
-

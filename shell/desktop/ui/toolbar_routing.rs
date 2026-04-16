@@ -15,13 +15,12 @@ use crate::shell::desktop::runtime::diagnostics::{
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::input::binding_id;
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED,
-    CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
-    CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
+    CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED, CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED,
+    CHANNEL_UI_COMMAND_BAR_NAV_ACTION_REQUESTED,
     CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
     CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_EXECUTED,
-    CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
-    CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED, CHANNEL_UI_COMMAND_BAR_NAV_ACTION_REQUESTED,
+    CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED, CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
+    CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
 };
 use crate::shell::desktop::ui::nav_targeting;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
@@ -522,7 +521,10 @@ mod tests {
         );
 
         assert!(submit_result.mark_clean);
-        assert!(matches!(submit_result.open_mode, Some(ToolbarOpenMode::Tab)));
+        assert!(matches!(
+            submit_result.open_mode,
+            Some(ToolbarOpenMode::Tab)
+        ));
         assert!(submit_result.workbench_intents.is_empty());
         assert!(submit_result.intents.iter().any(|intent| {
             matches!(
@@ -610,8 +612,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let focused_node =
             app.add_node_and_sync("https://focused.example".into(), euclid::point2(0.0, 0.0));
-        let projected_node =
-            app.add_node_and_sync("https://projected.example".into(), euclid::point2(10.0, 0.0));
+        let projected_node = app.add_node_and_sync(
+            "https://projected.example".into(),
+            euclid::point2(10.0, 0.0),
+        );
         let projected_renderer = test_webview_id();
         app.map_webview_to_node(projected_renderer, projected_node);
         window.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(
@@ -832,4 +836,3 @@ mod tests {
         ));
     }
 }
-

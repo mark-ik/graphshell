@@ -754,4 +754,3 @@ impl GraphBrowserApp {
         Ok(())
     }
 }
-

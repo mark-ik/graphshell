@@ -52,4 +52,3 @@ fn graph_view_ids_from_tiles(tiles_tree: &Tree<TileKind>) -> HashSet<GraphViewId
         })
         .collect()
 }
-

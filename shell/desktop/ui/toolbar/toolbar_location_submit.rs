@@ -81,9 +81,8 @@ pub(super) fn handle_location_submit(
                     if matches.is_empty() {
                         *omnibar_search_session = None;
                     } else {
-                        *omnibar_search_session = Some(OmnibarSearchSession::new_graph(
-                            mode, query, matches,
-                        ));
+                        *omnibar_search_session =
+                            Some(OmnibarSearchSession::new_graph(mode, query, matches));
                     }
                 }
 
@@ -225,4 +224,3 @@ pub(super) fn handle_location_submit(
 
     retain_omnibar_focus
 }
-

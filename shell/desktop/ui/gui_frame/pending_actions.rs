@@ -93,4 +93,3 @@ fn run_pending_workspace_layout_stage(pipeline: &mut PendingPostRenderActionPipe
         pipeline.tiles_tree,
     );
 }
-

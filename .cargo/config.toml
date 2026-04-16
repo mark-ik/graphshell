@@ -1,0 +1,11 @@
+# Build performance configuration for development.
+#
+# LLD linker: ~2-4x faster link times vs MSVC link.exe on Windows.
+# Split debuginfo: debug info goes to separate .pdb, not re-linked every build.
+
+[target.x86_64-pc-windows-msvc]
+linker = "lld-link"
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]  # alternative if lld-link isn't on PATH
+
+[profile.dev]
+split-debuginfo = "unpacked"

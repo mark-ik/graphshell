@@ -114,10 +114,7 @@ pub(crate) fn toggle_expand(
 /// Reveal a member by expanding all its ancestors.
 ///
 /// Corresponds to "reveal in sidebar" operations.
-pub(crate) fn reveal(
-    graph_tree: &mut GraphTree<NodeKey>,
-    node_key: NodeKey,
-) -> NavResult<NodeKey> {
+pub(crate) fn reveal(graph_tree: &mut GraphTree<NodeKey>, node_key: NodeKey) -> NavResult<NodeKey> {
     graph_tree.apply(NavAction::Reveal(node_key))
 }
 
@@ -176,4 +173,3 @@ pub(crate) fn set_lens(
 ) -> NavResult<NodeKey> {
     graph_tree.apply(NavAction::SetLens(lens))
 }
-

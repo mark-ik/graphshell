@@ -434,7 +434,11 @@ mod tests {
     fn page_inspector_script_prefers_dom_path_for_dedup_keys() {
         let script = build_page_inspector_extraction_script();
 
-        assert!(script.contains("const titleKey = (payload.dom_path || payload.clip_title).toLowerCase();"));
+        assert!(
+            script.contains(
+                "const titleKey = (payload.dom_path || payload.clip_title).toLowerCase();"
+            )
+        );
         assert!(script.contains("figcaption,caption"));
     }
 
@@ -453,4 +457,3 @@ mod tests {
         assert!(stack.contains("figcaption,caption"));
     }
 }
-

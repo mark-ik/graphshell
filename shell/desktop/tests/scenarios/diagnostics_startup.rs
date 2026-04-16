@@ -72,4 +72,3 @@ fn verse_preinit_calls_emit_channel() {
         "verse pre-init fallback should emit diagnostic channel"
     );
 }
-

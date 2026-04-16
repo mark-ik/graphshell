@@ -118,4 +118,3 @@ impl GraphBrowserApp {
             .unwrap_or(Self::STARTUP_PERSISTENCE_OPEN_TIMEOUT_MS)
     }
 }
-

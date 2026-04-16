@@ -4,8 +4,8 @@
 
 //! Layout phase with Taffy + Parley.
 
-use taffy::{prelude::*, Taffy};
 use parley::LayoutContext;
+use taffy::{Taffy, prelude::*};
 
 /// Manages layout and geometry generation using Taffy (Flexbox/CSS Grid style).
 pub struct MiddleNetLayout {
@@ -47,14 +47,22 @@ impl MiddleNetLayout {
         // with the specific measured dimensions. For now, we stub it with a fixed size
         // or a simple Taffy leaf.
         let style = Style {
-            size: Size { width: Dimension::Points(120.0), height: Dimension::Points(24.0) },
+            size: Size {
+                width: Dimension::Points(120.0),
+                height: Dimension::Points(24.0),
+            },
             ..Default::default()
         };
         self.tree.new_leaf(style).unwrap()
     }
 
     /// Computes the final layout tree given an available screen size.
-    pub fn compute(&mut self, root: Node, screen_width: f32, screen_height: f32) -> Result<(), taffy::error::TaffyError> {
+    pub fn compute(
+        &mut self,
+        root: Node,
+        screen_width: f32,
+        screen_height: f32,
+    ) -> Result<(), taffy::error::TaffyError> {
         let available_space = Size {
             width: AvailableSpace::Definite(screen_width),
             height: AvailableSpace::Definite(screen_height),
@@ -66,7 +74,4 @@ impl MiddleNetLayout {
     pub fn get_layout(&self, node: Node) -> Result<&Layout, taffy::error::TaffyError> {
         self.tree.layout(node)
     }
-
 }
-
-

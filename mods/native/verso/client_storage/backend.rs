@@ -12,4 +12,3 @@ pub(crate) trait ClientStorageBackend: Send + Sync {
 }
 
 pub(crate) type ClientStorageBackendHandle = Arc<dyn ClientStorageBackend>;
-

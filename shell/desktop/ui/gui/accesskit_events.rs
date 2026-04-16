@@ -20,4 +20,3 @@ pub(super) fn handle_accesskit_event(
         }
     }
 }
-

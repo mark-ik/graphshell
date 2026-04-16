@@ -648,8 +648,10 @@ impl GraphBrowserApp {
     }
 
     pub fn take_pending_import_bookmarks_from_file(&mut self) -> bool {
-        self.take_pending_app_command(|command| matches!(command, AppCommand::ImportBookmarksFromFile))
-            .is_some()
+        self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::ImportBookmarksFromFile)
+        })
+        .is_some()
     }
 
     pub fn take_pending_switch_data_dir(&mut self) -> Option<PathBuf> {
@@ -876,4 +878,3 @@ mod tests {
         assert!(app.take_pending_repair_frame_tab_semantics().is_none());
     }
 }
-

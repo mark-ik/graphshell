@@ -245,4 +245,3 @@ fn running_on_wsl() -> bool {
 pub(crate) fn emit_startup_env_snapshot_for_tests() {
     emit_startup_env_snapshot();
 }
-

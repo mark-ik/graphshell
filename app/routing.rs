@@ -258,4 +258,3 @@ mod tests {
         assert_eq!(result, Some(NoteId::from_uuid(id)));
     }
 }
-

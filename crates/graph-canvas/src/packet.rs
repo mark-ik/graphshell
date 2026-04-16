@@ -245,4 +245,3 @@ mod tests {
         assert_eq!(scene, back);
     }
 }
-

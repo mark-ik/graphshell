@@ -977,4 +977,3 @@ mod tests {
         assert!(!used_fallback);
     }
 }
-

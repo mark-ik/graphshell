@@ -506,10 +506,10 @@ pub(super) fn render_classification_chips(
                         chip.metadata
                             .as_ref()
                             .cloned()
-                            .unwrap_or_else(|| format!("{} · {}", chip.provenance, chip.status))
+                            .unwrap_or_else(|| format!("{} · {}", chip.provenance, chip.status)),
                     )
-                        .small()
-                        .color(theme_tokens.radial_chrome_text),
+                    .small()
+                    .color(theme_tokens.radial_chrome_text),
                 );
                 // Accept/Reject controls for Suggested records
                 if chip.status == "Suggested" {
@@ -626,4 +626,3 @@ pub(super) fn render_graph_search_origin_badge(
     ui.label(egui::RichText::new("●").small().color(color));
     ui.small(label);
 }
-

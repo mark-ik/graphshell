@@ -8,9 +8,9 @@
 //! into common patterns. They exist so callers don't need to reach
 //! through `tree.topology()` for everyday questions.
 
+use crate::MemberId;
 use crate::member::Lifecycle;
 use crate::tree::GraphTree;
-use crate::MemberId;
 
 /// Members filtered by lifecycle.
 pub fn members_by_lifecycle<'a, N: MemberId>(
@@ -26,7 +26,12 @@ pub fn members_by_lifecycle<'a, N: MemberId>(
 /// Active members in topology order (depth-first from roots).
 pub fn active_in_tree_order<N: MemberId>(tree: &GraphTree<N>) -> Vec<N> {
     let mut result = Vec::new();
-    collect_by_lifecycle_dfs(tree, tree.topology().roots(), Lifecycle::Active, &mut result);
+    collect_by_lifecycle_dfs(
+        tree,
+        tree.topology().roots(),
+        Lifecycle::Active,
+        &mut result,
+    );
     result
 }
 
@@ -53,7 +58,10 @@ pub fn nearest_active_ancestor<'a, N: MemberId>(
         if let Some(entry) = tree.get(&ancestor) {
             if entry.lifecycle == Lifecycle::Active {
                 // Return the ancestor from the tree's own storage
-                return tree.members().find(|(id, _)| **id == ancestor).map(|(id, _)| id);
+                return tree
+                    .members()
+                    .find(|(id, _)| **id == ancestor)
+                    .map(|(id, _)| id);
             }
         }
     }
@@ -61,15 +69,15 @@ pub fn nearest_active_ancestor<'a, N: MemberId>(
 }
 
 /// Find the next sibling that is active, or None.
-pub fn next_active_sibling<'a, N: MemberId>(
-    tree: &'a GraphTree<N>,
-    member: &N,
-) -> Option<&'a N> {
+pub fn next_active_sibling<'a, N: MemberId>(tree: &'a GraphTree<N>, member: &N) -> Option<&'a N> {
     let siblings = tree.topology().siblings(member);
     for sibling in &siblings {
         if let Some(entry) = tree.get(sibling) {
             if entry.lifecycle == Lifecycle::Active {
-                return tree.members().find(|(id, _)| *id == sibling).map(|(id, _)| id);
+                return tree
+                    .members()
+                    .find(|(id, _)| *id == sibling)
+                    .map(|(id, _)| id);
             }
         }
     }
@@ -108,11 +116,7 @@ fn collect_by_lifecycle_dfs<N: MemberId>(
     }
 }
 
-fn collect_visible_dfs<N: MemberId>(
-    tree: &GraphTree<N>,
-    nodes: &[N],
-    result: &mut Vec<N>,
-) {
+fn collect_visible_dfs<N: MemberId>(tree: &GraphTree<N>, nodes: &[N], result: &mut Vec<N>) {
     for node in nodes {
         if let Some(entry) = tree.get(node) {
             if entry.is_visible_in_pane() {
@@ -180,4 +184,3 @@ mod tests {
         assert_eq!(hist, vec![1, 2]); // 1 root, 2 at depth 1
     }
 }
-

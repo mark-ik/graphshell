@@ -191,4 +191,3 @@ impl Deref for SelectionState {
         &self.nodes
     }
 }
-

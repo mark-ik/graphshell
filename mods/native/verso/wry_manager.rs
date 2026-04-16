@@ -403,4 +403,3 @@ mod tests {
         assert!(manager.frame_png_bytes_for_node(77).is_none());
     }
 }
-

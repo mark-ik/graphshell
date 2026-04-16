@@ -63,4 +63,3 @@ pub(super) fn toggle_category_pin(ctx: &egui::Context, category: ActionCategory)
     }
     persist_pinned_categories(ctx, &pinned);
 }
-

@@ -125,9 +125,8 @@ pub(super) fn spawn_provider_suggestion_request(
     provider: SearchProviderKind,
     query: &str,
     runtime_caches: crate::shell::desktop::runtime::caches::RuntimeCaches,
-) -> crate::shell::desktop::runtime::control_panel::HostRequestMailbox<
-    ProviderSuggestionFetchOutcome,
-> {
+) -> crate::shell::desktop::runtime::control_panel::HostRequestMailbox<ProviderSuggestionFetchOutcome>
+{
     let query = query.to_string();
     control_panel.spawn_blocking_host_request("omnibar_provider_suggestions", move || {
         let outcome = match fetch_provider_search_suggestions(provider, &query, &runtime_caches) {
@@ -650,26 +649,23 @@ fn tab_candidates_for_keys(
 ) -> Vec<OmnibarSearchCandidate> {
     keys.iter()
         .filter_map(|key| {
-            graph_app
-                .domain_graph()
-                .get_node(*key)
-                .map(|node| {
-                    let visible_title = graph_app
-                        .user_visible_node_title(*key)
-                        .unwrap_or_else(|| node.title.clone());
-                    let visible_url = graph_app
-                        .user_visible_node_url(*key)
-                        .unwrap_or_else(|| node.url().to_string());
-                    OmnibarSearchCandidate {
-                        text: format!(
-                            "{} {} {}",
-                            visible_title,
-                            visible_url,
-                            omnibar_import_search_text(graph_app, *key)
-                        ),
-                        target: OmnibarMatch::Node(*key),
-                    }
-                })
+            graph_app.domain_graph().get_node(*key).map(|node| {
+                let visible_title = graph_app
+                    .user_visible_node_title(*key)
+                    .unwrap_or_else(|| node.title.clone());
+                let visible_url = graph_app
+                    .user_visible_node_url(*key)
+                    .unwrap_or_else(|| node.url().to_string());
+                OmnibarSearchCandidate {
+                    text: format!(
+                        "{} {} {}",
+                        visible_title,
+                        visible_url,
+                        omnibar_import_search_text(graph_app, *key)
+                    ),
+                    target: OmnibarMatch::Node(*key),
+                }
+            })
         })
         .collect()
 }
@@ -964,7 +960,10 @@ pub(super) fn omnibar_matches_for_query(
                     .map(edge_payload_label_text)
                     .unwrap_or_else(|| "edge".to_string());
                 all_graph_edge_candidates.push(OmnibarSearchCandidate {
-                    text: format!("{} {} {} {} {}", edge_label, from_title, from_url, to_title, to_url),
+                    text: format!(
+                        "{} {} {} {} {}",
+                        edge_label, from_title, from_url, to_title, to_url
+                    ),
                     target: OmnibarMatch::Edge {
                         from: from_key,
                         to: to_key,
@@ -1017,7 +1016,10 @@ pub(super) fn omnibar_matches_for_query(
                         .map(edge_payload_label_text)
                         .unwrap_or_else(|| "edge".to_string());
                     all_graph_edge_candidates.push(OmnibarSearchCandidate {
-                        text: format!("{} {} {} {} {}", edge_label, from_title, from_url, to_title, to_url),
+                        text: format!(
+                            "{} {} {} {} {}",
+                            edge_label, from_title, from_url, to_title, to_url
+                        ),
                         target: OmnibarMatch::Edge {
                             from: from_key,
                             to: to_key,
@@ -1683,7 +1685,8 @@ mod tests {
     fn test_omnibar_nodes_all_matches_saved_clip_snapshots_by_source_url() {
         let temp = TempDir::new().expect("temp dir");
         let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
-        let source_key = app.add_node_and_sync("https://saved-source.example".into(), Point2D::zero());
+        let source_key =
+            app.add_node_and_sync("https://saved-source.example".into(), Point2D::zero());
         let webview_id = test_webview_id();
         app.map_webview_to_node(webview_id, source_key);
         let _clip_key = app
@@ -2105,4 +2108,3 @@ mod tests {
         assert!(open_mode.is_none());
     }
 }
-

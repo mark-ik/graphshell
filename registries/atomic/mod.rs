@@ -8,4 +8,3 @@ pub(crate) mod viewer_provider;
 
 pub(crate) use protocol_provider::ProtocolHandlerProviders;
 pub(crate) use viewer_provider::ViewerHandlerProviders;
-

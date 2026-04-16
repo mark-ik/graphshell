@@ -161,7 +161,8 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         keyboard_actions.toggle_radial_menu = false;
     }
     if keyboard_actions.toggle_workbench_overlay {
-        let _ = toolbar_routing::request_workbench_overlay_toggle(graph_app, command_bar_focus_target);
+        let _ =
+            toolbar_routing::request_workbench_overlay_toggle(graph_app, command_bar_focus_target);
         keyboard_actions.toggle_workbench_overlay = false;
     }
     if keyboard_actions.close_workbench_overlay {
@@ -177,4 +178,3 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     input::dispatch_runtime_requests_from_actions(&keyboard_actions);
     graph_app.extend_workbench_intents(input::workbench_intents_from_actions(&keyboard_actions));
 }
-

@@ -584,4 +584,3 @@ mod tests {
         assert!(app.workspace.graph_runtime.tag_panel_state.is_none());
     }
 }
-

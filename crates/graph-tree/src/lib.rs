@@ -76,4 +76,3 @@ impl<T> MemberId for T where
         + for<'de> serde::Deserialize<'de>
 {
 }
-

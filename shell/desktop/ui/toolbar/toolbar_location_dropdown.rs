@@ -315,4 +315,3 @@ fn inclusive_index_range(
         Some(end..=start)
     }
 }
-

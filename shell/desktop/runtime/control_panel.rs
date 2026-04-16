@@ -1298,7 +1298,9 @@ mod tests {
 
         assert_eq!(panel.worker_count(), 1);
         assert_eq!(
-            panel.registered_tier_counts().get(&WorkerTier::Tier1ShellSignalRelay),
+            panel
+                .registered_tier_counts()
+                .get(&WorkerTier::Tier1ShellSignalRelay),
             Some(&1)
         );
 
@@ -1774,4 +1776,3 @@ mod tests {
         }
     }
 }
-

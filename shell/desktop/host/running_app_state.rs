@@ -48,7 +48,7 @@ use crate::shell::desktop::host::gamepad::GamepadUiCommand;
 use crate::shell::desktop::host::gamepad_runtime::GamepadRuntime;
 use crate::shell::desktop::host::webdriver_runtime::WebDriverRuntime;
 use crate::shell::desktop::host::window::{
-    EmbedderWindow, EmbedderWindowId, WebViewLifecycleEvent, PlatformWindow, WebViewCreationContext,
+    EmbedderWindow, EmbedderWindowId, PlatformWindow, WebViewCreationContext, WebViewLifecycleEvent,
 };
 #[cfg(all(
     feature = "diagnostics",
@@ -770,4 +770,3 @@ impl ServoDelegate for GraphshellServoDelegate {
         log::log!(level.into(), "{message}");
     }
 }
-

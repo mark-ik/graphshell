@@ -2,11 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use crate::MemberId;
 use crate::graphlet::GraphletId;
 use crate::layout::LayoutMode;
 use crate::lens::ProjectionLens;
 use crate::member::{LayoutOverride, Lifecycle, Provenance};
-use crate::MemberId;
 
 /// Navigation actions — the verbs of tree interaction.
 /// Aligned with NAVIGATOR.md §6 + lens switching + arrangement edges.
@@ -32,22 +32,13 @@ pub enum NavAction<N: MemberId> {
     },
 
     /// Detach a member (and optionally its subtree) from the tree.
-    Detach {
-        member: N,
-        recursive: bool,
-    },
+    Detach { member: N, recursive: bool },
 
     /// Move a member to be a child of a new parent.
-    Reparent {
-        member: N,
-        new_parent: N,
-    },
+    Reparent { member: N, new_parent: N },
 
     /// Reorder children of a parent node.
-    Reorder {
-        parent: N,
-        new_order: Vec<N>,
-    },
+    Reorder { parent: N, new_order: Vec<N> },
 
     /// Set a member's lifecycle state.
     SetLifecycle(N, Lifecycle),
@@ -149,4 +140,3 @@ pub enum TreeIntent<N: MemberId> {
     /// A member was detached from the tree.
     MemberDetached(N),
 }
-

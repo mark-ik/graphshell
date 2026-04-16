@@ -189,4 +189,3 @@ impl PlatformWindowSignals for HeadlessWindow {
 }
 
 impl PlatformWindow for HeadlessWindow {}
-

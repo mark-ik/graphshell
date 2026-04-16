@@ -611,13 +611,15 @@ fn graph_reader_node_label(
     node_key: NodeKey,
     node: &crate::graph::Node,
 ) -> String {
-    graph_app.user_visible_node_title(node_key).unwrap_or_else(|| {
-        if node.title.is_empty() {
-            node.url().to_string()
-        } else {
-            node.title.clone()
-        }
-    })
+    graph_app
+        .user_visible_node_title(node_key)
+        .unwrap_or_else(|| {
+            if node.title.is_empty() {
+                node.url().to_string()
+            } else {
+                node.title.clone()
+            }
+        })
 }
 
 pub(super) fn resolve_uxtree_accesskit_action(
@@ -1228,4 +1230,3 @@ fn inject_webview_a11y_plan_node(ctx: &Context, webview_id: WebViewId, node: &We
         }
     });
 }
-

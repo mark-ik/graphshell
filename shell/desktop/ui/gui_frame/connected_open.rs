@@ -242,4 +242,3 @@ fn open_connected_nodes_as_tabs(
         );
     }
 }
-

@@ -281,4 +281,3 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
         "history callback should produce back traversal even when URL callback stays on latest"
     );
 }
-

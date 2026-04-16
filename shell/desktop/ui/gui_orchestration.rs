@@ -244,18 +244,20 @@ fn semantic_region_for_non_graph_pane(
     pane_id: crate::shell::desktop::workbench::pane_model::PaneId,
 ) -> Option<crate::shell::desktop::ui::gui_state::SemanticRegionFocus> {
     tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
-        Tile::Pane(TileKind::Pane(PaneViewState::Node(state))) if state.pane_id == pane_id => {
-            Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
+        Tile::Pane(TileKind::Pane(PaneViewState::Node(state))) if state.pane_id == pane_id => Some(
+            crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
                 pane_id: Some(pane_id),
                 node_key: Some(state.node),
-            })
-        }
+            },
+        ),
         Tile::Pane(TileKind::Pane(PaneViewState::Tool(tool_ref)))
             if tool_ref.pane_id == pane_id =>
         {
-            Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane {
-                pane_id: Some(pane_id),
-            })
+            Some(
+                crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane {
+                    pane_id: Some(pane_id),
+                },
+            )
         }
         Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(
             crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
@@ -769,7 +771,9 @@ fn clipboard_copy_value_for_node(
 
     let value = match kind {
         ClipboardCopyKind::Url => visible_url,
-        ClipboardCopyKind::Title => clipboard_title_or_url(visible_title.as_str(), visible_url.as_str()),
+        ClipboardCopyKind::Title => {
+            clipboard_title_or_url(visible_title.as_str(), visible_url.as_str())
+        }
     };
 
     if value.trim().is_empty() {
@@ -1822,4 +1826,3 @@ fn reconcile_semantic_lifecycle_phase(
 #[cfg(test)]
 #[path = "gui_orchestration_tests.rs"]
 mod gui_orchestration_tests;
-

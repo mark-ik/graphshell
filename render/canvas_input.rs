@@ -429,4 +429,3 @@ pub(super) fn collect_graph_actions(
 
     actions
 }
-

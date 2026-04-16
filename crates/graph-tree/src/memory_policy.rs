@@ -24,10 +24,10 @@
 
 use std::collections::HashMap;
 
+use crate::MemberId;
 use crate::member::Lifecycle;
 use crate::nav::NavAction;
 use crate::tree::GraphTree;
-use crate::MemberId;
 
 /// Origin identifier. Opaque string — could be a domain ("example.com"),
 /// a protocol+domain ("gemini://station.smolweb"), or a synthetic group
@@ -108,12 +108,14 @@ pub fn group_by_origin<N: MemberId>(
 
     for (member, entry) in tree.members() {
         let origin = origin_of(member);
-        let summary = groups.entry(origin.clone()).or_insert_with(|| OriginSummary {
-            origin,
-            active_members: Vec::new(),
-            warm_members: Vec::new(),
-            cold_members: Vec::new(),
-        });
+        let summary = groups
+            .entry(origin.clone())
+            .or_insert_with(|| OriginSummary {
+                origin,
+                active_members: Vec::new(),
+                warm_members: Vec::new(),
+                cold_members: Vec::new(),
+            });
         match entry.lifecycle {
             Lifecycle::Active => summary.active_members.push(member.clone()),
             Lifecycle::Warm => summary.warm_members.push(member.clone()),
@@ -191,9 +193,9 @@ pub fn evaluate<N: MemberId>(
                 }
                 for member in &summary.warm_members {
                     // Skip members already slated for demotion in phase 1.
-                    let already_slated = demotions.iter().any(|d| {
-                        matches!(d, NavAction::SetLifecycle(m, _) if m == member)
-                    });
+                    let already_slated = demotions
+                        .iter()
+                        .any(|d| matches!(d, NavAction::SetLifecycle(m, _) if m == member));
                     if !already_slated {
                         global_candidates.push((member.clone(), last_touched(member)));
                     }
@@ -315,7 +317,10 @@ mod tests {
         let eval = evaluate(&tree, &policy, &origin_for_test, &last_touched);
 
         assert_eq!(eval.recommended_demotions.len(), 2);
-        assert!(eval.over_budget_origins.contains(&"example.com".to_string()));
+        assert!(
+            eval.over_budget_origins
+                .contains(&"example.com".to_string())
+        );
 
         // Should demote members 1 and 2 (oldest)
         let demoted: Vec<u64> = eval
@@ -429,4 +434,3 @@ mod tests {
         assert!(!swept.contains(&6)); // different origin
     }
 }
-

@@ -31,10 +31,10 @@ use super::gui_state::{
     RuntimeFocusAuthorityState, RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState,
     ToolbarDraft, ToolbarState,
 };
-use super::toolbar_routing::{self, ToolbarNavAction};
 use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
+use super::toolbar_routing::{self, ToolbarNavAction};
 use crate::app::{
     BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
     ToastAnchorPreference,
@@ -115,8 +115,8 @@ mod update_frame_phases;
 #[path = "gui/window_input.rs"]
 mod window_input;
 
-use update_frame_phases::ExecuteUpdateFrameArgs;
 use frame_inbox::GuiFrameInbox;
+use update_frame_phases::ExecuteUpdateFrameArgs;
 
 #[allow(unused_imports)]
 pub(crate) use focus_state::{
@@ -371,16 +371,18 @@ impl Gui {
 
         // Initialize ControlPanel with an explicit runtime handle so later
         // Shell relay setup does not depend on a temporary enter() guard.
-        let mut control_panel =
-            ControlPanel::new_with_runtime(worker_idle_threshold_secs, tokio_runtime.handle().clone());
+        let mut control_panel = ControlPanel::new_with_runtime(
+            worker_idle_threshold_secs,
+            tokio_runtime.handle().clone(),
+        );
         control_panel.spawn_memory_monitor();
         control_panel.spawn_mod_loader();
         control_panel.spawn_prefetch_scheduler();
         // Spawn sync worker if Verse mod is available.
         control_panel.spawn_p2p_sync_worker();
         control_panel.spawn_nostr_relay_worker(Arc::clone(&registry_runtime));
-        if let Err(error) =
-            control_panel.spawn_registered_agent("agent:tag_suggester", Arc::clone(&registry_runtime))
+        if let Err(error) = control_panel
+            .spawn_registered_agent("agent:tag_suggester", Arc::clone(&registry_runtime))
         {
             warn!("Failed to spawn tag suggester agent: {error}");
         }
@@ -412,7 +414,8 @@ impl Gui {
             renderer_favicon_textures: Default::default(),
             graph_app,
             tile_rendering_contexts: HashMap::new(),
-            viewer_surfaces: crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
+            viewer_surfaces:
+                crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
             tile_favicon_textures: HashMap::new(),
             thumbnail_capture_tx,
             thumbnail_capture_rx,
@@ -466,7 +469,10 @@ impl Gui {
         // and expansion state. Fall back to rebuilding from tile tree.
         if let Some(json) = gui.graph_app.load_graph_tree_json(gui.workbench_view_id) {
             if let Ok(restored) = serde_json::from_str::<graph_tree::GraphTree<NodeKey>>(&json) {
-                log::debug!("gui: restored GraphTree from persistence ({} members)", restored.member_count());
+                log::debug!(
+                    "gui: restored GraphTree from persistence ({} members)",
+                    restored.member_count()
+                );
                 gui.graph_tree = restored;
             }
         }
@@ -509,6 +515,13 @@ impl Gui {
                 },
             );
         }
+
+        // Build the NodeKey → PaneId mapping from the tile tree so compositor
+        // and layout queries can resolve PaneId without scanning tiles.
+        gui.graph_app.workspace.graph_runtime.node_pane_ids =
+            crate::shell::desktop::workbench::graph_tree_sync::build_node_pane_id_map(
+                &gui.tiles_tree,
+            );
 
         gui
     }
@@ -948,7 +961,7 @@ impl Gui {
         context.run_ui_frame(winit_window, |ctx, ui_render_backend| {
             Self::execute_update_frame(ExecuteUpdateFrameArgs {
                 ctx,
-            ui_render_backend,
+                ui_render_backend,
                 winit_window,
                 state,
                 window,
@@ -999,12 +1012,11 @@ impl Gui {
         // and all tile mutations route through dual_write.
         #[cfg(debug_assertions)]
         {
-            let discrepancies =
-                crate::shell::desktop::workbench::graph_tree_sync::parity_check(
-                    &self.graph_tree,
-                    &self.tiles_tree,
-                    self.focused_node_key(),
-                );
+            let discrepancies = crate::shell::desktop::workbench::graph_tree_sync::parity_check(
+                &self.graph_tree,
+                &self.tiles_tree,
+                self.focused_node_key(),
+            );
             if !discrepancies.is_empty() {
                 log::warn!(
                     "GraphTree/tiles_tree parity divergence (dual-write gap): {:?}",
@@ -1248,4 +1260,3 @@ fn graph_intent_for_thumbnail_result(
 #[cfg(all(test, feature = "diagnostics"))]
 #[path = "gui/diagnostics_tests.rs"]
 mod diagnostics_tests;
-

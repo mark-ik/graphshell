@@ -125,4 +125,3 @@ fn should_render_graph_search_window(
 ) -> bool {
     !toolbar_visible && graph_search_open && is_graph_view
 }
-

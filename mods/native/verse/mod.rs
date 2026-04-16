@@ -76,9 +76,7 @@ pub(crate) fn activate() -> Result<(), String> {
 /// Register Verse protocol handlers into the provider registry.
 /// Phase 5 will implement `protocol:verse` handler for P2P sync.
 /// For now this is a stub (Phase 2.4 integration point).
-pub(crate) fn register_protocol_handlers(
-    providers: &mut ProtocolHandlerProviders,
-) {
+pub(crate) fn register_protocol_handlers(providers: &mut ProtocolHandlerProviders) {
     providers.register_fn(|registry| {
         registry.register_scheme("verse", "protocol:verse");
     });
@@ -1429,4 +1427,3 @@ fn emit_p2p_key_loaded() {
         byte_len: 32, // Ed25519 public key size
     });
 }
-

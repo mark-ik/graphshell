@@ -738,8 +738,8 @@ impl GraphBrowserApp {
         let member_set: std::collections::HashSet<NodeKey> = resolved.members.into_iter().collect();
         let (layout_mode, layout_algorithm_id) =
             Self::navigator_specialty_layout_policy(graphlet_kind);
-        let edge_projection_override = (!selectors.is_empty())
-            .then(|| crate::app::EdgeProjectionState::new(selectors));
+        let edge_projection_override =
+            (!selectors.is_empty()).then(|| crate::app::EdgeProjectionState::new(selectors));
 
         // Re-use the existing specialty view's GraphViewId if present (avoids
         // churning the view registry every time the selection changes).
@@ -1617,4 +1617,3 @@ mod tests {
         ));
     }
 }
-

@@ -81,7 +81,12 @@ impl WebFingerImport {
         }
 
         for link in &document.links {
-            let Some(href) = link.href.as_deref().map(str::trim).filter(|href| !href.is_empty()) else {
+            let Some(href) = link
+                .href
+                .as_deref()
+                .map(str::trim)
+                .filter(|href| !href.is_empty())
+            else {
                 continue;
             };
 
@@ -226,7 +231,12 @@ fn fetch_document_from_endpoint(endpoint: &url::Url) -> Result<WebFingerDocument
         .and_then(reqwest::blocking::Response::error_for_status)
         .map_err(|error| format!("WebFinger request failed for '{}': {error}", endpoint))?
         .text()
-        .map_err(|error| format!("WebFinger response decode failed for '{}': {error}", endpoint))?;
+        .map_err(|error| {
+            format!(
+                "WebFinger response decode failed for '{}': {error}",
+                endpoint
+            )
+        })?;
     parse_document(&body)
 }
 
@@ -249,9 +259,9 @@ fn validate_acct_resource(resource: &str) -> Result<(), String> {
 
 fn origin_for_resource(resource: &str) -> Result<url::Url, String> {
     if let Some(account) = resource.strip_prefix("acct:") {
-        let (_, host_part) = account.rsplit_once('@').ok_or_else(|| {
-            format!("WebFinger acct resource '{resource}' must contain a host.")
-        })?;
+        let (_, host_part) = account
+            .rsplit_once('@')
+            .ok_or_else(|| format!("WebFinger acct resource '{resource}' must contain a host."))?;
         let mut origin = url::Url::parse("https://example.invalid/")
             .expect("static WebFinger origin should parse");
         origin
@@ -266,8 +276,8 @@ fn origin_for_resource(resource: &str) -> Result<url::Url, String> {
         .host_str()
         .ok_or_else(|| format!("WebFinger URL resource '{resource}' is missing a host."))?;
 
-    let mut origin = url::Url::parse("https://example.invalid/")
-        .expect("static WebFinger origin should parse");
+    let mut origin =
+        url::Url::parse("https://example.invalid/").expect("static WebFinger origin should parse");
     origin
         .set_host(Some(host))
         .map_err(|_| format!("Invalid WebFinger host '{host}'."))?;
@@ -277,7 +287,10 @@ fn origin_for_resource(resource: &str) -> Result<url::Url, String> {
     Ok(origin)
 }
 
-fn endpoint_url_with_origin(origin: &url::Url, normalized_resource: &str) -> Result<url::Url, String> {
+fn endpoint_url_with_origin(
+    origin: &url::Url,
+    normalized_resource: &str,
+) -> Result<url::Url, String> {
     let mut endpoint = origin
         .join("/.well-known/webfinger")
         .map_err(|error| format!("Failed to build WebFinger endpoint URL: {error}"))?;
@@ -363,11 +376,36 @@ mod tests {
         let import = WebFingerImport::from_document(&document);
 
         assert_eq!(import.subject, "acct:mark@example.net");
-        assert!(import.profile_pages.iter().any(|value| value == "https://example.net/profile"));
-        assert!(import.nostr_identities.iter().any(|value| value == "nostr:npub1example"));
-        assert!(import.gemini_capsules.iter().any(|value| value == "gemini://example.net/profile"));
-        assert!(import.misfin_mailboxes.iter().any(|value| value == "misfin://mark@example.net"));
-        assert!(import.activitypub_actors.iter().any(|value| value == "https://example.net/users/mark"));
+        assert!(
+            import
+                .profile_pages
+                .iter()
+                .any(|value| value == "https://example.net/profile")
+        );
+        assert!(
+            import
+                .nostr_identities
+                .iter()
+                .any(|value| value == "nostr:npub1example")
+        );
+        assert!(
+            import
+                .gemini_capsules
+                .iter()
+                .any(|value| value == "gemini://example.net/profile")
+        );
+        assert!(
+            import
+                .misfin_mailboxes
+                .iter()
+                .any(|value| value == "misfin://mark@example.net")
+        );
+        assert!(
+            import
+                .activitypub_actors
+                .iter()
+                .any(|value| value == "https://example.net/users/mark")
+        );
     }
 
     #[test]
@@ -413,21 +451,26 @@ mod tests {
             );
 
             let mut writer = stream;
-            writer.write_all(response.as_bytes()).expect("response write");
+            writer
+                .write_all(response.as_bytes())
+                .expect("response write");
             writer.flush().expect("response flush");
         });
 
-        let origin = url::Url::parse(&format!("http://127.0.0.1:{port}/"))
-            .expect("origin should parse");
+        let origin =
+            url::Url::parse(&format!("http://127.0.0.1:{port}/")).expect("origin should parse");
         let endpoint = endpoint_url_with_origin(&origin, "acct:mark@example.net")
             .expect("endpoint should build");
-        let document = fetch_document_from_endpoint(&endpoint).expect("webfinger fetch should succeed");
+        let document =
+            fetch_document_from_endpoint(&endpoint).expect("webfinger fetch should succeed");
 
         assert_eq!(document.subject, "acct:mark@example.net");
-        assert!(document.links.iter().any(|link| link.href.as_deref() == Some("gemini://example.net/profile")));
+        assert!(
+            document
+                .links
+                .iter()
+                .any(|link| link.href.as_deref() == Some("gemini://example.net/profile"))
+        );
         server.join().expect("server joins cleanly");
     }
 }
-
-
-

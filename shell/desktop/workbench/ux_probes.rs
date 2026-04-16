@@ -9,8 +9,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_NAVIGATION_VIOLATION,
-    CHANNEL_UX_STRUCTURAL_VIOLATION,
+    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_STRUCTURAL_VIOLATION,
 };
 use crate::shell::desktop::ui::toolbar::toolbar_ui::latest_command_surface_event_sequence_metadata;
 
@@ -219,9 +218,7 @@ fn check_interactive_bounds_minimum(snapshot: &UxTreeSnapshot) -> Option<UxContr
     })
 }
 
-fn check_command_surface_capture_owner(
-    snapshot: &UxTreeSnapshot,
-) -> Option<UxContractViolation> {
+fn check_command_surface_capture_owner(snapshot: &UxTreeSnapshot) -> Option<UxContractViolation> {
     command_surface_capture_owner_violation(snapshot).map(|message| {
         violation(
             "ux.probe.command_surface_capture_owner",
@@ -231,9 +228,7 @@ fn check_command_surface_capture_owner(
     })
 }
 
-fn check_command_surface_return_target(
-    snapshot: &UxTreeSnapshot,
-) -> Option<UxContractViolation> {
+fn check_command_surface_return_target(snapshot: &UxTreeSnapshot) -> Option<UxContractViolation> {
     command_surface_return_target_violation(snapshot).map(|message| {
         violation(
             "ux.probe.command_surface_return_target",
@@ -253,9 +248,7 @@ fn check_radial_sector_count(snapshot: &UxTreeSnapshot) -> Option<UxContractViol
     })
 }
 
-fn check_node_pane_tombstone_lifecycle(
-    snapshot: &UxTreeSnapshot,
-) -> Option<UxContractViolation> {
+fn check_node_pane_tombstone_lifecycle(snapshot: &UxTreeSnapshot) -> Option<UxContractViolation> {
     node_pane_tombstone_lifecycle_violation(snapshot).map(|(node_path, message)| {
         violation_with_node_path(
             "ux.probe.node_pane_tombstone_lifecycle",
@@ -365,7 +358,10 @@ fn lagging_projection_frames(
         return 0;
     }
 
-    let frames = state.command_surface_projection_lag_frames.entry(key).or_insert(0);
+    let frames = state
+        .command_surface_projection_lag_frames
+        .entry(key)
+        .or_insert(0);
     *frames = frames.saturating_add(1);
     *frames
 }
@@ -389,8 +385,7 @@ fn check_command_surface_observability_projection(
             CHANNEL_UX_STRUCTURAL_VIOLATION,
             format!(
                 "uxtree invariant failed: omnibar stale-mailbox observability was dropped from the semantic snapshot (live stale_seq={}, projected stale_seq={})",
-                live.omnibar_mailbox_events.stale,
-                projected_mailbox.stale,
+                live.omnibar_mailbox_events.stale, projected_mailbox.stale,
             ),
         ));
     }
@@ -406,8 +401,7 @@ fn check_command_surface_observability_projection(
             CHANNEL_UX_STRUCTURAL_VIOLATION,
             format!(
                 "uxtree invariant failed: command-route no-target observability was dropped from the semantic snapshot (live no_target_seq={}, projected no_target_seq={})",
-                live.route_events.no_target,
-                projected_routes.no_target,
+                live.route_events.no_target, projected_routes.no_target,
             ),
         ));
     }
@@ -784,10 +778,11 @@ mod tests {
         let second = drain_probe_lifecycle_events();
 
         assert_eq!(first.len(), registered_probes().len());
-        assert!(first.iter().all(|event| matches!(
-            event,
-            UxProbeLifecycleEvent::Registered { .. }
-        )));
+        assert!(
+            first
+                .iter()
+                .all(|event| matches!(event, UxProbeLifecycleEvent::Registered { .. }))
+        );
         assert!(second.is_empty());
     }
 
@@ -886,9 +881,12 @@ mod tests {
                 if *probe_id == "ux.probe.panics" && reason.contains("synthetic panic")
         )));
         assert_eq!(second.executed_probe_count, 1);
-        assert!(!second.violations.iter().any(|violation| {
-            violation.probe_id == "ux.probe.panics"
-        }));
+        assert!(
+            !second
+                .violations
+                .iter()
+                .any(|violation| { violation.probe_id == "ux.probe.panics" })
+        );
     }
 
     #[test]
@@ -911,9 +909,7 @@ mod tests {
         assert_eq!(first.violations.len(), 1);
         assert!(second.violations.is_empty());
         assert_eq!(third.violations.len(), 1);
-        assert!(third.violations[0]
-            .message
-            .contains("suppressed 1 repeats"));
+        assert!(third.violations[0].message.contains("suppressed 1 repeats"));
     }
 
     #[test]
@@ -949,9 +945,9 @@ mod tests {
             &harness.app,
             5,
         );
-        snapshot
-            .presentation_nodes
-            .retain(|node| node.ux_node_id != crate::shell::desktop::workbench::ux_tree::UX_TREE_WORKBENCH_ROOT_ID);
+        snapshot.presentation_nodes.retain(|node| {
+            node.ux_node_id != crate::shell::desktop::workbench::ux_tree::UX_TREE_WORKBENCH_ROOT_ID
+        });
         snapshot.presentation_nodes.push(
             crate::shell::desktop::workbench::ux_tree::UxPresentationNode {
                 ux_node_id: "uxnode://orphan/presentation".to_string(),
@@ -1013,7 +1009,12 @@ mod tests {
             7,
         );
 
-        assert!(crate::shell::desktop::workbench::ux_tree::command_surface_return_target_violation(&snapshot).is_some());
+        assert!(
+            crate::shell::desktop::workbench::ux_tree::command_surface_return_target_violation(
+                &snapshot
+            )
+            .is_some()
+        );
 
         let report = evaluate_registered_probes(&snapshot, 0);
 
@@ -1090,11 +1091,20 @@ mod tests {
             .filter(|entry| !entry.allowed_actions.is_empty())
             .take(2)
             .collect::<Vec<_>>();
-        assert_eq!(focused_nodes.len(), 2, "expected two interactive nodes for focus collision test");
+        assert_eq!(
+            focused_nodes.len(),
+            2,
+            "expected two interactive nodes for focus collision test"
+        );
         focused_nodes[0].state.focused = true;
         focused_nodes[1].state.focused = true;
 
-        assert!(crate::shell::desktop::workbench::ux_tree::semantic_focus_uniqueness_violation(&snapshot).is_some());
+        assert!(
+            crate::shell::desktop::workbench::ux_tree::semantic_focus_uniqueness_violation(
+                &snapshot
+            )
+            .is_some()
+        );
 
         let report = evaluate_registered_probes(&snapshot, 0);
 
@@ -1102,7 +1112,9 @@ mod tests {
             report.violations.iter().any(|violation| {
                 violation.probe_id == "ux.probe.focus_uniqueness"
                     && violation.channel_id == CHANNEL_UX_STRUCTURAL_VIOLATION
-                    && violation.message.contains("multiple focused semantic nodes")
+                    && violation
+                        .message
+                        .contains("multiple focused semantic nodes")
             }),
             "expected focus uniqueness violation, got {:?}",
             report.violations
@@ -1140,7 +1152,12 @@ mod tests {
             node_pane.ux_node_id.clone()
         };
 
-        assert!(crate::shell::desktop::workbench::ux_tree::node_pane_tombstone_lifecycle_violation(&snapshot).is_some());
+        assert!(
+            crate::shell::desktop::workbench::ux_tree::node_pane_tombstone_lifecycle_violation(
+                &snapshot
+            )
+            .is_some()
+        );
 
         let report = evaluate_registered_probes(&snapshot, 0);
 
@@ -1263,7 +1280,9 @@ mod tests {
                 violation.probe_id == "ux.probe.node_pane_placeholder_timeout"
                     && violation.channel_id == CHANNEL_UX_CONTRACT_WARNING
                     && violation.node_path.as_deref() == Some(node_pane_id.as_str())
-                    && violation.message.contains("consecutive frames after attach attempts")
+                    && violation
+                        .message
+                        .contains("consecutive frames after attach attempts")
             }),
             "expected placeholder timeout violation, got {:?}",
             report.violations
@@ -1277,19 +1296,21 @@ mod tests {
 
         let _guard = lock_command_surface_snapshot_tests();
         clear_command_surface_semantic_snapshot();
-        set_command_surface_event_sequence_metadata_for_tests(CommandSurfaceEventSequenceMetadata {
-            route_events: CommandRouteEventSequenceMetadata {
-                resolved: 0,
-                fallback: 0,
-                no_target: 2,
+        set_command_surface_event_sequence_metadata_for_tests(
+            CommandSurfaceEventSequenceMetadata {
+                route_events: CommandRouteEventSequenceMetadata {
+                    resolved: 0,
+                    fallback: 0,
+                    no_target: 2,
+                },
+                omnibar_mailbox_events: OmnibarMailboxEventSequenceMetadata {
+                    request_started: 1,
+                    applied: 0,
+                    failed: 0,
+                    stale: 1,
+                },
             },
-            omnibar_mailbox_events: OmnibarMailboxEventSequenceMetadata {
-                request_started: 1,
-                applied: 0,
-                failed: 0,
-                stale: 1,
-            },
-        });
+        );
         publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
@@ -1319,10 +1340,7 @@ mod tests {
         );
 
         let first = evaluate_registered_probes(&snapshot, 0);
-        age_suppression_window_for_tests(
-            "ux.probe.command_surface_observability_projection",
-            None,
-        );
+        age_suppression_window_for_tests("ux.probe.command_surface_observability_projection", None);
         let second = evaluate_registered_probes(&snapshot, 0);
 
         assert!(
@@ -1331,10 +1349,10 @@ mod tests {
                 .iter()
                 .chain(second.violations.iter())
                 .any(|violation| {
-                violation.probe_id == "ux.probe.command_surface_observability_projection"
-                    && violation.channel_id == CHANNEL_UX_STRUCTURAL_VIOLATION
-                    && violation.message.contains("stale-mailbox observability")
-            }),
+                    violation.probe_id == "ux.probe.command_surface_observability_projection"
+                        && violation.channel_id == CHANNEL_UX_STRUCTURAL_VIOLATION
+                        && violation.message.contains("stale-mailbox observability")
+                }),
             "expected command-surface observability violation, got {:?}",
             [first.violations, second.violations]
         );

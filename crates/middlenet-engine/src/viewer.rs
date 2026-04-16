@@ -35,10 +35,14 @@ pub fn generate_display_list(document: &Document) -> RenderResult {
             NodeData::Element { name, attrs } => {
                 let tag = name.local.as_ref();
                 let text = get_text_content(doc, id);
-                
+
                 match tag {
                     "h1" | "h2" | "h3" => {
-                        let level = match tag { "h1" => 1, "h2" => 2, _ => 3 };
+                        let level = match tag {
+                            "h1" => 1,
+                            "h2" => 2,
+                            _ => 3,
+                        };
                         if !text.is_empty() {
                             list.push(DisplayAction::Heading { level, text });
                         }
@@ -55,7 +59,11 @@ pub fn generate_display_list(document: &Document) -> RenderResult {
                         list.push(DisplayAction::Spacer(4.0));
                     }
                     "a" => {
-                        let href = attrs.iter().find(|a| a.name.local.as_ref() == "href").map(|a| a.value.as_ref().to_string()).unwrap_or_default();
+                        let href = attrs
+                            .iter()
+                            .find(|a| a.name.local.as_ref() == "href")
+                            .map(|a| a.value.as_ref().to_string())
+                            .unwrap_or_default();
                         list.push(DisplayAction::Link { text, href });
                         list.push(DisplayAction::Spacer(4.0));
                     }
@@ -108,4 +116,3 @@ fn collect_text(document: &Document, id: usize, text: &mut String) {
         collect_text(document, child, text);
     }
 }
-

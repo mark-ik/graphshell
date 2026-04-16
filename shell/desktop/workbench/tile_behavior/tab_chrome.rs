@@ -577,4 +577,3 @@ fn render_tab_ui_impl(
 
     behavior.on_tab_button(tiles, tile_id, tab_response)
 }
-

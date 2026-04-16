@@ -58,7 +58,9 @@ pub(crate) enum UxNodeSelector {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum UxBridgeCommand {
     GetUxSnapshot,
-    FindUxNode { selector: UxNodeSelector },
+    FindUxNode {
+        selector: UxNodeSelector,
+    },
     GetFocusPath,
     InvokeUxAction {
         selector: UxNodeSelector,
@@ -389,10 +391,7 @@ fn apply_workbench_intent(
             graph_app.close_command_palette();
             let target = graph_app.take_pending_command_surface_return_target();
             let _ = workbench_surface::restore_focus_target_or_ensure_active_tile(
-                graph_app,
-                tiles_tree,
-                target,
-                true,
+                graph_app, tiles_tree, target, true,
             );
         }
         WorkbenchIntent::OpenNodeInPane { node, pane } => {
@@ -546,7 +545,9 @@ fn semantic_node_json(node: &UxSemanticNode) -> serde_json::Value {
 #[serde(tag = "command")]
 enum TransportCommand {
     GetUxSnapshot,
-    FindUxNode { selector: TransportSelector },
+    FindUxNode {
+        selector: TransportSelector,
+    },
     GetFocusPath,
     InvokeUxAction {
         selector: TransportSelector,
@@ -656,7 +657,10 @@ mod tests {
                     path.first().map(String::as_str),
                     Some(ux_tree::UX_TREE_WORKBENCH_ROOT_ID)
                 );
-                assert!(path.len() >= 2, "focus path should include root and focused node");
+                assert!(
+                    path.len() >= 2,
+                    "focus path should include root and focused node"
+                );
             }
             other => panic!("expected focus-path response, got {other:?}"),
         }
@@ -874,7 +878,8 @@ mod tests {
     #[test]
     fn runtime_bridge_focus_and_close_tool_pane() {
         let mut harness = TestRegistry::new();
-        harness.open_tool_tab(crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings);
+        harness
+            .open_tool_tab(crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings);
 
         let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 3);
         let tool = snapshot
@@ -1083,7 +1088,8 @@ mod tests {
     fn queued_bridge_action_maps_tool_pane_to_open_and_close_intents() {
         let _guard = lock_bridge_tests();
         let mut harness = TestRegistry::new();
-        harness.open_tool_tab(crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings);
+        harness
+            .open_tool_tab(crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings);
 
         let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 4);
         ux_tree::publish_snapshot(&snapshot);
@@ -1140,7 +1146,9 @@ mod tests {
             UxAction::Focus,
         )
         .expect("queued graph focus should succeed");
-        assert!(matches!(focus.0, WorkbenchIntent::OpenGraphViewPane { view_id: queued_view, .. } if queued_view == view_id));
+        assert!(
+            matches!(focus.0, WorkbenchIntent::OpenGraphViewPane { view_id: queued_view, .. } if queued_view == view_id)
+        );
 
         let close = queued_workbench_intent_for_latest_snapshot(
             &UxNodeSelector::ById(graph_surface.ux_node_id.clone()),

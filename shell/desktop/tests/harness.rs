@@ -11,13 +11,13 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{
     CompositorFrameSample, CompositorTileSample, DiagnosticsState, HierarchySample,
 };
+use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 use crate::shell::desktop::workbench::ux_bridge::{
     self, UxBridgeError, UxBridgeResponse, UxDriver, UxNodeSelector,
 };
 use crate::shell::desktop::workbench::ux_tree::{self, UxAction, UxSemanticNode, UxTreeSnapshot};
-use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 
 pub(crate) struct TestRegistry {
     pub(crate) app: GraphBrowserApp,
@@ -241,9 +241,12 @@ impl TestRegistry {
         let command = ux_bridge::parse_transport_command(payload)?;
 
         match command {
-            ux_bridge::UxBridgeCommand::InvokeUxAction { .. } => {
-                ux_bridge::handle_runtime_command(&mut self.app, &mut self.tiles_tree, &mut self.graph_tree, command)
-            }
+            ux_bridge::UxBridgeCommand::InvokeUxAction { .. } => ux_bridge::handle_runtime_command(
+                &mut self.app,
+                &mut self.tiles_tree,
+                &mut self.graph_tree,
+                command,
+            ),
             _ => {
                 let snapshot = ux_tree::build_snapshot(&self.tiles_tree, &self.app, 0);
                 ux_tree::publish_snapshot(&snapshot);
@@ -261,4 +264,3 @@ fn test_webview_id() -> servo::WebViewId {
     });
     servo::WebViewId::new(PainterId::next())
 }
-

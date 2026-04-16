@@ -61,7 +61,11 @@ impl CanvasCamera {
     }
 
     /// Convert a point from world space to screen space given a viewport.
-    pub fn world_to_screen(&self, world_pos: Point2D<f32>, viewport: &CanvasViewport) -> Point2D<f32> {
+    pub fn world_to_screen(
+        &self,
+        world_pos: Point2D<f32>,
+        viewport: &CanvasViewport,
+    ) -> Point2D<f32> {
         let center = viewport.center();
         Point2D::new(
             (world_pos.x + self.pan.x) * self.zoom + center.x,
@@ -70,7 +74,11 @@ impl CanvasCamera {
     }
 
     /// Convert a point from screen space to world space given a viewport.
-    pub fn screen_to_world(&self, screen_pos: Point2D<f32>, viewport: &CanvasViewport) -> Point2D<f32> {
+    pub fn screen_to_world(
+        &self,
+        screen_pos: Point2D<f32>,
+        viewport: &CanvasViewport,
+    ) -> Point2D<f32> {
         let center = viewport.center();
         Point2D::new(
             (screen_pos.x - center.x) / self.zoom - self.pan.x,
@@ -130,4 +138,3 @@ mod tests {
         assert_eq!(cam, back);
     }
 }
-

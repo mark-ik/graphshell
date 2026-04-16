@@ -88,8 +88,8 @@ static NODE_PANE_ATTACH_ATTEMPT_METADATA: OnceLock<
     Mutex<HashMap<NodeKey, NodePaneAttachAttemptMetadata>>,
 > = OnceLock::new();
 
-fn node_pane_attach_attempt_metadata_cache(
-) -> &'static Mutex<HashMap<NodeKey, NodePaneAttachAttemptMetadata>> {
+fn node_pane_attach_attempt_metadata_cache()
+-> &'static Mutex<HashMap<NodeKey, NodePaneAttachAttemptMetadata>> {
     NODE_PANE_ATTACH_ATTEMPT_METADATA.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -134,8 +134,8 @@ pub(crate) fn publish_node_pane_attach_attempt_metadata(
     }
 }
 
-pub(crate) fn take_node_pane_attach_attempt_metadata(
-) -> HashMap<NodeKey, NodePaneAttachAttemptMetadata> {
+pub(crate) fn take_node_pane_attach_attempt_metadata()
+-> HashMap<NodeKey, NodePaneAttachAttemptMetadata> {
     node_pane_attach_attempt_metadata_cache()
         .lock()
         .map(|mut slot| std::mem::take(&mut *slot))
@@ -555,4 +555,3 @@ mod tests {
         );
     }
 }
-

@@ -16,11 +16,10 @@ pub use graphshell_core::graph::{apply, facet_projection, filter};
 
 // Re-export leaf types from core (previously defined here).
 pub use graphshell_core::types::{
-    ArchivedClassificationProvenance, ArchivedClassificationScheme,
-    ArchivedClassificationStatus, ClassificationProvenance, ClassificationScheme,
-    ClassificationStatus, DominantEdge, FrameLayoutHint, FrameLayoutNodeId, ImportRecord,
-    ImportRecordMembership, NodeClassification, NodeImportProvenance,
-    NodeImportRecordSummary, SplitOrientation, format_imported_at_secs,
+    ArchivedClassificationProvenance, ArchivedClassificationScheme, ArchivedClassificationStatus,
+    ClassificationProvenance, ClassificationScheme, ClassificationStatus, DominantEdge,
+    FrameLayoutHint, FrameLayoutNodeId, ImportRecord, ImportRecordMembership, NodeClassification,
+    NodeImportProvenance, NodeImportRecordSummary, SplitOrientation, format_imported_at_secs,
 };
 
 // Re-export address types from core (previously defined here).
@@ -33,4 +32,3 @@ pub use graphshell_core::address::{
 pub mod badge;
 pub mod edge_style_registry;
 pub mod egui_adapter;
-

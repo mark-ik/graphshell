@@ -465,4 +465,3 @@ mod tests {
         assert_eq!(app.current_frame_name(), Some("alpha"));
     }
 }
-

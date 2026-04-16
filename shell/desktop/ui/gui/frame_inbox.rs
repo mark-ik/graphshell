@@ -31,46 +31,41 @@ impl GuiFrameInbox {
         let (settings_route_requests_tx, settings_route_requests_rx) = std::sync::mpsc::channel();
         let (profile_invalidations_tx, profile_invalidations_rx) = std::sync::mpsc::channel();
 
-        control_panel.spawn_shell_signal_relay(
-            "shell_frame_inbox_lifecycle",
-            async move {
-                let mut subscription = phase3_subscribe_signal_async(SignalTopic::Lifecycle);
-                while let Some(signal) = subscription.recv().await {
-                    if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated { indexed_nodes }) =
-                        signal.kind
-                    {
-                        let _ = semantic_index_updates_tx.send(indexed_nodes);
-                    }
+        control_panel.spawn_shell_signal_relay("shell_frame_inbox_lifecycle", async move {
+            let mut subscription = phase3_subscribe_signal_async(SignalTopic::Lifecycle);
+            while let Some(signal) = subscription.recv().await {
+                if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated {
+                    indexed_nodes,
+                }) = signal.kind
+                {
+                    let _ = semantic_index_updates_tx.send(indexed_nodes);
                 }
-            },
-        );
+            }
+        });
 
-        control_panel.spawn_shell_signal_relay(
-            "shell_frame_inbox_registry",
-            async move {
-                let mut subscription = phase3_subscribe_signal_async(SignalTopic::RegistryEvent);
-                while let Some(signal) = subscription.recv().await {
-                    if let SignalKind::RegistryEvent(registry_signal) = signal.kind {
-                        match registry_signal {
-                            RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. } => {
-                                let _ = workbench_projection_refreshes_tx.send(());
-                            }
-                            RegistryEventSignal::SettingsRouteRequested { url } => {
-                                let _ = settings_route_requests_tx.send(url);
-                            }
-                            RegistryEventSignal::ThemeChanged { .. }
-                            | RegistryEventSignal::LensChanged { .. }
-                            | RegistryEventSignal::PhysicsProfileChanged { .. }
-                            | RegistryEventSignal::CanvasProfileChanged { .. }
-                            | RegistryEventSignal::WorkbenchSurfaceChanged { .. } => {
-                                let _ = profile_invalidations_tx.send(());
-                            }
-                            _ => {}
+        control_panel.spawn_shell_signal_relay("shell_frame_inbox_registry", async move {
+            let mut subscription = phase3_subscribe_signal_async(SignalTopic::RegistryEvent);
+            while let Some(signal) = subscription.recv().await {
+                if let SignalKind::RegistryEvent(registry_signal) = signal.kind {
+                    match registry_signal {
+                        RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. } => {
+                            let _ = workbench_projection_refreshes_tx.send(());
                         }
+                        RegistryEventSignal::SettingsRouteRequested { url } => {
+                            let _ = settings_route_requests_tx.send(url);
+                        }
+                        RegistryEventSignal::ThemeChanged { .. }
+                        | RegistryEventSignal::LensChanged { .. }
+                        | RegistryEventSignal::PhysicsProfileChanged { .. }
+                        | RegistryEventSignal::CanvasProfileChanged { .. }
+                        | RegistryEventSignal::WorkbenchSurfaceChanged { .. } => {
+                            let _ = profile_invalidations_tx.send(());
+                        }
+                        _ => {}
                     }
                 }
-            },
-        );
+            }
+        });
 
         Self::new(
             semantic_index_updates_rx,
@@ -204,7 +199,9 @@ mod tests {
 
         assert_eq!(panel.worker_count(), 2);
         assert_eq!(
-            panel.registered_tier_counts().get(&WorkerTier::Tier1ShellSignalRelay),
+            panel
+                .registered_tier_counts()
+                .get(&WorkerTier::Tier1ShellSignalRelay),
             Some(&2)
         );
 

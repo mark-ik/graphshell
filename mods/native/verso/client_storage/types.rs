@@ -104,4 +104,3 @@ impl Default for StorageScope {
         Self::Local
     }
 }
-

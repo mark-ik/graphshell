@@ -538,4 +538,3 @@ mod tests {
         assert!(dark.edge_tokens.kind_tokens.len() >= 5);
     }
 }
-

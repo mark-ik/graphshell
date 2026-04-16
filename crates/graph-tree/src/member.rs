@@ -128,4 +128,3 @@ pub enum SplitDirection {
     Horizontal,
     Vertical,
 }
-

@@ -198,4 +198,3 @@ mod tests {
         assert_eq!(input, back);
     }
 }
-

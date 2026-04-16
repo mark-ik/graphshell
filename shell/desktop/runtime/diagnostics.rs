@@ -17,6 +17,8 @@ use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, VisibleNavigation
 use crate::graph::NodeKey;
 use crate::registries::atomic::diagnostics as diagnostics_registry;
 use crate::services::persistence::GraphStore;
+#[cfg(test)]
+use crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT, CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
@@ -51,8 +53,6 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_VERSE_SYNC_ACCESS_DENIED,
     CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
 };
-#[cfg(test)]
-use crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK;
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 use crate::shell::desktop::workbench::compositor_adapter::{
@@ -2466,7 +2466,10 @@ impl DiagnosticsState {
         if navigation_violations > 0 {
             candidates.push((
                 "Navigation violation".to_string(),
-                format!("{} navigation-violation receipt(s) observed", navigation_violations),
+                format!(
+                    "{} navigation-violation receipt(s) observed",
+                    navigation_violations
+                ),
             ));
         }
 
@@ -2502,11 +2505,9 @@ impl DiagnosticsState {
             ));
         }
 
-        if let Some(rising_latency) = self
-            .top_channel_trends(8)
-            .into_iter()
-            .find(|trend| trend.trend == "rising" && trend.avg_latency_us >= self.bottleneck_latency_us)
-        {
+        if let Some(rising_latency) = self.top_channel_trends(8).into_iter().find(|trend| {
+            trend.trend == "rising" && trend.avg_latency_us >= self.bottleneck_latency_us
+        }) {
             candidates.push((
                 "Rising channel latency".to_string(),
                 format!(
@@ -2517,13 +2518,17 @@ impl DiagnosticsState {
             ));
         }
 
-        candidates.extend(self.analyzer_snapshots().into_iter().filter_map(|snapshot| {
-            let result = snapshot.last_result?;
-            if result.signal != AnalyzerSignal::Alert {
-                return None;
-            }
-            Some((snapshot.label.to_string(), result.summary))
-        }));
+        candidates.extend(
+            self.analyzer_snapshots()
+                .into_iter()
+                .filter_map(|snapshot| {
+                    let result = snapshot.last_result?;
+                    if result.signal != AnalyzerSignal::Alert {
+                        return None;
+                    }
+                    Some((snapshot.label.to_string(), result.summary))
+                }),
+        );
 
         let (primary_label, primary_summary) = candidates.first()?.clone();
 
@@ -5010,4 +5015,3 @@ Object {
         }
     }
 }
-

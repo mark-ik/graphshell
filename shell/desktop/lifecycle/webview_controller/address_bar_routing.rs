@@ -253,4 +253,3 @@ pub(super) fn handle_address_bar_submit_intents(
         }
     }
 }
-

@@ -15,7 +15,9 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
-use super::{BackendGraphicsContext, BackendTextureToken, BackendViewportInPixels, UiRenderBackendInit};
+use super::{
+    BackendGraphicsContext, BackendTextureToken, BackendViewportInPixels, UiRenderBackendInit,
+};
 
 #[derive(Clone, Default)]
 pub(crate) struct BackendCustomPass;
@@ -149,10 +151,9 @@ impl UiRenderBackendHandle {
 
     fn sync_surface_size(&mut self, window: &Window) {
         let size = window.inner_size();
-        let (Some(width), Some(height)) = (
-            NonZeroU32::new(size.width),
-            NonZeroU32::new(size.height),
-        ) else {
+        let (Some(width), Some(height)) =
+            (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+        else {
             return;
         };
 

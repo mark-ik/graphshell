@@ -8,7 +8,9 @@
 
 use html5ever::tendril::{StrTendril, TendrilSink};
 use html5ever::tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
-use html5ever::{expanded_name, local_name, namespace_url, ns, QualName, Attribute, parse_document};
+use html5ever::{
+    Attribute, QualName, expanded_name, local_name, namespace_url, ns, parse_document,
+};
 use std::borrow::Cow;
 
 /// A lightweight, arena-allocated HTML DOM node.
@@ -91,7 +93,11 @@ impl Document {
                         out.push('\n');
                     }
                     "a" => {
-                        let href = attrs.iter().find(|a| a.name.local.as_ref() == "href").map(|a| a.value.as_ref()).unwrap_or("");
+                        let href = attrs
+                            .iter()
+                            .find(|a| a.name.local.as_ref() == "href")
+                            .map(|a| a.value.as_ref())
+                            .unwrap_or("");
                         let mut text = String::new();
                         for &child in &self.nodes[id].children {
                             self.to_gemini_node(child, &mut text);
@@ -194,7 +200,12 @@ impl TreeSink for Document {
         }
     }
 
-    fn create_element(&mut self, name: QualName, attrs: Vec<Attribute>, _flags: ElementFlags) -> Self::Handle {
+    fn create_element(
+        &mut self,
+        name: QualName,
+        attrs: Vec<Attribute>,
+        _flags: ElementFlags,
+    ) -> Self::Handle {
         let id = self.nodes.len();
         self.nodes.push(DomNode {
             id,
@@ -208,14 +219,24 @@ impl TreeSink for Document {
     fn create_comment(&mut self, _text: StrTendril) -> Self::Handle {
         // Skip comments
         let id = self.nodes.len();
-        self.nodes.push(DomNode { id, parent: None, children: vec![], data: NodeData::Text(String::new()) });
+        self.nodes.push(DomNode {
+            id,
+            parent: None,
+            children: vec![],
+            data: NodeData::Text(String::new()),
+        });
         id
     }
 
     fn create_pi(&mut self, _target: StrTendril, _data: StrTendril) -> Self::Handle {
         // Skip processing instructions
         let id = self.nodes.len();
-        self.nodes.push(DomNode { id, parent: None, children: vec![], data: NodeData::Text(String::new()) });
+        self.nodes.push(DomNode {
+            id,
+            parent: None,
+            children: vec![],
+            data: NodeData::Text(String::new()),
+        });
         id
     }
 
@@ -227,7 +248,7 @@ impl TreeSink for Document {
             }
             NodeOrText::AppendText(text) => {
                 let text_str = text.to_string();
-                
+
                 // Try appending to the last child if it's already a text node
                 if let Some(&last_id) = self.nodes[*parent].children.last() {
                     let last_node = &mut self.nodes[last_id];
@@ -236,7 +257,7 @@ impl TreeSink for Document {
                         return;
                     }
                 }
-                
+
                 let id = self.nodes.len();
                 self.nodes.push(DomNode {
                     id,
@@ -249,7 +270,12 @@ impl TreeSink for Document {
         }
     }
 
-    fn append_based_on_parent_node(&mut self, element: &Self::Handle, prev_element: &Self::Handle, child: NodeOrText<Self::Handle>) {
+    fn append_based_on_parent_node(
+        &mut self,
+        element: &Self::Handle,
+        prev_element: &Self::Handle,
+        child: NodeOrText<Self::Handle>,
+    ) {
         if let Some(parent) = self.nodes[*element].parent {
             self.append(&parent, child);
         } else {
@@ -257,7 +283,13 @@ impl TreeSink for Document {
         }
     }
 
-    fn append_doctype_to_document(&mut self, _name: StrTendril, _public_id: StrTendril, _system_id: StrTendril) {}
+    fn append_doctype_to_document(
+        &mut self,
+        _name: StrTendril,
+        _public_id: StrTendril,
+        _system_id: StrTendril,
+    ) {
+    }
 
     fn get_template_contents(&mut self, target: &Self::Handle) -> Self::Handle {
         *target
@@ -321,10 +353,3 @@ impl TreeSink for Document {
         self.nodes[*new_parent].children.extend(children);
     }
 }
-
-
-
-
-
-
-

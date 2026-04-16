@@ -101,4 +101,3 @@ fn tag_node_lowercases_reserved_hash_tags() {
             .node_has_canonical_tag(node, GraphBrowserApp::TAG_PIN)
     );
 }
-

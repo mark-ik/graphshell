@@ -1822,25 +1822,29 @@ pub(super) fn selected_node_enrichment_summary(
                             .or_else(|| c.label.clone())
                             .unwrap_or_else(|| c.value.clone()),
                         provenance: match c.provenance {
-                        ClassificationProvenance::UserAuthored => "User",
-                        ClassificationProvenance::Imported => "Imported",
-                        ClassificationProvenance::InheritedFromSource => "Inherited",
-                        ClassificationProvenance::RegistryDerived => "Registry",
-                        ClassificationProvenance::AgentSuggested => "Agent",
-                        ClassificationProvenance::CommunitySynced => "Community",
+                            ClassificationProvenance::UserAuthored => "User",
+                            ClassificationProvenance::Imported => "Imported",
+                            ClassificationProvenance::InheritedFromSource => "Inherited",
+                            ClassificationProvenance::RegistryDerived => "Registry",
+                            ClassificationProvenance::AgentSuggested => "Agent",
+                            ClassificationProvenance::CommunitySynced => "Community",
                         },
                         status: match c.status {
-                        ClassificationStatus::Accepted => "Accepted",
-                        ClassificationStatus::Suggested => "Suggested",
-                        ClassificationStatus::Rejected => "Rejected",
-                        ClassificationStatus::Verified => "Verified",
-                        ClassificationStatus::Imported => "Imported",
+                            ClassificationStatus::Accepted => "Accepted",
+                            ClassificationStatus::Suggested => "Suggested",
+                            ClassificationStatus::Rejected => "Rejected",
+                            ClassificationStatus::Verified => "Verified",
+                            ClassificationStatus::Imported => "Imported",
                         },
                         confidence: c.confidence,
                         primary: c.primary,
                         scheme: scheme.clone(),
-                        metadata: resolution_detail.as_ref().map(|detail| detail.metadata.clone()),
-                        hover_detail: resolution_detail.as_ref().map(|detail| detail.hover.clone()),
+                        metadata: resolution_detail
+                            .as_ref()
+                            .map(|detail| detail.metadata.clone()),
+                        hover_detail: resolution_detail
+                            .as_ref()
+                            .map(|detail| detail.hover.clone()),
                         node_key: selected_key,
                         classification_value: c.value.clone(),
                     }
@@ -1910,18 +1914,17 @@ fn latest_identity_resolution_audits(
     app.node_audit_history_entries(node.id, 32)
         .into_iter()
         .filter_map(|entry| match entry {
-            crate::services::persistence::types::LogEntry::AppendNodeAuditEvent { event, .. } => {
-                match event {
-                    crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                        action,
-                        detail,
-                    } => graphshell_comms::identity::parse_identity_resolution_audit_event(
-                        &action,
-                        &detail,
-                    ),
-                    _ => None,
-                }
-            }
+            crate::services::persistence::types::LogEntry::AppendNodeAuditEvent {
+                event, ..
+            } => match event {
+                crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                    action,
+                    detail,
+                } => graphshell_comms::identity::parse_identity_resolution_audit_event(
+                    &action, &detail,
+                ),
+                _ => None,
+            },
             _ => None,
         })
         .fold(HashMap::new(), |mut acc, record| {
@@ -1971,7 +1974,9 @@ fn parse_resolution_chip_metadata(
             } else {
                 format!("Sources: {}", audit.source_endpoints.join(", "))
             },
-            audit.changed.map(|changed| if changed { "Changed" } else { "Unchanged" }.to_string()),
+            audit
+                .changed
+                .map(|changed| if changed { "Changed" } else { "Unchanged" }.to_string()),
         )
     } else {
         (
@@ -1983,9 +1988,22 @@ fn parse_resolution_chip_metadata(
         )
     };
     let metadata = if let Some(changed) = changed_label {
-        format!("resolution:{} · {} · {} · {} · {}", protocol.key(), freshness, cache_state, age_label, changed)
+        format!(
+            "resolution:{} · {} · {} · {} · {}",
+            protocol.key(),
+            freshness,
+            cache_state,
+            age_label,
+            changed
+        )
     } else {
-        format!("resolution:{} · {} · {} · {}", protocol.key(), freshness, cache_state, age_label)
+        format!(
+            "resolution:{} · {} · {} · {}",
+            protocol.key(),
+            freshness,
+            cache_state,
+            age_label
+        )
     };
     Some(ResolutionChipMetadata {
         label: format!("Resolved via {}", descriptor.display_name),
@@ -2575,4 +2593,3 @@ mod tests {
         assert_eq!(matches, vec![anchor]);
     }
 }
-

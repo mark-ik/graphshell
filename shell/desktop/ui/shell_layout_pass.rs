@@ -188,10 +188,10 @@ mod tests {
                 command_bar_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 40.0))),
                 status_bar_rect: Some(status_rect),
             };
-            shell_layout = Some(
-                ShellLayoutPass::new(ctx)
-                    .finish(workbench_projection(WorkbenchLayerState::WorkbenchActive), toolbar_output),
-            );
+            shell_layout = Some(ShellLayoutPass::new(ctx).finish(
+                workbench_projection(WorkbenchLayerState::WorkbenchActive),
+                toolbar_output,
+            ));
         });
 
         let shell_layout = shell_layout.expect("layout pass should produce an output");
@@ -214,7 +214,10 @@ mod tests {
             };
             slot_rects = Some(
                 ShellLayoutPass::new(ctx)
-                    .finish(workbench_projection(WorkbenchLayerState::GraphOnly), toolbar_output)
+                    .finish(
+                        workbench_projection(WorkbenchLayerState::GraphOnly),
+                        toolbar_output,
+                    )
                     .slot_rects,
             );
         });
@@ -246,10 +249,10 @@ mod tests {
                 command_bar_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 40.0))),
                 status_bar_rect: None,
             };
-            shell_layout = Some(
-                ShellLayoutPass::new(ctx)
-                    .finish(workbench_projection(WorkbenchLayerState::WorkbenchOnly), toolbar_output),
-            );
+            shell_layout = Some(ShellLayoutPass::new(ctx).finish(
+                workbench_projection(WorkbenchLayerState::WorkbenchOnly),
+                toolbar_output,
+            ));
         });
 
         let shell_layout = shell_layout.expect("layout pass should produce an output");
@@ -269,16 +272,13 @@ mod tests {
                 command_bar_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 40.0))),
                 status_bar_rect: None,
             };
-            shell_layout = Some(
-                ShellLayoutPass::new(ctx).finish(
-                    workbench_projection(WorkbenchLayerState::WorkbenchOverlayActive),
-                    toolbar_output,
-                ),
-            );
+            shell_layout = Some(ShellLayoutPass::new(ctx).finish(
+                workbench_projection(WorkbenchLayerState::WorkbenchOverlayActive),
+                toolbar_output,
+            ));
         });
 
         let shell_layout = shell_layout.expect("layout pass should produce an output");
         assert!(shell_layout.slot_rects.workbench_area.is_none());
     }
 }
-

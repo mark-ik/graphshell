@@ -9,10 +9,10 @@
 //! bridges these to AccessKit (egui), platform a11y (mobile), or DOM
 //! aria attributes (extension/PWA).
 
+use crate::MemberId;
 use crate::layout::LayoutMode;
 use crate::member::Lifecycle;
 use crate::tree::GraphTree;
-use crate::MemberId;
 
 /// A node in the UxTree — structural description for accessibility/automation.
 #[derive(Clone, Debug)]
@@ -71,10 +71,7 @@ pub fn emit_ux_tree<N: MemberId>(tree: &GraphTree<N>) -> UxNodeDescriptor<N> {
     }
 }
 
-fn emit_tree_view<N: MemberId>(
-    tree: &GraphTree<N>,
-    active: &Option<N>,
-) -> UxNodeDescriptor<N> {
+fn emit_tree_view<N: MemberId>(tree: &GraphTree<N>, active: &Option<N>) -> UxNodeDescriptor<N> {
     let rows = tree.visible_rows();
     let children: Vec<UxNodeDescriptor<N>> = rows
         .iter()
@@ -123,10 +120,7 @@ fn emit_tree_view<N: MemberId>(
     }
 }
 
-fn emit_tab_list<N: MemberId>(
-    tree: &GraphTree<N>,
-    active: &Option<N>,
-) -> UxNodeDescriptor<N> {
+fn emit_tab_list<N: MemberId>(tree: &GraphTree<N>, active: &Option<N>) -> UxNodeDescriptor<N> {
     // Use insertion order for stable, deterministic tab ordering
     let children: Vec<UxNodeDescriptor<N>> = tree
         .topology()
@@ -265,10 +259,7 @@ mod tests {
     }
 
     /// Collect all member-bearing UxNodes recursively.
-    fn collect_members<N: MemberId + Clone>(
-        node: &UxNodeDescriptor<N>,
-        members: &mut Vec<N>,
-    ) {
+    fn collect_members<N: MemberId + Clone>(node: &UxNodeDescriptor<N>, members: &mut Vec<N>) {
         if let Some(ref m) = node.member {
             members.push(m.clone());
         }
@@ -463,4 +454,3 @@ mod tests {
         }
     }
 }
-

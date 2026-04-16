@@ -13,10 +13,11 @@ use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use euclid::Length;
 use log::warn;
 use servo::{
-    AlertDialog, AuthenticationRequest, ColorPicker, ConfirmDialog, ContextMenu, ContextMenuItem,
-    BluetoothDeviceDescription, BluetoothDeviceSelectionRequest, DeviceIndependentPixel,
-    DeviceIntRect, EmbedderControlId, FilePicker, PermissionRequest, PromptDialog, RgbColor,
-    SelectElement, SelectElementOption, SelectElementOptionOrOptgroup, SimpleDialog, WebViewId,
+    AlertDialog, AuthenticationRequest, BluetoothDeviceDescription,
+    BluetoothDeviceSelectionRequest, ColorPicker, ConfirmDialog, ContextMenu, ContextMenuItem,
+    DeviceIndependentPixel, DeviceIntRect, EmbedderControlId, FilePicker, PermissionRequest,
+    PromptDialog, RgbColor, SelectElement, SelectElementOption, SelectElementOptionOrOptgroup,
+    SimpleDialog, WebViewId,
 };
 
 /// The minimum width of many UI elements including dialog boxes and menus,
@@ -928,4 +929,3 @@ fn make_dialog_label(message: &str, ui: &mut egui::Ui, input_text: Option<&mut S
     }
     frame.end(ui);
 }
-

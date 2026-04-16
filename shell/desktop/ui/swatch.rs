@@ -72,7 +72,9 @@ pub(crate) fn render_graph_swatch_card(
     let (card_rect, response) = ui.allocate_exact_size(spec.host_options.card_size, Sense::click());
     let response = match spec.interaction_profile {
         SwatchInteractionProfile::PreviewOnly => response,
-        SwatchInteractionProfile::SelectAndOpenDetail => response.on_hover_cursor(egui::CursorIcon::PointingHand),
+        SwatchInteractionProfile::SelectAndOpenDetail => {
+            response.on_hover_cursor(egui::CursorIcon::PointingHand)
+        }
     };
     let response = if let Some(hover_text) = spec.hover_text {
         response.on_hover_text(hover_text)
@@ -236,7 +238,9 @@ fn graphlet_preview_positions(
     layout_profile: SwatchLayoutProfile,
 ) -> HashMap<NodeKey, Pos2> {
     match layout_profile {
-        SwatchLayoutProfile::LocalNeighborhood => local_neighborhood_positions(graphlet, preview_nodes, rect),
+        SwatchLayoutProfile::LocalNeighborhood => {
+            local_neighborhood_positions(graphlet, preview_nodes, rect)
+        }
     }
 }
 

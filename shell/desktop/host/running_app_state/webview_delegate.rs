@@ -12,9 +12,9 @@ use std::rc::Rc;
 
 use servo::{
     AuthenticationRequest, BluetoothDeviceSelectionRequest, ConsoleLogLevel,
-    CreateNewWebViewRequest, DeviceIntPoint, DeviceIntSize, EmbedderControl,
-    EmbedderControlId, InputEventId, InputEventResult, LoadStatus, MediaSessionEvent,
-    PermissionRequest, TraversalId, WebDriverLoadStatus, WebView, WebViewDelegate,
+    CreateNewWebViewRequest, DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId,
+    InputEventId, InputEventResult, LoadStatus, MediaSessionEvent, PermissionRequest, TraversalId,
+    WebDriverLoadStatus, WebView, WebViewDelegate,
 };
 use url::Url;
 
@@ -212,4 +212,3 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
             .notify_accessibility_tree_update(webview, tree_update);
     }
 }
-

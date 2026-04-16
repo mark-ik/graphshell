@@ -356,6 +356,7 @@ mod tests {
                     label_culling_enabled: true,
                     edge_lod: EdgeLodPolicy::SkipLabels,
                 },
+                use_graph_canvas_renderer: false,
                 subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
@@ -466,4 +467,3 @@ mod tests {
         assert!(resolution.profile.should_capture_wheel_zoom(true));
     }
 }
-

@@ -1,6 +1,6 @@
 use super::*;
-use crate::shell::desktop::workbench::graph_tree_dual_write as dual_write;
 use crate::shell::desktop::workbench::graph_tree_commands;
+use crate::shell::desktop::workbench::graph_tree_dual_write as dual_write;
 use crate::util::CoordBridge;
 
 pub(super) fn handle_open_tool_pane_intent(
@@ -204,9 +204,7 @@ fn focus_node_presentation(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) -
     })
 }
 
-fn active_visible_graph_view_id(
-    tiles_tree: &Tree<TileKind>,
-) -> Option<crate::app::GraphViewId> {
+fn active_visible_graph_view_id(tiles_tree: &Tree<TileKind>) -> Option<crate::app::GraphViewId> {
     tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
         let tile = tiles_tree.tiles.get(tile_id)?;
         match tile {
@@ -234,7 +232,15 @@ fn graph_view_id_for_navigation(
             })
         })
         .or(graph_app.workspace.graph_runtime.focused_view)
-        .or_else(|| graph_app.workspace.graph_runtime.views.keys().next().copied())
+        .or_else(|| {
+            graph_app
+                .workspace
+                .graph_runtime
+                .views
+                .keys()
+                .next()
+                .copied()
+        })
 }
 
 fn offscreen_visible_graph_view_for_node(
@@ -384,7 +390,13 @@ pub(super) fn handle_switch_navigator_node_surface_intent(
             crate::app::CameraCommand::FitSelection,
         );
     } else {
-        handle_activate_navigator_node_intent(graph_app, tiles_tree, graph_tree.as_deref_mut(), node_key, None);
+        handle_activate_navigator_node_intent(
+            graph_app,
+            tiles_tree,
+            graph_tree.as_deref_mut(),
+            node_key,
+            None,
+        );
     }
 }
 
@@ -763,4 +775,3 @@ pub(super) fn handle_collapse_semantic_tab_group_to_pane_rest_intent(
         });
     }
 }
-

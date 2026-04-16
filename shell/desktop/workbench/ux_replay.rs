@@ -153,7 +153,11 @@ impl HostEvent {
             HostEvent::Text(t) => {
                 vec![egui::Event::Text(t.clone())]
             }
-            HostEvent::Key { key, pressed, modifiers } => {
+            HostEvent::Key {
+                key,
+                pressed,
+                modifiers,
+            } => {
                 // Simplified key mapping for structural tests to avoid huge switch matching
                 let egui_key = match key.as_str() {
                     "Enter" => Some(egui::Key::Enter),

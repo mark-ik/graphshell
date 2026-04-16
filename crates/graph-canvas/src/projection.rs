@@ -68,8 +68,12 @@ pub enum ViewDimension {
 pub enum ProjectionMode {
     #[default]
     TwoD,
-    TwoPointFive { z_source: ZSource },
-    Isometric { z_source: ZSource },
+    TwoPointFive {
+        z_source: ZSource,
+    },
+    Isometric {
+        z_source: ZSource,
+    },
     /// Architecture-only placeholder. Not renderable until a 3D program is
     /// defined.
     Standard,
@@ -230,14 +234,12 @@ pub fn project_position(
                 depth_scale: 1.0,
             }
         }
-        ProjectionMode::Standard => {
-            ProjectedPosition {
-                x: world_pos.x,
-                y: world_pos.y,
-                depth: 0.0,
-                depth_scale: 1.0,
-            }
-        }
+        ProjectionMode::Standard => ProjectedPosition {
+            x: world_pos.x,
+            y: world_pos.y,
+            depth: 0.0,
+            depth_scale: 1.0,
+        },
     }
 }
 
@@ -260,7 +262,10 @@ mod tests {
     #[test]
     fn projection_from_twod() {
         let dim = ViewDimension::TwoD;
-        assert_eq!(ProjectionMode::from_view_dimension(&dim), ProjectionMode::TwoD);
+        assert_eq!(
+            ProjectionMode::from_view_dimension(&dim),
+            ProjectionMode::TwoD
+        );
     }
 
     #[test]
@@ -444,4 +449,3 @@ mod tests {
         }
     }
 }
-

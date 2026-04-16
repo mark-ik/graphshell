@@ -100,4 +100,3 @@ fn try_as_search_page(request: &str, searchpage: &str) -> Option<ServoUrl> {
     }
     ServoUrl::parse(&searchpage.replace("%s", request)).ok()
 }
-

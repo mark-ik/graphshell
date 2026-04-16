@@ -44,11 +44,7 @@ pub(crate) struct EmbeddedViewerContext<'a> {
 /// `EmbeddedViewerRegistry` rather than an inline `if/else` chain.
 pub(crate) trait EmbeddedViewer {
     fn viewer_id(&self) -> &'static str;
-    fn render(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput;
+    fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput;
 }
 
 /// Registry mapping viewer IDs to concrete `EmbeddedViewer` trait objects.
@@ -95,11 +91,7 @@ impl EmbeddedViewer for SettingsViewer {
     fn viewer_id(&self) -> &'static str {
         "viewer:settings"
     }
-    fn render(
-        &self,
-        _ui: &mut egui::Ui,
-        _ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput {
+    fn render(&self, _ui: &mut egui::Ui, _ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput {
         // Settings rendering requires access to GraphBrowserApp and is handled
         // specially in tile_behavior dispatch; this trait impl exists so the
         // viewer ID is recognized by the registry.
@@ -113,11 +105,7 @@ impl EmbeddedViewer for FallbackViewer {
     fn viewer_id(&self) -> &'static str {
         "viewer:fallback"
     }
-    fn render(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput {
+    fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput {
         ui.colored_label(
             egui::Color32::from_rgb(220, 180, 60),
             "No dedicated viewer is available for this content yet.",
@@ -354,7 +342,9 @@ impl ViewerRegistry {
         // Magic-byte fallback for local files when no MIME hint and no extension match.
         if mime_hint.is_none() {
             if let crate::graph::AddressKind::File = crate::graph::address_kind_from_url(uri) {
-                if let Ok(path) = crate::shell::desktop::workbench::tile_behavior::file_path_from_node_url(uri) {
+                if let Ok(path) =
+                    crate::shell::desktop::workbench::tile_behavior::file_path_from_node_url(uri)
+                {
                     if let Ok(mut file) = std::fs::File::open(&path) {
                         let mut buf = [0u8; 512];
                         let n = std::io::Read::read(&mut file, &mut buf).unwrap_or(0);
@@ -522,14 +512,19 @@ fn render_mode_for_viewer_id(viewer_id: &str) -> ViewerRenderMode {
     match viewer_id {
         "viewer:webview" => ViewerRenderMode::CompositedTexture,
         "viewer:wry" => ViewerRenderMode::NativeOverlay,
-        "viewer:middlenet" | "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
-        | "viewer:settings" | "viewer:metadata" | "viewer:audio" => ViewerRenderMode::EmbeddedEgui,
+        "viewer:middlenet" | "viewer:plaintext" | "viewer:markdown" | "viewer:pdf"
+        | "viewer:csv" | "viewer:settings" | "viewer:metadata" | "viewer:audio" => {
+            ViewerRenderMode::EmbeddedEgui
+        }
         _ => ViewerRenderMode::Placeholder,
     }
 }
 
 fn middlenet_viewer_for_uri_scheme(uri: &str) -> Option<&'static str> {
-    match uri.split_once(':').map(|(scheme, _)| scheme.to_ascii_lowercase()) {
+    match uri
+        .split_once(':')
+        .map(|(scheme, _)| scheme.to_ascii_lowercase())
+    {
         Some(scheme)
             if matches!(
                 scheme.as_str(),
@@ -779,8 +774,10 @@ mod tests {
     #[test]
     fn viewer_registry_selects_middlenet_for_json_feed_mime() {
         let registry = ViewerRegistry::default();
-        let selection =
-            registry.select_for_uri("https://example.com/feed.jsonfeed", Some("application/feed+json"));
+        let selection = registry.select_for_uri(
+            "https://example.com/feed.jsonfeed",
+            Some("application/feed+json"),
+        );
 
         assert_eq!(selection.viewer_id, "viewer:middlenet");
         assert!(!selection.fallback_used);
@@ -932,4 +929,3 @@ mod tests {
         }));
     }
 }
-

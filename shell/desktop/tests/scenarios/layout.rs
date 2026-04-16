@@ -392,4 +392,3 @@ fn pane_close_handoff_restores_graph_pane_focus_deterministically() {
         "graph pane should hold focus after node pane closures"
     );
 }
-

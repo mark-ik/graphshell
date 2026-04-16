@@ -91,4 +91,3 @@ impl WindowRuntimeState {
         self.needs_repaint.take()
     }
 }
-

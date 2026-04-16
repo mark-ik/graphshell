@@ -35,4 +35,3 @@ fn uxtree_graph_semantic_parity_matches_graph_model_count() {
         "selected graph node should be marked selected in semantic layer"
     );
 }
-

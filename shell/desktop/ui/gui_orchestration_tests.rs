@@ -5,10 +5,9 @@ use crate::app::{
 use crate::graph::NodeKey;
 use crate::services::persistence::types::NodeAuditEventKind;
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
-    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED,
-    CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED,
-    CHANNEL_UX_FOCUS_CAPTURE_ENTER, CHANNEL_UX_FOCUS_CAPTURE_EXIT,
+    CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK, CHANNEL_UX_CONTRACT_WARNING,
+    CHANNEL_UX_DISPATCH_CONSUMED, CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE,
+    CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_FOCUS_CAPTURE_ENTER, CHANNEL_UX_FOCUS_CAPTURE_EXIT,
     CHANNEL_UX_FOCUS_REALIZATION_MISMATCH, CHANNEL_UX_FOCUS_RETURN_FALLBACK,
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
@@ -2702,7 +2701,11 @@ fn prime_focus_authority_for_workbench_overlay_prefers_last_non_graph_pane() {
     let graph = tiles.insert_pane(graph_pane(graph_view));
     let node = tiles.insert_pane(node_tile);
     let root = tiles.insert_tab_tile(vec![graph, node]);
-    let tree = Tree::new("prime_workbench_overlay_non_graph_focus_authority", root, tiles);
+    let tree = Tree::new(
+        "prime_workbench_overlay_non_graph_focus_authority",
+        root,
+        tiles,
+    );
     let mut app = GraphBrowserApp::new_for_testing();
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
@@ -2718,10 +2721,12 @@ fn prime_focus_authority_for_workbench_overlay_prefers_last_non_graph_pane() {
 
     assert_eq!(
         focus_authority.semantic_region,
-        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
-            pane_id: Some(node_pane_id),
-            node_key: Some(node_key),
-        })
+        Some(
+            crate::shell::desktop::ui::gui_state::SemanticRegionFocus::NodePane {
+                pane_id: Some(node_pane_id),
+                node_key: Some(node_key),
+            }
+        )
     );
     assert_eq!(
         focus_authority.tool_surface_return_target,
@@ -2820,9 +2825,8 @@ fn authority_realizer_closes_workbench_overlay_and_restores_graph_focus() {
         |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
     );
     focus_authority.tool_surface_return_target = Some(ToolSurfaceReturnTarget::Graph(graph_view));
-    focus_authority.semantic_region = Some(
-        crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { pane_id: None },
-    );
+    focus_authority.semantic_region =
+        Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { pane_id: None });
 
     let mut intents = vec![WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false }];
     super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
@@ -3053,4 +3057,3 @@ fn command_palette_close_invalid_target_emits_command_surface_route_fallback() {
         "fallback restore should preserve the currently active node when palette return target is stale"
     );
 }
-

@@ -24,11 +24,7 @@ impl EmbeddedViewer for AudioEmbeddedViewer {
         "viewer:audio"
     }
 
-    fn render(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput {
+    fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput {
         match render_audio(ui, ctx) {
             Ok(()) => {}
             Err(err) => {
@@ -50,11 +46,10 @@ enum AudioAction {
 }
 
 fn render_audio(ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> Result<(), String> {
-    let path =
-        crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
-            ctx.node_url,
-            ctx.file_access_policy,
-        )?;
+    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
+        ctx.node_url,
+        ctx.file_access_policy,
+    )?;
     let path_str = path.to_string_lossy().to_string();
     let node_key = ctx.node_key;
 
@@ -70,17 +65,17 @@ fn render_audio(ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> Result<()
     if needs_init {
         let duration = probe_duration(&path);
 
-        let (stream, stream_handle) = rodio::OutputStream::try_default()
-            .map_err(|e| format!("Audio output error: {e}"))?;
-        let sink = rodio::Sink::try_new(&stream_handle)
-            .map_err(|e| format!("Audio sink error: {e}"))?;
+        let (stream, stream_handle) =
+            rodio::OutputStream::try_default().map_err(|e| format!("Audio output error: {e}"))?;
+        let sink =
+            rodio::Sink::try_new(&stream_handle).map_err(|e| format!("Audio sink error: {e}"))?;
         sink.pause();
 
         let file = std::fs::File::open(&path)
             .map_err(|e| format!("Failed to open '{}': {e}", path.display()))?;
         let reader = BufReader::new(file);
-        let source = rodio::Decoder::new(reader)
-            .map_err(|e| format!("Failed to decode audio: {e}"))?;
+        let source =
+            rodio::Decoder::new(reader).map_err(|e| format!("Failed to decode audio: {e}"))?;
         sink.append(source);
 
         AUDIO_STATES.with(|states| {
@@ -111,10 +106,7 @@ fn render_audio(ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> Result<()
     });
 
     // Phase 3 — draw transport controls.
-    let file_name = path_str
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(&path_str);
+    let file_name = path_str.rsplit(['/', '\\']).next().unwrap_or(&path_str);
 
     let duration_label = duration
         .map(|d| {
@@ -214,4 +206,3 @@ fn probe_duration(path: &std::path::Path) -> Option<std::time::Duration> {
             + std::time::Duration::from_secs_f64(time.frac),
     )
 }
-

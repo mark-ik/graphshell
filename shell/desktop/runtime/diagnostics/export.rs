@@ -52,4 +52,3 @@ impl DiagnosticsState {
         Ok(path)
     }
 }
-

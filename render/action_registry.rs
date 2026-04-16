@@ -259,9 +259,7 @@ impl ActionId {
             Self::GraphPhysicsConfig => &[input_action::workbench::OPEN_PHYSICS_SETTINGS],
             Self::GraphCommandPalette => &[input_action::graph::COMMAND_PALETTE_OPEN],
             Self::GraphRadialMenu => &[input_action::graph::RADIAL_MENU_OPEN],
-            Self::WorkbenchToggleOverlay => {
-                &[input_action::workbench::TOGGLE_WORKBENCH_OVERLAY]
-            }
+            Self::WorkbenchToggleOverlay => &[input_action::workbench::TOGGLE_WORKBENCH_OVERLAY],
             Self::PersistUndo => &[input_action::workbench::UNDO],
             Self::PersistRedo => &[input_action::workbench::REDO],
             Self::PersistOpenHistoryManager => &[input_action::workbench::OPEN_HISTORY_MANAGER],
@@ -962,18 +960,18 @@ mod tests {
                 .find(|e| e.id == ActionId::NodeImportWebFinger)
                 .is_some_and(|entry| !entry.enabled)
         );
-            assert!(
-                entries
+        assert!(
+            entries
                 .iter()
                 .find(|e| e.id == ActionId::NodeResolveNip05)
                 .is_some_and(|entry| !entry.enabled)
-            );
-            assert!(
-                entries
-                    .iter()
-                    .find(|e| e.id == ActionId::NodeRefreshPersonIdentity)
-                    .is_some_and(|entry| !entry.enabled)
-            );
+        );
+        assert!(
+            entries
+                .iter()
+                .find(|e| e.id == ActionId::NodeRefreshPersonIdentity)
+                .is_some_and(|entry| !entry.enabled)
+        );
     }
 
     #[test]
@@ -1381,10 +1379,18 @@ mod tests {
         let entry = entries
             .iter()
             .find(|entry| entry.id == ActionId::WorkbenchToggleOverlay)
-            .unwrap_or_else(|| panic!("missing action entry for {:?}", ActionId::WorkbenchToggleOverlay));
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing action entry for {:?}",
+                    ActionId::WorkbenchToggleOverlay
+                )
+            });
 
         assert!(entry.enabled);
-        assert_eq!(ActionId::WorkbenchToggleOverlay.category(), ActionCategory::Graph);
+        assert_eq!(
+            ActionId::WorkbenchToggleOverlay.category(),
+            ActionCategory::Graph
+        );
     }
 
     #[test]
@@ -1395,10 +1401,7 @@ mod tests {
                 ActionId::NodeImportWebFinger,
                 ["Import", "WebFinger"].as_slice(),
             ),
-            (
-                ActionId::NodeResolveNip05,
-                ["Resolve", "NIP-05"].as_slice(),
-            ),
+            (ActionId::NodeResolveNip05, ["Resolve", "NIP-05"].as_slice()),
             (
                 ActionId::NodeResolveMatrix,
                 ["Resolve", "Matrix"].as_slice(),
@@ -1452,4 +1455,3 @@ mod tests {
         }
     }
 }
-

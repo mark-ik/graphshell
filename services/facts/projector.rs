@@ -253,4 +253,3 @@ mod tests {
         assert_ne!(facts_a[0].envelope.fact_id, facts_b[0].envelope.fact_id);
     }
 }
-

@@ -58,4 +58,3 @@ pub enum CanvasInputEvent {
     /// Pointer left the canvas area.
     PointerLeft,
 }
-

@@ -88,4 +88,3 @@ impl WebXrRegistry for XrDiscoveryWebXrRegistry {
         }
     }
 }
-

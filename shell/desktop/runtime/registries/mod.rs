@@ -59,10 +59,10 @@ use crate::registries::domain::layout::viewer_surface::ViewerSurfaceResolution;
 use crate::registries::domain::presentation::{
     PresentationDomainProfileResolution, PresentationDomainRegistry,
 };
+use crate::registries::infrastructure::mod_loader::ModActivationError;
 use crate::registries::infrastructure::{
     ModExtensionRecord, ModRegistry, ModUnloadError, WasmModSource,
 };
-use crate::registries::infrastructure::mod_loader::ModActivationError;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use action::{
@@ -1333,13 +1333,12 @@ impl RegistryRuntime {
     ) -> Result<Vec<ModExtensionRecord>, ModActivationError> {
         match manifest.mod_type {
             crate::registries::infrastructure::mod_loader::ModType::Wasm => {
-                let source = wasm_source
-                    .ok_or_else(|| {
-                        ModActivationError::failed(format!(
-                            "missing wasm source for {}",
-                            manifest.mod_id
-                        ))
-                    })?;
+                let source = wasm_source.ok_or_else(|| {
+                    ModActivationError::failed(format!(
+                        "missing wasm source for {}",
+                        manifest.mod_id
+                    ))
+                })?;
                 crate::mods::wasm::activate_mod_headless(manifest, source)
                     .map_err(ModActivationError::failed)?;
                 Ok(vec![ModExtensionRecord::WasmRuntime {
@@ -1349,8 +1348,9 @@ impl RegistryRuntime {
             crate::registries::infrastructure::mod_loader::ModType::Native => {
                 match manifest.mod_id.as_str() {
                     "mod:verso" | "verso" => Ok(register_verso_mod_extensions(dynamic)),
-                    "mod:verse" | "verse" => register_verse_mod_extensions(dynamic)
-                        .map_err(ModActivationError::failed),
+                    "mod:verse" | "verse" => {
+                        register_verse_mod_extensions(dynamic).map_err(ModActivationError::failed)
+                    }
                     _ => {
                         let activations = crate::registries::infrastructure::mod_activation::NativeModActivations::new();
                         activations
@@ -1721,9 +1721,7 @@ impl RegistryRuntime {
                 .active_workflow_id()
                 .map(str::to_string),
             app_lens_id: graph_app.default_registry_lens_id().map(str::to_string),
-            app_physics_id: graph_app
-                .default_registry_physics_id()
-                .map(str::to_string),
+            app_physics_id: graph_app.default_registry_physics_id().map(str::to_string),
             app_theme_id: graph_app.default_registry_theme_id().map(str::to_string),
         };
 
@@ -1782,12 +1780,9 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .set_active_profile(&savepoint.workbench_profile_id);
-        graph_app
-            .set_default_registry_lens_id(savepoint.app_lens_id.as_deref());
-        graph_app
-            .set_default_registry_physics_id(savepoint.app_physics_id.as_deref());
-        graph_app
-            .set_default_registry_theme_id(savepoint.app_theme_id.as_deref());
+        graph_app.set_default_registry_lens_id(savepoint.app_lens_id.as_deref());
+        graph_app.set_default_registry_physics_id(savepoint.app_physics_id.as_deref());
+        graph_app.set_default_registry_theme_id(savepoint.app_theme_id.as_deref());
         self.workflow
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -3400,9 +3395,7 @@ pub(crate) fn phase3_apply_runtime_action_dispatch(
                         },
                     })?;
             }
-            RuntimeAction::PublishSettingsRouteRequested {
-                url,
-            } => {
+            RuntimeAction::PublishSettingsRouteRequested { url } => {
                 runtime().publish_settings_route_requested(url);
             }
         }
@@ -5515,9 +5508,8 @@ mod tests {
         let observed = Arc::new(Mutex::new(Vec::new()));
         let seen = Arc::clone(&observed);
         let observer_id = phase3_subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
-            if let SignalKind::RegistryEvent(RegistryEventSignal::SettingsRouteRequested {
-                url,
-            }) = &signal.kind
+            if let SignalKind::RegistryEvent(RegistryEventSignal::SettingsRouteRequested { url }) =
+                &signal.kind
             {
                 seen.lock()
                     .expect("observer lock poisoned")
@@ -5773,4 +5765,3 @@ mod tests {
         );
     }
 }
-

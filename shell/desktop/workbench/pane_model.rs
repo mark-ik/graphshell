@@ -701,4 +701,3 @@ mod tests {
         assert!(view.node_key().is_none());
     }
 }
-

@@ -16,10 +16,9 @@ use keyboard_types::ShortcutMatcher;
 use log::{debug, info, warn};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 use servo::{
-    AuthenticationRequest, Cursor, DeviceIndependentIntRect, DeviceIndependentPixel,
-    BluetoothDeviceSelectionRequest,
-    DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint, EmbedderControl,
-    EmbedderControlId, ImeEvent, InputEvent, InputEventId, InputEventResult,
+    AuthenticationRequest, BluetoothDeviceSelectionRequest, Cursor, DeviceIndependentIntRect,
+    DeviceIndependentPixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint,
+    EmbedderControl, EmbedderControlId, ImeEvent, InputEvent, InputEventId, InputEventResult,
     InputMethodControl, KeyboardEvent, MouseLeftViewportEvent, OffscreenRenderingContext,
     PermissionRequest, RenderingContext, ScreenGeometry, Theme, TouchEvent, TouchEventType,
     TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
@@ -53,9 +52,9 @@ use crate::shell::desktop::host::window::{
     PlatformWindow, PlatformWindowDialogs, PlatformWindowOps, PlatformWindowRendering,
     PlatformWindowSignals,
 };
+use crate::shell::desktop::render_backend::UiHostRenderBootstrap;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
-use crate::shell::desktop::render_backend::UiHostRenderBootstrap;
 use crate::shell::desktop::ui::dialog::Dialog;
 use crate::shell::desktop::ui::gui::Gui;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarNavAction;
@@ -435,7 +434,10 @@ impl HeadedWindow {
                     window.retarget_input_to_webview(webview_id);
                     self.gui
                         .borrow_mut()
-                        .request_toolbar_nav_action_for_webview(webview_id, ToolbarNavAction::Forward);
+                        .request_toolbar_nav_action_for_webview(
+                            webview_id,
+                            ToolbarNavAction::Forward,
+                        );
                     window.set_needs_update();
                 }
                 consumed = true;
@@ -1217,7 +1219,10 @@ impl PlatformWindowSignals for HeadedWindow {
                     .set_embedded_content_focus_webview(Some(webview.id()));
                 self.gui
                     .borrow_mut()
-                    .request_toolbar_nav_action_for_webview(webview.id(), ToolbarNavAction::ZoomOut);
+                    .request_toolbar_nav_action_for_webview(
+                        webview.id(),
+                        ToolbarNavAction::ZoomOut,
+                    );
             })
             .shortcut(CMD_OR_CONTROL, '0', || {
                 self.gui
@@ -1225,7 +1230,10 @@ impl PlatformWindowSignals for HeadedWindow {
                     .set_embedded_content_focus_webview(Some(webview.id()));
                 self.gui
                     .borrow_mut()
-                    .request_toolbar_nav_action_for_webview(webview.id(), ToolbarNavAction::ZoomReset);
+                    .request_toolbar_nav_action_for_webview(
+                        webview.id(),
+                        ToolbarNavAction::ZoomReset,
+                    );
             });
     }
 
@@ -1346,4 +1354,3 @@ mod tests {
         assert!(!input_routing::is_graph_control_shortcut(KeyCode::KeyQ));
     }
 }
-

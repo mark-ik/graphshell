@@ -278,7 +278,10 @@ fn sector_a_content_pipeline_routes_gemini_node_to_middlenet_viewer() {
     let viewer_surface =
         registries::phase3_resolve_viewer_surface_profile(decision.viewer.viewer_id);
 
-    assert_eq!(decision.protocol.inferred_mime_hint.as_deref(), Some("text/gemini"));
+    assert_eq!(
+        decision.protocol.inferred_mime_hint.as_deref(),
+        Some("text/gemini")
+    );
     assert_eq!(decision.viewer.viewer_id, "viewer:middlenet");
     assert_eq!(
         viewer_surface.resolved_id,
@@ -685,4 +688,3 @@ fn diagnostics_channel_config_update_emits_config_changed_channel() {
         "diagnostics config update should emit config changed channel"
     );
 }
-

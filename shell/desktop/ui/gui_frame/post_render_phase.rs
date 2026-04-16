@@ -27,8 +27,10 @@ fn workbench_area_max_width(available_rect: egui::Rect) -> f32 {
 }
 
 fn workbench_area_default_width(available_rect: egui::Rect) -> f32 {
-    (available_rect.width() * WORKBENCH_AREA_DEFAULT_FRACTION)
-        .clamp(WORKBENCH_AREA_MIN_WIDTH, workbench_area_max_width(available_rect))
+    (available_rect.width() * WORKBENCH_AREA_DEFAULT_FRACTION).clamp(
+        WORKBENCH_AREA_MIN_WIDTH,
+        workbench_area_max_width(available_rect),
+    )
 }
 
 fn workbench_overlay_max_size(available_rect: egui::Rect) -> egui::Vec2 {
@@ -48,21 +50,17 @@ fn workbench_overlay_default_size(available_rect: egui::Rect) -> egui::Vec2 {
     )
 }
 
-fn clamp_workbench_overlay_size(
-    available_rect: egui::Rect,
-    size: egui::Vec2,
-) -> egui::Vec2 {
+fn clamp_workbench_overlay_size(available_rect: egui::Rect, size: egui::Vec2) -> egui::Vec2 {
     let max_size = workbench_overlay_max_size(available_rect);
     egui::vec2(
-        size.x.clamp(WORKBENCH_OVERLAY_MIN_WIDTH.min(max_size.x), max_size.x),
-        size.y.clamp(WORKBENCH_OVERLAY_MIN_HEIGHT.min(max_size.y), max_size.y),
+        size.x
+            .clamp(WORKBENCH_OVERLAY_MIN_WIDTH.min(max_size.x), max_size.x),
+        size.y
+            .clamp(WORKBENCH_OVERLAY_MIN_HEIGHT.min(max_size.y), max_size.y),
     )
 }
 
-fn workbench_overlay_default_pos(
-    available_rect: egui::Rect,
-    size: egui::Vec2,
-) -> egui::Pos2 {
+fn workbench_overlay_default_pos(available_rect: egui::Rect, size: egui::Vec2) -> egui::Pos2 {
     egui::pos2(
         available_rect.right() - size.x - WORKBENCH_OVERLAY_MARGIN,
         available_rect.center().y - size.y * 0.5,
@@ -414,10 +412,10 @@ pub(crate) fn run_post_render_phase<FActive>(
         let overlay_drag_origin_id = egui::Id::new("workbench_overlay_drag_origin");
         let overlay_resize_origin_id = egui::Id::new("workbench_overlay_resize_origin");
         let stored_overlay_pos = ctx.data_mut(|d| d.get_persisted::<egui::Pos2>(overlay_pos_id));
-        let stored_overlay_size =
-            ctx.data_mut(|d| d.get_persisted::<egui::Vec2>(overlay_size_id));
+        let stored_overlay_size = ctx.data_mut(|d| d.get_persisted::<egui::Vec2>(overlay_size_id));
         let overlay_default_size = workbench_overlay_default_size(available_rect);
-        let overlay_default_pos = workbench_overlay_default_pos(available_rect, overlay_default_size);
+        let overlay_default_pos =
+            workbench_overlay_default_pos(available_rect, overlay_default_size);
         let overlay_default_rect =
             egui::Rect::from_min_size(overlay_default_pos, overlay_default_size);
         let overlay_rect =
@@ -447,9 +445,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         .is_some_and(|pos| !overlay_rect.contains(pos));
                 if clicked_outside_overlay {
                     graph_app.enqueue_workbench_intent(
-                        crate::app::WorkbenchIntent::SetWorkbenchOverlayVisible {
-                            visible: false,
-                        },
+                        crate::app::WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false },
                     );
                 }
             });
@@ -603,11 +599,8 @@ pub(crate) fn run_post_render_phase<FActive>(
             next_overlay_size = overlay_default_rect.size();
         }
         let clamped_overlay_size = clamp_workbench_overlay_size(available_rect, next_overlay_size);
-        let clamped_overlay_pos = clamp_workbench_overlay_pos(
-            available_rect,
-            clamped_overlay_size,
-            next_overlay_pos,
-        );
+        let clamped_overlay_pos =
+            clamp_workbench_overlay_pos(available_rect, clamped_overlay_size, next_overlay_pos);
         ctx.data_mut(|d| {
             d.insert_persisted(overlay_pos_id, clamped_overlay_pos);
             d.insert_persisted(overlay_size_id, clamped_overlay_size);
@@ -752,10 +745,14 @@ fn import_bookmarks_from_path(
     let imported_count = batch.items.len();
     let label = batch.run.user_visible_label.clone();
     graph_app.apply_browser_import_batch(&batch, None);
-    toasts.success(format!("Imported {imported_count} bookmark item(s) from {label}"));
+    toasts.success(format!(
+        "Imported {imported_count} bookmark item(s) from {label}"
+    ));
 }
 
-fn bookmark_import_run_for_path(path: &std::path::Path) -> crate::services::import::BrowserImportRun {
+fn bookmark_import_run_for_path(
+    path: &std::path::Path,
+) -> crate::services::import::BrowserImportRun {
     let observed_at_unix_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -769,9 +766,7 @@ fn bookmark_import_run_for_path(path: &std::path::Path) -> crate::services::impo
     let stable_token = sanitize_bookmark_import_token(file_name);
 
     crate::services::import::BrowserImportRun {
-        import_id: format!(
-            "import-run:bookmark-file:{stable_token}:{observed_at_unix_secs}"
-        ),
+        import_id: format!("import-run:bookmark-file:{stable_token}:{observed_at_unix_secs}"),
         source: crate::services::import::BrowserImportSource {
             browser_family: crate::services::import::BrowserFamily::Other(
                 "bookmark-file".to_string(),
@@ -912,10 +907,8 @@ mod tests {
 
     #[test]
     fn workbench_area_default_width_uses_large_resizable_footprint() {
-        let available_rect = egui::Rect::from_min_max(
-            egui::pos2(0.0, 0.0),
-            egui::pos2(1600.0, 900.0),
-        );
+        let available_rect =
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1600.0, 900.0));
 
         let default_width = workbench_area_default_width(available_rect);
         let max_width = workbench_area_max_width(available_rect);
@@ -927,10 +920,8 @@ mod tests {
 
     #[test]
     fn workbench_overlay_rect_clamps_saved_layout_into_visible_bounds() {
-        let available_rect = egui::Rect::from_min_max(
-            egui::pos2(40.0, 30.0),
-            egui::pos2(1040.0, 730.0),
-        );
+        let available_rect =
+            egui::Rect::from_min_max(egui::pos2(40.0, 30.0), egui::pos2(1040.0, 730.0));
 
         let rect = workbench_overlay_rect(
             available_rect,
@@ -946,10 +937,8 @@ mod tests {
 
     #[test]
     fn workbench_overlay_rect_defaults_to_right_aligned_overlay() {
-        let available_rect = egui::Rect::from_min_max(
-            egui::pos2(0.0, 0.0),
-            egui::pos2(1400.0, 900.0),
-        );
+        let available_rect =
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1400.0, 900.0));
 
         let rect = workbench_overlay_rect(available_rect, None, None);
         let default_size = workbench_overlay_default_size(available_rect);
@@ -959,4 +948,3 @@ mod tests {
         assert!((rect.center().y - available_rect.center().y).abs() <= 1.0);
     }
 }
-

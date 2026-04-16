@@ -81,7 +81,9 @@ impl GraphBrowserApp {
         let node = self.domain_graph().get_node(node_key)?;
         if node.address.address_kind() == crate::graph::AddressKind::GraphshellClip {
             return Some(clip_data_url(
-                self.clip_content_facet_for_node(node_key)?.document_html.as_str(),
+                self.clip_content_facet_for_node(node_key)?
+                    .document_html
+                    .as_str(),
             ));
         }
         Some(node.url().to_string())
@@ -285,10 +287,8 @@ impl GraphBrowserApp {
         let graph = &mut self.workspace.domain.graph;
         let _ = graph.set_node_title(clip_key, clip_title);
         let _ = graph.insert_node_tag(clip_key, Self::TAG_CLIP.to_string());
-        let _ = graph.set_node_form_draft(
-            clip_key,
-            Some(serialize_clip_content_facet(&clip_facet)),
-        );
+        let _ =
+            graph.set_node_form_draft(clip_key, Some(serialize_clip_content_facet(&clip_facet)));
         let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
         let _ = graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
         for inherited in &inherited_classifications {
@@ -356,7 +356,10 @@ fn clip_content_facet_from_node(node: &crate::graph::Node) -> Option<ClipContent
 
     let source_url = node
         .history_entries
-        .get(node.history_index.min(node.history_entries.len().saturating_sub(1)))
+        .get(
+            node.history_index
+                .min(node.history_entries.len().saturating_sub(1)),
+        )
         .cloned()
         .unwrap_or_default();
     Some(ClipContentFacetData {
@@ -666,9 +669,11 @@ mod tests {
         let clip_facet = app
             .clip_content_facet_for_node(clip_key)
             .expect("clip facet should exist");
-        assert!(clip_facet
-            .document_html
-            .contains("<article><h2>Card</h2></article>"));
+        assert!(
+            clip_facet
+                .document_html
+                .contains("<article><h2>Card</h2></article>")
+        );
 
         let has_clip_edge = app
             .workspace
@@ -845,20 +850,23 @@ mod tests {
         node.session_form_draft = Some("<html><body>legacy clip</body></html>".to_string());
         node.history_entries = vec!["https://example.com/source".to_string()];
 
-        let restored = clip_content_facet_from_node(&node).expect("legacy clip facet should restore");
+        let restored =
+            clip_content_facet_from_node(&node).expect("legacy clip facet should restore");
         assert_eq!(restored.clip_title, "Legacy Clip");
         assert_eq!(restored.source_url, "https://example.com/source");
-        assert_eq!(restored.document_html, "<html><body>legacy clip</body></html>");
+        assert_eq!(
+            restored.document_html,
+            "<html><body>legacy clip</body></html>"
+        );
     }
 
     #[test]
     fn user_visible_clip_node_fields_prefer_facet_metadata_over_internal_route() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let source_key = app
-            .workspace
-            .domain
-            .graph
-            .add_node("https://example.com/source".to_string(), Point2D::new(10.0, 20.0));
+        let source_key = app.workspace.domain.graph.add_node(
+            "https://example.com/source".to_string(),
+            Point2D::new(10.0, 20.0),
+        );
         let webview_id = test_webview_id();
         app.map_webview_to_node(webview_id, source_key);
 
@@ -906,7 +914,10 @@ mod tests {
         node.history_entries = vec![facet.source_url.clone()];
 
         assert_eq!(user_visible_node_title_from_data(&node), "Facet Clip");
-        assert_eq!(user_visible_node_url_from_data(&node), "https://example.com/source");
+        assert_eq!(
+            user_visible_node_url_from_data(&node),
+            "https://example.com/source"
+        );
     }
 
     #[test]
@@ -985,4 +996,3 @@ mod tests {
         assert!(!c.primary, "inherited classification must not be primary");
     }
 }
-

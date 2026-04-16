@@ -17,9 +17,7 @@ use std::collections::HashMap;
 
 use egui::{Color32, RichText, Sense, Stroke, TextStyle, Ui, Vec2};
 
-use graph_tree::{
-    GraphTree, GraphTreeRenderer, Lifecycle, OwnedTreeRow, TabEntry,
-};
+use graph_tree::{GraphTree, GraphTreeRenderer, Lifecycle, OwnedTreeRow, TabEntry};
 
 use crate::graph::NodeKey;
 
@@ -114,10 +112,7 @@ fn render_tree_tabs_impl(
             // Expand/collapse toggle for parent nodes.
             if row.has_children {
                 let arrow = if row.is_expanded { "▼" } else { "▶" };
-                if ui
-                    .add(egui::Button::new(arrow).frame(false))
-                    .clicked()
-                {
+                if ui.add(egui::Button::new(arrow).frame(false)).clicked() {
                     actions.push(graph_tree::NavAction::ToggleExpand(row.member));
                 }
             } else {
@@ -128,7 +123,8 @@ fn render_tree_tabs_impl(
             // Lifecycle badge dot.
             let badge_color = lifecycle_color(lifecycle);
             let (badge_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-            ui.painter().circle_filled(badge_rect.center(), 3.5, badge_color);
+            ui.painter()
+                .circle_filled(badge_rect.center(), 3.5, badge_color);
 
             // Row label — clickable to activate.
             let text = if is_active {
@@ -280,21 +276,17 @@ pub(crate) fn render_graph_tree_chrome(
 
 fn lifecycle_color(lifecycle: Lifecycle) -> Color32 {
     match lifecycle {
-        Lifecycle::Active => Color32::from_rgb(80, 200, 120),  // green
-        Lifecycle::Warm => Color32::from_rgb(255, 180, 60),    // amber
-        Lifecycle::Cold => Color32::from_gray(120),             // gray
+        Lifecycle::Active => Color32::from_rgb(80, 200, 120), // green
+        Lifecycle::Warm => Color32::from_rgb(255, 180, 60),   // amber
+        Lifecycle::Cold => Color32::from_gray(120),           // gray
     }
 }
 
 fn to_egui_rect(r: &graph_tree::Rect) -> egui::Rect {
-    egui::Rect::from_min_size(
-        egui::pos2(r.x, r.y),
-        egui::vec2(r.w, r.h),
-    )
+    egui::Rect::from_min_size(egui::pos2(r.x, r.y), egui::vec2(r.w, r.h))
 }
 
 /// Convert an egui `Rect` to a graph-tree `Rect`.
 pub(crate) fn from_egui_rect(r: egui::Rect) -> graph_tree::Rect {
     graph_tree::Rect::new(r.min.x, r.min.y, r.width(), r.height())
 }
-

@@ -319,9 +319,9 @@ fn command_surface_palette_close_invalid_target_emits_fallback_receipt() {
     let _ = tree.make_active(
         |_, tile| matches!(tile, egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == node_key),
     );
-    app.set_pending_command_surface_return_target(Some(crate::app::ToolSurfaceReturnTarget::Graph(
-        GraphViewId::new(),
-    )));
+    app.set_pending_command_surface_return_target(Some(
+        crate::app::ToolSurfaceReturnTarget::Graph(GraphViewId::new()),
+    ));
 
     let mut intents = vec![WorkbenchIntent::CloseCommandPalette];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -474,4 +474,3 @@ fn degraded_viewer_composited_render_mode_is_not_degraded_in_uxtree() {
         "node pane in CompositedTexture mode must NOT be flagged as degraded in UxTree"
     );
 }
-

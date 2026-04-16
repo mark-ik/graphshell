@@ -189,4 +189,3 @@ mod tests {
         assert!(state.should_refresh(base + Duration::from_secs(31), Duration::from_secs(30)));
     }
 }
-

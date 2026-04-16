@@ -226,10 +226,7 @@ impl SearchProvider for LocalSearchProvider {
                     key,
                     text: format!(
                         "{} {} {} {}",
-                        visible_title,
-                        visible_url,
-                        semantic_tags,
-                        import_search
+                        visible_title, visible_url, semantic_tags, import_search
                     ),
                 }
             })
@@ -482,8 +479,8 @@ fn text_relevance(query: &str, haystack: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use crate::graph::{ImportRecord, ImportRecordMembership};
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use euclid::default::Point2D;
     use servo::WebViewId;
 
@@ -722,10 +719,8 @@ mod tests {
         let provider = LocalSearchProvider;
         let knowledge = KnowledgeRegistry::default();
         let mut app = GraphBrowserApp::new_for_testing();
-        let source_key = app.add_node_and_sync(
-            "https://example.com/source".into(),
-            Point2D::new(0.0, 0.0),
-        );
+        let source_key =
+            app.add_node_and_sync("https://example.com/source".into(), Point2D::new(0.0, 0.0));
         let webview_id = test_webview_id();
         app.map_webview_to_node(webview_id, source_key);
         let clip_key = app
@@ -750,11 +745,15 @@ mod tests {
             .expect("clip result should be indexed");
 
         assert_eq!(clip_result.title, "Indexed Clip");
-        assert_eq!(clip_result.url.as_deref(), Some("https://example.com/source"));
-        assert!(clip_result
-            .snippet
-            .as_deref()
-            .is_some_and(|snippet| snippet.contains("https://example.com/source")));
+        assert_eq!(
+            clip_result.url.as_deref(),
+            Some("https://example.com/source")
+        );
+        assert!(
+            clip_result
+                .snippet
+                .as_deref()
+                .is_some_and(|snippet| snippet.contains("https://example.com/source"))
+        );
     }
 }
-

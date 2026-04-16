@@ -205,4 +205,3 @@ mod tests {
         assert!(!location_dirty);
     }
 }
-

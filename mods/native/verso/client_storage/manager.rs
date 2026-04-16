@@ -27,4 +27,3 @@ impl ClientStorageManager for NoopClientStorageManager {
         ClientStorageRuntimeSummary::default()
     }
 }
-

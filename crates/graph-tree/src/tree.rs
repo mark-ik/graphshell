@@ -2,16 +2,14 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use crate::MemberId;
+use crate::Rect;
 use crate::graphlet::{GraphletId, GraphletRef};
 use crate::layout::{LayoutMode, LayoutResult, OwnedTreeRow, SplitBoundary, TabEntry};
 use crate::lens::ProjectionLens;
 use crate::member::{LayoutOverride, Lifecycle, MemberEntry, Provenance, SplitDirection};
-use crate::nav::{
-    FocusCycleRegion, FocusDirection, NavAction, NavResult, TreeIntent,
-};
+use crate::nav::{FocusCycleRegion, FocusDirection, NavAction, NavResult, TreeIntent};
 use crate::topology::TreeTopology;
-use crate::MemberId;
-use crate::Rect;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -236,9 +234,7 @@ impl<N: MemberId> GraphTree<N> {
             LayoutMode::TreeStyleTabs | LayoutMode::FlatTabs => {
                 (self.layout_single_pane(&available), Vec::new())
             }
-            LayoutMode::SplitPanes => {
-                self.layout_split_panes(&available)
-            }
+            LayoutMode::SplitPanes => self.layout_split_panes(&available),
         };
 
         LayoutResult {
@@ -274,7 +270,11 @@ impl<N: MemberId> GraphTree<N> {
     fn layout_single_pane(&self, available: &Rect) -> HashMap<N, Rect> {
         let mut rects = HashMap::new();
         if let Some(active) = &self.active {
-            if self.members.get(active).is_some_and(|e| e.is_visible_in_pane()) {
+            if self
+                .members
+                .get(active)
+                .is_some_and(|e| e.is_visible_in_pane())
+            {
                 rects.insert(active.clone(), *available);
             }
         }
@@ -290,7 +290,10 @@ impl<N: MemberId> GraphTree<N> {
     fn layout_split_panes(&self, available: &Rect) -> (HashMap<N, Rect>, Vec<SplitBoundary<N>>) {
         use crate::layout::SplitBoundary;
 
-        let visible_roots: Vec<N> = self.topology.roots().iter()
+        let visible_roots: Vec<N> = self
+            .topology
+            .roots()
+            .iter()
             .filter(|id| self.is_visible_in_pane(id))
             .cloned()
             .collect();
@@ -312,38 +315,56 @@ impl<N: MemberId> GraphTree<N> {
 
         let root_direction = SplitDirection::Horizontal;
 
-        let root_children: Vec<taffy::NodeId> = visible_roots.iter()
-            .map(|id| self.build_subtree(id, root_direction, &mut taffy, &mut taffy_to_member, &mut container_directions))
+        let root_children: Vec<taffy::NodeId> = visible_roots
+            .iter()
+            .map(|id| {
+                self.build_subtree(
+                    id,
+                    root_direction,
+                    &mut taffy,
+                    &mut taffy_to_member,
+                    &mut container_directions,
+                )
+            })
             .collect();
 
-        let root = taffy.new_with_children(
-            taffy::Style {
-                size: taffy::Size {
-                    width: taffy::Dimension::Length(available.w),
-                    height: taffy::Dimension::Length(available.h),
+        let root = taffy
+            .new_with_children(
+                taffy::Style {
+                    size: taffy::Size {
+                        width: taffy::Dimension::Length(available.w),
+                        height: taffy::Dimension::Length(available.h),
+                    },
+                    flex_direction: Self::taffy_direction(root_direction),
+                    ..Default::default()
                 },
-                flex_direction: Self::taffy_direction(root_direction),
-                ..Default::default()
-            },
-            &root_children,
-        ).expect("taffy root");
+                &root_children,
+            )
+            .expect("taffy root");
         container_directions.insert(root, root_direction);
 
-        taffy.compute_layout(
-            root,
-            taffy::Size {
-                width: taffy::AvailableSpace::Definite(available.w),
-                height: taffy::AvailableSpace::Definite(available.h),
-            },
-        ).expect("taffy compute");
+        taffy
+            .compute_layout(
+                root,
+                taffy::Size {
+                    width: taffy::AvailableSpace::Definite(available.w),
+                    height: taffy::AvailableSpace::Definite(available.h),
+                },
+            )
+            .expect("taffy compute");
 
         // Walk the taffy tree to extract absolute rects and split boundaries.
         let mut rects = HashMap::new();
         let mut boundaries = Vec::new();
         self.extract_layout_results(
-            &taffy, root, available.x, available.y,
-            &taffy_to_member, &container_directions,
-            &mut rects, &mut boundaries,
+            &taffy,
+            root,
+            available.x,
+            available.y,
+            &taffy_to_member,
+            &container_directions,
+            &mut rects,
+            &mut boundaries,
         );
         (rects, boundaries)
     }
@@ -364,64 +385,84 @@ impl<N: MemberId> GraphTree<N> {
 
         if visible_children.is_empty() {
             // Leaf — member gets its own pane rect.
-            let leaf = taffy.new_leaf(self.leaf_style_for(member)).expect("taffy leaf");
+            let leaf = taffy
+                .new_leaf(self.leaf_style_for(member))
+                .expect("taffy leaf");
             taffy_to_member.insert(leaf, member.clone());
             return leaf;
         }
 
         // Container: the member itself is the first child (retains a pane rect),
         // followed by recursive subtrees for each visible child.
-        let child_direction = self.members.get(member)
+        let child_direction = self
+            .members
+            .get(member)
             .and_then(|e| e.layout_override.as_ref())
             .and_then(|lo| lo.preferred_split)
             .unwrap_or_else(|| Self::toggle_direction(parent_direction));
 
-        let self_leaf = taffy.new_leaf(self.leaf_style_for(member)).expect("taffy self-leaf");
+        let self_leaf = taffy
+            .new_leaf(self.leaf_style_for(member))
+            .expect("taffy self-leaf");
         taffy_to_member.insert(self_leaf, member.clone());
 
         let mut children = vec![self_leaf];
         for child_id in &visible_children {
-            children.push(self.build_subtree(child_id, child_direction, taffy, taffy_to_member, container_directions));
+            children.push(self.build_subtree(
+                child_id,
+                child_direction,
+                taffy,
+                taffy_to_member,
+                container_directions,
+            ));
         }
 
-        let container = taffy.new_with_children(
-            taffy::Style {
-                flex_direction: Self::taffy_direction(child_direction),
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                ..Default::default()
-            },
-            &children,
-        ).expect("taffy container");
+        let container = taffy
+            .new_with_children(
+                taffy::Style {
+                    flex_direction: Self::taffy_direction(child_direction),
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    ..Default::default()
+                },
+                &children,
+            )
+            .expect("taffy container");
         container_directions.insert(container, child_direction);
         container
     }
 
     /// Build the taffy leaf style for a member, respecting layout overrides.
     fn leaf_style_for(&self, member: &N) -> taffy::Style {
-        let lo = self.members.get(member).and_then(|e| e.layout_override.as_ref());
+        let lo = self
+            .members
+            .get(member)
+            .and_then(|e| e.layout_override.as_ref());
 
-        let (flex_basis, flex_grow, flex_shrink) = if let Some(ratio) = lo.and_then(|o| o.split_ratio) {
-            // Explicit user-set ratio: use flex_basis percentage.
-            (taffy::Dimension::Percent(ratio), 0.0, 1.0)
-        } else {
-            // Default: equal flex distribution.
-            (
-                taffy::Dimension::Auto,
-                lo.and_then(|o| o.flex_grow).unwrap_or(1.0),
-                lo.and_then(|o| o.flex_shrink).unwrap_or(1.0),
-            )
-        };
+        let (flex_basis, flex_grow, flex_shrink) =
+            if let Some(ratio) = lo.and_then(|o| o.split_ratio) {
+                // Explicit user-set ratio: use flex_basis percentage.
+                (taffy::Dimension::Percent(ratio), 0.0, 1.0)
+            } else {
+                // Default: equal flex distribution.
+                (
+                    taffy::Dimension::Auto,
+                    lo.and_then(|o| o.flex_grow).unwrap_or(1.0),
+                    lo.and_then(|o| o.flex_shrink).unwrap_or(1.0),
+                )
+            };
 
         taffy::Style {
             flex_basis,
             flex_grow,
             flex_shrink,
             min_size: taffy::Size {
-                width: lo.and_then(|o| o.min_width)
+                width: lo
+                    .and_then(|o| o.min_width)
                     .map(taffy::Dimension::Length)
                     .unwrap_or(taffy::Dimension::Auto),
-                height: lo.and_then(|o| o.min_height)
+                height: lo
+                    .and_then(|o| o.min_height)
                     .map(taffy::Dimension::Length)
                     .unwrap_or(taffy::Dimension::Auto),
             },
@@ -449,12 +490,15 @@ impl<N: MemberId> GraphTree<N> {
 
         if let Some(member) = taffy_to_member.get(&node) {
             // This is a leaf — record its rect.
-            rects.insert(member.clone(), Rect {
-                x: abs_x,
-                y: abs_y,
-                w: layout.size.width,
-                h: layout.size.height,
-            });
+            rects.insert(
+                member.clone(),
+                Rect {
+                    x: abs_x,
+                    y: abs_y,
+                    w: layout.size.width,
+                    h: layout.size.height,
+                },
+            );
         }
 
         let children = taffy.children(node).unwrap_or_default();
@@ -462,9 +506,14 @@ impl<N: MemberId> GraphTree<N> {
         // Recurse into children first to populate rects.
         for child in &children {
             self.extract_layout_results(
-                taffy, *child, abs_x, abs_y,
-                taffy_to_member, container_directions,
-                rects, boundaries,
+                taffy,
+                *child,
+                abs_x,
+                abs_y,
+                taffy_to_member,
+                container_directions,
+                rects,
+                boundaries,
             );
         }
 
@@ -484,12 +533,21 @@ impl<N: MemberId> GraphTree<N> {
                 // it's the last leaf in the before subtree or first leaf
                 // in the after subtree — but for boundary identity we want
                 // the direct child's representative member.
-                let Some(before_member) = self.first_leaf_member(taffy, before_node, taffy_to_member) else { continue };
-                let Some(after_member) = self.first_leaf_member(taffy, after_node, taffy_to_member) else { continue };
+                let Some(before_member) =
+                    self.first_leaf_member(taffy, before_node, taffy_to_member)
+                else {
+                    continue;
+                };
+                let Some(after_member) = self.first_leaf_member(taffy, after_node, taffy_to_member)
+                else {
+                    continue;
+                };
 
                 let before_rect = rects.get(&before_member);
                 let after_rect = rects.get(&after_member);
-                let (Some(br), Some(ar)) = (before_rect, after_rect) else { continue };
+                let (Some(br), Some(ar)) = (before_rect, after_rect) else {
+                    continue;
+                };
 
                 let (axis_position, cross_start, cross_end) = match direction {
                     SplitDirection::Horizontal => {
@@ -550,11 +608,15 @@ impl<N: MemberId> GraphTree<N> {
     }
 
     fn is_visible_in_pane(&self, member: &N) -> bool {
-        self.members.get(member).is_some_and(|e| e.is_visible_in_pane())
+        self.members
+            .get(member)
+            .is_some_and(|e| e.is_visible_in_pane())
     }
 
     fn visible_children_of(&self, member: &N) -> Vec<N> {
-        self.topology.children_of(member).iter()
+        self.topology
+            .children_of(member)
+            .iter()
             .filter(|c| self.is_visible_in_pane(c))
             .cloned()
             .collect()
@@ -572,27 +634,17 @@ impl<N: MemberId> GraphTree<N> {
             NavAction::Dismiss(member) => self.apply_dismiss(member),
             NavAction::ToggleExpand(member) => self.apply_toggle_expand(member),
             NavAction::Reveal(member) => self.apply_reveal(member),
-            NavAction::Attach { member, provenance } => {
-                self.apply_attach(member, provenance)
-            }
-            NavAction::Detach { member, recursive } => {
-                self.apply_detach(member, recursive)
-            }
-            NavAction::Reparent { member, new_parent } => {
-                self.apply_reparent(member, new_parent)
-            }
-            NavAction::Reorder { parent, new_order } => {
-                self.apply_reorder(parent, new_order)
-            }
+            NavAction::Attach { member, provenance } => self.apply_attach(member, provenance),
+            NavAction::Detach { member, recursive } => self.apply_detach(member, recursive),
+            NavAction::Reparent { member, new_parent } => self.apply_reparent(member, new_parent),
+            NavAction::Reorder { parent, new_order } => self.apply_reorder(parent, new_order),
             NavAction::SetLifecycle(member, lifecycle) => {
                 self.apply_set_lifecycle(member, lifecycle)
             }
             NavAction::SetLayoutMode(mode) => self.apply_set_layout_mode(mode),
             NavAction::SetLens(lens) => self.apply_set_lens(lens),
             NavAction::CycleFocus(direction) => self.apply_cycle_focus(direction),
-            NavAction::CycleFocusRegion(region) => {
-                self.apply_cycle_focus_region(region)
-            }
+            NavAction::CycleFocusRegion(region) => self.apply_cycle_focus_region(region),
             NavAction::SetLayoutOverride(member, layout_override) => {
                 self.apply_set_layout_override(member, layout_override)
             }
@@ -676,21 +728,15 @@ impl<N: MemberId> GraphTree<N> {
             Provenance::Manual {
                 source: Some(source),
                 ..
-            } => {
-                self.topology.attach_sibling(member.clone(), source)
-            }
+            } => self.topology.attach_sibling(member.clone(), source),
             Provenance::Derived {
                 connection: Some(conn),
                 ..
-            } => {
-                self.topology.attach_sibling(member.clone(), conn)
-            }
+            } => self.topology.attach_sibling(member.clone(), conn),
             Provenance::AgentDerived {
                 source: Some(source),
                 ..
-            } => {
-                self.topology.attach_sibling(member.clone(), source)
-            }
+            } => self.topology.attach_sibling(member.clone(), source),
             _ => {
                 // Anchor, Restored, Manual without source, Derived without connection
                 self.topology.attach_root(member.clone())
@@ -843,10 +889,7 @@ impl<N: MemberId> GraphTree<N> {
         NavResult::session(vec![TreeIntent::SelectionChanged(member)])
     }
 
-    fn apply_cycle_focus_region(
-        &mut self,
-        region: FocusCycleRegion,
-    ) -> NavResult<N> {
+    fn apply_cycle_focus_region(&mut self, region: FocusCycleRegion) -> NavResult<N> {
         let candidates: Vec<N> = match region {
             FocusCycleRegion::Roots => self.topology.roots().to_vec(),
             FocusCycleRegion::Branches => self
@@ -1081,16 +1124,17 @@ mod tests {
 
     #[test]
     fn set_lens_emits_intent() {
-        let mut tree =
-            GraphTree::<u64>::new(LayoutMode::TreeStyleTabs, ProjectionLens::Traversal);
+        let mut tree = GraphTree::<u64>::new(LayoutMode::TreeStyleTabs, ProjectionLens::Traversal);
 
         let result = tree.apply(NavAction::SetLens(ProjectionLens::Containment));
         assert!(result.session_changed);
         assert_eq!(tree.active_lens(), &ProjectionLens::Containment);
-        assert!(result
-            .intents
-            .iter()
-            .any(|i| matches!(i, TreeIntent::LensChanged(ProjectionLens::Containment))));
+        assert!(
+            result
+                .intents
+                .iter()
+                .any(|i| matches!(i, TreeIntent::LensChanged(ProjectionLens::Containment)))
+        );
     }
 
     #[test]
@@ -1165,8 +1209,7 @@ mod tests {
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
 
         let json = serde_json::to_string(&tree).expect("serialize");
-        let restored: GraphTree<u64> =
-            serde_json::from_str(&json).expect("deserialize");
+        let restored: GraphTree<u64> = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(restored.member_count(), 2);
         assert_eq!(restored.parent_of(&2), Some(&1));
@@ -1351,11 +1394,17 @@ mod tests {
         // With nested layout, member 1's subtree is a V container.
         // All 3 leaves get full width, split height equally.
         let total_height: f32 = result.pane_rects.values().map(|r| r.h).sum();
-        assert!((total_height - 600.0).abs() < 1.0,
-            "expected total height ~600, got {}", total_height);
+        assert!(
+            (total_height - 600.0).abs() < 1.0,
+            "expected total height ~600, got {}",
+            total_height
+        );
         for (_, r) in &result.pane_rects {
-            assert!((r.w - 900.0).abs() < 1.0,
-                "expected full width ~900, got {}", r.w);
+            assert!(
+                (r.w - 900.0).abs() < 1.0,
+                "expected full width ~900, got {}",
+                r.w
+            );
         }
     }
 
@@ -1374,11 +1423,7 @@ mod tests {
                     || b.x + b.w <= a.x + 0.1
                     || a.y + a.h <= b.y + 0.1
                     || b.y + b.h <= a.y + 0.1;
-                assert!(
-                    no_overlap,
-                    "panes overlap: {:?} and {:?}",
-                    a, b
-                );
+                assert!(no_overlap, "panes overlap: {:?} and {:?}", a, b);
             }
         }
     }
@@ -1447,8 +1492,16 @@ mod tests {
         // Vertical split: both panes should have full width, split height
         let r1 = result.pane_rects.get(&1).expect("member 1 rect");
         let r2 = result.pane_rects.get(&2).expect("member 2 rect");
-        assert!((r1.w - 800.0).abs() < 1.0, "expected full width, got {}", r1.w);
-        assert!((r2.w - 800.0).abs() < 1.0, "expected full width, got {}", r2.w);
+        assert!(
+            (r1.w - 800.0).abs() < 1.0,
+            "expected full width, got {}",
+            r1.w
+        );
+        assert!(
+            (r2.w - 800.0).abs() < 1.0,
+            "expected full width, got {}",
+            r2.w
+        );
         assert!((r1.h + r2.h - 600.0).abs() < 1.0);
     }
 
@@ -1578,8 +1631,14 @@ mod tests {
     fn two_roots_no_children_flat_horizontal_split() {
         // Two independent roots → flat horizontal row.
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
-        tree.apply(NavAction::Attach { member: 2, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
+        tree.apply(NavAction::Attach {
+            member: 2,
+            provenance: Provenance::Anchor,
+        });
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
         tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
 
@@ -1601,14 +1660,23 @@ mod tests {
     fn root_with_children_nested_split() {
         // Root A with children [B, C] → A gets pane, B and C get nested sub-panes.
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 10u64, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 10u64,
+            provenance: Provenance::Anchor,
+        });
         tree.apply(NavAction::Attach {
             member: 20,
-            provenance: Provenance::Traversal { source: 10, edge_kind: None },
+            provenance: Provenance::Traversal {
+                source: 10,
+                edge_kind: None,
+            },
         });
         tree.apply(NavAction::Attach {
             member: 30,
-            provenance: Provenance::Traversal { source: 10, edge_kind: None },
+            provenance: Provenance::Traversal {
+                source: 10,
+                edge_kind: None,
+            },
         });
         tree.apply(NavAction::SetLifecycle(10, Lifecycle::Active));
         tree.apply(NavAction::SetLifecycle(20, Lifecycle::Active));
@@ -1620,26 +1688,41 @@ mod tests {
         // Topology: root(H) → subtree_container(V) → [leaf(10), leaf(20), leaf(30)]
         // All three share vertical space, each gets full width.
         for (_, r) in &result.pane_rects {
-            assert!((r.w - 900.0).abs() < 1.0,
-                "nested children should get full width, got {}", r.w);
+            assert!(
+                (r.w - 900.0).abs() < 1.0,
+                "nested children should get full width, got {}",
+                r.w
+            );
         }
         let total_h: f32 = result.pane_rects.values().map(|r| r.h).sum();
-        assert!((total_h - 600.0).abs() < 1.0,
-            "total height should be ~600, got {}", total_h);
+        assert!(
+            (total_h - 600.0).abs() < 1.0,
+            "total height should be ~600, got {}",
+            total_h
+        );
     }
 
     #[test]
     fn three_levels_deep_nesting() {
         // Root → child → grandchild. Direction alternates H→V→H.
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
         tree.apply(NavAction::Attach {
             member: 2,
-            provenance: Provenance::Traversal { source: 1, edge_kind: None },
+            provenance: Provenance::Traversal {
+                source: 1,
+                edge_kind: None,
+            },
         });
         tree.apply(NavAction::Attach {
             member: 3,
-            provenance: Provenance::Traversal { source: 2, edge_kind: None },
+            provenance: Provenance::Traversal {
+                source: 2,
+                edge_kind: None,
+            },
         });
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
         tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
@@ -1660,59 +1743,97 @@ mod tests {
 
         // Member 1 gets full width, ~half height.
         assert!((r1.w - 800.0).abs() < 1.0, "r1 full width, got {}", r1.w);
-        assert!(r1.h > 100.0 && r1.h < 500.0, "r1 partial height, got {}", r1.h);
+        assert!(
+            r1.h > 100.0 && r1.h < 500.0,
+            "r1 partial height, got {}",
+            r1.h
+        );
 
         // Members 2 and 3 each get ~half width, same height as each other.
         assert!((r2.h - r3.h).abs() < 1.0, "r2 and r3 same height");
-        assert!(r2.w > 100.0 && r2.w < 700.0, "r2 partial width, got {}", r2.w);
-        assert!(r3.w > 100.0 && r3.w < 700.0, "r3 partial width, got {}", r3.w);
-        assert!((r2.w + r3.w - 800.0).abs() < 1.0,
-            "r2+r3 widths should sum to 800, got {}", r2.w + r3.w);
+        assert!(
+            r2.w > 100.0 && r2.w < 700.0,
+            "r2 partial width, got {}",
+            r2.w
+        );
+        assert!(
+            r3.w > 100.0 && r3.w < 700.0,
+            "r3 partial width, got {}",
+            r3.w
+        );
+        assert!(
+            (r2.w + r3.w - 800.0).abs() < 1.0,
+            "r2+r3 widths should sum to 800, got {}",
+            r2.w + r3.w
+        );
     }
 
     #[test]
     fn split_ratio_respected() {
         // Two roots, first has split_ratio 0.7 → gets ~70% of width.
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
-        tree.apply(NavAction::Attach { member: 2, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
+        tree.apply(NavAction::Attach {
+            member: 2,
+            provenance: Provenance::Anchor,
+        });
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
         tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
 
-        tree.apply(NavAction::SetLayoutOverride(1, LayoutOverride {
-            min_width: None, min_height: None,
-            flex_grow: None, flex_shrink: None,
-            preferred_split: None,
-            split_ratio: Some(0.7),
-        }));
-        tree.apply(NavAction::SetLayoutOverride(2, LayoutOverride {
-            min_width: None, min_height: None,
-            flex_grow: None, flex_shrink: None,
-            preferred_split: None,
-            split_ratio: Some(0.3),
-        }));
+        tree.apply(NavAction::SetLayoutOverride(
+            1,
+            LayoutOverride {
+                min_width: None,
+                min_height: None,
+                flex_grow: None,
+                flex_shrink: None,
+                preferred_split: None,
+                split_ratio: Some(0.7),
+            },
+        ));
+        tree.apply(NavAction::SetLayoutOverride(
+            2,
+            LayoutOverride {
+                min_width: None,
+                min_height: None,
+                flex_grow: None,
+                flex_shrink: None,
+                preferred_split: None,
+                split_ratio: Some(0.3),
+            },
+        ));
 
         let result = tree.compute_layout(Rect::new(0.0, 0.0, 1000.0, 600.0));
         let r1 = result.pane_rects.get(&1).unwrap();
         let r2 = result.pane_rects.get(&2).unwrap();
 
         // r1 should be ~700, r2 ~300.
-        assert!((r1.w - 700.0).abs() < 20.0,
-            "expected ~700, got {}", r1.w);
-        assert!((r2.w - 300.0).abs() < 20.0,
-            "expected ~300, got {}", r2.w);
+        assert!((r1.w - 700.0).abs() < 20.0, "expected ~700, got {}", r1.w);
+        assert!((r2.w - 300.0).abs() < 20.0, "expected ~300, got {}", r2.w);
     }
 
     #[test]
     fn direction_alternation() {
         // Root H → children V → grandchildren H.
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
-        tree.apply(NavAction::Attach { member: 2, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
+        tree.apply(NavAction::Attach {
+            member: 2,
+            provenance: Provenance::Anchor,
+        });
         // Make member 1 a parent with child 3
         tree.apply(NavAction::Attach {
             member: 3,
-            provenance: Provenance::Traversal { source: 1, edge_kind: None },
+            provenance: Provenance::Traversal {
+                source: 1,
+                edge_kind: None,
+            },
         });
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
         tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
@@ -1728,35 +1849,57 @@ mod tests {
         // Root container is H → member 1's subtree and member 2 split horizontally.
         // Member 2 (leaf root) gets ~half width, full height.
         assert!((r2.h - 600.0).abs() < 1.0, "r2 full height, got {}", r2.h);
-        assert!(r2.w > 100.0 && r2.w < 700.0, "r2 partial width, got {}", r2.w);
+        assert!(
+            r2.w > 100.0 && r2.w < 700.0,
+            "r2 partial width, got {}",
+            r2.w
+        );
 
         // Member 1's subtree is V (alternated from H) → leaf(1) and leaf(3) split vertically.
-        assert!((r1.h + r3.h - 600.0).abs() < 1.0,
-            "r1+r3 heights should sum to 600, got {}", r1.h + r3.h);
+        assert!(
+            (r1.h + r3.h - 600.0).abs() < 1.0,
+            "r1+r3 heights should sum to 600, got {}",
+            r1.h + r3.h
+        );
         // r1 and r3 have the same width (the subtree container's width).
-        assert!((r1.w - r3.w).abs() < 1.0,
-            "r1 and r3 should have same width, got {} vs {}", r1.w, r3.w);
+        assert!(
+            (r1.w - r3.w).abs() < 1.0,
+            "r1 and r3 should have same width, got {} vs {}",
+            r1.w,
+            r3.w
+        );
     }
 
     #[test]
     fn preferred_split_overrides_alternation() {
         // Root(H) → child normally gets V, but preferred_split=Horizontal overrides.
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
         tree.apply(NavAction::Attach {
             member: 2,
-            provenance: Provenance::Traversal { source: 1, edge_kind: None },
+            provenance: Provenance::Traversal {
+                source: 1,
+                edge_kind: None,
+            },
         });
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
         tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
 
         // Override: member 1's children split H instead of the default V.
-        tree.apply(NavAction::SetLayoutOverride(1, LayoutOverride {
-            min_width: None, min_height: None,
-            flex_grow: None, flex_shrink: None,
-            preferred_split: Some(SplitDirection::Horizontal),
-            split_ratio: None,
-        }));
+        tree.apply(NavAction::SetLayoutOverride(
+            1,
+            LayoutOverride {
+                min_width: None,
+                min_height: None,
+                flex_grow: None,
+                flex_shrink: None,
+                preferred_split: Some(SplitDirection::Horizontal),
+                split_ratio: None,
+            },
+        ));
 
         let result = tree.compute_layout(Rect::new(0.0, 0.0, 800.0, 600.0));
         let r1 = result.pane_rects.get(&1).unwrap();
@@ -1766,16 +1909,25 @@ mod tests {
         // Both should have full height, each ~half width.
         assert!((r1.h - 600.0).abs() < 1.0, "r1 full height, got {}", r1.h);
         assert!((r2.h - 600.0).abs() < 1.0, "r2 full height, got {}", r2.h);
-        assert!((r1.w + r2.w - 800.0).abs() < 1.0,
-            "widths should sum to 800, got {}", r1.w + r2.w);
+        assert!(
+            (r1.w + r2.w - 800.0).abs() < 1.0,
+            "widths should sum to 800, got {}",
+            r1.w + r2.w
+        );
     }
 
     #[test]
     fn split_boundaries_between_roots() {
         // Two roots → one horizontal split boundary between them.
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
-        tree.apply(NavAction::Attach { member: 2, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
+        tree.apply(NavAction::Attach {
+            member: 2,
+            provenance: Provenance::Anchor,
+        });
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
         tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
 
@@ -1785,8 +1937,11 @@ mod tests {
         let boundary = &result.split_boundaries[0];
         assert_eq!(boundary.direction, SplitDirection::Horizontal);
         // Boundary should be at ~400 (midpoint between the two panes).
-        assert!((boundary.axis_position - 400.0).abs() < 2.0,
-            "expected boundary at ~400, got {}", boundary.axis_position);
+        assert!(
+            (boundary.axis_position - 400.0).abs() < 2.0,
+            "expected boundary at ~400, got {}",
+            boundary.axis_position
+        );
         // Cross-axis spans full height.
         assert!((boundary.cross_start - 0.0).abs() < 1.0);
         assert!((boundary.cross_end - 600.0).abs() < 1.0);
@@ -1798,14 +1953,23 @@ mod tests {
         // Root with two children → boundaries at both levels.
         // root(H) → subtree(V) → [leaf(1), leaf(2), leaf(3)]
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
         tree.apply(NavAction::Attach {
             member: 2,
-            provenance: Provenance::Traversal { source: 1, edge_kind: None },
+            provenance: Provenance::Traversal {
+                source: 1,
+                edge_kind: None,
+            },
         });
         tree.apply(NavAction::Attach {
             member: 3,
-            provenance: Provenance::Traversal { source: 1, edge_kind: None },
+            provenance: Provenance::Traversal {
+                source: 1,
+                edge_kind: None,
+            },
         });
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
         tree.apply(NavAction::SetLifecycle(2, Lifecycle::Active));
@@ -1814,24 +1978,33 @@ mod tests {
         let result = tree.compute_layout(Rect::new(0.0, 0.0, 900.0, 600.0));
         // Subtree container(V) has 3 children [leaf(1), leaf(2), leaf(3)].
         // That gives 2 boundaries between consecutive pairs.
-        assert_eq!(result.split_boundaries.len(), 2,
+        assert_eq!(
+            result.split_boundaries.len(),
+            2,
             "expected 2 boundaries, got {}: {:?}",
-            result.split_boundaries.len(), result.split_boundaries);
+            result.split_boundaries.len(),
+            result.split_boundaries
+        );
 
         for boundary in &result.split_boundaries {
-            assert_eq!(boundary.direction, SplitDirection::Vertical,
-                "nested container should split vertically");
+            assert_eq!(
+                boundary.direction,
+                SplitDirection::Vertical,
+                "nested container should split vertically"
+            );
         }
     }
 
     #[test]
     fn single_pane_no_boundaries() {
         let mut tree = GraphTree::new(LayoutMode::SplitPanes, ProjectionLens::Traversal);
-        tree.apply(NavAction::Attach { member: 1u64, provenance: Provenance::Anchor });
+        tree.apply(NavAction::Attach {
+            member: 1u64,
+            provenance: Provenance::Anchor,
+        });
         tree.apply(NavAction::SetLifecycle(1, Lifecycle::Active));
 
         let result = tree.compute_layout(Rect::new(0.0, 0.0, 800.0, 600.0));
         assert!(result.split_boundaries.is_empty());
     }
 }
-

@@ -5,8 +5,8 @@ use crate::mods::verse;
 use crate::shell::desktop::runtime::diagnostics::AmbientDiagnosticsAttention;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use crate::shell::desktop::ui::gui_state::{
-    FocusedContentDownloadState, FocusedContentMediaState, FocusedContentStatus,
-    ReturnAnchor, RuntimeFocusState, SemanticRegionFocus,
+    FocusedContentDownloadState, FocusedContentMediaState, FocusedContentStatus, ReturnAnchor,
+    RuntimeFocusState, SemanticRegionFocus,
 };
 use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
 
@@ -173,9 +173,10 @@ fn content_download_chip(state: FocusedContentDownloadState) -> Option<StatusChi
     match state {
         FocusedContentDownloadState::Unsupported => None,
         FocusedContentDownloadState::Idle => None,
-        FocusedContentDownloadState::Active => {
-            Some(StatusChip::toned("Downloads: active", StatusChipTone::Notice))
-        }
+        FocusedContentDownloadState::Active => Some(StatusChip::toned(
+            "Downloads: active",
+            StatusChipTone::Notice,
+        )),
         FocusedContentDownloadState::Recent => {
             Some(StatusChip::toned("Downloads: recent", StatusChipTone::Weak))
         }
@@ -219,16 +220,21 @@ fn build_shell_status_bar_model(
 
         if let Some(top_capture) = focus_state.capture_stack.last() {
             if let Some(return_anchor) = top_capture.return_anchor.as_ref() {
-                model.leading.push(StatusChip::new(return_anchor_label(return_anchor)));
+                model
+                    .leading
+                    .push(StatusChip::new(return_anchor_label(return_anchor)));
             }
-            model
-                .leading
-                .push(StatusChip::new(format!("Capture: {:?}", top_capture.surface)));
+            model.leading.push(StatusChip::new(format!(
+                "Capture: {:?}",
+                top_capture.surface
+            )));
         }
     }
 
     if let Some(url) = focused_content_status.current_url.as_deref() {
-        model.center.push(StatusChip::new(compact_status_bar_text(url)));
+        model
+            .center
+            .push(StatusChip::new(compact_status_bar_text(url)));
     }
     if let Some(status_text) = focused_content_status.status_text.as_deref() {
         model.center.push(StatusChip::toned(
@@ -291,8 +297,7 @@ fn build_shell_status_bar_model(
     }
 
     model.trailing.push(
-        StatusChip::toned(sync_status.label, sync_status.tone)
-            .with_tooltip(sync_status.tooltip),
+        StatusChip::toned(sync_status.label, sync_status.tone).with_tooltip(sync_status.tooltip),
     );
 
     model
@@ -322,12 +327,7 @@ fn render_status_chip(ui: &mut egui::Ui, ctx: &egui::Context, chip: &StatusChip)
     }
 }
 
-fn render_status_row(
-    ui: &mut egui::Ui,
-    ctx: &egui::Context,
-    chips: &[StatusChip],
-    reverse: bool,
-) {
+fn render_status_row(ui: &mut egui::Ui, ctx: &egui::Context, chips: &[StatusChip], reverse: bool) {
     if reverse {
         for (index, chip) in chips.iter().rev().enumerate() {
             if index > 0 {
@@ -363,7 +363,11 @@ pub(super) fn render_shell_status_bar(
     );
 
     let response = TopBottomPanel::bottom("shell_status_bar")
-        .frame(egui::Frame::default().fill(ctx.style().visuals.window_fill).inner_margin(4.0))
+        .frame(
+            egui::Frame::default()
+                .fill(ctx.style().visuals.window_fill)
+                .inner_margin(4.0),
+        )
         .exact_height(STATUS_BAR_HEIGHT)
         .show(ctx, |ui| {
             ui.columns(3, |columns| {
@@ -393,8 +397,8 @@ mod tests {
     use crate::shell::desktop::runtime::diagnostics::AmbientDiagnosticsAttention;
     use crate::shell::desktop::ui::gui_state::{
         FocusCaptureEntry, FocusCaptureSurface, FocusedContentDownloadState,
-        FocusedContentFeatureSupport, FocusedContentMediaState, FocusedContentStatus,
-        ReturnAnchor, RuntimeFocusState, SemanticRegionFocus,
+        FocusedContentFeatureSupport, FocusedContentMediaState, FocusedContentStatus, ReturnAnchor,
+        RuntimeFocusState, SemanticRegionFocus,
     };
     use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
     use crate::shell::desktop::workbench::pane_model::PaneId;
@@ -449,9 +453,17 @@ mod tests {
 
     fn chip_labels(model: &ShellStatusBarModel) -> (Vec<String>, Vec<String>, Vec<String>) {
         (
-            model.leading.iter().map(|chip| chip.label.clone()).collect(),
+            model
+                .leading
+                .iter()
+                .map(|chip| chip.label.clone())
+                .collect(),
             model.center.iter().map(|chip| chip.label.clone()).collect(),
-            model.trailing.iter().map(|chip| chip.label.clone()).collect(),
+            model
+                .trailing
+                .iter()
+                .map(|chip| chip.label.clone())
+                .collect(),
         )
     }
 
@@ -563,10 +575,16 @@ mod tests {
             &focused_content_status(),
             Some(&runtime_focus_state()),
             test_sync_status("Sync: ready"),
-            Some(&diagnostics_attention(2, "navigation violation receipts observed")),
+            Some(&diagnostics_attention(
+                2,
+                "navigation violation receipts observed",
+            )),
         );
 
         let (_, _, trailing) = chip_labels(&model);
-        assert_eq!(trailing.first().map(String::as_str), Some("Diagnostics: 2 alerts"));
+        assert_eq!(
+            trailing.first().map(String::as_str),
+            Some("Diagnostics: 2 alerts")
+        );
     }
 }

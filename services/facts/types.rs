@@ -122,4 +122,3 @@ pub struct ProjectedFact {
     pub envelope: FactEnvelope,
     pub kind: ProjectedFactKind,
 }
-

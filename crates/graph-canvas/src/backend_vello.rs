@@ -13,9 +13,9 @@
 
 use std::hash::Hash;
 
+use peniko::Fill;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::kurbo;
-use peniko::Fill;
 use vello::Scene;
 
 use crate::camera::CanvasViewport;
@@ -35,10 +35,7 @@ fn to_peniko_color(c: Color) -> AlphaColor<Srgb> {
 
 /// Convert a graph-canvas `Stroke` to a kurbo stroke style + brush color.
 fn to_kurbo_stroke(s: &Stroke) -> (kurbo::Stroke, AlphaColor<Srgb>) {
-    (
-        kurbo::Stroke::new(s.width as f64),
-        to_peniko_color(s.color),
-    )
+    (kurbo::Stroke::new(s.width as f64), to_peniko_color(s.color))
 }
 
 // ── Scene rendering ─────────────────────────────────────────────────────────
@@ -53,7 +50,13 @@ fn render_draw_item(scene: &mut Scene, item: &SceneDrawItem, transform: kurbo::A
             stroke,
         } => {
             let circle = kurbo::Circle::new(to_kurbo_point(*center), *radius as f64);
-            scene.fill(Fill::NonZero, transform, to_peniko_color(*fill), None, &circle);
+            scene.fill(
+                Fill::NonZero,
+                transform,
+                to_peniko_color(*fill),
+                None,
+                &circle,
+            );
             if let Some(s) = stroke {
                 let (stroke_style, color) = to_kurbo_stroke(s);
                 scene.stroke(&stroke_style, transform, color, None, &circle);
@@ -77,7 +80,13 @@ fn render_draw_item(scene: &mut Scene, item: &SceneDrawItem, transform: kurbo::A
                 (rect.origin.y + rect.size.height) as f64,
             );
             let rounded = kurbo::RoundedRect::from_rect(kurbo_rect, *corner_radius as f64);
-            scene.fill(Fill::NonZero, transform, to_peniko_color(*fill), None, &rounded);
+            scene.fill(
+                Fill::NonZero,
+                transform,
+                to_peniko_color(*fill),
+                None,
+                &rounded,
+            );
             if let Some(s) = stroke {
                 let (stroke_style, color) = to_kurbo_stroke(s);
                 scene.stroke(&stroke_style, transform, color, None, &rounded);
@@ -268,4 +277,3 @@ mod tests {
         assert!(!caps.labels);
     }
 }
-

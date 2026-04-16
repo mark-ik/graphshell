@@ -33,11 +33,7 @@ pub fn hit_test_point<N: Clone + Eq + Hash>(
     // Test in reverse order so visually-topmost items win.
     for proxy in hit_proxies.iter().rev() {
         match proxy {
-            HitProxy::Node {
-                id,
-                center,
-                radius,
-            } => {
+            HitProxy::Node { id, center, radius } => {
                 let dx = screen_pos.x - center.x;
                 let dy = screen_pos.y - center.y;
                 if dx * dx + dy * dy <= radius * radius {
@@ -59,11 +55,7 @@ pub fn hit_test_point<N: Clone + Eq + Hash>(
                     };
                 }
             }
-            HitProxy::SceneObject {
-                id,
-                center,
-                radius,
-            } => {
+            HitProxy::SceneObject { id, center, radius } => {
                 let dx = screen_pos.x - center.x;
                 let dy = screen_pos.y - center.y;
                 if dx * dx + dy * dy <= radius * radius {
@@ -91,10 +83,7 @@ pub fn nodes_in_screen_rect<N: Clone + Eq + Hash>(
         .iter()
         .filter_map(|proxy| match proxy {
             HitProxy::Node { id, center, .. } => {
-                if center.x >= min_x
-                    && center.x <= max_x
-                    && center.y >= min_y
-                    && center.y <= max_y
+                if center.x >= min_x && center.x <= max_x && center.y >= min_y && center.y <= max_y
                 {
                     Some(id.clone())
                 } else {
@@ -278,4 +267,3 @@ mod tests {
         assert_eq!(result, vec![0]);
     }
 }
-

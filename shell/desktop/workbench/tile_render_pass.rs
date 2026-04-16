@@ -25,7 +25,6 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::render::{self, GraphAction};
-use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{
     ChromeProjectionSource, DialogOwner, EmbedderWindow, InputTarget,
@@ -33,6 +32,7 @@ use crate::shell::desktop::host::window::{
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
+use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries;
@@ -90,6 +90,20 @@ fn primary_graph_view_id(graph_app: &GraphBrowserApp, tiles_tree: &Tree<TileKind
         .unwrap_or_default()
 }
 
+fn use_graph_canvas_live_path() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        return crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
+            .profile
+            .use_graph_canvas_renderer;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
+    }
+}
+
 /// Render a specialty graphlet canvas for a Navigator host using a specific
 /// `view_id` (whose `graphlet_node_mask` already constrains visible nodes).
 /// Search filtering is not applied — the graphlet mask is the scope.
@@ -102,15 +116,27 @@ pub(crate) fn render_specialty_graph_in_ui(
     view_id: crate::app::GraphViewId,
 ) -> Vec<GraphIntent> {
     let empty_matches: HashSet<NodeKey> = HashSet::new();
-    let actions = render::render_graph_in_ui_collect_actions(
-        ui,
-        graph_app,
-        view_id,
-        &empty_matches,
-        None,
-        crate::app::SearchDisplayMode::Highlight,
-        false,
-    );
+    let actions = if use_graph_canvas_live_path() {
+        render::render_graph_canvas_in_ui(
+            ui,
+            graph_app,
+            view_id,
+            &empty_matches,
+            None,
+            crate::app::SearchDisplayMode::Highlight,
+            false,
+        )
+    } else {
+        render::render_graph_in_ui_collect_actions(
+            ui,
+            graph_app,
+            view_id,
+            &empty_matches,
+            None,
+            crate::app::SearchDisplayMode::Highlight,
+            false,
+        )
+    };
     let multi_select_modifier = ui.input(|i| i.modifiers.ctrl);
     let mut post_render_intents = Vec::new();
     let mut pending_open_nodes = Vec::new();
@@ -171,13 +197,7 @@ pub(crate) fn render_primary_graph_in_ui(
     // M2 graph-canvas path: when enabled, use the portable graph-canvas
     // pipeline instead of egui_graphs for scene derivation, painting, and
     // interaction. Toggle via `use_graph_canvas_renderer` on the canvas profile.
-    #[cfg(not(target_arch = "wasm32"))]
-    let use_graph_canvas = crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
-        .profile
-        .use_graph_canvas_renderer;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    if use_graph_canvas {
+    if use_graph_canvas_live_path() {
         let actions = render::render_graph_canvas_in_ui(
             ui,
             graph_app,
@@ -292,10 +312,14 @@ pub(crate) fn run_tile_render_pass_in_ui(
     let focused_node_hint_before = *focused_node_hint;
 
     let available_rect = ui.max_rect();
+
+    // Refresh NodeKey → PaneId map so compositor and layout queries can
+    // resolve PaneId without scanning the tile tree each time.
+    graph_app.workspace.graph_runtime.node_pane_ids =
+        super::graph_tree_sync::build_node_pane_id_map(tiles_tree);
+
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
-    webview_backpressure::publish_node_pane_attach_attempt_metadata(
-        webview_creation_backpressure,
-    );
+    webview_backpressure::publish_node_pane_attach_attempt_metadata(webview_creation_backpressure);
 
     let outputs = tile_post_render::render_tile_tree_and_collect_outputs(
         ui,
@@ -448,9 +472,13 @@ pub(crate) fn run_tile_render_pass_in_ui(
 
     // Phase G: GraphTree is both the membership and layout authority.
     // Pane rects come from GraphTree's taffy-backed compute_layout().
-    // PaneId lookup still comes from egui_tiles during migration.
-    let layout_output =
-        tile_compositor::active_node_pane_rects_from_graph_tree(graph_tree, tiles_tree, available_rect);
+    // PaneId resolved from per-frame node_pane_ids map (with tile fallback).
+    let layout_output = tile_compositor::active_node_pane_rects_from_graph_tree(
+        graph_tree,
+        tiles_tree,
+        &graph_app.workspace.graph_runtime.node_pane_ids,
+        available_rect,
+    );
     let active_tile_rects = &layout_output.pane_rects;
     log::debug!(
         "tile_render_pass: {} active tile rects (graph_tree keyed)",
@@ -739,7 +767,12 @@ pub(crate) fn run_tile_render_pass_in_ui(
 
     // Phase G: Render split handles at boundaries between sibling panes.
     // Each handle is a draggable strip; dragging updates split_ratio via NavAction.
-    render_split_handles(ui, graph_tree, &layout_output.split_boundaries, &mut post_render_intents);
+    render_split_handles(
+        ui,
+        graph_tree,
+        &layout_output.split_boundaries,
+        &mut post_render_intents,
+    );
 
     // Phase 4a: Render GraphTree chrome (tabs, tree sidebar, pane borders).
     // The renderer runs alongside egui_tiles during the parallel introduction phase.
@@ -1280,8 +1313,10 @@ fn render_split_handles(
 ) {
     const HANDLE_THICKNESS: f32 = 6.0;
     const HANDLE_COLOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 80, 100, 180);
-    const HANDLE_HOVER_COLOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(120, 120, 160, 220);
-    const HANDLE_DRAG_COLOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(140, 140, 200, 255);
+    const HANDLE_HOVER_COLOR: egui::Color32 =
+        egui::Color32::from_rgba_premultiplied(120, 120, 160, 220);
+    const HANDLE_DRAG_COLOR: egui::Color32 =
+        egui::Color32::from_rgba_premultiplied(140, 140, 200, 255);
 
     for (i, boundary) in boundaries.iter().enumerate() {
         let half = HANDLE_THICKNESS / 2.0;
@@ -1340,15 +1375,19 @@ fn render_split_handles(
                 let default_ratio = 0.5;
 
                 // Extract current overrides before mutating.
-                let before_lo = graph_tree.get(&boundary.before)
+                let before_lo = graph_tree
+                    .get(&boundary.before)
                     .and_then(|e| e.layout_override.clone());
-                let after_lo = graph_tree.get(&boundary.after)
+                let after_lo = graph_tree
+                    .get(&boundary.after)
                     .and_then(|e| e.layout_override.clone());
 
-                let before_ratio = before_lo.as_ref()
+                let before_ratio = before_lo
+                    .as_ref()
                     .and_then(|lo| lo.split_ratio)
                     .unwrap_or(default_ratio);
-                let after_ratio = after_lo.as_ref()
+                let after_ratio = after_lo
+                    .as_ref()
                     .and_then(|lo| lo.split_ratio)
                     .unwrap_or(default_ratio);
 
@@ -1356,9 +1395,12 @@ fn render_split_handles(
                 let new_after = (after_ratio - ratio_delta).clamp(0.05, 0.95);
 
                 let default_lo = graph_tree::LayoutOverride {
-                    min_width: None, min_height: None,
-                    flex_grow: None, flex_shrink: None,
-                    preferred_split: None, split_ratio: None,
+                    min_width: None,
+                    min_height: None,
+                    flex_grow: None,
+                    flex_shrink: None,
+                    preferred_split: None,
+                    split_ratio: None,
                 };
 
                 graph_tree.apply(graph_tree::NavAction::SetLayoutOverride(
@@ -1444,4 +1486,3 @@ mod tests {
         assert!(rect.bottom() <= 120.0);
     }
 }
-

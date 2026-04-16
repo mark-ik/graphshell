@@ -42,4 +42,3 @@ mod tests {
         assert!(inclusive_index_range(6, 1, 6).is_none());
     }
 }
-

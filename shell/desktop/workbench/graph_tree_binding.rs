@@ -31,9 +31,7 @@ pub(crate) fn to_tree_graphlet_kind(kind: &graph::GraphletKind) -> TreeGraphletK
         graph::GraphletKind::Facet => TreeGraphletKind::Facet,
         graph::GraphletKind::Session => TreeGraphletKind::Session,
         graph::GraphletKind::Bridge => TreeGraphletKind::Bridge,
-        graph::GraphletKind::WorkbenchCorrespondence => {
-            TreeGraphletKind::WorkbenchCorrespondence
-        }
+        graph::GraphletKind::WorkbenchCorrespondence => TreeGraphletKind::WorkbenchCorrespondence,
     }
 }
 
@@ -174,4 +172,3 @@ pub(crate) fn apply_fork(
 ) {
     graph_tree::reconciliation::apply_fork(graph_tree, graphlet_id, reason);
 }
-

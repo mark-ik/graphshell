@@ -54,18 +54,11 @@ enum DragState<N> {
         target: HitTestResult<N>,
     },
     /// Actively dragging a node.
-    DraggingNode {
-        node: N,
-        last_pos: Point2D<f32>,
-    },
+    DraggingNode { node: N, last_pos: Point2D<f32> },
     /// Actively dragging a lasso rectangle.
-    Lasso {
-        origin: Point2D<f32>,
-    },
+    Lasso { origin: Point2D<f32> },
     /// Panning the camera.
-    Panning {
-        last_pos: Point2D<f32>,
-    },
+    Panning { last_pos: Point2D<f32> },
 }
 
 /// The interaction engine. Maintains state between frames and emits actions.
@@ -132,9 +125,7 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
                 );
             }
             CanvasInputEvent::Scroll {
-                delta,
-                position,
-                ..
+                delta, position, ..
             } => {
                 let factor = 1.0 + delta * self.config.scroll_zoom_factor;
                 actions.push(CanvasAction::ZoomCamera {
@@ -205,10 +196,8 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
                                 last_pos: position,
                             };
                             let delta = position - origin;
-                            let world_delta = Vector2D::new(
-                                delta.x / camera.zoom,
-                                delta.y / camera.zoom,
-                            );
+                            let world_delta =
+                                Vector2D::new(delta.x / camera.zoom, delta.y / camera.zoom);
                             actions.push(CanvasAction::DragNode {
                                 node: id.clone(),
                                 delta: world_delta,
@@ -229,12 +218,10 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
                         }
                         // Scene objects are not draggable — scripts control
                         // their position. Fall through to panning.
-                        (HitTestResult::SceneObject(_), PointerButton::Primary) |
-                        (_, PointerButton::Middle) |
-                        (HitTestResult::None, PointerButton::Secondary) => {
-                            self.drag = DragState::Panning {
-                                last_pos: position,
-                            };
+                        (HitTestResult::SceneObject(_), PointerButton::Primary)
+                        | (_, PointerButton::Middle)
+                        | (HitTestResult::None, PointerButton::Secondary) => {
+                            self.drag = DragState::Panning { last_pos: position };
                             let delta = position - origin;
                             actions.push(CanvasAction::PanCamera(Vector2D::new(
                                 delta.x / camera.zoom,
@@ -250,8 +237,7 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
             }
             DragState::DraggingNode { node, last_pos } => {
                 let delta = position - *last_pos;
-                let world_delta =
-                    Vector2D::new(delta.x / camera.zoom, delta.y / camera.zoom);
+                let world_delta = Vector2D::new(delta.x / camera.zoom, delta.y / camera.zoom);
                 let node = node.clone();
                 self.drag = DragState::DraggingNode {
                     node: node.clone(),
@@ -275,9 +261,7 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
             }
             DragState::Panning { last_pos } => {
                 let delta = position - *last_pos;
-                self.drag = DragState::Panning {
-                    last_pos: position,
-                };
+                self.drag = DragState::Panning { last_pos: position };
                 actions.push(CanvasAction::PanCamera(Vector2D::new(
                     delta.x / camera.zoom,
                     delta.y / camera.zoom,
@@ -340,9 +324,7 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
             DragState::Lasso { origin } => {
                 let lasso_nodes = nodes_in_screen_rect(origin, position, hit_proxies);
                 self.state.lasso = None;
-                actions.push(CanvasAction::LassoComplete {
-                    nodes: lasso_nodes,
-                });
+                actions.push(CanvasAction::LassoComplete { nodes: lasso_nodes });
             }
             DragState::DraggingNode { .. } | DragState::Panning { .. } => {
                 // Drag ended. No additional action needed.
@@ -611,7 +593,9 @@ mod tests {
             &cam,
             &vp,
         );
-        let has_drag = actions.iter().any(|a| matches!(a, CanvasAction::DragNode { node: 0, .. }));
+        let has_drag = actions
+            .iter()
+            .any(|a| matches!(a, CanvasAction::DragNode { node: 0, .. }));
         assert!(has_drag, "expected DragNode action, got: {:?}", actions);
     }
 
@@ -631,7 +615,11 @@ mod tests {
             &cam,
             &vp,
         );
-        assert!(actions.iter().any(|a| matches!(a, CanvasAction::ZoomCamera { .. })));
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::ZoomCamera { .. }))
+        );
     }
 
     #[test]
@@ -661,7 +649,9 @@ mod tests {
             &vp,
         );
         assert!(
-            actions.iter().any(|a| matches!(a, CanvasAction::LassoBegin { .. })),
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::LassoBegin { .. })),
             "expected LassoBegin, got: {:?}",
             actions
         );
@@ -678,7 +668,11 @@ mod tests {
             &cam,
             &vp,
         );
-        assert!(actions.iter().any(|a| matches!(a, CanvasAction::LassoComplete { .. })));
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::LassoComplete { .. }))
+        );
         assert!(engine.state.lasso.is_none());
     }
 
@@ -699,12 +693,7 @@ mod tests {
         );
         assert_eq!(engine.state.hovered_node, Some(0));
         // Leave.
-        let actions = engine.process_event(
-            &CanvasInputEvent::PointerLeft,
-            &proxies,
-            &cam,
-            &vp,
-        );
+        let actions = engine.process_event(&CanvasInputEvent::PointerLeft, &proxies, &cam, &vp);
         assert!(actions.contains(&CanvasAction::HoverNode(None)));
         assert_eq!(engine.state.hovered_node, None);
     }
@@ -786,12 +775,7 @@ mod tests {
         );
         assert_eq!(engine.state.hovered_scene_object, Some(SceneObjectId(10)));
         // Leave.
-        let actions = engine.process_event(
-            &CanvasInputEvent::PointerLeft,
-            &proxies,
-            &cam,
-            &vp,
-        );
+        let actions = engine.process_event(&CanvasInputEvent::PointerLeft, &proxies, &cam, &vp);
         assert!(actions.contains(&CanvasAction::HoverSceneObject(None)));
         assert_eq!(engine.state.hovered_scene_object, None);
     }
@@ -823,7 +807,9 @@ mod tests {
             &vp,
         );
         assert!(
-            actions.iter().any(|a| matches!(a, CanvasAction::PanCamera(..))),
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::PanCamera(..))),
             "expected PanCamera for scene object drag, got: {:?}",
             actions
         );
@@ -854,10 +840,11 @@ mod tests {
             &vp,
         );
         assert!(
-            actions.iter().any(|a| matches!(a, CanvasAction::PanCamera(..))),
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::PanCamera(..))),
             "expected PanCamera, got: {:?}",
             actions
         );
     }
 }
-

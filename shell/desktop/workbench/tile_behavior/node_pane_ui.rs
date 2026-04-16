@@ -202,7 +202,7 @@ fn render_node_pane_impl(
         return;
     }
 
-// --- Trait-dispatched embedded viewers ---
+    // --- Trait-dispatched embedded viewers ---
     // Viewers registered in EmbeddedViewerRegistry handle plaintext, markdown,
     // csv, image, directory, and fallback rendering via the EmbeddedViewer trait.
     {
@@ -574,15 +574,17 @@ fn render_tile_viewer_chrome_strip(
             let compat_label = if wry_active { "Compat *" } else { "Compat" };
             let compat_button = ui.add_enabled(
                 wry_disabled.is_none(),
-                egui::Button::new(egui::RichText::new(compat_label).small())
-                    .selected(wry_active),
+                egui::Button::new(egui::RichText::new(compat_label).small()).selected(wry_active),
             );
             let compat_button = if let Some(reason) = wry_disabled {
                 compat_button.on_hover_text(reason.message())
             } else if wry_active {
-                compat_button.on_hover_text("Using compatibility renderer (Wry). Click to switch back.")
+                compat_button
+                    .on_hover_text("Using compatibility renderer (Wry). Click to switch back.")
             } else {
-                compat_button.on_hover_text("Load in compatibility mode (Wry) for sites that don't render correctly")
+                compat_button.on_hover_text(
+                    "Load in compatibility mode (Wry) for sites that don't render correctly",
+                )
             };
             if compat_button.clicked() {
                 if wry_active {
@@ -607,11 +609,7 @@ fn render_tile_viewer_chrome_strip(
                     .graph_app
                     .request_browser_command(target, BrowserCommand::ZoomOut);
             }
-            if ui
-                .small_button("1:1")
-                .on_hover_text("Reset zoom")
-                .clicked()
-            {
+            if ui.small_button("1:1").on_hover_text("Reset zoom").clicked() {
                 behavior
                     .graph_app
                     .request_browser_command(target, BrowserCommand::ZoomReset);
@@ -1039,4 +1037,3 @@ mod tests {
         );
     }
 }
-

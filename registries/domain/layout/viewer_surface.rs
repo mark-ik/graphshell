@@ -104,7 +104,10 @@ impl Default for ViewerSurfaceRegistry {
 }
 
 fn profile_id_for_viewer(viewer_id: &str, capability: Option<&ViewerCapability>) -> &'static str {
-    if matches!(viewer_id, "viewer:pdf" | "viewer:markdown" | "viewer:middlenet") {
+    if matches!(
+        viewer_id,
+        "viewer:pdf" | "viewer:markdown" | "viewer:middlenet"
+    ) {
         return VIEWER_SURFACE_DOCUMENT;
     }
 
@@ -197,4 +200,3 @@ mod tests {
         assert!(resolution.profile.reader_mode_default);
     }
 }
-

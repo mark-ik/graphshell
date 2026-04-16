@@ -494,7 +494,10 @@ pub(super) fn render_location_search_panel(
                 );
             }
             if !session.matches.is_empty()
-                && !matches!(session.provider_mailbox.status, ProviderSuggestionStatus::Failed(_))
+                && !matches!(
+                    session.provider_mailbox.status,
+                    ProviderSuggestionStatus::Failed(_)
+                )
             {
                 session.provider_mailbox.status = ProviderSuggestionStatus::Ready;
             }
@@ -688,4 +691,3 @@ mod tests {
         assert!(matches!(mailbox.poll_frame(), HostRequestPoll::Interrupted));
     }
 }
-

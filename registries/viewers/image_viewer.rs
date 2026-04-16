@@ -1,4 +1,6 @@
-use crate::registries::atomic::viewer::{EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput};
+use crate::registries::atomic::viewer::{
+    EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -46,11 +48,7 @@ impl EmbeddedViewer for ImageEmbeddedViewer {
         "viewer:image"
     }
 
-    fn render(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput {
+    fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput {
         match render_image(ui, ctx) {
             Ok(()) => {}
             Err(err) => {
@@ -62,8 +60,10 @@ impl EmbeddedViewer for ImageEmbeddedViewer {
 }
 
 fn render_image(ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> Result<(), String> {
-    let path =
-        crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(ctx.node_url, ctx.file_access_policy)?;
+    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
+        ctx.node_url,
+        ctx.file_access_policy,
+    )?;
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     let image = image::load_from_memory(&bytes)
@@ -119,4 +119,3 @@ fn render_image(ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> Result<()
     });
     Ok(())
 }
-

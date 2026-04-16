@@ -13,7 +13,7 @@
 //! `SceneDrawItem`s into iced `Canvas` or Vello commands instead. The
 //! graph-canvas crate itself does not change.
 
-use egui::{Color32, Pos2, Rect, CornerRadius, Stroke as EguiStroke, Vec2};
+use egui::{Color32, CornerRadius, Pos2, Rect, Stroke as EguiStroke, Vec2};
 
 use graph_canvas::packet::{Color, ProjectedScene, SceneDrawItem, Stroke};
 
@@ -77,13 +77,7 @@ fn paint_draw_item(painter: &egui::Painter, item: &SceneDrawItem) {
             let pos = to_pos2(*position);
             let color = to_color32(*color);
             let font = egui::FontId::proportional(*font_size);
-            painter.text(
-                pos,
-                egui::Align2::CENTER_CENTER,
-                text,
-                font,
-                color,
-            );
+            painter.text(pos, egui::Align2::CENTER_CENTER, text, font, color);
         }
         SceneDrawItem::ImageRef { .. } => {
             // Image rendering requires texture handle resolution from the host.

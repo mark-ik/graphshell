@@ -1,4 +1,6 @@
-use crate::registries::atomic::viewer::{EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput};
+use crate::registries::atomic::viewer::{
+    EmbeddedViewer, EmbeddedViewerContext, EmbeddedViewerOutput,
+};
 
 pub(crate) struct PlaintextEmbeddedViewer;
 
@@ -7,11 +9,7 @@ impl EmbeddedViewer for PlaintextEmbeddedViewer {
         "viewer:plaintext"
     }
 
-    fn render(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &EmbeddedViewerContext<'_>,
-    ) -> EmbeddedViewerOutput {
+    fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput {
         ui.label(ctx.node_url);
         ui.separator();
 
@@ -77,7 +75,10 @@ fn render_markdown(
 ) {
     use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-    let parser = Parser::new_ext(markdown, Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES);
+    let parser = Parser::new_ext(
+        markdown,
+        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES,
+    );
 
     let mut text_buf = String::new();
     let mut heading_level: Option<HeadingLevel> = None;
@@ -90,39 +91,120 @@ fn render_markdown(
     for event in parser {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 heading_level = Some(level);
             }
             Event::End(TagEnd::Heading(_)) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 heading_level = None;
             }
             Event::Start(Tag::Emphasis) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 emphasis = true;
             }
             Event::End(TagEnd::Emphasis) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 emphasis = false;
             }
             Event::Start(Tag::Strong) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 strong = true;
             }
             Event::End(TagEnd::Strong) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 strong = false;
             }
             Event::Start(Tag::Link { dest_url, .. }) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 link_url = Some(dest_url.to_string());
             }
             Event::End(TagEnd::Link) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 link_url = None;
             }
             Event::Start(Tag::CodeBlock(_)) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 code_block = true;
             }
             Event::End(TagEnd::CodeBlock) => {
@@ -145,16 +227,43 @@ fn render_markdown(
             Event::Start(Tag::List(_)) => {}
             Event::End(TagEnd::List(_)) => {}
             Event::Start(Tag::Item) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 in_list_item = true;
             }
             Event::End(TagEnd::Item) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 in_list_item = false;
             }
             Event::Start(Tag::Paragraph) => {}
             Event::End(TagEnd::Paragraph) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 ui.add_space(4.0);
             }
             Event::Text(text) => {
@@ -168,20 +277,56 @@ fn render_markdown(
                 }
             }
             Event::Code(code) => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 ui.label(egui::RichText::new(code.as_ref()).monospace());
             }
             Event::SoftBreak | Event::HardBreak => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
             }
             Event::Rule => {
-                flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+                flush_text(
+                    ui,
+                    &mut text_buf,
+                    heading_level,
+                    emphasis,
+                    strong,
+                    &link_url,
+                    node_key,
+                    intents,
+                );
                 ui.separator();
             }
             _ => {}
         }
     }
-    flush_text(ui, &mut text_buf, heading_level, emphasis, strong, &link_url, node_key, intents);
+    flush_text(
+        ui,
+        &mut text_buf,
+        heading_level,
+        emphasis,
+        strong,
+        &link_url,
+        node_key,
+        intents,
+    );
 }
 
 fn flush_text(
@@ -217,9 +362,10 @@ fn flush_text(
     }
 
     if let Some(url) = link_url {
-        let response = ui.add(egui::Label::new(
-            rich.color(egui::Color32::from_rgb(100, 149, 237)),
-        ).sense(egui::Sense::click()));
+        let response = ui.add(
+            egui::Label::new(rich.color(egui::Color32::from_rgb(100, 149, 237)))
+                .sense(egui::Sense::click()),
+        );
         if response.clicked() {
             intents.push(crate::app::GraphIntent::SetNodeUrl {
                 key: node_key,
@@ -241,8 +387,13 @@ enum PlaintextContent {
     HexPreview(String),
 }
 
-fn load_plaintext_content(url: &str, policy: &crate::prefs::FileAccessPolicy) -> Result<PlaintextContent, String> {
-    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(url, policy)?;
+fn load_plaintext_content(
+    url: &str,
+    policy: &crate::prefs::FileAccessPolicy,
+) -> Result<PlaintextContent, String> {
+    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
+        url, policy,
+    )?;
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     Ok(decode_plaintext_content(&bytes))
@@ -269,4 +420,3 @@ fn decode_plaintext_content(bytes: &[u8]) -> PlaintextContent {
         }
     }
 }
-

@@ -101,4 +101,3 @@ mod tests {
         assert_eq!(round_trip.extras.0.params.c, state.extras.0.params.c);
     }
 }
-

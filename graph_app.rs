@@ -139,9 +139,7 @@ pub use clip_capture::{
     ClipInspectorFilter, ClipInspectorState, clip_capture_matches_filter,
     clip_capture_matches_query,
 };
-pub(crate) use clip_capture::{
-    user_visible_node_title_from_data, user_visible_node_url_from_data,
-};
+pub(crate) use clip_capture::{user_visible_node_title_from_data, user_visible_node_url_from_data};
 
 #[path = "app/agents/mod.rs"]
 pub(crate) mod agents;
@@ -423,6 +421,7 @@ impl GraphBrowserApp {
                     #[cfg(not(target_arch = "wasm32"))]
                     canvas_interaction_engines: HashMap::new(),
                     canvas_cameras: HashMap::new(),
+                    node_pane_ids: HashMap::new(),
                     simulate_release_impulses: HashMap::new(),
                     hovered_scene_region: None,
                     selected_scene_regions: HashMap::new(),
@@ -599,6 +598,7 @@ impl GraphBrowserApp {
                     #[cfg(not(target_arch = "wasm32"))]
                     canvas_interaction_engines: HashMap::new(),
                     canvas_cameras: HashMap::new(),
+                    node_pane_ids: HashMap::new(),
                     simulate_release_impulses: HashMap::new(),
                     hovered_scene_region: None,
                     selected_scene_regions: HashMap::new(),
@@ -1837,4 +1837,3 @@ impl Default for GraphBrowserApp {
 #[cfg(test)]
 #[path = "graph_app_tests.rs"]
 mod tests;
-

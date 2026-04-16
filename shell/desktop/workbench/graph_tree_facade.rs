@@ -94,13 +94,10 @@ pub(crate) fn focused_node(graph_tree: &GraphTree<NodeKey>) -> Option<NodeKey> {
 }
 
 /// Member count by lifecycle.
-pub(crate) fn lifecycle_summary(
-    graph_tree: &GraphTree<NodeKey>,
-) -> (usize, usize, usize) {
+pub(crate) fn lifecycle_summary(graph_tree: &GraphTree<NodeKey>) -> (usize, usize, usize) {
     (
         graph_tree.active_count(),
         graph_tree.warm_count(),
         graph_tree.cold_count(),
     )
 }
-

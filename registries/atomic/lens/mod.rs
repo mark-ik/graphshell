@@ -17,4 +17,3 @@ pub(crate) use theme::{
     THEME_ID_DARK, THEME_ID_DEFAULT, THEME_ID_LIGHT, ThemeData, ThemeResolution,
     deserialize_optional_theme_data, resolve_theme_data, theme_data_id,
 };
-

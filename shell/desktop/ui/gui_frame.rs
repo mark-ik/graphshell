@@ -45,9 +45,7 @@ use crate::shell::desktop::runtime::registries::input::{
     GamepadButton, InputBinding, InputContext,
 };
 use crate::shell::desktop::runtime::registries::{self, CHANNEL_UX_NAVIGATION_TRANSITION};
-use crate::shell::desktop::ui::gui_state::{
-    BookmarkImportDialogEvent, BookmarkImportDialogState,
-};
+use crate::shell::desktop::ui::gui_state::{BookmarkImportDialogEvent, BookmarkImportDialogState};
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
@@ -709,4 +707,3 @@ mod connected_open_tests {
         assert_eq!(candidates, vec![(neighbor, 1)]);
     }
 }
-

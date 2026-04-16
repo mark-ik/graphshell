@@ -12,14 +12,14 @@
 
 use std::collections::HashSet;
 
+use crate::MemberId;
 use crate::graphlet::{
-    GraphletBinding, GraphletId, GraphletMemberDelta, GraphletSpec,
-    ReconciliationChoice, ReconciliationProposal,
+    GraphletBinding, GraphletId, GraphletMemberDelta, GraphletSpec, ReconciliationChoice,
+    ReconciliationProposal,
 };
 use crate::member::Lifecycle;
 use crate::nav::TreeIntent;
 use crate::tree::GraphTree;
-use crate::MemberId;
 
 /// Compute the roster delta between a linked graphlet's expected members
 /// (from graph truth) and the tree's current members for that graphlet.
@@ -32,7 +32,8 @@ pub fn compute_roster_delta<N: MemberId>(
     graph_truth_members: &[N],
 ) -> GraphletMemberDelta<N> {
     let truth_set: HashSet<&N> = graph_truth_members.iter().collect();
-    let tree_members: Vec<N> = tree.graphlet_members(graphlet_id)
+    let tree_members: Vec<N> = tree
+        .graphlet_members(graphlet_id)
         .into_iter()
         .cloned()
         .collect();
@@ -119,7 +120,8 @@ pub fn apply_reconciliation<N: MemberId>(
                 }
                 // If the member has no remaining graphlet memberships and is Cold,
                 // detach it entirely.
-                let should_detach = tree.get(member)
+                let should_detach = tree
+                    .get(member)
                     .map(|e| e.graphlet_membership.is_empty() && e.lifecycle == Lifecycle::Cold)
                     .unwrap_or(false);
                 if should_detach {
@@ -150,7 +152,10 @@ pub fn apply_reconciliation<N: MemberId>(
                 let parent_spec = match &graphlet.binding {
                     GraphletBinding::Linked { spec } => spec.clone(),
                     _ => GraphletSpec {
-                        kind: graphlet.kind.clone().unwrap_or(crate::graphlet::GraphletKind::Session),
+                        kind: graphlet
+                            .kind
+                            .clone()
+                            .unwrap_or(crate::graphlet::GraphletKind::Session),
                         anchors: Vec::new(),
                         primary_anchor: None,
                         selectors: Vec::new(),
@@ -201,12 +206,12 @@ pub fn detect_fork_on_manual_override<N: MemberId>(
 ///
 /// Called when `detect_fork_on_manual_override` fires and the host
 /// decides (or auto-policy decides) that the override should fork.
-pub fn apply_fork<N: MemberId>(
-    tree: &mut GraphTree<N>,
-    graphlet_id: GraphletId,
-    reason: String,
-) {
-    if let Some(graphlet) = tree.graphlets_mut().iter_mut().find(|g| g.id == graphlet_id) {
+pub fn apply_fork<N: MemberId>(tree: &mut GraphTree<N>, graphlet_id: GraphletId, reason: String) {
+    if let Some(graphlet) = tree
+        .graphlets_mut()
+        .iter_mut()
+        .find(|g| g.id == graphlet_id)
+    {
         let parent_spec = match &graphlet.binding {
             GraphletBinding::Linked { spec } => spec.clone(),
             _ => return, // Not linked — nothing to fork.
@@ -283,10 +288,7 @@ mod tests {
     use crate::member::Provenance;
     use crate::nav::NavAction;
 
-    fn make_tree_with_linked_graphlet(
-        members: &[u64],
-        graphlet_members: &[u64],
-    ) -> GraphTree<u64> {
+    fn make_tree_with_linked_graphlet(members: &[u64], graphlet_members: &[u64]) -> GraphTree<u64> {
         let mut tree = GraphTree::new(
             crate::layout::LayoutMode::TreeStyleTabs,
             crate::lens::ProjectionLens::Traversal,
@@ -373,7 +375,8 @@ mod tests {
     fn apply_keep_linked_adds_members() {
         let mut tree = make_tree_with_linked_graphlet(&[1, 2], &[1, 2]);
         let proposal = propose_reconciliation(&tree, 0, &[1, 2, 3], "test").unwrap();
-        let intents = apply_reconciliation(&mut tree, &proposal, ReconciliationChoice::ApplyKeepLinked);
+        let intents =
+            apply_reconciliation(&mut tree, &proposal, ReconciliationChoice::ApplyKeepLinked);
 
         // Member 3 should now exist in the tree.
         assert!(tree.get(&3).is_some());
@@ -398,7 +401,11 @@ mod tests {
     fn apply_keep_unlinked_converts_binding() {
         let mut tree = make_tree_with_linked_graphlet(&[1, 2], &[1, 2]);
         let proposal = propose_reconciliation(&tree, 0, &[1, 2, 3], "test").unwrap();
-        apply_reconciliation(&mut tree, &proposal, ReconciliationChoice::KeepAsUnlinkedSession);
+        apply_reconciliation(
+            &mut tree,
+            &proposal,
+            ReconciliationChoice::KeepAsUnlinkedSession,
+        );
 
         let binding = &tree.graphlets()[0].binding;
         assert!(matches!(binding, GraphletBinding::UnlinkedSession));
@@ -418,7 +425,10 @@ mod tests {
 
         let binding = &tree.graphlets()[0].binding;
         match binding {
-            GraphletBinding::Forked { parent_spec, reason } => {
+            GraphletBinding::Forked {
+                parent_spec,
+                reason,
+            } => {
                 assert_eq!(parent_spec.kind, GraphletKind::Session);
                 assert_eq!(reason, "user override");
             }
@@ -435,7 +445,10 @@ mod tests {
         // No member 3 should exist.
         assert!(tree.get(&3).is_none());
         // Binding should still be Linked.
-        assert!(matches!(tree.graphlets()[0].binding, GraphletBinding::Linked { .. }));
+        assert!(matches!(
+            tree.graphlets()[0].binding,
+            GraphletBinding::Linked { .. }
+        ));
     }
 
     #[test]
@@ -460,7 +473,10 @@ mod tests {
     fn apply_fork_transitions_to_forked() {
         let mut tree = make_tree_with_linked_graphlet(&[1, 2], &[1, 2]);
         apply_fork(&mut tree, 0, "manual override".to_string());
-        assert!(matches!(tree.graphlets()[0].binding, GraphletBinding::Forked { .. }));
+        assert!(matches!(
+            tree.graphlets()[0].binding,
+            GraphletBinding::Forked { .. }
+        ));
     }
 
     #[test]
@@ -498,4 +514,3 @@ mod tests {
         assert_eq!(topology[1].1, vec![5]); // children
     }
 }
-

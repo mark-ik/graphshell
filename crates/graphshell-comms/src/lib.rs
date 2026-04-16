@@ -1,9 +1,6 @@
 pub mod identity;
-pub mod transport;
 pub mod misfin;
+pub mod transport;
 pub mod webfinger;
 
-
-
 pub mod capabilities;
-

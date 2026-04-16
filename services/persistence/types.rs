@@ -267,7 +267,7 @@ pub enum LogEntry {
 mod tests {
     use super::*;
     use crate::graph::{
-        badge::NodeTagPresentationState, FrameLayoutHint, ImportRecord, NodeImportProvenance,
+        FrameLayoutHint, ImportRecord, NodeImportProvenance, badge::NodeTagPresentationState,
     };
     use uuid::Uuid;
 
@@ -689,4 +689,3 @@ mod tests {
         assert!(matches!(restored.address, PersistedAddress::File(_)));
     }
 }
-

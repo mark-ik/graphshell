@@ -80,8 +80,9 @@ struct IdentityResolutionAuditPayload {
     changed: Option<bool>,
 }
 
-fn identity_resolution_cache(
-) -> &'static Mutex<HashMap<(crate::capabilities::MiddlenetProtocol, String), CachedIdentityResolution>> {
+fn identity_resolution_cache() -> &'static Mutex<
+    HashMap<(crate::capabilities::MiddlenetProtocol, String), CachedIdentityResolution>,
+> {
     static CACHE: OnceLock<
         Mutex<HashMap<(crate::capabilities::MiddlenetProtocol, String), CachedIdentityResolution>>,
     > = OnceLock::new();
@@ -215,7 +216,11 @@ impl PersonIdentityProfile {
         let human_handle = subject
             .strip_prefix("acct:")
             .map(str::to_string)
-            .or_else(|| normalized_resource.strip_prefix("acct:").map(str::to_string));
+            .or_else(|| {
+                normalized_resource
+                    .strip_prefix("acct:")
+                    .map(str::to_string)
+            });
 
         let mut profile = PersonIdentityProfile {
             human_handle,
@@ -369,13 +374,17 @@ pub fn normalize_matrix_mxid(input: &str) -> Result<String, String> {
     let mxid = trimmed
         .strip_prefix('@')
         .ok_or_else(|| format!("Matrix MXID '{trimmed}' must start with '@'."))?;
-    let (localpart, server) = mxid.split_once(':').ok_or_else(|| {
-        format!("Matrix MXID '{trimmed}' must include a ':server' suffix.")
-    })?;
+    let (localpart, server) = mxid
+        .split_once(':')
+        .ok_or_else(|| format!("Matrix MXID '{trimmed}' must include a ':server' suffix."))?;
     if localpart.trim().is_empty() || server.trim().is_empty() {
         return Err(format!("Matrix MXID '{trimmed}' is incomplete."));
     }
-    Ok(format!("@{}:{}", localpart.trim(), server.trim().to_ascii_lowercase()))
+    Ok(format!(
+        "@{}:{}",
+        localpart.trim(),
+        server.trim().to_ascii_lowercase()
+    ))
 }
 
 pub fn normalize_activitypub_actor_url(input: &str) -> Result<String, String> {
@@ -401,10 +410,7 @@ fn resolve_person_identity_profile_with_options(
     resource: &str,
     bypass_cache: bool,
 ) -> Result<ResolvedPersonIdentityProfile, String> {
-    let normalized = crate::capabilities::normalize_identity_action_resource(
-        protocol,
-        resource,
-    )?;
+    let normalized = crate::capabilities::normalize_identity_action_resource(protocol, resource)?;
 
     if !bypass_cache {
         if let Some(cached) = identity_resolution_cache()
@@ -438,12 +444,8 @@ fn resolve_person_identity_profile_with_options(
             let import = crate::webfinger::fetch_import(&normalized)?;
             PersonIdentityProfile::from_webfinger_import(&normalized, &import)?
         }
-        crate::capabilities::MiddlenetProtocol::Nip05 => {
-            resolve_nip05_profile(&normalized)?
-        }
-        crate::capabilities::MiddlenetProtocol::Matrix => {
-            resolve_matrix_profile(&normalized)?
-        }
+        crate::capabilities::MiddlenetProtocol::Nip05 => resolve_nip05_profile(&normalized)?,
+        crate::capabilities::MiddlenetProtocol::Matrix => resolve_matrix_profile(&normalized)?,
         crate::capabilities::MiddlenetProtocol::ActivityPub => {
             resolve_activitypub_actor(&normalized)?
         }
@@ -457,11 +459,7 @@ fn resolve_person_identity_profile_with_options(
         }
     };
     let resolved_at_ms = unix_timestamp_ms_now();
-    let freshness = crate::capabilities::freshness_state(
-        protocol,
-        resolved_at_ms,
-        resolved_at_ms,
-    );
+    let freshness = crate::capabilities::freshness_state(protocol, resolved_at_ms, resolved_at_ms);
     identity_resolution_cache()
         .lock()
         .expect("identity resolution cache lock poisoned")
@@ -486,9 +484,7 @@ fn resolve_person_identity_profile_with_options(
     })
 }
 
-pub fn format_identity_resolution_audit_detail(
-    record: &IdentityResolutionAuditRecord,
-) -> String {
+pub fn format_identity_resolution_audit_detail(record: &IdentityResolutionAuditRecord) -> String {
     let payload = IdentityResolutionAuditPayload {
         protocol_key: record.protocol.key().to_string(),
         query_resource: record.query_resource.clone(),
@@ -572,13 +568,17 @@ pub fn normalize_misfin_mailbox(input: &str) -> Result<String, String> {
 
 fn normalize_account_like(input: &str, label: &str) -> Result<String, String> {
     let trimmed = input.trim();
-    let (localpart, host) = trimmed.split_once('@').ok_or_else(|| {
-        format!("{label} '{trimmed}' must contain a local part and host.")
-    })?;
+    let (localpart, host) = trimmed
+        .split_once('@')
+        .ok_or_else(|| format!("{label} '{trimmed}' must contain a local part and host."))?;
     if localpart.trim().is_empty() || host.trim().is_empty() {
         return Err(format!("{label} '{trimmed}' is incomplete."));
     }
-    Ok(format!("{}@{}", localpart.trim(), host.trim().to_ascii_lowercase()))
+    Ok(format!(
+        "{}@{}",
+        localpart.trim(),
+        host.trim().to_ascii_lowercase()
+    ))
 }
 
 fn normalize_httpish_url(input: &str, label: &str) -> Result<String, String> {
@@ -593,7 +593,11 @@ fn normalize_httpish_url(input: &str, label: &str) -> Result<String, String> {
     }
 }
 
-fn normalize_url_with_scheme(input: &str, expected_scheme: &str, label: &str) -> Result<String, String> {
+fn normalize_url_with_scheme(
+    input: &str,
+    expected_scheme: &str,
+    label: &str,
+) -> Result<String, String> {
     let url = url::Url::parse(input.trim())
         .map_err(|error| format!("Invalid {label} '{}': {error}", input.trim()))?;
     if url.scheme() != expected_scheme {
@@ -628,8 +632,9 @@ fn identity_resolution_source_endpoints(
             let (_, server) = normalized
                 .split_once(':')
                 .ok_or_else(|| format!("Matrix MXID '{normalized}' is incomplete."))?;
-            let origin = url::Url::parse(&format!("https://{server}/"))
-                .map_err(|error| format!("Invalid Matrix discovery origin for '{normalized}': {error}"))?;
+            let origin = url::Url::parse(&format!("https://{server}/")).map_err(|error| {
+                format!("Invalid Matrix discovery origin for '{normalized}': {error}")
+            })?;
             Ok(vec![
                 origin
                     .join("/.well-known/matrix/client")
@@ -778,7 +783,12 @@ pub fn resolve_activitypub_actor(actor_url: &str) -> Result<PersonIdentityProfil
     let client = identity_http_client()?;
     let actor_endpoint = url::Url::parse(&actor_url)
         .map_err(|error| format!("Invalid ActivityPub actor URL '{actor_url}': {error}"))?;
-    let body = fetch_text(&client, &actor_endpoint, Some(ACTIVITYPUB_ACCEPT), "ActivityPub actor")?;
+    let body = fetch_text(
+        &client,
+        &actor_endpoint,
+        Some(ACTIVITYPUB_ACCEPT),
+        "ActivityPub actor",
+    )?;
     let document: serde_json::Value = serde_json::from_str(&body)
         .map_err(|error| format!("ActivityPub actor parse failed for '{actor_url}': {error}"))?;
 
@@ -809,7 +819,11 @@ pub fn resolve_activitypub_actor(actor_url: &str) -> Result<PersonIdentityProfil
         && profile.human_handle.is_none()
         && let Some(host) = actor_host
     {
-        profile.human_handle = Some(format!("{}@{}", preferred_username, host.to_ascii_lowercase()));
+        profile.human_handle = Some(format!(
+            "{}@{}",
+            preferred_username,
+            host.to_ascii_lowercase()
+        ));
     }
 
     for page in extract_activitypub_urls(document.get("url")) {
@@ -831,11 +845,13 @@ pub fn resolve_activitypub_actor(actor_url: &str) -> Result<PersonIdentityProfil
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            profile.other_endpoints.push(crate::webfinger::WebFingerEndpoint {
-                rel: rel.to_string(),
-                media_type: Some("application/activity+json".to_string()),
-                href: href.to_string(),
-            });
+            profile
+                .other_endpoints
+                .push(crate::webfinger::WebFingerEndpoint {
+                    rel: rel.to_string(),
+                    media_type: Some("application/activity+json".to_string()),
+                    href: href.to_string(),
+                });
         }
     }
 
@@ -846,19 +862,23 @@ pub fn resolve_activitypub_actor(actor_url: &str) -> Result<PersonIdentityProfil
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        profile.other_endpoints.push(crate::webfinger::WebFingerEndpoint {
-            rel: "shared-inbox".to_string(),
-            media_type: Some("application/activity+json".to_string()),
-            href: shared_inbox.to_string(),
-        });
+        profile
+            .other_endpoints
+            .push(crate::webfinger::WebFingerEndpoint {
+                rel: "shared-inbox".to_string(),
+                media_type: Some("application/activity+json".to_string()),
+                href: shared_inbox.to_string(),
+            });
     }
 
     for icon_url in extract_activitypub_urls(document.get("icon")) {
-        profile.other_endpoints.push(crate::webfinger::WebFingerEndpoint {
-            rel: "icon".to_string(),
-            media_type: None,
-            href: icon_url,
-        });
+        profile
+            .other_endpoints
+            .push(crate::webfinger::WebFingerEndpoint {
+                rel: "icon".to_string(),
+                media_type: None,
+                href: icon_url,
+            });
     }
 
     Ok(profile)
@@ -874,7 +894,12 @@ fn resolve_nip05_profile_with_origin(
         .ok_or_else(|| format!("NIP-05 identifier '{normalized}' is incomplete."))?;
     let endpoint = nip05_endpoint(origin, localpart)?;
     let client = identity_http_client()?;
-    let body = fetch_text(&client, &endpoint, Some("application/json"), "NIP-05 document")?;
+    let body = fetch_text(
+        &client,
+        &endpoint,
+        Some("application/json"),
+        "NIP-05 document",
+    )?;
     let document: Nip05Document = serde_json::from_str(&body)
         .map_err(|error| format!("NIP-05 document parse failed for '{normalized}': {error}"))?;
     let pubkey = document.names.get(localpart).ok_or_else(|| {
@@ -883,7 +908,9 @@ fn resolve_nip05_profile_with_origin(
     let npub = nostr::PublicKey::parse(pubkey.trim())
         .map_err(|error| format!("NIP-05 pubkey decode failed for '{normalized}': {error}"))?
         .to_bech32()
-        .map_err(|error| format!("NIP-05 pubkey bech32 conversion failed for '{normalized}': {error}"))?;
+        .map_err(|error| {
+            format!("NIP-05 pubkey bech32 conversion failed for '{normalized}': {error}")
+        })?;
 
     let mut profile = PersonIdentityProfile {
         human_handle: Some(normalized.clone()),
@@ -897,11 +924,13 @@ fn resolve_nip05_profile_with_origin(
             if relay.is_empty() {
                 continue;
             }
-            profile.other_endpoints.push(crate::webfinger::WebFingerEndpoint {
-                rel: "nostr-relay".to_string(),
-                media_type: None,
-                href: relay.to_string(),
-            });
+            profile
+                .other_endpoints
+                .push(crate::webfinger::WebFingerEndpoint {
+                    rel: "nostr-relay".to_string(),
+                    media_type: None,
+                    href: relay.to_string(),
+                });
         }
     }
     Ok(profile)
@@ -915,7 +944,12 @@ fn resolve_matrix_profile_with_origin(
     let homeserver_base_url = resolve_matrix_homeserver_base_url(discovery_origin)?;
     let endpoint = matrix_profile_endpoint(&homeserver_base_url, &normalized)?;
     let client = identity_http_client()?;
-    let body = fetch_text(&client, &endpoint, Some("application/json"), "Matrix profile")?;
+    let body = fetch_text(
+        &client,
+        &endpoint,
+        Some("application/json"),
+        "Matrix profile",
+    )?;
     let document: MatrixProfileDocument = serde_json::from_str(&body)
         .map_err(|error| format!("Matrix profile parse failed for '{normalized}': {error}"))?;
 
@@ -932,11 +966,13 @@ fn resolve_matrix_profile_with_origin(
         && !avatar_url.is_empty()
         && let Some(download_url) = matrix_avatar_download_url(&homeserver_base_url, avatar_url)
     {
-        profile.other_endpoints.push(crate::webfinger::WebFingerEndpoint {
-            rel: "matrix-avatar".to_string(),
-            media_type: None,
-            href: download_url,
-        });
+        profile
+            .other_endpoints
+            .push(crate::webfinger::WebFingerEndpoint {
+                rel: "matrix-avatar".to_string(),
+                media_type: None,
+                href: download_url,
+            });
     }
     Ok(profile)
 }
@@ -984,18 +1020,20 @@ fn resolve_matrix_homeserver_base_url(discovery_origin: &url::Url) -> Result<url
         .get(discovery_url.as_str())
         .header(ACCEPT, "application/json")
         .send()
-        .map_err(|error| format!("Matrix discovery request failed for '{discovery_url}': {error}"))?;
+        .map_err(|error| {
+            format!("Matrix discovery request failed for '{discovery_url}': {error}")
+        })?;
 
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(discovery_origin.clone());
     }
 
-    let response = response
-        .error_for_status()
-        .map_err(|error| format!("Matrix discovery request failed for '{discovery_url}': {error}"))?;
-    let body = response
-        .text()
-        .map_err(|error| format!("Matrix discovery response decode failed for '{discovery_url}': {error}"))?;
+    let response = response.error_for_status().map_err(|error| {
+        format!("Matrix discovery request failed for '{discovery_url}': {error}")
+    })?;
+    let body = response.text().map_err(|error| {
+        format!("Matrix discovery response decode failed for '{discovery_url}': {error}")
+    })?;
     let document: MatrixDiscoveryDocument = serde_json::from_str(&body)
         .map_err(|error| format!("Matrix discovery parse failed for '{discovery_url}': {error}"))?;
 
@@ -1171,29 +1209,32 @@ mod tests {
             other_endpoints: Vec::new(),
         };
 
-        let profile = PersonIdentityProfile::from_webfinger_import(
-            "mark@example.net",
-            &import,
-        )
-        .expect("webfinger identity profile should build");
+        let profile = PersonIdentityProfile::from_webfinger_import("mark@example.net", &import)
+            .expect("webfinger identity profile should build");
 
         assert_eq!(profile.human_handle.as_deref(), Some("mark@example.net"));
         assert_eq!(
             profile.webfinger_resource.as_deref(),
             Some("acct:mark@example.net")
         );
-        assert!(profile
-            .aliases
-            .iter()
-            .any(|alias| alias == "https://example.net/~mark"));
-        assert!(profile
-            .nostr_identities
-            .iter()
-            .any(|value| value == "nostr:npub1example"));
-        assert!(profile
-            .misfin_mailboxes
-            .iter()
-            .any(|value| value == "misfin://mark@example.net"));
+        assert!(
+            profile
+                .aliases
+                .iter()
+                .any(|alias| alias == "https://example.net/~mark")
+        );
+        assert!(
+            profile
+                .nostr_identities
+                .iter()
+                .any(|value| value == "nostr:npub1example")
+        );
+        assert!(
+            profile
+                .misfin_mailboxes
+                .iter()
+                .any(|value| value == "misfin://mark@example.net")
+        );
     }
 
     #[test]
@@ -1237,7 +1278,9 @@ mod tests {
                 body
             );
             let mut writer = stream;
-            writer.write_all(response.as_bytes()).expect("response write");
+            writer
+                .write_all(response.as_bytes())
+                .expect("response write");
             writer.flush().expect("response flush");
         });
 
@@ -1245,11 +1288,16 @@ mod tests {
         let profile = resolve_nip05_profile_with_origin("mark@example.net", &origin)
             .expect("nip-05 resolution should succeed");
 
-        assert_eq!(profile.nip05_identifier.as_deref(), Some("mark@example.net"));
-        assert!(profile
-            .nostr_identities
-            .iter()
-            .any(|identity| identity.starts_with("nostr:npub1")));
+        assert_eq!(
+            profile.nip05_identifier.as_deref(),
+            Some("mark@example.net")
+        );
+        assert!(
+            profile
+                .nostr_identities
+                .iter()
+                .any(|identity| identity.starts_with("nostr:npub1"))
+        );
         assert!(profile.other_endpoints.iter().any(|endpoint| {
             endpoint.rel == "nostr-relay" && endpoint.href == "wss://relay.example.net"
         }));
@@ -1302,7 +1350,9 @@ mod tests {
                     body
                 );
                 let mut writer = stream;
-                writer.write_all(response.as_bytes()).expect("response write");
+                writer
+                    .write_all(response.as_bytes())
+                    .expect("response write");
                 writer.flush().expect("response flush");
             }
         });
@@ -1311,14 +1361,18 @@ mod tests {
         let profile = resolve_matrix_profile_with_origin("@mark:matrix.example", &origin)
             .expect("matrix profile resolution should succeed");
 
-        assert!(profile
-            .matrix_mxids
-            .iter()
-            .any(|mxid| mxid == "@mark:matrix.example"));
-        assert!(profile
-            .profile_pages
-            .iter()
-            .any(|page| page == "https://matrix.to/#/@mark:matrix.example"));
+        assert!(
+            profile
+                .matrix_mxids
+                .iter()
+                .any(|mxid| mxid == "@mark:matrix.example")
+        );
+        assert!(
+            profile
+                .profile_pages
+                .iter()
+                .any(|page| page == "https://matrix.to/#/@mark:matrix.example")
+        );
         assert!(profile.other_endpoints.iter().any(|endpoint| {
             endpoint.rel == "matrix-avatar"
                 && endpoint.href
@@ -1363,26 +1417,34 @@ mod tests {
                 body
             );
             let mut writer = stream;
-            writer.write_all(response.as_bytes()).expect("response write");
+            writer
+                .write_all(response.as_bytes())
+                .expect("response write");
             writer.flush().expect("response flush");
         });
 
         let profile = resolve_activitypub_actor(&format!("http://127.0.0.1:{port}/users/mark"))
             .expect("activitypub actor resolution should succeed");
 
-        assert!(profile
-            .activitypub_actors
-            .iter()
-            .any(|actor| actor == &format!("http://127.0.0.1:{port}/users/mark")));
+        assert!(
+            profile
+                .activitypub_actors
+                .iter()
+                .any(|actor| actor == &format!("http://127.0.0.1:{port}/users/mark"))
+        );
         assert_eq!(profile.human_handle.as_deref(), Some("mark@127.0.0.1"));
-        assert!(profile
-            .profile_pages
-            .iter()
-            .any(|page| page == "https://social.example/@mark"));
-        assert!(profile
-            .aliases
-            .iter()
-            .any(|alias| alias == "https://example.net/~mark"));
+        assert!(
+            profile
+                .profile_pages
+                .iter()
+                .any(|page| page == "https://social.example/@mark")
+        );
+        assert!(
+            profile
+                .aliases
+                .iter()
+                .any(|alias| alias == "https://example.net/~mark")
+        );
         assert!(profile.other_endpoints.iter().any(|endpoint| {
             endpoint.rel == "inbox"
                 && endpoint.href == format!("http://127.0.0.1:{port}/users/mark/inbox")
@@ -1409,7 +1471,10 @@ mod tests {
                     "nip05:mark@example.net",
                 )
                 .expect("first resolution should succeed");
-                assert_eq!(first.provenance.cache_state, IdentityResolutionCacheState::Miss);
+                assert_eq!(
+                    first.provenance.cache_state,
+                    IdentityResolutionCacheState::Miss
+                );
                 assert_eq!(
                     first.provenance.freshness,
                     crate::capabilities::ProtocolFreshness::Fresh
@@ -1422,13 +1487,15 @@ mod tests {
                 "mark@example.net",
             )
             .expect("second resolution should be served from cache");
-            assert_eq!(second.provenance.cache_state, IdentityResolutionCacheState::Hit);
+            assert_eq!(
+                second.provenance.cache_state,
+                IdentityResolutionCacheState::Hit
+            );
             assert_eq!(second.provenance.query_resource, "mark@example.net");
-            assert_eq!(second.profile.nip05_identifier.as_deref(), Some("mark@example.net"));
+            assert_eq!(
+                second.profile.nip05_identifier.as_deref(),
+                Some("mark@example.net")
+            );
         });
     }
 }
-
-
-
-

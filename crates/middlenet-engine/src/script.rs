@@ -12,8 +12,6 @@ pub struct ScriptContext {
 
 impl ScriptContext {
     pub fn new() -> Self {
-        Self {
-        }
+        Self {}
     }
 }
-

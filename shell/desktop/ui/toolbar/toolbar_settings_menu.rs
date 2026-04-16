@@ -10,10 +10,7 @@ use crate::shell::desktop::ui::toolbar_routing;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
-fn open_settings_page(
-    _graph_app: &mut GraphBrowserApp,
-    page: SettingsToolPage,
-) {
+fn open_settings_page(_graph_app: &mut GraphBrowserApp, page: SettingsToolPage) {
     let path = match page {
         SettingsToolPage::General => GraphshellSettingsPath::General,
         SettingsToolPage::Persistence => GraphshellSettingsPath::Persistence,
@@ -185,10 +182,8 @@ pub(super) fn render_settings_menu(
                 })
                 .clicked()
             {
-                let _ = toolbar_routing::request_help_panel_toggle(
-                    graph_app,
-                    command_bar_focus_target,
-                );
+                let _ =
+                    toolbar_routing::request_help_panel_toggle(graph_app, command_bar_focus_target);
                 ui.close();
             }
             #[cfg(feature = "diagnostics")]
@@ -373,4 +368,3 @@ mod tests {
         );
     }
 }
-

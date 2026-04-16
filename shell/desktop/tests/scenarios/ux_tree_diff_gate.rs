@@ -160,7 +160,10 @@ fn looks_like_uuid(candidate: &str) -> bool {
     })
 }
 
-fn capture_snapshot_case(name: &'static str, snapshot: ux_tree::UxTreeSnapshot) -> SnapshotBaselineCase {
+fn capture_snapshot_case(
+    name: &'static str,
+    snapshot: ux_tree::UxTreeSnapshot,
+) -> SnapshotBaselineCase {
     SnapshotBaselineCase {
         name,
         snapshot: normalize_snapshot_json_for_baseline(&snapshot),
@@ -243,7 +246,8 @@ fn degraded_viewer_placeholder_case() -> SnapshotBaselineCase {
         if let egui_tiles::Tile::Pane(TileKind::Node(state)) = tile.1
             && state.node == node
         {
-            state.render_mode = crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder;
+            state.render_mode =
+                crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder;
         }
     }
 
@@ -372,4 +376,3 @@ fn command_surface_toggle_command_palette_snapshot_stays_structurally_stable() {
 
     clear_command_surface_semantic_snapshot();
 }
-

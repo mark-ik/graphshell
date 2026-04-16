@@ -9,10 +9,9 @@ use uuid::Uuid;
 
 use crate::app::{
     ClipInspectorFilter, ContextCommandSurfacePreference, GraphBrowserApp, GraphIntent,
-    HistoryCaptureStatus, HistoryManagerTab, KeyboardPanInputMode, OmnibarNonAtOrderPreset,
-    NavigatorSidebarSidePreference, OmnibarPreferredScope, SettingsToolPage,
-    ToastAnchorPreference, ViewAction, WorkbenchIntent,
-    clip_capture_matches_filter, clip_capture_matches_query,
+    HistoryCaptureStatus, HistoryManagerTab, KeyboardPanInputMode, NavigatorSidebarSidePreference,
+    OmnibarNonAtOrderPreset, OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference,
+    ViewAction, WorkbenchIntent, clip_capture_matches_filter, clip_capture_matches_query,
 };
 use crate::graph::{ArrangementSubKind, NodeKey, format_imported_at_secs};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
@@ -206,7 +205,11 @@ fn navigator_group_row_key(group_kind: &str, group_id: &str) -> String {
 }
 
 fn navigator_node_label(app: &GraphBrowserApp, node_key: NodeKey) -> String {
-    let badge = match app.domain_graph().get_node(node_key).map(|node| node.lifecycle) {
+    let badge = match app
+        .domain_graph()
+        .get_node(node_key)
+        .map(|node| node.lifecycle)
+    {
         Some(crate::graph::NodeLifecycle::Cold) => "○",
         Some(crate::graph::NodeLifecycle::Warm | crate::graph::NodeLifecycle::Active) => "●",
         _ => "?",
@@ -229,7 +232,12 @@ fn enqueue_navigator_node_row_intent(
 
 fn select_navigator_non_node_row(intents: &mut Vec<GraphIntent>, row_key: Option<String>) {
     if let Some(row_key) = row_key {
-        intents.push(ViewAction::SetNavigatorSelectedRows { rows: vec![row_key] }.into());
+        intents.push(
+            ViewAction::SetNavigatorSelectedRows {
+                rows: vec![row_key],
+            }
+            .into(),
+        );
     }
 }
 
@@ -525,7 +533,12 @@ fn apply_navigator_keyboard_action(
                     });
                 }
                 _ => {
-                    intents.push(ViewAction::SetNavigatorSelectedRows { rows: vec![row_key] }.into());
+                    intents.push(
+                        ViewAction::SetNavigatorSelectedRows {
+                            rows: vec![row_key],
+                        }
+                        .into(),
+                    );
                 }
             }
         }
@@ -554,7 +567,9 @@ fn apply_navigator_keyboard_action(
                     });
                 }
                 Some(crate::app::NavigatorProjectionTarget::SavedView(view_id)) => {
-                    app.enqueue_workbench_intent(WorkbenchIntent::FocusGraphView { view_id: *view_id });
+                    app.enqueue_workbench_intent(WorkbenchIntent::FocusGraphView {
+                        view_id: *view_id,
+                    });
                 }
                 None => {}
             }
@@ -680,8 +695,9 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
                     apply_view_dimension_selection(app, crate::app::ViewDimension::TwoD);
                 }
 
-                let twopointfive_dimension =
-                    crate::app::default_view_dimension_for_mode(crate::app::ThreeDMode::TwoPointFive);
+                let twopointfive_dimension = crate::app::default_view_dimension_for_mode(
+                    crate::app::ThreeDMode::TwoPointFive,
+                );
                 if ui
                     .selectable_label(current_dimension == twopointfive_dimension, "2.5D")
                     .clicked()
@@ -2689,8 +2705,7 @@ pub fn render_navigator_tool_pane_in_ui(
                     } else {
                         ui.indent(&section_row_key, |ui| {
                             for group in groups {
-                                let group_row_key =
-                                    navigator_group_row_key("workbench", &group.id);
+                                let group_row_key = navigator_group_row_key("workbench", &group.id);
                                 let header = match group.sub_kind {
                                     ArrangementSubKind::FrameMember => {
                                         format!("Frame: {}", group.title)
@@ -2702,16 +2717,16 @@ pub fn render_navigator_tool_pane_in_ui(
                                         format!("Split Pair: {}", group.title)
                                     }
                                 };
-                                let header_label = if matches!(
-                                    group.sub_kind,
-                                    ArrangementSubKind::FrameMember
-                                ) && (app.selected_frame_name() == Some(group.title.as_str())
-                                    || app.current_frame_name() == Some(group.title.as_str()))
-                                {
-                                    format!("{header} [active]")
-                                } else {
-                                    header
-                                };
+                                let header_label =
+                                    if matches!(group.sub_kind, ArrangementSubKind::FrameMember)
+                                        && (app.selected_frame_name() == Some(group.title.as_str())
+                                            || app.current_frame_name()
+                                                == Some(group.title.as_str()))
+                                    {
+                                        format!("{header} [active]")
+                                    } else {
+                                        header
+                                    };
                                 if render_navigator_structural_row(
                                     ui,
                                     &header_label,
@@ -4674,4 +4689,3 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
         );
     }
 }
-

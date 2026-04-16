@@ -5,9 +5,7 @@ use std::sync::{Mutex, OnceLock};
 use extism::{Manifest, Plugin, Wasm};
 use wasmparser::{Parser, Payload};
 
-use crate::registries::infrastructure::mod_loader::{
-    ModManifest, ModType, WasmModSource,
-};
+use crate::registries::infrastructure::mod_loader::{ModManifest, ModType, WasmModSource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct HeadlessWasmGuestSurface {
@@ -55,9 +53,9 @@ fn run_guest_render(
     mod_id: &str,
     render_context_json: &str,
 ) -> Result<String, String> {
-    plugin.call("render", render_context_json).map_err(|error| {
-        format!("failed running render for WASM mod {mod_id}: {error}")
-    })
+    plugin
+        .call("render", render_context_json)
+        .map_err(|error| format!("failed running render for WASM mod {mod_id}: {error}"))
 }
 
 fn run_guest_event(plugin: &mut Plugin, mod_id: &str, event_json: &str) -> Result<(), String> {
@@ -78,20 +76,31 @@ fn ensure_supported_capabilities(manifest: &ModManifest) -> Result<(), String> {
 }
 
 fn inspect_guest_surface(module_path: &Path) -> Result<HeadlessWasmGuestSurface, String> {
-    let bytes = std::fs::read(module_path)
-        .map_err(|error| format!("failed reading WASM module {}: {error}", module_path.display()))?;
+    let bytes = std::fs::read(module_path).map_err(|error| {
+        format!(
+            "failed reading WASM module {}: {error}",
+            module_path.display()
+        )
+    })?;
     let mut has_init = false;
     let mut has_render = false;
     let mut has_on_event = false;
     let mut has_update = false;
 
     for payload in Parser::new(0).parse_all(&bytes) {
-        let payload = payload
-            .map_err(|error| format!("failed parsing WASM module {}: {error}", module_path.display()))?;
+        let payload = payload.map_err(|error| {
+            format!(
+                "failed parsing WASM module {}: {error}",
+                module_path.display()
+            )
+        })?;
         if let Payload::ExportSection(exports) = payload {
             for export in exports {
                 let export = export.map_err(|error| {
-                    format!("failed parsing WASM export table {}: {error}", module_path.display())
+                    format!(
+                        "failed parsing WASM export table {}: {error}",
+                        module_path.display()
+                    )
                 })?;
                 if export.name == "init" {
                     has_init = true;
@@ -151,7 +160,12 @@ pub(crate) fn activate_mod_headless(
         [],
         true,
     )
-    .map_err(|error| format!("failed to instantiate WASM mod {}: {error}", manifest.mod_id))?;
+    .map_err(|error| {
+        format!(
+            "failed to instantiate WASM mod {}: {error}",
+            manifest.mod_id
+        )
+    })?;
     run_guest_init(&mut plugin, &manifest.mod_id)?;
 
     headless_wasm_runtime()
@@ -356,8 +370,7 @@ mod tests {
                 supports_update: false,
             })
         );
-        deactivate_mod_headless("mod:headless-no-update")
-            .expect("deactivation should succeed");
+        deactivate_mod_headless("mod:headless-no-update").expect("deactivation should succeed");
     }
 
     #[test]
@@ -382,8 +395,7 @@ mod tests {
         let output = render_mod_headless("mod:headless-render-ok", r#"{"frame":1}"#)
             .expect("render should succeed");
         assert_eq!(output, "");
-        deactivate_mod_headless("mod:headless-render-ok")
-            .expect("deactivation should succeed");
+        deactivate_mod_headless("mod:headless-render-ok").expect("deactivation should succeed");
     }
 
     #[test]
@@ -408,8 +420,7 @@ mod tests {
         let error = render_mod_headless("mod:headless-render-trap", r#"{"frame":1}"#)
             .expect_err("render should surface guest failure");
         assert!(error.contains("failed running render"));
-        deactivate_mod_headless("mod:headless-render-trap")
-            .expect("deactivation should succeed");
+        deactivate_mod_headless("mod:headless-render-trap").expect("deactivation should succeed");
     }
 
     #[test]
@@ -433,8 +444,7 @@ mod tests {
         activate_mod_headless(&manifest, &source).expect("activation should succeed");
         dispatch_event_headless("mod:headless-event-ok", r#"{"type":"click"}"#)
             .expect("on_event should succeed");
-        deactivate_mod_headless("mod:headless-event-ok")
-            .expect("deactivation should succeed");
+        deactivate_mod_headless("mod:headless-event-ok").expect("deactivation should succeed");
     }
 
     #[test]
@@ -460,4 +470,3 @@ mod tests {
         assert!(error.contains("denies capability"));
     }
 }
-

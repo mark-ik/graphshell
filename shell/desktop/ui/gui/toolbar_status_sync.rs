@@ -81,4 +81,3 @@ fn selected_node_url_for_toolbar(graph_app: &GraphBrowserApp) -> Option<String> 
 fn selected_node_url(graph_app: &GraphBrowserApp, key: NodeKey) -> Option<String> {
     graph_app.user_visible_node_url(key)
 }
-

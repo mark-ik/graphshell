@@ -1888,4 +1888,3 @@ impl GraphIntent {
         }
     }
 }
-

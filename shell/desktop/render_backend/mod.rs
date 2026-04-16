@@ -20,8 +20,9 @@ pub(crate) use gl_backend::{
     backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
     backend_chaos_framebuffer_handle, backend_framebuffer_binding,
     backend_framebuffer_from_binding, backend_is_blend_enabled, backend_is_scissor_enabled,
-    backend_primary_texture_unit, backend_scissor_box, backend_set_active_texture, backend_set_blend_enabled,
-    backend_set_scissor_box, backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
+    backend_primary_texture_unit, backend_scissor_box, backend_set_active_texture,
+    backend_set_blend_enabled, backend_set_scissor_box, backend_set_scissor_enabled,
+    backend_set_viewport, backend_viewport,
 };
 pub(crate) use wgpu_backend::{
     BackendCustomPass, UiRenderBackendContract, UiRenderBackendHandle, activate_ui_render_backend,
@@ -57,7 +58,9 @@ impl UiHostRenderBootstrap {
         self.window_rendering_context.as_ref()
     }
 
-    pub(crate) fn into_contexts(self) -> (Rc<OffscreenRenderingContext>, Rc<WindowRenderingContext>) {
+    pub(crate) fn into_contexts(
+        self,
+    ) -> (Rc<OffscreenRenderingContext>, Rc<WindowRenderingContext>) {
         (self.rendering_context, self.window_rendering_context)
     }
 
@@ -80,8 +83,7 @@ impl UiWgpuHostBootstrap {
     fn from_event_loop(event_loop: &winit::event_loop::ActiveEventLoop) -> Self {
         let owned_handle = event_loop.owned_display_handle();
         let mut configuration = egui_wgpu::WgpuConfiguration::default();
-        configuration.wgpu_setup =
-            egui_wgpu::WgpuSetup::from_display_handle(owned_handle);
+        configuration.wgpu_setup = egui_wgpu::WgpuSetup::from_display_handle(owned_handle);
         Self { configuration }
     }
 }
@@ -121,9 +123,8 @@ pub(crate) struct BackendContentBridgeSelection {
 /// Captures an `OffscreenRenderingContext` by `Rc`; single-threaded use only.
 /// When called with the shared wgpu device and queue, returns the composited
 /// webview texture, or `None` if the import is not yet available.
-pub(crate) type BackendSharedWgpuImport = std::rc::Rc<
-    dyn Fn(servo::wgpu::Device, servo::wgpu::Queue) -> Option<servo::wgpu::Texture>,
->;
+pub(crate) type BackendSharedWgpuImport =
+    std::rc::Rc<dyn Fn(servo::wgpu::Device, servo::wgpu::Queue) -> Option<servo::wgpu::Texture>>;
 
 #[derive(Clone)]
 pub(crate) enum BackendContentBridge {
@@ -461,11 +462,8 @@ mod tests {
             BACKEND_BRIDGE_PATH_GL_CALLBACK
         );
         assert_eq!(
-            backend_content_bridge_path(
-                BackendContentBridgeMode::WgpuPreferredFallbackGlCallback,
-            ),
+            backend_content_bridge_path(BackendContentBridgeMode::WgpuPreferredFallbackGlCallback,),
             BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GL
         );
     }
 }
-

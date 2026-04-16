@@ -7,10 +7,11 @@
 //! Submits display lists to WebRender wgpu backend.
 
 use webrender::Transaction;
+use webrender::api::units::{LayoutRect, LayoutSize};
 use webrender::api::{
-    DisplayListBuilder, RenderNotifier, PipelineId, DocumentId, IdNamespace, SpaceAndClipInfo, ColorF, CommonItemProperties, Epoch,
+    ColorF, CommonItemProperties, DisplayListBuilder, DocumentId, Epoch, IdNamespace, PipelineId,
+    RenderNotifier, SpaceAndClipInfo,
 };
-use webrender::api::units::{LayoutSize, LayoutRect};
 
 /// The main compositor interface
 pub struct MiddleNetCompositor {
@@ -30,7 +31,7 @@ impl MiddleNetCompositor {
             pipeline_id: PipelineId(0, 0),
             // Normally provided by the renderer instance when the window creates it.
             // Keeping stub IDs for now.
-            document_id: DocumentId::new(IdNamespace(0), 0), 
+            document_id: DocumentId::new(IdNamespace(0), 0),
         }
     }
 
@@ -38,7 +39,7 @@ impl MiddleNetCompositor {
     pub fn build_transaction(&self, width: f32, height: f32) -> Transaction {
         let size = LayoutSize::new(width, height);
         let mut builder = DisplayListBuilder::new(self.pipeline_id);
-        
+
         let space_and_clip = SpaceAndClipInfo::root_scroll(self.pipeline_id);
 
         builder.begin();
@@ -52,17 +53,12 @@ impl MiddleNetCompositor {
             ColorF::new(0.0, 0.0, 0.0, 0.0), // transparent fallback
         );
 
-        // Later: Traverse the Taffy layout tree using `layout.rs` results 
+        // Later: Traverse the Taffy layout tree using `layout.rs` results
         // to push text/rects/images onto this builder.
 
         let mut txn = Transaction::new();
-        txn.set_display_list(
-            Epoch(0),
-            builder.end(),
-        );
+        txn.set_display_list(Epoch(0), builder.end());
 
         txn
     }
 }
-
-

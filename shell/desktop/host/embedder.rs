@@ -10,7 +10,9 @@ use std::sync::atomic::AtomicU64;
 
 use servo::Servo;
 
-use crate::shell::desktop::host::window::{EmbedderWindow, EmbedderWindowId, WebViewLifecycleEvent};
+use crate::shell::desktop::host::window::{
+    EmbedderWindow, EmbedderWindowId, WebViewLifecycleEvent,
+};
 
 /// Incremental extraction target for embedder-owned runtime state.
 ///
@@ -164,4 +166,3 @@ mod tests {
         );
     }
 }
-

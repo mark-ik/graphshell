@@ -98,7 +98,11 @@ pub(crate) fn runtime_events_from_semantic_events(
 
 pub(crate) fn runtime_events_and_responsive_from_events(
     events: Vec<WebViewLifecycleEvent>,
-) -> (Vec<RuntimeEvent>, Vec<WorkbenchIntent>, HashSet<servo::WebViewId>) {
+) -> (
+    Vec<RuntimeEvent>,
+    Vec<WorkbenchIntent>,
+    HashSet<servo::WebViewId>,
+) {
     #[cfg(feature = "diagnostics")]
     let ingest_started = Instant::now();
     #[cfg(feature = "diagnostics")]
@@ -358,7 +362,8 @@ mod tests {
             }),
         ];
 
-        let (runtime_events, workbench_intents, responsive) = runtime_events_and_responsive_from_events(events);
+        let (runtime_events, workbench_intents, responsive) =
+            runtime_events_and_responsive_from_events(events);
         assert!(workbench_intents.is_empty());
         let intent_kinds = runtime_events
             .iter()
@@ -384,7 +389,8 @@ mod tests {
             new_url: "https://trace.example".to_string(),
         })];
 
-        let (runtime_events, workbench_intents, responsive) = runtime_events_and_responsive_from_events(events);
+        let (runtime_events, workbench_intents, responsive) =
+            runtime_events_and_responsive_from_events(events);
         assert!(workbench_intents.is_empty());
         tracing::info!(
             "semantic_pipeline ingest_events={} emitted_intents={} responsive_webviews={}",
@@ -397,4 +403,3 @@ mod tests {
         assert!(logs_contain("emitted_intents="));
     }
 }
-

@@ -38,4 +38,3 @@ impl StorageInteropCoordinator for NoopStorageInteropCoordinator {
         }
     }
 }
-

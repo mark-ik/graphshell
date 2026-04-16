@@ -11,9 +11,11 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, WebPkiSupportedAlgorithms};
+use rustls::crypto::{WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, SignatureScheme, StreamOwned};
+use rustls::{
+    ClientConfig, ClientConnection, DigitallySignedStruct, Error, SignatureScheme, StreamOwned,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -44,7 +46,10 @@ impl RemoteFetch {
         }
     }
 
-    fn with_content_kind(body: String, content_kind_override: Option<MiddleNetContentKind>) -> Self {
+    fn with_content_kind(
+        body: String,
+        content_kind_override: Option<MiddleNetContentKind>,
+    ) -> Self {
         Self {
             body,
             content_kind_override,
@@ -91,7 +96,10 @@ impl GeminiKnownHostsStore {
         certificate: &CertificateDer<'_>,
     ) -> Result<(), String> {
         let fingerprint = sha256_hex(certificate.as_ref());
-        let mut records = self.records.write().expect("gemini known-hosts lock poisoned");
+        let mut records = self
+            .records
+            .write()
+            .expect("gemini known-hosts lock poisoned");
 
         match records.get(authority) {
             Some(existing) if existing.fingerprint_sha256 == fingerprint => Ok(()),
@@ -146,8 +154,8 @@ struct GeminiTofuVerifier {
 
 impl GeminiTofuVerifier {
     fn new(authority: String, known_hosts: GeminiKnownHostsStore) -> Self {
-        let supported_algs = rustls::crypto::aws_lc_rs::default_provider()
-            .signature_verification_algorithms;
+        let supported_algs =
+            rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms;
         Self {
             authority,
             known_hosts,
@@ -258,7 +266,9 @@ fn fetch_gopher_text(url: &url::Url) -> Result<RemoteFetch, String> {
     stream
         .read_to_end(&mut body)
         .map_err(|error| format!("Gopher response read failed: {error}"))?;
-    Ok(RemoteFetch::new(String::from_utf8_lossy(&body).into_owned()))
+    Ok(RemoteFetch::new(
+        String::from_utf8_lossy(&body).into_owned(),
+    ))
 }
 
 fn fetch_finger_text(url: &url::Url) -> Result<RemoteFetch, String> {
@@ -320,14 +330,13 @@ fn titan_upload_with_store(
     let stream = connect(host, port)?;
 
     let verifier = Arc::new(GeminiTofuVerifier::new(authority, known_hosts.clone()));
-    let client_config = ClientConfig::builder_with_provider(
-        rustls::crypto::aws_lc_rs::default_provider().into(),
-    )
-    .with_protocol_versions(rustls::DEFAULT_VERSIONS)
-    .expect("rustls default protocol versions should be valid for Titan client")
-        .dangerous()
-        .with_custom_certificate_verifier(verifier)
-        .with_no_client_auth();
+    let client_config =
+        ClientConfig::builder_with_provider(rustls::crypto::aws_lc_rs::default_provider().into())
+            .with_protocol_versions(rustls::DEFAULT_VERSIONS)
+            .expect("rustls default protocol versions should be valid for Titan client")
+            .dangerous()
+            .with_custom_certificate_verifier(verifier)
+            .with_no_client_auth();
     let server_name = server_name_for_host(host)?;
     let connection = ClientConnection::new(Arc::new(client_config), server_name)
         .map_err(|error| format!("Titan TLS client setup failed: {error}"))?;
@@ -433,14 +442,13 @@ fn fetch_gemini_text_with_store(
     let stream = connect(host, port)?;
 
     let verifier = Arc::new(GeminiTofuVerifier::new(authority, known_hosts.clone()));
-    let client_config = ClientConfig::builder_with_provider(
-        rustls::crypto::aws_lc_rs::default_provider().into(),
-    )
-    .with_protocol_versions(rustls::DEFAULT_VERSIONS)
-    .expect("rustls default protocol versions should be valid for Gemini client")
-        .dangerous()
-        .with_custom_certificate_verifier(verifier)
-        .with_no_client_auth();
+    let client_config =
+        ClientConfig::builder_with_provider(rustls::crypto::aws_lc_rs::default_provider().into())
+            .with_protocol_versions(rustls::DEFAULT_VERSIONS)
+            .expect("rustls default protocol versions should be valid for Gemini client")
+            .dangerous()
+            .with_custom_certificate_verifier(verifier)
+            .with_no_client_auth();
     let server_name = server_name_for_host(host)?;
     let connection = ClientConnection::new(Arc::new(client_config), server_name)
         .map_err(|error| format!("Gemini TLS client setup failed: {error}"))?;
@@ -471,12 +479,8 @@ fn fetch_gemini_text_with_store(
         10..=19 => Err(format!(
             "Gemini server requested input before content delivery (status {status}, meta '{meta}')."
         )),
-        40..=49 => Err(format!(
-            "Gemini temporary failure {status}: {meta}"
-        )),
-        50..=59 => Err(format!(
-            "Gemini permanent failure {status}: {meta}"
-        )),
+        40..=49 => Err(format!("Gemini temporary failure {status}: {meta}")),
+        50..=59 => Err(format!("Gemini permanent failure {status}: {meta}")),
         60..=69 => Err(format!(
             "Gemini certificate handling status {status}: {meta}"
         )),
@@ -560,7 +564,10 @@ fn server_name_for_host(host: &str) -> Result<ServerName<'static>, String> {
 fn parse_gemini_header(header: &str) -> Result<(u16, String), String> {
     let trimmed = header.trim_end_matches(['\r', '\n']);
     if trimmed.len() < 2 {
-        return Err("Gemini response header was shorter than the required two-digit status code.".to_string());
+        return Err(
+            "Gemini response header was shorter than the required two-digit status code."
+                .to_string(),
+        );
     }
 
     let status = trimmed[..2]
@@ -573,7 +580,9 @@ fn parse_gemini_header(header: &str) -> Result<(u16, String), String> {
 fn parse_spartan_header(header: &str) -> Result<(u16, String), String> {
     let trimmed = header.trim_end_matches(['\r', '\n']);
     let Some((status, meta)) = trimmed.split_once(' ') else {
-        return Err("Spartan response header was missing the required status/meta separator.".to_string());
+        return Err(
+            "Spartan response header was missing the required status/meta separator.".to_string(),
+        );
     };
     if status.len() != 1 {
         return Err(format!("Invalid Spartan status code '{status}'."));
@@ -674,7 +683,11 @@ fn content_kind_from_content_type(meta: &str) -> Option<MiddleNetContentKind> {
 }
 
 fn gopher_selector(url: &url::Url) -> String {
-    let selector = if url.path().is_empty() { "/" } else { url.path() };
+    let selector = if url.path().is_empty() {
+        "/"
+    } else {
+        url.path()
+    };
     match url.query() {
         Some(query) if !query.is_empty() => format!("{selector}\t{query}"),
         _ => selector.to_string(),
@@ -724,7 +737,9 @@ fn percent_decode_component(input: &str) -> Result<Vec<u8>, String> {
     while index < bytes.len() {
         if bytes[index] == b'%' {
             if index + 2 >= bytes.len() {
-                return Err(format!("Invalid percent-encoding in Spartan URL query '{input}'."));
+                return Err(format!(
+                    "Invalid percent-encoding in Spartan URL query '{input}'."
+                ));
             }
             let high = from_hex_digit(bytes[index + 1])?;
             let low = from_hex_digit(bytes[index + 2])?;
@@ -745,7 +760,10 @@ fn from_hex_digit(byte: u8) -> Result<u8, String> {
         b'0'..=b'9' => Ok(byte - b'0'),
         b'a'..=b'f' => Ok(byte - b'a' + 10),
         b'A'..=b'F' => Ok(byte - b'A' + 10),
-        _ => Err(format!("Invalid percent-encoded hex digit '{}'.", byte as char)),
+        _ => Err(format!(
+            "Invalid percent-encoded hex digit '{}'.",
+            byte as char
+        )),
     }
 }
 
@@ -827,9 +845,9 @@ mod tests {
     use middlenet_engine::source::MiddleNetContentKind;
     use rcgen::{CertificateParams, KeyPair};
     use rustls::{ServerConfig, ServerConnection};
-    use tempfile::TempDir;
     use std::net::TcpListener;
     use std::thread;
+    use tempfile::TempDir;
 
     fn source(uri: &str) -> MiddleNetSource {
         MiddleNetSource::new(MiddleNetContentKind::PlainText).with_uri(uri)
@@ -904,7 +922,10 @@ mod tests {
         let fetch = fetch_remote_text(&source(&format!("spartan://127.0.0.1:{port}/capsule")))
             .expect("spartan fetch should succeed");
 
-        assert_eq!(fetch.content_kind_override, Some(MiddleNetContentKind::GeminiText));
+        assert_eq!(
+            fetch.content_kind_override,
+            Some(MiddleNetContentKind::GeminiText)
+        );
         assert_eq!(fetch.body, "# Spartan\n");
         server.join().expect("server joins cleanly");
     }
@@ -936,7 +957,10 @@ mod tests {
         )))
         .expect("spartan query fetch should succeed");
 
-        assert_eq!(fetch.content_kind_override, Some(MiddleNetContentKind::PlainText));
+        assert_eq!(
+            fetch.content_kind_override,
+            Some(MiddleNetContentKind::PlainText)
+        );
         assert_eq!(fetch.body, "Result\n");
         server.join().expect("server joins cleanly");
     }
@@ -976,7 +1000,10 @@ mod tests {
         let fetch = fetch_remote_text(&source(&format!("spartan://127.0.0.1:{port}/")))
             .expect("spartan redirect fetch should succeed");
 
-        assert_eq!(fetch.content_kind_override, Some(MiddleNetContentKind::GeminiText));
+        assert_eq!(
+            fetch.content_kind_override,
+            Some(MiddleNetContentKind::GeminiText)
+        );
         assert_eq!(fetch.body, "=> /done Done\n");
         server.join().expect("server joins cleanly");
     }
@@ -1006,9 +1033,8 @@ mod tests {
     #[test]
     fn titan_upload_sends_request_and_receives_gemini_response() {
         let tempdir = TempDir::new().expect("temp dir should be created");
-        let known_hosts = GeminiKnownHostsStore::new_for_tests(
-            tempdir.path().join("gemini_known_hosts.json"),
-        );
+        let known_hosts =
+            GeminiKnownHostsStore::new_for_tests(tempdir.path().join("gemini_known_hosts.json"));
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
         let port = listener.local_addr().expect("address").port();
         let server = thread::spawn(move || {
@@ -1058,9 +1084,8 @@ mod tests {
     #[test]
     fn fetch_gemini_text_reads_success_body_and_records_known_host() {
         let tempdir = TempDir::new().expect("temp dir should be created");
-        let known_hosts = GeminiKnownHostsStore::new_for_tests(
-            tempdir.path().join("gemini_known_hosts.json"),
-        );
+        let known_hosts =
+            GeminiKnownHostsStore::new_for_tests(tempdir.path().join("gemini_known_hosts.json"));
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
         let port = listener.local_addr().expect("address").port();
         let server = thread::spawn(move || {
@@ -1075,29 +1100,34 @@ mod tests {
             reader.read_line(&mut request).expect("request line");
             assert!(request.starts_with("gemini://localhost:"));
             tls = reader.into_inner();
-            tls.write_all(b"20 text/gemini\r\n# Hello\n").expect("response");
+            tls.write_all(b"20 text/gemini\r\n# Hello\n")
+                .expect("response");
             tls.flush().expect("flush");
         });
 
-        let url = url::Url::parse(&format!("gemini://localhost:{port}/start"))
-            .expect("url should parse");
-        let fetch = fetch_gemini_text_with_store(&url, &known_hosts)
-            .expect("gemini fetch should succeed");
+        let url =
+            url::Url::parse(&format!("gemini://localhost:{port}/start")).expect("url should parse");
+        let fetch =
+            fetch_gemini_text_with_store(&url, &known_hosts).expect("gemini fetch should succeed");
 
-        assert_eq!(fetch.content_kind_override, Some(MiddleNetContentKind::GeminiText));
+        assert_eq!(
+            fetch.content_kind_override,
+            Some(MiddleNetContentKind::GeminiText)
+        );
         assert_eq!(fetch.body, "# Hello\n");
-        assert!(fs::read_to_string(tempdir.path().join("gemini_known_hosts.json"))
-            .expect("known-hosts file should exist")
-            .contains("localhost:"));
+        assert!(
+            fs::read_to_string(tempdir.path().join("gemini_known_hosts.json"))
+                .expect("known-hosts file should exist")
+                .contains("localhost:")
+        );
         server.join().expect("server joins cleanly");
     }
 
     #[test]
     fn known_hosts_reject_changed_certificate() {
         let tempdir = TempDir::new().expect("temp dir should be created");
-        let known_hosts = GeminiKnownHostsStore::new_for_tests(
-            tempdir.path().join("gemini_known_hosts.json"),
-        );
+        let known_hosts =
+            GeminiKnownHostsStore::new_for_tests(tempdir.path().join("gemini_known_hosts.json"));
         let first = CertificateDer::from(vec![1_u8, 2, 3]);
         let second = CertificateDer::from(vec![4_u8, 5, 6]);
 
@@ -1134,21 +1164,18 @@ mod tests {
         params.not_before = rcgen::date_time_ymd(2024, 1, 1);
         params.not_after = rcgen::date_time_ymd(2099, 12, 31);
 
-        let cert = params.self_signed(&key_pair).expect("self-signed cert should build");
+        let cert = params
+            .self_signed(&key_pair)
+            .expect("self-signed cert should build");
         let cert_der = rustls::pki_types::CertificateDer::from(cert.der().to_vec());
         let key_der = rustls::pki_types::PrivateKeyDer::try_from(key_pair.serialize_der())
             .expect("key der should convert");
 
-        ServerConfig::builder_with_provider(
-            rustls::crypto::aws_lc_rs::default_provider().into(),
-        )
-        .with_protocol_versions(rustls::DEFAULT_VERSIONS)
-        .expect("rustls default protocol versions should be valid for Gemini test server")
+        ServerConfig::builder_with_provider(rustls::crypto::aws_lc_rs::default_provider().into())
+            .with_protocol_versions(rustls::DEFAULT_VERSIONS)
+            .expect("rustls default protocol versions should be valid for Gemini test server")
             .with_no_client_auth()
             .with_single_cert(vec![cert_der], key_der)
             .expect("server config should build")
     }
 }
-
-
-

@@ -820,9 +820,7 @@ fn execute_identity_import_action<Execute>(
     Execute: FnOnce(&mut GraphBrowserApp, &str, Option<NodeKey>) -> Result<NodeKey, String>,
 {
     let descriptor = graphshell_comms::capabilities::descriptor(protocol);
-    let action_name = descriptor
-        .action_name
-        .unwrap_or(descriptor.display_name);
+    let action_name = descriptor.action_name.unwrap_or(descriptor.display_name);
     let raw_resource = app
         .domain_graph()
         .get_node(key)
@@ -834,10 +832,12 @@ fn execute_identity_import_action<Execute>(
             key,
             crate::app::UiNotificationLevel::Error,
             format!("{action_name} failed: node URL is empty"),
-            Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                action: action_name.to_string(),
-                detail: "failed: node URL is empty".to_string(),
-            }),
+            Some(
+                crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                    action: action_name.to_string(),
+                    detail: "failed: node URL is empty".to_string(),
+                },
+            ),
         );
         return;
     }
@@ -853,10 +853,12 @@ fn execute_identity_import_action<Execute>(
                 key,
                 crate::app::UiNotificationLevel::Error,
                 format!("{action_name} failed for {}: {}", raw_resource, error),
-                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                    action: action_name.to_string(),
-                    detail,
-                }),
+                Some(
+                    crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                        action: action_name.to_string(),
+                        detail,
+                    },
+                ),
             );
             return;
         }
@@ -886,10 +888,12 @@ fn execute_identity_import_action<Execute>(
                 subject_key,
                 crate::app::UiNotificationLevel::Success,
                 message,
-                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                    action: action_name.to_string(),
-                    detail,
-                }),
+                Some(
+                    crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                        action: action_name.to_string(),
+                        detail,
+                    },
+                ),
             );
         }
         Err(error) => {
@@ -898,10 +902,12 @@ fn execute_identity_import_action<Execute>(
                 key,
                 crate::app::UiNotificationLevel::Error,
                 format!("{action_name} failed for {}: {}", resource, error),
-                Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
-                    action: action_name.to_string(),
-                    detail,
-                }),
+                Some(
+                    crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
+                        action: action_name.to_string(),
+                        detail,
+                    },
+                ),
             );
         }
     }
@@ -919,7 +925,8 @@ pub(crate) fn execute_action_with_layout_target(
 ) {
     let focused_selection = app.focused_selection().clone();
     let open_target = source_context.or_else(|| focused_selection.primary());
-    let command_bar_focus_target = CommandBarFocusTarget::new(focused_pane_id, open_target.or(focused_pane_node));
+    let command_bar_focus_target =
+        CommandBarFocusTarget::new(focused_pane_id, open_target.or(focused_pane_node));
     let frame_target = app.pending_frame_context_target().map(str::to_string);
     let active_layout_surface_host =
         layout_surface_target_host.or_else(|| app.targetable_navigator_surface_host());
@@ -1118,7 +1125,8 @@ pub(crate) fn execute_action_with_layout_target(
             let _ = toolbar_routing::request_radial_menu_toggle(app, command_bar_focus_target);
         }
         ActionId::WorkbenchToggleOverlay => {
-            let _ = toolbar_routing::request_workbench_overlay_toggle(app, command_bar_focus_target);
+            let _ =
+                toolbar_routing::request_workbench_overlay_toggle(app, command_bar_focus_target);
         }
         ActionId::FrameSelect => {
             if let Some(frame_name) = frame_target {
@@ -1512,9 +1520,9 @@ mod tests {
     use crate::app::GraphViewId;
     use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, install_global_sender};
     use crate::shell::desktop::runtime::registries::{
-        CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
         CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_BLOCKED_BY_FOCUS,
         CHANNEL_UI_COMMAND_BAR_WORKBENCH_COMMAND_REQUESTED,
+        CHANNEL_UI_COMMAND_SURFACE_ROUTE_BLOCKED,
     };
 
     fn default_action_context() -> ActionContext {
@@ -2078,8 +2086,7 @@ mod tests {
                 .expect("observer lock poisoned")
                 .iter()
                 .any(|route| {
-                    route
-                        == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
+                    route == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
                 })
         );
         assert!(registries::phase3_unsubscribe_signal(
@@ -2156,8 +2163,7 @@ mod tests {
                 .expect("observer lock poisoned")
                 .iter()
                 .any(|route| {
-                    route
-                        == &VersoAddress::settings(GraphshellSettingsPath::General).to_string()
+                    route == &VersoAddress::settings(GraphshellSettingsPath::General).to_string()
                 })
         );
         assert!(registries::phase3_unsubscribe_signal(
@@ -2401,7 +2407,10 @@ mod tests {
                 .domain_graph()
                 .get_node_by_url("https://social.example/profile")
                 .expect("profile node should be created");
-            assert_eq!(profile_node.title, "Profile: https://social.example/profile");
+            assert_eq!(
+                profile_node.title,
+                "Profile: https://social.example/profile"
+            );
 
             let (alias_key, alias_node) = app
                 .domain_graph()
@@ -2411,16 +2420,21 @@ mod tests {
             assert_eq!(alias_node.title, format!("Alias: {resource}"));
             assert!(app.node_has_canonical_tag(alias_key, "#alias"));
 
-            assert!(app
-                .domain_graph()
-                .get_node_by_url("gemini://social.example/~mark")
-                .is_some());
+            assert!(
+                app.domain_graph()
+                    .get_node_by_url("gemini://social.example/~mark")
+                    .is_some()
+            );
             let request = app
                 .take_pending_node_status_notice()
                 .expect("webfinger import should queue a success notice");
             assert_eq!(request.key, subject_key);
             assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-            assert!(request.message.contains("Imported WebFinger discovery for https://social.example/users/mark"));
+            assert!(
+                request
+                    .message
+                    .contains("Imported WebFinger discovery for https://social.example/users/mark")
+            );
             assert!(request.message.contains("+4 node(s)"));
             assert!(matches!(
                 request.audit_event,
@@ -2481,7 +2495,11 @@ mod tests {
                 .expect("nip-05 resolve should queue a success notice");
             assert_eq!(request.key, subject_key);
             assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-            assert!(request.message.contains("Resolved NIP-05 identity for mark@example.net"));
+            assert!(
+                request
+                    .message
+                    .contains("Resolved NIP-05 identity for mark@example.net")
+            );
             assert!(matches!(
                 request.audit_event,
                 Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
@@ -2541,7 +2559,11 @@ mod tests {
                 .expect("matrix resolve should queue a success notice");
             assert_eq!(request.key, subject_key);
             assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-            assert!(request.message.contains("Resolved Matrix profile for @mark:matrix.example"));
+            assert!(
+                request
+                    .message
+                    .contains("Resolved Matrix profile for @mark:matrix.example")
+            );
         });
     }
 
@@ -2591,9 +2613,11 @@ mod tests {
                 .expect("activitypub import should queue a success notice");
             assert_eq!(request.key, subject_key);
             assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-            assert!(request
-                .message
-                .contains("Imported ActivityPub actor for https://social.example/users/mark"));
+            assert!(
+                request
+                    .message
+                    .contains("Imported ActivityPub actor for https://social.example/users/mark")
+            );
         });
     }
 
@@ -2645,7 +2669,11 @@ mod tests {
                 .expect("identity refresh should queue a success notice");
             assert_eq!(request.key, person);
             assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
-            assert!(request.message.contains("Refreshed 1 identity resolution(s) for person"));
+            assert!(
+                request
+                    .message
+                    .contains("Refreshed 1 identity resolution(s) for person")
+            );
             assert!(request.message.contains("+changes"));
         });
     }
@@ -2689,4 +2717,3 @@ mod tests {
         assert_eq!(load_pinned_categories(&ctx), vec![ActionCategory::Node]);
     }
 }
-

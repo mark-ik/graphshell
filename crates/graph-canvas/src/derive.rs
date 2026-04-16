@@ -22,9 +22,7 @@ use std::hash::Hash;
 
 use crate::camera::{CanvasCamera, CanvasViewport};
 use crate::lod::{LodLevel, LodPolicy};
-use crate::packet::{
-    Color, HitProxy, ProjectedScene, SceneDrawItem, Stroke,
-};
+use crate::packet::{Color, HitProxy, ProjectedScene, SceneDrawItem, Stroke};
 use crate::projection::{ProjectionConfig, ProjectionMode, project_position};
 use crate::scene::{CanvasEdge, CanvasNode, CanvasSceneInput, CanvasSceneObject};
 use crate::scripting::SceneObjectHitShape;
@@ -179,11 +177,7 @@ fn world_viewport_rect(camera: &CanvasCamera, viewport: &CanvasViewport) -> Rect
 
 /// Determine whether a world-space circle is potentially visible in the
 /// viewport (conservative — may include slightly off-screen nodes).
-fn is_node_visible(
-    world_pos: Point2D<f32>,
-    radius: f32,
-    world_viewport: &Rect<f32>,
-) -> bool {
+fn is_node_visible(world_pos: Point2D<f32>, radius: f32, world_viewport: &Rect<f32>) -> bool {
     let expanded = world_viewport.inflate(radius, radius);
     expanded.contains(world_pos)
 }
@@ -273,9 +267,7 @@ fn derive_scene_objects<N: Clone + Eq + Hash>(
         // visible world rect (with some margin for the hit shape).
         let margin = match &obj.hit_shape {
             Some(SceneObjectHitShape::Circle { radius }) => *radius,
-            Some(SceneObjectHitShape::Rect { half_extents }) => {
-                half_extents.x.max(half_extents.y)
-            }
+            Some(SceneObjectHitShape::Rect { half_extents }) => half_extents.x.max(half_extents.y),
             None => 0.0,
         };
         if !is_node_visible(obj.position, margin, world_viewport) {
@@ -328,11 +320,7 @@ fn offset_draw_item(item: &SceneDrawItem, offset: Point2D<f32>) -> SceneDrawItem
             fill: *fill,
             stroke: *stroke,
         },
-        SceneDrawItem::Line {
-            from,
-            to,
-            stroke,
-        } => SceneDrawItem::Line {
+        SceneDrawItem::Line { from, to, stroke } => SceneDrawItem::Line {
             from: Point2D::new(from.x + offset.x, from.y + offset.y),
             to: Point2D::new(to.x + offset.x, to.y + offset.y),
             stroke: *stroke,
@@ -385,17 +373,13 @@ fn derive_edges<N: Clone + Eq + Hash>(
 ) {
     // Build a position lookup from node id to index for edge endpoint resolution.
     // This avoids O(n*m) lookups when there are many edges.
-    let node_index: std::collections::HashMap<&N, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (&n.id, i))
-        .collect();
+    let node_index: std::collections::HashMap<&N, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (&n.id, i)).collect();
 
     for edge in edges {
-        let (Some(&src_idx), Some(&tgt_idx)) = (
-            node_index.get(&edge.source),
-            node_index.get(&edge.target),
-        ) else {
+        let (Some(&src_idx), Some(&tgt_idx)) =
+            (node_index.get(&edge.source), node_index.get(&edge.target))
+        else {
             continue; // Skip edges with missing endpoints.
         };
 
@@ -615,9 +599,7 @@ mod tests {
             .world
             .iter()
             .filter_map(|item| match item {
-                SceneDrawItem::Circle {
-                    center, radius, ..
-                } => Some((center, radius)),
+                SceneDrawItem::Circle { center, radius, .. } => Some((center, radius)),
                 _ => None,
             })
             .collect();
@@ -809,7 +791,12 @@ mod tests {
 
         // Should have the overlay label.
         assert!(!scene.overlays.is_empty());
-        assert!(scene.overlays.iter().any(|item| matches!(item, SceneDrawItem::Label { text, .. } if text == "badge")));
+        assert!(
+            scene
+                .overlays
+                .iter()
+                .any(|item| matches!(item, SceneDrawItem::Label { text, .. } if text == "badge"))
+        );
 
         // Should have a SceneObject hit proxy.
         let obj_proxies: Vec<_> = scene
@@ -896,4 +883,3 @@ mod tests {
         assert_eq!(circles.len(), 4); // 3 nodes + 1 scene object
     }
 }
-

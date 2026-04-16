@@ -89,6 +89,25 @@ pub(crate) fn sync_active(graph_tree: &mut GraphTree<NodeKey>, node_key: NodeKey
     graph_tree.apply(NavAction::Activate(node_key));
 }
 
+/// Build a `NodeKey → PaneId` mapping from the current tile tree.
+///
+/// This replaces per-query tile tree scans for PaneId lookup. Call at startup
+/// and after dual-write mutations that add or remove node panes.
+pub(crate) fn build_node_pane_id_map(
+    tiles_tree: &Tree<TileKind>,
+) -> std::collections::HashMap<NodeKey, super::pane_model::PaneId> {
+    use egui_tiles::Tile;
+    let mut map = std::collections::HashMap::new();
+    for (_tile_id, tile) in tiles_tree.tiles.iter() {
+        if let Tile::Pane(kind) = tile {
+            if let Some(state) = kind.node_state() {
+                map.insert(state.node, state.pane_id);
+            }
+        }
+    }
+    map
+}
+
 /// Produce `(PaneId, NodeKey, egui::Rect)` tuples from GraphTree layout, matching
 /// the format of `tile_compositor::active_node_pane_rects()`.
 ///
@@ -117,10 +136,8 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
         });
 
         if let Some(pane_id) = pane_id {
-            let egui_rect = egui::Rect::from_min_size(
-                egui::pos2(rect.x, rect.y),
-                egui::vec2(rect.w, rect.h),
-            );
+            let egui_rect =
+                egui::Rect::from_min_size(egui::pos2(rect.x, rect.y), egui::vec2(rect.w, rect.h));
             result.push((pane_id, *member, egui_rect));
         }
     }
@@ -361,12 +378,12 @@ fn build_external_snapshot(
     // 2. Visible and visible_order require traversal from root.
     if let Some(root_id) = tiles_tree.root() {
         traverse_tile_tree(
-            &tiles_tree.tiles, 
-            root_id, 
-            &mut visible, 
-            &mut expanded, 
-            &mut visible_order, 
-            true
+            &tiles_tree.tiles,
+            root_id,
+            &mut visible,
+            &mut expanded,
+            &mut visible_order,
+            true,
         );
     }
 
@@ -407,4 +424,3 @@ pub(crate) enum ParityDiscrepancy {
     /// Visible member ordering differs.
     VisibleOrderMismatch,
 }
-

@@ -26,8 +26,8 @@ use crate::app::{GraphBrowserApp, VisibleNavigationRegionSet};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::atomic::lens::{GlyphOverlay, LensOverlayDescriptor};
 use crate::registries::domain::presentation::PresentationProfile;
-use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT, CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
@@ -328,13 +328,10 @@ fn tile_selection_state_for_pane(
     tiles_tree: &Tree<TileKind>,
     pane_id: PaneId,
 ) -> TileSelectionState {
-    let tile_id = tiles_tree
-        .tiles
-        .iter()
-        .find_map(|(tid, tile)| match tile {
-            Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(*tid),
-            _ => None,
-        });
+    let tile_id = tiles_tree.tiles.iter().find_map(|(tid, tile)| match tile {
+        Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(*tid),
+        _ => None,
+    });
 
     let Some(tile_id) = tile_id else {
         return TileSelectionState::NotSelected;
@@ -441,8 +438,7 @@ fn resolve_tile_semantic_input(
     let runtime_blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
     let has_unread_traversal_activity =
         graph_app.node_has_canonical_tag(node_key, GraphBrowserApp::TAG_UNREAD);
-    let selection_state =
-        tile_selection_state_for_pane(graph_app, tiles_tree, pane_id);
+    let selection_state = tile_selection_state_for_pane(graph_app, tiles_tree, pane_id);
     let lens_preset = resolved_lens_preset_for_tile(tiles_tree, graph_app, node_key);
     let mut semantic = TileSemanticOverlayInput {
         node_key,
@@ -492,8 +488,7 @@ fn differential_content_decision(
             // Phase C: decompose the change into independent axes.
             let content_changed = previous.webview_id != signature.webview_id;
             let placement_changed = previous.rect_px != signature.rect_px;
-            let semantic_changed =
-                previous.semantic_generation != signature.semantic_generation;
+            let semantic_changed = previous.semantic_generation != signature.semantic_generation;
 
             let reason = if content_changed {
                 DifferentialComposeReason::ContentChanged
@@ -889,34 +884,44 @@ pub(crate) struct GraphTreeLayoutOutput {
 ///
 /// GraphTree is both the membership authority (which nodes are visible) and the
 /// layout authority (pane rects via taffy-backed `compute_layout()`).
-/// PaneId lookup still comes from egui_tiles during migration — once PaneId is
-/// replaced by a GraphTree-native identifier, the tiles_tree parameter can be removed.
+/// PaneId is resolved from the `node_pane_ids` map (refreshed per frame in
+/// `tile_render_pass`). The `tiles_tree` parameter is retained as a fallback
+/// during migration but is no longer the primary PaneId source.
 pub(crate) fn active_node_pane_rects_from_graph_tree(
     graph_tree: &GraphTree<NodeKey>,
     tiles_tree: &Tree<TileKind>,
+    node_pane_ids: &std::collections::HashMap<NodeKey, super::pane_model::PaneId>,
     available: egui::Rect,
 ) -> GraphTreeLayoutOutput {
     let gt_rect = graph_tree::Rect::new(
-        available.left(), available.top(), available.width(), available.height(),
+        available.left(),
+        available.top(),
+        available.width(),
+        available.height(),
     );
     let layout = graph_tree.compute_layout(gt_rect);
 
-    let pane_rects = layout.pane_rects.iter().filter_map(|(node_key, rect)| {
-        // PaneId lookup from tiles_tree during migration.
-        let pane_id = tiles_tree.tiles.iter().find_map(|(_, tile)| {
-            if let Tile::Pane(TileKind::Node(state)) = tile {
-                if state.node == *node_key {
-                    return Some(state.pane_id);
-                }
-            }
-            None
-        })?;
-        let egui_rect = egui::Rect::from_min_size(
-            egui::pos2(rect.x, rect.y),
-            egui::vec2(rect.w, rect.h),
-        );
-        Some((pane_id, *node_key, egui_rect))
-    }).collect();
+    let pane_rects = layout
+        .pane_rects
+        .iter()
+        .filter_map(|(node_key, rect)| {
+            // Primary: look up from the per-frame map.
+            let pane_id = node_pane_ids.get(node_key).copied().or_else(|| {
+                // Fallback: scan tiles (migration bridge, should be rare).
+                tiles_tree.tiles.iter().find_map(|(_, tile)| {
+                    if let Tile::Pane(TileKind::Node(state)) = tile {
+                        if state.node == *node_key {
+                            return Some(state.pane_id);
+                        }
+                    }
+                    None
+                })
+            })?;
+            let egui_rect =
+                egui::Rect::from_min_size(egui::pos2(rect.x, rect.y), egui::vec2(rect.w, rect.h));
+            Some((pane_id, *node_key, egui_rect))
+        })
+        .collect();
 
     GraphTreeLayoutOutput {
         pane_rects,
@@ -2966,4 +2971,3 @@ mod tests {
         assert_eq!(estimated_tile_content_bytes(rect, 2.0), 200 * 100 * 4);
     }
 }
-

@@ -164,24 +164,18 @@ impl<N: Clone + Eq + Hash> RapierSceneWorld<N> {
             }
 
             let (position, shape) = match region.shape {
-                SceneRegionShape::Circle { center, radius } => {
-                    (center, SharedShape::ball(radius))
-                }
+                SceneRegionShape::Circle { center, radius } => (center, SharedShape::ball(radius)),
                 SceneRegionShape::Rect { rect } => {
                     let center = Point2D::new(
                         rect.origin.x + rect.size.width * 0.5,
                         rect.origin.y + rect.size.height * 0.5,
                     );
-                    let shape =
-                        SharedShape::cuboid(rect.size.width * 0.5, rect.size.height * 0.5);
+                    let shape = SharedShape::cuboid(rect.size.width * 0.5, rect.size.height * 0.5);
                     (center, shape)
                 }
             };
 
-            let is_wall = matches!(
-                region.effect,
-                crate::scene_region::SceneRegionEffect::Wall
-            );
+            let is_wall = matches!(region.effect, crate::scene_region::SceneRegionEffect::Wall);
 
             let body = RigidBodyBuilder::fixed()
                 .translation(to_vec2(position))
@@ -263,12 +257,7 @@ impl<N: Clone + Eq + Hash> RapierSceneWorld<N> {
     }
 
     /// Process a raw rapier collision event into typed SceneEvents.
-    fn process_collision_event(
-        &mut self,
-        h1: ColliderHandle,
-        h2: ColliderHandle,
-        started: bool,
-    ) {
+    fn process_collision_event(&mut self, h1: ColliderHandle, h2: ColliderHandle, started: bool) {
         let n1 = self.collider_node_map.get(&h1).cloned();
         let n2 = self.collider_node_map.get(&h2).cloned();
         let r1 = self.region_sensor_map.get(&h1).copied();
@@ -490,10 +479,7 @@ mod tests {
             NodeAvatarBinding::circle(0u32, 10.0),
             NodeAvatarBinding::circle(1, 10.0),
         ];
-        let snapshots = vec![
-            node_snap(0, 0.0, 0.0, 10.0),
-            node_snap(1, 200.0, 0.0, 10.0),
-        ];
+        let snapshots = vec![node_snap(0, 0.0, 0.0, 10.0), node_snap(1, 200.0, 0.0, 10.0)];
         world.build_bodies(&bindings, &snapshots);
         world.build_edge_joints(&[(0, 1, EdgeJointSpec::default())]);
 
@@ -526,4 +512,3 @@ mod tests {
         // Mainly testing no panic.
     }
 }
-

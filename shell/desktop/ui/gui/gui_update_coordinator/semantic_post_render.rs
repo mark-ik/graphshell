@@ -163,4 +163,3 @@ pub(super) fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>)
         frame_intents,
     );
 }
-

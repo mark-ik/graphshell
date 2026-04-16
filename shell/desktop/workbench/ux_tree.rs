@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-#[cfg(test)]
-use std::cell::Cell;
 
 use egui_tiles::{Container, Tile, TileId, Tree};
 
@@ -533,11 +533,7 @@ pub(crate) fn try_build_snapshot_with_rects(
 }
 
 pub(crate) fn degraded_root_only_snapshot(build_duration_us: u64) -> UxTreeSnapshot {
-    root_snapshot(
-        build_duration_us,
-        true,
-        vec!["degraded:build_failure"],
-    )
+    root_snapshot(build_duration_us, true, vec!["degraded:build_failure"])
 }
 
 fn append_command_surface_nodes(
@@ -1948,9 +1944,7 @@ pub(crate) fn node_pane_tombstone_lifecycle_violation(
     })
 }
 
-pub(crate) fn interactive_bounds_violation(
-    snapshot: &UxTreeSnapshot,
-) -> Option<(String, String)> {
+pub(crate) fn interactive_bounds_violation(snapshot: &UxTreeSnapshot) -> Option<(String, String)> {
     let presentation_bounds: HashMap<&str, [f32; 4]> = snapshot
         .presentation_nodes
         .iter()
@@ -2029,9 +2023,7 @@ fn command_surface_capture_owners(snapshot: &UxTreeSnapshot) -> Vec<&'static str
         .collect()
 }
 
-pub(crate) fn command_surface_capture_owner_violation(
-    snapshot: &UxTreeSnapshot,
-) -> Option<String> {
+pub(crate) fn command_surface_capture_owner_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
     let has_command_bar = snapshot
         .semantic_nodes
         .iter()
@@ -2062,9 +2054,7 @@ fn command_bar_has_restore_anchor(snapshot: &UxTreeSnapshot) -> bool {
     })
 }
 
-pub(crate) fn command_surface_return_target_violation(
-    snapshot: &UxTreeSnapshot,
-) -> Option<String> {
+pub(crate) fn command_surface_return_target_violation(snapshot: &UxTreeSnapshot) -> Option<String> {
     let has_fallback_anchor = command_bar_has_restore_anchor(snapshot);
     snapshot.semantic_nodes.iter().find_map(|node| {
         let UxDomainIdentity::CommandPalette {
@@ -2078,8 +2068,10 @@ pub(crate) fn command_surface_return_target_violation(
             return None;
         };
 
-        let visible_palette = matches!(node.role, UxNodeRole::CommandPalette | UxNodeRole::ContextPalette)
-            && (node.state.focused || node.state.selected);
+        let visible_palette = matches!(
+            node.role,
+            UxNodeRole::CommandPalette | UxNodeRole::ContextPalette
+        ) && (node.state.focused || node.state.selected);
         if !visible_palette {
             return None;
         }
@@ -2282,13 +2274,15 @@ fn ux_tree_node_label(
     node_key: NodeKey,
     node: &crate::graph::Node,
 ) -> String {
-    graph_app.user_visible_node_title(node_key).unwrap_or_else(|| {
-        if node.title.is_empty() {
-            node.url().to_string()
-        } else {
-            node.title.clone()
-        }
-    })
+    graph_app
+        .user_visible_node_title(node_key)
+        .unwrap_or_else(|| {
+            if node.title.is_empty() {
+                node.url().to_string()
+            } else {
+                node.title.clone()
+            }
+        })
 }
 
 pub(crate) fn snapshot_json(snapshot: &UxTreeSnapshot) -> serde_json::Value {
@@ -2369,7 +2363,7 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
 
 #[cfg(test)]
 fn set_force_build_failure_for_tests(enabled: bool) {
-        FORCE_UX_TREE_BUILD_FAILURE.with(|flag| flag.set(enabled));
+    FORCE_UX_TREE_BUILD_FAILURE.with(|flag| flag.set(enabled));
 }
 
 #[cfg(test)]
@@ -2382,13 +2376,13 @@ mod tests {
         RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary, RadialSectorSemanticMetadata,
         clear_semantic_snapshot, publish_semantic_snapshot,
     };
+    use crate::shell::desktop::tests::harness::TestRegistry;
     use crate::shell::desktop::ui::toolbar::toolbar_ui::{
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
         CommandSurfaceSemanticSnapshot, OmnibarMailboxEventSequenceMetadata,
         OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
         clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
     };
-    use crate::shell::desktop::tests::harness::TestRegistry;
 
     #[test]
     fn snapshot_uses_single_canonical_id_space_across_layers() {
@@ -2405,7 +2399,10 @@ mod tests {
             presentation.is_subset(&semantic),
             "presentation ids must be subset of semantic ids"
         );
-        assert!(trace.is_subset(&semantic), "trace ids must be subset of semantic ids");
+        assert!(
+            trace.is_subset(&semantic),
+            "trace ids must be subset of semantic ids"
+        );
     }
 
     #[test]
@@ -2499,7 +2496,11 @@ mod tests {
             .filter(|entry| !entry.allowed_actions.is_empty())
             .take(2)
             .collect::<Vec<_>>();
-        assert_eq!(focused_nodes.len(), 2, "expected two interactive nodes to mark focused");
+        assert_eq!(
+            focused_nodes.len(),
+            2,
+            "expected two interactive nodes to mark focused"
+        );
         focused_nodes[0].state.focused = true;
         focused_nodes[1].state.focused = true;
 
@@ -2660,16 +2661,17 @@ mod tests {
         let harness = TestRegistry::new();
         set_force_build_failure_for_tests(true);
 
-        let result = try_build_snapshot_with_rects(
-            &harness.tiles_tree,
-            &harness.app,
-            5,
-            &HashMap::new(),
-        );
+        let result =
+            try_build_snapshot_with_rects(&harness.tiles_tree, &harness.app, 5, &HashMap::new());
 
         set_force_build_failure_for_tests(false);
         assert!(result.is_err());
-        assert!(result.err().unwrap().contains("forced ux tree build failure"));
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .contains("forced ux tree build failure")
+        );
     }
 
     #[test]
@@ -2678,9 +2680,11 @@ mod tests {
 
         assert_eq!(snapshot.semantic_nodes.len(), 1);
         assert!(snapshot.semantic_nodes[0].state.degraded);
-        assert!(snapshot.presentation_nodes[0]
-            .transient_flags
-            .contains(&"degraded:build_failure"));
+        assert!(
+            snapshot.presentation_nodes[0]
+                .transient_flags
+                .contains(&"degraded:build_failure")
+        );
     }
 
     #[test]
@@ -2692,8 +2696,8 @@ mod tests {
             std::process::id()
         ));
 
-        let bytes_written = write_snapshot_to_path(&snapshot, &temp_path)
-            .expect("snapshot export should succeed");
+        let bytes_written =
+            write_snapshot_to_path(&snapshot, &temp_path).expect("snapshot export should succeed");
         let body = fs::read_to_string(&temp_path).expect("snapshot file should be readable");
         let _ = fs::remove_file(&temp_path);
 
@@ -2851,14 +2855,19 @@ mod tests {
                 _ => None,
             })
             .expect("graph surface should advertise a graph view id");
-        harness.app.workspace.graph_runtime.graph_view_frames.insert(
-            graph_view_id,
-            crate::app::GraphViewFrame {
-                zoom: 0.4,
-                pan_x: 0.0,
-                pan_y: 0.0,
-            },
-        );
+        harness
+            .app
+            .workspace
+            .graph_runtime
+            .graph_view_frames
+            .insert(
+                graph_view_id,
+                crate::app::GraphViewFrame {
+                    zoom: 0.4,
+                    pan_x: 0.0,
+                    pan_y: 0.0,
+                },
+            );
 
         let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
 
@@ -2870,8 +2879,7 @@ mod tests {
             "point LOD should suppress graph-node semantic children"
         );
         assert!(snapshot.semantic_nodes.iter().any(|entry| {
-            entry.role == UxNodeRole::StatusIndicator
-                && entry.label == GRAPH_POINT_LOD_STATUS_LABEL
+            entry.role == UxNodeRole::StatusIndicator && entry.label == GRAPH_POINT_LOD_STATUS_LABEL
         }));
         assert!(graph_lod_semantic_emission_violation(&snapshot, &harness.app).is_none());
     }
@@ -2895,25 +2903,34 @@ mod tests {
                 _ => None,
             })
             .expect("graph surface should advertise a graph view id");
-        harness.app.workspace.graph_runtime.graph_view_frames.insert(
-            graph_view_id,
-            crate::app::GraphViewFrame {
-                zoom: 0.8,
-                pan_x: 0.0,
-                pan_y: 0.0,
-            },
-        );
+        harness
+            .app
+            .workspace
+            .graph_runtime
+            .graph_view_frames
+            .insert(
+                graph_view_id,
+                crate::app::GraphViewFrame {
+                    zoom: 0.8,
+                    pan_x: 0.0,
+                    pan_y: 0.0,
+                },
+            );
 
         let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
 
-        assert!(snapshot
-            .semantic_nodes
-            .iter()
-            .any(|entry| entry.role == UxNodeRole::GraphNode));
-        assert!(snapshot
-            .semantic_nodes
-            .iter()
-            .all(|entry| entry.role != UxNodeRole::StatusIndicator));
+        assert!(
+            snapshot
+                .semantic_nodes
+                .iter()
+                .any(|entry| entry.role == UxNodeRole::GraphNode)
+        );
+        assert!(
+            snapshot
+                .semantic_nodes
+                .iter()
+                .all(|entry| entry.role != UxNodeRole::StatusIndicator)
+        );
         assert!(graph_lod_semantic_emission_violation(&snapshot, &harness.app).is_none());
     }
 
@@ -2936,14 +2953,19 @@ mod tests {
                 _ => None,
             })
             .expect("graph surface should advertise a graph view id");
-        harness.app.workspace.graph_runtime.graph_view_frames.insert(
-            graph_view_id,
-            crate::app::GraphViewFrame {
-                zoom: 0.4,
-                pan_x: 0.0,
-                pan_y: 0.0,
-            },
-        );
+        harness
+            .app
+            .workspace
+            .graph_runtime
+            .graph_view_frames
+            .insert(
+                graph_view_id,
+                crate::app::GraphViewFrame {
+                    zoom: 0.4,
+                    pan_x: 0.0,
+                    pan_y: 0.0,
+                },
+            );
 
         let violation = graph_lod_semantic_emission_violation(&snapshot, &harness.app)
             .expect("point-tier mismatch should be detected");
@@ -3040,7 +3062,8 @@ mod tests {
 
     #[test]
     fn snapshot_projects_command_surface_probe_receipts() {
-        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        let _guard =
+            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
         clear_command_surface_semantic_snapshot();
         publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
@@ -3121,7 +3144,8 @@ mod tests {
 
     #[test]
     fn command_surface_capture_owner_violation_detects_conflicting_owners() {
-        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        let _guard =
+            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
         clear_command_surface_semantic_snapshot();
         publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
@@ -3163,7 +3187,8 @@ mod tests {
 
     #[test]
     fn command_surface_return_target_violation_detects_missing_restore_anchor() {
-        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        let _guard =
+            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
         clear_command_surface_semantic_snapshot();
         publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
@@ -3204,7 +3229,8 @@ mod tests {
 
     #[test]
     fn command_surface_return_target_violation_accepts_command_bar_fallback_anchor() {
-        let _guard = crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        let _guard =
+            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
         clear_command_surface_semantic_snapshot();
         publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
@@ -3406,4 +3432,3 @@ mod tests {
         )));
     }
 }
-

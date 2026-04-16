@@ -189,8 +189,11 @@ impl<N: MemberId> TreeTopology<N> {
         if let Some(children) = self.children.get_mut(parent) {
             // Only keep children that are actually children of this parent
             let valid: std::collections::HashSet<&N> = children.iter().collect();
-            let mut reordered: Vec<N> = new_order.into_iter().filter(|n| valid.contains(n)).collect();
-            
+            let mut reordered: Vec<N> = new_order
+                .into_iter()
+                .filter(|n| valid.contains(n))
+                .collect();
+
             // Re-add any active children that were omitted from `new_order`
             // to ensure we never orphan members from the topology.
             let explicit: std::collections::HashSet<N> = reordered.iter().cloned().collect();
@@ -199,7 +202,7 @@ impl<N: MemberId> TreeTopology<N> {
                     reordered.push(child.clone());
                 }
             }
-            
+
             *children = reordered;
         }
     }
@@ -234,9 +237,7 @@ impl<N: MemberId> TreeTopology<N> {
 
     /// Returns true if the member has children.
     pub fn has_children(&self, member: &N) -> bool {
-        self.children
-            .get(member)
-            .is_some_and(|c| !c.is_empty())
+        self.children.get(member).is_some_and(|c| !c.is_empty())
     }
 
     /// Depth of a member (0 for roots).
@@ -278,7 +279,11 @@ impl<N: MemberId> TreeTopology<N> {
                 .collect()
         } else {
             // Root siblings
-            self.roots.iter().filter(|n| *n != member).cloned().collect()
+            self.roots
+                .iter()
+                .filter(|n| *n != member)
+                .cloned()
+                .collect()
         }
     }
 
@@ -392,7 +397,8 @@ impl<N: MemberId> TreeTopology<N> {
             assert!(
                 children.contains(child),
                 "child {:?} claims parent {:?}, but parent's children list doesn't contain it",
-                child, parent
+                child,
+                parent
             );
         }
 
@@ -403,7 +409,9 @@ impl<N: MemberId> TreeTopology<N> {
                     self.parent.get(child),
                     Some(parent),
                     "parent {:?} lists child {:?}, but child's parent pointer is {:?}",
-                    parent, child, self.parent.get(child)
+                    parent,
+                    child,
+                    self.parent.get(child)
                 );
             }
         }
@@ -846,12 +854,7 @@ mod tests {
             graph.add_edge(a, b, "traversal");
             graph.add_edge(a, c, "manual");
 
-            let topo = derive_topology(
-                &graph,
-                &[a],
-                |_| true,
-                &PlacementPolicy::ChildOfConnection,
-            );
+            let topo = derive_topology(&graph, &[a], |_| true, &PlacementPolicy::ChildOfConnection);
 
             assert_eq!(topo.roots(), &[1]);
             assert!(topo.contains(&2));
@@ -887,4 +890,3 @@ mod tests {
         }
     }
 }
-

@@ -1563,4 +1563,3 @@ mod tests {
         assert_eq!(hit.handle, SceneRegionResizeHandle::RectTopLeft);
     }
 }
-

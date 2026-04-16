@@ -33,8 +33,8 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use uuid::Uuid;
 
-use middlenet_engine::document::{SimpleBlock, SimpleDocument};
 use crate::model::archive::ArchivePrivacyClass;
+use middlenet_engine::document::{SimpleBlock, SimpleDocument};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -283,9 +283,7 @@ fn serve_index(registry: &CapsuleRegistry, hostname: &str) -> GeminiResponse {
             level: 1,
             text: format!("{hostname} — Graphshell Capsule"),
         },
-        SimpleBlock::Paragraph(
-            "This capsule is served by Graphshell.".to_string(),
-        ),
+        SimpleBlock::Paragraph("This capsule is served by Graphshell.".to_string()),
     ];
 
     let nodes = registry.all();
@@ -402,4 +400,3 @@ fn build_tls_config(hostname: &str) -> Result<ServerConfig, Box<dyn std::error::
 
     Ok(config)
 }
-

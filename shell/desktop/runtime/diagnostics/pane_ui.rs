@@ -851,13 +851,18 @@ impl DiagnosticsState {
                                             ui.monospace(receipt.channel_id);
                                             ui.monospace(receipt.direction);
                                             ui.monospace(receipt.detail);
-                                            let payload_summary = if receipt.payload_fields.is_empty() {
+                                            let payload_summary = if receipt
+                                                .payload_fields
+                                                .is_empty()
+                                            {
                                                 "-".to_string()
                                             } else {
                                                 receipt
                                                     .payload_fields
                                                     .iter()
-                                                    .map(|field| format!("{}={}", field.name, field.value))
+                                                    .map(|field| {
+                                                        format!("{}={}", field.name, field.value)
+                                                    })
                                                     .collect::<Vec<_>>()
                                                     .join(", ")
                                             };
@@ -1395,4 +1400,3 @@ fn signal_trace_labels(
         }
     }
 }
-

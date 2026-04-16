@@ -20,10 +20,10 @@ use euclid::Scale;
 use raw_window_handle::RawWindowHandle;
 use servo::{
     AuthenticationRequest, BluetoothDeviceSelectionRequest, ConsoleLogLevel, Cursor,
-    DeviceIndependentIntRect, DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize,
-    DevicePixel, EmbedderControl, EmbedderControlId, InputEventId, InputEventResult,
-    MediaSessionEvent, PermissionRequest, RenderingContext, ScreenGeometry, Servo,
-    UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
+    DeviceIndependentIntRect, DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize, DevicePixel,
+    EmbedderControl, EmbedderControlId, InputEventId, InputEventResult, MediaSessionEvent,
+    PermissionRequest, RenderingContext, ScreenGeometry, Servo, UserContentManager, WebView,
+    WebViewBuilder, WebViewDelegate, WebViewId,
 };
 use url::Url;
 
@@ -785,7 +785,7 @@ mod tests {
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use servo::WebViewId;
 
-    use super::{EmbedderWindow, WebViewLifecycleEventKind, InputTarget};
+    use super::{EmbedderWindow, InputTarget, WebViewLifecycleEventKind};
     use crate::prefs::AppPreferences;
     use crate::shell::desktop::host::headless_window::HeadlessWindow;
 
@@ -838,4 +838,3 @@ mod tests {
         assert_eq!(seqs, vec![1, 2, 3]);
     }
 }
-

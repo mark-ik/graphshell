@@ -220,7 +220,10 @@ pub(super) fn handle_intercepted_key_bindings(
             headed
                 .gui
                 .borrow_mut()
-                .request_toolbar_nav_action_for_webview(active_webview_id, ToolbarNavAction::Reload);
+                .request_toolbar_nav_action_for_webview(
+                    active_webview_id,
+                    ToolbarNavAction::Reload,
+                );
         })
         .shortcut(CMD_OR_CONTROL, 'W', || {
             headed
@@ -267,7 +270,10 @@ pub(super) fn handle_intercepted_key_bindings(
             headed
                 .gui
                 .borrow_mut()
-                .request_toolbar_nav_action_for_webview(active_webview_id, ToolbarNavAction::Forward);
+                .request_toolbar_nav_action_for_webview(
+                    active_webview_id,
+                    ToolbarNavAction::Forward,
+                );
         })
         .optional_shortcut(
             cfg!(not(target_os = "windows")),
@@ -277,7 +283,10 @@ pub(super) fn handle_intercepted_key_bindings(
                 headed
                     .gui
                     .borrow_mut()
-                    .request_toolbar_nav_action_for_webview(active_webview_id, ToolbarNavAction::Forward);
+                    .request_toolbar_nav_action_for_webview(
+                        active_webview_id,
+                        ToolbarNavAction::Forward,
+                    );
             },
         )
         .shortcut(CMD_OR_ALT, servo::Key::Named(NamedKey::ArrowLeft), || {
@@ -294,7 +303,10 @@ pub(super) fn handle_intercepted_key_bindings(
                 headed
                     .gui
                     .borrow_mut()
-                    .request_toolbar_nav_action_for_webview(active_webview_id, ToolbarNavAction::Back);
+                    .request_toolbar_nav_action_for_webview(
+                        active_webview_id,
+                        ToolbarNavAction::Back,
+                    );
             },
         )
         .optional_shortcut(
@@ -373,4 +385,3 @@ pub(super) fn winit_phase_to_touch_event_type(phase: TouchPhase) -> TouchEventTy
         TouchPhase::Cancelled => TouchEventType::Cancel,
     }
 }
-

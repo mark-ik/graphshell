@@ -6,11 +6,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
 use crate::graph::NodeKey;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::pane_model::PaneId;
+use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use servo::{LoadStatus, WebViewId};
 
 pub(super) struct ToolbarState {
@@ -46,7 +46,9 @@ impl BookmarkImportDialogState {
         let bookmark_file_filter = Filter::new(|path: &std::path::Path| {
             path.extension()
                 .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "html" | "htm" | "json"))
+                .is_some_and(|ext| {
+                    matches!(ext.to_ascii_lowercase().as_str(), "html" | "htm" | "json")
+                })
         });
 
         let dialog = EguiFileDialog::new()
@@ -348,4 +350,3 @@ pub(crate) struct RuntimeFocusInputs {
     pub(crate) command_surface_return_target: Option<ToolSurfaceReturnTarget>,
     pub(crate) transient_surface_return_target: Option<ToolSurfaceReturnTarget>,
 }
-

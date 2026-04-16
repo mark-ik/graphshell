@@ -576,4 +576,3 @@ mod tests {
         assert_eq!(result, "\u{2026}");
     }
 }
-

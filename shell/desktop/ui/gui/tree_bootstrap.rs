@@ -16,4 +16,3 @@ pub(super) fn ensure_tiles_tree_root(tiles_tree: &mut Tree<TileKind>) {
 fn set_tiles_tree_root(tiles_tree: &mut Tree<TileKind>, root_tile_id: TileId) {
     tiles_tree.root = Some(root_tile_id);
 }
-

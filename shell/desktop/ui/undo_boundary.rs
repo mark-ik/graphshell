@@ -16,4 +16,3 @@ pub(crate) fn record_workspace_undo_boundary_from_tiles_tree(
         graph_app.record_workspace_undo_boundary(Some(layout_json), reason);
     }
 }
-

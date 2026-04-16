@@ -115,4 +115,3 @@ fn print_path(fmt: &mut fmt::Formatter<'_>, path: BytesOrWideString<'_>) -> fmt:
     }
     Ok(())
 }
-

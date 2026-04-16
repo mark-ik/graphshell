@@ -332,7 +332,10 @@ mod tests {
         assert!(resolution.supported);
         assert!(!resolution.fallback_used);
         assert_eq!(resolution.matched_scheme, "gemini");
-        assert_eq!(resolution.inferred_mime_hint.as_deref(), Some("text/gemini"));
+        assert_eq!(
+            resolution.inferred_mime_hint.as_deref(),
+            Some("text/gemini")
+        );
     }
 
     #[test]
@@ -343,7 +346,10 @@ mod tests {
         assert!(resolution.supported);
         assert!(!resolution.fallback_used);
         assert_eq!(resolution.matched_scheme, "titan");
-        assert_eq!(resolution.inferred_mime_hint.as_deref(), Some("text/gemini"));
+        assert_eq!(
+            resolution.inferred_mime_hint.as_deref(),
+            Some("text/gemini")
+        );
     }
 
     #[test]
@@ -368,4 +374,3 @@ mod tests {
         );
     }
 }
-

@@ -30,8 +30,7 @@ use super::{
     SelectionEdgeProjectionOverride, SelectionScope, SelectionState, SettingsToolPage,
     SurfaceHostId, TagPanelState, ToastAnchorPreference, UndoRedoSnapshot, UxConfigMode,
     ViewDimension, WorkbenchDisplayMode, WorkbenchIntent, WorkbenchLayoutConstraint,
-    WorkbenchProfile,
-    WorkspaceUserStylesheetSetting,
+    WorkbenchProfile, WorkspaceUserStylesheetSetting,
 };
 use crate::graph::GraphletKind;
 
@@ -255,6 +254,13 @@ pub struct GraphViewRuntimeState {
     #[cfg(not(target_arch = "wasm32"))]
     pub canvas_interaction_engines:
         HashMap<GraphViewId, graph_canvas::engine::InteractionEngine<NodeKey>>,
+
+    /// Host-side NodeKey → PaneId mapping, populated by dual-write on pane open.
+    ///
+    /// Eliminates the need to scan `egui_tiles::Tree` for PaneId lookup in the
+    /// compositor, GraphTree layout path, and focus queries. Once egui_tiles is
+    /// fully retired, this becomes the sole PaneId authority.
+    pub node_pane_ids: HashMap<NodeKey, crate::shell::desktop::workbench::pane_model::PaneId>,
 
     /// Per-view graph-canvas camera state (transient, not persisted).
     ///
@@ -703,4 +709,3 @@ pub struct ChromeUiState {
     /// Active filter for the mixed history timeline All tab.
     pub mixed_timeline_filter: crate::services::persistence::types::HistoryTimelineFilter,
 }
-

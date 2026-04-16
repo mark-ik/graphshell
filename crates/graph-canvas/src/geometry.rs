@@ -151,8 +151,7 @@ pub fn shapes_overlap(
 ) -> bool {
     let pose_a = Pose::from_translation(Vector::new(pos_a.x, pos_a.y));
     let pose_b = Pose::from_translation(Vector::new(pos_b.x, pos_b.y));
-    query::intersection_test(&pose_a, shape_a.as_ref(), &pose_b, shape_b.as_ref())
-        .unwrap_or(false)
+    query::intersection_test(&pose_a, shape_a.as_ref(), &pose_b, shape_b.as_ref()).unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -297,4 +296,3 @@ mod tests {
         ));
     }
 }
-

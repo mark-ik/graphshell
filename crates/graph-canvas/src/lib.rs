@@ -19,6 +19,8 @@ pub mod backend_vello;
 pub mod camera;
 pub mod derive;
 pub mod engine;
+#[cfg(feature = "physics")]
+pub mod geometry;
 pub mod hit_test;
 pub mod input;
 pub mod interaction;
@@ -30,8 +32,5 @@ pub mod scene_composition;
 pub mod scene_physics;
 pub mod scene_region;
 pub mod scripting;
-#[cfg(feature = "physics")]
-pub mod geometry;
 #[cfg(feature = "simulate")]
 pub mod simulate;
-

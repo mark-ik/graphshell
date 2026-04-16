@@ -227,8 +227,8 @@ pub(crate) fn parse_bookmark_items(
 fn parse_chrome_bookmark_json(
     contents: &str,
 ) -> Result<Vec<ImportedBookmarkItem>, BookmarkImportError> {
-    let root: Value =
-        serde_json::from_str(contents).map_err(|error| BookmarkImportError::InvalidJson(error.to_string()))?;
+    let root: Value = serde_json::from_str(contents)
+        .map_err(|error| BookmarkImportError::InvalidJson(error.to_string()))?;
     let mut items = Vec::new();
     let Some(roots) = root.get("roots") else {
         return Ok(items);
@@ -280,7 +280,9 @@ fn collect_chrome_node(
             let Some(raw_url) = node.get("url").and_then(Value::as_str) else {
                 return;
             };
-            if let Some(page) = build_page_seed(raw_url, node.get("name").and_then(Value::as_str), None) {
+            if let Some(page) =
+                build_page_seed(raw_url, node.get("name").and_then(Value::as_str), None)
+            {
                 items.push(ImportedBookmarkItem {
                     page,
                     bookmark_id: node.get("id").and_then(Value::as_str).map(str::to_string),
@@ -381,7 +383,9 @@ fn parse_netscape_bookmark_html(contents: &str) -> Vec<ImportedBookmarkItem> {
                 }
                 let decoded_url = decode_html_entities(raw_url);
                 let decoded_title = decode_html_entities(&title);
-                if let Some(page) = build_page_seed(&decoded_url, Some(decoded_title.as_str()), None) {
+                if let Some(page) =
+                    build_page_seed(&decoded_url, Some(decoded_title.as_str()), None)
+                {
                     items.push(ImportedBookmarkItem {
                         page,
                         bookmark_id: None,
@@ -678,6 +682,9 @@ mod tests {
         assert_eq!(item.page.canonical_url, "https://example.com/article");
         assert_eq!(item.folder_path.len(), 1);
         assert_eq!(item.folder_path[0].label, "Research");
-        assert_eq!(item.page.normalized_title.as_deref(), Some("Example Article"));
+        assert_eq!(
+            item.page.normalized_title.as_deref(),
+            Some("Example Article")
+        );
     }
 }
