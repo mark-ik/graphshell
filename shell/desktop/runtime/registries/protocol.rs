@@ -211,7 +211,9 @@ fn infer_middlenet_mime_hint(uri: &str, scheme: &str) -> Option<String> {
     if lower.ends_with(".gmi") || lower.ends_with(".gemini") {
         return Some("text/gemini".to_string());
     }
-    if lower.ends_with(".gophermap") {
+    // "gophermap" is also a conventional filename (no extension) for Gopher
+    // menu index files; match both the extension and the bare filename suffix.
+    if lower.ends_with(".gophermap") || lower.ends_with("/gophermap") {
         return Some("application/gophermap".to_string());
     }
     if lower.ends_with(".rss") {

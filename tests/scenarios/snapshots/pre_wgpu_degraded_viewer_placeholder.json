@@ -1,5 +1,5 @@
 {
-  "semantic_version": 3,
+  "semantic_version": 5,
   "presentation_version": 2,
   "trace_version": 2,
   "semantic_nodes": [
@@ -42,12 +42,13 @@
       "degraded": false,
       "allowed_actions": [
         "Focus",
+        "Close",
         "Navigate"
       ],
-      "domain": "GraphView { graph_view_id: GraphViewId(<uuid:01>) }"
+      "domain": "GraphView { graph_view_id: GraphViewId(<uuid:01>), pane_id: Some(PaneId(<uuid:02>)) }"
     },
     {
-      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:02>",
+      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:03>",
       "parent_ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
       "role": "GraphNode",
       "label": "unknown-scheme://scenario-degraded.example/page",
@@ -60,7 +61,7 @@
         "Open",
         "Navigate"
       ],
-      "domain": "Node { node_key: NodeIndex(0) }"
+      "domain": "Node { node_key: NodeIndex(0), pane_id: None, lifecycle: Cold, attach_attempt: None }"
     },
     {
       "ux_node_id": "uxnode://workbench/tile/#2/node/NodeIndex(0)",
@@ -77,7 +78,7 @@
         "Close",
         "SplitHorizontal"
       ],
-      "domain": "Node { node_key: NodeIndex(0) }"
+      "domain": "Node { node_key: NodeIndex(0), pane_id: Some(PaneId(<uuid:04>)), lifecycle: Cold, attach_attempt: None }"
     },
     {
       "ux_node_id": "uxnode://workbench/navigator/projection/Navigator/Left",
@@ -140,8 +141,8 @@
       "render_mode": "EmbeddedEgui"
     },
     {
-      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:02>",
-      "z_pass": "workbench.content",
+      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:03>",
+      "z_pass": "graph.layer.node",
       "style_flags": [
         "surface:graph-node",
         "backend:egui_graphs"
@@ -198,7 +199,7 @@
       "diagnostics_counter": 1
     },
     {
-      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:02>",
+      "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:03>",
       "event_route": "graph.node_route",
       "backend_path": "egui_graphs",
       "diagnostics_counter": 0

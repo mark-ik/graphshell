@@ -215,6 +215,7 @@ pub fn run_graph_canvas_frame(
                 }
                 CanvasAction::ZoomCamera { factor, focus } => {
                     apply_zoom(&mut camera, *factor, *focus, &viewport);
+                    graph_actions.push(GraphAction::Zoom(*factor));
                 }
                 CanvasAction::DragNode { node, delta } => {
                     if let Some(graph_action) =

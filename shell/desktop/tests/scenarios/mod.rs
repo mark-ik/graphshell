@@ -11,7 +11,6 @@ mod registries;
 mod routing;
 mod tags;
 mod undo_redo;
-mod ux_replay_golden;
 mod ux_tree;
 mod ux_tree_diff_gate;
 mod verse;

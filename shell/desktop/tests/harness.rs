@@ -38,7 +38,10 @@ impl TestRegistry {
             app: GraphBrowserApp::new_for_testing(),
             diagnostics: DiagnosticsState::new(),
             tiles_tree,
-            graph_tree: graph_tree::GraphTree::new(),
+            graph_tree: graph_tree::GraphTree::new(
+                graph_tree::LayoutMode::TreeStyleTabs,
+                graph_tree::ProjectionLens::Traversal,
+            ),
             frame_sequence: 1,
         }
     }

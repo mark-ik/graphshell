@@ -265,7 +265,14 @@ fn collect_chrome_root(
     let Some(node) = node else {
         return;
     };
-    collect_chrome_node(node, location, folder_path, items);
+    // The root folder itself (e.g. "Bookmarks Bar") is represented by the
+    // `location` discriminant, so its label should not appear in folder_path.
+    // Recurse into its children directly instead of pushing it as a folder.
+    if let Some(children) = node.get("children").and_then(Value::as_array) {
+        for child in children {
+            collect_chrome_node(child, location, folder_path, items);
+        }
+    }
 }
 
 fn collect_chrome_node(
@@ -528,7 +535,14 @@ fn extract_attr<'a>(raw_tag: &'a str, attr_name: &str) -> Option<&'a str> {
         }
         rest = trimmed;
         let equals_index = rest.find('=')?;
-        let key = rest[..equals_index].trim();
+        // The segment before `=` may include the tag name (on the first attribute)
+        // or leading junk from prior parses; the attribute key is the last
+        // whitespace-separated token.
+        let key = rest[..equals_index]
+            .trim()
+            .split_whitespace()
+            .next_back()
+            .unwrap_or("");
         let value_start = equals_index + 1;
         let value_rest = rest[value_start..].trim_start();
         if let Some(stripped) = value_rest.strip_prefix('"') {

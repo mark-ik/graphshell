@@ -1,5 +1,5 @@
 {
-  "semantic_version": 3,
+  "semantic_version": 5,
   "presentation_version": 2,
   "trace_version": 2,
   "semantic_nodes": [
@@ -28,9 +28,10 @@
       "degraded": false,
       "allowed_actions": [
         "Focus",
+        "Close",
         "Navigate"
       ],
-      "domain": "GraphView { graph_view_id: GraphViewId(<uuid:01>) }"
+      "domain": "GraphView { graph_view_id: GraphViewId(<uuid:01>), pane_id: Some(PaneId(<uuid:02>)) }"
     },
     {
       "ux_node_id": "uxnode://command/radial/root",

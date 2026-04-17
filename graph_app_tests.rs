@@ -5582,9 +5582,9 @@ fn test_set_omnibar_settings_persist_across_restart() {
 }
 
 #[test]
-fn test_wry_enabled_defaults_to_false() {
+fn test_wry_enabled_defaults_to_true() {
     let app = GraphBrowserApp::new_for_testing();
-    assert!(!app.wry_enabled());
+    assert!(app.wry_enabled());
 }
 
 #[test]
@@ -5745,13 +5745,13 @@ fn test_registry_component_defaults_persist_across_restart() {
 
     let mut app = GraphBrowserApp::new_from_dir(path.clone());
     app.set_default_registry_lens_id(Some("lens:default"));
-    app.set_default_registry_physics_id(Some("physics:gas"));
+    app.set_default_registry_physics_id(Some("physics:scatter"));
     app.set_default_registry_theme_id(Some("theme:dark"));
     drop(app);
 
     let reopened = GraphBrowserApp::new_from_dir(path);
     assert_eq!(reopened.default_registry_lens_id(), Some("lens:default"));
-    assert_eq!(reopened.default_registry_physics_id(), Some("physics:gas"));
+    assert_eq!(reopened.default_registry_physics_id(), Some("physics:scatter"));
     assert_eq!(reopened.default_registry_theme_id(), Some("theme:dark"));
 }
 
@@ -6320,7 +6320,7 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
         .get_node(shared_data_key)
         .expect("shared data node should exist");
     assert!(shared_node.url().contains("/shared-data/"));
-    assert!(shared_node.title.starts_with("Shared Data from Person:"));
+    assert!(shared_node.title.starts_with("Shared data from"));
     assert!(app.node_has_canonical_tag(shared_data_key, "#shared-data"));
 
     let message_node = app
@@ -6331,7 +6331,7 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
     assert!(
         message_node
             .title
-            .starts_with("Message Notification from Person:")
+            .starts_with("Message notification from")
     );
     assert!(app.node_has_canonical_tag(message_key, "#message-notification"));
 
@@ -6594,7 +6594,7 @@ fn deliver_person_message_notification_via_misfin_for_tests_creates_artifact_and
     assert!(
         artifact
             .title
-            .starts_with("Message Notification from Person:")
+            .starts_with("Message notification from")
     );
     assert!(app.node_has_canonical_tag(artifact_key, "#message-notification"));
     server.join().expect("server should finish");
@@ -7175,7 +7175,7 @@ fn test_set_view_lens_id_applies_explicit_lens_selection() {
         Some(crate::registries::atomic::lens::LENS_ID_DEFAULT)
     );
     assert_eq!(resolved.resolved_lens_display_name(), "Default");
-    assert_eq!(resolved.resolved_physics_profile().name, "Liquid");
+    assert_eq!(resolved.resolved_physics_profile().name, "Drift");
     assert!(matches!(resolved.resolved_layout_mode(), LayoutMode::Free));
     assert_eq!(
         resolved.resolved_layout_algorithm_id(),
@@ -7320,10 +7320,12 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
         .unwrap();
     assert_eq!(registry_backed.resolved_lens_id(), Some("lens:default"));
     assert_eq!(registry_backed.resolved_lens_display_name(), "Default");
-    assert_eq!(registry_backed.resolved_physics_profile().name, "Liquid");
+    // Physics and layout overrides are preserved across refresh by design; see
+    // `apply_resolved_lens_identity_preserves_layout_and_physics_overrides`.
+    assert_eq!(registry_backed.resolved_physics_profile().name, "Scatter");
     assert!(matches!(
         registry_backed.resolved_layout_mode(),
-        LayoutMode::Free
+        LayoutMode::Grid { gap: 42.0 }
     ));
     assert_eq!(
         registry_backed.resolved_layout_algorithm_id(),
@@ -7332,7 +7334,7 @@ fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
 
     let direct = app.workspace.graph_runtime.views.get(&direct_view).unwrap();
     assert_eq!(direct.resolved_lens_display_name(), "Direct Lens");
-    assert_eq!(direct.resolved_physics_profile().name, "Gas");
+    assert_eq!(direct.resolved_physics_profile().name, "Scatter");
     assert!(matches!(
         direct.resolved_layout_mode(),
         LayoutMode::Grid { gap: 24.0 }
@@ -7763,60 +7765,52 @@ fn reducer_pane_presentation_and_promotion_flow_through_workbench_intents() {
 }
 
 #[test]
-fn workbench_tile_selection_update_modes_track_primary_tile() {
+fn workbench_pane_selection_update_modes_track_primary_pane() {
+    use crate::shell::desktop::workbench::pane_model::PaneId;
     let mut app = GraphBrowserApp::new_for_testing();
-    let mut tiles = egui_tiles::Tiles::default();
-    let tile_a = tiles.insert_pane(
-        crate::shell::desktop::workbench::tile_kind::TileKind::Graph(
-            crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::new()),
-        ),
-    );
-    let tile_b = tiles.insert_pane(
-        crate::shell::desktop::workbench::tile_kind::TileKind::Graph(
-            crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::new()),
-        ),
-    );
+    let pane_a = PaneId::new();
+    let pane_b = PaneId::new();
 
-    app.update_workbench_tile_selection(tile_a, SelectionUpdateMode::Replace);
+    app.update_workbench_pane_selection(pane_a, SelectionUpdateMode::Replace);
     assert_eq!(
-        app.workbench_tile_selection().selected_tile_ids,
-        HashSet::from([tile_a])
+        app.workbench_tile_selection().selected_pane_ids,
+        HashSet::from([pane_a])
     );
-    assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(tile_a));
+    assert_eq!(app.workbench_tile_selection().primary_pane_id, Some(pane_a));
 
-    app.update_workbench_tile_selection(tile_b, SelectionUpdateMode::Add);
+    app.update_workbench_pane_selection(pane_b, SelectionUpdateMode::Add);
     assert_eq!(
-        app.workbench_tile_selection().selected_tile_ids,
-        HashSet::from([tile_a, tile_b])
+        app.workbench_tile_selection().selected_pane_ids,
+        HashSet::from([pane_a, pane_b])
     );
-    assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(tile_b));
+    assert_eq!(app.workbench_tile_selection().primary_pane_id, Some(pane_b));
 
-    app.update_workbench_tile_selection(tile_b, SelectionUpdateMode::Toggle);
+    app.update_workbench_pane_selection(pane_b, SelectionUpdateMode::Toggle);
     assert_eq!(
-        app.workbench_tile_selection().selected_tile_ids,
-        HashSet::from([tile_a])
+        app.workbench_tile_selection().selected_pane_ids,
+        HashSet::from([pane_a])
     );
-    assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(tile_a));
+    assert_eq!(app.workbench_tile_selection().primary_pane_id, Some(pane_a));
 }
 
 #[test]
-fn prune_workbench_tile_selection_discards_stale_tile_ids() {
+fn prune_workbench_pane_selection_discards_stale_pane_ids() {
     let mut app = GraphBrowserApp::new_for_testing();
     let mut tiles = egui_tiles::Tiles::default();
-    let tile = tiles.insert_pane(
-        crate::shell::desktop::workbench::tile_kind::TileKind::Graph(
-            crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::new()),
-        ),
+    let kind = crate::shell::desktop::workbench::tile_kind::TileKind::Graph(
+        crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::new()),
     );
+    let pane_id = kind.pane_id();
+    let tile = tiles.insert_pane(kind);
     let root = tiles.insert_tab_tile(vec![tile]);
-    let mut tree = egui_tiles::Tree::new("prune_workbench_tile_selection", root, tiles);
+    let mut tree = egui_tiles::Tree::new("prune_workbench_pane_selection", root, tiles);
 
-    app.select_workbench_tile(tile);
+    app.select_workbench_pane(pane_id);
     tree.remove_recursively(tile);
-    app.prune_workbench_tile_selection(&tree);
+    app.prune_workbench_pane_selection(&tree);
 
-    assert!(app.workbench_tile_selection().selected_tile_ids.is_empty());
-    assert_eq!(app.workbench_tile_selection().primary_tile_id, None);
+    assert!(app.workbench_tile_selection().selected_pane_ids.is_empty());
+    assert_eq!(app.workbench_tile_selection().primary_pane_id, None);
 }
 
 #[test]
