@@ -354,14 +354,7 @@ fn clip_content_facet_from_node(node: &crate::graph::Node) -> Option<ClipContent
         return Some(facet);
     }
 
-    let source_url = node
-        .history_entries
-        .get(
-            node.history_index
-                .min(node.history_entries.len().saturating_sub(1)),
-        )
-        .cloned()
-        .unwrap_or_default();
+    let source_url = node.current_history_url().unwrap_or_default();
     Some(ClipContentFacetData {
         source_url,
         page_title: None,
@@ -652,7 +645,7 @@ mod tests {
         assert!(clip_node.tags.contains(GraphBrowserApp::TAG_CLIP));
         assert_eq!(clip_node.title, "Card");
         assert_eq!(
-            clip_node.history_entries,
+            clip_node.history_entries(),
             vec!["https://example.com".to_string()]
         );
         assert!(clip_node.url().starts_with("verso://clip/"));
@@ -837,7 +830,7 @@ mod tests {
         let stored = serialize_clip_content_facet(&facet);
         let mut node = crate::graph::Node::test_stub("verso://clip/clip-123");
         node.session_form_draft = Some(stored);
-        node.history_entries = vec![facet.source_url.clone()];
+        node.replace_history_state(vec![facet.source_url.clone()], 0);
 
         let restored = clip_content_facet_from_node(&node).expect("clip facet should restore");
         assert_eq!(restored, facet);
@@ -848,7 +841,7 @@ mod tests {
         let mut node = crate::graph::Node::test_stub("verso://clip/clip-legacy");
         node.title = "Legacy Clip".to_string();
         node.session_form_draft = Some("<html><body>legacy clip</body></html>".to_string());
-        node.history_entries = vec!["https://example.com/source".to_string()];
+        node.replace_history_state(vec!["https://example.com/source".to_string()], 0);
 
         let restored =
             clip_content_facet_from_node(&node).expect("legacy clip facet should restore");
@@ -911,7 +904,7 @@ mod tests {
         let mut node = crate::graph::Node::test_stub("verso://clip/clip-archived");
         node.title.clear();
         node.session_form_draft = Some(serialize_clip_content_facet(&facet));
-        node.history_entries = vec![facet.source_url.clone()];
+        node.replace_history_state(vec![facet.source_url.clone()], 0);
 
         assert_eq!(user_visible_node_title_from_data(&node), "Facet Clip");
         assert_eq!(

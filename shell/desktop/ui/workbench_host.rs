@@ -5441,7 +5441,7 @@ mod tests {
     fn node_primary_label_uses_clip_visible_metadata() {
         let mut node = crate::graph::Node::test_stub("verso://clip/clip-host-label");
         node.title.clear();
-        node.history_entries = vec!["https://example.com/source".to_string()];
+        node.replace_history_state(vec!["https://example.com/source".to_string()], 0);
         node.session_form_draft = Some(
             r#"{"source_url":"https://example.com/source","page_title":"Example Source","clip_title":"Host Label Clip","text_excerpt":"excerpt","tag_name":"article","href":null,"image_url":null,"dom_path":"body > article:nth-of-type(1)","document_html":"<html><body>clip</body></html>"}"#.to_string(),
         );

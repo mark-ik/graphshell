@@ -2115,8 +2115,7 @@ mod tests {
             .add_node("https://example.com".into(), Point2D::new(0.0, 0.0));
         if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
             node.title = "Example".into();
-            node.history_entries = vec!["https://history.example/rust".to_string()];
-            node.history_index = 0;
+            node.replace_history_state(vec!["https://history.example/rust".to_string()], 0);
         }
 
         let registry = ActionRegistry::default();

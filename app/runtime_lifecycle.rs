@@ -160,7 +160,8 @@ impl GraphBrowserApp {
         };
         let (old_entries, old_index) =
             if let Some(node) = self.workspace.domain.graph.get_node(node_key) {
-                (node.history_entries.clone(), node.history_index)
+                let history = node.history_projection();
+                (history.entries, history.current_index)
             } else {
                 return;
             };

@@ -10,7 +10,7 @@ publish = false
 rust-version = "1.92.0"
 
 [workspace]
-members = ["crates/graph-canvas", "crates/graph-tree", "crates/graphshell-core", "crates/middlenet-engine"]
+members = ["crates/graph-canvas", "crates/graph-memory", "crates/graph-tree", "crates/graphshell-core", "crates/middlenet-engine"]
 
 [lib]
 name = "graphshell"

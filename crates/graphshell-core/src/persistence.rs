@@ -9,6 +9,7 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::graph::NodeNavigationMemory;
 use crate::types::{
     FrameLayoutHint, ImportRecord, NodeClassification, NodeImportProvenance,
     NodeTagPresentationState,
@@ -107,8 +108,6 @@ impl ArchivedPersistedAddress {
 /// Persisted per-node session fidelity state.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PersistedNodeSessionState {
-    pub history_entries: Vec<String>,
-    pub history_index: usize,
     pub scroll_x: Option<f32>,
     pub scroll_y: Option<f32>,
     pub form_draft: Option<String>,
@@ -140,8 +139,8 @@ pub struct PersistedNode {
     #[serde(default)]
     pub import_provenance: Vec<NodeImportProvenance>,
     pub is_pinned: bool,
-    pub history_entries: Vec<String>,
-    pub history_index: usize,
+    #[serde(default)]
+    pub navigation_memory: NodeNavigationMemory,
     pub thumbnail_png: Option<Vec<u8>>,
     pub thumbnail_width: u32,
     pub thumbnail_height: u32,

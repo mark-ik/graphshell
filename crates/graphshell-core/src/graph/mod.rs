@@ -12,6 +12,10 @@
 //! This module is WASM-clean: it must compile to `wasm32-unknown-unknown`.
 
 use euclid::default::{Point2D, Vector2D};
+use graph_memory::{
+    EntryPrivacy as MemoryEntryPrivacy, GraphMemory as OwnerScopedMemory, GraphMemorySnapshot,
+    TransitionKind as MemoryTransitionKind,
+};
 use petgraph::algo::{astar, dijkstra, has_path_connecting, kosaraju_scc};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::UndirectedAdaptor;
@@ -253,6 +257,141 @@ fn current_unix_timestamp_secs() -> u64 {
         .as_secs()
 }
 
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq, Eq))]
+pub enum NodeHistoryOwner {
+    Primary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeHistoryProjection {
+    pub entries: Vec<String>,
+    pub current_index: usize,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Archive,
+    Serialize,
+    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct NodeNavigationMemory {
+    snapshot: GraphMemorySnapshot<String, String, NodeHistoryOwner, ()>,
+}
+
+impl Default for NodeNavigationMemory {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl NodeNavigationMemory {
+    pub fn empty() -> Self {
+        Self {
+            snapshot: GraphMemorySnapshot {
+                entries: Vec::new(),
+                visits: Vec::new(),
+                owners: Vec::new(),
+            },
+        }
+    }
+
+    pub fn from_linear_history(entries: Vec<String>, current_index: usize) -> Self {
+        if entries.is_empty() {
+            return Self::empty();
+        }
+
+        let mut memory = OwnerScopedMemory::<String, String, NodeHistoryOwner, ()>::new();
+        let owner = memory.ensure_owner(NodeHistoryOwner::Primary, None);
+        for (idx, url) in entries.iter().enumerate() {
+            let entry = memory.resolve_or_create_entry(
+                url.clone(),
+                url.clone(),
+                idx as u64,
+                MemoryEntryPrivacy::LocalOnly,
+            );
+            let transition = if idx == 0 {
+                MemoryTransitionKind::UrlTyped
+            } else {
+                MemoryTransitionKind::Unknown
+            };
+            let _ = memory.visit_entry(owner, entry, (), transition, idx as u64);
+        }
+
+        let clamped_index = current_index.min(entries.len().saturating_sub(1));
+        let steps_back = entries
+            .len()
+            .saturating_sub(1)
+            .saturating_sub(clamped_index);
+        if steps_back > 0 {
+            let _ = memory.back(owner, steps_back, entries.len() as u64);
+        }
+
+        Self {
+            snapshot: memory.to_snapshot(),
+        }
+    }
+
+    pub fn projection(&self) -> NodeHistoryProjection {
+        let memory = OwnerScopedMemory::<String, String, NodeHistoryOwner, ()>::from_snapshot(
+            self.snapshot.clone(),
+        );
+        let Some(owner) = memory.owner_id_by_identity(&NodeHistoryOwner::Primary) else {
+            return NodeHistoryProjection {
+                entries: Vec::new(),
+                current_index: 0,
+            };
+        };
+
+        let entries = memory
+            .linear_history_entries_of_owner(owner)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|entry_id| memory.entry(entry_id).map(|entry| entry.payload.clone()))
+            .collect::<Vec<_>>();
+        let current_index = memory
+            .current_index_of_owner(owner)
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+
+        NodeHistoryProjection {
+            entries,
+            current_index,
+        }
+    }
+
+    pub fn current_url(&self) -> Option<String> {
+        let projection = self.projection();
+        projection.entries.get(projection.current_index).cloned()
+    }
+
+    pub fn replace_linear_history(&mut self, entries: Vec<String>, current_index: usize) {
+        *self = Self::from_linear_history(entries, current_index);
+    }
+
+    pub fn snapshot(&self) -> &GraphMemorySnapshot<String, String, NodeHistoryOwner, ()> {
+        &self.snapshot
+    }
+}
+
 /// A webpage node in the graph
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub struct Node {
@@ -303,11 +442,8 @@ pub struct Node {
     #[rkyv(with = rkyv::with::AsUnixTime)]
     pub last_visited: std::time::SystemTime,
 
-    /// Navigation history seen for this node's mapped webview.
-    pub history_entries: Vec<String>,
-
-    /// Current index in `history_entries`.
-    pub history_index: usize,
+    /// Owner-scoped persisted navigation memory for this node's mapped webview.
+    pub navigation_memory: NodeNavigationMemory,
 
     /// Optional thumbnail bytes (PNG), persisted in snapshots.
     pub thumbnail_png: Option<Vec<u8>>,
@@ -390,6 +526,27 @@ impl Node {
         self.address.as_url_str()
     }
 
+    pub fn history_projection(&self) -> NodeHistoryProjection {
+        self.navigation_memory.projection()
+    }
+
+    pub fn history_entries(&self) -> Vec<String> {
+        self.history_projection().entries
+    }
+
+    pub fn history_index(&self) -> usize {
+        self.history_projection().current_index
+    }
+
+    pub fn current_history_url(&self) -> Option<String> {
+        self.navigation_memory.current_url()
+    }
+
+    pub fn replace_history_state(&mut self, entries: Vec<String>, current_index: usize) {
+        self.navigation_memory
+            .replace_linear_history(entries, current_index);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn test_stub(url: &str) -> Self {
         Self {
@@ -405,8 +562,7 @@ impl Node {
             classifications: Vec::new(),
             is_pinned: false,
             last_visited: std::time::SystemTime::now(),
-            history_entries: Vec::new(),
-            history_index: 0,
+            navigation_memory: NodeNavigationMemory::empty(),
             thumbnail_png: None,
             thumbnail_width: 0,
             thumbnail_height: 0,
@@ -1484,8 +1640,7 @@ impl Graph {
             classifications: Vec::new(),
             is_pinned: false,
             last_visited: now,
-            history_entries: Vec::new(),
-            history_index: 0,
+            navigation_memory: NodeNavigationMemory::empty(),
             thumbnail_png: None,
             thumbnail_width: 0,
             thumbnail_height: 0,
@@ -2142,11 +2297,11 @@ impl Graph {
         } else {
             history_index.min(history_entries.len() - 1)
         };
-        if node.history_entries == history_entries && node.history_index == clamped_index {
+        let current = node.history_projection();
+        if current.entries == history_entries && current.current_index == clamped_index {
             return false;
         }
-        node.history_entries = history_entries;
-        node.history_index = clamped_index;
+        node.replace_history_state(history_entries, clamped_index);
         true
     }
 
@@ -2975,8 +3130,7 @@ impl Graph {
                 tag_presentation: node.tag_presentation.clone(),
                 import_provenance: node.import_provenance.clone(),
                 is_pinned: node.is_pinned,
-                history_entries: node.history_entries.clone(),
-                history_index: node.history_index,
+                navigation_memory: node.navigation_memory.clone(),
                 thumbnail_png: node.thumbnail_png.clone(),
                 thumbnail_width: node.thumbnail_width,
                 thumbnail_height: node.thumbnail_height,
@@ -2984,8 +3138,6 @@ impl Graph {
                 favicon_width: node.favicon_width,
                 favicon_height: node.favicon_height,
                 session_state: Some(PersistedNodeSessionState {
-                    history_entries: node.history_entries.clone(),
-                    history_index: node.history_index,
                     scroll_x: node.session_scroll.map(|(x, _)| x),
                     scroll_y: node.session_scroll.map(|(_, y)| y),
                     form_draft: node.session_form_draft.clone(),
@@ -3309,10 +3461,7 @@ impl Graph {
                 node.import_provenance = pnode.import_provenance.clone();
                 node.classifications = pnode.classifications.clone();
                 node.is_pinned = pnode.is_pinned;
-                node.history_entries = pnode.history_entries.clone();
-                node.history_index = pnode
-                    .history_index
-                    .min(node.history_entries.len().saturating_sub(1));
+                node.navigation_memory = pnode.navigation_memory.clone();
                 node.thumbnail_png = pnode.thumbnail_png.clone();
                 node.thumbnail_width = pnode.thumbnail_width;
                 node.thumbnail_height = pnode.thumbnail_height;
@@ -3323,13 +3472,8 @@ impl Graph {
                 // address was already set by add_node_with_id from pnode.url; no re-derivation needed.
                 node.frame_layout_hints = pnode.frame_layout_hints.clone();
                 node.frame_split_offer_suppressed = pnode.frame_split_offer_suppressed;
+                restore_url_from_session = node.current_history_url();
                 if let Some(session) = &pnode.session_state {
-                    node.history_entries = session.history_entries.clone();
-                    node.history_index = session
-                        .history_index
-                        .min(node.history_entries.len().saturating_sub(1));
-                    restore_url_from_session =
-                        node.history_entries.get(node.history_index).cloned();
                     node.session_scroll = session.scroll_x.zip(session.scroll_y);
                     node.session_form_draft = session.form_draft.clone();
                 }
@@ -4206,8 +4350,7 @@ mod tests {
                 tag_presentation: NodeTagPresentationState::default(),
                 import_provenance: vec![],
                 is_pinned: false,
-                history_entries: vec![],
-                history_index: 0,
+                navigation_memory: NodeNavigationMemory::empty(),
                 thumbnail_png: None,
                 thumbnail_width: 0,
                 thumbnail_height: 0,
@@ -4264,8 +4407,7 @@ mod tests {
                     tag_presentation: NodeTagPresentationState::default(),
                     import_provenance: vec![],
                     is_pinned: false,
-                    history_entries: vec![],
-                    history_index: 0,
+                    navigation_memory: NodeNavigationMemory::empty(),
                     thumbnail_png: None,
                     thumbnail_width: 0,
                     thumbnail_height: 0,
@@ -4290,8 +4432,7 @@ mod tests {
                     tag_presentation: NodeTagPresentationState::default(),
                     import_provenance: vec![],
                     is_pinned: false,
-                    history_entries: vec![],
-                    history_index: 0,
+                    navigation_memory: NodeNavigationMemory::empty(),
                     thumbnail_png: None,
                     thumbnail_width: 0,
                     thumbnail_height: 0,
@@ -4359,8 +4500,14 @@ mod tests {
                 tag_presentation: NodeTagPresentationState::default(),
                 import_provenance: vec![],
                 is_pinned: false,
-                history_entries: vec!["https://legacy.example".to_string()],
-                history_index: 0,
+                navigation_memory: NodeNavigationMemory::from_linear_history(
+                    vec![
+                        "https://example.com/one".to_string(),
+                        "https://example.com/two".to_string(),
+                        "https://example.com/three".to_string(),
+                    ],
+                    2,
+                ),
                 thumbnail_png: None,
                 thumbnail_width: 0,
                 thumbnail_height: 0,
@@ -4368,12 +4515,6 @@ mod tests {
                 favicon_width: 0,
                 favicon_height: 0,
                 session_state: Some(PersistedNodeSessionState {
-                    history_entries: vec![
-                        "https://example.com/one".to_string(),
-                        "https://example.com/two".to_string(),
-                        "https://example.com/three".to_string(),
-                    ],
-                    history_index: 2,
                     scroll_x: Some(4.0),
                     scroll_y: Some(120.0),
                     form_draft: None,
@@ -4391,8 +4532,9 @@ mod tests {
 
         let restored = Graph::from_snapshot(&snapshot);
         let (_, node) = restored.get_node_by_id(node_id).unwrap();
-        assert_eq!(node.history_entries.len(), 3);
-        assert_eq!(node.history_index, 2);
+        let history = node.history_projection();
+        assert_eq!(history.entries.len(), 3);
+        assert_eq!(history.current_index, 2);
     }
 
     #[test]
@@ -4413,8 +4555,7 @@ mod tests {
                 tag_presentation: NodeTagPresentationState::default(),
                 import_provenance: vec![],
                 is_pinned: false,
-                history_entries: vec![],
-                history_index: 0,
+                navigation_memory: NodeNavigationMemory::empty(),
                 thumbnail_png: None,
                 thumbnail_width: 0,
                 thumbnail_height: 0,
@@ -4422,8 +4563,6 @@ mod tests {
                 favicon_width: 0,
                 favicon_height: 0,
                 session_state: Some(PersistedNodeSessionState {
-                    history_entries: vec!["https://example.com".to_string()],
-                    history_index: 0,
                     scroll_x: Some(20.0),
                     scroll_y: Some(640.0),
                     form_draft: None,
@@ -4460,8 +4599,10 @@ mod tests {
                 tag_presentation: NodeTagPresentationState::default(),
                 import_provenance: vec![],
                 is_pinned: false,
-                history_entries: vec!["https://legacy-one.example".to_string()],
-                history_index: 0,
+                navigation_memory: NodeNavigationMemory::from_linear_history(
+                    vec!["https://legacy-one.example".to_string()],
+                    0,
+                ),
                 thumbnail_png: None,
                 thumbnail_width: 0,
                 thumbnail_height: 0,
@@ -4485,10 +4626,10 @@ mod tests {
             .get_node_by_url("https://fallback.example")
             .unwrap();
         assert_eq!(
-            node.history_entries,
+            node.history_entries(),
             vec!["https://legacy-one.example".to_string()]
         );
-        assert_eq!(node.history_index, 0);
+        assert_eq!(node.history_index(), 0);
         assert_eq!(node.session_scroll, None);
     }
 

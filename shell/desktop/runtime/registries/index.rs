@@ -380,7 +380,7 @@ impl SearchProvider for HistorySearchProvider {
         let mut results = Vec::new();
 
         for (_key, node) in app.domain_graph().nodes() {
-            for url in &node.history_entries {
+            for url in node.history_entries() {
                 let combined = format!("{} {}", node.title, url).to_ascii_lowercase();
                 let Some(relevance) = text_relevance(&normalized_query, &combined) else {
                     continue;
@@ -503,8 +503,7 @@ mod tests {
         );
         if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
             node.title = "Mathematics Notes".into();
-            node.history_entries = vec!["https://history.example/math".to_string()];
-            node.history_index = 0;
+            node.replace_history_state(vec!["https://history.example/math".to_string()], 0);
         }
         let _ = app
             .workspace

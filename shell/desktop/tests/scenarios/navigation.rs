@@ -92,8 +92,8 @@ fn webview_history_changed_clamps_index_to_entry_bounds() {
         .graph
         .get_node(key)
         .expect("mapped node should exist");
-    assert_eq!(node.history_entries.len(), 2);
-    assert_eq!(node.history_index, 1);
+    assert_eq!(node.history_entries().len(), 2);
+    assert_eq!(node.history_index(), 1);
 }
 
 #[test]
@@ -111,11 +111,13 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
             .graph
             .get_node_mut(b)
             .expect("destination node should exist");
-        node.history_entries = vec![
-            "https://a.example".to_string(),
-            "https://b.example".to_string(),
-        ];
-        node.history_index = 1;
+        node.replace_history_state(
+            vec![
+                "https://a.example".to_string(),
+                "https://b.example".to_string(),
+            ],
+            1,
+        );
     }
 
     harness
@@ -231,12 +233,14 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
             .graph
             .get_node_mut(step2)
             .expect("step2 node should exist");
-        node.history_entries = vec![
-            "https://site.example/?step=0".to_string(),
-            "https://site.example/?step=1".to_string(),
-            "https://site.example/?step=2".to_string(),
-        ];
-        node.history_index = 2;
+        node.replace_history_state(
+            vec![
+                "https://site.example/?step=0".to_string(),
+                "https://site.example/?step=1".to_string(),
+                "https://site.example/?step=2".to_string(),
+            ],
+            2,
+        );
     }
 
     harness.app.apply_reducer_intents([
@@ -262,7 +266,7 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
         .graph
         .get_node(step2)
         .expect("step2 node should exist");
-    assert_eq!(node.history_index, 1);
+    assert_eq!(node.history_index(), 1);
 
     let has_history_edge = harness
         .app

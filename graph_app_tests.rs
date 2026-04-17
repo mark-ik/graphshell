@@ -2134,8 +2134,8 @@ fn test_intent_webview_history_changed_clamps_index() {
     }]);
 
     let node = app.workspace.domain.graph.get_node(key).unwrap();
-    assert_eq!(node.history_entries.len(), 2);
-    assert_eq!(node.history_index, 1);
+    assert_eq!(node.history_entries().len(), 2);
+    assert_eq!(node.history_index(), 1);
 }
 
 #[test]
@@ -2215,8 +2215,7 @@ fn test_intent_webview_history_changed_adds_history_edge_on_back() {
     let wv = test_webview_id();
     app.map_webview_to_node(wv, to);
     if let Some(node) = app.workspace.domain.graph.get_node_mut(to) {
-        node.history_entries = vec!["https://a.com".into(), "https://b.com".into()];
-        node.history_index = 1;
+        node.replace_history_state(vec!["https://a.com".into(), "https://b.com".into()], 1);
     }
 
     app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
@@ -2245,8 +2244,7 @@ fn test_intent_webview_history_changed_does_not_add_edge_on_normal_navigation() 
     let wv = test_webview_id();
     app.map_webview_to_node(wv, key);
     if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
-        node.history_entries = vec!["https://a.com".into(), "https://b.com".into()];
-        node.history_index = 1;
+        node.replace_history_state(vec!["https://a.com".into(), "https://b.com".into()], 1);
     }
 
     app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
@@ -2285,8 +2283,7 @@ fn test_intent_webview_history_changed_adds_history_edge_on_forward_same_list() 
     let wv = test_webview_id();
     app.map_webview_to_node(wv, from);
     if let Some(node) = app.workspace.domain.graph.get_node_mut(from) {
-        node.history_entries = vec!["https://a.com".into(), "https://b.com".into()];
-        node.history_index = 0;
+        node.replace_history_state(vec!["https://a.com".into(), "https://b.com".into()], 0);
     }
 
     app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
@@ -2320,8 +2317,7 @@ fn test_intent_webview_history_changed_appends_traversals_on_repeat_navigation()
     let wv = test_webview_id();
     app.map_webview_to_node(wv, b);
     if let Some(node) = app.workspace.domain.graph.get_node_mut(b) {
-        node.history_entries = vec!["https://a.com".into(), "https://b.com".into()];
-        node.history_index = 1;
+        node.replace_history_state(vec!["https://a.com".into(), "https://b.com".into()], 1);
     }
 
     app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
@@ -3839,12 +3835,14 @@ fn test_history_changed_is_authoritative_when_url_callback_stays_latest() {
     let wv = test_webview_id();
     app.map_webview_to_node(wv, step2);
     if let Some(node) = app.workspace.domain.graph.get_node_mut(step2) {
-        node.history_entries = vec![
-            "https://site.example/?step=0".into(),
-            "https://site.example/?step=1".into(),
-            "https://site.example/?step=2".into(),
-        ];
-        node.history_index = 2;
+        node.replace_history_state(
+            vec![
+                "https://site.example/?step=0".into(),
+                "https://site.example/?step=1".into(),
+                "https://site.example/?step=2".into(),
+            ],
+            2,
+        );
     }
 
     // Mirrors observed delegate behavior: URL callback can stay at the latest route
@@ -3866,7 +3864,7 @@ fn test_history_changed_is_authoritative_when_url_callback_stays_latest() {
     ]);
 
     let node = app.workspace.domain.graph.get_node(step2).unwrap();
-    assert_eq!(node.history_index, 1);
+    assert_eq!(node.history_index(), 1);
 
     let has_edge = app
         .workspace
@@ -5751,7 +5749,10 @@ fn test_registry_component_defaults_persist_across_restart() {
 
     let reopened = GraphBrowserApp::new_from_dir(path);
     assert_eq!(reopened.default_registry_lens_id(), Some("lens:default"));
-    assert_eq!(reopened.default_registry_physics_id(), Some("physics:scatter"));
+    assert_eq!(
+        reopened.default_registry_physics_id(),
+        Some("physics:scatter")
+    );
     assert_eq!(reopened.default_registry_theme_id(), Some("theme:dark"));
 }
 
@@ -6328,11 +6329,7 @@ fn create_person_artifact_node_links_generated_content_back_to_person() {
         .get_node(message_key)
         .expect("message node should exist");
     assert!(message_node.url().contains("/message-notification/"));
-    assert!(
-        message_node
-            .title
-            .starts_with("Message notification from")
-    );
+    assert!(message_node.title.starts_with("Message notification from"));
     assert!(app.node_has_canonical_tag(message_key, "#message-notification"));
 
     let generated_edge = app
@@ -6591,11 +6588,7 @@ fn deliver_person_message_notification_via_misfin_for_tests_creates_artifact_and
         .get_node(artifact_key)
         .expect("message artifact should exist");
     assert_eq!(artifact.url(), "misfin://queen@localhost");
-    assert!(
-        artifact
-            .title
-            .starts_with("Message notification from")
-    );
+    assert!(artifact.title.starts_with("Message notification from"));
     assert!(app.node_has_canonical_tag(artifact_key, "#message-notification"));
     server.join().expect("server should finish");
 }

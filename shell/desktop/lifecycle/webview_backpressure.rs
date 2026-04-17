@@ -56,15 +56,10 @@ fn cold_restore_url_for_node(
             .unwrap_or_else(|| "about:blank".to_string());
     }
 
-    if !node.history_entries.is_empty() {
-        let idx = node
-            .history_index
-            .min(node.history_entries.len().saturating_sub(1));
-        if let Some(url) = node.history_entries.get(idx)
-            && !url.is_empty()
-        {
-            return url.clone();
-        }
+    if let Some(url) = node.current_history_url()
+        && !url.is_empty()
+    {
+        return url;
     }
     node.url().to_string()
 }
@@ -531,11 +526,13 @@ mod tests {
     fn test_cold_restore_url_for_node_prefers_history_index_entry() {
         let app = GraphBrowserApp::new_for_testing();
         let mut node = test_node("https://fallback.example");
-        node.history_entries = vec![
-            "https://example.com/one".to_string(),
-            "https://example.com/two".to_string(),
-        ];
-        node.history_index = 1;
+        node.replace_history_state(
+            vec![
+                "https://example.com/one".to_string(),
+                "https://example.com/two".to_string(),
+            ],
+            1,
+        );
         assert_eq!(
             cold_restore_url_for_node(&app, NodeKey::new(0), &node),
             "https://example.com/two".to_string()

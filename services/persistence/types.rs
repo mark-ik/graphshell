@@ -267,7 +267,8 @@ pub enum LogEntry {
 mod tests {
     use super::*;
     use crate::graph::{
-        FrameLayoutHint, ImportRecord, NodeImportProvenance, badge::NodeTagPresentationState,
+        FrameLayoutHint, ImportRecord, NodeImportProvenance, NodeNavigationMemory,
+        badge::NodeTagPresentationState,
     };
     use uuid::Uuid;
 
@@ -288,8 +289,10 @@ mod tests {
                 source_label: "Firefox bookmarks".to_string(),
             }],
             is_pinned: true,
-            history_entries: vec!["https://example.com".to_string()],
-            history_index: 0,
+            navigation_memory: NodeNavigationMemory::from_linear_history(
+                vec!["https://example.com".to_string()],
+                0,
+            ),
             thumbnail_png: Some(vec![1, 2, 3]),
             thumbnail_width: 64,
             thumbnail_height: 48,
@@ -297,11 +300,6 @@ mod tests {
             favicon_width: 1,
             favicon_height: 1,
             session_state: Some(PersistedNodeSessionState {
-                history_entries: vec![
-                    "https://example.com".to_string(),
-                    "https://example.com/docs".to_string(),
-                ],
-                history_index: 1,
                 scroll_x: Some(12.0),
                 scroll_y: Some(345.0),
                 form_draft: Some("draft body".to_string()),
@@ -322,8 +320,6 @@ mod tests {
         assert_eq!(archived.tags.len(), 2);
         assert_eq!(archived.import_provenance.len(), 1);
         assert!(archived.is_pinned);
-        assert_eq!(archived.history_entries.len(), 1);
-        assert_eq!(archived.history_index, 0);
         assert_eq!(archived.thumbnail_png.as_ref().unwrap().len(), 3);
         assert_eq!(archived.thumbnail_width, 64);
         assert_eq!(archived.thumbnail_height, 48);
@@ -331,13 +327,18 @@ mod tests {
         assert_eq!(archived.favicon_width, 1);
         assert_eq!(archived.favicon_height, 1);
         let session = archived.session_state.as_ref().unwrap();
-        assert_eq!(session.history_entries.len(), 2);
-        assert_eq!(session.history_index, 1);
         assert_eq!(session.scroll_x, Some(12.0));
         assert_eq!(session.scroll_y, Some(345.0));
         assert_eq!(session.form_draft.as_ref().unwrap().as_str(), "draft body");
         assert_eq!(archived.mime_hint.as_ref().unwrap().as_str(), "text/html");
         assert_eq!(archived.address.as_url_str(), "https://example.com");
+
+        let restored = rkyv::from_bytes::<PersistedNode, rkyv::rancor::Error>(&bytes).unwrap();
+        assert_eq!(
+            restored.navigation_memory.projection().entries,
+            vec!["https://example.com".to_string()]
+        );
+        assert_eq!(restored.navigation_memory.projection().current_index, 0);
     }
 
     #[test]
@@ -404,8 +405,7 @@ mod tests {
                 tag_presentation: NodeTagPresentationState::default(),
                 import_provenance: vec![],
                 is_pinned: false,
-                history_entries: vec![],
-                history_index: 0,
+                navigation_memory: NodeNavigationMemory::empty(),
                 thumbnail_png: None,
                 thumbnail_width: 0,
                 thumbnail_height: 0,
@@ -668,8 +668,7 @@ mod tests {
             tag_presentation: NodeTagPresentationState::default(),
             import_provenance: vec![],
             is_pinned: false,
-            history_entries: vec![],
-            history_index: 0,
+            navigation_memory: NodeNavigationMemory::empty(),
             thumbnail_png: None,
             thumbnail_width: 0,
             thumbnail_height: 0,
