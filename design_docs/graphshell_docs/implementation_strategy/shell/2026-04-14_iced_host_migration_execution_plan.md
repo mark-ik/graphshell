@@ -291,17 +291,22 @@ be tested, because `Gui` currently mixes:
 
 Checklist:
 
-- [ ] Classify `Gui` fields and responsibilities into:
+- [x] Classify `Gui` fields and responsibilities into:
   - durable runtime logic
   - host adapter state
   - render-backend glue
   - OS/window/event-loop integration
-- [ ] Write down the boundary for focus authority, command routing, toolbar
+- [x] Write down the boundary for focus authority, command routing, toolbar
   session state, pane targeting, thumbnail/update queues, and compositor-facing
   services
-- [ ] Define the service-port/effect interface the host-neutral runtime will use
-- [ ] Define the view-model surface the egui and iced hosts will each consume
-- [ ] Identify what remains intentionally host-specific even after extraction
+- [x] Define the service-port/effect interface the host-neutral runtime will use
+- [x] Define the view-model surface the egui and iced hosts will each consume
+- [x] Identify what remains intentionally host-specific even after extraction
+
+**Landed 2026-04-16**: [`2026-04-16_runtime_boundary_design.md`](2026-04-16_runtime_boundary_design.md)
+captures the full classification, six `HostPorts` trait surfaces, `FrameViewModel`
+shape, `FrameHostInput` shape, and explicit non-goals. M4 can proceed as a
+mechanical extraction.
 
 Done gate:
 
