@@ -215,21 +215,61 @@ impl GraphshellRuntime {
 
     /// Ingest host-supplied frame input.
     ///
-    /// Currently a no-op — events still flow through the existing
-    /// `handle_keyboard_phase` / `pending_webview_context_surface_requests`
-    /// mechanisms. Future M4.5b expansions will route event translation
-    /// here so the runtime owns the event-to-intent mapping.
-    pub(crate) fn ingest_frame_input(&mut self, _input: &FrameHostInput) {}
+    /// Currently runs the runtime-owned per-frame housekeeping that has
+    /// migrated off the host-side phase pipeline. Event-to-intent
+    /// translation still flows through the existing `handle_keyboard_phase`
+    /// / `pending_webview_context_surface_requests` mechanisms; future
+    /// expansions will route those here too.
+    pub(crate) fn ingest_frame_input(&mut self, _input: &FrameHostInput) {
+        // Advance frame-local physics housekeeping (drag-release inertia
+        // decay). Previously ran at the top of `run_update_frame_prelude`;
+        // migrated here in M4.5b Step 4 because it only touches runtime
+        // state.
+        self.graph_app.tick_frame();
+
+        // Update the prefetch lifecycle policy based on current memory
+        // pressure and selection. Previously ran inside
+        // `initialize_frame_intents` during the PreFrameInit phase;
+        // migrated here in M4.5b Step 5 because both inputs
+        // (`graph_app`, `control_panel`) live on the runtime.
+        self.update_prefetch_lifecycle_policy();
+    }
+
+    /// Refresh the prefetch lifecycle policy on `control_panel` from the
+    /// current memory-pressure level and single-selection state on
+    /// `graph_app`. Runs every tick via `ingest_frame_input`.
+    fn update_prefetch_lifecycle_policy(&self) {
+        use crate::app::MemoryPressureLevel;
+        use crate::shell::desktop::runtime::control_panel::LifecyclePolicy;
+
+        let memory_pressure_level = self.graph_app.memory_pressure_level();
+        let prefetch_target = self.graph_app.get_single_selected_node();
+        let (prefetch_enabled, prefetch_interval) = match memory_pressure_level {
+            MemoryPressureLevel::Critical => (false, Duration::from_secs(30)),
+            MemoryPressureLevel::Warning => {
+                (prefetch_target.is_some(), Duration::from_secs(20))
+            }
+            MemoryPressureLevel::Normal => (prefetch_target.is_some(), Duration::from_secs(8)),
+            MemoryPressureLevel::Unknown => (prefetch_target.is_some(), Duration::from_secs(12)),
+        };
+
+        self.control_panel.update_lifecycle_policy(LifecyclePolicy {
+            prefetch_enabled,
+            prefetch_interval,
+            prefetch_target,
+            memory_pressure_level,
+        });
+    }
 
     /// Project a read-only view-model from current runtime state.
     ///
     /// Populates fields that are directly readable from `GraphshellRuntime`
-    /// and `self.graph_app` today. Per-frame computed data (tree layout,
-    /// overlay descriptors, toast queue, degraded receipts, surface
-    /// presentation requests) is left empty for now — that data is
-    /// currently computed transiently inside the phase pipeline and isn't
-    /// retained on runtime state. Caching those outputs onto the runtime is
-    /// a natural follow-on step.
+    /// and `self.graph_app` today, including the per-frame GraphTree layout
+    /// outputs (tree rows, tab order, split boundaries) cached onto
+    /// `graph_runtime` by `tile_render_pass`. Overlay descriptors, the toast
+    /// queue, degraded receipts, and surface-presentation requests are still
+    /// left empty — those originate inside the compositor / pipeline
+    /// phases that have not yet migrated onto the tick path.
     pub(crate) fn project_view_model(&self) -> FrameViewModel {
         let chrome_ui = &self.graph_app.workspace.chrome_ui;
         let focus_ring = self.focus_ring_node_key.map(|node_key| FocusRingSpec {
@@ -245,9 +285,24 @@ impl GraphshellRuntime {
                 .graph_runtime
                 .active_pane_rects
                 .clone(),
-            tree_rows: Vec::new(),
-            tab_order: Vec::new(),
-            split_boundaries: Vec::new(),
+            tree_rows: self
+                .graph_app
+                .workspace
+                .graph_runtime
+                .cached_tree_rows
+                .clone(),
+            tab_order: self
+                .graph_app
+                .workspace
+                .graph_runtime
+                .cached_tab_order
+                .clone(),
+            split_boundaries: self
+                .graph_app
+                .workspace
+                .graph_runtime
+                .cached_split_boundaries
+                .clone(),
             active_pane: self
                 .graph_app
                 .workspace

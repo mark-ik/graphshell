@@ -229,18 +229,6 @@ impl EguiHost {
         frame_prelude::configure_frame_toasts(toasts, preference, Self::toast_anchor);
     }
 
-    fn initialize_frame_intents(
-        graph_app: &GraphBrowserApp,
-        pre_frame_intents: Vec<GraphIntent>,
-        control_panel: &mut ControlPanel,
-    ) -> Vec<GraphIntent> {
-        frame_prelude::initialize_frame_intents(graph_app, pre_frame_intents, control_panel)
-    }
-
-    fn update_prefetch_lifecycle_policy(graph_app: &GraphBrowserApp, control_panel: &ControlPanel) {
-        frame_prelude::update_prefetch_lifecycle_policy(graph_app, control_panel);
-    }
-
     fn run_pre_frame_and_initialize_intents(
         args: PreFrameAndIntentInitArgs<'_>,
     ) -> (gui_orchestration::PreFramePhaseOutput, Vec<GraphIntent>) {

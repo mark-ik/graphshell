@@ -284,6 +284,21 @@ pub struct GraphViewRuntimeState {
         egui::Rect,
     )>,
 
+    /// Cached GraphTree tree rows (sidebar projection), refreshed per frame
+    /// alongside `active_pane_rects`. Read by the host for navigator sidebar
+    /// rendering and by `GraphshellRuntime::project_view_model` when
+    /// populating the frame view-model.
+    pub cached_tree_rows: Vec<graph_tree::OwnedTreeRow<crate::graph::NodeKey>>,
+
+    /// Cached flat tab order derived from GraphTree, refreshed per frame.
+    /// Used for the tab-bar projection in the frame view-model.
+    pub cached_tab_order: Vec<graph_tree::TabEntry<crate::graph::NodeKey>>,
+
+    /// Cached split boundaries (draggable gutter handles), refreshed per
+    /// frame. Used by both the active compositor pass and the frame
+    /// view-model.
+    pub cached_split_boundaries: Vec<graph_tree::SplitBoundary<crate::graph::NodeKey>>,
+
     /// Per-view graph-canvas camera state (transient, not persisted).
     ///
     /// Parallel to the egui_graphs metadata camera. Once the graph-canvas path

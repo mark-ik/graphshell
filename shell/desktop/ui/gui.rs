@@ -23,6 +23,8 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
+use super::egui_host_ports::EguiHostPorts;
+use super::frame_model::FrameHostInput;
 use super::graph_search_flow;
 use super::gui_frame;
 use super::gui_orchestration;
@@ -71,6 +73,7 @@ use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
+use crate::shell::desktop::workbench::ux_replay::ModifiersState;
 use crate::util::CoordBridge;
 
 #[path = "gui/accessibility.rs"]
@@ -218,6 +221,35 @@ impl Drop for EguiHost {
 
         activate_ui_render_backend(self.rendering_context.as_ref());
         self.context.destroy_surface();
+    }
+}
+
+/// Build a `FrameHostInput` snapshot from the live egui context.
+///
+/// Called at the tail of `run_update` so the runtime's `tick` sees the same
+/// input state the host just painted against. Events are left empty for now —
+/// event translation will migrate onto this path phase by phase.
+fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
+    let (pointer_hover, modifiers) = ctx.input(|i| {
+        let m = i.modifiers;
+        (
+            i.pointer.hover_pos(),
+            ModifiersState {
+                alt: m.alt,
+                ctrl: m.ctrl,
+                shift: m.shift,
+                mac_cmd: m.mac_cmd,
+                command: m.command,
+            },
+        )
+    });
+    FrameHostInput {
+        events: Vec::new(),
+        pointer_hover,
+        viewport_size: ctx.screen_rect().size(),
+        wants_keyboard: ctx.wants_keyboard_input(),
+        wants_pointer: ctx.wants_pointer_input(),
+        modifiers,
     }
 }
 
@@ -985,6 +1017,16 @@ impl EguiHost {
         }
 
         self.persist_active_toolbar_draft();
+
+        // M4.5b dry-run: exercise the runtime's host-neutral tick path every
+        // frame, discarding the returned view-model. Phases still run through
+        // the host-side pipeline above; as each migrates it will start
+        // consuming tick output instead of reading shell state directly.
+        let frame_input = build_frame_host_input(self.context.egui_context());
+        let mut ports = EguiHostPorts {
+            toasts: &mut self.toasts,
+        };
+        let _view_model = self.runtime.tick(&frame_input, &mut ports);
 
         GuiUpdateOutput
     }

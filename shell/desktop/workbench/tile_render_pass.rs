@@ -488,6 +488,10 @@ pub(crate) fn run_tile_render_pass_in_ui(
     );
     let active_tile_rects = &layout_output.pane_rects;
     graph_app.workspace.graph_runtime.active_pane_rects = active_tile_rects.clone();
+    graph_app.workspace.graph_runtime.cached_tree_rows = layout_output.tree_rows.clone();
+    graph_app.workspace.graph_runtime.cached_tab_order = layout_output.tab_order.clone();
+    graph_app.workspace.graph_runtime.cached_split_boundaries =
+        layout_output.split_boundaries.clone();
     log::debug!(
         "tile_render_pass: {} active tile rects (graph_tree keyed)",
         active_tile_rects.len()

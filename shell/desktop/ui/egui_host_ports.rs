@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
-use crate::shell::desktop::ui::frame_model::ToastSpec;
+use crate::shell::desktop::ui::frame_model::{ToastSeverity, ToastSpec};
 use crate::shell::desktop::ui::host_ports::{
     HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
     HostTexturePort, HostToastPort,
@@ -33,16 +33,21 @@ use servo::WebViewId;
 
 /// egui-side bundle of host port implementations.
 ///
-/// For M4.4 this is an empty marker struct; M4.5 will populate it with
-/// `&mut` references (or owned state) needed to delegate to the current
-/// egui-specific plumbing.
-pub(crate) struct EguiHostPorts;
+/// Holds the borrowed handles to egui-specific state (toasts, eventually
+/// clipboard, texture caches, accesskit bridge) the runtime needs to drive.
+/// The struct is built fresh each tick at the host call site so each port
+/// trait can delegate to live state without requiring `EguiHost` to expose
+/// internals through wider visibility.
+pub(crate) struct EguiHostPorts<'a> {
+    /// Egui-side toast notification queue.
+    pub(crate) toasts: &'a mut egui_notify::Toasts,
+}
 
 // ---------------------------------------------------------------------------
 // HostInputPort
 // ---------------------------------------------------------------------------
 
-impl HostInputPort for EguiHostPorts {
+impl<'a> HostInputPort for EguiHostPorts<'a> {
     fn poll_events(&mut self) -> Vec<HostEvent> {
         // todo(m4.5): translate egui's accumulated input into HostEvent vocabulary.
         Vec::new()
@@ -73,7 +78,7 @@ impl HostInputPort for EguiHostPorts {
 // HostSurfacePort
 // ---------------------------------------------------------------------------
 
-impl HostSurfacePort for EguiHostPorts {
+impl<'a> HostSurfacePort for EguiHostPorts<'a> {
     fn present_surface(&mut self, _node_key: NodeKey) {
         // todo(m4.5): bump_content_generation on the ViewerSurfaceRegistry
         // and request a repaint from the egui context.
@@ -100,7 +105,7 @@ impl HostSurfacePort for EguiHostPorts {
 // HostPaintPort
 // ---------------------------------------------------------------------------
 
-impl HostPaintPort for EguiHostPorts {
+impl<'a> HostPaintPort for EguiHostPorts<'a> {
     fn draw_overlay_stroke(
         &mut self,
         _node_key: NodeKey,
@@ -148,7 +153,7 @@ impl HostPaintPort for EguiHostPorts {
 // HostTexturePort
 // ---------------------------------------------------------------------------
 
-impl HostTexturePort for EguiHostPorts {
+impl<'a> HostTexturePort for EguiHostPorts<'a> {
     type TextureHandle = egui::TextureHandle;
 
     fn load_texture(
@@ -176,7 +181,7 @@ impl HostTexturePort for EguiHostPorts {
 // HostClipboardPort
 // ---------------------------------------------------------------------------
 
-impl HostClipboardPort for EguiHostPorts {
+impl<'a> HostClipboardPort for EguiHostPorts<'a> {
     fn get_text(&mut self) -> Option<String> {
         // todo(m4.5): EguiHost::clipboard.get_text().ok().
         None
@@ -191,10 +196,25 @@ impl HostClipboardPort for EguiHostPorts {
 // HostToastPort
 // ---------------------------------------------------------------------------
 
-impl HostToastPort for EguiHostPorts {
-    fn enqueue(&mut self, _toast: ToastSpec) {
-        // todo(m4.5): translate severity to an egui_notify builder and push
-        // onto EguiHost::toasts.
+impl<'a> HostToastPort for EguiHostPorts<'a> {
+    fn enqueue(&mut self, toast: ToastSpec) {
+        let ToastSpec {
+            severity,
+            message,
+            duration,
+        } = toast;
+        let entry = match severity {
+            ToastSeverity::Info => self.toasts.info(message),
+            ToastSeverity::Success => self.toasts.success(message),
+            ToastSeverity::Warning => self.toasts.warning(message),
+            ToastSeverity::Error => self.toasts.error(message),
+        };
+        // Honour explicit durations; `None` means "use egui_notify default",
+        // which mirrors prior `toasts.error(...)` / `toasts.success(...)`
+        // call-site behaviour that did not customise duration.
+        if let Some(duration) = duration {
+            entry.duration(Some(duration));
+        }
     }
 }
 
@@ -202,7 +222,7 @@ impl HostToastPort for EguiHostPorts {
 // HostAccessibilityPort
 // ---------------------------------------------------------------------------
 
-impl HostAccessibilityPort for EguiHostPorts {
+impl<'a> HostAccessibilityPort for EguiHostPorts<'a> {
     fn inject_tree_update(
         &mut self,
         _webview_id: WebViewId,
