@@ -3,6 +3,11 @@ name = "graphshell-comms"
 version = "0.0.1"
 edition = "2024"
 
+[features]
+# Expose test-only helpers (resolver overrides, cache scopes, send_for_tests,
+# titan_upload_for_tests) to downstream crates for integration testing.
+test-support = []
+
 [dependencies]
 rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "aws-lc-rs"] }
 rcgen = "0.13"

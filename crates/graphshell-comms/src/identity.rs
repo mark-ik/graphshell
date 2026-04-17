@@ -89,38 +89,38 @@ fn identity_resolution_cache() -> &'static Mutex<
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone)]
 struct TestResolveProfileOverride {
     resource: String,
     result: Result<PersonIdentityProfile, String>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn test_resolve_override_run_lock() -> &'static Mutex<()> {
     static RUN_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     RUN_LOCK.get_or_init(|| Mutex::new(()))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn test_nip05_override() -> &'static Mutex<Option<TestResolveProfileOverride>> {
     static OVERRIDE: OnceLock<Mutex<Option<TestResolveProfileOverride>>> = OnceLock::new();
     OVERRIDE.get_or_init(|| Mutex::new(None))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn test_matrix_override() -> &'static Mutex<Option<TestResolveProfileOverride>> {
     static OVERRIDE: OnceLock<Mutex<Option<TestResolveProfileOverride>>> = OnceLock::new();
     OVERRIDE.get_or_init(|| Mutex::new(None))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn test_activitypub_override() -> &'static Mutex<Option<TestResolveProfileOverride>> {
     static OVERRIDE: OnceLock<Mutex<Option<TestResolveProfileOverride>>> = OnceLock::new();
     OVERRIDE.get_or_init(|| Mutex::new(None))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn test_identity_resolution_cache_run_lock() -> &'static Mutex<()> {
     static RUN_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     RUN_LOCK.get_or_init(|| Mutex::new(()))
@@ -661,7 +661,7 @@ fn unix_timestamp_ms_now() -> u64 {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn clear_identity_resolution_cache_for_tests() {
     identity_resolution_cache()
         .lock()
@@ -669,7 +669,7 @@ fn clear_identity_resolution_cache_for_tests() {
         .clear();
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn with_test_identity_resolution_cache_scope<T>(run: impl FnOnce() -> T) -> T {
     let _run_lock = test_identity_resolution_cache_run_lock()
         .lock()
@@ -720,7 +720,7 @@ struct MatrixProfileDocument {
 }
 
 pub fn resolve_nip05_profile(identifier: &str) -> Result<PersonIdentityProfile, String> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     {
         if let Some(override_state) = test_nip05_override()
             .lock()
@@ -743,7 +743,7 @@ pub fn resolve_nip05_profile(identifier: &str) -> Result<PersonIdentityProfile, 
 }
 
 pub fn resolve_matrix_profile(mxid: &str) -> Result<PersonIdentityProfile, String> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     {
         if let Some(override_state) = test_matrix_override()
             .lock()
@@ -766,7 +766,7 @@ pub fn resolve_matrix_profile(mxid: &str) -> Result<PersonIdentityProfile, Strin
 }
 
 pub fn resolve_activitypub_actor(actor_url: &str) -> Result<PersonIdentityProfile, String> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     {
         if let Some(override_state) = test_activitypub_override()
             .lock()
@@ -1096,7 +1096,7 @@ fn extract_activitypub_urls(value: Option<&serde_json::Value>) -> Vec<String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn with_test_resolve_nip05_override<T>(
     resource: &str,
     result: Result<PersonIdentityProfile, String>,
@@ -1121,7 +1121,7 @@ pub fn with_test_resolve_nip05_override<T>(
     outcome
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn with_test_resolve_matrix_override<T>(
     resource: &str,
     result: Result<PersonIdentityProfile, String>,
@@ -1146,7 +1146,7 @@ pub fn with_test_resolve_matrix_override<T>(
     outcome
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn with_test_resolve_activitypub_override<T>(
     resource: &str,
     result: Result<PersonIdentityProfile, String>,

@@ -6,26 +6,26 @@ use std::time::Duration;
 
 use reqwest::header::ACCEPT;
 use serde::Deserialize;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use std::sync::{Mutex, OnceLock};
 
 const WEBFINGER_TIMEOUT: Duration = Duration::from_secs(10);
 const WEBFINGER_ACCEPT: &str = "application/jrd+json, application/json;q=0.9";
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone)]
 struct TestFetchImportOverride {
     resource: String,
     result: Result<WebFingerImport, String>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn test_fetch_import_override() -> &'static Mutex<Option<TestFetchImportOverride>> {
     static OVERRIDE: OnceLock<Mutex<Option<TestFetchImportOverride>>> = OnceLock::new();
     OVERRIDE.get_or_init(|| Mutex::new(None))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn test_fetch_import_override_run_lock() -> &'static Mutex<()> {
     static RUN_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     RUN_LOCK.get_or_init(|| Mutex::new(()))
@@ -177,7 +177,7 @@ pub fn fetch_document(resource: &str) -> Result<WebFingerDocument, String> {
 }
 
 pub fn fetch_import(resource: &str) -> Result<WebFingerImport, String> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     {
         if let Some(override_state) = test_fetch_import_override()
             .lock()
@@ -194,7 +194,7 @@ pub fn fetch_import(resource: &str) -> Result<WebFingerImport, String> {
     Ok(WebFingerImport::from_document(&document))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn with_test_fetch_import_override<T>(
     resource: &str,
     result: Result<WebFingerImport, String>,

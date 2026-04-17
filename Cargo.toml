@@ -228,6 +228,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 
 [dev-dependencies]
 base = { path = "../servo/components/shared/base", package = "servo-base" }
+graphshell-comms = { path = "crates/graphshell-comms", features = ["test-support"] }
 insta = "1"
 proptest = "1"
 rstest = "0.26"

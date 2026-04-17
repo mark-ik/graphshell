@@ -82,7 +82,7 @@ impl GeminiKnownHostsStore {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn new_for_tests(path: PathBuf) -> Self {
         Self {
             path: Some(path),
@@ -302,7 +302,7 @@ pub fn titan_upload(
     titan_upload_with_store(url, content, mime, token, &known_hosts)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn titan_upload_for_tests(
     url: &url::Url,
     content: &[u8],
@@ -780,7 +780,7 @@ fn finger_query(url: &url::Url) -> String {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-support")))]
 fn gemini_known_hosts_path() -> Option<PathBuf> {
     let mut path = dirs::config_dir()?;
     path.push("graphshell");
@@ -788,7 +788,7 @@ fn gemini_known_hosts_path() -> Option<PathBuf> {
     Some(path)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn gemini_known_hosts_path() -> Option<PathBuf> {
     None
 }

@@ -198,7 +198,7 @@ impl MisfinKnownHostsStore {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn new_for_tests(path: PathBuf) -> Self {
         Self {
             path: Some(path),
@@ -328,7 +328,7 @@ pub fn send_message(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn send_message_for_tests(
     url: &url::Url,
     sender: &MisfinIdentitySpec,
@@ -877,7 +877,7 @@ fn identity_path_for_spec(spec: &MisfinIdentitySpec, identity_root: &Path) -> Pa
     ))
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-support")))]
 fn misfin_known_hosts_path() -> Option<PathBuf> {
     let mut path = dirs::config_dir()?;
     path.push("graphshell");
@@ -885,12 +885,12 @@ fn misfin_known_hosts_path() -> Option<PathBuf> {
     Some(path)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn misfin_known_hosts_path() -> Option<PathBuf> {
     None
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-support")))]
 fn misfin_identity_root() -> Option<PathBuf> {
     let mut path = dirs::config_dir()?;
     path.push("graphshell");
@@ -898,7 +898,7 @@ fn misfin_identity_root() -> Option<PathBuf> {
     Some(path)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn misfin_identity_root() -> Option<PathBuf> {
     None
 }
