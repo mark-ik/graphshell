@@ -72,6 +72,11 @@ webxr = ["servo/webxr"]
 wry = ["dep:wry"]
 pdf = ["dep:pdfium-render"]
 audio = ["dep:symphonia", "dep:rodio"]
+# M5 scaffolding: gate an iced-backed host adapter behind this feature.
+# Currently stands up a placeholder `IcedHost` + `IcedHostPorts` that
+# implement the `HostPorts` trait bundle without wiring iced rendering;
+# concrete iced backend work lands on top of this skeleton.
+iced-host = []
 
 [dependencies]
 middlenet-engine = { path = "crates/middlenet-engine" }

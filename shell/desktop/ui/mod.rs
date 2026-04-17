@@ -13,6 +13,10 @@ pub(crate) mod gui_frame;
 pub(crate) mod gui_orchestration;
 pub(crate) mod gui_state;
 pub(crate) mod host_ports;
+#[cfg(feature = "iced-host")]
+pub(crate) mod iced_host;
+#[cfg(feature = "iced-host")]
+pub(crate) mod iced_host_ports;
 pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
 pub(crate) mod overview_plane;
