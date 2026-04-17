@@ -12,29 +12,34 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
+use crate::shell::desktop::ui::frame_model::{
+    DialogsViewModel, FocusRingSpec, FocusViewModel, FrameHostInput, FrameViewModel,
+    ToolbarDraftSnapshot, ToolbarViewModel,
+};
 use crate::shell::desktop::ui::gui::frame_inbox::GuiFrameInbox;
+use crate::shell::desktop::ui::host_ports::HostPorts;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use servo::{LoadStatus, WebViewId};
 
-pub(super) struct ToolbarState {
-    pub(super) location: String,
-    pub(super) location_dirty: bool,
-    pub(super) location_submitted: bool,
-    pub(super) show_clear_data_confirm: bool,
-    pub(super) load_status: LoadStatus,
-    pub(super) status_text: Option<String>,
-    pub(super) can_go_back: bool,
-    pub(super) can_go_forward: bool,
+pub(crate) struct ToolbarState {
+    pub(crate) location: String,
+    pub(crate) location_dirty: bool,
+    pub(crate) location_submitted: bool,
+    pub(crate) show_clear_data_confirm: bool,
+    pub(crate) load_status: LoadStatus,
+    pub(crate) status_text: Option<String>,
+    pub(crate) can_go_back: bool,
+    pub(crate) can_go_forward: bool,
 }
 
 #[derive(Clone)]
-pub(super) struct ToolbarDraft {
-    pub(super) location: String,
-    pub(super) location_dirty: bool,
-    pub(super) location_submitted: bool,
+pub(crate) struct ToolbarDraft {
+    pub(crate) location: String,
+    pub(crate) location_dirty: bool,
+    pub(crate) location_submitted: bool,
 }
 
 pub(super) enum BookmarkImportDialogEvent {
@@ -43,7 +48,7 @@ pub(super) enum BookmarkImportDialogEvent {
     Cancelled,
 }
 
-pub(super) struct BookmarkImportDialogState {
+pub(crate) struct BookmarkImportDialogState {
     dialog: EguiFileDialog,
 }
 
@@ -179,6 +184,122 @@ pub(crate) struct GraphshellRuntime {
     pub(crate) command_palette_toggle_requested: bool,
     pub(crate) pending_webview_context_surface_requests: Vec<PendingWebviewContextSurfaceRequest>,
     pub(crate) deferred_open_child_webviews: Vec<WebViewId>,
+}
+
+impl GraphshellRuntime {
+    /// Per-frame runtime tick.
+    ///
+    /// Conceptually this is the entry point described in the M3.5 runtime
+    /// boundary design: the host supplies input, the runtime advances state
+    /// and returns a read-only view-model the host renders.
+    ///
+    /// **Today's state (M4.5b early):** the tick is partially wired. It
+    /// ingests the supplied input and projects a view-model from current
+    /// runtime state, but does not yet subsume the full frame pipeline
+    /// (toolbar rendering, compositor passes, phase orchestration) — those
+    /// still run on the host-side path. Work will migrate into `tick` phase
+    /// by phase; each migrated phase stops mutating shell state outside the
+    /// runtime and starts writing through the supplied `ports` instead.
+    ///
+    /// The `ports` parameter is accepted generically so that iced can
+    /// eventually provide its own port bundle. For now only the input port
+    /// is consulted; other ports are held for forward compatibility.
+    pub(crate) fn tick<H: HostPorts>(
+        &mut self,
+        input: &FrameHostInput,
+        _ports: &mut H,
+    ) -> FrameViewModel {
+        self.ingest_frame_input(input);
+        self.project_view_model()
+    }
+
+    /// Ingest host-supplied frame input.
+    ///
+    /// Currently a no-op — events still flow through the existing
+    /// `handle_keyboard_phase` / `pending_webview_context_surface_requests`
+    /// mechanisms. Future M4.5b expansions will route event translation
+    /// here so the runtime owns the event-to-intent mapping.
+    pub(crate) fn ingest_frame_input(&mut self, _input: &FrameHostInput) {}
+
+    /// Project a read-only view-model from current runtime state.
+    ///
+    /// Populates fields that are directly readable from `GraphshellRuntime`
+    /// and `self.graph_app` today. Per-frame computed data (tree layout,
+    /// overlay descriptors, toast queue, degraded receipts, surface
+    /// presentation requests) is left empty for now — that data is
+    /// currently computed transiently inside the phase pipeline and isn't
+    /// retained on runtime state. Caching those outputs onto the runtime is
+    /// a natural follow-on step.
+    pub(crate) fn project_view_model(&self) -> FrameViewModel {
+        let chrome_ui = &self.graph_app.workspace.chrome_ui;
+        let focus_ring = self.focus_ring_node_key.map(|node_key| FocusRingSpec {
+            node_key,
+            started_at: self.focus_ring_started_at.unwrap_or_else(Instant::now),
+            duration: self.focus_ring_duration,
+        });
+
+        FrameViewModel {
+            active_pane_rects: self
+                .graph_app
+                .workspace
+                .graph_runtime
+                .active_pane_rects
+                .clone(),
+            tree_rows: Vec::new(),
+            tab_order: Vec::new(),
+            split_boundaries: Vec::new(),
+            active_pane: self
+                .graph_app
+                .workspace
+                .graph_runtime
+                .active_pane_rects
+                .first()
+                .map(|(_, node_key, _)| *node_key),
+            focus: FocusViewModel {
+                focused_node: self.focused_node_hint,
+                graph_surface_focused: self.graph_surface_focused,
+                focus_ring,
+            },
+            toolbar: ToolbarViewModel {
+                location: self.toolbar_state.location.clone(),
+                location_dirty: self.toolbar_state.location_dirty,
+                location_submitted: self.toolbar_state.location_submitted,
+                load_status: Some(self.toolbar_state.load_status),
+                status_text: self.toolbar_state.status_text.clone(),
+                can_go_back: self.toolbar_state.can_go_back,
+                can_go_forward: self.toolbar_state.can_go_forward,
+                per_pane_drafts: self
+                    .toolbar_drafts
+                    .iter()
+                    .map(|(pane_id, draft)| {
+                        (
+                            *pane_id,
+                            ToolbarDraftSnapshot {
+                                location: draft.location.clone(),
+                                location_dirty: draft.location_dirty,
+                                location_submitted: draft.location_submitted,
+                            },
+                        )
+                    })
+                    .collect(),
+            },
+            overlays: Vec::new(),
+            dialogs: DialogsViewModel {
+                bookmark_import_open: self.bookmark_import_dialog.is_some(),
+                command_palette_toggle_requested: self.command_palette_toggle_requested,
+                show_command_palette: chrome_ui.show_command_palette,
+                show_context_palette: chrome_ui.show_context_palette,
+                show_help_panel: chrome_ui.show_help_panel,
+                show_radial_menu: chrome_ui.show_radial_menu,
+                show_settings_overlay: chrome_ui.show_settings_overlay,
+                show_clip_inspector: chrome_ui.show_clip_inspector,
+                show_scene_overlay: chrome_ui.show_scene_overlay,
+            },
+            toasts: Vec::new(),
+            surfaces_to_present: Vec::new(),
+            degraded_receipts: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -234,16 +234,28 @@ pub(crate) trait HostAccessibilityPort {
 // HostPorts composite — the bundle the runtime borrows per-tick
 // ---------------------------------------------------------------------------
 
-/// Composite access trait — a single `&mut dyn HostPorts`-style handle is
-/// inconvenient in Rust because of the associated type on `HostTexturePort`;
-/// instead, the runtime takes a generic host that implements all seven.
-///
-/// Implementers bundle the underlying storage and expose each port via the
-/// corresponding trait impl. See `EguiHostPorts` for the egui-side bundle.
+/// Composite bound — any type that implements the six non-texture ports
+/// automatically qualifies as a `HostPorts`. Texture handling has an
+/// associated type on its own trait (`HostTexturePort`) and is not part of
+/// this composite; call sites that need textures bound `T: HostPorts +
+/// HostTexturePort` explicitly.
 pub(crate) trait HostPorts:
-    HostInputPort + HostSurfacePort + HostPaintPort + HostClipboardPort + HostToastPort + HostAccessibilityPort
+    HostInputPort
+    + HostSurfacePort
+    + HostPaintPort
+    + HostClipboardPort
+    + HostToastPort
+    + HostAccessibilityPort
 {
-    /// The associated texture-handle type, re-exposed here so generic
-    /// callers can refer to it without naming `<Self as HostTexturePort>`.
-    type TextureHandle: Clone;
+}
+
+/// Any type that implements the six non-texture ports is a `HostPorts`.
+impl<T> HostPorts for T where
+    T: HostInputPort
+        + HostSurfacePort
+        + HostPaintPort
+        + HostClipboardPort
+        + HostToastPort
+        + HostAccessibilityPort
+{
 }

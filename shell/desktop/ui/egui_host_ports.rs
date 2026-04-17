@@ -25,8 +25,8 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
 use crate::shell::desktop::ui::frame_model::ToastSpec;
 use crate::shell::desktop::ui::host_ports::{
-    HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostPorts,
-    HostSurfacePort, HostTexturePort, HostToastPort,
+    HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
+    HostTexturePort, HostToastPort,
 };
 use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use servo::WebViewId;
@@ -218,9 +218,6 @@ impl HostAccessibilityPort for EguiHostPorts {
 }
 
 // ---------------------------------------------------------------------------
-// HostPorts bundle
+// HostPorts composite is auto-satisfied via the blanket impl in host_ports.rs
+// once all six non-texture traits above are implemented.
 // ---------------------------------------------------------------------------
-
-impl HostPorts for EguiHostPorts {
-    type TextureHandle = egui::TextureHandle;
-}
