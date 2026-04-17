@@ -73,7 +73,7 @@ use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
-use crate::shell::desktop::workbench::ux_replay::ModifiersState;
+use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use crate::util::CoordBridge;
 
 #[path = "gui/accessibility.rs"]
@@ -230,8 +230,13 @@ impl Drop for EguiHost {
 /// input state the host just painted against. Events are left empty for now —
 /// event translation will migrate onto this path phase by phase.
 fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
-    let (pointer_hover, modifiers, had_input_events) = ctx.input(|i| {
+    let (pointer_hover, modifiers, had_input_events, events) = ctx.input(|i| {
         let m = i.modifiers;
+        let events = i
+            .events
+            .iter()
+            .filter_map(HostEvent::from_egui_event)
+            .collect::<Vec<_>>();
         (
             i.pointer.hover_pos(),
             ModifiersState {
@@ -242,10 +247,11 @@ fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
                 command: m.command,
             },
             !i.events.is_empty(),
+            events,
         )
     });
     FrameHostInput {
-        events: Vec::new(),
+        events,
         pointer_hover,
         viewport_size: ctx.screen_rect().size(),
         wants_keyboard: ctx.wants_keyboard_input(),

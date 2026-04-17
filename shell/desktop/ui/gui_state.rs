@@ -203,13 +203,32 @@ impl GraphshellRuntime {
     /// The `ports` parameter is accepted generically so that iced can
     /// eventually provide its own port bundle. For now only the input port
     /// is consulted; other ports are held for forward compatibility.
-    pub(crate) fn tick<H: HostPorts>(
-        &mut self,
-        input: &FrameHostInput,
-        _ports: &mut H,
-    ) -> FrameViewModel {
+    pub(crate) fn tick<H>(&mut self, input: &FrameHostInput, ports: &mut H) -> FrameViewModel
+    where
+        H: HostPorts + crate::shell::desktop::ui::host_ports::HostClipboardPort,
+    {
         self.ingest_frame_input(input);
+        self.drain_pending_finalize_actions(ports);
         self.project_view_model()
+    }
+
+    /// Drain pending node-status notices and clipboard-copy requests
+    /// through the supplied ports. Runs every tick after
+    /// `ingest_frame_input` so any host (egui today, iced tomorrow)
+    /// gets these user-visible side effects for free.
+    fn drain_pending_finalize_actions<P>(&mut self, ports: &mut P)
+    where
+        P: crate::shell::desktop::ui::host_ports::HostToastPort
+            + crate::shell::desktop::ui::host_ports::HostClipboardPort,
+    {
+        crate::shell::desktop::ui::gui_orchestration::handle_pending_node_status_notices(
+            &mut self.graph_app,
+            ports,
+        );
+        crate::shell::desktop::ui::gui_orchestration::handle_pending_clipboard_copy_requests(
+            &mut self.graph_app,
+            ports,
+        );
     }
 
     /// Ingest host-supplied frame input.

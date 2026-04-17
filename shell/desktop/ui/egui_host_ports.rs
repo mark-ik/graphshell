@@ -43,8 +43,8 @@ pub(crate) struct EguiHostPorts<'a> {
     /// Egui-side toast notification queue.
     pub(crate) toasts: &'a mut egui_notify::Toasts,
 
-    /// Lazily-initialized arboard clipboard handle. The host owns
-    /// initialization (see `ensure_clipboard_initialized` in `gui_orchestration`).
+    /// Lazily-initialized arboard clipboard handle. The port lazy-inits
+    /// on first write via `HostClipboardPort::set_text`.
     pub(crate) clipboard: &'a mut Option<Clipboard>,
 }
 
@@ -192,13 +192,17 @@ impl<'a> HostClipboardPort for EguiHostPorts<'a> {
         cb.get_text().ok()
     }
 
-    fn set_text(&mut self, text: &str) {
+    fn set_text(&mut self, text: &str) -> Result<(), String> {
+        // Lazy-initialize on first write so iced-style hosts that pre-seed
+        // the holder and egui-style hosts that defer construction behave
+        // identically at the port boundary.
+        if self.clipboard.is_none() {
+            *self.clipboard = arboard::Clipboard::new().ok();
+        }
         let Some(cb) = self.clipboard.as_mut() else {
-            return;
+            return Err("clipboard unavailable".to_string());
         };
-        // Failure is silent at the port boundary; call sites that surface
-        // user feedback do so through `HostToastPort` directly.
-        let _ = cb.set_text(text);
+        cb.set_text(text).map_err(|e| e.to_string())
     }
 }
 

@@ -422,6 +422,7 @@ fn pending_node_status_notice_records_audit_event() {
         euclid::default::Point2D::new(0.0, 0.0),
     );
     let mut toasts = egui_notify::Toasts::default();
+    let mut toast_port = gui_orchestration::ToastsAdapter { toasts: &mut toasts };
 
     app.request_node_status_notice(
         key,
@@ -433,7 +434,7 @@ fn pending_node_status_notice_records_audit_event() {
         }),
     );
 
-    gui_orchestration::handle_pending_node_status_notices(&mut app, &mut toasts);
+    gui_orchestration::handle_pending_node_status_notices(&mut app, &mut toast_port);
 
     let node_id = app
         .domain_graph()
@@ -462,6 +463,7 @@ fn pending_node_status_notices_record_titan_and_misfin_management_audit_events()
         euclid::default::Point2D::new(0.0, 0.0),
     );
     let mut toasts = egui_notify::Toasts::default();
+    let mut toast_port = gui_orchestration::ToastsAdapter { toasts: &mut toasts };
 
     app.request_node_status_notice(
         key,
@@ -491,7 +493,7 @@ fn pending_node_status_notices_record_titan_and_misfin_management_audit_events()
         }),
     );
 
-    gui_orchestration::handle_pending_node_status_notices(&mut app, &mut toasts);
+    gui_orchestration::handle_pending_node_status_notices(&mut app, &mut toast_port);
 
     let node_id = app
         .domain_graph()

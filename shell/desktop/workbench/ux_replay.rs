@@ -93,6 +93,16 @@ impl PointerButton {
             Self::Other(_) => None,
         }
     }
+
+    pub(crate) fn from_egui(button: egui::PointerButton) -> Self {
+        match button {
+            egui::PointerButton::Primary => Self::Primary,
+            egui::PointerButton::Secondary => Self::Secondary,
+            egui::PointerButton::Middle => Self::Middle,
+            egui::PointerButton::Extra1 => Self::Back,
+            egui::PointerButton::Extra2 => Self::Forward,
+        }
+    }
 }
 
 impl ModifiersState {
@@ -105,9 +115,80 @@ impl ModifiersState {
             command: self.command,
         }
     }
+
+    pub(crate) fn from_egui(modifiers: egui::Modifiers) -> Self {
+        Self {
+            alt: modifiers.alt,
+            ctrl: modifiers.ctrl,
+            shift: modifiers.shift,
+            mac_cmd: modifiers.mac_cmd,
+            command: modifiers.command,
+        }
+    }
 }
 
 impl HostEvent {
+    /// Translates a live `egui::Event` into a host-neutral `HostEvent`,
+    /// returning `None` for egui-only events that have no equivalent
+    /// (`Copy`, `Cut`, `Paste`, `PointerGone`, `AccessKitActionRequest`,
+    /// etc.). Used to populate `FrameHostInput::events` from the currently
+    /// running egui host; an iced host will implement the same
+    /// construction against its own native event stream.
+    ///
+    /// Key translation is deliberately lossy — `HostEvent::Key::key` uses
+    /// a short debug-style string (`"Enter"`, `"ArrowUp"`, `"A"`). This
+    /// mirrors the coverage of `to_egui_events` and is sufficient for
+    /// replay + parity tests. Keys outside that set translate to `None`
+    /// so the runtime's keyboard phase keeps reading them from egui
+    /// directly until an explicit key-translation pass lands.
+    pub(crate) fn from_egui_event(event: &egui::Event) -> Option<Self> {
+        Some(match event {
+            egui::Event::Text(text) => HostEvent::Text(text.clone()),
+            egui::Event::PointerMoved(pos) => HostEvent::PointerMoved {
+                x: pos.x,
+                y: pos.y,
+            },
+            egui::Event::PointerButton {
+                pos,
+                button,
+                pressed,
+                ..
+            } => {
+                let button = PointerButton::from_egui(*button);
+                if *pressed {
+                    HostEvent::PointerDown {
+                        x: pos.x,
+                        y: pos.y,
+                        button,
+                    }
+                } else {
+                    HostEvent::PointerUp {
+                        x: pos.x,
+                        y: pos.y,
+                        button,
+                    }
+                }
+            }
+            egui::Event::Zoom(delta) => HostEvent::Zoom { delta: *delta },
+            egui::Event::MouseWheel { delta, .. } => HostEvent::Scroll {
+                dx: delta.x,
+                dy: delta.y,
+            },
+            egui::Event::WindowFocused(focused) => HostEvent::Focus(*focused),
+            egui::Event::Key {
+                key,
+                pressed,
+                modifiers,
+                ..
+            } => HostEvent::Key {
+                key: egui_key_to_host_string(*key)?,
+                pressed: *pressed,
+                modifiers: ModifiersState::from_egui(*modifiers),
+            },
+            _ => return None,
+        })
+    }
+
     /// Translates a host-neutral record playback step into an array of concrete `egui::Event` instances.
     /// (Returns a Vec because some synthetic actions may require multiple tick-level egui interactions).
     pub(crate) fn to_egui_events(&self) -> Vec<egui::Event> {
@@ -201,6 +282,29 @@ impl HostEvent {
             }
         }
     }
+}
+
+/// Inverse of the limited key-translation done in [`HostEvent::to_egui_events`].
+/// Returns the short stable string keys produced by the to_egui path and
+/// `None` for keys outside that subset.
+fn egui_key_to_host_string(key: egui::Key) -> Option<String> {
+    let name = match key {
+        egui::Key::Enter => "Enter",
+        egui::Key::Escape => "Escape",
+        egui::Key::Space => "Space",
+        egui::Key::Backspace => "Backspace",
+        egui::Key::Delete => "Delete",
+        egui::Key::ArrowUp => "ArrowUp",
+        egui::Key::ArrowDown => "ArrowDown",
+        egui::Key::ArrowLeft => "ArrowLeft",
+        egui::Key::ArrowRight => "ArrowRight",
+        egui::Key::A => "A",
+        egui::Key::S => "S",
+        egui::Key::D => "D",
+        egui::Key::W => "W",
+        _ => return None,
+    };
+    Some(name.to_string())
 }
 
 /// An abstraction allowing generic host-level tests to feed events into

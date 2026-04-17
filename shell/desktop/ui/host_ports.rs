@@ -180,8 +180,12 @@ pub(crate) trait HostClipboardPort {
     /// Read current clipboard text. Returns `None` if unavailable or empty.
     fn get_text(&mut self) -> Option<String>;
 
-    /// Write text to the clipboard.
-    fn set_text(&mut self, text: &str);
+    /// Write text to the clipboard. The `Err(String)` case carries a
+    /// short user-presentable description of the failure; callers may
+    /// surface it via `HostToastPort` for feedback. The `Err` branch also
+    /// covers "clipboard unavailable" — the port caller does not need to
+    /// probe availability separately.
+    fn set_text(&mut self, text: &str) -> Result<(), String>;
 }
 
 // ---------------------------------------------------------------------------

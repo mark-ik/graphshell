@@ -2,12 +2,14 @@ use super::*;
 
 pub(super) fn finalize_update_frame(
     ctx: &egui::Context,
-    graph_app: &mut GraphBrowserApp,
-    clipboard: &mut Option<Clipboard>,
+    _graph_app: &mut GraphBrowserApp,
+    _clipboard: &mut Option<Clipboard>,
     toasts: &mut egui_notify::Toasts,
 ) {
-    gui_orchestration::handle_pending_node_status_notices(graph_app, toasts);
-    gui_orchestration::handle_pending_clipboard_copy_requests(graph_app, clipboard, toasts);
+    // Draining pending node-status notices and clipboard-copy requests
+    // migrated onto `GraphshellRuntime::ingest_frame_input` through
+    // `HostToastPort` + `HostClipboardPort`. The only thing left to do
+    // on the host side is drive the actual render of the toast overlay.
     toasts.show(ctx);
 }
 
