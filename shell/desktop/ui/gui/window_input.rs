@@ -13,7 +13,7 @@ pub(super) fn on_window_event(
 
     // When no node-viewer tile is active, consume user input events so they
     // never reach an inactive/hidden runtime viewer.
-    if !pane_queries::tree_has_active_node_pane(&gui.tiles_tree)
+    if !pane_queries::tree_has_active_node_pane(&gui.runtime.graph_app)
         && should_consume_when_no_active_node(event)
     {
         response.consumed = true;

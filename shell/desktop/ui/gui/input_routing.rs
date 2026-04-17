@@ -15,9 +15,9 @@ pub(super) fn has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {
 pub(super) fn collect_webview_update_flags(gui: &mut Gui, window: &EmbedderWindow) -> bool {
     let focused_node_key = gui.focused_node_key();
     toolbar_status_sync::sync_toolbar_webview_status_fields(
-        &mut gui.toolbar_state,
+        &mut gui.runtime.toolbar_state,
         focused_node_key,
-        &gui.graph_app,
+        &gui.runtime.graph_app,
         window,
     ) | gui.update_location_in_toolbar(window, focused_node_key)
 }

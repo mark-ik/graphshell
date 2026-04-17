@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::shell::desktop::ui::gui_state::toolbar_location_input_id;
+use crate::shell::desktop::ui::nav_targeting;
 use crate::util::CoordBridge;
 
 fn active_pane_region_hint(gui: &Gui) -> Option<PaneRegionHint> {
@@ -19,13 +20,13 @@ fn active_pane_region_hint(gui: &Gui) -> Option<PaneRegionHint> {
 }
 
 fn local_widget_focus(gui: &Gui) -> Option<LocalFocusTarget> {
-    if let Some(local_focus) = gui.runtime_state.focus_authority.local_widget_focus.clone() {
+    if let Some(local_focus) = gui.runtime.focus_authority.local_widget_focus.clone() {
         Some(local_focus)
     } else if location_has_focus(gui) {
         Some(LocalFocusTarget::ToolbarLocation {
-            pane_id: gui.runtime_state.focus_authority.pane_activation,
+            pane_id: gui.runtime.focus_authority.pane_activation,
         })
-    } else if gui.runtime_state.graph_search_open {
+    } else if gui.runtime.graph_search_open {
         Some(LocalFocusTarget::GraphSearch)
     } else {
         None
@@ -34,10 +35,10 @@ fn local_widget_focus(gui: &Gui) -> Option<LocalFocusTarget> {
 
 pub(super) fn runtime_focus_state(gui: &Gui) -> RuntimeFocusState {
     focus_state::desired_runtime_focus_state(
-        &gui.graph_app,
-        &gui.runtime_state.focus_authority,
+        &gui.runtime.graph_app,
+        &gui.runtime.focus_authority,
         local_widget_focus(gui),
-        gui.toolbar_state.show_clear_data_confirm,
+        gui.runtime.toolbar_state.show_clear_data_confirm,
     )
 }
 
@@ -45,23 +46,18 @@ pub(super) fn runtime_focus_inspector(
     gui: &Gui,
 ) -> crate::shell::desktop::ui::gui_state::RuntimeFocusInspector {
     focus_state::runtime_focus_inspector(
-        &gui.graph_app,
-        &gui.runtime_state.focus_authority,
+        &gui.runtime.graph_app,
+        &gui.runtime.focus_authority,
         local_widget_focus(gui),
-        gui.toolbar_state.show_clear_data_confirm,
+        gui.runtime.toolbar_state.show_clear_data_confirm,
     )
 }
 
 pub(super) fn focused_node_key(gui: &Gui) -> Option<NodeKey> {
-    if gui.runtime_state.graph_surface_focused {
+    if gui.runtime.graph_surface_focused {
         return None;
     }
-    tile_compositor::focused_node_pane_for_node_panes(
-        &gui.tiles_tree,
-        &gui.graph_app,
-        gui.runtime_state.focused_node_hint,
-    )
-    .map(|pane| pane.node_key)
+    nav_targeting::active_node_pane_node(&gui.runtime.graph_app)
 }
 
 pub(super) fn has_focused_node(gui: &Gui) -> bool {
@@ -69,31 +65,31 @@ pub(super) fn has_focused_node(gui: &Gui) -> bool {
 }
 
 pub(super) fn webview_id_for_node_key(gui: &Gui, node_key: NodeKey) -> Option<WebViewId> {
-    gui.graph_app.get_webview_for_node(node_key)
+    gui.runtime.graph_app.get_webview_for_node(node_key)
 }
 
 pub(super) fn active_tile_webview_id(gui: &Gui) -> Option<WebViewId> {
-    tile_compositor::focused_node_pane_for_node_panes(&gui.tiles_tree, &gui.graph_app, None)
-        .and_then(|pane| gui.graph_app.get_webview_for_node(pane.node_key))
+    nav_targeting::active_node_pane_node(&gui.runtime.graph_app)
+        .and_then(|node_key| gui.runtime.graph_app.get_webview_for_node(node_key))
 }
 
 pub(super) fn node_key_for_webview_id(gui: &Gui, webview_id: WebViewId) -> Option<NodeKey> {
-    gui.graph_app.get_node_for_webview(webview_id)
+    gui.runtime.graph_app.get_node_for_webview(webview_id)
 }
 
 pub(super) fn location_has_focus(gui: &Gui) -> bool {
-    let location_id = toolbar_location_input_id(gui.runtime_state.focus_authority.pane_activation);
+    let location_id = toolbar_location_input_id(gui.runtime.focus_authority.pane_activation);
     gui.context
         .egui_context()
         .memory(|m| m.focused().is_some_and(|focused| focused == location_id))
 }
 
 pub(super) fn request_location_submit(gui: &mut Gui) {
-    gui.toolbar_state.location_submitted = true;
+    gui.runtime.toolbar_state.location_submitted = true;
 }
 
 pub(super) fn request_command_palette_toggle(gui: &mut Gui) {
-    gui.runtime_state.command_palette_toggle_requested = true;
+    gui.runtime.command_palette_toggle_requested = true;
 }
 
 pub(super) fn egui_wants_keyboard_input(gui: &Gui) -> bool {

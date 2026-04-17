@@ -4,11 +4,17 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
+use crate::app::{GraphBrowserApp, GraphViewId, ToolSurfaceReturnTarget};
 use crate::graph::NodeKey;
+use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
+use crate::shell::desktop::runtime::control_panel::ControlPanel;
+use crate::shell::desktop::runtime::registries::RegistryRuntime;
+use crate::shell::desktop::ui::gui::frame_inbox::GuiFrameInbox;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
+use crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use servo::{LoadStatus, WebViewId};
@@ -113,23 +119,122 @@ pub(crate) struct RuntimeFocusAuthorityState {
     pub(crate) realized_focus_state: Option<RuntimeFocusState>,
 }
 
-pub(super) struct GuiRuntimeState {
-    pub(super) graph_search_open: bool,
-    pub(super) graph_search_query: String,
-    pub(super) graph_search_filter_mode: bool,
-    pub(super) graph_search_matches: Vec<NodeKey>,
-    pub(super) graph_search_active_match_index: Option<usize>,
-    pub(super) focused_node_hint: Option<NodeKey>,
-    pub(super) graph_surface_focused: bool,
-    pub(super) focus_ring_node_key: Option<NodeKey>,
-    pub(super) focus_ring_started_at: Option<Instant>,
-    pub(super) focus_ring_duration: Duration,
-    pub(super) omnibar_search_session: Option<OmnibarSearchSession>,
-    pub(super) focus_authority: RuntimeFocusAuthorityState,
-    pub(super) toolbar_drafts: HashMap<PaneId, ToolbarDraft>,
-    pub(super) command_palette_toggle_requested: bool,
-    pub(super) pending_webview_context_surface_requests: Vec<PendingWebviewContextSurfaceRequest>,
-    pub(super) deferred_open_child_webviews: Vec<WebViewId>,
+/// Host-neutral runtime state for the Graphshell shell.
+///
+/// Per the M3.5 runtime boundary design
+/// (`design_docs/graphshell_docs/implementation_strategy/shell/2026-04-16_runtime_boundary_design.md`),
+/// this owns all Category A (durable runtime) fields that survive a host
+/// migration from egui to iced. The host adapter (`Gui` today, `EguiHost`
+/// after M4.5) holds only Category B/C/D fields.
+pub(crate) struct GraphshellRuntime {
+    // --- Core model & services ---
+    /// Graph browser application state (graph, selection, intents).
+    pub(crate) graph_app: GraphBrowserApp,
+
+    /// Workbench membership + layout authority.
+    pub(crate) graph_tree: graph_tree::GraphTree<NodeKey>,
+
+    /// Stable UUID identifying this workbench's `GraphTree` slot in persistence.
+    pub(crate) workbench_view_id: GraphViewId,
+
+    /// Toolbar session state (location text, load status, nav capability).
+    pub(crate) toolbar_state: ToolbarState,
+
+    /// Graphshell-owned bookmark import file dialog state.
+    pub(crate) bookmark_import_dialog: Option<BookmarkImportDialogState>,
+
+    /// Async worker supervision and intent queue.
+    pub(crate) control_panel: ControlPanel,
+
+    /// Registry runtime for semantic services.
+    pub(crate) registry_runtime: Arc<RegistryRuntime>,
+
+    /// Tokio runtime for async background workers.
+    pub(crate) tokio_runtime: tokio::runtime::Runtime,
+
+    /// Phase D unified viewer surface registry keyed by NodeKey. Single
+    /// authority for per-node content surface state.
+    pub(crate) viewer_surfaces: ViewerSurfaceRegistry,
+
+    /// Runtime backpressure state for tile-driven viewer creation retries.
+    pub(crate) webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState>,
+
+    /// Typed frame-bound relay set for Shell-facing async signal bridges.
+    pub(crate) frame_inbox: GuiFrameInbox,
+
+    // --- Session state (formerly GuiRuntimeState) ---
+    pub(crate) graph_search_open: bool,
+    pub(crate) graph_search_query: String,
+    pub(crate) graph_search_filter_mode: bool,
+    pub(crate) graph_search_matches: Vec<NodeKey>,
+    pub(crate) graph_search_active_match_index: Option<usize>,
+    pub(crate) focused_node_hint: Option<NodeKey>,
+    pub(crate) graph_surface_focused: bool,
+    pub(crate) focus_ring_node_key: Option<NodeKey>,
+    pub(crate) focus_ring_started_at: Option<Instant>,
+    pub(crate) focus_ring_duration: Duration,
+    pub(crate) omnibar_search_session: Option<OmnibarSearchSession>,
+    pub(crate) focus_authority: RuntimeFocusAuthorityState,
+    pub(crate) toolbar_drafts: HashMap<PaneId, ToolbarDraft>,
+    pub(crate) command_palette_toggle_requested: bool,
+    pub(crate) pending_webview_context_surface_requests: Vec<PendingWebviewContextSurfaceRequest>,
+    pub(crate) deferred_open_child_webviews: Vec<WebViewId>,
+}
+
+#[cfg(test)]
+impl GraphshellRuntime {
+    /// Build a minimal runtime suitable for focus-state / session-state unit
+    /// tests. The infrastructure fields (control_panel, registry, tokio_runtime,
+    /// etc.) are initialized to sensible defaults; tests can mutate whichever
+    /// session fields they need to exercise.
+    pub(crate) fn for_testing() -> Self {
+        let tokio_runtime = tokio::runtime::Runtime::new()
+            .expect("failed to create tokio runtime for test GraphshellRuntime");
+        let mut control_panel =
+            ControlPanel::new_with_runtime(None, tokio_runtime.handle().clone());
+        let frame_inbox = GuiFrameInbox::spawn(&mut control_panel);
+        Self {
+            graph_app: GraphBrowserApp::new_for_testing(),
+            graph_tree: graph_tree::GraphTree::new(
+                graph_tree::LayoutMode::TreeStyleTabs,
+                graph_tree::ProjectionLens::Traversal,
+            ),
+            workbench_view_id: GraphViewId::new(),
+            toolbar_state: ToolbarState {
+                location: String::new(),
+                location_dirty: false,
+                location_submitted: false,
+                show_clear_data_confirm: false,
+                load_status: servo::LoadStatus::Complete,
+                status_text: None,
+                can_go_back: false,
+                can_go_forward: false,
+            },
+            bookmark_import_dialog: None,
+            control_panel,
+            registry_runtime: Arc::new(RegistryRuntime::default()),
+            tokio_runtime,
+            viewer_surfaces: ViewerSurfaceRegistry::new(),
+            webview_creation_backpressure: HashMap::new(),
+            frame_inbox,
+            graph_search_open: false,
+            graph_search_query: String::new(),
+            graph_search_filter_mode: false,
+            graph_search_matches: Vec::new(),
+            graph_search_active_match_index: None,
+            focused_node_hint: None,
+            graph_surface_focused: false,
+            focus_ring_node_key: None,
+            focus_ring_started_at: None,
+            focus_ring_duration: Duration::from_millis(500),
+            omnibar_search_session: None,
+            focus_authority: RuntimeFocusAuthorityState::default(),
+            toolbar_drafts: HashMap::new(),
+            command_palette_toggle_requested: false,
+            pending_webview_context_surface_requests: Vec::new(),
+            deferred_open_child_webviews: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

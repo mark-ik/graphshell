@@ -13,7 +13,7 @@ pub(super) fn handle_accesskit_action_requested(
     gui: &mut Gui,
     req: &egui::accesskit::ActionRequest,
 ) -> bool {
-    match accessibility::resolve_uxtree_accesskit_action(&gui.graph_app, req) {
+    match accessibility::resolve_uxtree_accesskit_action(&gui.runtime.graph_app, req) {
         Some(accessibility::UxTreeAccesskitDispatch::FocusGraphSurface) => {
             gui.focus_graph_surface();
             crate::shell::desktop::render_backend::UiRenderBackendContract::egui_context(
@@ -22,7 +22,7 @@ pub(super) fn handle_accesskit_action_requested(
             .request_repaint();
         }
         Some(accessibility::UxTreeAccesskitDispatch::FocusGraphReaderMapItem { node_key }) => {
-            gui.graph_app.graph_reader_focus_map_node(node_key);
+            gui.runtime.graph_app.graph_reader_focus_map_node(node_key);
             gui.focus_graph_surface();
             crate::shell::desktop::render_backend::UiRenderBackendContract::egui_context(
                 &gui.context,
@@ -30,7 +30,7 @@ pub(super) fn handle_accesskit_action_requested(
             .request_repaint();
         }
         Some(accessibility::UxTreeAccesskitDispatch::EnterGraphReaderRoom { node_key }) => {
-            gui.graph_app.graph_reader_enter_room(node_key);
+            gui.runtime.graph_app.graph_reader_enter_room(node_key);
             gui.focus_graph_surface();
             crate::shell::desktop::render_backend::UiRenderBackendContract::egui_context(
                 &gui.context,
@@ -38,7 +38,7 @@ pub(super) fn handle_accesskit_action_requested(
             .request_repaint();
         }
         Some(accessibility::UxTreeAccesskitDispatch::ReturnGraphReaderToMap) => {
-            gui.graph_app.graph_reader_return_to_map();
+            gui.runtime.graph_app.graph_reader_return_to_map();
             gui.focus_graph_surface();
             crate::shell::desktop::render_backend::UiRenderBackendContract::egui_context(
                 &gui.context,

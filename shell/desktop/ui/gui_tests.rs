@@ -13,7 +13,7 @@ mod tests {
     use crate::shell::desktop::host::window::{EmbedderWindow, WebViewLifecycleEventKind};
     #[cfg(feature = "diagnostics")]
     use crate::shell::desktop::runtime::registries::CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM;
-    use crate::shell::desktop::ui::gui_state::{GuiRuntimeState, RuntimeFocusAuthorityState};
+    use crate::shell::desktop::ui::gui_state::{GraphshellRuntime, RuntimeFocusAuthorityState};
 
     fn test_webview_id() -> WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -105,70 +105,43 @@ mod tests {
 
     #[test]
     fn host_reclaim_clears_embedded_content_focus_authority() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let mut runtime_state = GuiRuntimeState {
-            graph_search_open: false,
-            graph_search_query: String::new(),
-            graph_search_filter_mode: false,
-            graph_search_matches: Vec::new(),
-            graph_search_active_match_index: None,
-            focused_node_hint: None,
-            graph_surface_focused: false,
-            focus_ring_node_key: None,
-            focus_ring_started_at: None,
-            focus_ring_duration: std::time::Duration::from_millis(500),
-            omnibar_search_session: None,
-            focus_authority: RuntimeFocusAuthorityState::default(),
-            toolbar_drafts: std::collections::HashMap::new(),
-            command_palette_toggle_requested: false,
-            pending_webview_context_surface_requests: Vec::new(),
-            deferred_open_child_webviews: Vec::new(),
-        };
-        let node_key = app.add_node_and_sync(
+        let mut runtime_state = GraphshellRuntime::for_testing();
+        let node_key = runtime_state.graph_app.add_node_and_sync(
             "https://focused.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node_key);
-        app.set_embedded_content_focus_webview(Some(webview_id));
+        runtime_state.graph_app.map_webview_to_node(webview_id, node_key);
+        runtime_state
+            .graph_app
+            .set_embedded_content_focus_webview(Some(webview_id));
 
-        super::super::clear_embedded_content_focus(&mut runtime_state, &mut app);
+        super::super::clear_embedded_content_focus(&mut runtime_state);
 
-        assert!(app.embedded_content_focus_webview().is_none());
+        assert!(
+            runtime_state
+                .graph_app
+                .embedded_content_focus_webview()
+                .is_none()
+        );
     }
 
     #[cfg(feature = "diagnostics")]
     #[test]
     fn clearing_embedded_content_focus_emits_reclaim_diagnostic() {
         let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
-        let mut app = GraphBrowserApp::new_for_testing();
-        let mut runtime_state = GuiRuntimeState {
-            graph_search_open: false,
-            graph_search_query: String::new(),
-            graph_search_filter_mode: false,
-            graph_search_matches: Vec::new(),
-            graph_search_active_match_index: None,
-            focused_node_hint: None,
-            graph_surface_focused: false,
-            focus_ring_node_key: None,
-            focus_ring_started_at: None,
-            focus_ring_duration: std::time::Duration::from_millis(500),
-            omnibar_search_session: None,
-            focus_authority: RuntimeFocusAuthorityState::default(),
-            toolbar_drafts: std::collections::HashMap::new(),
-            command_palette_toggle_requested: false,
-            pending_webview_context_surface_requests: Vec::new(),
-            deferred_open_child_webviews: Vec::new(),
-        };
-        let node_key = app.add_node_and_sync(
+        let mut runtime_state = GraphshellRuntime::for_testing();
+        let node_key = runtime_state.graph_app.add_node_and_sync(
             "https://focused.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node_key);
-        app.set_embedded_content_focus_webview(Some(webview_id));
+        runtime_state.graph_app.map_webview_to_node(webview_id, node_key);
+        runtime_state
+            .graph_app
+            .set_embedded_content_focus_webview(Some(webview_id));
 
-        super::super::clear_embedded_content_focus(&mut runtime_state, &mut app);
+        super::super::clear_embedded_content_focus(&mut runtime_state);
 
         diagnostics.force_drain_for_tests();
         let snapshot = diagnostics.snapshot_json_for_tests().to_string();

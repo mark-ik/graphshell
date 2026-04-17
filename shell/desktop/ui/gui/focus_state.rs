@@ -424,20 +424,23 @@ pub(super) fn build_runtime_focus_state(inputs: RuntimeFocusInputs) -> RuntimeFo
 }
 
 pub(super) fn apply_node_focus_state(
-    runtime_state: &mut GuiRuntimeState,
+    runtime_state: &mut GraphshellRuntime,
     node_key: Option<NodeKey>,
 ) {
-    apply_canvas_region_focus_state(runtime_state, None, CanvasFocusTarget::Node(node_key));
+    apply_canvas_region_focus_state(runtime_state, false, CanvasFocusTarget::Node(node_key));
 }
 
+/// `update_focused_view` controls whether the graph runtime's `focused_view` is
+/// written alongside the canvas focus transition. The node-focus path leaves it
+/// alone; the graph-surface path writes the new view.
 fn apply_canvas_region_focus_state(
-    runtime_state: &mut GuiRuntimeState,
-    mut focused_view: Option<&mut Option<GraphViewId>>,
+    runtime_state: &mut GraphshellRuntime,
+    update_focused_view: bool,
     target: CanvasFocusTarget,
 ) {
     let was_focused_node_hint = runtime_state.focused_node_hint;
     let was_graph_surface_focused = runtime_state.graph_surface_focused;
-    let was_focused_view = focused_view.as_ref().map(|view| **view);
+    let was_focused_view = runtime_state.graph_app.workspace.graph_runtime.focused_view;
 
     match target {
         CanvasFocusTarget::Node(node_key) => {
@@ -447,15 +450,16 @@ fn apply_canvas_region_focus_state(
         CanvasFocusTarget::GraphSurface(next_view) => {
             runtime_state.focused_node_hint = None;
             runtime_state.graph_surface_focused = true;
-            if let Some(focused_view_ref) = focused_view.as_deref_mut() {
-                *focused_view_ref = next_view;
+            if update_focused_view {
+                runtime_state.graph_app.workspace.graph_runtime.focused_view = next_view;
             }
         }
     }
 
+    let current_focused_view = runtime_state.graph_app.workspace.graph_runtime.focused_view;
     if runtime_state.focused_node_hint != was_focused_node_hint
         || runtime_state.graph_surface_focused != was_graph_surface_focused
-        || focused_view.as_ref().map(|view| **view) != was_focused_view
+        || current_focused_view != was_focused_view
     {
         runtime_state.focus_authority.semantic_region = match target {
             CanvasFocusTarget::Node(node_key) => Some(SemanticRegionFocus::NodePane {
@@ -474,7 +478,7 @@ fn apply_canvas_region_focus_state(
 }
 
 pub(super) fn apply_pane_activation_focus_state(
-    runtime_state: &mut GuiRuntimeState,
+    runtime_state: &mut GraphshellRuntime,
     pane_id: Option<PaneId>,
 ) {
     runtime_state.focus_authority.pane_activation = pane_id;
@@ -744,16 +748,10 @@ pub(crate) fn seed_transient_surface_return_target_from_authority(
     }
 }
 
-pub(super) fn sync_runtime_focus_authority_state(
-    runtime_state: &mut GuiRuntimeState,
-    graph_app: &GraphBrowserApp,
-) {
-    runtime_state.focus_authority.realized_focus_state = Some(workspace_runtime_focus_state(
-        graph_app,
-        None,
-        runtime_state.focus_authority.local_widget_focus.clone(),
-        false,
-    ));
+pub(super) fn sync_runtime_focus_authority_state(runtime: &mut GraphshellRuntime) {
+    let local_widget_focus = runtime.focus_authority.local_widget_focus.clone();
+    let realized = workspace_runtime_focus_state(&runtime.graph_app, None, local_widget_focus, false);
+    runtime.focus_authority.realized_focus_state = Some(realized);
 }
 
 pub(crate) fn sync_runtime_semantic_region_from_workbench(
@@ -806,7 +804,7 @@ pub(crate) fn apply_graph_search_local_focus_state(
 }
 
 pub(crate) fn apply_toolbar_location_local_focus_state(
-    runtime_state: &mut GuiRuntimeState,
+    runtime_state: &mut GraphshellRuntime,
     focused: bool,
 ) {
     if focused {
@@ -830,13 +828,12 @@ pub(crate) fn apply_toolbar_location_local_focus_state(
 }
 
 pub(super) fn apply_graph_surface_focus_state(
-    runtime_state: &mut GuiRuntimeState,
-    graph_app: &mut GraphBrowserApp,
+    runtime_state: &mut GraphshellRuntime,
     active_graph_view: Option<GraphViewId>,
 ) {
     apply_canvas_region_focus_state(
         runtime_state,
-        Some(&mut graph_app.workspace.graph_runtime.focused_view),
+        true,
         CanvasFocusTarget::GraphSurface(active_graph_view),
     );
 }
@@ -1092,25 +1089,7 @@ mod tests {
 
     #[test]
     fn pane_activation_focus_helper_updates_active_toolbar_pane() {
-        let mut runtime_state = GuiRuntimeState {
-            graph_search_open: false,
-            graph_search_query: String::new(),
-            graph_search_filter_mode: false,
-            graph_search_matches: Vec::new(),
-            graph_search_active_match_index: None,
-            focused_node_hint: None,
-            graph_surface_focused: false,
-            focus_ring_node_key: None,
-            focus_ring_started_at: None,
-            focus_ring_duration: Duration::from_millis(500),
-            omnibar_search_session: None,
-            focus_authority:
-                crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(),
-            toolbar_drafts: std::collections::HashMap::new(),
-            command_palette_toggle_requested: false,
-            pending_webview_context_surface_requests: Vec::new(),
-            deferred_open_child_webviews: Vec::new(),
-        };
+        let mut runtime_state = GraphshellRuntime::for_testing();
         let pane_id = PaneId::new();
 
         apply_pane_activation_focus_state(&mut runtime_state, Some(pane_id));
@@ -1121,27 +1100,8 @@ mod tests {
     #[test]
     fn toolbar_location_focus_helper_updates_local_widget_focus() {
         let pane_id = PaneId::new();
-        let mut runtime_state = GuiRuntimeState {
-            graph_search_open: false,
-            graph_search_query: String::new(),
-            graph_search_filter_mode: false,
-            graph_search_matches: Vec::new(),
-            graph_search_active_match_index: None,
-            focused_node_hint: None,
-            graph_surface_focused: false,
-            focus_ring_node_key: None,
-            focus_ring_started_at: None,
-            focus_ring_duration: Duration::from_millis(500),
-            omnibar_search_session: None,
-            focus_authority: crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState {
-                pane_activation: Some(pane_id),
-                ..Default::default()
-            },
-            toolbar_drafts: std::collections::HashMap::new(),
-            command_palette_toggle_requested: false,
-            pending_webview_context_surface_requests: Vec::new(),
-            deferred_open_child_webviews: Vec::new(),
-        };
+        let mut runtime_state = GraphshellRuntime::for_testing();
+        runtime_state.focus_authority.pane_activation = Some(pane_id);
 
         apply_toolbar_location_local_focus_state(&mut runtime_state, true);
         assert_eq!(
@@ -1157,43 +1117,30 @@ mod tests {
 
     #[test]
     fn runtime_focus_authority_sync_tracks_realized_focus_without_overwriting_desired_authority() {
-        let mut runtime_state = GuiRuntimeState {
-            graph_search_open: false,
-            graph_search_query: String::new(),
-            graph_search_filter_mode: false,
-            graph_search_matches: Vec::new(),
-            graph_search_active_match_index: None,
-            focused_node_hint: None,
-            graph_surface_focused: false,
-            focus_ring_node_key: None,
-            focus_ring_started_at: None,
-            focus_ring_duration: Duration::from_millis(500),
-            omnibar_search_session: None,
-            focus_authority:
-                crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(),
-            toolbar_drafts: std::collections::HashMap::new(),
-            command_palette_toggle_requested: false,
-            pending_webview_context_surface_requests: Vec::new(),
-            deferred_open_child_webviews: Vec::new(),
-        };
-        let mut app = GraphBrowserApp::new_for_testing();
+        let mut runtime_state = GraphshellRuntime::for_testing();
         let graph_view = GraphViewId::new();
         let node_key = NodeKey::new(77);
 
         runtime_state.focus_authority.command_surface_return_target =
             Some(ToolSurfaceReturnTarget::Graph(graph_view));
         runtime_state.focus_authority.semantic_region = Some(SemanticRegionFocus::CommandPalette);
-        app.set_pending_tool_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
-            graph_view,
-        )));
-        app.set_pending_command_surface_return_target(Some(ToolSurfaceReturnTarget::Node(
-            node_key,
-        )));
-        app.set_pending_transient_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
-            graph_view,
-        )));
+        runtime_state
+            .graph_app
+            .set_pending_tool_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
+                graph_view,
+            )));
+        runtime_state
+            .graph_app
+            .set_pending_command_surface_return_target(Some(ToolSurfaceReturnTarget::Node(
+                node_key,
+            )));
+        runtime_state
+            .graph_app
+            .set_pending_transient_surface_return_target(Some(ToolSurfaceReturnTarget::Graph(
+                graph_view,
+            )));
 
-        sync_runtime_focus_authority_state(&mut runtime_state, &app);
+        sync_runtime_focus_authority_state(&mut runtime_state);
 
         assert_eq!(
             runtime_state.focus_authority.command_surface_return_target,

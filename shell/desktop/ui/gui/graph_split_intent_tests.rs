@@ -5,7 +5,7 @@ use crate::app::{
     SettingsToolPage, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
-use crate::shell::desktop::ui::gui_state::GuiRuntimeState;
+use crate::shell::desktop::ui::gui_state::GraphshellRuntime;
 use crate::shell::desktop::workbench::pane_model::{
     GraphPaneRef, PaneId, SplitDirection, ToolPaneRef, ToolPaneState,
 };
@@ -401,25 +401,8 @@ fn ui_overlay_active_flags_include_radial_menu_capture() {
 
 #[test]
 fn node_focus_state_clears_graph_surface_focus() {
-    let mut runtime_state = GuiRuntimeState {
-        graph_search_open: false,
-        graph_search_query: String::new(),
-        graph_search_filter_mode: false,
-        graph_search_matches: Vec::new(),
-        graph_search_active_match_index: None,
-        focused_node_hint: None,
-        graph_surface_focused: true,
-        focus_ring_node_key: None,
-        focus_ring_started_at: None,
-        focus_ring_duration: Duration::from_millis(500),
-        omnibar_search_session: None,
-        focus_authority: crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(
-        ),
-        toolbar_drafts: std::collections::HashMap::new(),
-        command_palette_toggle_requested: false,
-        pending_webview_context_surface_requests: Vec::new(),
-        deferred_open_child_webviews: Vec::new(),
-    };
+    let mut runtime_state = GraphshellRuntime::for_testing();
+    runtime_state.graph_surface_focused = true;
 
     let node = NodeKey::new(1);
     apply_node_focus_state(&mut runtime_state, Some(node));
@@ -430,33 +413,18 @@ fn node_focus_state_clears_graph_surface_focus() {
 
 #[test]
 fn graph_surface_focus_state_clears_node_hint_and_syncs_focused_view() {
-    let mut runtime_state = GuiRuntimeState {
-        graph_search_open: false,
-        graph_search_query: String::new(),
-        graph_search_filter_mode: false,
-        graph_search_matches: Vec::new(),
-        graph_search_active_match_index: None,
-        focused_node_hint: Some(NodeKey::new(2)),
-        graph_surface_focused: false,
-        focus_ring_node_key: None,
-        focus_ring_started_at: None,
-        focus_ring_duration: Duration::from_millis(500),
-        omnibar_search_session: None,
-        focus_authority: crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(
-        ),
-        toolbar_drafts: std::collections::HashMap::new(),
-        command_palette_toggle_requested: false,
-        pending_webview_context_surface_requests: Vec::new(),
-        deferred_open_child_webviews: Vec::new(),
-    };
-    let mut app = GraphBrowserApp::new_for_testing();
+    let mut runtime_state = GraphshellRuntime::for_testing();
+    runtime_state.focused_node_hint = Some(NodeKey::new(2));
     let graph_view = GraphViewId::new();
 
-    apply_graph_surface_focus_state(&mut runtime_state, &mut app, Some(graph_view));
+    apply_graph_surface_focus_state(&mut runtime_state, Some(graph_view));
 
     assert_eq!(runtime_state.focused_node_hint, None);
     assert!(runtime_state.graph_surface_focused);
-    assert_eq!(app.workspace.graph_runtime.focused_view, Some(graph_view));
+    assert_eq!(
+        runtime_state.graph_app.workspace.graph_runtime.focused_view,
+        Some(graph_view)
+    );
 }
 
 #[test]

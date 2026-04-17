@@ -4,8 +4,13 @@
 
 use super::*;
 
-pub(super) fn tree_has_active_node_pane(tiles_tree: &Tree<TileKind>) -> bool {
-    active_node_pane_node(tiles_tree).is_some()
+pub(super) fn tree_has_active_node_pane(graph_app: &GraphBrowserApp) -> bool {
+    graph_app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .first()
+        .is_some()
 }
 
 pub(super) fn tree_has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {

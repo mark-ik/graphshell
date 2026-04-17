@@ -9,30 +9,12 @@ fn channel_count(snapshot: &serde_json::Value, channel_id: &'static str) -> u64 
 
 #[test]
 fn graph_surface_focus_state_emits_ux_navigation_transition_on_change() {
-    let mut runtime_state = GuiRuntimeState {
-        graph_search_open: false,
-        graph_search_query: String::new(),
-        graph_search_filter_mode: false,
-        graph_search_matches: Vec::new(),
-        graph_search_active_match_index: None,
-        focused_node_hint: Some(NodeKey::new(7)),
-        graph_surface_focused: false,
-        focus_ring_node_key: None,
-        focus_ring_started_at: None,
-        focus_ring_duration: Duration::from_millis(500),
-        omnibar_search_session: None,
-        focus_authority: crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(
-        ),
-        toolbar_drafts: std::collections::HashMap::new(),
-        command_palette_toggle_requested: false,
-        pending_webview_context_surface_requests: Vec::new(),
-        deferred_open_child_webviews: Vec::new(),
-    };
-    let mut app = GraphBrowserApp::new_for_testing();
+    let mut runtime_state = GraphshellRuntime::for_testing();
+    runtime_state.focused_node_hint = Some(NodeKey::new(7));
     let graph_view = GraphViewId::new();
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
 
-    apply_graph_surface_focus_state(&mut runtime_state, &mut app, Some(graph_view));
+    apply_graph_surface_focus_state(&mut runtime_state, Some(graph_view));
 
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests();
@@ -47,25 +29,8 @@ fn graph_surface_focus_state_emits_ux_navigation_transition_on_change() {
 
 #[test]
 fn node_focus_state_emits_ux_navigation_transition_on_change() {
-    let mut runtime_state = GuiRuntimeState {
-        graph_search_open: false,
-        graph_search_query: String::new(),
-        graph_search_filter_mode: false,
-        graph_search_matches: Vec::new(),
-        graph_search_active_match_index: None,
-        focused_node_hint: None,
-        graph_surface_focused: true,
-        focus_ring_node_key: None,
-        focus_ring_started_at: None,
-        focus_ring_duration: Duration::from_millis(500),
-        omnibar_search_session: None,
-        focus_authority: crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(
-        ),
-        toolbar_drafts: std::collections::HashMap::new(),
-        command_palette_toggle_requested: false,
-        pending_webview_context_surface_requests: Vec::new(),
-        deferred_open_child_webviews: Vec::new(),
-    };
+    let mut runtime_state = GraphshellRuntime::for_testing();
+    runtime_state.graph_surface_focused = true;
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
 
     apply_node_focus_state(&mut runtime_state, Some(NodeKey::new(42)));
@@ -84,25 +49,8 @@ fn node_focus_state_emits_ux_navigation_transition_on_change() {
 #[test]
 fn node_focus_state_noop_does_not_emit_ux_navigation_transition() {
     let focused_node = NodeKey::new(42);
-    let mut runtime_state = GuiRuntimeState {
-        graph_search_open: false,
-        graph_search_query: String::new(),
-        graph_search_filter_mode: false,
-        graph_search_matches: Vec::new(),
-        graph_search_active_match_index: None,
-        focused_node_hint: Some(focused_node),
-        graph_surface_focused: false,
-        focus_ring_node_key: None,
-        focus_ring_started_at: None,
-        focus_ring_duration: Duration::from_millis(500),
-        omnibar_search_session: None,
-        focus_authority: crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(
-        ),
-        toolbar_drafts: std::collections::HashMap::new(),
-        command_palette_toggle_requested: false,
-        pending_webview_context_surface_requests: Vec::new(),
-        deferred_open_child_webviews: Vec::new(),
-    };
+    let mut runtime_state = GraphshellRuntime::for_testing();
+    runtime_state.focused_node_hint = Some(focused_node);
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
 
     apply_node_focus_state(&mut runtime_state, Some(focused_node));
@@ -121,30 +69,12 @@ fn node_focus_state_noop_does_not_emit_ux_navigation_transition() {
 #[test]
 fn graph_surface_focus_state_noop_does_not_emit_ux_navigation_transition() {
     let graph_view = GraphViewId::new();
-    let mut runtime_state = GuiRuntimeState {
-        graph_search_open: false,
-        graph_search_query: String::new(),
-        graph_search_filter_mode: false,
-        graph_search_matches: Vec::new(),
-        graph_search_active_match_index: None,
-        focused_node_hint: None,
-        graph_surface_focused: true,
-        focus_ring_node_key: None,
-        focus_ring_started_at: None,
-        focus_ring_duration: Duration::from_millis(500),
-        omnibar_search_session: None,
-        focus_authority: crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default(
-        ),
-        toolbar_drafts: std::collections::HashMap::new(),
-        command_palette_toggle_requested: false,
-        pending_webview_context_surface_requests: Vec::new(),
-        deferred_open_child_webviews: Vec::new(),
-    };
-    let mut app = GraphBrowserApp::new_for_testing();
-    app.workspace.graph_runtime.focused_view = Some(graph_view);
+    let mut runtime_state = GraphshellRuntime::for_testing();
+    runtime_state.graph_surface_focused = true;
+    runtime_state.graph_app.workspace.graph_runtime.focused_view = Some(graph_view);
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
 
-    apply_graph_surface_focus_state(&mut runtime_state, &mut app, Some(graph_view));
+    apply_graph_surface_focus_state(&mut runtime_state, Some(graph_view));
 
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests();

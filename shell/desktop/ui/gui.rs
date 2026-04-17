@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
 use egui_tiles::{Tile, TileId, Tiles, Tree};
@@ -27,9 +27,9 @@ use super::graph_search_flow;
 use super::gui_frame;
 use super::gui_orchestration;
 use super::gui_state::{
-    BookmarkImportDialogState, GuiRuntimeState, LocalFocusTarget, PaneRegionHint,
-    RuntimeFocusAuthorityState, RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState,
-    ToolbarDraft, ToolbarState,
+    BookmarkImportDialogState, GraphshellRuntime, LocalFocusTarget, PaneRegionHint,
+    PendingWebviewContextSurfaceRequest, RuntimeFocusAuthorityState, RuntimeFocusInputs,
+    RuntimeFocusInspector, RuntimeFocusState, ToolbarDraft, ToolbarState,
 };
 use super::persistence_ops;
 #[cfg(test)]
@@ -68,7 +68,6 @@ use crate::shell::desktop::ui::thumbnail_pipeline::{
 };
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::pane_model::PaneId;
-use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
@@ -88,7 +87,7 @@ mod accesskit_input;
 #[path = "gui/focus_state.rs"]
 mod focus_state;
 #[path = "gui/frame_inbox.rs"]
-mod frame_inbox;
+pub(super) mod frame_inbox;
 #[path = "gui/gui_update_coordinator.rs"]
 mod gui_update_coordinator;
 #[path = "gui/hit_testing.rs"]
@@ -142,6 +141,11 @@ pub(crate) struct GuiUpdateOutput;
 
 /// The user interface of a headed Graphshell runtime. Currently this is implemented via
 /// egui.
+///
+/// Post-M3.5 boundary: this struct is the egui **host adapter**. It holds
+/// host-specific state (egui context, texture caches, `egui_tiles::Tree`,
+/// toasts). Durable runtime state lives in `self.runtime: GraphshellRuntime`
+/// and will survive the eventual iced host migration unchanged.
 pub struct Gui {
     rendering_context: Rc<OffscreenRenderingContext>,
     window_rendering_context: Rc<WindowRenderingContext>,
@@ -154,7 +158,6 @@ pub struct Gui {
     tiles_tree: Tree<TileKind>,
     toolbar_height: Length<f32, DeviceIndependentPixel>,
 
-    toolbar_state: ToolbarState,
     /// Non-blocking toast notifications.
     toasts: egui_notify::Toasts,
     /// System clipboard handle.
@@ -165,19 +168,6 @@ pub struct Gui {
     /// Durable favicon ownership remains on the node model; this cache only keeps
     /// uploaded egui textures alive across draw calls until node-keyed consumers refresh.
     renderer_favicon_textures: RendererFaviconTextureCache,
-
-    /// Graph browser application state
-    graph_app: GraphBrowserApp,
-
-    /// Per-node offscreen rendering contexts for composited node-viewer tiles.
-    /// **Transitional**: being replaced by `viewer_surfaces`. During migration
-    /// both maps are kept in sync; new code should prefer `viewer_surfaces`.
-    tile_rendering_contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-
-    /// Phase D: Unified viewer surface registry keyed by NodeKey.
-    /// Bundles the content surface handle (wgpu texture or GL callback) with
-    /// the GL compat context and content generation counter.
-    viewer_surfaces: crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
 
     /// Per-node favicon textures for egui_tiles tab rendering.
     tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)>,
@@ -191,9 +181,6 @@ pub struct Gui {
     /// Runtime viewers with an in-flight thumbnail request.
     thumbnail_capture_in_flight: HashSet<WebViewId>,
 
-    /// Runtime backpressure state for tile-driven viewer creation retries.
-    webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState>,
-
     /// Pending accessibility tree updates received from runtime viewers that have
     /// not yet been injected into egui's accessibility tree. Keyed by WebViewId
     /// so that a newer update from the same runtime viewer supersedes the previous one.
@@ -202,60 +189,31 @@ pub struct Gui {
     /// Cached reference to RunningAppState for runtime viewer creation.
     state: Option<Rc<RunningAppState>>,
 
-    /// Runtime UI state used by the frame coordinator and toolbar/search flows.
-    runtime_state: GuiRuntimeState,
-
-    /// Graphshell-owned bookmark import file dialog state.
-    bookmark_import_dialog: Option<BookmarkImportDialogState>,
+    /// Host-neutral runtime state (Category A per M3.5 classification).
+    pub(crate) runtime: GraphshellRuntime,
 
     #[cfg(feature = "diagnostics")]
     diagnostics_state: diagnostics::DiagnosticsState,
-
-    /// Registry runtime for semantic services
-    registry_runtime: Arc<RegistryRuntime>,
-
-    /// Typed frame-bound relay set for Shell-facing async signal bridges.
-    frame_inbox: GuiFrameInbox,
-
-    /// Tokio runtime for async background workers
-    tokio_runtime: tokio::runtime::Runtime,
-
-    /// Async worker supervision and intent queue
-    control_panel: ControlPanel,
-
-    /// Parallel graph-tree instance for incremental migration from egui_tiles.
-    ///
-    /// During Phase 4 this tree mirrors the `tiles_tree` state but doesn't
-    /// drive rendering yet. Once rendering and command routing are wired
-    /// through this tree, `tiles_tree` will be retired.
-    graph_tree: graph_tree::GraphTree<NodeKey>,
-
-    /// Stable UUID that identifies this workbench's `GraphTree` slot in persistence.
-    ///
-    /// Phase F: persistence is keyed `"graph_tree_{workbench_view_id}"` so that
-    /// multiple graph views can coexist without overwriting each other's blobs.
-    /// Loaded (or freshly generated) from the store at startup.
-    workbench_view_id: crate::app::GraphViewId,
 }
 
 impl Drop for Gui {
     fn drop(&mut self) {
         if let Ok(layout_json) = serde_json::to_string(&self.tiles_tree) {
-            self.graph_app.save_tile_layout_json(&layout_json);
+            self.runtime.graph_app.save_tile_layout_json(&layout_json);
         } else {
             warn!("Failed to serialize tile layout for persistence");
         }
-        if let Ok(graph_tree_json) = serde_json::to_string(&self.graph_tree) {
-            self.graph_app
-                .save_graph_tree_json(self.workbench_view_id, &graph_tree_json);
+        if let Ok(graph_tree_json) = serde_json::to_string(&self.runtime.graph_tree) {
+            self.runtime.graph_app
+                .save_graph_tree_json(self.runtime.workbench_view_id, &graph_tree_json);
         } else {
             warn!("Failed to serialize graph tree for persistence");
         }
-        self.graph_app.take_snapshot();
+        self.runtime.graph_app.take_snapshot();
 
         // Gracefully shutdown async workers
-        self.tokio_runtime.block_on(async {
-            self.control_panel.shutdown().await;
+        self.runtime.tokio_runtime.block_on(async {
+            self.runtime.control_panel.shutdown().await;
         });
 
         activate_ui_render_backend(self.rendering_context.as_ref());
@@ -263,41 +221,41 @@ impl Drop for Gui {
     }
 }
 
-fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {
+fn apply_node_focus_state(runtime_state: &mut GraphshellRuntime, node_key: Option<NodeKey>) {
     focus_state::apply_node_focus_state(runtime_state, node_key)
 }
 
 fn apply_graph_surface_focus_state(
-    runtime_state: &mut GuiRuntimeState,
-    graph_app: &mut GraphBrowserApp,
+    runtime_state: &mut GraphshellRuntime,
     active_graph_view: Option<GraphViewId>,
 ) {
-    focus_state::apply_graph_surface_focus_state(runtime_state, graph_app, active_graph_view)
+    focus_state::apply_graph_surface_focus_state(runtime_state, active_graph_view)
 }
 
-fn apply_pane_activation_focus_state(runtime_state: &mut GuiRuntimeState, pane_id: Option<PaneId>) {
+fn apply_pane_activation_focus_state(runtime_state: &mut GraphshellRuntime, pane_id: Option<PaneId>) {
     focus_state::apply_pane_activation_focus_state(runtime_state, pane_id)
 }
 
-fn clear_embedded_content_focus(
-    runtime_state: &mut GuiRuntimeState,
-    graph_app: &mut GraphBrowserApp,
-) {
-    if graph_app.embedded_content_focus_webview().is_some() {
+fn clear_embedded_content_focus(runtime: &mut GraphshellRuntime) {
+    if runtime
+        .graph_app
+        .embedded_content_focus_webview()
+        .is_some()
+    {
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM,
             latency_us: 0,
         });
     }
     focus_state::apply_focus_command(
-        &mut runtime_state.focus_authority,
+        &mut runtime.focus_authority,
         crate::shell::desktop::ui::gui_state::FocusCommand::SetEmbeddedContentFocus {
             target: None,
         },
     );
     focus_state::realize_embedded_content_focus_from_authority(
-        &runtime_state.focus_authority,
-        graph_app,
+        &runtime.focus_authority,
+        &mut runtime.graph_app,
     );
 }
 
@@ -389,12 +347,15 @@ impl Gui {
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
         let frame_inbox = GuiFrameInbox::spawn(&mut control_panel);
 
-        let mut gui = Self {
-            rendering_context,
-            window_rendering_context,
-            context,
-            tiles_tree,
-            toolbar_height: Default::default(),
+        let toast_anchor = Self::toast_anchor(graph_app.workspace.chrome_ui.toast_anchor_preference);
+        let runtime = GraphshellRuntime {
+            graph_app,
+            graph_tree: graph_tree::GraphTree::new(
+                graph_tree::LayoutMode::TreeStyleTabs,
+                graph_tree::ProjectionLens::Traversal,
+            ),
+            // Placeholder; overwritten immediately below once persistence is consulted.
+            workbench_view_id: crate::app::GraphViewId::new(),
             toolbar_state: ToolbarState {
                 location: initial_url.to_string(),
                 location_dirty: false,
@@ -405,75 +366,72 @@ impl Gui {
                 can_go_back: false,
                 can_go_forward: false,
             },
+            bookmark_import_dialog: None,
+            control_panel,
+            registry_runtime,
+            tokio_runtime,
+            viewer_surfaces:
+                crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
+            webview_creation_backpressure: HashMap::new(),
+            frame_inbox,
+            graph_search_open: false,
+            graph_search_query: String::new(),
+            graph_search_filter_mode: initial_search_filter_mode,
+            graph_search_matches: Vec::new(),
+            graph_search_active_match_index: None,
+            focused_node_hint: None,
+            graph_surface_focused: false,
+            focus_ring_node_key: None,
+            focus_ring_started_at: None,
+            focus_ring_duration: Duration::from_millis(500),
+            omnibar_search_session: None,
+            focus_authority: RuntimeFocusAuthorityState::default(),
+            toolbar_drafts: HashMap::new(),
+            command_palette_toggle_requested: false,
+            pending_webview_context_surface_requests: Vec::new(),
+            deferred_open_child_webviews: Vec::new(),
+        };
+
+        let mut gui = Self {
+            rendering_context,
+            window_rendering_context,
+            context,
+            tiles_tree,
+            toolbar_height: Default::default(),
             toasts: egui_notify::Toasts::default()
-                .with_anchor(Self::toast_anchor(
-                    graph_app.workspace.chrome_ui.toast_anchor_preference,
-                ))
+                .with_anchor(toast_anchor)
                 .with_margin(egui::vec2(12.0, 12.0)),
             clipboard: Clipboard::new().ok(),
             renderer_favicon_textures: Default::default(),
-            graph_app,
-            tile_rendering_contexts: HashMap::new(),
-            viewer_surfaces:
-                crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
             tile_favicon_textures: HashMap::new(),
             thumbnail_capture_tx,
             thumbnail_capture_rx,
             thumbnail_capture_in_flight: HashSet::new(),
-            webview_creation_backpressure: HashMap::new(),
             pending_webview_a11y_updates: HashMap::new(),
             state: None,
-            runtime_state: GuiRuntimeState {
-                graph_search_open: false,
-                graph_search_query: String::new(),
-                graph_search_filter_mode: initial_search_filter_mode,
-                graph_search_matches: Vec::new(),
-                graph_search_active_match_index: None,
-                focused_node_hint: None,
-                graph_surface_focused: false,
-                focus_ring_node_key: None,
-                focus_ring_started_at: None,
-                focus_ring_duration: Duration::from_millis(500),
-                omnibar_search_session: None,
-                focus_authority: RuntimeFocusAuthorityState::default(),
-                toolbar_drafts: HashMap::new(),
-                command_palette_toggle_requested: false,
-                pending_webview_context_surface_requests: Vec::new(),
-                deferred_open_child_webviews: Vec::new(),
-            },
-            bookmark_import_dialog: None,
+            runtime,
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
-            registry_runtime,
-            frame_inbox,
-            tokio_runtime,
-            control_panel,
-            graph_tree: graph_tree::GraphTree::new(
-                graph_tree::LayoutMode::TreeStyleTabs,
-                graph_tree::ProjectionLens::Traversal,
-            ),
-            // Placeholder; overwritten immediately below once persistence is consulted.
-            workbench_view_id: crate::app::GraphViewId::new(),
         };
         gui.apply_runtime_theme_visuals();
 
         // Phase F: load or generate the stable workbench view UUID. This must
         // happen before loading the GraphTree blob so we have the right key.
-        if let Some(view_id) = gui.graph_app.load_or_ensure_workbench_view_id() {
-            gui.workbench_view_id = view_id;
+        if let Some(view_id) = gui.runtime.graph_app.load_or_ensure_workbench_view_id() {
+            gui.runtime.workbench_view_id = view_id;
         }
         // (If persistence is unavailable, workbench_view_id stays as the
         //  ephemeral placeholder — no blob will be saved anyway.)
 
         // Restore GraphTree from persistence if available, preserving topology
         // and expansion state. Fall back to rebuilding from tile tree.
-        if let Some(json) = gui.graph_app.load_graph_tree_json(gui.workbench_view_id) {
+        if let Some(json) = gui.runtime.graph_app.load_graph_tree_json(gui.runtime.workbench_view_id) {
             if let Ok(restored) = serde_json::from_str::<graph_tree::GraphTree<NodeKey>>(&json) {
                 log::debug!(
                     "gui: restored GraphTree from persistence ({} members)",
                     restored.member_count()
                 );
-                gui.graph_tree = restored;
+                gui.runtime.graph_tree = restored;
             }
         }
 
@@ -482,11 +440,11 @@ impl Gui {
         // incremental sync to preserve any topology restored from persistence.
         {
             let existing_members: Vec<NodeKey> =
-                gui.graph_tree.members().map(|(k, _)| *k).collect();
-            let graph_app = &gui.graph_app;
+                gui.runtime.graph_tree.members().map(|(k, _)| *k).collect();
+            let graph_app = &gui.runtime.graph_app;
             let tiles_tree = &gui.tiles_tree;
             crate::shell::desktop::workbench::graph_tree_sync::incremental_sync_from_tiles(
-                &mut gui.graph_tree,
+                &mut gui.runtime.graph_tree,
                 tiles_tree,
                 None, // No active node at startup; first frame will sync.
                 &|node_key| {
@@ -518,7 +476,7 @@ impl Gui {
 
         // Build the NodeKey → PaneId mapping from the tile tree so compositor
         // and layout queries can resolve PaneId without scanning tiles.
-        gui.graph_app.workspace.graph_runtime.node_pane_ids =
+        gui.runtime.graph_app.workspace.graph_runtime.node_pane_ids =
             crate::shell::desktop::workbench::graph_tree_sync::build_node_pane_id_map(
                 &gui.tiles_tree,
             );
@@ -542,10 +500,11 @@ impl Gui {
         request: nip07_bridge::Nip07BridgeRequest,
     ) -> nip07_bridge::Nip07BridgeResponse {
         let resolved_url = self
+            .runtime
             .graph_app
             .get_node_for_webview(webview_id)
             .and_then(|node_key| {
-                self.graph_app
+                self.runtime.graph_app
                     .workspace
                     .domain
                     .graph
@@ -565,7 +524,7 @@ impl Gui {
         let grants_after =
             crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants();
         if grants_before != grants_after {
-            self.graph_app.save_persisted_nostr_nip07_permissions();
+            self.runtime.graph_app.save_persisted_nostr_nip07_permissions();
         }
 
         match result {
@@ -580,7 +539,7 @@ impl Gui {
     }
 
     pub(crate) fn is_graph_view(&self) -> bool {
-        !pane_queries::tree_has_active_node_pane(&self.tiles_tree)
+        !pane_queries::tree_has_active_node_pane(&self.runtime.graph_app)
     }
 
     /// Set the RunningAppState reference for runtime viewer creation.
@@ -614,7 +573,7 @@ impl Gui {
         &self,
         point: Point2D<f32, DeviceIndependentPixel>,
     ) -> Option<(WebViewId, Point2D<f32, DeviceIndependentPixel>)> {
-        hit_testing::webview_at_point(&self.tiles_tree, &self.graph_app, point)
+        hit_testing::webview_at_point(&self.tiles_tree, &self.runtime.graph_app, point)
     }
 
     pub(crate) fn graph_at_point(&self, point: Point2D<f32, DeviceIndependentPixel>) -> bool {
@@ -630,33 +589,33 @@ impl Gui {
     }
 
     fn apply_pending_semantic_index_updates(&mut self) {
-        if self.frame_inbox.take_semantic_index_refresh() {
-            self.graph_app.refresh_registry_backed_view_lenses();
+        if self.runtime.frame_inbox.take_semantic_index_refresh() {
+            self.runtime.graph_app.refresh_registry_backed_view_lenses();
         }
     }
 
     fn apply_pending_workbench_projection_refresh_updates(&mut self) {
-        if self.frame_inbox.take_workbench_projection_refresh() {
+        if self.runtime.frame_inbox.take_workbench_projection_refresh() {
             let _ =
-                persistence_ops::refresh_workbench_projection_from_manifests(&mut self.graph_app);
+                persistence_ops::refresh_workbench_projection_from_manifests(&mut self.runtime.graph_app);
         }
     }
 
     fn apply_pending_settings_route_updates(&mut self) {
-        for url in self.frame_inbox.take_settings_routes() {
-            apply_requested_settings_route_update(&mut self.graph_app, &mut self.tiles_tree, url);
+        for url in self.runtime.frame_inbox.take_settings_routes() {
+            apply_requested_settings_route_update(&mut self.runtime.graph_app, &mut self.tiles_tree, url);
         }
     }
 
     fn apply_pending_profile_invalidation_updates(&mut self) {
-        if self.frame_inbox.take_profile_invalidation() {
-            self.graph_app.refresh_registry_backed_view_lenses();
+        if self.runtime.frame_inbox.take_profile_invalidation() {
+            self.runtime.graph_app.refresh_registry_backed_view_lenses();
             self.apply_runtime_theme_visuals();
         }
     }
 
     fn apply_runtime_theme_visuals(&mut self) {
-        let resolution = phase3_resolve_active_theme(self.graph_app.default_registry_theme_id());
+        let resolution = phase3_resolve_active_theme(self.runtime.graph_app.default_registry_theme_id());
         let visuals = match resolution.resolved_id.as_str() {
             crate::shell::desktop::runtime::registries::theme::THEME_ID_LIGHT => {
                 egui::Visuals::light()
@@ -683,28 +642,28 @@ impl Gui {
     }
 
     pub(crate) fn set_focused_node_key(&mut self, node_key: Option<NodeKey>) {
-        apply_node_focus_state(&mut self.runtime_state, node_key);
+        apply_node_focus_state(&mut self.runtime, node_key);
     }
 
     pub(crate) fn set_embedded_content_focus_webview(&mut self, webview_id: Option<WebViewId>) {
         let target = webview_id.map(|renderer_id| {
             crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
                 renderer_id,
-                node_key: self.graph_app.get_node_for_webview(renderer_id),
+                node_key: self.runtime.graph_app.get_node_for_webview(renderer_id),
             }
         });
         focus_state::apply_focus_command(
-            &mut self.runtime_state.focus_authority,
+            &mut self.runtime.focus_authority,
             crate::shell::desktop::ui::gui_state::FocusCommand::SetEmbeddedContentFocus { target },
         );
         focus_state::realize_embedded_content_focus_from_authority(
-            &self.runtime_state.focus_authority,
-            &mut self.graph_app,
+            &self.runtime.focus_authority,
+            &mut self.runtime.graph_app,
         );
     }
 
     pub(crate) fn focused_embedded_content_webview_id(&self) -> Option<WebViewId> {
-        self.runtime_state
+        self.runtime
             .focus_authority
             .embedded_content_focus
             .as_ref()
@@ -715,7 +674,7 @@ impl Gui {
                 } => *renderer_id,
             })
             .or_else(|| {
-                self.runtime_state
+                self.runtime
                     .focus_authority
                     .realized_focus_state
                     .as_ref()
@@ -730,7 +689,7 @@ impl Gui {
                         })
                     })
             })
-            .or_else(|| self.graph_app.embedded_content_focus_webview())
+            .or_else(|| self.runtime.graph_app.embedded_content_focus_webview())
     }
 
     pub(crate) fn node_key_for_webview_id(&self, webview_id: WebViewId) -> Option<NodeKey> {
@@ -738,16 +697,13 @@ impl Gui {
     }
 
     pub(crate) fn focus_graph_surface(&mut self) {
-        clear_embedded_content_focus(&mut self.runtime_state, &mut self.graph_app);
-        apply_graph_surface_focus_state(
-            &mut self.runtime_state,
-            &mut self.graph_app,
-            tile_view_ops::active_graph_view_id(&self.tiles_tree),
-        );
+        clear_embedded_content_focus(&mut self.runtime);
+        let active_graph_view = tile_view_ops::active_graph_view_id(&self.tiles_tree);
+        apply_graph_surface_focus_state(&mut self.runtime, active_graph_view);
     }
 
     pub(crate) fn reclaim_host_focus(&mut self) {
-        clear_embedded_content_focus(&mut self.runtime_state, &mut self.graph_app);
+        clear_embedded_content_focus(&mut self.runtime);
         self.surrender_focus();
     }
 
@@ -764,7 +720,7 @@ impl Gui {
         webview_id: WebViewId,
         anchor: [f32; 2],
     ) {
-        self.runtime_state
+        self.runtime
             .pending_webview_context_surface_requests
             .push(
                 crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest {
@@ -775,35 +731,35 @@ impl Gui {
     }
 
     fn persist_active_toolbar_draft(&mut self) {
-        let Some(active_pane) = self.runtime_state.focus_authority.pane_activation else {
+        let Some(active_pane) = self.runtime.focus_authority.pane_activation else {
             return;
         };
-        self.runtime_state.toolbar_drafts.insert(
+        self.runtime.toolbar_drafts.insert(
             active_pane,
-            ToolbarDraft::from_toolbar_state(&self.toolbar_state),
+            ToolbarDraft::from_toolbar_state(&self.runtime.toolbar_state),
         );
     }
 
     fn sync_active_toolbar_draft(&mut self, window: &EmbedderWindow) {
         let next_active_pane = window.focused_pane();
-        if self.runtime_state.focus_authority.pane_activation == next_active_pane {
+        if self.runtime.focus_authority.pane_activation == next_active_pane {
             return;
         }
 
         self.persist_active_toolbar_draft();
-        apply_pane_activation_focus_state(&mut self.runtime_state, next_active_pane);
+        apply_pane_activation_focus_state(&mut self.runtime, next_active_pane);
 
         let Some(active_pane) = next_active_pane else {
             return;
         };
 
         let draft = self
-            .runtime_state
+            .runtime
             .toolbar_drafts
             .entry(active_pane)
-            .or_insert_with(|| ToolbarDraft::from_toolbar_state(&self.toolbar_state))
+            .or_insert_with(|| ToolbarDraft::from_toolbar_state(&self.runtime.toolbar_state))
             .clone();
-        draft.apply_to_toolbar_state(&mut self.toolbar_state);
+        draft.apply_to_toolbar_state(&mut self.runtime.toolbar_state);
     }
 
     pub(crate) fn request_browser_command(
@@ -811,7 +767,7 @@ impl Gui {
         target: BrowserCommandTarget,
         command: BrowserCommand,
     ) {
-        self.graph_app.request_browser_command(target, command);
+        self.runtime.graph_app.request_browser_command(target, command);
     }
 
     pub(crate) fn request_toolbar_nav_action_for_webview(
@@ -819,9 +775,9 @@ impl Gui {
         webview_id: WebViewId,
         action: ToolbarNavAction,
     ) -> bool {
-        let fallback_node = self.graph_app.get_node_for_webview(webview_id);
+        let fallback_node = self.runtime.graph_app.get_node_for_webview(webview_id);
         toolbar_routing::run_nav_action_for_fallback_node(
-            &mut self.graph_app,
+            &mut self.runtime.graph_app,
             fallback_node,
             action,
         )
@@ -865,7 +821,7 @@ impl Gui {
         // Hold the Tokio runtime guard for the entire frame so that any
         // JoinSet::spawn calls (protocol probes, future Nostr relay ops, etc.)
         // made during the render/post-render phases have an active handle.
-        let _rt_guard = self.tokio_runtime.enter();
+        let _rt_guard = self.runtime.tokio_runtime.enter();
         let _ = self.run_update(GuiUpdateInput {
             state,
             window,
@@ -891,16 +847,16 @@ impl Gui {
         activate_ui_render_backend(self.rendering_context.as_ref());
         tree_bootstrap::ensure_tiles_tree_root(&mut self.tiles_tree);
         let local_widget_focus = self
-            .runtime_state
+            .runtime
             .focus_authority
             .local_widget_focus
             .clone();
         focus_state::refresh_realized_runtime_focus_state(
-            &mut self.runtime_state.focus_authority,
-            &self.graph_app,
+            &mut self.runtime.focus_authority,
+            &self.runtime.graph_app,
             &self.tiles_tree,
             local_widget_focus,
-            self.toolbar_state.show_clear_data_confirm,
+            self.runtime.toolbar_state.show_clear_data_confirm,
         );
         debug_assert!(
             self.tiles_tree.root().is_some() || self.tiles_tree.tiles.is_empty(),
@@ -912,46 +868,49 @@ impl Gui {
             context,
             tiles_tree,
             toolbar_height,
-            toolbar_state,
             toasts,
             clipboard,
             renderer_favicon_textures,
-            graph_app,
-            tile_rendering_contexts,
             tile_favicon_textures,
             thumbnail_capture_tx,
             thumbnail_capture_rx,
             thumbnail_capture_in_flight,
-            webview_creation_backpressure,
             pending_webview_a11y_updates,
             state: app_state,
-            runtime_state,
-            bookmark_import_dialog,
+            runtime:
+                GraphshellRuntime {
+                    graph_app,
+                    graph_tree,
+                    workbench_view_id: _,
+                    toolbar_state,
+                    bookmark_import_dialog,
+                    control_panel,
+                    registry_runtime,
+                    tokio_runtime: _,
+                    viewer_surfaces,
+                    webview_creation_backpressure,
+                    frame_inbox: _,
+                    graph_search_open,
+                    graph_search_query,
+                    graph_search_filter_mode,
+                    graph_search_matches,
+                    graph_search_active_match_index,
+                    focused_node_hint,
+                    graph_surface_focused,
+                    focus_ring_node_key,
+                    focus_ring_started_at,
+                    focus_ring_duration,
+                    omnibar_search_session,
+                    focus_authority,
+                    toolbar_drafts: _,
+                    command_palette_toggle_requested,
+                    pending_webview_context_surface_requests,
+                    deferred_open_child_webviews,
+                },
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
-            registry_runtime,
-            control_panel,
-            graph_tree,
             ..
         } = self;
-        let GuiRuntimeState {
-            graph_search_open,
-            graph_search_query,
-            graph_search_filter_mode,
-            graph_search_matches,
-            graph_search_active_match_index,
-            focus_authority,
-            focused_node_hint,
-            graph_surface_focused,
-            focus_ring_node_key,
-            focus_ring_started_at,
-            focus_ring_duration,
-            omnibar_search_session,
-            toolbar_drafts: _,
-            command_palette_toggle_requested,
-            pending_webview_context_surface_requests,
-            deferred_open_child_webviews,
-        } = runtime_state;
 
         let winit_window = headed_window.winit_window();
         Self::configure_frame_toasts(
@@ -975,7 +934,7 @@ impl Gui {
                 toasts,
                 clipboard,
                 favicon_textures: renderer_favicon_textures,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 tile_favicon_textures,
                 thumbnail_capture_tx,
                 thumbnail_capture_rx,
@@ -1013,7 +972,7 @@ impl Gui {
         #[cfg(debug_assertions)]
         {
             let discrepancies = crate::shell::desktop::workbench::graph_tree_sync::parity_check(
-                &self.graph_tree,
+                &self.runtime.graph_tree,
                 &self.tiles_tree,
                 self.focused_node_key(),
             );
@@ -1042,15 +1001,15 @@ impl Gui {
         window: &EmbedderWindow,
         focused_node_key: Option<NodeKey>,
     ) -> bool {
-        if input_routing::should_skip_toolbar_location_sync(&self.toolbar_state) {
+        if input_routing::should_skip_toolbar_location_sync(&self.runtime.toolbar_state) {
             // Preserve active omnibar node-search query text while cycling matches.
             return false;
         }
 
         let has_node_panes = input_routing::has_any_node_panes(&self.tiles_tree);
         toolbar_status_sync::update_location_in_toolbar(
-            &self.graph_app,
-            &mut self.toolbar_state,
+            &self.runtime.graph_app,
+            &mut self.runtime.toolbar_state,
             has_node_panes,
             focused_node_key,
             window,
@@ -1090,12 +1049,12 @@ impl Gui {
             }
         };
 
-        match self.graph_app.create_clip_node_from_capture(&capture) {
+        match self.runtime.graph_app.create_clip_node_from_capture(&capture) {
             Ok(node_key) => {
                 crate::shell::desktop::workbench::graph_tree_dual_write::open_or_focus_node_with_mode(
                     &mut self.tiles_tree,
-                    &mut self.graph_tree,
-                    &self.graph_app,
+                    &mut self.runtime.graph_tree,
+                    &self.runtime.graph_app,
                     node_key,
                     None, // clip creation has no traversal source
                     TileOpenMode::SplitHorizontal,
@@ -1121,7 +1080,7 @@ impl Gui {
             }
         };
 
-        match self.graph_app.open_clip_inspector(captures) {
+        match self.runtime.graph_app.open_clip_inspector(captures) {
             Ok(()) => {
                 self.toasts.success("Opened page inspector");
             }
@@ -1138,13 +1097,13 @@ impl Gui {
         result: Result<Vec<crate::app::ClipCaptureData>, String>,
     ) {
         if let Ok(stack) = result {
-            self.graph_app
+            self.runtime.graph_app
                 .update_clip_inspector_pointer_stack(webview_id, stack);
         }
     }
 
     pub(crate) fn clip_inspector_target_webview_id(&self) -> Option<WebViewId> {
-        self.graph_app
+        self.runtime.graph_app
             .workspace
             .graph_runtime
             .clip_inspector_state
