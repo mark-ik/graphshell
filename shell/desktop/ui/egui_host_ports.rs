@@ -2,24 +2,25 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! egui-facing `HostPorts` implementation — scaffolding.
+//! egui-facing `HostPorts` implementation.
 //!
 //! This module is the **egui-side** bundle of host port implementations.
-//! Once the frame pipeline routes through the `HostPorts` traits (the final
-//! M4.5 step), this struct becomes the wrapper that gives the runtime access
-//! to egui-specific state (context, texture caches, toasts, clipboard,
-//! accesskit bridge) held on `EguiHost`.
+//! It gives the runtime access to egui-specific state (toasts, clipboard,
+//! eventually texture caches, accesskit bridge) held on `EguiHost` through
+//! the narrow port traits defined in [`super::host_ports`].
 //!
-//! ## Current status: scaffolding only
+//! ## Current wiring status
 //!
-//! The methods below are placeholders. They compile but do not yet delegate
-//! to real egui state — that wiring lands alongside the frame-pipeline
-//! rewrite so the moving pieces stay consistent.
+//! - `HostToastPort::enqueue` — real: delegates to `egui_notify::Toasts`
+//! - `HostClipboardPort::{get,set}_text` — real: delegates to `arboard::Clipboard`
+//! - All other ports — placeholders that compile but do not yet delegate.
+//!   These wire up as each consuming phase migrates onto `runtime.tick`.
 //!
-//! Each `todo(m4.5)` comment marks a site that will become a concrete call
-//! through to today's `EguiHost` state.
+//! Each `todo(m4.5)` comment marks a placeholder site awaiting wiring.
 
 use std::sync::Arc;
+
+use arboard::Clipboard;
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
@@ -33,14 +34,18 @@ use servo::WebViewId;
 
 /// egui-side bundle of host port implementations.
 ///
-/// Holds the borrowed handles to egui-specific state (toasts, eventually
-/// clipboard, texture caches, accesskit bridge) the runtime needs to drive.
-/// The struct is built fresh each tick at the host call site so each port
-/// trait can delegate to live state without requiring `EguiHost` to expose
-/// internals through wider visibility.
+/// Holds the borrowed handles to egui-specific state (toasts, clipboard,
+/// eventually texture caches and the accesskit bridge) the runtime needs to
+/// drive. The struct is built fresh each tick at the host call site so each
+/// port trait can delegate to live state without requiring `EguiHost` to
+/// expose internals through wider visibility.
 pub(crate) struct EguiHostPorts<'a> {
     /// Egui-side toast notification queue.
     pub(crate) toasts: &'a mut egui_notify::Toasts,
+
+    /// Lazily-initialized arboard clipboard handle. The host owns
+    /// initialization (see `ensure_clipboard_initialized` in `gui_orchestration`).
+    pub(crate) clipboard: &'a mut Option<Clipboard>,
 }
 
 // ---------------------------------------------------------------------------
@@ -183,12 +188,17 @@ impl<'a> HostTexturePort for EguiHostPorts<'a> {
 
 impl<'a> HostClipboardPort for EguiHostPorts<'a> {
     fn get_text(&mut self) -> Option<String> {
-        // todo(m4.5): EguiHost::clipboard.get_text().ok().
-        None
+        let cb = self.clipboard.as_mut()?;
+        cb.get_text().ok()
     }
 
-    fn set_text(&mut self, _text: &str) {
-        // todo(m4.5): EguiHost::clipboard.set_text(text).
+    fn set_text(&mut self, text: &str) {
+        let Some(cb) = self.clipboard.as_mut() else {
+            return;
+        };
+        // Failure is silent at the port boundary; call sites that surface
+        // user feedback do so through `HostToastPort` directly.
+        let _ = cb.set_text(text);
     }
 }
 

@@ -1024,6 +1024,7 @@ impl EguiHost {
         let frame_input = build_frame_host_input(self.context.egui_context());
         let mut ports = EguiHostPorts {
             toasts: &mut self.toasts,
+            clipboard: &mut self.clipboard,
         };
         let _view_model = self.runtime.tick(&frame_input, &mut ports);
 
