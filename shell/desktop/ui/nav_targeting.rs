@@ -11,12 +11,16 @@ use crate::shell::desktop::host::window::{ChromeProjectionSource, EmbedderWindow
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::workbench::pane_model::PaneId;
-use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 /// Resolve the currently active node-pane tile, if any.
-pub(crate) fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
-    tile_compositor::active_node_pane(tiles_tree).map(|pane| pane.node_key)
+pub(crate) fn active_node_pane_node(graph_app: &GraphBrowserApp) -> Option<NodeKey> {
+    graph_app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .first()
+        .map(|(_, node_key, _)| *node_key)
 }
 
 pub(crate) fn chrome_projection_node(
@@ -158,16 +162,14 @@ mod tests {
     fn test_active_node_pane_node_uses_canonical_pane_helper() {
         let a = NodeKey::new(100);
         let b = NodeKey::new(101);
-        let mut tiles = egui_tiles::Tiles::default();
-        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
-        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
-        let root = tiles.insert_tab_tile(vec![a_tile, b_tile]);
-        let mut tree = Tree::new("nav_targeting_active_node", root, tiles);
-        let _ = tree.make_active(
-            |_, tile| matches!(tile, egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == b),
-        );
+        let mut app = GraphBrowserApp::new_for_testing();
+        // active_pane_rects is the authoritative source; first entry is the active pane.
+        app.workspace.graph_runtime.active_pane_rects = vec![
+            (PaneId::new(), b, egui::Rect::ZERO),
+            (PaneId::new(), a, egui::Rect::ZERO),
+        ];
 
-        assert_eq!(active_node_pane_node(&tree), Some(b));
+        assert_eq!(active_node_pane_node(&app), Some(b));
     }
 
     #[test]

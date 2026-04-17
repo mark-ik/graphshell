@@ -24,7 +24,6 @@ use crate::shell::desktop::lifecycle::webview_backpressure::{
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::workbench::pane_model::NodePaneState;
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
-use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use servo::WindowRenderingContext;
@@ -33,7 +32,7 @@ pub(crate) struct RuntimeReconcileArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) window: &'a EmbedderWindow,
-    pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -136,7 +135,7 @@ pub(crate) struct ActivePrewarmArgs<'a> {
     pub(crate) app_state: &'a Option<Rc<RunningAppState>>,
     pub(crate) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
-    pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
@@ -152,14 +151,17 @@ pub(crate) fn create_runtime_for_active_prewarm_nodes(
         app_state,
         rendering_context,
         window_rendering_context,
-        tile_rendering_contexts,
+        viewer_surfaces,
         responsive_webviews,
         webview_creation_backpressure,
     } = args;
 
-    let tile_nodes: HashSet<NodeKey> = tile_compositor::active_node_pane_rects(tiles_tree)
-        .into_iter()
-        .map(|(_, node_key, _)| node_key)
+    let tile_nodes: HashSet<NodeKey> = graph_app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .iter()
+        .map(|(_, node_key, _)| *node_key)
         .collect();
 
     let mut prewarm_intents = Vec::new();
@@ -176,7 +178,7 @@ pub(crate) fn create_runtime_for_active_prewarm_nodes(
                 app_state,
                 rendering_context,
                 window_rendering_context,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 None,
                 selected_key,
                 responsive_webviews,
@@ -199,7 +201,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         args.webview_creation_backpressure.clear();
         tile_runtime::reset_runtime_webview_state(
             args.tiles_tree,
-            args.tile_rendering_contexts,
+            args.viewer_surfaces,
             args.tile_favicon_textures,
             args.favicon_textures,
         );
@@ -211,7 +213,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         args.tiles_tree,
         args.graph_app,
         args.window,
-        args.tile_rendering_contexts,
+        args.viewer_surfaces,
         args.frame_intents,
     );
     for node_key in args.graph_app.take_warm_cache_evictions() {
@@ -220,7 +222,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             args.frame_intents
                 .push(RuntimeEvent::UnmapWebview { webview_id }.into());
         }
-        args.tile_rendering_contexts.remove(&node_key);
+        args.viewer_surfaces.remove(&node_key);
         // Frame-aware demotion:
         let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
         if is_frame_member {
@@ -249,11 +251,14 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         .set_memory_pressure_status(memory_pressure_level, available_mib, total_mib);
 
     let tile_nodes = tile_runtime::all_node_pane_keys(args.tiles_tree);
-    let active_tile_nodes: HashSet<NodeKey> =
-        tile_compositor::active_node_pane_rects(args.tiles_tree)
-            .into_iter()
-            .map(|(_, node_key, _)| node_key)
-            .collect();
+    let active_tile_nodes: HashSet<NodeKey> = args
+        .graph_app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .iter()
+        .map(|(_, node_key, _)| *node_key)
+        .collect();
     let composited_runtime_nodes =
         tile_runtime::all_node_pane_keys_using_composited_runtime(args.tiles_tree, args.graph_app);
     let (native_overlay_nodes, active_native_overlay_nodes) =
@@ -268,7 +273,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             args.frame_intents
                 .push(RuntimeEvent::UnmapWebview { webview_id }.into());
         }
-        args.tile_rendering_contexts.remove(&node_key);
+        args.viewer_surfaces.remove(&node_key);
     }
 
     #[cfg(feature = "wry")]
@@ -403,7 +408,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                     args.frame_intents
                         .push(RuntimeEvent::UnmapWebview { webview_id }.into());
                 }
-                args.tile_rendering_contexts.remove(&node_key);
+                args.viewer_surfaces.remove(&node_key);
                 let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
                 if is_frame_member {
                     args.frame_intents.push(

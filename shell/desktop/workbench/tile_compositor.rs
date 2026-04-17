@@ -10,6 +10,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
+#[cfg(test)]
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -17,9 +18,11 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use egui::{Color32, Stroke, TextureHandle, TextureId};
+#[cfg(test)]
 use egui_tiles::{Tile, Tree};
 use graph_tree::GraphTree;
 use image::load_from_memory;
+#[cfg(test)]
 use servo::OffscreenRenderingContext;
 
 use crate::app::{GraphBrowserApp, VisibleNavigationRegionSet};
@@ -50,11 +53,11 @@ use crate::shell::desktop::workbench::compositor_adapter::{
     OverlayStrokePass,
 };
 use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode};
-use crate::shell::desktop::workbench::{
-    interaction_policy::{InteractionUiState, OverlaySuppressionReason},
-    tile_kind::TileKind,
-    tile_view_ops,
+use crate::shell::desktop::workbench::interaction_policy::{
+    InteractionUiState, OverlaySuppressionReason,
 };
+#[cfg(test)]
+use crate::shell::desktop::workbench::tile_kind::TileKind;
 #[cfg(feature = "wry")]
 use crate::{mods::native::verso, mods::native::verso::wry_manager::OverlayRect as WryOverlayRect};
 
@@ -325,24 +328,14 @@ fn node_lifecycle_for_tile(graph_app: &GraphBrowserApp, node_key: NodeKey) -> No
 
 fn tile_selection_state_for_pane(
     graph_app: &GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
     pane_id: PaneId,
 ) -> TileSelectionState {
-    let tile_id = tiles_tree.tiles.iter().find_map(|(tid, tile)| match tile {
-        Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(*tid),
-        _ => None,
-    });
-
-    let Some(tile_id) = tile_id else {
-        return TileSelectionState::NotSelected;
-    };
-
-    if graph_app.workbench_tile_selection().primary_tile_id == Some(tile_id) {
+    if graph_app.workbench_tile_selection().primary_pane_id == Some(pane_id) {
         TileSelectionState::SelectionPrimary
     } else if graph_app
         .workbench_tile_selection()
-        .selected_tile_ids
-        .contains(&tile_id)
+        .selected_pane_ids
+        .contains(&pane_id)
     {
         TileSelectionState::Selected
     } else {
@@ -407,11 +400,10 @@ fn semantic_generation_for_tile(
 }
 
 fn resolved_lens_preset_for_tile(
-    tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     node_key: NodeKey,
 ) -> crate::app::ResolvedLensPreset {
-    if let Some(view_id) = tile_view_ops::active_graph_view_id(tiles_tree)
+    if let Some(view_id) = graph_app.workspace.graph_runtime.focused_view
         && let Some(view) = graph_app.workspace.graph_runtime.views.get(&view_id)
         && let Some(lens_id) = view.resolved_lens_id()
     {
@@ -421,25 +413,32 @@ fn resolved_lens_preset_for_tile(
 }
 
 fn resolve_tile_semantic_input(
-    tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     pane_id: PaneId,
     node_key: NodeKey,
     tile_rect: egui::Rect,
     focus_delta: FocusDelta,
 ) -> ScheduledTileSemanticInput {
-    let render_mode = render_mode_for_pane(tiles_tree, pane_id);
-    let viewer_id =
-        crate::shell::desktop::workbench::tile_runtime::effective_viewer_id_for_pane_in_tree(
-            tiles_tree, pane_id, graph_app,
-        )
+    let render_mode = graph_app
+        .workspace
+        .graph_runtime
+        .pane_render_modes
+        .get(&pane_id)
+        .copied()
+        .unwrap_or(TileRenderMode::Placeholder);
+    let viewer_id = graph_app
+        .workspace
+        .graph_runtime
+        .pane_viewer_ids
+        .get(&pane_id)
+        .cloned()
         .unwrap_or_else(|| "viewer:webview".to_string());
     let lifecycle = node_lifecycle_for_tile(graph_app, node_key);
     let runtime_blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
     let has_unread_traversal_activity =
         graph_app.node_has_canonical_tag(node_key, GraphBrowserApp::TAG_UNREAD);
-    let selection_state = tile_selection_state_for_pane(graph_app, tiles_tree, pane_id);
-    let lens_preset = resolved_lens_preset_for_tile(tiles_tree, graph_app, node_key);
+    let selection_state = tile_selection_state_for_pane(graph_app, pane_id);
+    let lens_preset = resolved_lens_preset_for_tile(graph_app, node_key);
     let mut semantic = TileSemanticOverlayInput {
         node_key,
         viewer_id,
@@ -640,7 +639,7 @@ fn run_composited_texture_content_pass(
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
     presentation: &PresentationProfile,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pass_tracker: &mut CompositorPassTracker,
     pending_overlay_passes: &mut Vec<OverlayStrokePass>,
     degraded_receipts: &mut Vec<DegradedReceipt>,
@@ -750,7 +749,7 @@ fn run_composited_texture_content_pass(
         });
     }
 
-    let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
+    let Some(render_context) = viewer_surfaces.gl_context(&node_key).cloned() else {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
             byte_len: 1,
@@ -852,20 +851,6 @@ fn schedule_active_node_pane_passes(
     out
 }
 
-pub(crate) fn active_node_pane_rects(
-    tiles_tree: &Tree<TileKind>,
-) -> Vec<(PaneId, NodeKey, egui::Rect)> {
-    let mut tile_rects = Vec::new();
-    for tile_id in tiles_tree.active_tiles() {
-        if let Some(Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
-            && let Some(rect) = tiles_tree.tiles.rect(tile_id)
-        {
-            tile_rects.push((state.pane_id, state.node, rect));
-        }
-    }
-    tile_rects
-}
-
 /// Full layout output from GraphTree for the compositor.
 pub(crate) struct GraphTreeLayoutOutput {
     pub pane_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
@@ -883,13 +868,12 @@ pub(crate) struct GraphTreeLayoutOutput {
 /// Phase G: GraphTree-keyed compositor input with GraphTree layout authority.
 ///
 /// GraphTree is both the membership authority (which nodes are visible) and the
-/// layout authority (pane rects via taffy-backed `compute_layout()`).
-/// PaneId is resolved from the `node_pane_ids` map (refreshed per frame in
-/// `tile_render_pass`). The `tiles_tree` parameter is retained as a fallback
-/// during migration but is no longer the primary PaneId source.
+/// layout authority (pane rects via taffy-backed `compute_layout()`). PaneId is
+/// resolved from the `node_pane_ids` map (refreshed per frame in
+/// `tile_render_pass`). Nodes with no PaneId entry are skipped — the map is the
+/// authoritative source.
 pub(crate) fn active_node_pane_rects_from_graph_tree(
     graph_tree: &GraphTree<NodeKey>,
-    tiles_tree: &Tree<TileKind>,
     node_pane_ids: &std::collections::HashMap<NodeKey, super::pane_model::PaneId>,
     available: egui::Rect,
 ) -> GraphTreeLayoutOutput {
@@ -905,18 +889,7 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
         .pane_rects
         .iter()
         .filter_map(|(node_key, rect)| {
-            // Primary: look up from the per-frame map.
-            let pane_id = node_pane_ids.get(node_key).copied().or_else(|| {
-                // Fallback: scan tiles (migration bridge, should be rare).
-                tiles_tree.tiles.iter().find_map(|(_, tile)| {
-                    if let Tile::Pane(TileKind::Node(state)) = tile {
-                        if state.node == *node_key {
-                            return Some(state.pane_id);
-                        }
-                    }
-                    None
-                })
-            })?;
+            let pane_id = node_pane_ids.get(node_key).copied()?;
             let egui_rect =
                 egui::Rect::from_min_size(egui::pos2(rect.x, rect.y), egui::vec2(rect.w, rect.h));
             Some((pane_id, *node_key, egui_rect))
@@ -933,84 +906,78 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
     }
 }
 
-pub(crate) fn focused_node_key_for_node_panes(
-    tiles_tree: &Tree<TileKind>,
-    _graph_app: &GraphBrowserApp,
-    focused_hint: Option<NodeKey>,
-) -> Option<NodeKey> {
-    focused_node_pane_for_node_panes(tiles_tree, _graph_app, focused_hint).map(|pane| pane.node_key)
-}
-
 fn hinted_node_pane_for_frame_activation(
-    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
     focused_hint: Option<NodeKey>,
 ) -> Option<FocusedNodePane> {
     if let Some(node_key) = focused_hint {
-        let hint_present_in_tree = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
-            Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(FocusedNodePane {
-                pane_id: state.pane_id,
-                node_key,
-            }),
-            _ => None,
-        });
-        if hint_present_in_tree.is_some() {
-            return hint_present_in_tree;
+        let hint_present = graph_app
+            .workspace
+            .graph_runtime
+            .active_pane_rects
+            .iter()
+            .find_map(|(pane_id, nk, _)| {
+                if *nk == node_key {
+                    Some(FocusedNodePane {
+                        pane_id: *pane_id,
+                        node_key,
+                    })
+                } else {
+                    None
+                }
+            });
+        if hint_present.is_some() {
+            return hint_present;
         }
     }
 
-    active_node_pane(tiles_tree)
+    active_node_pane_from_cache(graph_app)
 }
 
-pub(crate) fn focused_node_pane_for_node_panes(
-    tiles_tree: &Tree<TileKind>,
-    _graph_app: &GraphBrowserApp,
-    _focused_hint: Option<NodeKey>,
-) -> Option<FocusedNodePane> {
-    active_node_pane(tiles_tree)
+fn active_node_pane_from_cache(graph_app: &GraphBrowserApp) -> Option<FocusedNodePane> {
+    graph_app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .first()
+        .map(|(pane_id, node_key, _)| FocusedNodePane {
+            pane_id: *pane_id,
+            node_key: *node_key,
+        })
 }
 
-pub(crate) fn node_for_frame_activation(
-    tiles_tree: &Tree<TileKind>,
-    _graph_app: &GraphBrowserApp,
+fn node_for_frame_activation(
+    graph_app: &GraphBrowserApp,
     focused_hint: Option<NodeKey>,
 ) -> Option<NodeKey> {
-    hinted_node_pane_for_frame_activation(tiles_tree, focused_hint)
-        .map(|pane| pane.node_key)
-        .or_else(|| {
-            active_node_pane_rects(tiles_tree)
-                .first()
-                .map(|(_, node_key, _)| *node_key)
-        })
+    hinted_node_pane_for_frame_activation(graph_app, focused_hint).map(|pane| pane.node_key)
 }
 
 fn mapped_active_node_for_activation_fallback(
-    tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     excluded: Option<NodeKey>,
 ) -> Option<NodeKey> {
-    tiles_tree
-        .active_tiles()
-        .into_iter()
-        .filter_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
-            _ => None,
-        })
+    graph_app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .iter()
+        .map(|(_, node_key, _)| *node_key)
         .find(|node_key| {
             Some(*node_key) != excluded && graph_app.get_webview_for_node(*node_key).is_some()
         })
 }
 
 fn frame_activation_targets(
-    tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     focused_hint: Option<NodeKey>,
 ) -> (Option<NodeKey>, Option<NodeKey>) {
-    let primary = node_for_frame_activation(tiles_tree, graph_app, focused_hint);
+    let primary = node_for_frame_activation(graph_app, focused_hint);
     let fallback = primary.and_then(|node_key| {
         if graph_app.get_webview_for_node(node_key).is_some() {
             None
         } else {
-            mapped_active_node_for_activation_fallback(tiles_tree, graph_app, Some(node_key))
+            mapped_active_node_for_activation_fallback(graph_app, Some(node_key))
         }
     });
     (primary, fallback)
@@ -1018,11 +985,10 @@ fn frame_activation_targets(
 
 pub(crate) fn activate_focused_node_for_frame(
     window: &EmbedderWindow,
-    tiles_tree: &Tree<TileKind>,
     graph_app: &mut GraphBrowserApp,
     focused_node_hint: &mut Option<NodeKey>,
 ) {
-    let (primary, fallback) = frame_activation_targets(tiles_tree, graph_app, *focused_node_hint);
+    let (primary, fallback) = frame_activation_targets(graph_app, *focused_node_hint);
     if let Some(node_key) = primary {
         *focused_node_hint = Some(node_key);
         if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
@@ -1058,10 +1024,9 @@ fn retained_node_keys_for_active_tile_rects(
 pub(crate) fn composite_active_node_pane_webviews(
     ctx: &egui::Context,
     ui_render_backend: &mut UiRenderBackendHandle,
-    tiles_tree: &Tree<TileKind>,
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     active_tile_rects: &[(PaneId, NodeKey, egui::Rect)],
     focused_node_key: Option<NodeKey>,
     focus_delta: FocusDelta,
@@ -1095,7 +1060,6 @@ pub(crate) fn composite_active_node_pane_webviews(
         .copied()
         .map(|(pane_id, node_key, tile_rect)| {
             resolve_tile_semantic_input(
-                tiles_tree,
                 graph_app,
                 pane_id,
                 node_key,
@@ -1209,7 +1173,7 @@ pub(crate) fn composite_active_node_pane_webviews(
                 window,
                 graph_app,
                 &presentation,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 &mut pass_tracker,
                 &mut pending_overlay_passes,
                 &mut degraded_receipts,
@@ -1343,31 +1307,6 @@ fn render_degraded_receipts(
     }
 }
 
-pub(crate) fn active_node_pane(tiles_tree: &Tree<TileKind>) -> Option<FocusedNodePane> {
-    tiles_tree
-        .active_tiles()
-        .into_iter()
-        .find_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Node(state))) => Some(FocusedNodePane {
-                pane_id: state.pane_id,
-                node_key: state.node,
-            }),
-            _ => None,
-        })
-}
-
-fn render_mode_for_pane(tiles_tree: &Tree<TileKind>, pane_id: PaneId) -> TileRenderMode {
-    tiles_tree
-        .tiles
-        .iter()
-        .find_map(|(_, tile)| match tile {
-            Tile::Pane(kind @ TileKind::Node(state)) if state.pane_id == pane_id => {
-                kind.node_render_mode()
-            }
-            _ => None,
-        })
-        .unwrap_or(TileRenderMode::Placeholder)
-}
 
 #[derive(Clone, Copy)]
 struct OverlayAffordancePolicy {
@@ -1388,7 +1327,7 @@ fn overlay_affordance_policy_for_render_mode(
             rounding: 0.0,
         },
         TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => OverlayAffordancePolicy {
-            style: OverlayAffordanceStyle::EguiAreaStroke,
+            style: OverlayAffordanceStyle::AreaStroke,
             rounding: 4.0,
         },
     }
@@ -2084,44 +2023,35 @@ mod tests {
         assert_eq!(retained, HashSet::from([a, b]));
     }
 
+    fn seed_active_pane_rects(app: &mut GraphBrowserApp, nodes: &[NodeKey]) {
+        app.workspace.graph_runtime.active_pane_rects = nodes
+            .iter()
+            .map(|node_key| (PaneId::new(), *node_key, egui::Rect::ZERO))
+            .collect();
+    }
+
     #[test]
     fn frame_activation_targets_prefers_primary_when_mapped() {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = NodeKey::new(1);
         let b = NodeKey::new(2);
-        let tree = tree_with_two_active_nodes(a, b);
+        seed_active_pane_rects(&mut app, &[a, b]);
         app.map_webview_to_node(test_webview_id(), a);
 
-        let (primary, fallback) = frame_activation_targets(&tree, &app, Some(a));
+        let (primary, fallback) = frame_activation_targets(&app, Some(a));
 
         assert_eq!(primary, Some(a));
         assert_eq!(fallback, None);
     }
 
     #[test]
-    fn focused_node_pane_returns_stable_pane_identity() {
-        let focused = NodeKey::new(30);
-        let other = NodeKey::new(31);
-        let tree = tree_with_two_active_nodes(focused, other);
-
-        let pane = focused_node_pane_for_node_panes(
-            &tree,
-            &GraphBrowserApp::new_for_testing(),
-            Some(focused),
-        )
-        .expect("expected focused node pane");
-
-        assert_eq!(pane.node_key, other);
-        assert_ne!(pane.pane_id, PaneId::default());
-    }
-
-    #[test]
     fn hinted_frame_activation_pane_prefers_present_hint() {
         let focused = NodeKey::new(40);
         let other = NodeKey::new(41);
-        let tree = tree_with_two_active_nodes(focused, other);
+        let mut app = GraphBrowserApp::new_for_testing();
+        seed_active_pane_rects(&mut app, &[focused, other]);
 
-        let pane = hinted_node_pane_for_frame_activation(&tree, Some(focused))
+        let pane = hinted_node_pane_for_frame_activation(&app, Some(focused))
             .expect("expected hinted node pane");
 
         assert_eq!(pane.node_key, focused);
@@ -2133,10 +2063,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = NodeKey::new(3);
         let b = NodeKey::new(4);
-        let tree = tree_with_two_active_nodes(a, b);
+        seed_active_pane_rects(&mut app, &[a, b]);
         app.map_webview_to_node(test_webview_id(), b);
 
-        let (primary, fallback) = frame_activation_targets(&tree, &app, Some(a));
+        let (primary, fallback) = frame_activation_targets(&app, Some(a));
 
         assert_eq!(primary, Some(a));
         assert_eq!(fallback, Some(b));
@@ -2152,20 +2082,11 @@ mod tests {
         app.map_webview_to_node(a_webview, a);
         app.map_webview_to_node(b_webview, b);
 
-        let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(
-            crate::app::GraphViewId::default(),
-        )));
-        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
-        let root = tiles.insert_tab_tile(vec![graph, b_tile]);
-        let mut tree = Tree::new("tile_compositor_focus_after_close", root, tiles);
-        let _ = tree.make_active(
-            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b),
-        );
-
+        // After the pane close, only b is visible.
+        seed_active_pane_rects(&mut app, &[b]);
         app.unmap_webview(a_webview);
 
-        let (primary, fallback) = frame_activation_targets(&tree, &app, Some(a));
+        let (primary, fallback) = frame_activation_targets(&app, Some(a));
 
         assert_eq!(primary, Some(b));
         assert_eq!(fallback, None);
@@ -2176,7 +2097,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let primary = NodeKey::new(7);
         let fallback = NodeKey::new(8);
-        let tree = tree_with_two_active_nodes(primary, fallback);
+        seed_active_pane_rects(&mut app, &[primary, fallback]);
         app.map_webview_to_node(test_webview_id(), fallback);
 
         let mut diagnostics = DiagnosticsState::new();
@@ -2188,7 +2109,7 @@ mod tests {
 
         let mut focused_hint = Some(primary);
         let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            activate_focused_node_for_frame(&window, &tree, &mut app, &mut focused_hint)
+            activate_focused_node_for_frame(&window, &mut app, &mut focused_hint)
         }));
 
         diagnostics.force_drain_for_tests();
@@ -2219,11 +2140,11 @@ mod tests {
             crate::shell::desktop::host::headless_window::HeadlessWindow::new(&prefs),
             Arc::new(AtomicU64::new(0)),
         );
-        let tree = tree_with_two_active_nodes(node, NodeKey::new(13));
+        seed_active_pane_rects(&mut app, &[node, NodeKey::new(13)]);
         let mut focused_hint = Some(node);
 
         let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            activate_focused_node_for_frame(&window, &tree, &mut app, &mut focused_hint)
+            activate_focused_node_for_frame(&window, &mut app, &mut focused_hint)
         }));
 
         assert_eq!(app.embedded_content_focus_webview(), Some(webview_id));
@@ -2294,7 +2215,7 @@ mod tests {
         assert_eq!(effective_mode, TileRenderMode::Placeholder);
         assert!(matches!(
             overlay.style,
-            OverlayAffordanceStyle::EguiAreaStroke
+            OverlayAffordanceStyle::AreaStroke
         ));
     }
 
@@ -2461,7 +2382,7 @@ mod tests {
 
         assert!(matches!(
             overlay.style,
-            OverlayAffordanceStyle::EguiAreaStroke
+            OverlayAffordanceStyle::AreaStroke
         ));
         assert_eq!(overlay.render_mode, TileRenderMode::Placeholder);
     }
@@ -2478,7 +2399,7 @@ mod tests {
 
         assert!(matches!(
             overlay.style,
-            OverlayAffordanceStyle::EguiAreaStroke
+            OverlayAffordanceStyle::AreaStroke
         ));
         assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedEgui);
     }
@@ -2493,7 +2414,7 @@ mod tests {
 
         assert!(matches!(
             overlay.style,
-            OverlayAffordanceStyle::EguiAreaStroke
+            OverlayAffordanceStyle::AreaStroke
         ));
         assert_eq!(overlay.render_mode, TileRenderMode::Placeholder);
     }
@@ -2704,7 +2625,6 @@ mod tests {
         let tile_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0));
 
         let baseline = resolve_tile_semantic_input(
-            &tree,
             &app,
             pane_id,
             unread,
@@ -2719,7 +2639,6 @@ mod tests {
             .insert_node_tag(unread, GraphBrowserApp::TAG_UNREAD.to_string());
 
         let flagged = resolve_tile_semantic_input(
-            &tree,
             &app,
             pane_id,
             unread,

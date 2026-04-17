@@ -51,7 +51,7 @@ pub(crate) struct TileRenderPassArgs<'a> {
     /// (Phase E) and the dual-write target for tile mutations (Phase B).
     /// Rects still come from egui_tiles during migration.
     pub graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
-    pub tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pub viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub graph_search_matches: &'a HashSet<NodeKey>,
     pub active_search_match: Option<NodeKey>,
@@ -283,7 +283,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         window,
         tiles_tree,
         graph_tree,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         graph_search_matches,
         active_search_match,
@@ -319,6 +319,10 @@ pub(crate) fn run_tile_render_pass_in_ui(
         super::graph_tree_sync::build_node_pane_id_map(tiles_tree);
 
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+    graph_app.workspace.graph_runtime.pane_render_modes =
+        super::graph_tree_sync::build_pane_render_mode_map(tiles_tree);
+    graph_app.workspace.graph_runtime.pane_viewer_ids =
+        super::graph_tree_sync::build_pane_viewer_id_map(tiles_tree);
     webview_backpressure::publish_node_pane_attach_attempt_metadata(webview_creation_backpressure);
 
     let outputs = tile_post_render::render_tile_tree_and_collect_outputs(
@@ -430,7 +434,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
             tile_runtime::release_node_runtime_for_pane(
                 graph_app,
                 window,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 node_key,
                 &mut post_render_intents,
             );
@@ -451,7 +455,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
             tile_runtime::release_node_runtime_for_pane(
                 graph_app,
                 window,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 node_key,
                 &mut post_render_intents,
             );
@@ -462,31 +466,35 @@ pub(crate) fn run_tile_render_pass_in_ui(
     if repaired_active_tile {
         log::debug!("tile_render_pass: repaired empty active tile selection");
     }
-    graph_app.prune_workbench_tile_selection(tiles_tree);
+    graph_app.prune_workbench_pane_selection(tiles_tree);
     log::debug!(
         "tile_render_pass: active tile count after handoff {}",
         tiles_tree.active_tiles().len()
     );
 
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+    graph_app.workspace.graph_runtime.pane_render_modes =
+        super::graph_tree_sync::build_pane_render_mode_map(tiles_tree);
+    graph_app.workspace.graph_runtime.pane_viewer_ids =
+        super::graph_tree_sync::build_pane_viewer_id_map(tiles_tree);
 
     // Phase G: GraphTree is both the membership and layout authority.
     // Pane rects come from GraphTree's taffy-backed compute_layout().
     // PaneId resolved from per-frame node_pane_ids map (with tile fallback).
     let layout_output = tile_compositor::active_node_pane_rects_from_graph_tree(
         graph_tree,
-        tiles_tree,
         &graph_app.workspace.graph_runtime.node_pane_ids,
         available_rect,
     );
     let active_tile_rects = &layout_output.pane_rects;
+    graph_app.workspace.graph_runtime.active_pane_rects = active_tile_rects.clone();
     log::debug!(
         "tile_render_pass: {} active tile rects (graph_tree keyed)",
         active_tile_rects.len()
     );
     for (_, key, rect) in active_tile_rects.iter() {
         let mapped = graph_app.get_webview_for_node(*key);
-        let has_context = tile_rendering_contexts.contains_key(key);
+        let has_context = viewer_surfaces.contains_gl_context(key);
         log::debug!(
             "tile_render_pass: active tile {:?} rect {:?} mapped_runtime_viewer={:?} has_context={}",
             key,
@@ -611,7 +619,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                 app_state,
                 rendering_context,
                 window_rendering_context,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 Some(state.pane_id),
                 state.node,
                 responsive_webviews,
@@ -651,7 +659,6 @@ pub(crate) fn run_tile_render_pass_in_ui(
     } else {
         tile_compositor::activate_focused_node_for_frame(
             window,
-            tiles_tree,
             graph_app,
             focused_node_hint,
         );
@@ -665,7 +672,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         let active_tile_violations = tile_invariants::collect_active_tile_mapping_violations(
             tiles_tree,
             graph_app,
-            tile_rendering_contexts,
+            viewer_surfaces,
         );
         if !active_tile_violations.is_empty() {
             for violation in &active_tile_violations {
@@ -679,11 +686,15 @@ pub(crate) fn run_tile_render_pass_in_ui(
                 },
             );
         }
-        let focused_node_pane = tile_compositor::focused_node_pane_for_node_panes(
-            tiles_tree,
-            graph_app,
-            *focused_node_hint,
-        );
+        let focused_node_pane = graph_app
+            .workspace
+            .graph_runtime
+            .active_pane_rects
+            .first()
+            .map(|(pane_id, node_key, _)| tile_compositor::FocusedNodePane {
+                pane_id: *pane_id,
+                node_key: *node_key,
+            });
         *focused_node_hint = focused_node_pane.map(|pane| pane.node_key);
         focused_node_pane
     };
@@ -755,10 +766,9 @@ pub(crate) fn run_tile_render_pass_in_ui(
     tile_compositor::composite_active_node_pane_webviews(
         ctx,
         ui_render_backend,
-        tiles_tree,
         window,
         graph_app,
-        tile_rendering_contexts,
+        viewer_surfaces,
         active_tile_rects,
         focused_node_key,
         focus_delta,
@@ -817,7 +827,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
 
     #[cfg(feature = "diagnostics")]
     {
-        let active_tiles_for_diag = tile_compositor::active_node_pane_rects(tiles_tree);
+        let active_tiles_for_diag = &graph_app.workspace.graph_runtime.active_pane_rects;
         let focused_node_present = focused_node_key.is_some();
         let tiles = active_tiles_for_diag
             .iter()
@@ -828,7 +838,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                         *pane_id,
                     );
                 let mapped_webview = graph_app.get_webview_for_node(*node_key).is_some();
-                let has_context = tile_rendering_contexts.contains_key(node_key);
+                let has_context = viewer_surfaces.contains_gl_context(node_key);
                 let paint_callback_registered = mapped_webview && has_context;
                 let render_path_hint =
                     crate::shell::desktop::workbench::tile_runtime::render_path_hint_for_mode(

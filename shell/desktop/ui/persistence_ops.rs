@@ -4,12 +4,11 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tiles, Tree};
 use log::{debug, warn};
-use servo::{OffscreenRenderingContext, WebViewId};
+use servo::WebViewId;
 use uuid::Uuid;
 
 use crate::app::GraphViewId;
@@ -2218,7 +2217,7 @@ pub(crate) fn switch_persistence_store(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     lifecycle_intents: &mut Vec<GraphIntent>,
@@ -2231,7 +2230,7 @@ pub(crate) fn switch_persistence_store(
     lifecycle_intents.extend(webview_controller::close_all_webviews(graph_app, window));
     tile_runtime::reset_runtime_webview_state(
         tiles_tree,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
     );

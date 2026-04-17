@@ -3,10 +3,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
 use egui_tiles::{Tile, Tree};
-use servo::{OffscreenRenderingContext, WebViewId};
+use servo::WebViewId;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeEvent};
 use crate::graph::{NodeKey, NodeLifecycle};
@@ -197,11 +196,11 @@ impl TileCoordinator {
 
     pub(crate) fn reset_runtime_webview_state(
         tiles_tree: &mut Tree<TileKind>,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+        viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
         tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
         favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     ) {
-        tile_rendering_contexts.clear();
+        viewer_surfaces.clear();
         tile_favicon_textures.clear();
         favicon_textures.clear();
         Self::remove_all_node_panes(tiles_tree);
@@ -300,7 +299,7 @@ impl TileCoordinator {
         tiles_tree: &mut Tree<TileKind>,
         graph_app: &mut GraphBrowserApp,
         window: &EmbedderWindow,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+        viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
         lifecycle_intents: &mut Vec<GraphIntent>,
     ) {
         let stale_nodes: Vec<_> = Self::all_node_pane_keys(tiles_tree)
@@ -313,7 +312,7 @@ impl TileCoordinator {
             Self::release_node_runtime_for_pane(
                 graph_app,
                 window,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 node_key,
                 lifecycle_intents,
             );
@@ -323,7 +322,7 @@ impl TileCoordinator {
     pub(crate) fn release_node_runtime_for_pane(
         graph_app: &mut GraphBrowserApp,
         window: &EmbedderWindow,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+        viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
         node_key: NodeKey,
         lifecycle_intents: &mut Vec<GraphIntent>,
     ) {
@@ -369,7 +368,7 @@ impl TileCoordinator {
                 }
             }
 
-            tile_rendering_contexts.remove(&node_key);
+            viewer_surfaces.remove(&node_key);
             return;
         }
 
@@ -395,7 +394,7 @@ impl TileCoordinator {
             }
         }
 
-        tile_rendering_contexts.remove(&node_key);
+        viewer_surfaces.remove(&node_key);
 
         if let Some(wv_id) = mapped_webview {
             window.close_webview(wv_id);
@@ -426,13 +425,13 @@ pub(crate) fn viewer_id_uses_composited_runtime(viewer_id: &str) -> bool {
 
 pub(crate) fn reset_runtime_webview_state(
     tiles_tree: &mut Tree<TileKind>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
 ) {
     TileCoordinator::reset_runtime_webview_state(
         tiles_tree,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
     );
@@ -635,14 +634,14 @@ pub(crate) fn prune_stale_node_panes(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
     TileCoordinator::prune_stale_node_panes(
         tiles_tree,
         graph_app,
         window,
-        tile_rendering_contexts,
+        viewer_surfaces,
         lifecycle_intents,
     );
 }
@@ -650,14 +649,14 @@ pub(crate) fn prune_stale_node_panes(
 pub(crate) fn release_node_runtime_for_pane(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     node_key: NodeKey,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
     TileCoordinator::release_node_runtime_for_pane(
         graph_app,
         window,
-        tile_rendering_contexts,
+        viewer_surfaces,
         node_key,
         lifecycle_intents,
     );

@@ -108,6 +108,36 @@ pub(crate) fn build_node_pane_id_map(
     map
 }
 
+pub(crate) fn build_pane_render_mode_map(
+    tiles_tree: &Tree<TileKind>,
+) -> std::collections::HashMap<super::pane_model::PaneId, super::pane_model::TileRenderMode> {
+    use egui_tiles::Tile;
+    let mut map = std::collections::HashMap::new();
+    for (_tile_id, tile) in tiles_tree.tiles.iter() {
+        if let Tile::Pane(kind) = tile {
+            if let Some(mode) = kind.node_render_mode() {
+                map.insert(kind.pane_id(), mode);
+            }
+        }
+    }
+    map
+}
+
+pub(crate) fn build_pane_viewer_id_map(
+    tiles_tree: &Tree<TileKind>,
+) -> std::collections::HashMap<super::pane_model::PaneId, String> {
+    use egui_tiles::Tile;
+    let mut map = std::collections::HashMap::new();
+    for (_tile_id, tile) in tiles_tree.tiles.iter() {
+        if let Tile::Pane(TileKind::Node(state)) = tile {
+            if let Some(viewer_id) = state.resolved_viewer_id.as_ref() {
+                map.insert(state.pane_id, viewer_id.clone());
+            }
+        }
+    }
+    map
+}
+
 /// Produce `(PaneId, NodeKey, egui::Rect)` tuples from GraphTree layout, matching
 /// the format of `tile_compositor::active_node_pane_rects()`.
 ///

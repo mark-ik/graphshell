@@ -6,6 +6,32 @@
 //! The guarded callback path enforces that these OpenGL state fields are
 //! stable before/after content-pass rendering: viewport, scissor enable,
 //! blend enable, active texture unit, and framebuffer binding.
+//!
+//! ## Host portability split
+//!
+//! This module separates content-surface management (host-neutral) from
+//! overlay/content painting (host-specific). When porting to a second host
+//! (iced), the painting layer is replaced; the state and registration layers
+//! are shared.
+//!
+//! **Host-neutral (shared across hosts)**:
+//! - `ViewerSurface` / `ViewerSurfaceRegistry` — content-surface state keyed
+//!   by `NodeKey` (per `NodeKey is the owner` comment below).
+//! - Content callback registry — `Fn(&BackendGraphicsContext, BackendViewportInPixels)`
+//!   registered per `NodeKey`; `BackendGraphicsContext` is the host-neutral
+//!   abstraction from `render_backend`.
+//! - `CompositorPassTracker`, `OverlayAffordanceStyle`, diagnostics emission.
+//! - `OverlayStrokePass` descriptor — overlay *intent*, not *how to draw*.
+//!
+//! **Host-specific (iced will reimplement against its own painter)**:
+//! - `draw_overlay_stroke`, `draw_dashed_overlay_stroke`,
+//!   `draw_overlay_stroke_in_area`, `draw_overlay_chrome_markers`,
+//!   `draw_overlay_glyphs` — pixel operations against `egui::Context`.
+//! - `content_layer(node_key)` / `overlay_layer(node_key)` — return
+//!   `egui::LayerId` for egui's layer ordering.
+//! - `execute_overlay_affordance_pass` — the per-frame overlay executor; iced
+//!   will need an equivalent that consumes the same `OverlayStrokePass`
+//!   descriptors.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -223,6 +249,30 @@ impl ViewerSurfaceRegistry {
                 self.surfaces.insert(key, ViewerSurface::with_gl_ctx(ctx));
             }
         }
+    }
+
+    /// Get the GL context for a node, creating one via `f` if absent.
+    /// Mirrors `HashMap::entry().or_insert_with()` semantics that the legacy
+    /// `tile_rendering_contexts` map used at webview creation time.
+    pub(crate) fn get_or_insert_gl_context_with<F>(
+        &mut self,
+        key: NodeKey,
+        f: F,
+    ) -> std::rc::Rc<OffscreenRenderingContext>
+    where
+        F: FnOnce() -> std::rc::Rc<OffscreenRenderingContext>,
+    {
+        if !self.contains_gl_context(&key) {
+            self.insert_gl_context(key, f());
+        }
+        self.gl_context(&key)
+            .expect("just inserted")
+            .clone()
+    }
+
+    /// Drop all surfaces. Equivalent to the legacy `tile_rendering_contexts.clear()`.
+    pub(crate) fn clear(&mut self) {
+        self.surfaces.clear();
     }
 
     /// Update the surface handle for a node.
@@ -691,7 +741,7 @@ pub(crate) struct OverlayStrokePass {
 pub(crate) enum OverlayAffordanceStyle {
     RectStroke,
     DashedRectStroke,
-    EguiAreaStroke,
+    AreaStroke,
     ChromeOnly,
 }
 
@@ -699,7 +749,7 @@ fn overlay_style_channel(style: OverlayAffordanceStyle) -> &'static str {
     match style {
         OverlayAffordanceStyle::RectStroke
         | OverlayAffordanceStyle::DashedRectStroke
-        | OverlayAffordanceStyle::EguiAreaStroke => CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+        | OverlayAffordanceStyle::AreaStroke => CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
         OverlayAffordanceStyle::ChromeOnly => CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
     }
 }
@@ -1491,7 +1541,7 @@ impl CompositorAdapter {
         }
 
         let layer = match style {
-            OverlayAffordanceStyle::EguiAreaStroke => LayerId::new(
+            OverlayAffordanceStyle::AreaStroke => LayerId::new(
                 Order::Tooltip,
                 Id::new(("graphshell_overlay_glyphs", node_key)),
             ),
@@ -1577,7 +1627,7 @@ impl CompositorAdapter {
                     overlay.tile_rect,
                     overlay.stroke,
                 ),
-                OverlayAffordanceStyle::EguiAreaStroke => Self::draw_overlay_stroke_in_area(
+                OverlayAffordanceStyle::AreaStroke => Self::draw_overlay_stroke_in_area(
                     ctx,
                     overlay.node_key,
                     overlay.tile_rect,

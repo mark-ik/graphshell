@@ -445,7 +445,8 @@ pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
     pub(crate) app_state: &'a Option<Rc<RunningAppState>>,
     pub(crate) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
-    pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pub(crate) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -469,7 +470,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         app_state,
         rendering_context,
         window_rendering_context,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
@@ -512,7 +513,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         graph_app,
         tiles_tree,
         window,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
@@ -542,7 +543,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
             app_state,
             rendering_context,
             window_rendering_context,
-            tile_rendering_contexts,
+            viewer_surfaces,
             responsive_webviews,
             webview_creation_backpressure,
         });
@@ -566,8 +567,8 @@ mod tests {
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
-        let mut tile_rendering_contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>> =
-            HashMap::new();
+        let mut viewer_surfaces =
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new();
         let mut tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)> =
             HashMap::new();
         let mut webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState> =
@@ -577,7 +578,7 @@ mod tests {
 
         graph_snapshot::reset_graph_workspace_after_snapshot_restore(
             &mut tree,
-            &mut tile_rendering_contexts,
+            &mut viewer_surfaces,
             &mut tile_favicon_textures,
             &mut webview_creation_backpressure,
             &mut focused_node_hint,

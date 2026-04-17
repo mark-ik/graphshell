@@ -25,7 +25,7 @@ pub(crate) struct KeyboardPhaseArgs<'a> {
     pub(crate) graph_surface_focused: bool,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -51,14 +51,14 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         &Option<Rc<RunningAppState>>,
         &Rc<OffscreenRenderingContext>,
         &Rc<WindowRenderingContext>,
-        &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+        &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
         &HashSet<WebViewId>,
         &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
         &mut Vec<GraphIntent>,
     ),
     F2: FnMut(
         &mut Tree<TileKind>,
-        &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+        &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
         &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
         &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     ),
@@ -69,7 +69,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         graph_surface_focused,
         window,
         tiles_tree,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
         app_state,
@@ -98,7 +98,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
             app_state,
             rendering_context,
             window_rendering_context,
-            tile_rendering_contexts,
+            viewer_surfaces,
             responsive_webviews,
             webview_creation_backpressure,
             frame_intents,
@@ -117,7 +117,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         frame_intents.extend(webview_controller::close_all_webviews(graph_app, window));
         reset_runtime_webview_state(
             tiles_tree,
-            tile_rendering_contexts,
+            viewer_surfaces,
             tile_favicon_textures,
             favicon_textures,
         );
@@ -144,7 +144,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
 
     let command_bar_focus_target = nav_targeting::command_bar_focus_target(
         window.focused_pane(),
-        nav_targeting::active_node_pane_node(tiles_tree),
+        nav_targeting::active_node_pane_node(graph_app),
         nav_targeting::chrome_projection_node(graph_app, window),
         graph_app.focused_selection().primary(),
     );

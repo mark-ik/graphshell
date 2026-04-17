@@ -2,13 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::HashMap;
-use std::rc::Rc;
-
 use egui_tiles::Tree;
-use servo::OffscreenRenderingContext;
 
 use crate::app::GraphBrowserApp;
+#[cfg(test)]
 use crate::graph::NodeKey;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
@@ -16,7 +13,7 @@ use crate::shell::desktop::workbench::tile_runtime;
 pub(crate) fn collect_tile_invariant_violations(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
-    tile_rendering_contexts: &HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
 ) -> Vec<String> {
     let mut violations = Vec::new();
     for node_key in tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app)
@@ -34,7 +31,7 @@ pub(crate) fn collect_tile_invariant_violations(
                 node_key.index()
             ));
         }
-        if !tile_rendering_contexts.contains_key(&node_key) {
+        if !viewer_surfaces.contains_gl_context(&node_key) {
             violations.push(format!(
                 "tile/context desync: node {} is missing rendering context",
                 node_key.index()
@@ -47,7 +44,7 @@ pub(crate) fn collect_tile_invariant_violations(
 pub(crate) fn collect_active_tile_mapping_violations(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
-    tile_rendering_contexts: &HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
 ) -> Vec<String> {
     let mut violations = Vec::new();
     let node_panes_using_composited_runtime =
@@ -74,7 +71,7 @@ pub(crate) fn collect_active_tile_mapping_violations(
                 node_key.index()
             ));
         }
-        if !tile_rendering_contexts.contains_key(&node_key) {
+        if !viewer_surfaces.contains_gl_context(&node_key) {
             violations.push(format!(
                 "active tile desync: node {} is missing rendering context",
                 node_key.index()
@@ -112,9 +109,10 @@ mod tests {
             let _ = app.unmap_webview(webview_id);
         }
         let tree = tree_with_active_node_pane_using_composited_runtime(node_key);
-        let contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>> = HashMap::new();
+        let surfaces =
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new();
 
-        let violations = collect_active_tile_mapping_violations(&tree, &app, &contexts);
+        let violations = collect_active_tile_mapping_violations(&tree, &app, &surfaces);
 
         assert!(
             violations
@@ -141,8 +139,9 @@ mod tests {
         let mut tree = Tree::new("tile_invariants_non_active", root, tiles);
         let _ = tree.make_active(|tile_id, _| tile_id == graph);
 
-        let contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>> = HashMap::new();
-        let violations = collect_active_tile_mapping_violations(&tree, &app, &contexts);
+        let surfaces =
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new();
+        let violations = collect_active_tile_mapping_violations(&tree, &app, &surfaces);
 
         assert!(violations.is_empty());
     }

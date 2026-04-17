@@ -3,10 +3,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use egui_tiles::Tree;
-use servo::{OffscreenRenderingContext, WebViewId};
+use servo::WebViewId;
 use winit::window::Window;
 
 use super::super::dialog_panels::{self, DialogPanelsArgs};
@@ -45,7 +44,7 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) show_clear_data_confirm: &'a mut bool,
     pub(crate) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
-    pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -82,14 +81,14 @@ pub(crate) fn handle_toolbar_dialog_phase(
         show_clear_data_confirm,
         omnibar_search_session,
         toasts,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
     } = args;
 
-    let active_webview_node = nav_targeting::active_node_pane_node(tiles_tree);
+    let active_webview_node = nav_targeting::active_node_pane_node(graph_app);
     let focused_toolbar_node_key = if graph_surface_focused {
         None
     } else {
@@ -172,7 +171,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         graph_app,
         window,
         tiles_tree,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
         frame_intents,

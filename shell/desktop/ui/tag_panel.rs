@@ -14,7 +14,6 @@ use crate::render::semantic_tags::{
 };
 use crate::shell::desktop::runtime::registries::knowledge::tags_for_node;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
-use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 #[derive(Clone, Copy)]
@@ -127,10 +126,14 @@ pub(crate) fn open_tag_panel_for_current_focus(
         return false;
     }
 
-    if let Some(pane) =
-        tile_compositor::focused_node_pane_for_node_panes(tiles_tree, app, focused_hint)
+    if let Some(node_key) = app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .first()
+        .map(|(_, nk, _)| *nk)
     {
-        open_node_tag_panel(app, pane.node_key, true);
+        open_node_tag_panel(app, node_key, true);
         return true;
     }
 
@@ -346,8 +349,12 @@ fn should_close_tag_panel(
         return app.get_single_selected_node() != Some(state.node_key);
     }
     if state.prefer_pane_anchor {
-        return tile_compositor::focused_node_pane_for_node_panes(tiles_tree, app, focused_hint)
-            .map(|pane| pane.node_key)
+        return app
+            .workspace
+            .graph_runtime
+            .active_pane_rects
+            .first()
+            .map(|(_, nk, _)| *nk)
             != Some(state.node_key);
     }
     false
@@ -355,12 +362,15 @@ fn should_close_tag_panel(
 
 fn tag_panel_window_pos(
     app: &GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
+    _tiles_tree: &Tree<TileKind>,
     state: &TagPanelState,
 ) -> Pos2 {
     if state.prefer_pane_anchor
-        && let Some((_, _, rect)) = tile_compositor::active_node_pane_rects(tiles_tree)
-            .into_iter()
+        && let Some((_, _, rect)) = app
+            .workspace
+            .graph_runtime
+            .active_pane_rects
+            .iter()
             .find(|(_, node_key, _)| *node_key == state.node_key)
     {
         return Pos2::new(rect.right() + 12.0, rect.top());
@@ -419,6 +429,22 @@ mod tests {
         Tree::new("tag_panel_nodes", root, tiles)
     }
 
+    /// Seed `graph_runtime.active_pane_rects` from the active tiles in the tree.
+    /// Compositor and chrome callers read from this cache rather than scanning the
+    /// tile tree, so tests must populate it explicitly.
+    fn seed_active_pane_rects_from_tree(app: &mut GraphBrowserApp, tree: &Tree<TileKind>) {
+        app.workspace.graph_runtime.active_pane_rects = tree
+            .active_tiles()
+            .into_iter()
+            .filter_map(|tile_id| match tree.tiles.get(tile_id) {
+                Some(egui_tiles::Tile::Pane(TileKind::Node(state))) => {
+                    Some((state.pane_id, state.node, egui::Rect::ZERO))
+                }
+                _ => None,
+            })
+            .collect();
+    }
+
     fn graph_tree() -> Tree<TileKind> {
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
@@ -463,6 +489,7 @@ mod tests {
         let node =
             app.add_node_and_sync("https://pane.example".to_string(), Point2D::new(0.0, 0.0));
         let tree = node_tree(vec![NodePaneState::for_node(node)]);
+        seed_active_pane_rects_from_tree(&mut app, &tree);
 
         assert!(open_tag_panel_for_current_focus(
             &mut app, &tree, false, None
@@ -544,6 +571,7 @@ mod tests {
         let pane_b_id = pane_b.pane_id;
         let mut tree = node_tree(vec![pane_a, pane_b]);
         assert!(focus_pane(&mut tree, pane_a_id));
+        seed_active_pane_rects_from_tree(&mut app, &tree);
 
         open_node_tag_panel(&mut app, node_a, true);
         let state = app
@@ -556,6 +584,7 @@ mod tests {
         assert!(!should_close_tag_panel(&app, &tree, false, None, &state));
 
         assert!(focus_pane(&mut tree, pane_b_id));
+        seed_active_pane_rects_from_tree(&mut app, &tree);
         assert!(should_close_tag_panel(&app, &tree, false, None, &state));
     }
 

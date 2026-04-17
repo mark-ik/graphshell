@@ -192,7 +192,7 @@ pub(crate) fn ensure_webview_for_node(
     app_state: &Option<Rc<RunningAppState>>,
     base_rendering_context: &Rc<OffscreenRenderingContext>,
     window_rendering_context: &Rc<WindowRenderingContext>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pane_id: Option<PaneId>,
     node_key: NodeKey,
     responsive_webviews: &HashSet<WebViewId>,
@@ -301,12 +301,9 @@ pub(crate) fn ensure_webview_for_node(
         return;
     }
 
-    let render_context = tile_rendering_contexts
-        .entry(node_key)
-        .or_insert_with(|| {
-            Rc::new(window_rendering_context.offscreen_context(base_rendering_context.size()))
-        })
-        .clone();
+    let render_context = viewer_surfaces.get_or_insert_gl_context_with(node_key, || {
+        Rc::new(window_rendering_context.offscreen_context(base_rendering_context.size()))
+    });
     let pending_create_token = graph_app.take_pending_host_create_token(node_key);
     let webview = if let Some(token) = pending_create_token {
         let Some(request) = running_state.take_pending_create_request(token) else {

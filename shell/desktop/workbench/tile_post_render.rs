@@ -8,7 +8,6 @@ use std::time::Instant;
 use egui_tiles::{TileId, Tree};
 
 use super::tile_behavior::{GraphshellTileBehavior, PendingOpenNode};
-use super::tile_compositor;
 use super::tile_grouping;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
@@ -455,11 +454,15 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         }
     }
 
-    // Build a NodeKey → Rect map from the current active tile rects for bounds population.
-    let active_rects = tile_compositor::active_node_pane_rects(tiles_tree);
-    let node_rect_map: std::collections::HashMap<NodeKey, egui::Rect> = active_rects
-        .into_iter()
-        .map(|(_, node_key, rect)| (node_key, rect))
+    // Build a NodeKey → Rect map from the cached active pane rects for bounds population.
+    // Uses GraphTree-derived rects from the previous frame (one-frame lag is acceptable
+    // for ux_tree bounds and diagnostics).
+    let node_rect_map: std::collections::HashMap<NodeKey, egui::Rect> = graph_app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .iter()
+        .map(|(_, node_key, rect)| (*node_key, *rect))
         .collect();
 
     if ux_tree::runtime_enabled() {

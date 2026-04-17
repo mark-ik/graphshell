@@ -148,7 +148,7 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) headed_window: &'a HeadedWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
-    pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -193,7 +193,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         headed_window,
         tiles_tree,
         graph_tree,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
         toolbar_height,
@@ -225,7 +225,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         for violation in tile_invariants::collect_tile_invariant_violations(
             tiles_tree,
             graph_app,
-            tile_rendering_contexts,
+            viewer_surfaces,
         ) {
             warn!("{violation}");
         }
@@ -327,7 +327,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         window,
                         tiles_tree,
                         graph_tree,
-                        tile_rendering_contexts,
+                        viewer_surfaces,
                         tile_favicon_textures,
                         graph_search_matches: &search_matches,
                         active_search_match,
@@ -367,7 +367,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         window,
                         tiles_tree,
                         graph_tree,
-                        tile_rendering_contexts,
+                        viewer_surfaces,
                         tile_favicon_textures,
                         graph_search_matches: &search_matches,
                         active_search_match,
@@ -551,7 +551,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                                 window,
                                 tiles_tree,
                                 graph_tree,
-                                tile_rendering_contexts,
+                                viewer_surfaces,
                                 tile_favicon_textures,
                                 graph_search_matches: &search_matches,
                                 active_search_match,
@@ -638,26 +638,32 @@ pub(crate) fn run_post_render_phase<FActive>(
         );
         graph_app.clear_clip_inspector_highlight_dirty();
     }
-    let active_node_pane =
-        crate::shell::desktop::workbench::tile_compositor::active_node_pane(tiles_tree);
+    let active_pane_first = graph_app
+        .workspace
+        .graph_runtime
+        .active_pane_rects
+        .first()
+        .map(|(pane_id, node_key, _)| (*pane_id, *node_key));
+    let active_node_pane_key = active_pane_first.map(|(_, nk)| nk);
+    let active_node_pane_id = active_pane_first.map(|(pid, _)| pid);
     let focused_pane_node = nav_targeting::chrome_projection_node(graph_app, window)
         .or_else(|| {
             focused_dialog_webview.and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
         })
-        .or_else(|| active_node_pane.map(|pane| pane.node_key));
+        .or(active_node_pane_key);
     render::render_command_palette_panel(
         ctx,
         graph_app,
         graph_app.workspace.graph_runtime.hovered_graph_node,
         focused_pane_node,
-        active_node_pane.map(|pane| pane.pane_id),
+        active_node_pane_id,
     );
     render::render_radial_command_menu(
         ctx,
         graph_app,
         graph_app.workspace.graph_runtime.hovered_graph_node,
         focused_pane_node,
-        active_node_pane.map(|pane| pane.pane_id),
+        active_node_pane_id,
     );
     crate::shell::desktop::ui::tag_panel::render_tag_panel(
         ctx,
@@ -677,7 +683,7 @@ pub(crate) fn run_post_render_phase<FActive>(
             graph_app,
             window,
             tiles_tree,
-            tile_rendering_contexts,
+            viewer_surfaces,
             tile_favicon_textures,
             favicon_textures,
             &mut post_render_intents,
@@ -703,7 +709,7 @@ pub(crate) fn run_post_render_phase<FActive>(
             graph_app,
             window,
             tiles_tree,
-            tile_rendering_contexts,
+            viewer_surfaces,
             tile_favicon_textures,
             webview_creation_backpressure,
             focused_node_hint,

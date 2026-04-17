@@ -3,10 +3,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use egui_tiles::Tree;
-use servo::{OffscreenRenderingContext, WebViewId};
+use servo::WebViewId;
 
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
@@ -31,7 +30,7 @@ pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -58,7 +57,7 @@ pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
                     ));
                 tile_runtime::reset_runtime_webview_state(
                     args.tiles_tree,
-                    args.tile_rendering_contexts,
+                    args.viewer_surfaces,
                     args.tile_favicon_textures,
                     args.favicon_textures,
                 );

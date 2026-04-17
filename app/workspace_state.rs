@@ -262,6 +262,28 @@ pub struct GraphViewRuntimeState {
     /// fully retired, this becomes the sole PaneId authority.
     pub node_pane_ids: HashMap<NodeKey, crate::shell::desktop::workbench::pane_model::PaneId>,
 
+    /// Host-side PaneId → TileRenderMode mapping, refreshed per frame alongside
+    /// `node_pane_ids`. Eliminates the need for the compositor to scan tiles for
+    /// render mode lookup.
+    pub pane_render_modes: HashMap<
+        crate::shell::desktop::workbench::pane_model::PaneId,
+        crate::shell::desktop::workbench::pane_model::TileRenderMode,
+    >,
+
+    /// Host-side PaneId → resolved viewer ID mapping, refreshed per frame.
+    /// Eliminates the need for the compositor to scan tiles for viewer ID lookup
+    /// during semantic input resolution.
+    pub pane_viewer_ids: HashMap<crate::shell::desktop::workbench::pane_model::PaneId, String>,
+
+    /// Cached active pane rects from GraphTree layout, refreshed per frame.
+    /// Eliminates the need for callers to scan `tiles_tree.active_tiles()` to
+    /// discover visible node panes and their positions.
+    pub active_pane_rects: Vec<(
+        crate::shell::desktop::workbench::pane_model::PaneId,
+        crate::graph::NodeKey,
+        egui::Rect,
+    )>,
+
     /// Per-view graph-canvas camera state (transient, not persisted).
     ///
     /// Parallel to the egui_graphs metadata camera. Once the graph-canvas path
