@@ -507,9 +507,15 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
     );
 
     let mut tiles = Tiles::default();
-    let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
-    let left_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(left_node)));
-    let right_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(right_node)));
+    let graph_kind = TileKind::Graph(GraphPaneRef::new(view_id));
+    let left_kind = TileKind::Node(NodePaneState::for_node(left_node));
+    let right_kind = TileKind::Node(NodePaneState::for_node(right_node));
+    let graph_pane_id = graph_kind.pane_id();
+    let left_pane_id = left_kind.pane_id();
+    let right_pane_id = right_kind.pane_id();
+    let graph_tile = tiles.insert_pane(graph_kind);
+    let left_tile = tiles.insert_pane(left_kind);
+    let right_tile = tiles.insert_pane(right_kind);
     let graph_leaf = tiles.insert_tab_tile(vec![graph_tile]);
     let left_leaf = tiles.insert_tab_tile(vec![left_tile]);
     let right_leaf = tiles.insert_tab_tile(vec![right_tile]);
@@ -520,8 +526,8 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
         &mut app,
         &mut tree,
         None,
-        WorkbenchIntent::UpdateTileSelection {
-            tile_id: graph_tile,
+        WorkbenchIntent::UpdatePaneSelection {
+            pane_id: graph_pane_id,
             mode: SelectionUpdateMode::Replace,
         },
     );
@@ -529,8 +535,8 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
         &mut app,
         &mut tree,
         None,
-        WorkbenchIntent::UpdateTileSelection {
-            tile_id: left_tile,
+        WorkbenchIntent::UpdatePaneSelection {
+            pane_id: left_pane_id,
             mode: SelectionUpdateMode::Add,
         },
     );
@@ -538,8 +544,8 @@ fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
         &mut app,
         &mut tree,
         None,
-        WorkbenchIntent::UpdateTileSelection {
-            tile_id: right_tile,
+        WorkbenchIntent::UpdatePaneSelection {
+            pane_id: right_pane_id,
             mode: SelectionUpdateMode::Add,
         },
     );

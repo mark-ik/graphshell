@@ -395,11 +395,11 @@ pub enum WorkbenchIntent {
     CloseRadialMenu,
     ToggleRadialMenu,
     CycleFocusRegion,
-    SelectTile {
-        tile_id: egui_tiles::TileId,
+    SelectPane {
+        pane_id: crate::shell::desktop::workbench::pane_model::PaneId,
     },
-    UpdateTileSelection {
-        tile_id: egui_tiles::TileId,
+    UpdatePaneSelection {
+        pane_id: crate::shell::desktop::workbench::pane_model::PaneId,
         mode: SelectionUpdateMode,
     },
     ClearTileSelection,
@@ -619,8 +619,8 @@ pub struct RuntimeFrameTabSemantics {
 
 #[derive(Debug, Clone, Default)]
 pub struct WorkbenchTileSelectionState {
-    pub selected_tile_ids: HashSet<egui_tiles::TileId>,
-    pub primary_tile_id: Option<egui_tiles::TileId>,
+    pub selected_pane_ids: HashSet<crate::shell::desktop::workbench::pane_model::PaneId>,
+    pub primary_pane_id: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

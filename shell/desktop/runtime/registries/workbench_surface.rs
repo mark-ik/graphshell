@@ -367,12 +367,12 @@ impl WorkbenchSurfaceRegistry {
                 }
                 None
             }
-            WorkbenchIntent::SelectTile { tile_id } => {
-                graph_app.select_workbench_tile(tile_id);
+            WorkbenchIntent::SelectPane { pane_id } => {
+                graph_app.select_workbench_pane(pane_id);
                 None
             }
-            WorkbenchIntent::UpdateTileSelection { tile_id, mode } => {
-                handle_update_tile_selection_intent(graph_app, tiles_tree, tile_id, mode);
+            WorkbenchIntent::UpdatePaneSelection { pane_id, mode } => {
+                handle_update_pane_selection_intent(graph_app, tiles_tree, pane_id, mode);
                 None
             }
             WorkbenchIntent::ClearTileSelection => {
@@ -810,13 +810,13 @@ fn handle_cycle_focus_region_intent(
     focus_routing::handle_cycle_focus_region_intent(graph_app, tiles_tree, graph_tree, focus_cycle)
 }
 
-fn handle_update_tile_selection_intent(
+fn handle_update_pane_selection_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
-    tile_id: egui_tiles::TileId,
+    pane_id: PaneId,
     mode: SelectionUpdateMode,
 ) {
-    selection_ops::handle_update_tile_selection_intent(graph_app, tiles_tree, tile_id, mode);
+    selection_ops::handle_update_pane_selection_intent(graph_app, tiles_tree, pane_id, mode);
 }
 
 fn handle_group_selected_tiles_intent(
@@ -1435,24 +1435,28 @@ mod tests {
     }
 
     #[test]
-    fn update_tile_selection_intent_tracks_selected_tiles_independent_of_active_focus() {
+    fn update_pane_selection_intent_tracks_selected_panes_independent_of_active_focus() {
         let registry = WorkbenchSurfaceRegistry::default();
         let mut app = GraphBrowserApp::new_for_testing();
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
-        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(NodeKey::new(7))));
+        let graph_kind = TileKind::Graph(GraphPaneRef::new(GraphViewId::new()));
+        let node_kind = TileKind::Node(NodePaneState::for_node(NodeKey::new(7)));
+        let graph_pane_id = graph_kind.pane_id();
+        let node_pane_id = node_kind.pane_id();
+        let graph = tiles.insert_pane(graph_kind);
+        let node = tiles.insert_pane(node_kind);
         let root = tiles.insert_tab_tile(vec![graph, node]);
         if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) = tiles.get_mut(root) {
             tabs.set_active(graph);
         }
-        let mut tree = Tree::new("workbench_tile_selection", root, tiles);
+        let mut tree = Tree::new("workbench_pane_selection", root, tiles);
 
         registry.dispatch_intent(
             &mut app,
             &mut tree,
             None,
-            WorkbenchIntent::UpdateTileSelection {
-                tile_id: graph,
+            WorkbenchIntent::UpdatePaneSelection {
+                pane_id: graph_pane_id,
                 mode: SelectionUpdateMode::Replace,
             },
         );
@@ -1460,17 +1464,20 @@ mod tests {
             &mut app,
             &mut tree,
             None,
-            WorkbenchIntent::UpdateTileSelection {
-                tile_id: node,
+            WorkbenchIntent::UpdatePaneSelection {
+                pane_id: node_pane_id,
                 mode: SelectionUpdateMode::Add,
             },
         );
 
         assert_eq!(
-            app.workbench_tile_selection().selected_tile_ids,
-            std::collections::HashSet::from([graph, node])
+            app.workbench_tile_selection().selected_pane_ids,
+            std::collections::HashSet::from([graph_pane_id, node_pane_id])
         );
-        assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(node));
+        assert_eq!(
+            app.workbench_tile_selection().primary_pane_id,
+            Some(node_pane_id)
+        );
         assert!(
             tree.active_tiles()
                 .into_iter()
@@ -1484,15 +1491,19 @@ mod tests {
         let registry = WorkbenchSurfaceRegistry::default();
         let mut app = GraphBrowserApp::new_for_testing();
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
-        let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(NodeKey::new(11))));
+        let graph_kind = TileKind::Graph(GraphPaneRef::new(GraphViewId::new()));
+        let node_kind = TileKind::Node(NodePaneState::for_node(NodeKey::new(11)));
+        let graph_pane_id = graph_kind.pane_id();
+        let node_pane_id = node_kind.pane_id();
+        let graph = tiles.insert_pane(graph_kind);
+        let node = tiles.insert_pane(node_kind);
         let graph_leaf = tiles.insert_tab_tile(vec![graph]);
         let node_leaf = tiles.insert_tab_tile(vec![node]);
         let root = tiles.insert_horizontal_tile(vec![graph_leaf, node_leaf]);
         let mut tree = Tree::new("group_selected_tiles", root, tiles);
 
-        app.select_workbench_tile(graph);
-        app.update_workbench_tile_selection(node, SelectionUpdateMode::Add);
+        app.select_workbench_pane(graph_pane_id);
+        app.update_workbench_pane_selection(node_pane_id, SelectionUpdateMode::Add);
 
         registry.dispatch_intent(
             &mut app,
@@ -1501,10 +1512,16 @@ mod tests {
             WorkbenchIntent::GroupSelectedTiles,
         );
 
-        let selected = &app.workbench_tile_selection().selected_tile_ids;
+        let selected = &app.workbench_tile_selection().selected_pane_ids;
         assert_eq!(selected.len(), 2);
-        assert_eq!(*selected, std::collections::HashSet::from([graph, node]));
-        assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(graph));
+        assert_eq!(
+            *selected,
+            std::collections::HashSet::from([graph_pane_id, node_pane_id])
+        );
+        assert_eq!(
+            app.workbench_tile_selection().primary_pane_id,
+            Some(graph_pane_id)
+        );
         let graph_count = tree
             .tiles
             .iter()
@@ -1526,15 +1543,19 @@ mod tests {
         let left = app.add_node_and_sync("https://left.example".into(), Point2D::new(0.0, 0.0));
         let right = app.add_node_and_sync("https://right.example".into(), Point2D::new(40.0, 0.0));
         let mut tiles = Tiles::default();
-        let left_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(left)));
-        let right_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(right)));
+        let left_kind = TileKind::Node(NodePaneState::for_node(left));
+        let right_kind = TileKind::Node(NodePaneState::for_node(right));
+        let left_pane_id = left_kind.pane_id();
+        let right_pane_id = right_kind.pane_id();
+        let left_tile = tiles.insert_pane(left_kind);
+        let right_tile = tiles.insert_pane(right_kind);
         let left_leaf = tiles.insert_tab_tile(vec![left_tile]);
         let right_leaf = tiles.insert_tab_tile(vec![right_tile]);
         let root = tiles.insert_horizontal_tile(vec![left_leaf, right_leaf]);
         let mut tree = Tree::new("persist_tile_group", root, tiles);
 
-        app.select_workbench_tile(left_tile);
-        app.update_workbench_tile_selection(right_tile, SelectionUpdateMode::Add);
+        app.select_workbench_pane(left_pane_id);
+        app.update_workbench_pane_selection(right_pane_id, SelectionUpdateMode::Add);
 
         registry.dispatch_intent(
             &mut app,
@@ -1577,15 +1598,19 @@ mod tests {
             app.add_node_and_sync("https://member.example".into(), Point2D::new(20.0, 0.0));
         let view_id = GraphViewId::new();
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
-        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+        let graph_kind = TileKind::Graph(GraphPaneRef::new(view_id));
+        let node_kind = TileKind::Node(NodePaneState::for_node(node_key));
+        let graph_pane_id = graph_kind.pane_id();
+        let node_pane_id = node_kind.pane_id();
+        let graph_tile = tiles.insert_pane(graph_kind);
+        let node_tile = tiles.insert_pane(node_kind);
         let graph_leaf = tiles.insert_tab_tile(vec![graph_tile]);
         let node_leaf = tiles.insert_tab_tile(vec![node_tile]);
         let root = tiles.insert_horizontal_tile(vec![graph_leaf, node_leaf]);
         let mut tree = Tree::new("persist_graph_member", root, tiles);
 
-        app.select_workbench_tile(graph_tile);
-        app.update_workbench_tile_selection(node_tile, SelectionUpdateMode::Add);
+        app.select_workbench_pane(graph_pane_id);
+        app.update_workbench_pane_selection(node_pane_id, SelectionUpdateMode::Add);
 
         registry.dispatch_intent(
             &mut app,

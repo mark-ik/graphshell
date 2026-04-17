@@ -260,12 +260,14 @@ fn render_tab_ui_impl(
         } else {
             SelectionUpdateMode::Replace
         };
-        behavior
-            .graph_app
-            .enqueue_workbench_intent(WorkbenchIntent::UpdateTileSelection {
-                tile_id,
-                mode: tile_selection_mode,
-            });
+        if let Some(Tile::Pane(kind)) = tiles.get(tile_id) {
+            behavior
+                .graph_app
+                .enqueue_workbench_intent(WorkbenchIntent::UpdatePaneSelection {
+                    pane_id: kind.pane_id(),
+                    mode: tile_selection_mode,
+                });
+        }
 
         if let Some(Tile::Pane(TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
@@ -408,11 +410,19 @@ fn render_tab_ui_impl(
             bg_color = bg_color.linear_multiply(1.08);
             stroke = Stroke::new(stroke.width.max(1.5), Color32::from_rgb(95, 170, 255));
         }
-        let tile_selected = behavior
-            .graph_app
-            .workbench_tile_selection()
-            .selected_tile_ids
-            .contains(&tile_id);
+        let tile_selected = tiles
+            .get(tile_id)
+            .and_then(|tile| match tile {
+                Tile::Pane(kind) => Some(
+                    behavior
+                        .graph_app
+                        .workbench_tile_selection()
+                        .selected_pane_ids
+                        .contains(&kind.pane_id()),
+                ),
+                _ => None,
+            })
+            .unwrap_or(false);
         if tile_selected {
             bg_color = bg_color.linear_multiply(if state.active { 1.12 } else { 1.06 });
             stroke = Stroke::new(

@@ -1,11 +1,12 @@
 use super::*;
-use egui_tiles::{Tile, TileId, Tree};
+use egui_tiles::{Tile, Tree};
 
 use crate::app::workbench_layout_policy::evaluate_layout_policy_report;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_LAYOUT_CONSTRAINT_CONFLICT, CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
 };
+use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::ux_tree::UxTreeSnapshot;
 
@@ -386,70 +387,82 @@ impl GraphBrowserApp {
     }
 
     pub fn clear_workbench_tile_selection(&mut self) {
-        self.workbench_tile_selection.selected_tile_ids.clear();
-        self.workbench_tile_selection.primary_tile_id = None;
+        self.workbench_tile_selection.selected_pane_ids.clear();
+        self.workbench_tile_selection.primary_pane_id = None;
     }
 
-    pub fn select_workbench_tile(&mut self, tile_id: TileId) {
-        self.update_workbench_tile_selection(tile_id, SelectionUpdateMode::Replace);
+    pub fn select_workbench_pane(&mut self, pane_id: PaneId) {
+        self.update_workbench_pane_selection(pane_id, SelectionUpdateMode::Replace);
     }
 
-    pub fn update_workbench_tile_selection(&mut self, tile_id: TileId, mode: SelectionUpdateMode) {
+    pub fn update_workbench_pane_selection(
+        &mut self,
+        pane_id: PaneId,
+        mode: SelectionUpdateMode,
+    ) {
         match mode {
             SelectionUpdateMode::Replace => {
-                self.workbench_tile_selection.selected_tile_ids.clear();
+                self.workbench_tile_selection.selected_pane_ids.clear();
                 self.workbench_tile_selection
-                    .selected_tile_ids
-                    .insert(tile_id);
-                self.workbench_tile_selection.primary_tile_id = Some(tile_id);
+                    .selected_pane_ids
+                    .insert(pane_id);
+                self.workbench_tile_selection.primary_pane_id = Some(pane_id);
             }
             SelectionUpdateMode::Add => {
                 self.workbench_tile_selection
-                    .selected_tile_ids
-                    .insert(tile_id);
-                self.workbench_tile_selection.primary_tile_id = Some(tile_id);
+                    .selected_pane_ids
+                    .insert(pane_id);
+                self.workbench_tile_selection.primary_pane_id = Some(pane_id);
             }
             SelectionUpdateMode::Toggle => {
                 if self
                     .workbench_tile_selection
-                    .selected_tile_ids
-                    .remove(&tile_id)
+                    .selected_pane_ids
+                    .remove(&pane_id)
                 {
-                    if self.workbench_tile_selection.primary_tile_id == Some(tile_id) {
-                        self.workbench_tile_selection.primary_tile_id = self
+                    if self.workbench_tile_selection.primary_pane_id == Some(pane_id) {
+                        self.workbench_tile_selection.primary_pane_id = self
                             .workbench_tile_selection
-                            .selected_tile_ids
+                            .selected_pane_ids
                             .iter()
                             .copied()
                             .next();
                     }
                 } else {
                     self.workbench_tile_selection
-                        .selected_tile_ids
-                        .insert(tile_id);
-                    self.workbench_tile_selection.primary_tile_id = Some(tile_id);
+                        .selected_pane_ids
+                        .insert(pane_id);
+                    self.workbench_tile_selection.primary_pane_id = Some(pane_id);
                 }
             }
         }
     }
 
-    pub fn prune_workbench_tile_selection(&mut self, tiles_tree: &Tree<TileKind>) {
+    pub fn prune_workbench_pane_selection(&mut self, tiles_tree: &Tree<TileKind>) {
+        let live_pane_ids: HashSet<PaneId> = tiles_tree
+            .tiles
+            .iter()
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(kind) => Some(kind.pane_id()),
+                _ => None,
+            })
+            .collect();
         self.workbench_tile_selection
-            .selected_tile_ids
-            .retain(|tile_id| matches!(tiles_tree.tiles.get(*tile_id), Some(Tile::Pane(_))));
+            .selected_pane_ids
+            .retain(|pane_id| live_pane_ids.contains(pane_id));
         if self
             .workbench_tile_selection
-            .primary_tile_id
-            .is_some_and(|tile_id| {
+            .primary_pane_id
+            .is_some_and(|pane_id| {
                 !self
                     .workbench_tile_selection
-                    .selected_tile_ids
-                    .contains(&tile_id)
+                    .selected_pane_ids
+                    .contains(&pane_id)
             })
         {
-            self.workbench_tile_selection.primary_tile_id = self
+            self.workbench_tile_selection.primary_pane_id = self
                 .workbench_tile_selection
-                .selected_tile_ids
+                .selected_pane_ids
                 .iter()
                 .copied()
                 .next();
@@ -463,12 +476,15 @@ impl GraphBrowserApp {
     pub(crate) fn persist_workbench_tile_group(
         &mut self,
         tiles_tree: &Tree<TileKind>,
-        selected_tile_ids: &std::collections::HashSet<TileId>,
+        selected_pane_ids: &std::collections::HashSet<PaneId>,
     ) -> Option<NodeKey> {
-        let pane_tile_kinds: Vec<TileKind> = selected_tile_ids
+        let pane_tile_kinds: Vec<TileKind> = tiles_tree
+            .tiles
             .iter()
-            .filter_map(|tile_id| match tiles_tree.tiles.get(*tile_id) {
-                Some(Tile::Pane(kind)) => Some(kind.clone()),
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(kind) if selected_pane_ids.contains(&kind.pane_id()) => {
+                    Some(kind.clone())
+                }
                 _ => None,
             })
             .collect();

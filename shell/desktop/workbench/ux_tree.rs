@@ -1410,10 +1410,14 @@ fn push_nodes(
 
     let ux_node_id = ux_node_id_for_tile(tile_id, tile);
     let focused = active.contains(&tile_id);
-    let tile_selected = graph_app
-        .workbench_tile_selection()
-        .selected_tile_ids
-        .contains(&tile_id);
+    let tile_selected = if let Tile::Pane(kind) = tile {
+        graph_app
+            .workbench_tile_selection()
+            .selected_pane_ids
+            .contains(&kind.pane_id())
+    } else {
+        false
+    };
 
     match tile {
         Tile::Pane(TileKind::Pane(

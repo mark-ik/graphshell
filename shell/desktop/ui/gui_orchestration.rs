@@ -487,7 +487,7 @@ pub(crate) fn run_keyboard_phase(
     graph_surface_focused: bool,
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     app_state: &Option<Rc<RunningAppState>>,
@@ -505,7 +505,7 @@ pub(crate) fn run_keyboard_phase(
             graph_surface_focused,
             window,
             tiles_tree,
-            tile_rendering_contexts,
+            viewer_surfaces,
             tile_favicon_textures,
             favicon_textures,
             app_state,
@@ -522,7 +522,7 @@ pub(crate) fn run_keyboard_phase(
          app_state,
          rendering_context,
          window_rendering_context,
-         tile_rendering_contexts,
+         viewer_surfaces,
          responsive_webviews,
          webview_creation_backpressure,
          frame_intents| {
@@ -533,16 +533,16 @@ pub(crate) fn run_keyboard_phase(
                 app_state,
                 base_rendering_context: rendering_context,
                 window_rendering_context,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 responsive_webviews,
                 webview_creation_backpressure,
                 lifecycle_intents: frame_intents,
             });
         },
-        |tiles_tree, tile_rendering_contexts, tile_favicon_textures, favicon_textures| {
+        |tiles_tree, viewer_surfaces, tile_favicon_textures, favicon_textures| {
             crate::shell::desktop::workbench::tile_runtime::reset_runtime_webview_state(
                 tiles_tree,
-                tile_rendering_contexts,
+                viewer_surfaces,
                 tile_favicon_textures,
                 favicon_textures,
             );
@@ -568,7 +568,7 @@ pub(super) fn run_toolbar_phase(
     focus_location_field_for_search: bool,
     omnibar_search_session: &mut Option<OmnibarSearchSession>,
     toasts: &mut egui_notify::Toasts,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     app_state: &Option<Rc<RunningAppState>>,
@@ -599,7 +599,7 @@ pub(super) fn run_toolbar_phase(
             show_clear_data_confirm: &mut toolbar_state.show_clear_data_confirm,
             omnibar_search_session,
             toasts,
-            tile_rendering_contexts,
+            viewer_surfaces,
             tile_favicon_textures,
             favicon_textures,
             #[cfg(feature = "diagnostics")]
@@ -617,7 +617,7 @@ pub(super) fn run_toolbar_phase(
         app_state,
         rendering_context,
         window_rendering_context,
-        tile_rendering_contexts,
+        viewer_surfaces,
         responsive_webviews,
         webview_creation_backpressure,
         frame_intents,
@@ -639,7 +639,7 @@ fn handle_toolbar_toggle_tile_view_request(
     app_state: &Option<Rc<RunningAppState>>,
     rendering_context: &Rc<OffscreenRenderingContext>,
     window_rendering_context: &Rc<WindowRenderingContext>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     responsive_webviews: &HashSet<WebViewId>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     frame_intents: &mut Vec<GraphIntent>,
@@ -652,7 +652,7 @@ fn handle_toolbar_toggle_tile_view_request(
             app_state,
             base_rendering_context: rendering_context,
             window_rendering_context,
-            tile_rendering_contexts,
+            viewer_surfaces,
             responsive_webviews,
             webview_creation_backpressure,
             lifecycle_intents: frame_intents,
@@ -951,7 +951,7 @@ fn execute_pending_open_node_after_intents(
     open_mode: TileOpenMode,
 ) {
     capture_open_node_undo_checkpoint(graph_app, tiles_tree);
-    let anchor_before_open = anchor_before_tab_open(tiles_tree, open_mode);
+    let anchor_before_open = anchor_before_tab_open(graph_app, open_mode);
     let node_already_in_workspace = is_node_already_in_workspace(tiles_tree, node_key);
     log::debug!(
         "gui: calling open_or_focus_node_pane_with_mode for {:?} mode {:?}",
@@ -980,9 +980,9 @@ fn capture_open_node_undo_checkpoint(graph_app: &mut GraphBrowserApp, tiles_tree
     }
 }
 
-fn anchor_before_tab_open(tiles_tree: &Tree<TileKind>, open_mode: TileOpenMode) -> Option<NodeKey> {
+fn anchor_before_tab_open(graph_app: &GraphBrowserApp, open_mode: TileOpenMode) -> Option<NodeKey> {
     if open_mode == TileOpenMode::Tab {
-        nav_targeting::active_node_pane_node(tiles_tree)
+        nav_targeting::active_node_pane_node(graph_app)
     } else {
         None
     }
@@ -1666,8 +1666,8 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::ReconcileGraphletTiles { .. }
         | WorkbenchIntent::RestorePaneToSemanticTabGroup { .. }
         | WorkbenchIntent::CollapseSemanticTabGroupToPaneRest { .. }
-        | WorkbenchIntent::SelectTile { .. }
-        | WorkbenchIntent::UpdateTileSelection { .. }
+        | WorkbenchIntent::SelectPane { .. }
+        | WorkbenchIntent::UpdatePaneSelection { .. }
         | WorkbenchIntent::ClearTileSelection
         | WorkbenchIntent::GroupSelectedTiles
         | WorkbenchIntent::CycleFocusRegion => UX_DISPATCH_NODE_TOOL_SURFACE,
@@ -1700,7 +1700,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
     app_state: &Option<Rc<RunningAppState>>,
     rendering_context: &Rc<OffscreenRenderingContext>,
     window_rendering_context: &Rc<WindowRenderingContext>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     responsive_webviews: &HashSet<WebViewId>,
@@ -1725,7 +1725,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
         app_state,
         rendering_context,
         window_rendering_context,
-        tile_rendering_contexts,
+        viewer_surfaces,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
@@ -1798,7 +1798,7 @@ fn reconcile_semantic_lifecycle_phase(
     app_state: &Option<Rc<RunningAppState>>,
     rendering_context: &Rc<OffscreenRenderingContext>,
     window_rendering_context: &Rc<WindowRenderingContext>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     responsive_webviews: &HashSet<WebViewId>,
@@ -1813,7 +1813,7 @@ fn reconcile_semantic_lifecycle_phase(
             app_state,
             rendering_context,
             window_rendering_context,
-            tile_rendering_contexts,
+            viewer_surfaces,
             tile_favicon_textures,
             favicon_textures,
             responsive_webviews,
