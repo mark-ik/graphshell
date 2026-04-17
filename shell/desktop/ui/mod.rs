@@ -16,6 +16,8 @@ pub(crate) mod host_ports;
 #[cfg(feature = "iced-host")]
 pub(crate) mod iced_app;
 #[cfg(feature = "iced-host")]
+pub(crate) mod iced_events;
+#[cfg(feature = "iced-host")]
 pub(crate) mod iced_host;
 #[cfg(feature = "iced-host")]
 pub(crate) mod iced_host_ports;
