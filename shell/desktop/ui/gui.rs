@@ -421,7 +421,6 @@ impl EguiHost {
             toolbar_drafts: HashMap::new(),
             command_palette_toggle_requested: false,
             pending_webview_context_surface_requests: Vec::new(),
-            deferred_open_child_webviews: Vec::new(),
         };
 
         let mut gui = Self {
@@ -937,7 +936,6 @@ impl EguiHost {
                     toolbar_drafts: _,
                     command_palette_toggle_requested,
                     pending_webview_context_surface_requests,
-                    deferred_open_child_webviews,
                 },
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
@@ -987,7 +985,6 @@ impl EguiHost {
                 omnibar_search_session,
                 command_palette_toggle_requested,
                 pending_webview_context_surface_requests,
-                deferred_open_child_webviews,
                 bookmark_import_dialog,
                 rendering_context,
                 window_rendering_context,

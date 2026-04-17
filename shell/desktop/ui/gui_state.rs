@@ -183,7 +183,6 @@ pub(crate) struct GraphshellRuntime {
     pub(crate) toolbar_drafts: HashMap<PaneId, ToolbarDraft>,
     pub(crate) command_palette_toggle_requested: bool,
     pub(crate) pending_webview_context_surface_requests: Vec<PendingWebviewContextSurfaceRequest>,
-    pub(crate) deferred_open_child_webviews: Vec<WebViewId>,
 }
 
 impl GraphshellRuntime {
@@ -233,6 +232,11 @@ impl GraphshellRuntime {
         // migrated here in M4.5b Step 5 because both inputs
         // (`graph_app`, `control_panel`) live on the runtime.
         self.update_prefetch_lifecycle_policy();
+
+        // Advance the idle watchdog for Tier 1 worker suspension. Previously
+        // called directly from `execute_update_frame`; migrated here because
+        // both `control_panel` and `registry_runtime` live on the runtime.
+        self.control_panel.tick_idle_watchdog(&self.registry_runtime);
     }
 
     /// Refresh the prefetch lifecycle policy on `control_panel` from the
@@ -408,7 +412,6 @@ impl GraphshellRuntime {
             toolbar_drafts: HashMap::new(),
             command_palette_toggle_requested: false,
             pending_webview_context_surface_requests: Vec::new(),
-            deferred_open_child_webviews: Vec::new(),
         }
     }
 }

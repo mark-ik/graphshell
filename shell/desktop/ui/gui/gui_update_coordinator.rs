@@ -57,7 +57,6 @@ impl EguiHost {
             command_palette_toggle_requested,
             pending_webview_context_surface_requests,
             bookmark_import_dialog,
-            deferred_open_child_webviews: _,
             rendering_context,
             window_rendering_context,
             registry_runtime,
@@ -72,7 +71,10 @@ impl EguiHost {
         if ctx.input(|i| !i.events.is_empty()) {
             control_panel.notify_user_gesture();
         }
-        control_panel.tick_idle_watchdog(registry_runtime);
+        // `control_panel.tick_idle_watchdog(registry_runtime)` migrated onto
+        // `GraphshellRuntime::ingest_frame_input` — both inputs live on the
+        // runtime, so running it from tick keeps the timer advancing without
+        // a host-side call site.
         let (pre_frame, mut frame_intents) =
             Self::run_pre_frame_and_initialize_intents(PreFrameAndIntentInitArgs {
                 ctx,

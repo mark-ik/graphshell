@@ -187,7 +187,6 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
     pub(super) command_palette_toggle_requested: &'a mut bool,
     pub(super) pending_webview_context_surface_requests:
         &'a mut Vec<PendingWebviewContextSurfaceRequest>,
-    pub(super) deferred_open_child_webviews: &'a mut Vec<WebViewId>,
     pub(super) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(super) registry_runtime: &'a RegistryRuntime,
