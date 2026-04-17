@@ -621,19 +621,6 @@ impl EguiHost {
         interaction_queries::has_focused_node(self)
     }
 
-    fn apply_pending_semantic_index_updates(&mut self) {
-        if self.runtime.frame_inbox.take_semantic_index_refresh() {
-            self.runtime.graph_app.refresh_registry_backed_view_lenses();
-        }
-    }
-
-    fn apply_pending_workbench_projection_refresh_updates(&mut self) {
-        if self.runtime.frame_inbox.take_workbench_projection_refresh() {
-            let _ =
-                persistence_ops::refresh_workbench_projection_from_manifests(&mut self.runtime.graph_app);
-        }
-    }
-
     fn apply_pending_settings_route_updates(&mut self) {
         for url in self.runtime.frame_inbox.take_settings_routes() {
             apply_requested_settings_route_update(&mut self.runtime.graph_app, &mut self.tiles_tree, url);
@@ -863,8 +850,12 @@ impl EguiHost {
     }
 
     fn run_update(&mut self, input: GuiUpdateInput<'_>) -> GuiUpdateOutput {
-        self.apply_pending_semantic_index_updates();
-        self.apply_pending_workbench_projection_refresh_updates();
+        // Frame-inbox signals whose consumers only touch runtime state
+        // (semantic-index refresh, workbench-projection refresh) now drain
+        // inside `GraphshellRuntime::ingest_frame_input`. The two remaining
+        // drains below stay host-side because their consumers reach into
+        // `tiles_tree` (settings routes) and the egui `Context` (theme
+        // visuals on profile invalidation).
         self.apply_pending_settings_route_updates();
         self.apply_pending_profile_invalidation_updates();
 

@@ -233,6 +233,12 @@ impl GraphshellRuntime {
         // (`graph_app`, `control_panel`) live on the runtime.
         self.update_prefetch_lifecycle_policy();
 
+        // Drain frame-inbox signals whose consumers only touch runtime
+        // state. Settings-route and profile-invalidation drains remain
+        // host-side because their consumers reach into `tiles_tree` and
+        // the egui `Context` respectively.
+        self.apply_pending_runtime_frame_inbox_signals();
+
         // Record a user-gesture timestamp and advance the idle watchdog for
         // Tier 1 worker suspension. Both previously called directly from
         // `execute_update_frame`; both inputs (`control_panel`,
@@ -243,6 +249,19 @@ impl GraphshellRuntime {
             self.control_panel.notify_user_gesture();
         }
         self.control_panel.tick_idle_watchdog(&self.registry_runtime);
+    }
+
+    /// Drain the subset of frame-inbox signals whose consumers depend only
+    /// on runtime state. Ran per-tick so any host inherits them for free.
+    fn apply_pending_runtime_frame_inbox_signals(&mut self) {
+        if self.frame_inbox.take_semantic_index_refresh() {
+            self.graph_app.refresh_registry_backed_view_lenses();
+        }
+        if self.frame_inbox.take_workbench_projection_refresh() {
+            let _ = crate::shell::desktop::ui::persistence_ops::refresh_workbench_projection_from_manifests(
+                &mut self.graph_app,
+            );
+        }
     }
 
     /// Refresh the prefetch lifecycle policy on `control_panel` from the
