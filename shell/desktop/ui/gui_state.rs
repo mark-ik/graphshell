@@ -219,7 +219,7 @@ impl GraphshellRuntime {
     /// translation still flows through the existing `handle_keyboard_phase`
     /// / `pending_webview_context_surface_requests` mechanisms; future
     /// expansions will route those here too.
-    pub(crate) fn ingest_frame_input(&mut self, _input: &FrameHostInput) {
+    pub(crate) fn ingest_frame_input(&mut self, input: &FrameHostInput) {
         // Advance frame-local physics housekeeping (drag-release inertia
         // decay). Previously ran at the top of `run_update_frame_prelude`;
         // migrated here in M4.5b Step 4 because it only touches runtime
@@ -233,9 +233,15 @@ impl GraphshellRuntime {
         // (`graph_app`, `control_panel`) live on the runtime.
         self.update_prefetch_lifecycle_policy();
 
-        // Advance the idle watchdog for Tier 1 worker suspension. Previously
-        // called directly from `execute_update_frame`; migrated here because
-        // both `control_panel` and `registry_runtime` live on the runtime.
+        // Record a user-gesture timestamp and advance the idle watchdog for
+        // Tier 1 worker suspension. Both previously called directly from
+        // `execute_update_frame`; both inputs (`control_panel`,
+        // `registry_runtime`) live on the runtime, so the pair runs here.
+        // Order matters: record the gesture before checking the threshold
+        // so this frame's activity is visible to this frame's watchdog tick.
+        if input.had_input_events {
+            self.control_panel.notify_user_gesture();
+        }
         self.control_panel.tick_idle_watchdog(&self.registry_runtime);
     }
 

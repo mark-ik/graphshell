@@ -230,7 +230,7 @@ impl Drop for EguiHost {
 /// input state the host just painted against. Events are left empty for now —
 /// event translation will migrate onto this path phase by phase.
 fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
-    let (pointer_hover, modifiers) = ctx.input(|i| {
+    let (pointer_hover, modifiers, had_input_events) = ctx.input(|i| {
         let m = i.modifiers;
         (
             i.pointer.hover_pos(),
@@ -241,6 +241,7 @@ fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
                 mac_cmd: m.mac_cmd,
                 command: m.command,
             },
+            !i.events.is_empty(),
         )
     });
     FrameHostInput {
@@ -250,6 +251,7 @@ fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
         wants_keyboard: ctx.wants_keyboard_input(),
         wants_pointer: ctx.wants_pointer_input(),
         modifiers,
+        had_input_events,
     }
 }
 

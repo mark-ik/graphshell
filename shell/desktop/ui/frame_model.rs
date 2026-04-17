@@ -211,4 +211,10 @@ pub(crate) struct FrameHostInput {
 
     /// Active keyboard modifier state this frame.
     pub(crate) modifiers: ModifiersState,
+
+    /// True when the host observed at least one native input event this
+    /// frame. Used by the runtime to mark a user gesture for idle-watchdog
+    /// timing. Populated even when `events` is still empty during the
+    /// partial event-translation migration.
+    pub(crate) had_input_events: bool,
 }

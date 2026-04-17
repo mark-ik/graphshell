@@ -66,15 +66,10 @@ impl EguiHost {
         } = args;
 
         Self::run_update_frame_prelude(ctx, graph_app, pending_webview_a11y_updates, tiles_tree);
-        // Track user gestures for Tier 1 worker idle suspension (§5 of
-        // Runtime Task Budget). Any egui input event counts as a gesture.
-        if ctx.input(|i| !i.events.is_empty()) {
-            control_panel.notify_user_gesture();
-        }
-        // `control_panel.tick_idle_watchdog(registry_runtime)` migrated onto
-        // `GraphshellRuntime::ingest_frame_input` — both inputs live on the
-        // runtime, so running it from tick keeps the timer advancing without
-        // a host-side call site.
+        // User-gesture notification and idle-watchdog tick migrated onto
+        // `GraphshellRuntime::ingest_frame_input`: both consume runtime
+        // state (`control_panel`, `registry_runtime`) and the gesture flag
+        // now flows through `FrameHostInput::had_input_events`.
         let (pre_frame, mut frame_intents) =
             Self::run_pre_frame_and_initialize_intents(PreFrameAndIntentInitArgs {
                 ctx,
