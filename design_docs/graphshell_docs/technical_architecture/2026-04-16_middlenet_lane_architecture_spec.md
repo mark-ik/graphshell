@@ -6,10 +6,11 @@
 
 **Date**: 2026-04-16
 **Status**: Proposed architectural spec
-**Scope**: Define the crate split, lane model, selection contract, and shared
-host plumbing for a protocol-first Middlenet engine that can choose between a
-direct portable document renderer, a richer static HTML/CSS renderer, and full
-web fallback.
+**Scope**: Define the crate split, lane model, async lifecycle, and shared host
+plumbing for a protocol-first Middlenet engine that can choose between a
+direct portable document renderer, an HTML lane built from Blitz's DOM/style/
+layout stack but painted through Graphshell's WebRender fork, and full-web
+fallback.
 
 **Related docs**:
 
@@ -28,6 +29,9 @@ web fallback.
   — vello/parley/AccessKit direction and custom-canvas strategy
 - [`../research/2026-04-14_wasm_portable_renderer_feasibility.md`](../research/2026-04-14_wasm_portable_renderer_feasibility.md)
   — portable renderer feasibility and host/WASM constraints
+- [`../../verso_docs/research/2026-04-16_smolnet_capability_model_and_scroll_alignment.md`](../../verso_docs/research/2026-04-16_smolnet_capability_model_and_scroll_alignment.md)
+  — capability-model framing for smolnet protocols, Scroll's UDC alignment,
+  and the recommended transport-plus-format adapter split
 
 ---
 
@@ -44,9 +48,11 @@ The design problem is:
 
 - preserve a protocol-first document model,
 - support a very portable direct render lane,
-- allow a richer static HTML/CSS lane where it materially helps,
+- allow a richer HTML/CSS lane where it materially helps,
 - keep full web fallback available,
-- avoid forcing every surface to pay the cost of the heaviest engine.
+- avoid forcing every surface to pay the cost of the heaviest engine,
+- and make the async/streaming lifecycle explicit instead of pretending
+  rendering is a synchronous function call.
 
 This spec names that solution the **lane architecture**.
 
@@ -90,7 +96,8 @@ the architecture, not an escape hatch that invalidates Middlenet.
 
 ## 3. Lane Model
 
-Graphshell SHOULD support at least four lanes.
+Graphshell SHOULD support at least three execution lanes plus one faithful-
+source presentation mode.
 
 ### 3.1 Direct Lane
 
@@ -113,13 +120,16 @@ Typical stack:
 - `middlenet-render`
 - `parley`
 - `vello`
-- optional `anyrender` backend abstraction
+- optional `anyrender`, but only for offscreen / CPU fallback / preview
+  plumbing rather than as an app-wide render coordinator
 
-### 3.2 Blitz Lane
+The Direct Lane MUST NOT grow a DOM/CSS/layout/script mini-browser. Its path is
+canonical semantic document -> text/layout model -> portable scene.
 
-The **Blitz Lane** renders static-ish HTML/CSS content through a richer
-HTML/CSS engine when that yields materially better fidelity than the Direct
-Lane.
+### 3.2 HTML Lane
+
+The **HTML Lane** renders static-ish HTML/CSS content through a richer HTML/CSS
+engine when that yields materially better fidelity than the Direct Lane.
 
 Primary use cases:
 
@@ -129,8 +139,24 @@ Primary use cases:
 - richer local publication/document surfaces
 - static observation-card details that benefit from CSS layout
 
-The Blitz Lane MUST remain optional. It is a Middlenet lane, not the definition
+Typical stack:
+
+- `middlenet-core`
+- `middlenet-html`
+- `blitz-dom`
+- `blitz-html`
+- `blitz-traits`
+- `Stylo`
+- `Taffy`
+- `Parley`
+- Graphshell's `WebRender` fork for display-list submission and GPU compositing
+
+The HTML Lane MUST remain optional. It is a Middlenet lane, not the definition
 of Middlenet itself.
+
+The HTML Lane MUST NOT treat Blitz's default paint/backend stack as
+architectural law. Graphshell is explicitly choosing Blitz for the integrated
+DOM/style/layout work, while retaining its own paint/compositing direction.
 
 ### 3.3 Servo Lane
 
@@ -143,9 +169,9 @@ Primary use cases:
 - JS-heavy or app-like sites
 - layout/API cases beyond Middlenet's intended scope
 
-### 3.4 Raw Source Lane
+### 3.4 Faithful Source Mode
 
-The **Raw Source Lane** preserves faithful-source fallback where structural
+The **Faithful Source Mode** preserves source-faithful fallback where structural
 adaptation is misleading, unsupported, or user-disabled.
 
 Primary use cases:
@@ -154,6 +180,9 @@ Primary use cases:
 - exact gemtext/source view
 - parse failures
 - diagnostics and archival fidelity
+
+Faithful Source Mode is a presentation mode of the Direct Lane, not a fourth
+renderer implementation with its own backend stack.
 
 ---
 
@@ -166,8 +195,9 @@ The lane architecture should be expressed as a crate split.
 | `middlenet-core` | Semantic document model, provenance, metadata, observation-card view model, render request/response types | Yes |
 | `middlenet-adapters` | Gemini/Gopher/Finger/Markdown/feed/plain-text/article adapters into `middlenet-core` | Yes |
 | `middlenet-render` | Direct Lane renderer for canonical Middlenet documents | No |
-| `middlenet-blitz` | Blitz-backed HTML/CSS lane adapter | No |
+| `middlenet-html` | HTML lane adapter: Blitz DOM/style/layout integration plus WebRender translation | No |
 | `middlenet-servo` | Servo-backed lane adapter and capability bridge | No |
+| `graphshell-gpu` | Shared device/font/image/offscreen/frame-scheduling host plumbing | No |
 | `middlenet-engine` | Facade/orchestrator: source detection, lane scoring, selection, fallback, host integration | No |
 
 ### 4.1 `middlenet-core`
@@ -212,16 +242,24 @@ Adapters MUST output `middlenet-core` data.
 `anyrender` MAY be used here as a backend abstraction layer. If adopted, it is
 host/render plumbing, not canonical truth.
 
-### 4.4 `middlenet-blitz`
+It MUST NOT become a staging area for HTML DOM, CSS cascade, or browser-like
+layout machinery.
 
-`middlenet-blitz` SHOULD own:
+### 4.4 `middlenet-html`
 
-- sanitized/static HTML ingestion into Blitz
-- Blitz-specific style/layout/paint setup
-- bridging canonical Middlenet metadata into Blitz-rendered documents
-- extracting hit-test/link/selectable metadata back into Graphshell contracts
+`middlenet-html` SHOULD own:
+
+- sanitized/static HTML ingestion into Blitz's DOM/style/layout stack
+- `html5ever` / `blitz-html` population of the integrated DOM
+- style resolution and layout through the Blitz top-half integration
+- translation of the laid-out tree into Graphshell's WebRender display-list
+  vocabulary
+- extraction of hit-test/link/selectable metadata back into Graphshell
+  contracts
 
 It MUST NOT redefine Middlenet's canonical document model.
+It MUST NOT assume Blitz's paint backend or shell crate are part of the core
+architecture.
 
 ### 4.5 `middlenet-servo`
 
@@ -232,7 +270,23 @@ It MUST NOT redefine Middlenet's canonical document model.
 - rendering handoff contracts for node viewers/panes
 - policy checks for when a request must escalate to full browser behavior
 
-### 4.6 `middlenet-engine`
+### 4.6 `graphshell-gpu`
+
+`graphshell-gpu` SHOULD own:
+
+- shared `wgpu::Device` / queue / surface-or-offscreen lifecycle where
+  applicable
+- font registry and fallback lookup
+- image decode/cache
+- offscreen worker pool and thumbnail queue discipline
+- frame scheduling / present coordination across lanes
+- texture/surface handoff contracts shared by shell, Middlenet, and future
+  graph backends
+
+This crate is the natural home for cross-lane renderer orchestration that does
+not belong in `middlenet-engine` itself.
+
+### 4.7 `middlenet-engine`
 
 `middlenet-engine` SHOULD remain the facade visible to the rest of Graphshell.
 
@@ -243,6 +297,20 @@ It SHOULD expose:
 - explicit lane override API
 - shared fallback behavior
 - host-capability routing
+
+### 4.8 Dependency Boundaries
+
+The dependency boundaries SHOULD remain explicit:
+
+| Crate | May depend on | Must not depend on |
+|---|---|---|
+| `middlenet-core` | `std`, `serde`, core data-model utilities | Servo, Blitz, egui, iced, Vello, WebRender |
+| `middlenet-adapters` | `middlenet-core`, protocol parsers (`html5ever`, Markdown/feed parsers, etc.) | Servo, WebRender, host UI crates |
+| `middlenet-render` | `middlenet-core`, `parley`, `vello`, optional `anyrender` | DOM/CSS/browser stacks, Servo |
+| `middlenet-html` | `middlenet-core`, Blitz top-half crates, Graphshell WebRender fork | `blitz-paint`, `blitz-renderer-vello`, `blitz-shell`, host chrome |
+| `middlenet-servo` | `middlenet-core`, Servo fork | Blitz renderer stack, host chrome |
+| `graphshell-gpu` | `wgpu`, caches, shared font/image/offscreen infrastructure | canonical content semantics |
+| `middlenet-engine` | all lane crates behind feature/envelope gates | hard-coded dependence on one mandatory lane in every envelope |
 
 ---
 
@@ -285,8 +353,28 @@ Should include:
 - preview/detail mode
 - host target
 - explicit user lane override
+- presentation mode (`Rendered` vs `FaithfulSource`)
+- cancellation token or equivalent lifecycle-cancel handle
 
-### 5.3 `HostCapabilities`
+### 5.3 `DocumentDelta`
+
+Adapter output SHOULD be streamable rather than all-at-once.
+
+`DocumentDelta` is the conceptual unit of streamed update between adapters and
+the engine.
+
+It SHOULD cover:
+
+- appended source bytes / decoded text chunks
+- semantic document insert/replace/remove operations
+- metadata updates (title, snippet, timestamps, provenance)
+- resource discovery (images, stylesheets, linked assets)
+- parse warnings / degradation markers
+
+Adapters SHOULD expose an async stream of `DocumentDelta` values rather than
+only a single final document payload.
+
+### 5.4 `HostCapabilities`
 
 Describes what the current host can do.
 
@@ -299,18 +387,40 @@ Should include:
 - embedded web-engine availability
 - network policy / offline mode
 
-### 5.4 `RenderOutput`
+### 5.5 `RenderLifecyclePhase`
+
+Rendering lifecycle MUST be explicit.
+
+The minimum phases SHOULD be:
+
+- `Started`
+- `Partial`
+- `Complete`
+- `Invalidated`
+- `Failed`
+- `Cancelled`
+
+These phases describe the evolving render session as content arrives, layout
+changes, images resolve, or background work is aborted.
+
+### 5.6 `RenderOutput`
 
 Host-facing lane output.
 
 Should include:
 
-- display list, scene, or texture output
+- a handle to the current display list, scene, texture, or viewer surface
 - hit-test regions
 - link/action map
 - accessibility projection payload
 - diagnostics payload
 - fallback explanation if degraded
+- lifecycle state / phase
+- update notification channel or equivalent invalidation hook
+
+`RenderOutput` MUST be understood as a live session handle, not a guarantee that
+the lane has already finished fetching, parsing, laying out, and painting
+everything synchronously.
 
 ---
 
@@ -332,9 +442,9 @@ Lane choice MUST be deterministic, explainable, and overridable.
 The default preference order SHOULD be:
 
 - Direct Lane for canonical Middlenet documents and preview/archive surfaces
-- Blitz Lane for static HTML/CSS or richer article/captured surfaces
+- HTML Lane for static HTML/CSS or richer article/captured surfaces
 - Servo Lane for full-web requirements
-- Raw Source Lane when fidelity or parse conditions require it
+- Faithful Source Mode when fidelity or parse conditions require it
 
 Exact scoring may vary, but the user-visible result MUST be explainable in terms
 of content needs and host capability.
@@ -345,26 +455,30 @@ Each node/document SHOULD support:
 
 - `Auto`
 - `Direct`
-- `Blitz`
+- `Html`
 - `Servo`
-- `Raw`
+- `Source`
 
 If an override is impossible on the current host, Graphshell MUST explain why.
 
 ### 6.4 Example routing rules
 
-- Gemini/Gopher/Finger → Direct by default, Raw optional
+- Gemini/Gopher/Finger → Direct by default, Source optional
 - Markdown/feed/plain text → Direct by default
-- captured static HTML/article mode → Blitz preferred, Direct acceptable fallback
+- captured static HTML/article mode → HTML preferred, Direct acceptable fallback
 - observation card / search result card / hover preview → Direct preferred
 - JS-required or authenticated page → Servo
+- raw protocol/source inspector → Direct with Faithful Source Mode
 
 ---
 
 ## 7. Shared Host Plumbing
 
+### 7.1 Shared Services Boundary
+
 The following concerns SHOULD be host-shared rather than lane-owned wherever
-possible:
+possible, ideally through `graphshell-gpu` plus closely-related host-side
+service modules:
 
 - font registry and fallback
 - image decode/cache
@@ -376,14 +490,69 @@ possible:
 - diagnostics and render-failure reporting
 - thumbnail and preview cache
 
-This is where `anyrender` can add value:
+### 7.2 `anyrender` Role
+
+`anyrender` is useful only in a narrow role:
 
 - one scene API
 - GPU or CPU rendering backends
 - live rendering and image-buffer rendering from the same abstraction
 
-If used, `anyrender` should sit below lane contracts, not above canonical
-document truth.
+If used, `anyrender` should sit below the Direct Lane and preview/offscreen
+subsystems, not above canonical document truth and not as the app-wide
+render-scheduling layer.
+
+`anyrender` is NOT the abstraction that coordinates Servo, Direct Lane, and the
+HTML Lane together.
+
+### 7.3 Envelope-Dependent Compilation
+
+Not every deployment envelope should carry every lane.
+
+Baseline guidance:
+
+| Envelope | Expected lanes |
+|---|---|
+| Native desktop app | Direct + HTML + Servo + Faithful Source Mode |
+| Native headless / thumbnail worker | Direct + HTML + Faithful Source Mode; Servo optional |
+| Browser extension / PWA / browser-hosted WASM | Direct + Faithful Source Mode; HTML Lane usually omitted; Servo unavailable |
+| WASI / offline utility / export worker | Direct + optional HTML depending on host GPU/runtime envelope |
+
+`middlenet-engine` SHOULD compile lanes conditionally per envelope instead of
+assuming one maximal build everywhere.
+
+### 7.4 Background Rendering
+
+Preview cards, hover previews, Verse search snippets, and thumbnail generation
+are background work.
+
+The architecture SHOULD assume:
+
+- offscreen rendering jobs run on a worker pool or background queue
+- preview work can be deprioritized relative to visible-pane rendering
+- caches may satisfy requests without waking the full lane
+- job cancellation is normal rather than exceptional
+
+### 7.5 Concurrency Model
+
+The concurrency model MUST be named explicitly.
+
+- Fetch is async. `middlenet-adapters` perform network or file I/O and therefore
+  do not synchronously return finished documents in the general case.
+- Adapter output SHOULD be an async stream of `DocumentDelta` values rather than
+  a single final result.
+- `RenderRequest` MUST carry cancellation support so closed panes, abandoned
+  previews, and scrolled-off background jobs can stop early.
+- Rendering lifecycle MUST expose explicit phases:
+  `Started -> Partial -> Complete`, with `Invalidated`, `Failed`, and
+  `Cancelled` as side paths.
+- Frame scheduling across Direct, HTML, and Servo lanes is a host concern and
+  SHOULD live in shared host plumbing rather than inside one lane crate.
+- Hosts MUST have a way to observe visual invalidation from a lane and schedule
+  a present on the next appropriate frame.
+- For lanes with incremental resource discovery or late updates, layout and
+  paint are not a one-shot transaction; updated visual state lands on later
+  compositor frames.
 
 ---
 
@@ -398,7 +567,8 @@ The current crate already contains the seeds of the lane split.
 | `adapters.rs` | `middlenet-adapters` |
 | `engine.rs` | `middlenet-engine` facade |
 | `viewer.rs` | `middlenet-render` host-facing direct renderer contract |
-| `dom.rs`, `style.rs`, `layout.rs`, `compositor.rs`, `script.rs` | split between `middlenet-render` and `middlenet-blitz`, rather than remaining one undifferentiated "mini browser" blob |
+| `dom.rs`, `style.rs`, `layout.rs`, `compositor.rs` | retire or carve into `middlenet-html`; do not grow these into the Direct Lane |
+| `script.rs` | keep only if a concrete HTML/Servo-side need survives; do not treat it as the seed of a generic Middlenet mini-browser |
 
 ### 8.1 Architectural correction
 
@@ -408,6 +578,12 @@ The main correction this spec makes is:
   Middlenet mini-browser,
 - instead split it into lane-specific modules behind a canonical semantic
   document core.
+
+More concretely:
+
+- the Direct Lane path is `SemanticDocument -> Parley/Vello scene`
+- the HTML Lane path is `html5ever/blitz-dom -> Stylo -> Taffy -> laid-out tree -> WebRender display list`
+- Servo remains the full-browser lane rather than a failure mode of the others
 
 That preserves the Middlenet dream while avoiding a misleading "HTML engine
 first" center of gravity.
@@ -422,11 +598,11 @@ The lane architecture should map to Graphshell surfaces as follows.
 |---|---|---|
 | Hover preview | Direct | Fast, deterministic, offscreen-friendly |
 | Verse search result card | Direct | Observation-card and snippet-native |
-| Observation-card detail | Direct, optional Blitz | Blitz only if richer local HTML styling adds value |
-| Offline/article archive | Blitz, fallback Direct | Static HTML/CSS lane is attractive here |
+| Observation-card detail | Direct, optional HTML | HTML only if richer local styling adds value |
+| Offline/article archive | HTML, fallback Direct | Static HTML/CSS lane is attractive here |
 | Feed reader / Markdown viewer | Direct | Protocol/document-first |
 | Live website pane | Servo | Full browser engine required |
-| Raw protocol/source inspector | Raw | Fidelity/debug view |
+| Raw protocol/source inspector | Direct + Source Mode | Fidelity/debug view |
 
 This "pick your lane" model is a feature, not an implementation accident.
 
@@ -437,10 +613,12 @@ This "pick your lane" model is a feature, not an implementation accident.
 This spec does not require:
 
 - replacing Servo
-- forcing all content through Blitz
+- forcing all content through the HTML Lane
 - forcing HTML as Middlenet's canonical document model
 - immediate support for full browser interactivity in portable/WASM lanes
 - locking the project to any single rendering backend abstraction
+- adopting Blitz's paint backend when Graphshell already has a stronger
+  WebRender direction for HTML
 
 ---
 
@@ -451,8 +629,11 @@ This spec does not require:
 3. Build the Direct Lane (`middlenet-render`) first.
 4. Route hover previews, search results, and observation cards through Direct.
 5. Add explicit lane chooser API in `middlenet-engine`.
-6. Add `middlenet-blitz` as an optional richer static HTML lane.
-7. Keep Servo as the full-web lane and narrow delegation only when Direct/Blitz
+6. Add `graphshell-gpu`-style shared host plumbing for device/font/image/
+   offscreen/frame coordination.
+7. Add `middlenet-html` as an optional HTML lane using Blitz's DOM/style/layout
+   integration and Graphshell's WebRender fork for paint/compositing.
+8. Keep Servo as the full-web lane and narrow delegation only when Direct/HTML
    are truly ready.
 
 This ordering favors the most portable, deterministic, and broadly useful lane
@@ -473,5 +654,5 @@ concrete, disciplined sense:
 
 That is a better fit for Graphshell than either:
 
-- making Blitz the center of Middlenet, or
+- making Blitz's renderer stack the center of Middlenet, or
 - growing Middlenet into a monolithic mini browser engine.

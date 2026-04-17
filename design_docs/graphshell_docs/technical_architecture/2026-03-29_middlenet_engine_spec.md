@@ -16,7 +16,8 @@ engine that serves it, and describe how it fits into each host envelope.
   portable web core
 - [`2026-04-16_middlenet_lane_architecture_spec.md`](2026-04-16_middlenet_lane_architecture_spec.md)
   — lane-oriented crate split and selection model: direct document renderer,
-  optional Blitz HTML/CSS lane, Servo fallback, and shared host plumbing
+  HTML lane built from Blitz's DOM/style/layout stack but painted through
+  Graphshell's WebRender fork, Servo fallback, and shared host plumbing
 - [`2026-03-29_workspace_restructuring_plan.md`](2026-03-29_workspace_restructuring_plan.md)
   — Cargo workspace layout: crate responsibilities, dependency graph, migration steps
 - [`2026-03-30_protocol_modularity_and_host_capability_model.md`](2026-03-30_protocol_modularity_and_host_capability_model.md)
@@ -32,6 +33,9 @@ engine that serves it, and describe how it fits into each host envelope.
 - [`../../verso_docs/research/2026-03-28_smolnet_follow_on_audit.md`](../../verso_docs/research/2026-03-28_smolnet_follow_on_audit.md)
   — smallnet protocol audit including §10 Lagrange precedent: document model
   pipeline, Gopher conversion strategy, security posture, and protocol priority order
+- [`../../verso_docs/research/2026-04-16_smolnet_capability_model_and_scroll_alignment.md`](../../verso_docs/research/2026-04-16_smolnet_capability_model_and_scroll_alignment.md)
+  — broader smolnet capability-model framing: transport-plus-format
+  architecture, Tier A/B/C/D coverage priorities, and Scroll's UDC alignment
 - [`../research/2026-04-11_linked_data_over_middlenet_relevance_note.md`](../research/2026-04-11_linked_data_over_middlenet_relevance_note.md)
   — RDF / JSON-LD / Gemini linked-data bridge relevance and non-goals
 - [`../research/2026-03-01_webrender_wgpu_renderer_research.md`](../research/2026-03-01_webrender_wgpu_renderer_research.md)
@@ -46,7 +50,7 @@ the full modern web.
 
 | Layer | Protocols / content types | Defining property |
 |-------|--------------------------|-------------------|
-| **Smallnet** | Gemini, Gopher, Finger, Spartan | Intentionally minimal; no CSS, no JS, text-first |
+| **Smallnet** | Gemini, Gopher, Finger, Spartan, Scroll, Nex | Intentionally minimal; no CSS, no JS, text-first |
 | **MiddleNet** | RSS/Atom, static HTML, Markdown, simple interactive pages, reader-mode HTTP, smallnet protocols | Structured documents; moderate CSS; light or no JS |
 | **Fullnet** | Modern web apps (React, SPAs, authenticated apps) | Full JS runtime, full browser API surface |
 
@@ -106,6 +110,19 @@ crate intended to serve MiddleNet content across all host envelopes. The
 canonical crate name should be `middlenet-engine`. "Portable web core" remains
 useful architecture prose for the shared boundary, but not the package name.
 
+The current intended architecture is **lane-oriented**, not a single
+"everything becomes HTML" funnel:
+
+- a **Direct Lane** for canonical `SemanticDocument` content rendered through
+  Parley and Vello
+- an **HTML Lane** for actual HTML/CSS content, using Blitz's DOM/style/layout
+  stack and Graphshell's WebRender fork
+- a **Servo fallback lane** for full-web or higher-complexity content
+
+That distinction matters for smallnet work. Protocols such as Gemini, Gopher,
+Finger, feeds, Markdown, and Scroll should land first as protocol-faithful
+document content, not as accidental HTML.
+
 ### 2.1 Core properties
 
 These are **target properties for phases 2 and 3**, not claims about the
@@ -130,7 +147,7 @@ current extracted state of the Graphshell repository.
   `middlenet:smallnet` (~3 MB, no JS), `middlenet:document` (~8 MB, basic JS),
   `middlenet:interactive` (~20 MB, fuller DOM surface).
 
-### 2.2 Component stack
+### 2.2 HTML lane component stack
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -176,20 +193,20 @@ current extracted state of the Graphshell repository.
 | tiny-skia | crates.io | ✅ software rasterizer fallback (SIMD128) |
 | reqwest | crates.io | ✅ auto-detects WASM, uses browser Fetch |
 
-The WebRender wgpu backend (mark-ik/webrender) is the critical path item.
-When complete, WebRender replaces any lighter-weight paint layer, providing
-production-grade compositing: subpixel text, box shadows, blur filters,
-gradients, 3D transforms, clip regions — the full Firefox compositor.
+The WebRender wgpu backend (mark-ik/webrender) is the critical path item for
+the HTML lane. The Direct Lane remains intentionally lighter-weight and
+protocol-first.
 
 ---
 
 ## 3. Protocol Rendering Strategy
 
-### 3.1 Single intermediate document model
+### 3.1 Canonical document model first, HTML lane second
 
-Following Lagrange's architecture, all MiddleNet protocols parse to the same
-intermediate document model before rendering. After parsing, the renderer is
-format-agnostic — it operates on the DOM tree, not on the source format.
+Following Lagrange's architecture and the newer lane split, MiddleNet should
+parse smallnet and document protocols to the same **canonical semantic document
+model** before rendering. That canonical model is not the same thing as the
+HTML lane's DOM tree.
 
 The current repository already implements much of the **protocol-faithful
 adapter surface** behind this idea, but it does so inside the native Graphshell
@@ -198,43 +215,96 @@ engine stack described below.
 
 ```
 gemini://  → gemtext parser   ─┐
-gopher://  → gopher parser    ─┤→ DOM tree + CSS rules → Taffy/Stylo/WebRender
+gopher://  → gopher parser    ─┤
 finger://  → plain text       ─┤
 spartan:// → Spartan parser   ─┤
+scroll://  → scroll parser    ─┼→ SemanticDocument → Direct Lane → Parley/Vello
 nex://     → nex parser       ─┤
 misfin:    → misfin parser    ─┤
-text/html  → html5ever        ─┘
+feeds/md   → format parsers   ─┘
+
+text/html  → html5ever / blitz-html → Blitz DOM + Stylo + Taffy → HTML Lane → WebRender
 ```
 
-Each protocol parser maps its native semantics to DOM equivalents:
+This means the engine has one canonical semantic-document spine for
+protocol-faithful sources and a separate richer HTML/CSS lane when the source
+is actually HTML or an explicit archive/export surface calls for it.
 
-| Protocol | Document model mapping |
+### 3.2 Capability model and adapter split
+
+The broader smolnet research now points toward a transport-plus-format split:
+
+- `middlenet-transport` owns request/response framing, status models, and
+  transport realization families
+- `middlenet-formats` owns content grammars such as gemtext, scrolltext,
+  gopher menus, feeds, Markdown, and faithful-source text
+- `middlenet-adapters` composes the two and emits streamed `DocumentDelta`
+  updates into the lane system
+
+This is a better long-term fit than treating every named protocol as a wholly
+new stack. It lets Graphshell grow by capability family rather than by a pile
+of bespoke protocol modules.
+
+### 3.3 Document model mappings
+
+Each protocol parser maps its native semantics to the canonical document model
+while preserving protocol-authored meaning:
+
+| Protocol | Canonical document-model mapping |
 |---|---|
-| Gemini gemtext | `<h1>`–`<h3>`, `<p>`, `<a>`, `<pre>`, `<ul>` |
-| Gopher menu | `<ul>` of `<a>` links + `<pre>` blocks (heuristic); faithful-source toggle renders raw as `<pre>` |
-| Finger | `<pre>` plain text body |
-| Spartan | Same as Gemini (compatible subset) |
-| Nex | `<ul>` of `<a>` links (Gemini-style `=>`) + `<pre>` for files |
-| Misfin | `text/gemini` base + additional block types for message metadata |
-| RSS/Atom | `<article>` list with `<h2>`, `<p>`, `<time>`, `<a>` |
-| JSON Feed | `<article>` list with `<h2>`, `<p>`, `<time>`, `<a>` |
-| Markdown | Parsed to equivalent heading/paragraph/link/code blocks |
+| Gemini gemtext | heading, paragraph, link, code/preformatted, and list-like blocks |
+| Gopher menu | menu/link blocks plus faithful-source fallback for ambiguous or ASCII-art-heavy bodies |
+| Finger | plain text body with minimal structure |
+| Spartan | Gemini-adjacent document blocks plus request/input semantics |
+| Scroll | section-oriented `scrolltext`, input links, link relations, BCP47/language-aware metadata, and UDC-bearing response metadata |
+| Nex | directory/link-list plus file/plain-text blocks |
+| Misfin | gemtext-adjacent message body plus message metadata and mailbox semantics |
+| RSS/Atom | feed/document-entry blocks with time, authorship, and link metadata |
+| JSON Feed | feed/document-entry blocks with time, authorship, and link metadata |
+| Markdown | heading/paragraph/link/code/list blocks |
 
-This means styling (via CSS) and layout (via Taffy/Stylo) work identically
-across all protocols. A gemtext `<h1>` and an HTML `<h1>` render through the
-same pipeline.
+The important invariant is that the canonical document model preserves source
+semantics first. HTML rendering exists, but it is not the default meaning of a
+smallnet document.
 
-### 3.2 Gopher conversion: heuristic with faithful fallback
+### 3.4 Scroll as a first-class Middlenet target
+
+Scroll deserves explicit mention in the engine spec because it lines up with
+Graphshell unusually well.
+
+Based on the provided specification, Scroll combines:
+
+- `text/scroll` as a distinct streamable source format
+- section-oriented document structure rather than mere heading decoration
+- first-class metadata requests returning scrolltext abstracts
+- BCP47 language negotiation at request time
+- UDC-coded success responses and UDC-aware document worldview
+- Titan adjacency and Gemini-like certificate posture
+
+This makes Scroll more than "Gemini but slightly richer." It is a strong fit
+for Graphshell's protocol-faithful document lane and for Verse's UDC-aware
+indexing model. If Scroll support lands, Middlenet SHOULD preserve:
+
+- section hierarchy
+- heading-number-derived local navigation targets
+- author/publish/modify metadata
+- language negotiation metadata
+- UDC class information
+- link relations
+- input-link semantics
+- metadata abstracts as preview material
+
+### 3.5 Gopher conversion: heuristic with faithful fallback
 
 Gopher menus are converted to the document model using heuristic detection
 (identifying link lines, info lines, preformatted blocks from ASCII art).
 Characters that would be misread by the document model are escaped.
 
-A per-node user preference disables conversion and renders the raw gopher
+A per-node user preference disables conversion and renders the raw Gopher
 source as monospace preformatted text. This is the same behaviour Lagrange
 exposes as "disable Gopher menu styling autodetection."
 
-### 3.3 Faithful render plus optional assistive enrichment
+### 3.6 Faithful render plus optional assistive enrichment
 
 Graphshell's accessibility and protocol policy should be:
 
@@ -263,26 +333,31 @@ This also preserves the current authored-content boundary:
   but that would be an explicit architectural shift, not an accidental drift
   caused by how browsed content is rendered.
 
-### 3.4 Security preference hierarchy
+### 3.7 Security preference hierarchy
 
 The engine defaults to the secure protocol where there is meaningful overlap:
 
 - Discovery: WebFinger (HTTPS) preferred over Finger (plaintext)
 - Upload/submit: Titan (TLS) preferred over Spartan (plaintext) for equivalent actions
-- Modern document: Gemini (TLS) preferred over Spartan for equivalent content
+- Modern document: Gemini (TLS) preferred over Spartan (plaintext) for equivalent content
+
+Where protocols are not actually interchangeable, Graphshell should choose by
+source semantics rather than by "upgrade" instinct alone. Scroll, for example,
+should not be silently downgraded into generic Gemini rendering just because
+the transport family is adjacent.
 
 For protocols with no secure analogue (Gopher, Nex, Finger, Guppy): render
 faithfully. Show the protocol name and plaintext nature as a neutral
 informational indicator — not an alarm. Warn on encryption *failures*
 (untrusted or expired certificates), not on encryption *absence*.
 
-### 3.5 Packaging and ownership boundary
+### 3.8 Packaging and ownership boundary
 
 The MiddleNet engine owns shared document-model adapters and rendering
 semantics. It does **not** own transport realization.
 
-- `middlenet-engine` owns document/render adapters and the intermediate
-  document model.
+- `middlenet-engine` owns document/render adapters, lane selection, and the
+  canonical semantic document model.
 - `graphshell-comms` or equivalent portable protocol logic owns protocol byte
   parsing/composition.
 - Hosts and native mods own raw sockets, TLS sessions, browser APIs, server
@@ -300,7 +375,7 @@ is strongest in Gemini/Gopher/Finger, RSS/Atom/JSON Feed, Markdown/plain text,
 WebFinger, and the Titan/Misfin person workflows; Spartan, Nex, Guppy,
 reader-mode HTTP, and browser-host execution remain planned.
 
-### Tier 0 — Smallnet (no JS required)
+### Tier 0 — Smallnet and adjacent text-first documents (no JS required)
 
 - **Gemini** (`gemini://`) — gemtext; TLS; primary modern secure document lane
 - **Gopher** (`gopher://`) — menu/text; heuristic conversion; faithful-source mode
@@ -308,6 +383,7 @@ reader-mode HTTP, and browser-host execution remain planned.
 - **Titan** — TLS upload extension to Gemini; shared upload dialog with Spartan
 - **Misfin** — TLS messaging; `text/gemini` + message line types; social/contact lane
 - **Spartan** — plaintext Gemini-adjacent; lightweight request/submit semantics
+- **Scroll** (`scroll://`) — `text/scroll`; streamable section-oriented document protocol; BCP47 language negotiation; metadata abstracts; UDC-coded success responses
 - **Nex** — plaintext directory/document; Gemini-style link listings
 - **Guppy** — UDP plaintext; low priority; compatibility/experiment only
 
@@ -485,9 +561,9 @@ type. In extension/PWA/mobile envelopes, only the MiddleNet engine is available.
   kernel, and keep "portable web core" as descriptive architecture language
   rather than the Cargo package name.
 2. **WebRender wgpu backend readiness** — the render pass wiring (alpha/opaque/
-   composite dispatch) and WASM surface integration are the critical path.
-   Until complete, Blitz or a simpler wgpu paint layer can fill the gap for
-   Tier 0/1 content.
+   composite dispatch) and WASM surface integration are the critical path for
+   the HTML lane. The Direct Lane should remain independently useful via its
+   own lighter-weight renderer for Tier 0/1 protocol-faithful content.
 3. **Smallnet server integration** — Gemini/Gopher/Finger servers currently
    live in the Verso native mod. Whether these move into the portable engine
    (client-only, server stays native) or stay in Verso is an open placement

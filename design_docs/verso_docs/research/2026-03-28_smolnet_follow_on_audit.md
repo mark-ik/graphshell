@@ -12,6 +12,7 @@
 
 - [`../technical_architecture/VERSO_AS_PEER.md`](../technical_architecture/VERSO_AS_PEER.md) — Verso runtime boundary and current Gemini/Gopher/Finger posture
 - [`../implementation_strategy/2026-03-28_gemini_capsule_server_plan.md`](../implementation_strategy/2026-03-28_gemini_capsule_server_plan.md) — current small-protocol implementation baseline
+- [`2026-04-16_smolnet_capability_model_and_scroll_alignment.md`](2026-04-16_smolnet_capability_model_and_scroll_alignment.md) — broader capability-model follow-on: transport-plus-format framing, Tier A/B/C/D protocol priorities, and Scroll's UDC alignment with Verse
 - [`../../graphshell_docs/implementation_strategy/viewer/2026-03-08_simple_document_engine_target_spec.md`](../../graphshell_docs/implementation_strategy/viewer/2026-03-08_simple_document_engine_target_spec.md) — `SimpleDocument` boundary and block model
 - [`../../graphshell_docs/implementation_strategy/system/register/protocol_registry_spec.md`](../../graphshell_docs/implementation_strategy/system/register/protocol_registry_spec.md) — protocol registry opt-in posture
 - [`2026-03-28_permacomputing_alignment.md`](2026-03-28_permacomputing_alignment.md) — current Verso research framing for small protocols as living capability lanes
