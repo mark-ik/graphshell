@@ -93,7 +93,7 @@ infer = "0.19"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
 # M5: iced is the second host backend. Pulled only under the `iced-host`
 # feature; egui remains the default host until M5/M6 reach parity.
-iced = { version = "0.13", optional = true }
+iced = { version = "0.13", optional = true, features = ["canvas"] }
 image = { version = "0.25", default-features = false, features = ["avif", "rayon", "bmp", "gif", "ico", "jpeg", "png", "webp"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }

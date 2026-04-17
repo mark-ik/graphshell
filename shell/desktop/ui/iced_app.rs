@@ -21,11 +21,12 @@
 //! M5.1/M5.2 only prove the iced `Program` bundle compiles; a second
 //! desktop entry point lands when the first real surface renders.
 
-use iced::widget::{column, container, text};
+use iced::widget::{canvas, column, container, text};
 use iced::{Element, Length, Task};
 
 use crate::shell::desktop::ui::frame_model::FrameHostInput;
 use crate::shell::desktop::ui::gui_state::GraphshellRuntime;
+use crate::shell::desktop::ui::iced_graph_canvas::GraphCanvasProgram;
 use crate::shell::desktop::ui::iced_host::IcedHost;
 
 /// App-level state held across iced frames.
@@ -76,17 +77,22 @@ impl IcedApp {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        // Placeholder body. M5.4 replaces this with a real surface
-        // (graph canvas first), driven off the `FrameViewModel` cached
-        // from the most recent tick.
+        // M5.4: first real surface. Snapshot the shared graph and render
+        // it on an iced canvas. Interaction / proper CanvasBackend
+        // integration lands in follow-on work.
+        let program = GraphCanvasProgram::from_graph_app(&self.host.runtime.graph_app);
+        let graph = canvas(program)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
         let body = column![
-            text("Graphshell — iced host").size(24),
-            text("M5 skeleton: runtime.tick runs; no surfaces wired yet."),
+            text("Graphshell — iced host (graph canvas)").size(20),
+            graph,
         ]
-        .spacing(12);
+        .spacing(8);
 
         container(body)
-            .padding(24)
+            .padding(16)
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
