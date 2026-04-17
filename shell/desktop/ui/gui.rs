@@ -146,7 +146,7 @@ pub(crate) struct GuiUpdateOutput;
 /// host-specific state (egui context, texture caches, `egui_tiles::Tree`,
 /// toasts). Durable runtime state lives in `self.runtime: GraphshellRuntime`
 /// and will survive the eventual iced host migration unchanged.
-pub struct Gui {
+pub struct EguiHost {
     rendering_context: Rc<OffscreenRenderingContext>,
     window_rendering_context: Rc<WindowRenderingContext>,
     context: UiRenderBackendHandle,
@@ -196,7 +196,7 @@ pub struct Gui {
     diagnostics_state: diagnostics::DiagnosticsState,
 }
 
-impl Drop for Gui {
+impl Drop for EguiHost {
     fn drop(&mut self) {
         if let Ok(layout_json) = serde_json::to_string(&self.tiles_tree) {
             self.runtime.graph_app.save_tile_layout_json(&layout_json);
@@ -271,7 +271,7 @@ fn apply_requested_settings_route_update(
     }
 }
 
-impl Gui {
+impl EguiHost {
     fn toast_anchor(anchor: ToastAnchorPreference) -> egui_notify::Anchor {
         match anchor {
             ToastAnchorPreference::TopRight => egui_notify::Anchor::TopRight,

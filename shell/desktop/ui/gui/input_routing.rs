@@ -12,7 +12,7 @@ pub(super) fn has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {
     pane_queries::tree_has_any_node_panes(tiles_tree)
 }
 
-pub(super) fn collect_webview_update_flags(gui: &mut Gui, window: &EmbedderWindow) -> bool {
+pub(super) fn collect_webview_update_flags(gui: &mut EguiHost, window: &EmbedderWindow) -> bool {
     let focused_node_key = gui.focused_node_key();
     toolbar_status_sync::sync_toolbar_webview_status_fields(
         &mut gui.runtime.toolbar_state,

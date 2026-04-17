@@ -5,7 +5,7 @@
 use super::*;
 
 pub(super) fn on_window_event(
-    gui: &mut Gui,
+    gui: &mut EguiHost,
     winit_window: &Window,
     event: &WindowEvent,
 ) -> EventResponse {

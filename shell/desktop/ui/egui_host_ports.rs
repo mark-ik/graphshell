@@ -1,0 +1,226 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+//! egui-facing `HostPorts` implementation — scaffolding.
+//!
+//! This module is the **egui-side** bundle of host port implementations.
+//! Once the frame pipeline routes through the `HostPorts` traits (the final
+//! M4.5 step), this struct becomes the wrapper that gives the runtime access
+//! to egui-specific state (context, texture caches, toasts, clipboard,
+//! accesskit bridge) held on `EguiHost`.
+//!
+//! ## Current status: scaffolding only
+//!
+//! The methods below are placeholders. They compile but do not yet delegate
+//! to real egui state — that wiring lands alongside the frame-pipeline
+//! rewrite so the moving pieces stay consistent.
+//!
+//! Each `todo(m4.5)` comment marks a site that will become a concrete call
+//! through to today's `EguiHost` state.
+
+use std::sync::Arc;
+
+use crate::graph::NodeKey;
+use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
+use crate::shell::desktop::ui::frame_model::ToastSpec;
+use crate::shell::desktop::ui::host_ports::{
+    HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostPorts,
+    HostSurfacePort, HostTexturePort, HostToastPort,
+};
+use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
+use servo::WebViewId;
+
+/// egui-side bundle of host port implementations.
+///
+/// For M4.4 this is an empty marker struct; M4.5 will populate it with
+/// `&mut` references (or owned state) needed to delegate to the current
+/// egui-specific plumbing.
+pub(crate) struct EguiHostPorts;
+
+// ---------------------------------------------------------------------------
+// HostInputPort
+// ---------------------------------------------------------------------------
+
+impl HostInputPort for EguiHostPorts {
+    fn poll_events(&mut self) -> Vec<HostEvent> {
+        // todo(m4.5): translate egui's accumulated input into HostEvent vocabulary.
+        Vec::new()
+    }
+
+    fn pointer_hover_position(&self) -> Option<egui::Pos2> {
+        // todo(m4.5): read from egui::Context::input(|i| i.pointer.hover_pos()).
+        None
+    }
+
+    fn wants_keyboard_input(&self) -> bool {
+        // todo(m4.5): ctx.wants_keyboard_input().
+        false
+    }
+
+    fn wants_pointer_input(&self) -> bool {
+        // todo(m4.5): ctx.wants_pointer_input().
+        false
+    }
+
+    fn modifiers(&self) -> ModifiersState {
+        // todo(m4.5): read egui::Context::input(|i| i.modifiers) and translate.
+        ModifiersState::default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HostSurfacePort
+// ---------------------------------------------------------------------------
+
+impl HostSurfacePort for EguiHostPorts {
+    fn present_surface(&mut self, _node_key: NodeKey) {
+        // todo(m4.5): bump_content_generation on the ViewerSurfaceRegistry
+        // and request a repaint from the egui context.
+    }
+
+    fn retire_surface(&mut self, _node_key: NodeKey) {
+        // todo(m4.5): CompositorAdapter::retire_node_content_resources(...).
+    }
+
+    fn register_content_callback(
+        &mut self,
+        _node_key: NodeKey,
+        _callback: Arc<dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync>,
+    ) {
+        // todo(m4.5): CompositorAdapter::register_content_callback(node_key, callback).
+    }
+
+    fn unregister_content_callback(&mut self, _node_key: NodeKey) {
+        // todo(m4.5): CompositorAdapter::unregister_content_callback(node_key).
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HostPaintPort
+// ---------------------------------------------------------------------------
+
+impl HostPaintPort for EguiHostPorts {
+    fn draw_overlay_stroke(
+        &mut self,
+        _node_key: NodeKey,
+        _rect: egui::Rect,
+        _stroke: egui::Stroke,
+        _rounding: f32,
+    ) {
+        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_stroke.
+    }
+
+    fn draw_dashed_overlay_stroke(
+        &mut self,
+        _node_key: NodeKey,
+        _rect: egui::Rect,
+        _stroke: egui::Stroke,
+    ) {
+        // todo(m4.5): delegate to CompositorAdapter::draw_dashed_overlay_stroke.
+    }
+
+    fn draw_overlay_glyphs(
+        &mut self,
+        _node_key: NodeKey,
+        _rect: egui::Rect,
+        _glyphs: &[crate::registries::atomic::lens::GlyphOverlay],
+        _color: egui::Color32,
+    ) {
+        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_glyphs.
+    }
+
+    fn draw_overlay_chrome_markers(
+        &mut self,
+        _node_key: NodeKey,
+        _rect: egui::Rect,
+        _stroke: egui::Stroke,
+    ) {
+        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_chrome_markers.
+    }
+
+    fn draw_degraded_receipt(&mut self, _rect: egui::Rect, _message: &str) {
+        // todo(m4.5): implement via egui::Painter on a foreground layer.
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HostTexturePort
+// ---------------------------------------------------------------------------
+
+impl HostTexturePort for EguiHostPorts {
+    type TextureHandle = egui::TextureHandle;
+
+    fn load_texture(
+        &mut self,
+        _key: &str,
+        _width: u32,
+        _height: u32,
+        _rgba: &[u8],
+    ) -> Self::TextureHandle {
+        // todo(m4.5): delegate to egui::Context::load_texture via a fixed namespace.
+        unimplemented!("EguiHostPorts::load_texture wiring lands in M4.5")
+    }
+
+    fn texture(&self, _key: &str) -> Option<Self::TextureHandle> {
+        // todo(m4.5): look up in the renderer_favicon_textures cache.
+        None
+    }
+
+    fn drop_texture(&mut self, _key: &str) {
+        // todo(m4.5): remove from cache + let egui reclaim.
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HostClipboardPort
+// ---------------------------------------------------------------------------
+
+impl HostClipboardPort for EguiHostPorts {
+    fn get_text(&mut self) -> Option<String> {
+        // todo(m4.5): EguiHost::clipboard.get_text().ok().
+        None
+    }
+
+    fn set_text(&mut self, _text: &str) {
+        // todo(m4.5): EguiHost::clipboard.set_text(text).
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HostToastPort
+// ---------------------------------------------------------------------------
+
+impl HostToastPort for EguiHostPorts {
+    fn enqueue(&mut self, _toast: ToastSpec) {
+        // todo(m4.5): translate severity to an egui_notify builder and push
+        // onto EguiHost::toasts.
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HostAccessibilityPort
+// ---------------------------------------------------------------------------
+
+impl HostAccessibilityPort for EguiHostPorts {
+    fn inject_tree_update(
+        &mut self,
+        _webview_id: WebViewId,
+        _update: servo::accesskit::TreeUpdate,
+    ) {
+        // todo(m4.5): insert into EguiHost::pending_webview_a11y_updates and
+        // flush into egui's accesskit surface on next frame.
+    }
+
+    fn request_focus(&mut self, _node_id: accesskit::NodeId) {
+        // todo(m4.5): send an accesskit focus request through egui_winit.
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HostPorts bundle
+// ---------------------------------------------------------------------------
+
+impl HostPorts for EguiHostPorts {
+    type TextureHandle = egui::TextureHandle;
+}

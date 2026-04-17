@@ -4,12 +4,15 @@
 
 pub(crate) mod dialog;
 pub(crate) mod dialog_panels;
+pub(crate) mod egui_host_ports;
+pub(crate) mod frame_model;
 pub(crate) mod graph_search_flow;
 pub(crate) mod graph_search_ui;
 pub(crate) mod gui;
 pub(crate) mod gui_frame;
 pub(crate) mod gui_orchestration;
 pub(crate) mod gui_state;
+pub(crate) mod host_ports;
 pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
 pub(crate) mod overview_plane;

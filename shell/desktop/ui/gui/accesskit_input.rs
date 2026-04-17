@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use super::{Gui, accessibility};
+use super::{EguiHost, accessibility};
 
 pub(super) fn handle_accesskit_initial_tree_requested(egui_ctx: &egui::Context) -> bool {
     set_accesskit_enabled(egui_ctx, true);
@@ -10,7 +10,7 @@ pub(super) fn handle_accesskit_initial_tree_requested(egui_ctx: &egui::Context) 
 }
 
 pub(super) fn handle_accesskit_action_requested(
-    gui: &mut Gui,
+    gui: &mut EguiHost,
     req: &egui::accesskit::ActionRequest,
 ) -> bool {
     match accessibility::resolve_uxtree_accesskit_action(&gui.runtime.graph_app, req) {

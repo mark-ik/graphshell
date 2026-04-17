@@ -8,16 +8,16 @@ use crate::shell::desktop::render_backend::{
     begin_ui_render_backend_paint, end_ui_render_backend_paint,
 };
 
-pub(super) fn paint(gui: &mut Gui, window: &Window) {
+pub(super) fn paint(gui: &mut EguiHost, window: &Window) {
     begin_paint_pass(gui);
     gui.context.submit_frame(window);
     end_paint_pass(gui);
 }
 
-fn begin_paint_pass(gui: &Gui) {
+fn begin_paint_pass(gui: &EguiHost) {
     begin_ui_render_backend_paint(gui.rendering_context.as_ref());
 }
 
-fn end_paint_pass(gui: &Gui) {
+fn end_paint_pass(gui: &EguiHost) {
     end_ui_render_backend_paint(gui.rendering_context.as_ref());
 }

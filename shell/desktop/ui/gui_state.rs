@@ -124,8 +124,8 @@ pub(crate) struct RuntimeFocusAuthorityState {
 /// Per the M3.5 runtime boundary design
 /// (`design_docs/graphshell_docs/implementation_strategy/shell/2026-04-16_runtime_boundary_design.md`),
 /// this owns all Category A (durable runtime) fields that survive a host
-/// migration from egui to iced. The host adapter (`Gui` today, `EguiHost`
-/// after M4.5) holds only Category B/C/D fields.
+/// migration from egui to iced. The host adapter (`EguiHost` today, a future
+/// `IcedHost` eventually) holds only Category B/C/D fields.
 pub(crate) struct GraphshellRuntime {
     // --- Core model & services ---
     /// Graph browser application state (graph, selection, intents).

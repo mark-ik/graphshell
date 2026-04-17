@@ -56,7 +56,7 @@ use crate::shell::desktop::render_backend::UiHostRenderBootstrap;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::ui::dialog::Dialog;
-use crate::shell::desktop::ui::gui::Gui;
+use crate::shell::desktop::ui::gui::EguiHost;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarNavAction;
 
 mod clip_extraction;
@@ -69,7 +69,7 @@ pub(crate) const INITIAL_WINDOW_TITLE: &str = "Graphshell";
 pub struct HeadedWindow {
     /// The egui interface that is responsible for showing the user interface elements of
     /// this headed `Window`.
-    gui: RefCell<Gui>,
+    gui: RefCell<EguiHost>,
     screen_size: Size2D<u32, DeviceIndependentPixel>,
     monitor: winit::monitor::MonitorHandle,
     webview_relative_mouse_point: Cell<Point2D<f32, DevicePixel>>,
@@ -201,7 +201,7 @@ impl HeadedWindow {
             window_rendering_context.clone(),
             event_loop,
         );
-        let gui = RefCell::new(Gui::new(
+        let gui = RefCell::new(EguiHost::new(
             &winit_window,
             event_loop,
             event_loop_proxy.clone(),
@@ -282,7 +282,7 @@ impl HeadedWindow {
         callback: impl Fn(&mut Dialog) -> bool,
     ) {
         // Important: this path must not borrow `self.gui`. It can be called while
-        // `Gui::update` holds a mutable borrow of the same RefCell during redraw.
+        // `EguiHost::update` holds a mutable borrow of the same RefCell during redraw.
         let Some(dialog_webview_id) = dialog_target_webview_id else {
             return;
         };

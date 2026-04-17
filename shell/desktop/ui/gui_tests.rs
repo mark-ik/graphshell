@@ -3,7 +3,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicU64;
 
-    use super::super::{Gui, UpdateFrameStage};
+    use super::super::{EguiHost, UpdateFrameStage};
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use servo::WebViewId;
 
@@ -31,13 +31,13 @@ mod tests {
 
     #[test]
     fn update_frame_stage_sequence_is_canonical() {
-        let sequence = Gui::update_frame_stage_sequence();
-        assert!(Gui::is_canonical_update_frame_stage_sequence(sequence));
+        let sequence = EguiHost::update_frame_stage_sequence();
+        assert!(EguiHost::is_canonical_update_frame_stage_sequence(sequence));
     }
 
     #[test]
     fn update_frame_stage_sequence_has_expected_order() {
-        let sequence = Gui::update_frame_stage_sequence();
+        let sequence = EguiHost::update_frame_stage_sequence();
         assert_eq!(sequence.len(), 6);
         assert_eq!(sequence[0], UpdateFrameStage::Prelude);
         assert_eq!(sequence[1], UpdateFrameStage::PreFrameInit);

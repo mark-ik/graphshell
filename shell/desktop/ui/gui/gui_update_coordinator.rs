@@ -14,7 +14,7 @@ mod frame_prelude;
 #[path = "gui_update_coordinator/semantic_post_render.rs"]
 mod semantic_post_render;
 
-impl Gui {
+impl EguiHost {
     pub(super) fn execute_update_frame(args: ExecuteUpdateFrameArgs<'_>) {
         debug_assert!(Self::is_canonical_update_frame_stage_sequence(
             &UPDATE_FRAME_STAGE_SEQUENCE

@@ -5,7 +5,7 @@
 use super::*;
 
 pub(super) fn handle_accesskit_event(
-    gui: &mut Gui,
+    gui: &mut EguiHost,
     event: &egui_winit::accesskit_winit::WindowEvent,
 ) -> bool {
     match event {

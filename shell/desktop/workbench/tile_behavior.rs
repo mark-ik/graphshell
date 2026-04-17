@@ -558,7 +558,7 @@ impl<'a> GraphshellTileBehavior<'a> {
                 runtime_blocked: graph_app.runtime_block_state_for_node(node_key).is_some(),
                 runtime_crashed: graph_app.runtime_crash_state_for_node(node_key).is_some(),
                 affordance_projection:
-                    crate::shell::desktop::ui::gui::Gui::selected_node_affordance_projection(
+                    crate::shell::desktop::ui::gui::EguiHost::selected_node_affordance_projection(
                         node_key,
                     ),
             })
@@ -594,7 +594,7 @@ impl<'a> GraphshellTileBehavior<'a> {
         graph_app: &GraphBrowserApp,
     ) -> AccessibilityBridgeHealthSnapshot {
         let active_anchor_count = graph_app.webview_node_mappings().count();
-        crate::shell::desktop::ui::gui::Gui::webview_accessibility_bridge_health_snapshot(
+        crate::shell::desktop::ui::gui::EguiHost::webview_accessibility_bridge_health_snapshot(
             active_anchor_count,
         )
     }
