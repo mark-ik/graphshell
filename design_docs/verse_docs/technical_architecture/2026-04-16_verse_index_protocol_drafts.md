@@ -1,5 +1,7 @@
 # Verse Distributed Index Protocol — v0 Draft Spec
 
+> Historical draft compilation. The current canonical consolidation now lives in [2026-04-17_verse_distributed_index_protocol_v0.1.md](2026-04-17_verse_distributed_index_protocol_v0.1.md).
+
 **Status:** Draft. Synthesizes discussion around distributed search for graphshell/verse. Intended as a starting point for implementation, not a final specification. Normative sections use RFC 2119-style language; rationale and deferred work are called out explicitly.
 
 ---
