@@ -47,7 +47,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: April 16, 2026
+Last updated: April 17, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -134,6 +134,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/navigator/navigator_interaction_contract.md](graphshell_docs/implementation_strategy/navigator/navigator_interaction_contract.md) - Canonical Navigator click grammar and node-vs-structural row interaction rules.
 - [graphshell_docs/implementation_strategy/shell/SHELL.md](graphshell_docs/implementation_strategy/shell/SHELL.md) - Shell domain spec: Graphshell's only host and app-level orchestration boundary.
 - [graphshell_docs/implementation_strategy/shell/2026-04-03_shell_command_bar_execution_plan.md](graphshell_docs/implementation_strategy/shell/2026-04-03_shell_command_bar_execution_plan.md) - Active Workstream A closure lane for Shell command-bar authority, omnibar session/mailbox state, focused-target routing, and legacy command-path cleanup.
+- [graphshell_docs/implementation_strategy/shell/2026-04-17_chrome_port_cleanup_plan.md](graphshell_docs/implementation_strategy/shell/2026-04-17_chrome_port_cleanup_plan.md) - M6 prelude: chrome surface inventory (toolbar, omnibar, tab strip, sidebar, dialogs, toasts, radial, command palette, settings, context menu), five cross-cutting mess areas to attack first, host-neutral uxtree / accessibility port / diagnostics-coverage gates as M6 blockers, "Firefox where equivalent / own voice where novel" adoption rule, and explicit non-goals.
 - [graphshell_docs/implementation_strategy/shell/shell_backlog_pack.md](graphshell_docs/implementation_strategy/shell/shell_backlog_pack.md) - Shell execution backlog including overview, routing, and interruption scenario-track IDs.
 - [graphshell_docs/implementation_strategy/shell/shell_overview_surface_spec.md](graphshell_docs/implementation_strategy/shell/shell_overview_surface_spec.md) - Concrete Shell overview surface for graph/workbench/runtime summary and cross-domain routing.
 - [graphshell_docs/implementation_strategy/graph/GRAPH.md](graphshell_docs/implementation_strategy/graph/GRAPH.md) - Graph domain spec; the canvas is its primary rendered surface, not the domain name.
@@ -192,6 +193,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/viewer/](graphshell_docs/implementation_strategy/viewer/) - Viewer specs and viewer/backend plans.
 - [graphshell_docs/implementation_strategy/system/](graphshell_docs/implementation_strategy/system/) - System-level specs, registry architecture, and register component docs.
 - [graphshell_docs/implementation_strategy/subsystem_history/](graphshell_docs/implementation_strategy/subsystem_history/) - History subsystem specs: traversal, node navigation, node audit, temporal replay, unified architecture plan, and mixed-timeline contract.
+- [graphshell_docs/implementation_strategy/subsystem_history/2026-04-17_graph_memory_architecture_note.md](graphshell_docs/implementation_strategy/subsystem_history/2026-04-17_graph_memory_architecture_note.md) - Current graph-memory architecture note: `history-tree` lineage, Entry/Visit/Owner/Binding substrate, snapshot/persistence shape, and the boundary to future graph-facing hotspot/overlap projections.
 - [graphshell_docs/implementation_strategy/subsystem_history/2026-04-02_bookmarks_import_plan.md](graphshell_docs/implementation_strategy/subsystem_history/2026-04-02_bookmarks_import_plan.md) - Current bookmark-import plan: imported provenance/import-record integration, bookmark-folder semantics, and ActionRegistry-backed command entry.
 - [graphshell_docs/implementation_strategy/subsystem_history/2026-04-02_browser_history_import_plan.md](graphshell_docs/implementation_strategy/subsystem_history/2026-04-02_browser_history_import_plan.md) - Current browser-history import plan: imported-data seeding without violating live traversal/history authority.
 - [graphshell_docs/implementation_strategy/social/2026-04-12_host_abstractions_plan.md](graphshell_docs/implementation_strategy/social/2026-04-12_host_abstractions_plan.md) - Protocol-Agnostic P2P Graph Views & Host Abstractions Plan: transition from unified semantic protocol to host-first browser, including Identity Ring, Git-like persistence, Verso canvas sync, and host-side storage capability boundaries for private replication versus shared-service durability.
@@ -262,6 +264,7 @@ Verse mod: public decentralized community network (Tier 2, long-horizon research
 
 - [verse_docs/technical_architecture/VERSE_AS_NETWORK.md](verse_docs/technical_architecture/VERSE_AS_NETWORK.md) - Verse as the optional community-scale network layer, with explicit boundary against Verso bilateral sync/co-op and Comms hosted surfaces.
 - [verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md](verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md) - Long-horizon Tier 2 architecture: dual transport, VerseBlob, FLora, Proof of Access, crawler economy, and open research questions.
+- [verse_docs/technical_architecture/2026-04-17_verse_graph_contribution_protocol_v0_1.md](verse_docs/technical_architecture/2026-04-17_verse_graph_contribution_protocol_v0_1.md) - Current canonical Verse protocol spec: graph-native contributions, Entry/Visit/Owner projection boundary, attestation-aware aggregation, and community ranking over accepted graph contributions.
 - [verse_docs/technical_architecture/2026-03-05_verse_nostr_dvm_integration.md](verse_docs/technical_architecture/2026-03-05_verse_nostr_dvm_integration.md) - How Nostr (NIP-72 community surface, NIP-90 DVMs), FLora checkpoints, distributed indices, and Proof of Access economics compose: feed curation, context-aware traversal suggestions, graph node summarisation, Lightning/receipt tokenomics, and Tier 2 rollout sequence.
 - [verse_docs/technical_architecture/2026-03-05_verse_economic_model.md](verse_docs/technical_architecture/2026-03-05_verse_economic_model.md) - Coherent economic model: no native Verse token (sats for compute, FIL for storage, reputation for governance); storage staking/bonds; sats operational budget; FIL treasury; full browsing→review→hosting→compute→settlement value loop; contributor/reviewer/bootstrap staking types; anti-plutocracy guarantees; open problems.
 
