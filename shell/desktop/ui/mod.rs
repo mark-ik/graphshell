@@ -23,6 +23,8 @@ pub(crate) mod iced_graph_canvas;
 pub(crate) mod iced_host;
 #[cfg(feature = "iced-host")]
 pub(crate) mod iced_host_ports;
+#[cfg(all(feature = "iced-host", test))]
+pub(crate) mod iced_parity;
 pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
 pub(crate) mod overview_plane;
