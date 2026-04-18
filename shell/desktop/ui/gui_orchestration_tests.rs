@@ -2014,7 +2014,7 @@ fn frame_loop_drains_workbench_intents_before_reducer_apply() {
         new_url: "https://after.example".to_string(),
     }];
 
-    super::apply_semantic_intents_and_pending_open(
+    super::workbench_intent_interceptor::apply_semantic_intents_and_pending_open(
         &mut app,
         &mut tree,
         None,
@@ -2057,7 +2057,7 @@ fn frame_loop_panics_when_workbench_intent_leaks_past_interception() {
         url: "verso://settings/not-a-real-route".to_string(),
     });
 
-    super::apply_semantic_intents_and_pending_open(
+    super::workbench_intent_interceptor::apply_semantic_intents_and_pending_open(
         &mut app,
         &mut tree,
         None,

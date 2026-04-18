@@ -52,6 +52,8 @@ mod graph_search_orchestration;
 mod pending_open_flow;
 #[path = "gui/pre_frame_flow.rs"]
 mod pre_frame_flow;
+#[path = "gui/semantic_lifecycle_flow.rs"]
+mod semantic_lifecycle_flow;
 #[path = "gui/toast_flow.rs"]
 mod toast_flow;
 #[path = "gui/toolbar_phase_flow.rs"]
@@ -71,6 +73,7 @@ pub(crate) use pending_open_flow::{
     handle_pending_open_note_after_intents,
 };
 pub(crate) use pre_frame_flow::{PreFramePhaseOutput, run_pre_frame_phase};
+pub(crate) use semantic_lifecycle_flow::run_semantic_lifecycle_phase;
 pub(crate) use toast_flow::{ToastsAdapter, handle_pending_node_status_notices};
 pub(crate) use toolbar_phase_flow::{run_keyboard_phase, run_toolbar_phase};
 
@@ -1094,70 +1097,6 @@ fn dispatch_workbench_authority_intent(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_semantic_lifecycle_phase(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
-    modal_surface_active: bool,
-    focus_authority: &mut RuntimeFocusAuthorityState,
-    window: &EmbedderWindow,
-    app_state: &Option<Rc<RunningAppState>>,
-    rendering_context: &Rc<OffscreenRenderingContext>,
-    window_rendering_context: &Rc<WindowRenderingContext>,
-    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    responsive_webviews: &HashSet<WebViewId>,
-    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    open_node_tile_after_intents: &mut Option<TileOpenMode>,
-    frame_intents: &mut Vec<GraphIntent>,
-) {
-    apply_semantic_intents_and_pending_open(
-        graph_app,
-        tiles_tree,
-        Some(graph_tree),
-        modal_surface_active,
-        focus_authority,
-        open_node_tile_after_intents,
-        frame_intents,
-    );
-
-    reconcile_semantic_lifecycle_phase(
-        graph_app,
-        tiles_tree,
-        window,
-        app_state,
-        rendering_context,
-        window_rendering_context,
-        viewer_surfaces,
-        tile_favicon_textures,
-        favicon_textures,
-        responsive_webviews,
-        webview_creation_backpressure,
-        frame_intents,
-    );
-}
-
-fn apply_semantic_intents_and_pending_open(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
-    modal_surface_active: bool,
-    focus_authority: &mut RuntimeFocusAuthorityState,
-    open_node_tile_after_intents: &mut Option<TileOpenMode>,
-    frame_intents: &mut Vec<GraphIntent>,
-) {
-    workbench_intent_interceptor::apply_semantic_intents_and_pending_open(
-        graph_app,
-        tiles_tree,
-        graph_tree,
-        modal_surface_active,
-        focus_authority,
-        open_node_tile_after_intents,
-        frame_intents,
-    );
-}
-
 fn restore_pending_transient_surface_focus(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
@@ -1192,39 +1131,6 @@ fn assert_workbench_intents_drained_before_reducer_apply(intents: &[WorkbenchInt
             byte_len: intents.len(),
         });
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn reconcile_semantic_lifecycle_phase(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    window: &EmbedderWindow,
-    app_state: &Option<Rc<RunningAppState>>,
-    rendering_context: &Rc<OffscreenRenderingContext>,
-    window_rendering_context: &Rc<WindowRenderingContext>,
-    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    responsive_webviews: &HashSet<WebViewId>,
-    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    frame_intents: &mut Vec<GraphIntent>,
-) {
-    gui_frame::run_lifecycle_reconcile_and_apply(
-        gui_frame::LifecycleReconcilePhaseArgs {
-            graph_app,
-            tiles_tree,
-            window,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            viewer_surfaces,
-            tile_favicon_textures,
-            favicon_textures,
-            responsive_webviews,
-            webview_creation_backpressure,
-        },
-        frame_intents,
-    );
 }
 
 #[cfg(test)]
