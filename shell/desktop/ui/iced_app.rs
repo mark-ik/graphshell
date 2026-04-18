@@ -81,9 +81,7 @@ impl IcedApp {
         // it on an iced canvas. Interaction / proper CanvasBackend
         // integration lands in follow-on work.
         let program = GraphCanvasProgram::from_graph_app(&self.host.runtime.graph_app);
-        let graph = canvas(program)
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let graph = canvas(program).width(Length::Fill).height(Length::Fill);
 
         let body = column![
             text("Graphshell — iced host (graph canvas)").size(20),
@@ -101,11 +99,10 @@ impl IcedApp {
 
 /// Wire up an `iced::Application` around `IcedApp`.
 ///
-/// Not yet invoked from `main.rs`: this helper only exists so the
-/// `iced::application(...)` call and its update/view closures compile
-/// against our types. A real desktop entry point lands when M5.4 renders
-/// a real surface.
-#[allow(dead_code)]
+/// Invoked from `cli::main` when `--iced` / `GRAPHSHELL_ICED=1` is set.
+/// The runtime passed in is the minimal bring-up variant (no Servo, no
+/// persistence). Follow-on work: swap in a production runtime builder
+/// once the host boundary owns webview + persistence init.
 pub(crate) fn run_application(runtime: GraphshellRuntime) -> iced::Result {
     iced::application(IcedApp::title, IcedApp::update, IcedApp::view)
         .run_with(move || (IcedApp::with_runtime(runtime), Task::none()))

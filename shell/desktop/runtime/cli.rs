@@ -21,6 +21,20 @@ pub fn main() {
     crate::init_crypto();
     crate::resources::init();
 
+    // M5 iced host bring-up: opt-in via `--iced` flag or `GRAPHSHELL_ICED=1`.
+    // Launches the iced `Program`-shaped app against a minimal runtime —
+    // no Servo webviews, no persistence restore. Production chrome stays
+    // on the egui path below until iced reaches parity.
+    #[cfg(feature = "iced-host")]
+    if iced_requested() {
+        let runtime = crate::shell::desktop::ui::gui_state::GraphshellRuntime::new_minimal();
+        if let Err(err) = crate::shell::desktop::ui::iced_app::run_application(runtime) {
+            log::error!("iced host exited with error: {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     // Initialize Verse mod (P2P sync capabilities) off the main thread to avoid
     // COM apartment conflicts with winit's OleInitialize path on Windows.
     // If initialization fails (e.g., keychain unavailable), log error and continue without sync.
@@ -226,6 +240,22 @@ fn env_flag_enabled(key: &str) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+#[cfg(feature = "iced-host")]
+fn iced_requested() -> bool {
+    if env::args().any(|a| a == "--iced") {
+        return true;
+    }
+    matches!(
+        env::var("GRAPHSHELL_ICED")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
 }
 
 fn running_on_wsl() -> bool {

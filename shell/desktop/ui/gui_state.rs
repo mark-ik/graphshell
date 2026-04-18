@@ -398,13 +398,17 @@ impl GraphshellRuntime {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "iced-host"))]
 impl GraphshellRuntime {
-    /// Build a minimal runtime suitable for focus-state / session-state unit
-    /// tests. The infrastructure fields (control_panel, registry, tokio_runtime,
-    /// etc.) are initialized to sensible defaults; tests can mutate whichever
-    /// session fields they need to exercise.
-    pub(crate) fn for_testing() -> Self {
+    /// Build a minimal runtime with default infrastructure: a fresh tokio
+    /// runtime, a stub `ControlPanel`, placeholder graph state, and empty
+    /// session fields. Used by unit tests (via the `for_testing` alias) and
+    /// by the M5 iced bring-up path (no servo webviews, no persistence
+    /// restore). Full production init still flows through
+    /// `EguiHost::new(...)`; the iced host will grow a parallel production
+    /// builder once webview + persistence integration moves onto the
+    /// runtime boundary.
+    pub(crate) fn new_minimal() -> Self {
         let tokio_runtime = tokio::runtime::Runtime::new()
             .expect("failed to create tokio runtime for test GraphshellRuntime");
         let mut control_panel =
@@ -451,6 +455,12 @@ impl GraphshellRuntime {
             pending_webview_context_surface_requests: Vec::new(),
             clear_data_confirm_deadline_secs: None,
         }
+    }
+
+    /// Test/bring-up alias for [`GraphshellRuntime::new_minimal`].
+    /// Retained for callers that pre-date the rename.
+    pub(crate) fn for_testing() -> Self {
+        Self::new_minimal()
     }
 }
 

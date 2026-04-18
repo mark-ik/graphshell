@@ -569,8 +569,9 @@ impl GraphBrowserApp {
         app
     }
 
-    /// Create a new graph browser application without persistence (for tests)
-    #[cfg(test)]
+    /// Create a new graph browser application without persistence (for tests
+    /// and for the M5 iced-host bring-up path).
+    #[cfg(any(test, feature = "iced-host"))]
     pub fn new_for_testing() -> Self {
         Self {
             workspace: GraphWorkspace {
