@@ -195,6 +195,144 @@ fn tabs_root_label(
         .map(|frame_name| format!("Frame: {frame_name} ({child_count})"))
 }
 
+// ---------------------------------------------------------------------------
+// GraphTreeWalker — GraphTree-backed implementation (partial, panes only)
+// ---------------------------------------------------------------------------
+
+use crate::graph::NodeKey;
+
+/// Sentinel handle value for the synthetic workbench-root container
+/// emitted by `GraphTreeWalker`. Real member handles encode
+/// `NodeKey::index()` which is `usize`-width; reserving `u64::MAX`
+/// keeps the namespaces disjoint.
+const GRAPH_TREE_SYNTHETIC_ROOT: u64 = u64::MAX;
+
+/// Walker backed by `graph_tree::GraphTree<NodeKey>` — the workbench
+/// membership authority.
+///
+/// **Partial**: emits only NodePane entries (one per `GraphTree`
+/// member) plus a single synthetic Linear container grouping the
+/// topological roots. Tabs/Grid containers, Graph panes, and Tool
+/// panes are not yet represented — GraphTree's member type is
+/// `NodeKey`, so graph panes (keyed by `GraphViewId`) live outside the
+/// membership model. Follow-on work adds either a widened
+/// `GraphTree::Member` type or a separate side-channel for
+/// non-node-keyed panes.
+///
+/// The identity scheme is distinct from `TilesTreeWalker`'s — uses
+/// `"uxnode://workbench/member/<idx>"` rather than
+/// `"uxnode://workbench/tile/#N/..."` — so snapshots from the two
+/// walkers don't collide.
+pub(crate) struct GraphTreeWalker<'a> {
+    tree: &'a graph_tree::GraphTree<NodeKey>,
+    roots: Vec<NodeKey>,
+}
+
+impl<'a> GraphTreeWalker<'a> {
+    pub(crate) fn new(tree: &'a graph_tree::GraphTree<NodeKey>) -> Self {
+        let roots = tree.topology().roots().to_vec();
+        Self { tree, roots }
+    }
+
+    fn handle_for(key: NodeKey) -> UxPaneHandle {
+        UxPaneHandle(key.index() as u64)
+    }
+
+    fn node_key_for(handle: UxPaneHandle) -> Option<NodeKey> {
+        if handle.0 == GRAPH_TREE_SYNTHETIC_ROOT {
+            None
+        } else {
+            Some(NodeKey::new(handle.0 as usize))
+        }
+    }
+}
+
+impl<'a> PaneTreeWalker for GraphTreeWalker<'a> {
+    fn root(&self) -> Option<UxPaneHandle> {
+        if self.tree.member_count() == 0 {
+            None
+        } else {
+            Some(UxPaneHandle(GRAPH_TREE_SYNTHETIC_ROOT))
+        }
+    }
+
+    fn resolve(&self, graph_app: &GraphBrowserApp, handle: UxPaneHandle) -> Option<ResolvedPane> {
+        if handle.0 == GRAPH_TREE_SYNTHETIC_ROOT {
+            return Some(ResolvedPane::Container {
+                ux_node_id: "uxnode://workbench/member/root".to_string(),
+                kind: ContainerKind::Linear,
+                children: self.roots.iter().copied().map(Self::handle_for).collect(),
+                label: None,
+            });
+        }
+
+        let node_key = Self::node_key_for(handle)?;
+        if !self.tree.contains(&node_key) {
+            return None;
+        }
+
+        // Children from topology — recursion happens via children_of.
+        let children: Vec<_> = self
+            .tree
+            .children_of(&node_key)
+            .iter()
+            .copied()
+            .map(Self::handle_for)
+            .collect();
+
+        let ux_node_id = format!("uxnode://workbench/member/{}", node_key.index());
+
+        // Leaf node: synthesize a NodePane TileKind from graph_runtime
+        // caches. Render mode defaults to Placeholder if not cached.
+        if children.is_empty() {
+            let runtime = &graph_app.workspace.graph_runtime;
+            let pane_id = runtime
+                .node_pane_ids
+                .get(&node_key)
+                .copied()
+                .unwrap_or_else(PaneId::new);
+            let render_mode = runtime
+                .pane_render_modes
+                .get(&pane_id)
+                .copied()
+                .unwrap_or_default();
+            let mut state =
+                crate::shell::desktop::workbench::pane_model::NodePaneState::for_node(node_key);
+            state.pane_id = pane_id;
+            state.render_mode = render_mode;
+            return Some(ResolvedPane::Pane {
+                ux_node_id,
+                payload: TileKind::Node(state),
+            });
+        }
+
+        // Non-leaf member: emit as a linear container of its
+        // sub-members. Consistent with GraphTree's hierarchical shape
+        // (parent/child relationships from topology).
+        Some(ResolvedPane::Container {
+            ux_node_id,
+            kind: ContainerKind::Linear,
+            children,
+            label: None,
+        })
+    }
+
+    fn is_active(&self, handle: UxPaneHandle) -> bool {
+        if handle.0 == GRAPH_TREE_SYNTHETIC_ROOT {
+            // The synthetic workbench root is always "focused" in the
+            // sense the tiles walker treats `active` — it's the top of
+            // the workbench spine.
+            return true;
+        }
+        let Some(node_key) = Self::node_key_for(handle) else {
+            return false;
+        };
+        self.tree.active() == Some(&node_key)
+    }
+}
+
+use crate::shell::desktop::workbench::pane_model::PaneId;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +391,63 @@ mod tests {
             ResolvedPane::Pane { .. } => "Pane",
             ResolvedPane::Container { .. } => "Container",
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // GraphTreeWalker tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn graph_tree_walker_empty_tree_has_no_root() {
+        let tree = graph_tree::GraphTree::<NodeKey>::new(
+            graph_tree::LayoutMode::TreeStyleTabs,
+            graph_tree::ProjectionLens::Traversal,
+        );
+        let walker = GraphTreeWalker::new(&tree);
+        assert!(walker.root().is_none());
+    }
+
+    #[test]
+    fn graph_tree_walker_emits_synthetic_container_for_populated_tree() {
+        use graph_tree::{Lifecycle, MemberEntry, Provenance, TreeTopology};
+
+        let app = GraphBrowserApp::new_for_testing();
+        // Synthesize a node key directly; the walker only needs it to
+        // be a valid NodeIndex for encoding purposes.
+        let node = NodeKey::new(0);
+
+        let mut topology = TreeTopology::<NodeKey>::new();
+        topology.attach_root(node);
+        let tree = graph_tree::GraphTree::<NodeKey>::from_members(
+            vec![(node, MemberEntry::new(Lifecycle::Active, Provenance::Anchor))],
+            topology,
+            Vec::new(),
+            graph_tree::LayoutMode::TreeStyleTabs,
+            graph_tree::ProjectionLens::Traversal,
+        );
+
+        let walker = GraphTreeWalker::new(&tree);
+        let root = walker.root().expect("populated tree has a root");
+        assert_eq!(root, UxPaneHandle(GRAPH_TREE_SYNTHETIC_ROOT));
+
+        match walker.resolve(&app, root).expect("root resolves") {
+            ResolvedPane::Container { kind, children, .. } => {
+                assert_eq!(kind, ContainerKind::Linear);
+                assert_eq!(children.len(), 1);
+            }
+            other => panic!("expected synthetic root Container, got {}", discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn graph_tree_walker_handle_roundtrip() {
+        let key = NodeKey::new(7);
+        let handle = GraphTreeWalker::handle_for(key);
+        assert_eq!(handle, UxPaneHandle(7));
+        assert_eq!(GraphTreeWalker::node_key_for(handle), Some(key));
+        assert_eq!(
+            GraphTreeWalker::node_key_for(UxPaneHandle(GRAPH_TREE_SYNTHETIC_ROOT)),
+            None
+        );
     }
 }
