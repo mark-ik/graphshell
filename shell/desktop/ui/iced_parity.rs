@@ -181,6 +181,71 @@ mod tests {
         );
     }
 
+    /// GraphTree-backed snapshot emits real semantic entries.
+    ///
+    /// Verifies §5.1's done-gate shape: with a populated `GraphTree`,
+    /// a GraphTreeWalker-backed build produces a workbench root + the
+    /// synthetic container + one NodePane entry per member. The host-
+    /// neutral uxtree builder no longer requires `&Tree<TileKind>` to
+    /// produce presentation-layer output.
+    #[test]
+    fn graph_tree_walker_snapshot_emits_pane_entries() {
+        use crate::graph::NodeKey;
+        use crate::shell::desktop::workbench::ux_tree::{
+            UxNodeRole, build_snapshot_with_walker,
+        };
+        use crate::shell::desktop::workbench::ux_tree_source::GraphTreeWalker;
+        use graph_tree::{Lifecycle, MemberEntry, Provenance, TreeTopology};
+
+        let app = crate::app::GraphBrowserApp::new_for_testing();
+
+        let node = NodeKey::new(0);
+        let mut topology = TreeTopology::<NodeKey>::new();
+        topology.attach_root(node);
+        let tree = graph_tree::GraphTree::<NodeKey>::from_members(
+            vec![(node, MemberEntry::new(Lifecycle::Active, Provenance::Anchor))],
+            topology,
+            Vec::new(),
+            graph_tree::LayoutMode::TreeStyleTabs,
+            graph_tree::ProjectionLens::Traversal,
+        );
+
+        let walker = GraphTreeWalker::new(&tree);
+        let snapshot = build_snapshot_with_walker(&walker, &app, 0);
+
+        // Workbench root present regardless of walker.
+        assert!(
+            snapshot
+                .semantic_nodes
+                .iter()
+                .any(|n| matches!(n.role, UxNodeRole::Workbench)),
+            "workbench root missing",
+        );
+
+        // Synthetic container from the GraphTree walker — role
+        // SplitContainer because our walker synthesizes as Linear.
+        assert!(
+            snapshot
+                .semantic_nodes
+                .iter()
+                .any(|n| matches!(n.role, UxNodeRole::SplitContainer)),
+            "synthetic container missing: semantic roles = {:?}",
+            snapshot
+                .semantic_nodes
+                .iter()
+                .map(|n| &n.role)
+                .collect::<Vec<_>>(),
+        );
+
+        // One NodePane entry for the single member.
+        let node_pane_count = snapshot
+            .semantic_nodes
+            .iter()
+            .filter(|n| matches!(n.role, UxNodeRole::NodePane))
+            .count();
+        assert_eq!(node_pane_count, 1, "expected exactly one NodePane entry");
+    }
+
     /// Host-neutral `UxTreeSnapshot` parity — both hosts' runtimes produce
     /// identical snapshots via `build_snapshot_host_neutral` after the
     /// same tick. Pins §5.1's invariant: the non-pane portion of the
